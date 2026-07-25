@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter/painting.dart' show TextRange;
 
 import '../../utils/markdown_color_syntax.dart';
+import '../../utils/money_display_config.dart';
 
 /// Immutable snapshot of the markdown preview pipeline.
 ///
@@ -40,13 +41,11 @@ final class MarkdownPreviewState extends Equatable {
   /// if content/font are present.
   final bool hasTheme;
 
-  /// Money ledger display config resolved by the page on note load:
-  /// whether the feature is enabled at all, the global start balance
-  /// (cents), and the note's effective currency.
-  final bool moneyEnabled;
-  final int moneyStartCents;
-  final String moneyCurrencySymbol;
-  final bool moneyCurrencySuffix;
+  /// Money ledger display config resolved by the page on note load —
+  /// enabled flag, global start balance, the note's effective currency,
+  /// and localized error strings — as one value-equal object (like
+  /// [colorPalette], which makes it a safe render-cache key).
+  final MoneyDisplayConfig moneyConfig;
 
   /// Resolved markdown colour palette (presets + the user's custom
   /// colours) driving `{name:text}` and `==name:text==`. Value-equal on
@@ -62,10 +61,7 @@ final class MarkdownPreviewState extends Equatable {
     this.currentHighlightIndex,
     this.renderHandle = 0,
     this.hasTheme = false,
-    this.moneyEnabled = false,
-    this.moneyStartCents = 0,
-    this.moneyCurrencySymbol = '',
-    this.moneyCurrencySuffix = false,
+    this.moneyConfig = MoneyDisplayConfig.disabled,
     this.colorPalette = MarkdownColorPalette.presets,
   });
 
@@ -80,10 +76,7 @@ final class MarkdownPreviewState extends Equatable {
     bool clearCurrentHighlightIndex = false,
     int? renderHandle,
     bool? hasTheme,
-    bool? moneyEnabled,
-    int? moneyStartCents,
-    String? moneyCurrencySymbol,
-    bool? moneyCurrencySuffix,
+    MoneyDisplayConfig? moneyConfig,
     MarkdownColorPalette? colorPalette,
   }) {
     return MarkdownPreviewState(
@@ -99,10 +92,7 @@ final class MarkdownPreviewState extends Equatable {
           : (currentHighlightIndex ?? this.currentHighlightIndex),
       renderHandle: renderHandle ?? this.renderHandle,
       hasTheme: hasTheme ?? this.hasTheme,
-      moneyEnabled: moneyEnabled ?? this.moneyEnabled,
-      moneyStartCents: moneyStartCents ?? this.moneyStartCents,
-      moneyCurrencySymbol: moneyCurrencySymbol ?? this.moneyCurrencySymbol,
-      moneyCurrencySuffix: moneyCurrencySuffix ?? this.moneyCurrencySuffix,
+      moneyConfig: moneyConfig ?? this.moneyConfig,
       colorPalette: colorPalette ?? this.colorPalette,
     );
   }
@@ -117,10 +107,7 @@ final class MarkdownPreviewState extends Equatable {
     currentHighlightIndex,
     renderHandle,
     hasTheme,
-    moneyEnabled,
-    moneyStartCents,
-    moneyCurrencySymbol,
-    moneyCurrencySuffix,
+    moneyConfig,
     colorPalette,
   ];
 }

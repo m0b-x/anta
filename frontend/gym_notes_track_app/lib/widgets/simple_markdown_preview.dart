@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../constants/markdown_constants.dart';
 import '../utils/line_based_markdown_builder.dart';
 import '../utils/markdown_color_syntax.dart';
+import '../utils/money_display_config.dart';
 
 class SimpleMarkdownPreview extends StatefulWidget {
   final String data;
@@ -11,13 +12,10 @@ class SimpleMarkdownPreview extends StatefulWidget {
   final LinkTapCallback? onTapLink;
 
   /// Money ledger display config, mirroring [LineBasedMarkdownBuilder].
-  /// Defaults leave the ledger off — a caller that does not resolve
+  /// The default leaves the ledger off — a caller that does not resolve
   /// `SettingsService.getMoneyConfig()` renders `$` lines as plain text,
   /// which is why this has to be threaded through rather than assumed.
-  final bool moneyEnabled;
-  final int moneyStartCents;
-  final String currencySymbol;
-  final bool currencySuffix;
+  final MoneyDisplayConfig moneyConfig;
 
   /// Resolved colour palette, so `{name:text}` runs and money accent
   /// tokens show the user's custom colours and not just the presets.
@@ -29,10 +27,7 @@ class SimpleMarkdownPreview extends StatefulWidget {
     this.fontSize = 14.0,
     this.padding,
     this.onTapLink,
-    this.moneyEnabled = false,
-    this.moneyStartCents = 0,
-    this.currencySymbol = '',
-    this.currencySuffix = false,
+    this.moneyConfig = MoneyDisplayConfig.disabled,
     this.colorPalette = MarkdownColorPalette.presets,
   });
 
@@ -45,10 +40,7 @@ class _SimpleMarkdownPreviewState extends State<SimpleMarkdownPreview> {
   String? _lastData;
   double? _lastFontSize;
   ThemeData? _lastTheme;
-  bool? _lastMoneyEnabled;
-  int? _lastMoneyStartCents;
-  String? _lastCurrencySymbol;
-  bool? _lastCurrencySuffix;
+  MoneyDisplayConfig? _lastMoneyConfig;
   MarkdownColorPalette? _lastColorPalette;
 
   @override
@@ -65,10 +57,7 @@ class _SimpleMarkdownPreviewState extends State<SimpleMarkdownPreview> {
         _lastData != widget.data ||
         _lastFontSize != widget.fontSize ||
         _lastTheme?.brightness != theme.brightness ||
-        _lastMoneyEnabled != widget.moneyEnabled ||
-        _lastMoneyStartCents != widget.moneyStartCents ||
-        _lastCurrencySymbol != widget.currencySymbol ||
-        _lastCurrencySuffix != widget.currencySuffix ||
+        _lastMoneyConfig != widget.moneyConfig ||
         _lastColorPalette != widget.colorPalette;
   }
 
@@ -84,10 +73,7 @@ class _SimpleMarkdownPreviewState extends State<SimpleMarkdownPreview> {
     _lastData = widget.data;
     _lastFontSize = widget.fontSize;
     _lastTheme = theme;
-    _lastMoneyEnabled = widget.moneyEnabled;
-    _lastMoneyStartCents = widget.moneyStartCents;
-    _lastCurrencySymbol = widget.currencySymbol;
-    _lastCurrencySuffix = widget.currencySuffix;
+    _lastMoneyConfig = widget.moneyConfig;
     _lastColorPalette = widget.colorPalette;
 
     final mdStyle = LineMarkdownStyle.fromTheme(theme, widget.fontSize);
@@ -95,10 +81,7 @@ class _SimpleMarkdownPreviewState extends State<SimpleMarkdownPreview> {
     _builder = LineBasedMarkdownBuilder(
       style: mdStyle,
       onLinkTap: widget.onTapLink,
-      moneyEnabled: widget.moneyEnabled,
-      moneyStartCents: widget.moneyStartCents,
-      currencySymbol: widget.currencySymbol,
-      currencySuffix: widget.currencySuffix,
+      moneyConfig: widget.moneyConfig,
       colorPalette: widget.colorPalette,
       linesPerChunk: 100,
     );

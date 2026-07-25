@@ -5,6 +5,7 @@ import 'package:flutter/painting.dart' show TextRange;
 
 import '../../utils/line_based_markdown_builder.dart';
 import '../../utils/markdown_color_syntax.dart';
+import '../../utils/money_display_config.dart';
 
 /// Events for the markdown preview rendering pipeline.
 ///
@@ -64,29 +65,18 @@ final class PreviewLinesPerChunkChanged extends MarkdownPreviewEvent {
   List<Object?> get props => [linesPerChunk];
 }
 
-/// Money ledger display config (global start balance + the note's
-/// effective currency), resolved from settings by the page on note
-/// load or after a settings change.
+/// Money ledger display config (enabled flag, global start balance,
+/// the note's effective currency, localized error strings), resolved
+/// from settings by the page on note load or after a settings/locale
+/// change. Carried as one value-equal object so half a config is
+/// unrepresentable.
 final class PreviewMoneyConfigChanged extends MarkdownPreviewEvent {
-  final bool enabled;
-  final int startCents;
-  final String currencySymbol;
-  final bool currencySuffix;
+  final MoneyDisplayConfig config;
 
-  const PreviewMoneyConfigChanged({
-    required this.enabled,
-    required this.startCents,
-    required this.currencySymbol,
-    required this.currencySuffix,
-  });
+  const PreviewMoneyConfigChanged(this.config);
 
   @override
-  List<Object?> get props => [
-    enabled,
-    startCents,
-    currencySymbol,
-    currencySuffix,
-  ];
+  List<Object?> get props => [config];
 }
 
 /// Markdown colour palette (presets + the user's custom colours),

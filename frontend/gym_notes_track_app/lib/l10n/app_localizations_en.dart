@@ -2514,6 +2514,28 @@ class AppLocalizationsEn extends AppLocalizations {
   String get moneyDetailTitle => 'Ledger';
 
   @override
+  String get moneyErrorMissingAmount => 'missing amount after \":\"';
+
+  @override
+  String get moneyErrorUnknownColour => 'unknown colour name';
+
+  @override
+  String get moneyErrorInvalidAmount => 'invalid amount';
+
+  @override
+  String get moneyErrorInvalidCount => 'invalid count';
+
+  @override
+  String get moneyErrorDivideByZero => 'divide by zero';
+
+  @override
+  String get moneyErrorAmountTooLarge =>
+      'amount too large (max 99,999,999,999.99)';
+
+  @override
+  String get moneyErrorTooManyDecimals => 'too many decimals';
+
+  @override
   String moneyDaySummaryTitle(String amount) {
     return 'Money: $amount';
   }

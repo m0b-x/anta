@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../utils/line_based_markdown_builder.dart';
 import '../utils/markdown_chunker.dart';
 import '../utils/markdown_color_syntax.dart';
+import '../utils/money_display_config.dart';
 
 /// Owns the lifecycle of a [LineBasedMarkdownBuilder] for a single
 /// markdown preview surface.
@@ -29,10 +30,7 @@ class MarkdownRenderService {
   Brightness? _lastBrightness;
   int? _lastLinesPerChunk;
   bool? _lastDebugEnabled;
-  bool? _lastMoneyEnabled;
-  int? _lastMoneyStartCents;
-  String? _lastCurrencySymbol;
-  bool? _lastCurrencySuffix;
+  MoneyDisplayConfig? _lastMoneyConfig;
   MarkdownColorPalette? _lastColorPalette;
 
   /// The active builder, or `null` if [prepare] has not been called yet.
@@ -70,10 +68,7 @@ class MarkdownRenderService {
     required bool debugEnabled,
     List<TextRange>? searchHighlights,
     int? currentHighlightIndex,
-    bool moneyEnabled = false,
-    int moneyStartCents = 0,
-    String currencySymbol = '',
-    bool currencySuffix = false,
+    MoneyDisplayConfig moneyConfig = MoneyDisplayConfig.disabled,
     MarkdownColorPalette colorPalette = MarkdownColorPalette.presets,
     LinkTapCallback? onLinkTap,
     CheckboxTapCallback? onCheckboxTap,
@@ -90,10 +85,10 @@ class MarkdownRenderService {
         _lastBrightness != brightness ||
         _lastLinesPerChunk != linesPerChunk ||
         _lastDebugEnabled != debugEnabled ||
-        _lastMoneyEnabled != moneyEnabled ||
-        _lastMoneyStartCents != moneyStartCents ||
-        _lastCurrencySymbol != currencySymbol ||
-        _lastCurrencySuffix != currencySuffix ||
+        // Value-equal config: one comparison covers the enabled flag,
+        // start balance, currency, and the localized error strings —
+        // a locale change rebuilds automatically.
+        _lastMoneyConfig != moneyConfig ||
         _lastColorPalette != colorPalette;
 
     if (!needsRebuild) {
@@ -107,10 +102,7 @@ class MarkdownRenderService {
     _lastBrightness = brightness;
     _lastLinesPerChunk = linesPerChunk;
     _lastDebugEnabled = debugEnabled;
-    _lastMoneyEnabled = moneyEnabled;
-    _lastMoneyStartCents = moneyStartCents;
-    _lastCurrencySymbol = currencySymbol;
-    _lastCurrencySuffix = currencySuffix;
+    _lastMoneyConfig = moneyConfig;
     _lastColorPalette = colorPalette;
 
     final adaptiveChunkSize = MarkdownChunker.adaptiveChunkSize(
@@ -128,10 +120,7 @@ class MarkdownRenderService {
       onMoneyTap: onMoneyTap,
       searchHighlights: searchHighlights,
       currentHighlightIndex: currentHighlightIndex,
-      moneyEnabled: moneyEnabled,
-      moneyStartCents: moneyStartCents,
-      currencySymbol: currencySymbol,
-      currencySuffix: currencySuffix,
+      moneyConfig: moneyConfig,
       colorPalette: colorPalette,
       linesPerChunk: adaptiveChunkSize,
     );
@@ -159,10 +148,7 @@ class MarkdownRenderService {
     _lastBrightness = null;
     _lastLinesPerChunk = null;
     _lastDebugEnabled = null;
-    _lastMoneyEnabled = null;
-    _lastMoneyStartCents = null;
-    _lastCurrencySymbol = null;
-    _lastCurrencySuffix = null;
+    _lastMoneyConfig = null;
     _lastColorPalette = null;
   }
 

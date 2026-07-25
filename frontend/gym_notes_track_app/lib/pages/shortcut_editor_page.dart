@@ -15,6 +15,7 @@ import '../constants/settings_keys.dart';
 import '../services/settings_service.dart';
 import '../utils/icon_utils.dart';
 import '../utils/markdown_color_syntax.dart';
+import '../utils/money_display_config.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/unified_app_bars.dart';
 import '../services/app_navigator.dart';
@@ -55,10 +56,7 @@ class _ShortcutEditorPageState extends State<ShortcutEditorPage> {
   // on init; until it lands the preview renders `$` lines as plain text,
   // so a shortcut that inserts money markdown would otherwise never look
   // like the real thing.
-  bool _moneyEnabled = false;
-  int _moneyStartCents = 0;
-  String _currencySymbol = '';
-  bool _currencySuffix = false;
+  MoneyDisplayConfig _moneyConfig = MoneyDisplayConfig.disabled;
   MarkdownColorPalette _colorPalette = MarkdownColorPalette.presets;
 
   // Advanced mode toggle
@@ -189,11 +187,15 @@ class _ShortcutEditorPageState extends State<ShortcutEditorPage> {
     final money = await settings.getMoneyConfig();
     final palette = await settings.getColorPalette();
     if (!mounted) return;
+    final l10n = AppLocalizations.of(context);
     setState(() {
-      _moneyEnabled = money.enabled;
-      _moneyStartCents = money.startCents;
-      _currencySymbol = money.symbol;
-      _currencySuffix = money.suffix;
+      _moneyConfig = MoneyDisplayConfig(
+        enabled: money.enabled,
+        startCents: money.startCents,
+        currencySymbol: money.symbol,
+        currencySuffix: money.suffix,
+        errorMessages: l10n == null ? null : MoneyErrorMessages.of(l10n),
+      );
       _colorPalette = palette;
     });
   }
@@ -1970,10 +1972,7 @@ class _ShortcutEditorPageState extends State<ShortcutEditorPage> {
                     child: SimpleMarkdownPreview(
                       data: _generatePreviewText(),
                       fontSize: 14,
-                      moneyEnabled: _moneyEnabled,
-                      moneyStartCents: _moneyStartCents,
-                      currencySymbol: _currencySymbol,
-                      currencySuffix: _currencySuffix,
+                      moneyConfig: _moneyConfig,
                       colorPalette: _colorPalette,
                     ),
                   ),

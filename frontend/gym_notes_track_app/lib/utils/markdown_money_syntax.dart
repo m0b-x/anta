@@ -279,6 +279,84 @@ class MoneyLedgerEntry {
   });
 }
 
+/// Everything one whole-document ledger scan produces: each money row
+/// with its folded value, plus the line indices of every counted entry
+/// and of every `$=` checkpoint (both in document order — the window
+/// resolvers below count back through them).
+typedef MoneyLedgerCollection = ({
+  List<MoneyLedgerEntry> entries,
+  List<int> entryLines,
+  List<int> anchorLines,
+});
+
+/// Mutable accumulator for one ledger fold — the single home for how a
+/// money line mutates the running state (balance, append-only entry
+/// history, append-only checkpoint history, period start). Every fold
+/// in the app steps through this: the preview's `_computeMoneyLedger`,
+/// the editor index's incremental `_scanMoney`,
+/// [MarkdownMoneySyntax.collectEntries], and the calendar's
+/// `NoteMoneyLedgerService`. Fold rules living in one place is the
+/// point — error-inertness (`hasError` lines touch nothing, *including*
+/// the history appends) was once re-implemented per fold and two of the
+/// copies missed it.
+class MoneyFold {
+  int balance;
+
+  /// Append-only entry-balance history: index 0 is the start balance,
+  /// one value per counted entry. Adopted by reference in
+  /// [MoneyFold.resume], so incremental passes keep truncate-and-append
+  /// semantics over their own persistent lists.
+  final List<int> history;
+
+  /// Parallel append-only checkpoint-balance history: index 0 is the
+  /// start balance, one value per counted `$=`.
+  final List<int> anchors;
+
+  /// Index in [history] of the current period's start (the last `$=`,
+  /// or 0 before any).
+  int periodStart;
+
+  MoneyFold(int startCents)
+    : balance = startCents,
+      history = <int>[startCents],
+      anchors = <int>[startCents],
+      periodStart = 0;
+
+  /// Resumes mid-document from persisted state: [history] and [anchors]
+  /// are adopted by reference (already truncated to the resume point by
+  /// the caller) and mutated in place.
+  MoneyFold.resume({
+    required this.balance,
+    required this.history,
+    required this.anchors,
+    required this.periodStart,
+  });
+
+  /// Applies [m] and returns the row's display value. Error lines are
+  /// fold-inert: no balance change, no history/anchor append, no period
+  /// move — but they still get a display value so every money row can
+  /// carry one.
+  int step(MoneyLineMatch m) {
+    if (!MarkdownMoneySyntax.hasError(m)) {
+      balance = MarkdownMoneySyntax.apply(balance, m);
+      if (MarkdownMoneySyntax.isEntryKind(m.kind)) {
+        history.add(balance);
+        if (m.kind == MoneyLineKind.set) {
+          periodStart = history.length - 1;
+          anchors.add(balance);
+        }
+      }
+    }
+    return MarkdownMoneySyntax.displayValue(
+      m,
+      balance,
+      history,
+      periodStart,
+      anchors,
+    );
+  }
+}
+
 /// Money ledger syntax + scanning + fixed-point arithmetic helpers.
 class MarkdownMoneySyntax {
   MarkdownMoneySyntax._();
@@ -897,6 +975,13 @@ class MarkdownMoneySyntax {
     }
   }
 
+  /// Whether [m] actually appends to the ledger histories: an entry
+  /// kind without a syntax error. The one predicate for "this line
+  /// counts", shared by [MoneyFold.step] and the line-list collection
+  /// in [collectEntries] so they can never disagree.
+  static bool isCountedEntry(MoneyLineMatch m) =>
+      !hasError(m) && isEntryKind(m.kind);
+
   /// The display value a money line's stored entry carries: the running
   /// balance, except `$?` (net change since the last `$=`), `$!` (the
   /// remaining budget: target − spent since it), `$^ N` (the change over
@@ -1016,12 +1101,7 @@ class MarkdownMoneySyntax {
   /// `$=` line indices, which resolve a `$~ N` window the same way.
   /// Runs on tap (rare, user-initiated), so the O(document) scan is fine
   /// — this is deliberately not part of the incremental passes.
-  static ({
-    List<MoneyLedgerEntry> entries,
-    List<int> entryLines,
-    List<int> anchorLines,
-  })
-  collectEntries({
+  static MoneyLedgerCollection collectEntries({
     required int lineCount,
     required String Function(int) lineAt,
     required bool Function(int) isInert,
@@ -1030,36 +1110,25 @@ class MarkdownMoneySyntax {
   }) {
     final last = toLine < 0 ? lineCount - 1 : toLine;
     final entries = <MoneyLedgerEntry>[];
-    final history = <int>[startCents];
-    final anchors = <int>[startCents];
+    final fold = MoneyFold(startCents);
     final entryLines = <int>[];
     final anchorLines = <int>[];
-    var periodStart = 0;
-    var balance = startCents;
     for (var i = 0; i <= last && i < lineCount; i++) {
       final line = lineAt(i);
       if (line.isEmpty || !leadsWithMoney(line) || isInert(i)) continue;
       final m = parse(line);
       if (m == null) continue;
-      // Error lines don't mutate the balance, but still appear in entries.
-      if (!hasError(m)) {
-        balance = apply(balance, m);
-        if (isEntryKind(m.kind)) {
-          history.add(balance);
-          entryLines.add(i);
-          if (m.kind == MoneyLineKind.set) {
-            periodStart = history.length - 1;
-            anchors.add(balance);
-            anchorLines.add(i);
-          }
-        }
+      if (isCountedEntry(m)) {
+        entryLines.add(i);
+        if (m.kind == MoneyLineKind.set) anchorLines.add(i);
       }
+      // Error lines don't mutate the fold, but still appear in entries.
       entries.add(
         MoneyLedgerEntry(
           lineIndex: i,
           line: line,
           match: m,
-          valueAfter: displayValue(m, balance, history, periodStart, anchors),
+          valueAfter: fold.step(m),
         ),
       );
     }
@@ -1068,6 +1137,77 @@ class MarkdownMoneySyntax {
       entryLines: entryLines,
       anchorLines: anchorLines,
     );
+  }
+
+  /// The ledger rows a `$^ N` measures across: the last N
+  /// balance-changing entries, clamped to the current period's start
+  /// `$=`. Resolves the window the same way [displayValue] does — N
+  /// entries back in the append-only history, floored at the period
+  /// start, `ALL` (windowCount < 0) meaning the whole history — then
+  /// lists every money row from the baseline entry through [lineIndex]
+  /// so a detail sheet's running column reconstructs the change end to
+  /// end. Lives beside [displayValue] deliberately: the two resolve the
+  /// same reference and must move together.
+  static List<MoneyLedgerEntry> diffWindowEntries(
+    MoneyLedgerCollection collected,
+    MoneyLineMatch tapped,
+    int lineIndex,
+  ) {
+    final entryLines = collected.entryLines;
+    final e = entryLines.length;
+    if (e == 0) {
+      return [
+        for (final row in collected.entries)
+          if (row.lineIndex == lineIndex) row,
+      ];
+    }
+    // History index of the current period's start: one past the last
+    // `$=` entry (index 0 — the note start — before any `$=`).
+    final lastAnchorLine = collected.anchorLines.isEmpty
+        ? -1
+        : collected.anchorLines.last;
+    final periodStartHist = lastAnchorLine < 0
+        ? 0
+        : entryLines.lastIndexOf(lastAnchorLine) + 1;
+    final count = tapped.windowCount < 0 ? e + 1 : tapped.windowCount;
+    var refHist = e - count;
+    if (refHist < periodStartHist) refHist = periodStartHist;
+    // history[refHist] is the balance after entryLines[refHist - 1], so
+    // that entry is the window's visible baseline (the note start when
+    // refHist is 0).
+    final baselineLine = refHist >= 1 ? entryLines[refHist - 1] : 0;
+    return [
+      for (final row in collected.entries)
+        if (row.lineIndex >= baselineLine && row.lineIndex <= lineIndex) row,
+    ];
+  }
+
+  /// The ledger rows a `$~ N` measures across: every money row from the
+  /// Nth-most-recent `$=` checkpoint (floored at the first checkpoint,
+  /// the note start only when the note has no `$=`) through
+  /// [lineIndex]. Mirrors [displayValue]'s span case exactly — same
+  /// floor, same `ALL` sentinel handling — and unlike
+  /// [diffWindowEntries] deliberately spans whole `$=` periods.
+  static List<MoneyLedgerEntry> spanWindowEntries(
+    MoneyLedgerCollection collected,
+    MoneyLineMatch tapped,
+    int lineIndex,
+  ) {
+    final anchorLines = collected.anchorLines;
+    // Checkpoint-balance history length, incl. the note-start index 0
+    // that [anchorLines] omits.
+    final anchorsLen = anchorLines.length + 1;
+    final count = tapped.windowCount < 0 ? anchorsLen : tapped.windowCount;
+    final floor = anchorsLen > 1 ? 1 : 0;
+    var ref = anchorsLen - count;
+    if (ref < floor) ref = floor;
+    // Its source line: the note start (line 0) when ref floors there,
+    // else the `$=` that set the reference balance.
+    final baselineLine = ref >= 1 ? anchorLines[ref - 1] : 0;
+    return [
+      for (final row in collected.entries)
+        if (row.lineIndex >= baselineLine && row.lineIndex <= lineIndex) row,
+    ];
   }
 
   static int _clamp(int cents) => cents < -balanceLimitCents

@@ -4618,6 +4618,48 @@ abstract class AppLocalizations {
   /// **'Ledger'**
   String get moneyDetailTitle;
 
+  /// Money ledger error: label-first row ends with a colon but has no trailing amount
+  ///
+  /// In en, this message translates to:
+  /// **'missing amount after \":\"'**
+  String get moneyErrorMissingAmount;
+
+  /// Money ledger error: accent colour token does not resolve against the palette
+  ///
+  /// In en, this message translates to:
+  /// **'unknown colour name'**
+  String get moneyErrorUnknownColour;
+
+  /// Money ledger error: amount contains non-numeric characters
+  ///
+  /// In en, this message translates to:
+  /// **'invalid amount'**
+  String get moneyErrorInvalidAmount;
+
+  /// Money ledger error: window count is not numeric or ALL
+  ///
+  /// In en, this message translates to:
+  /// **'invalid count'**
+  String get moneyErrorInvalidCount;
+
+  /// Money ledger error: $/ 0 division
+  ///
+  /// In en, this message translates to:
+  /// **'divide by zero'**
+  String get moneyErrorDivideByZero;
+
+  /// Money ledger error: amount exceeds the integer digit limit
+  ///
+  /// In en, this message translates to:
+  /// **'amount too large (max 99,999,999,999.99)'**
+  String get moneyErrorAmountTooLarge;
+
+  /// Money ledger error: amount exceeds the decimal digit limit
+  ///
+  /// In en, this message translates to:
+  /// **'too many decimals'**
+  String get moneyErrorTooManyDecimals;
+
   /// Calendar day summary entry showing the net money change of linked notes
   ///
   /// In en, this message translates to:

@@ -11,6 +11,7 @@ import 'markdown_link_patterns.dart';
 import 'markdown_list_syntax.dart';
 import 'markdown_money_syntax.dart';
 import 'markdown_tag_syntax.dart';
+import 'money_display_config.dart';
 
 /// Live markdown rendering for the re_editor text mode (the "live
 /// markdown rendering" editor setting, on by default).
@@ -118,9 +119,7 @@ class MarkdownEditorSpanBuilder {
   /// box; refreshed with the other theme-generation fields.
   Color _cacheOnAccent = Colors.white;
 
-  bool _moneyEnabled = false;
-  String _currencySymbol = '';
-  bool _currencySuffix = false;
+  MoneyDisplayConfig _moneyConfig = MoneyDisplayConfig.disabled;
 
   MarkdownColorPalette _colorPalette = MarkdownColorPalette.presets;
 
@@ -128,30 +127,26 @@ class MarkdownEditorSpanBuilder {
     _controller = controller;
   }
 
-  /// Applies the resolved money display configuration: whether the
-  /// feature is enabled at all, the global start balance, and the
-  /// effective currency for this note. Called by the page on note load
-  /// and when the settings change; any change invalidates the span
-  /// memos and the line index's ledger, same lifecycle as a theme
-  /// change. When [enabled] is `false`, `$` lines render as plain text
-  /// — see the guard in [_buildLine] and the positional branch in
-  /// [build].
-  void configureMoney({
-    required bool enabled,
-    required int startCents,
-    required String currencySymbol,
-    required bool currencySuffix,
-  }) {
-    if (enabled != _moneyEnabled ||
-        currencySymbol != _currencySymbol ||
-        currencySuffix != _currencySuffix) {
-      _moneyEnabled = enabled;
-      _currencySymbol = currencySymbol;
-      _currencySuffix = currencySuffix;
+  /// Applies the resolved money display configuration as one
+  /// value-equal object. Called by the page on note load and when the
+  /// settings change; a change to any span-visible field invalidates
+  /// the span memos and the line index's ledger, same lifecycle as a
+  /// theme change. When disabled, `$` lines render as plain text — see
+  /// the guard in [_buildLine] and the positional branch in [build].
+  /// (Start-balance changes skip the memo clear: positional keys carry
+  /// the value, and op rows don't show it.)
+  void configureMoney(MoneyDisplayConfig config) {
+    if (config.enabled != _moneyConfig.enabled ||
+        config.currencySymbol != _moneyConfig.currencySymbol ||
+        config.currencySuffix != _moneyConfig.currencySuffix) {
       _spanCache.clear();
       _positionalSpanCache.clear();
     }
-    _lineIndex.configureMoney(enabled: enabled, startCents: startCents);
+    _moneyConfig = config;
+    _lineIndex.configureMoney(
+      enabled: config.enabled,
+      startCents: config.startCents,
+    );
   }
 
   /// Applies the resolved colour palette for `{name:text}` runs and
@@ -234,7 +229,9 @@ class MarkdownEditorSpanBuilder {
     // display a computed value, so those join the positional path too;
     // the rest of the op lines (`$+ …`) are purely textual and stay on
     // the text-keyed path below.
-    if (!reveal && _moneyEnabled && MarkdownMoneySyntax.leadsWithMoney(text)) {
+    if (!reveal &&
+        _moneyConfig.enabled &&
+        MarkdownMoneySyntax.leadsWithMoney(text)) {
       final money = MarkdownMoneySyntax.parse(text);
       if (money != null &&
           (money.valueSlot >= 0 ||
@@ -324,7 +321,7 @@ class MarkdownEditorSpanBuilder {
     // the positional path with their balance; op lines and reveal-mode
     // totals parse here (purely textual either way). A `#`-led line
     // that fails the money parse falls through to the header branch.
-    if (_moneyEnabled && MarkdownMoneySyntax.leadsWithMoney(text)) {
+    if (_moneyConfig.enabled && MarkdownMoneySyntax.leadsWithMoney(text)) {
       final m = money ?? MarkdownMoneySyntax.parse(text);
       if (m != null) {
         return _buildMoneyLine(
@@ -927,13 +924,13 @@ class MarkdownEditorSpanBuilder {
     final value = signed
         ? MarkdownMoneySyntax.formatCentsSignedWithSymbol(
             balance,
-            symbol: _currencySymbol,
-            suffix: _currencySuffix,
+            symbol: _moneyConfig.currencySymbol,
+            suffix: _moneyConfig.currencySuffix,
           )
         : MarkdownMoneySyntax.formatCentsWithSymbol(
             balance,
-            symbol: _currencySymbol,
-            suffix: _currencySuffix,
+            symbol: _moneyConfig.currencySymbol,
+            suffix: _moneyConfig.currencySuffix,
           );
     final label = atSlot
         ? value

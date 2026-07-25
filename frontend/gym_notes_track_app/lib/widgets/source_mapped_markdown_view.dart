@@ -10,6 +10,7 @@ import '../models/checkbox_toggle_info.dart';
 import '../services/markdown_render_service.dart';
 import '../utils/line_based_markdown_builder.dart';
 import '../utils/markdown_color_syntax.dart';
+import '../utils/money_display_config.dart';
 import 'double_tap_line_detector.dart';
 
 typedef LinkTapCallback = void Function(String url);
@@ -36,14 +37,12 @@ class SourceMappedMarkdownView extends StatefulWidget {
   /// Lines per chunk for preview performance (higher = better performance, lower = more precise scroll)
   final int linesPerChunk;
 
-  /// Money ledger display inputs. These participate in the render
-  /// service's rebuild key, so this widget MUST receive the same
-  /// values the bloc passes on prepare — a mismatch between the two
-  /// call sites would flip the shared cache key on every build.
-  final bool moneyEnabled;
-  final int moneyStartCents;
-  final String currencySymbol;
-  final bool currencySuffix;
+  /// Money ledger display config. Participates in the render service's
+  /// rebuild key, so this widget must receive the same config the bloc
+  /// passes on prepare — one value-equal object (ultimately the same
+  /// bloc-state value) rather than loose fields, so the two call sites
+  /// cannot drift apart piecemeal.
+  final MoneyDisplayConfig moneyConfig;
 
   /// Resolved markdown colour palette for `{name:text}` runs and
   /// `==name:text==` highlights.
@@ -83,10 +82,7 @@ class SourceMappedMarkdownView extends StatefulWidget {
     this.onScrollProgress,
     this.onDoubleTapLine,
     this.linesPerChunk = 10,
-    this.moneyEnabled = false,
-    this.moneyStartCents = 0,
-    this.currencySymbol = '',
-    this.currencySuffix = false,
+    this.moneyConfig = MoneyDisplayConfig.disabled,
     this.colorPalette = MarkdownColorPalette.presets,
     this.onGhostTap,
     this.onTagTap,
@@ -428,10 +424,7 @@ class SourceMappedMarkdownViewState extends State<SourceMappedMarkdownView> {
       debugEnabled: debugEnabled,
       searchHighlights: widget.searchHighlights,
       currentHighlightIndex: widget.currentHighlightIndex,
-      moneyEnabled: widget.moneyEnabled,
-      moneyStartCents: widget.moneyStartCents,
-      currencySymbol: widget.currencySymbol,
-      currencySuffix: widget.currencySuffix,
+      moneyConfig: widget.moneyConfig,
       colorPalette: widget.colorPalette,
       onLinkTap: _handleLinkTap,
       onCheckboxTap: _handleCheckboxTap,

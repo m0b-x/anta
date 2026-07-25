@@ -318,8 +318,6 @@ class MarkdownEditorLineIndex {
       _moneyLines.length = keep;
       _moneyValues.length = keep;
     }
-    var balance = _segMoneyEntry[first];
-    var periodStart = _segPeriodStart[first];
     final int keepEntries = _segEntryCount[first];
     if (_entryBalances.length > keepEntries) {
       _entryBalances.length = keepEntries;
@@ -328,12 +326,22 @@ class MarkdownEditorLineIndex {
     if (_anchorBalances.length > keepAnchors) {
       _anchorBalances.length = keepAnchors;
     }
+    // All fold rules live in [MoneyFold] — this pass only owns the
+    // truncate-and-resume bookkeeping. The persistent histories are
+    // adopted by reference and appended in place, so the per-segment
+    // resume state stays exactly their lengths.
+    final MoneyFold fold = MoneyFold.resume(
+      balance: _segMoneyEntry[first],
+      history: _entryBalances,
+      anchors: _anchorBalances,
+      periodStart: _segPeriodStart[first],
+    );
     final List<MarkdownFenceRole>? fence = _fence;
     for (int s = first; s < n; s++) {
       _segMoneyCount[s] = _moneyLines.length;
-      _segMoneyEntry[s] = balance;
+      _segMoneyEntry[s] = fold.balance;
       _segEntryCount[s] = _entryBalances.length;
-      _segPeriodStart[s] = periodStart;
+      _segPeriodStart[s] = fold.periodStart;
       _segAnchorCount[s] = _anchorBalances.length;
       final List<CodeLine> lines = segs[s].codeLines;
       int g = _segStarts[s];
@@ -347,29 +355,8 @@ class MarkdownEditorLineIndex {
         }
         final MoneyLineMatch? m = MarkdownMoneySyntax.parse(text);
         if (m == null) continue;
-        // Error lines never mutate the fold — including the history and
-        // checkpoint appends, or an error `$=` would shift every window
-        // here while `collectEntries` (which guards) disagreed.
-        if (!MarkdownMoneySyntax.hasError(m)) {
-          balance = MarkdownMoneySyntax.apply(balance, m);
-          if (MarkdownMoneySyntax.isEntryKind(m.kind)) {
-            _entryBalances.add(balance);
-            if (m.kind == MoneyLineKind.set) {
-              periodStart = _entryBalances.length - 1;
-              _anchorBalances.add(balance);
-            }
-          }
-        }
         _moneyLines.add(g);
-        _moneyValues.add(
-          MarkdownMoneySyntax.displayValue(
-            m,
-            balance,
-            _entryBalances,
-            periodStart,
-            _anchorBalances,
-          ),
-        );
+        _moneyValues.add(fold.step(m));
       }
     }
   }

@@ -124,7 +124,9 @@ class NoteMoneyLedgerService {
   /// add/subtract/multiply/divide lines only — set/total/delta lines
   /// never contribute to `net`.
   ({int balance, int net}) _fold(String content) {
-    var balance = _startCents;
+    // All fold rules (error-inertness, history appends) live in
+    // [MoneyFold]; this fold only layers its op-only `net` on top.
+    final fold = MoneyFold(_startCents);
     var net = 0;
     var inFence = false;
     for (final line in content.split('\n')) {
@@ -140,14 +142,14 @@ class NoteMoneyLedgerService {
       }
       final match = MarkdownMoneySyntax.parse(line);
       if (match == null) continue;
-      final before = balance;
-      balance = MarkdownMoneySyntax.apply(balance, match);
+      final before = fold.balance;
+      fold.step(match);
       switch (match.kind) {
         case MoneyLineKind.add:
         case MoneyLineKind.subtract:
         case MoneyLineKind.multiply:
         case MoneyLineKind.divide:
-          net += balance - before;
+          net += fold.balance - before;
         case MoneyLineKind.set:
         case MoneyLineKind.total:
         case MoneyLineKind.delta:
@@ -157,7 +159,7 @@ class NoteMoneyLedgerService {
           break;
       }
     }
-    return (balance: balance, net: net);
+    return (balance: fold.balance, net: net);
   }
 
   void _onNoteChange(NoteChange change) {

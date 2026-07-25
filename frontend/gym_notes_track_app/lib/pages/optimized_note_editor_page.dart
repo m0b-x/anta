@@ -50,6 +50,7 @@ import '../utils/markdown_color_syntax.dart';
 import '../utils/markdown_editor_span_builder.dart';
 import '../utils/ghost_text.dart';
 import '../utils/markdown_money_syntax.dart';
+import '../utils/money_display_config.dart';
 import '../widgets/money_detail_sheet.dart';
 import '../utils/list_aware_paste.dart';
 import '../utils/paste_line_breaker.dart';
@@ -86,10 +87,12 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   final MarkdownEditorSpanBuilder _markdownSpanBuilder =
       MarkdownEditorSpanBuilder();
   bool _liveMarkdownRendering = SettingsKeys.defaultLiveMarkdownRendering;
-  bool _moneyLedgerEnabled = SettingsKeys.defaultMoneyLedgerEnabled;
-  int _moneyStartCents = SettingsKeys.defaultMoneyStartCents;
-  String _moneyCurrencySymbol = SettingsKeys.defaultMoneyCurrencySymbol;
-  bool _moneyCurrencySuffix = SettingsKeys.defaultMoneyCurrencySuffix;
+  MoneyDisplayConfig _moneyConfig = const MoneyDisplayConfig(
+    enabled: SettingsKeys.defaultMoneyLedgerEnabled,
+    startCents: SettingsKeys.defaultMoneyStartCents,
+    currencySymbol: SettingsKeys.defaultMoneyCurrencySymbol,
+    currencySuffix: SettingsKeys.defaultMoneyCurrencySuffix,
+  );
 
   /// Last applied markdown colour palette. Only used to detect a real
   /// change (so the editor repaint nudge stays rare); the preview reads
@@ -305,6 +308,26 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       }
     }
 
+    // Same for the money config's localized error strings: rebuild the
+    // config with the new locale's messages so preview error rows and
+    // the detail sheet never hold a stale translation. Value equality
+    // makes this a no-op on every rebuild where the locale is unchanged.
+    final l10n = AppLocalizations.of(context);
+    if (l10n != null) {
+      final messages = MoneyErrorMessages.of(l10n);
+      if (_moneyConfig.errorMessages != messages) {
+        final config = MoneyDisplayConfig(
+          enabled: _moneyConfig.enabled,
+          startCents: _moneyConfig.startCents,
+          currencySymbol: _moneyConfig.currencySymbol,
+          currencySuffix: _moneyConfig.currencySuffix,
+          errorMessages: messages,
+        );
+        _moneyConfig = config;
+        _previewBloc.add(PreviewMoneyConfigChanged(config));
+      }
+    }
+
     // Track keyboard visibility to scroll cursor into view when keyboard appears
     final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
     if (_scrollCursorOnKeyboard &&
@@ -510,38 +533,29 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// CodeEditor mid-initialization and crashed re_editor's controller-
   /// delegate handoff — never remount the editor for a settings change.)
   Future<void> _refreshMoneyConfig(SettingsService settings) async {
-    final config = await settings.getMoneyConfig(
+    final resolved = await settings.getMoneyConfig(
       noteId: _effectiveNoteId ?? widget.noteId,
     );
     if (!mounted) return;
-    final changed =
-        config.enabled != _moneyLedgerEnabled ||
-        config.startCents != _moneyStartCents ||
-        config.symbol != _moneyCurrencySymbol ||
-        config.suffix != _moneyCurrencySuffix;
-    _markdownSpanBuilder.configureMoney(
-      enabled: config.enabled,
-      startCents: config.startCents,
-      currencySymbol: config.symbol,
-      currencySuffix: config.suffix,
+    final l10n = AppLocalizations.of(context);
+    // One value-equal object, built once here and handed to every
+    // consumer — the span builder, the preview bloc, and the detail
+    // sheet all read the same instance, so the surfaces can never
+    // receive different halves of the config.
+    final config = MoneyDisplayConfig(
+      enabled: resolved.enabled,
+      startCents: resolved.startCents,
+      currencySymbol: resolved.symbol,
+      currencySuffix: resolved.suffix,
+      errorMessages: l10n == null ? null : MoneyErrorMessages.of(l10n),
     );
+    final changed = config != _moneyConfig;
+    _markdownSpanBuilder.configureMoney(config);
     if (changed) {
-      setState(() {
-        _moneyLedgerEnabled = config.enabled;
-        _moneyStartCents = config.startCents;
-        _moneyCurrencySymbol = config.symbol;
-        _moneyCurrencySuffix = config.suffix;
-      });
+      setState(() => _moneyConfig = config);
       _contentController.forceRepaint();
     }
-    _previewBloc.add(
-      PreviewMoneyConfigChanged(
-        enabled: config.enabled,
-        startCents: config.startCents,
-        currencySymbol: config.symbol,
-        currencySuffix: config.suffix,
-      ),
-    );
+    _previewBloc.add(PreviewMoneyConfigChanged(config));
   }
 
   /// Resolves the markdown colour palette (presets + the user's custom
@@ -1238,7 +1252,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       lineAt: (i) => codeLines[i].text,
       isInert: _markdownSpanBuilder.lineInFence,
       toLine: lineIndex,
-      startCents: _moneyStartCents,
+      startCents: _moneyConfig.startCents,
     );
     final anchorLines = collected.anchorLines;
     final lastAnchorLine = anchorLines.isEmpty ? -1 : anchorLines.last;
@@ -1247,107 +1261,24 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
         for (final e in collected.entries)
           if (e.lineIndex > lastAnchorLine) e,
       ],
-      MoneyLineKind.diff => _diffWindowEntries(collected, tapped, lineIndex),
-      MoneyLineKind.span => _spanWindowEntries(collected, tapped, lineIndex),
+      MoneyLineKind.diff => MarkdownMoneySyntax.diffWindowEntries(
+        collected,
+        tapped,
+        lineIndex,
+      ),
+      MoneyLineKind.span => MarkdownMoneySyntax.spanWindowEntries(
+        collected,
+        tapped,
+        lineIndex,
+      ),
       _ => collected.entries,
     };
     MoneyDetailSheet.show(
       context,
       entries: entries,
       tappedKind: tapped.kind,
-      currencySymbol: _moneyCurrencySymbol,
-      currencySuffix: _moneyCurrencySuffix,
+      config: _moneyConfig,
     );
-  }
-
-  /// The ledger rows a tapped `$^ N` measures across: the last N
-  /// balance-changing entries, clamped to the current period's start
-  /// `$=`. Resolves the window the same way `displayValue` does — N
-  /// entries back in the append-only history, floored at the period
-  /// start — then lists every money row from the baseline entry through
-  /// the tapped row so the sheet's running column reconstructs the
-  /// change end to end.
-  List<MoneyLedgerEntry> _diffWindowEntries(
-    ({
-      List<MoneyLedgerEntry> entries,
-      List<int> entryLines,
-      List<int> anchorLines,
-    })
-    collected,
-    MoneyLineMatch tapped,
-    int lineIndex,
-  ) {
-    final entryLines = collected.entryLines;
-    final e = entryLines.length;
-    if (e == 0) {
-      return [
-        for (final row in collected.entries)
-          if (row.lineIndex == lineIndex) row,
-      ];
-    }
-    // History index of the current period's start: one past the last
-    // `$=` entry (index 0 — the note start — before any `$=`).
-    final lastAnchorLine = collected.anchorLines.isEmpty
-        ? -1
-        : collected.anchorLines.last;
-    final periodStartHist = lastAnchorLine < 0
-        ? 0
-        : entryLines.lastIndexOf(lastAnchorLine) + 1;
-    // `ALL` (windowCount < 0) counts every entry in the history (length
-    // e + 1, incl. the note-start index 0); clamped to the period start
-    // below, exactly like [MarkdownMoneySyntax.displayValue].
-    final count = tapped.windowCount < 0 ? e + 1 : tapped.windowCount;
-    var refHist = e - count;
-    if (refHist < periodStartHist) refHist = periodStartHist;
-    // history[refHist] is the balance after entryLines[refHist - 1], so
-    // that entry is the window's visible baseline (the note start when
-    // refHist is 0).
-    final baselineLine = refHist >= 1 ? entryLines[refHist - 1] : 0;
-    return [
-      for (final row in collected.entries)
-        if (row.lineIndex >= baselineLine && row.lineIndex <= lineIndex) row,
-    ];
-  }
-
-  /// The ledger rows a tapped `$~ N` measures across: every money row
-  /// from the Nth-most-recent `$=` checkpoint (floored at the first
-  /// checkpoint, or the note start only when the note has no `$=`)
-  /// through the tapped row. Resolves the window the same way
-  /// `displayValue` does — N entries back in the append-only
-  /// checkpoint-balance history (index 0 = note start, one per `$=`) —
-  /// so the sheet's running column reconstructs the change end to end.
-  /// Unlike [_diffWindowEntries], the window deliberately spans whole
-  /// `$=` periods, so it can reach across checkpoints the diff window
-  /// stops at.
-  List<MoneyLedgerEntry> _spanWindowEntries(
-    ({
-      List<MoneyLedgerEntry> entries,
-      List<int> entryLines,
-      List<int> anchorLines,
-    })
-    collected,
-    MoneyLineMatch tapped,
-    int lineIndex,
-  ) {
-    final anchorLines = collected.anchorLines;
-    // Checkpoint-balance history length, incl. the note-start index 0 that
-    // [anchorLines] omits. `ALL` (windowCount < 0) counts every checkpoint.
-    final anchorsLen = anchorLines.length + 1;
-    final count = tapped.windowCount < 0 ? anchorsLen : tapped.windowCount;
-    // Reference index in that history: N checkpoints back, floored at the
-    // first checkpoint (index 1) so an over-large N stays a change between
-    // checkpoints — matching [MarkdownMoneySyntax.displayValue]. Only a
-    // note with no `$=` falls back to the note start (index 0).
-    final floor = anchorsLen > 1 ? 1 : 0;
-    var ref = anchorsLen - count;
-    if (ref < floor) ref = floor;
-    // Its source line: the note start (line 0) when ref floors there,
-    // else the `$=` that set the reference balance.
-    final baselineLine = ref >= 1 ? anchorLines[ref - 1] : 0;
-    return [
-      for (final row in collected.entries)
-        if (row.lineIndex >= baselineLine && row.lineIndex <= lineIndex) row,
-    ];
   }
 
   void _scrollToOffsetInPreview(int charOffset) {
@@ -2008,7 +1939,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
         // opener runs (scheme validation + localized errors); fence
         // lines render raw so taps there stay plain editing.
         onOpenLink: markdownRendering ? _handleEditorLinkTap : null,
-        onMoneyTap: markdownRendering && _moneyLedgerEnabled
+        onMoneyTap: markdownRendering && _moneyConfig.enabled
             ? _handleMoneyTap
             : null,
         isFenceLine: markdownRendering ? _markdownSpanBuilder.lineInFence : null,

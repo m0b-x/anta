@@ -11,6 +11,7 @@ import 'markdown_link_patterns.dart';
 import 'markdown_list_syntax.dart';
 import 'markdown_money_syntax.dart';
 import 'markdown_tag_syntax.dart';
+import 'money_display_config.dart';
 
 typedef LinkTapCallback = void Function(String url);
 typedef CheckboxTapCallback = void Function(int start, int end, bool isChecked);
@@ -104,18 +105,12 @@ class LineBasedMarkdownBuilder {
   final List<TextRange>? searchHighlights;
   final int? currentHighlightIndex;
 
-  /// Master switch for the money ledger. Off by default — when
-  /// `false`, `$` lines never enter the money dispatch branch and
-  /// render as plain paragraphs (the ledger fold in [prepare] is
-  /// skipped entirely).
-  final bool moneyEnabled;
-
-  /// Global start balance (cents) seeding every ledger fold, and the
-  /// note's effective currency for computed money values. Display-only
-  /// inputs: parsing and arithmetic stay currency-agnostic.
-  final int moneyStartCents;
-  final String currencySymbol;
-  final bool currencySuffix;
+  /// The money ledger's display configuration — master switch, start
+  /// balance, currency, localized error strings — as one value-equal
+  /// object. Display-only inputs: parsing and arithmetic stay
+  /// currency-agnostic. When disabled, `$` lines never enter the money
+  /// dispatch branch and the ledger fold in [prepare] is skipped.
+  final MoneyDisplayConfig moneyConfig;
 
   /// Resolved colour set for `{name:text}` runs and `==name:text==`
   /// highlights. Presets-only unless the user defined custom colours.
@@ -181,10 +176,7 @@ class LineBasedMarkdownBuilder {
     this.onMoneyTap,
     this.searchHighlights,
     this.currentHighlightIndex,
-    this.moneyEnabled = false,
-    this.moneyStartCents = 0,
-    this.currencySymbol = '',
-    this.currencySuffix = false,
+    this.moneyConfig = MoneyDisplayConfig.disabled,
     this.colorPalette = MarkdownColorPalette.presets,
     this.linesPerChunk = 10,
   });
@@ -241,12 +233,11 @@ class LineBasedMarkdownBuilder {
   /// documents.
   void _computeMoneyLedger() {
     _moneyValues = null;
-    if (!moneyEnabled) return;
+    if (!moneyConfig.enabled) return;
     Map<int, int>? values;
-    var balance = moneyStartCents;
-    final history = <int>[moneyStartCents];
-    final anchors = <int>[moneyStartCents];
-    var periodStart = 0;
+    // All fold rules (error-inertness, history/checkpoint appends,
+    // period moves) live in [MoneyFold] — never inline them here.
+    final fold = MoneyFold(moneyConfig.startCents);
     final source = _source;
     for (var i = 0; i < _lineCount; i++) {
       final start = _lineOffsets[i];
@@ -259,26 +250,7 @@ class LineBasedMarkdownBuilder {
       if (_blockForLine(i) != null) continue;
       final m = MarkdownMoneySyntax.parse(_getLine(i));
       if (m == null) continue;
-      // Error lines never mutate the fold — including the history and
-      // checkpoint appends, or an error `$=` would shift every window
-      // here while `collectEntries` (which guards) disagreed.
-      if (!MarkdownMoneySyntax.hasError(m)) {
-        balance = MarkdownMoneySyntax.apply(balance, m);
-        if (MarkdownMoneySyntax.isEntryKind(m.kind)) {
-          history.add(balance);
-          if (m.kind == MoneyLineKind.set) {
-            periodStart = history.length - 1;
-            anchors.add(balance);
-          }
-        }
-      }
-      (values ??= <int, int>{})[i] = MarkdownMoneySyntax.displayValue(
-        m,
-        balance,
-        history,
-        periodStart,
-        anchors,
-      );
+      (values ??= <int, int>{})[i] = fold.step(m);
     }
     _moneyValues = values;
   }
@@ -636,7 +608,7 @@ class LineBasedMarkdownBuilder {
     // [prepare]. Cheap probe: only `$`-led (or `#…$`-led) lines parse;
     // a `#`-led line that fails the parse falls through to the normal
     // heading branch below.
-    if (moneyEnabled && MarkdownMoneySyntax.leadsWithMoney(line)) {
+    if (moneyConfig.enabled && MarkdownMoneySyntax.leadsWithMoney(line)) {
       final money = MarkdownMoneySyntax.parse(line);
       if (money != null) {
         return _buildMoneyLine(
@@ -1139,7 +1111,7 @@ class LineBasedMarkdownBuilder {
             lineStart + m.markerStart,
           ),
           TextSpan(
-            text: '  — ${MarkdownMoneySyntax.errorMessage(m.error!)}',
+            text: '  — ${moneyConfig.errorText(m.error!)}',
             style: baseStyle.copyWith(color: warn.withValues(alpha: 0.7)),
           ),
         ],
@@ -1277,7 +1249,7 @@ class LineBasedMarkdownBuilder {
             : MarkdownConstants.moneyPositive(dark: dark);
         return TextSpan(
           text:
-              ' ${MarkdownMoneySyntax.formatCentsWithSymbol(value, symbol: currencySymbol, suffix: currencySuffix)} ',
+              ' ${MarkdownMoneySyntax.formatCentsWithSymbol(value, symbol: moneyConfig.currencySymbol, suffix: moneyConfig.currencySuffix)} ',
           style: baseStyle.copyWith(
             color: remainColor,
             fontWeight: FontWeight.bold,
@@ -1288,8 +1260,8 @@ class LineBasedMarkdownBuilder {
       if (!isDisplay) {
         final text = MarkdownMoneySyntax.formatCentsWithSymbol(
           value,
-          symbol: currencySymbol,
-          suffix: currencySuffix,
+          symbol: moneyConfig.currencySymbol,
+          suffix: moneyConfig.currencySuffix,
         );
         return TextSpan(
           text: atSlot ? text : '  =  $text',
@@ -1303,8 +1275,8 @@ class LineBasedMarkdownBuilder {
       final signed = m.kind != MoneyLineKind.total;
       InlineSpan pill = TextSpan(
         text: signed
-            ? ' ${MarkdownMoneySyntax.formatCentsSignedWithSymbol(value, symbol: currencySymbol, suffix: currencySuffix)} '
-            : ' ${MarkdownMoneySyntax.formatCentsWithSymbol(value, symbol: currencySymbol, suffix: currencySuffix)} ',
+            ? ' ${MarkdownMoneySyntax.formatCentsSignedWithSymbol(value, symbol: moneyConfig.currencySymbol, suffix: moneyConfig.currencySuffix)} '
+            : ' ${MarkdownMoneySyntax.formatCentsWithSymbol(value, symbol: moneyConfig.currencySymbol, suffix: moneyConfig.currencySuffix)} ',
         style: accentStyle.copyWith(
           color: pinned ? warnColor : null,
           fontWeight: FontWeight.bold,

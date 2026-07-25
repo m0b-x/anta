@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../constants/markdown_constants.dart';
 import '../l10n/app_localizations.dart';
 import '../utils/markdown_money_syntax.dart';
+import '../utils/money_display_config.dart';
 
 /// Bottom sheet listing the ledger entries that feed a tapped `$$`
 /// total, `$?` net-change, `$^` entry-diff, or `$~` checkpoint-span row
@@ -13,23 +14,20 @@ import '../utils/markdown_money_syntax.dart';
 class MoneyDetailSheet extends StatelessWidget {
   final List<MoneyLedgerEntry> entries;
   final MoneyLineKind tappedKind;
-  final String currencySymbol;
-  final bool currencySuffix;
+  final MoneyDisplayConfig config;
 
   const MoneyDetailSheet({
     super.key,
     required this.entries,
     required this.tappedKind,
-    required this.currencySymbol,
-    required this.currencySuffix,
+    required this.config,
   });
 
   static Future<void> show(
     BuildContext context, {
     required List<MoneyLedgerEntry> entries,
     required MoneyLineKind tappedKind,
-    required String currencySymbol,
-    required bool currencySuffix,
+    required MoneyDisplayConfig config,
   }) {
     return showModalBottomSheet<void>(
       context: context,
@@ -41,8 +39,7 @@ class MoneyDetailSheet extends StatelessWidget {
       builder: (_) => MoneyDetailSheet(
         entries: entries,
         tappedKind: tappedKind,
-        currencySymbol: currencySymbol,
-        currencySuffix: currencySuffix,
+        config: config,
       ),
     );
   }
@@ -50,13 +47,13 @@ class MoneyDetailSheet extends StatelessWidget {
   String _format(int cents, {required bool signed}) => signed
       ? MarkdownMoneySyntax.formatCentsSignedWithSymbol(
           cents,
-          symbol: currencySymbol,
-          suffix: currencySuffix,
+          symbol: config.currencySymbol,
+          suffix: config.currencySuffix,
         )
       : MarkdownMoneySyntax.formatCentsWithSymbol(
           cents,
-          symbol: currencySymbol,
-          suffix: currencySuffix,
+          symbol: config.currencySymbol,
+          suffix: config.currencySuffix,
         );
 
   @override
@@ -136,14 +133,13 @@ class MoneyDetailSheet extends StatelessWidget {
                   final e = entries[index];
                   final m = e.match;
                   // Error lines show a yellow indicator and the shared
-                  // error message (single source with both renderers).
+                  // (localized) error message from the display config —
+                  // the same resolution the preview renderer uses.
                   if (MarkdownMoneySyntax.hasError(m)) {
                     final errorColor = MarkdownConstants.moneyWarning(
                       dark: dark,
                     );
-                    final errorMsg = MarkdownMoneySyntax.errorMessage(
-                      m.error!,
-                    );
+                    final errorMsg = config.errorText(m.error!);
                     return ListTile(
                       dense: true,
                       leading: Text(

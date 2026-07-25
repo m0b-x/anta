@@ -263,21 +263,8 @@ class MarkdownPreviewBloc
     PreviewMoneyConfigChanged event,
     Emitter<MarkdownPreviewState> emit,
   ) {
-    if (event.enabled == state.moneyEnabled &&
-        event.startCents == state.moneyStartCents &&
-        event.currencySymbol == state.moneyCurrencySymbol &&
-        event.currencySuffix == state.moneyCurrencySuffix) {
-      return;
-    }
-    _emitPrepared(
-      state.copyWith(
-        moneyEnabled: event.enabled,
-        moneyStartCents: event.startCents,
-        moneyCurrencySymbol: event.currencySymbol,
-        moneyCurrencySuffix: event.currencySuffix,
-      ),
-      emit,
-    );
+    if (event.config == state.moneyConfig) return;
+    _emitPrepared(state.copyWith(moneyConfig: event.config), emit);
   }
 
   void _onColorPaletteChanged(
@@ -353,10 +340,7 @@ class MarkdownPreviewBloc
       debugEnabled: _debugEnabled,
       searchHighlights: next.searchHighlights,
       currentHighlightIndex: next.currentHighlightIndex,
-      moneyEnabled: next.moneyEnabled,
-      moneyStartCents: next.moneyStartCents,
-      currencySymbol: next.moneyCurrencySymbol,
-      currencySuffix: next.moneyCurrencySuffix,
+      moneyConfig: next.moneyConfig,
       colorPalette: next.colorPalette,
       onLinkTap: _onLinkTap,
       onCheckboxTap: _onCheckboxTap,

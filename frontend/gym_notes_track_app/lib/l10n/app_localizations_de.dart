@@ -2535,6 +2535,28 @@ class AppLocalizationsDe extends AppLocalizations {
   String get moneyDetailTitle => 'Kassenbuch';
 
   @override
+  String get moneyErrorMissingAmount => 'Betrag nach \":\" fehlt';
+
+  @override
+  String get moneyErrorUnknownColour => 'unbekannter Farbname';
+
+  @override
+  String get moneyErrorInvalidAmount => 'ungültiger Betrag';
+
+  @override
+  String get moneyErrorInvalidCount => 'ungültige Anzahl';
+
+  @override
+  String get moneyErrorDivideByZero => 'Division durch Null';
+
+  @override
+  String get moneyErrorAmountTooLarge =>
+      'Betrag zu groß (max. 99.999.999.999,99)';
+
+  @override
+  String get moneyErrorTooManyDecimals => 'zu viele Nachkommastellen';
+
+  @override
   String moneyDaySummaryTitle(String amount) {
     return 'Geld: $amount';
   }

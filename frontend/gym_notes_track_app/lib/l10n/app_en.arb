@@ -3261,6 +3261,34 @@
   "@moneyDetailTitle": {
     "description": "Title of the bottom sheet listing money ledger entries"
   },
+  "moneyErrorMissingAmount": "missing amount after \":\"",
+  "@moneyErrorMissingAmount": {
+    "description": "Money ledger error: label-first row ends with a colon but has no trailing amount"
+  },
+  "moneyErrorUnknownColour": "unknown colour name",
+  "@moneyErrorUnknownColour": {
+    "description": "Money ledger error: accent colour token does not resolve against the palette"
+  },
+  "moneyErrorInvalidAmount": "invalid amount",
+  "@moneyErrorInvalidAmount": {
+    "description": "Money ledger error: amount contains non-numeric characters"
+  },
+  "moneyErrorInvalidCount": "invalid count",
+  "@moneyErrorInvalidCount": {
+    "description": "Money ledger error: window count is not numeric or ALL"
+  },
+  "moneyErrorDivideByZero": "divide by zero",
+  "@moneyErrorDivideByZero": {
+    "description": "Money ledger error: $/ 0 division"
+  },
+  "moneyErrorAmountTooLarge": "amount too large (max 99,999,999,999.99)",
+  "@moneyErrorAmountTooLarge": {
+    "description": "Money ledger error: amount exceeds the integer digit limit"
+  },
+  "moneyErrorTooManyDecimals": "too many decimals",
+  "@moneyErrorTooManyDecimals": {
+    "description": "Money ledger error: amount exceeds the decimal digit limit"
+  },
   "moneyDaySummaryTitle": "Money: {amount}",
   "@moneyDaySummaryTitle": {
     "description": "Calendar day summary entry showing the net money change of linked notes",

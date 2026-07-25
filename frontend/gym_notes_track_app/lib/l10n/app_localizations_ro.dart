@@ -2545,6 +2545,28 @@ class AppLocalizationsRo extends AppLocalizations {
   String get moneyDetailTitle => 'Registru';
 
   @override
+  String get moneyErrorMissingAmount => 'lipsește suma după \":\"';
+
+  @override
+  String get moneyErrorUnknownColour => 'nume de culoare necunoscut';
+
+  @override
+  String get moneyErrorInvalidAmount => 'sumă invalidă';
+
+  @override
+  String get moneyErrorInvalidCount => 'număr invalid';
+
+  @override
+  String get moneyErrorDivideByZero => 'împărțire la zero';
+
+  @override
+  String get moneyErrorAmountTooLarge =>
+      'sumă prea mare (max. 99.999.999.999,99)';
+
+  @override
+  String get moneyErrorTooManyDecimals => 'prea multe zecimale';
+
+  @override
   String moneyDaySummaryTitle(String amount) {
     return 'Bani: $amount';
   }
