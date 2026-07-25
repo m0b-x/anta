@@ -71,7 +71,9 @@ class MoneyDetailSheet extends StatelessWidget {
         tappedKind == MoneyLineKind.delta ||
         tappedKind == MoneyLineKind.diff ||
         tappedKind == MoneyLineKind.span;
-    final headerColor = signedHeader
+    final headerColor = MarkdownMoneySyntax.valuePinned(headerValue)
+        ? MarkdownConstants.moneyWarning(dark: dark)
+        : signedHeader
         ? (headerValue > 0
               ? MarkdownConstants.moneyPositive(dark: dark)
               : headerValue < 0
@@ -133,6 +135,38 @@ class MoneyDetailSheet extends StatelessWidget {
                 itemBuilder: (context, index) {
                   final e = entries[index];
                   final m = e.match;
+                  // Error lines show a yellow indicator and the shared
+                  // error message (single source with both renderers).
+                  if (MarkdownMoneySyntax.hasError(m)) {
+                    final errorColor = MarkdownConstants.moneyWarning(
+                      dark: dark,
+                    );
+                    final errorMsg = MarkdownMoneySyntax.errorMessage(
+                      m.error!,
+                    );
+                    return ListTile(
+                      dense: true,
+                      leading: Text(
+                        '!',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          color: errorColor,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      title: Text(
+                        errorMsg,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: errorColor,
+                        ),
+                      ),
+                      subtitle: Text(
+                        e.line,
+                        style: theme.textTheme.bodySmall,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    );
+                  }
                   final isDisplay =
                       m.kind == MoneyLineKind.total ||
                       m.kind == MoneyLineKind.delta ||

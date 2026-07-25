@@ -121,6 +121,13 @@ class MarkdownConstants {
   static Color moneyNeutral({required bool dark}) =>
       dark ? const Color(0xFFFFB74D) : const Color(0xFFE65100);
 
+  /// Accent for money-ledger error rows (over-limit amount, divide by
+  /// zero, …) and for computed values pinned at the balance cap. Shared
+  /// by the preview renderer, the live editor, and the detail sheet so
+  /// every surface warns in the same yellow.
+  static Color moneyWarning({required bool dark}) =>
+      dark ? const Color(0xFFFFC107) : const Color(0xFFB28704);
+
   /// The accent colour for a callout [type], in a light/dark variant.
   /// Shared by the preview renderer (bar, icon-label header, band tint)
   /// and the live editor (quote bar + `[!TYPE]` token tint) so the two

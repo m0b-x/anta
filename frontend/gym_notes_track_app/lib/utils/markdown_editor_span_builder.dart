@@ -447,6 +447,62 @@ class MarkdownEditorSpanBuilder {
     required List<GhostMatch> ghosts,
     required int balance,
   }) {
+    // Error rows keep the source text — the editor must never change a
+    // line's code units, so the message itself lives in the preview and
+    // the detail sheet. Off-caret the `$` substitutes 1:1 with the `!`
+    // the warning promises and the row tints yellow over a subtle
+    // band; on reveal the raw source shows warn-tinted, no substitution.
+    // Deliberately unscaled by any heading prefix (matching the
+    // preview): both reveal states share the base height.
+    if (MarkdownMoneySyntax.hasError(m)) {
+      final warn = MarkdownConstants.moneyWarning(dark: _isDark);
+      final children = <InlineSpan>[];
+      final lead = m.headerStart >= 0 ? m.headerStart : m.markerStart;
+      if (lead > 0) {
+        children.add(TextSpan(text: text.substring(0, lead), style: style));
+      }
+      if (reveal) {
+        _emit(
+          text: text,
+          start: lead,
+          end: text.length,
+          style: style.copyWith(color: warn),
+          baseColor: baseColor,
+          ghosts: ghosts,
+          out: children,
+        );
+        return TextSpan(style: style, children: children);
+      }
+      final warnStyle = style.copyWith(
+        color: warn,
+        backgroundColor: warn.withValues(alpha: 0.1),
+      );
+      if (m.headerStart >= 0) {
+        children.add(
+          TextSpan(
+            text: text.substring(m.headerStart, m.markerStart),
+            style: _concealStyle(style),
+          ),
+        );
+      }
+      children.add(
+        TextSpan(
+          text: '!',
+          style: warnStyle.copyWith(fontWeight: FontWeight.bold),
+        ),
+      );
+      _emit(
+        text: text,
+        start: m.markerStart + 1,
+        end: text.length,
+        style: warnStyle,
+        baseColor: baseColor,
+        ghosts: ghosts,
+        out: children,
+      );
+      return TextSpan(style: style, children: children);
+    }
+
     if (m.headerLevel > 0) {
       style = style.copyWith(
         fontSize: (style.fontSize ?? 16.0) * _headerScale(m.headerLevel),
@@ -570,6 +626,13 @@ class MarkdownEditorSpanBuilder {
     // op glyph renders at the `:` instead of leading the row. Needed
     // this early because it changes how the marker itself is emitted.
     final bool amountTrails = m.labelStart < m.amountStart;
+    // A count-taking display row may carry its accent token *after* the
+    // count (`$~ 2 teal:`); the token then sits between the count and the
+    // label rather than in the marker gap, and is concealed there instead.
+    final bool accentAfterCount =
+        m.accentStart >= 0 &&
+        m.amountEnd > m.amountStart &&
+        m.accentStart >= m.amountEnd;
     if (isDisplay) {
       if (reveal) {
         children.add(
@@ -713,7 +776,7 @@ class MarkdownEditorSpanBuilder {
     // (nothing is ever silently eaten) and brings its spacing with it.
     final bool chromeGap = amountTrails && !reveal;
     if (m.markerEnd < gapEnd) {
-      if (accentSpec != null) {
+      if (accentSpec != null && !accentAfterCount) {
         emitAccentToken(m.markerEnd, gapEnd, concealGaps: chromeGap);
       } else {
         children.add(
@@ -778,7 +841,16 @@ class MarkdownEditorSpanBuilder {
           out: children,
         );
       }
-      emitLabelRegion(m.amountEnd, text.length);
+      if (accentAfterCount && accentSpec != null) {
+        // A resolved accent written after the count is chrome, exactly
+        // like an accent-first row: conceal the token between the count
+        // and the label, then render the label proper. An unresolved
+        // token falls through to the label run and stays visible as typed.
+        emitAccentToken(m.amountEnd, m.labelStart);
+        emitLabelRegion(m.labelStart, text.length);
+      } else {
+        emitLabelRegion(m.amountEnd, text.length);
+      }
     }
     return TextSpan(style: style, children: children);
   }
@@ -842,6 +914,12 @@ class MarkdownEditorSpanBuilder {
     bool atSlot = false,
     bool filled = true,
   }) {
+    // A value pinned at the clamp limit paints in the warning accent —
+    // the number shown is the cap, not real arithmetic. Checked here so
+    // the marker chip and the slot chip can never disagree.
+    if (MarkdownMoneySyntax.valuePinned(balance)) {
+      accent = MarkdownConstants.moneyWarning(dark: _isDark);
+    }
     final signed =
         kind == MoneyLineKind.delta ||
         kind == MoneyLineKind.diff ||

@@ -259,12 +259,17 @@ class LineBasedMarkdownBuilder {
       if (_blockForLine(i) != null) continue;
       final m = MarkdownMoneySyntax.parse(_getLine(i));
       if (m == null) continue;
-      balance = MarkdownMoneySyntax.apply(balance, m);
-      if (MarkdownMoneySyntax.isEntryKind(m.kind)) {
-        history.add(balance);
-        if (m.kind == MoneyLineKind.set) {
-          periodStart = history.length - 1;
-          anchors.add(balance);
+      // Error lines never mutate the fold — including the history and
+      // checkpoint appends, or an error `$=` would shift every window
+      // here while `collectEntries` (which guards) disagreed.
+      if (!MarkdownMoneySyntax.hasError(m)) {
+        balance = MarkdownMoneySyntax.apply(balance, m);
+        if (MarkdownMoneySyntax.isEntryKind(m.kind)) {
+          history.add(balance);
+          if (m.kind == MoneyLineKind.set) {
+            periodStart = history.length - 1;
+            anchors.add(balance);
+          }
         }
       }
       (values ??= <int, int>{})[i] = MarkdownMoneySyntax.displayValue(
@@ -1110,6 +1115,37 @@ class LineBasedMarkdownBuilder {
     TextStyle baseStyle,
   ) {
     final dark = style.isDark;
+
+    // Error rows render as a warning that keeps the typed source
+    // visible and offset-mapped (search still lands on it, nothing the
+    // user wrote disappears); the message trails as computed text like
+    // the balance echoes. Heading scale is deliberately not applied —
+    // a broken row renders compact.
+    if (MarkdownMoneySyntax.hasError(m)) {
+      final warn = MarkdownConstants.moneyWarning(dark: dark);
+      final warnStyle = baseStyle.copyWith(
+        color: warn,
+        backgroundColor: warn.withValues(alpha: 0.1),
+      );
+      return TextSpan(
+        children: [
+          TextSpan(
+            text: '! ',
+            style: warnStyle.copyWith(fontWeight: FontWeight.bold),
+          ),
+          _applyHighlighting(
+            line.substring(m.markerStart),
+            warnStyle,
+            lineStart + m.markerStart,
+          ),
+          TextSpan(
+            text: '  — ${MarkdownMoneySyntax.errorMessage(m.error!)}',
+            style: baseStyle.copyWith(color: warn.withValues(alpha: 0.7)),
+          ),
+        ],
+      );
+    }
+
     final value = _moneyValues?[lineIndex] ?? 0;
     if (m.headerLevel > 0) {
       final scale = switch (m.headerLevel) {
@@ -1211,6 +1247,12 @@ class LineBasedMarkdownBuilder {
     final unresolvedAccent = m.accentStart >= 0 && accentSpec == null;
     final hasSlot = m.valueSlot >= 0;
 
+    // A value pinned at the clamp limit renders in the warning accent
+    // on every path below — the number shown is the cap, not the
+    // user's arithmetic.
+    final pinned = MarkdownMoneySyntax.valuePinned(value);
+    final warnColor = MarkdownConstants.moneyWarning(dark: dark);
+
     // The row's computed value, styled by how load-bearing it is:
     // display rows and targets feature it as a tinted pill, op rows
     // carry it as a dimmed echo beside the amount that was typed. Built
@@ -1226,7 +1268,9 @@ class LineBasedMarkdownBuilder {
         // (is red the token or the over-budget warning?). Over-budget
         // stays readable without the colour: the remaining value is
         // negative, so it renders with a leading `-`.
-        final remainColor = accentSpec != null
+        final remainColor = pinned
+            ? warnColor
+            : accentSpec != null
             ? accent
             : value < 0
             ? MarkdownConstants.moneyNegative(dark: dark)
@@ -1250,7 +1294,9 @@ class LineBasedMarkdownBuilder {
         return TextSpan(
           text: atSlot ? text : '  =  $text',
           style: baseStyle.copyWith(
-            color: style.textColor.withValues(alpha: 0.5),
+            color: pinned
+                ? warnColor
+                : style.textColor.withValues(alpha: 0.5),
           ),
         );
       }
@@ -1260,8 +1306,11 @@ class LineBasedMarkdownBuilder {
             ? ' ${MarkdownMoneySyntax.formatCentsSignedWithSymbol(value, symbol: currencySymbol, suffix: currencySuffix)} '
             : ' ${MarkdownMoneySyntax.formatCentsWithSymbol(value, symbol: currencySymbol, suffix: currencySuffix)} ',
         style: accentStyle.copyWith(
+          color: pinned ? warnColor : null,
           fontWeight: FontWeight.bold,
-          backgroundColor: accent.withValues(alpha: 0.12),
+          backgroundColor: (pinned ? warnColor : accent).withValues(
+            alpha: 0.12,
+          ),
         ),
       );
       if (onMoneyTap != null) {
@@ -1299,8 +1348,13 @@ class LineBasedMarkdownBuilder {
     // already carries its own trailing space.
     void emitLabel({bool separator = true}) {
       // An unresolved token on display rows folds back into the label so
-      // the typed text stays visible at its exact offsets.
-      final from = isDisplay && unresolvedAccent ? m.accentStart : m.labelStart;
+      // the typed text stays visible at its exact offsets — starting from
+      // whichever of the token or the count comes first, since the accent
+      // may be written either before (`$~ teal: 2`) or after (`$~ 2 teal:`)
+      // the count.
+      final from = isDisplay && unresolvedAccent
+          ? (m.accentStart < m.amountStart ? m.accentStart : m.amountStart)
+          : m.labelStart;
       // On a label-first row the trailing `:` is chrome — the op glyph
       // renders in its place — so it is not part of the label text.
       final to = amountTrails ? m.labelEnd - 1 : m.labelEnd;

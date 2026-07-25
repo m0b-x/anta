@@ -23,9 +23,11 @@
 /// `$=`/`$+`/`$-`/`$*`/`$/` line; the display-only rows (`$$` `$?` `$!`
 /// `$^` `$~`) never count. N defaults to 1 (the single most recent
 /// entry) and clamps to the note's start balance when the history is
-/// shorter. The count is 1–3 digits ending at a space or the line end;
-/// anything else (`2024`, `3x`, a zero count) stays label text, so
-/// year-labels never turn into counts. Unlike `$?` (always "since the last `$=`", however
+/// shorter. The count is a digit run of any length ending at a space or
+/// the line end — an over-large count simply clamps, so any leading
+/// number is a window (`$^ 2024 spending` means 2024 entries back; put
+/// the number after the label to keep it as text). A non-count shape
+/// (`3x`, a zero count) stays label text. Unlike `$?` (always "since the last `$=`", however
 /// many entries that spans), `$^ N` is a fixed transaction count
 /// regardless of any `$=` crossed — so `$^ 3` is "the last 3 lines that
 /// touched the balance," not "the last 3 checkpoints."
@@ -35,15 +37,18 @@
 /// "the change since the 3rd-most-recent `$=`," spanning however many
 /// `$+`/`$-`/`$*`/`$/` lines fall between. N defaults to 1, making `$~`
 /// with no count identical to `$?` (since the single last `$=`), and
-/// clamps to the note's start balance when fewer than N checkpoints
-/// precede it. Where `$?` never reaches past the last checkpoint and
-/// `$^` never reaches past it *by counting entries*, `$~ N` deliberately
-/// reaches across N of them.
+/// clamps to the **first** `$=` checkpoint when fewer than N checkpoints
+/// precede it — so an over-large N (or `ALL`) reports the change since the
+/// oldest checkpoint, staying a change *between checkpoints* rather than
+/// the absolute balance from the note start. Only a note with no `$=` at
+/// all falls back to the start balance. Where `$?` never reaches past the
+/// last checkpoint and `$^` never reaches past it *by counting entries*,
+/// `$~ N` deliberately reaches across N of them.
 ///
 /// Two optional prefixes compose with every money line:
 ///
 /// ```text
-/// ## $$ Net worth     1–6 `#` + space: the row renders header-sized
+/// ## $$ Net worth     1–6 `#` (space optional): renders header-sized
 /// $+ blue: 250 rent   colour name + `:` after the op: the value's
 ///                     accent takes that colour instead of the
 ///                     semantic green/red/neutral
@@ -142,6 +147,22 @@ enum MoneyLineKind {
   span,
 }
 
+/// Error states in money line parsing. Lines with errors render but do not
+/// count toward the ledger balance, and display a yellow error indicator.
+/// [amountTooLarge] and [tooManyDecimals] fire when an otherwise clean
+/// amount exceeds the digit limits — deliberately an error rather than a
+/// silent fall-through to plain text, so an over-limit `$=` is visibly
+/// broken instead of quietly not counting.
+enum MoneyLineError {
+  labelFirstMissingAmount,
+  unresolvedAccent,
+  nonNumericAmount,
+  nonNumericWindowCount,
+  divideByZero,
+  amountTooLarge,
+  tooManyDecimals,
+}
+
 /// A parsed money line. All offsets are relative to the scanned line.
 ///
 /// `[markerStart, markerEnd)` covers the `$` + op character (or `$$`),
@@ -210,6 +231,11 @@ class MoneyLineMatch {
   /// `$$` marker.
   final int valueSlot;
 
+  /// If non-null, this line has a syntax error and does not count toward
+  /// the ledger balance. Renderers show a yellow error indicator instead
+  /// of normal rendering.
+  final MoneyLineError? error;
+
   const MoneyLineMatch({
     required this.kind,
     this.headerStart = -1,
@@ -225,6 +251,7 @@ class MoneyLineMatch {
     required this.amountFixed,
     this.windowCount = 1,
     this.valueSlot = -1,
+    this.error,
   });
 }
 
@@ -261,9 +288,13 @@ class MarkdownMoneySyntax {
   /// disagree about an oversized line.
   static const int maxLineLength = 4096;
 
-  /// Balances are clamped to ±[balanceLimitCents] after every op so
-  /// repeated multiplication can never overflow 64-bit intermediates.
-  static const int balanceLimitCents = 50000000000;
+  /// Balances are clamped to ±[balanceLimitCents] (999,999,999,999.99)
+  /// after every op. Multiplication and division go through the split
+  /// helpers below, whose intermediates stay under 2^53 — the arithmetic
+  /// is exact on every platform Flutter targets, including web. A value
+  /// pinned at exactly ±this renders with the warning accent so a capped
+  /// balance is never mistaken for a real one.
+  static const int balanceLimitCents = 99999999999999;
 
   /// Fixed-point scale of [MoneyLineMatch.amountFixed].
   static const int amountScale = 10000;
@@ -289,11 +320,14 @@ class MarkdownMoneySyntax {
   /// colour-name grammar, letter-led to never shadow a numeric amount).
   static const int _maxAccentNameLength = 24;
 
-  /// Set/add/subtract amounts: up to 8 integer digits, 2 decimals.
-  /// Capped below [balanceLimitCents] so a single amount can never be
-  /// silently clamped — in particular a `$=` row's displayed amount is
-  /// always exactly the balance it sets.
-  static const int _maxAmountIntDigits = 8;
+  /// Set/add/subtract amounts: up to 11 integer digits
+  /// (99,999,999,999.99), 2 decimals. Capped below [balanceLimitCents]
+  /// so a single amount can never be silently clamped — in particular a
+  /// `$=` row's displayed amount is always exactly the balance it sets —
+  /// and low enough that [MoneyLineMatch.amountFixed] stays under 2^53.
+  /// A digit run past either limit parses as an *error row* (yellow,
+  /// does not count), never as silent plain text.
+  static const int _maxAmountIntDigits = 11;
   static const int _maxAmountDecimals = 2;
 
   /// Multiply/divide factors: up to 4 integer digits, 4 decimals.
@@ -322,7 +356,10 @@ class MarkdownMoneySyntax {
     while (i < end && source.codeUnitAt(i) == _kHash) {
       i++;
     }
-    if (i - h > 6 || i >= end || !_isSpace(source.codeUnitAt(i))) return false;
+    if (i - h > 6 || i >= end) return false;
+    // The space between the hashes and the `$` is optional (`##$$` and
+    // `## $$` both lead with money) — unambiguous, since a no-space hash
+    // run is not a valid heading and nothing else claims the shape.
     while (i < end && _isSpace(source.codeUnitAt(i))) {
       i++;
     }
@@ -332,13 +369,15 @@ class MarkdownMoneySyntax {
   /// Parses [line] as a money line, or `null` when it is not one.
   ///
   /// Shape: optional leading spaces/tabs, an optional 1–6 `#` heading
-  /// prefix followed by at least one space, `$` + op char, an optional
+  /// prefix (space before the `$` optional), `$` + op char, an optional
   /// letter-led colour-name token ending in `:` (followed by a space or
   /// the line end), then for ops an amount (`digits` with optional
   /// `.`/`,` decimals) that must end at a space or the line end, then
   /// an optional label. `$$` / `$?` / `$^` take no amount. A malformed
-  /// amount rejects the whole line so it renders as plain text —
-  /// visible feedback that it did not count.
+  /// amount rejects the whole line so it renders as plain text; a
+  /// *well-formed* amount past the digit limits (and `$/ 0`) instead
+  /// parses as an error row — yellow, does not count — so an over-limit
+  /// line is visibly broken rather than silently inert.
   static MoneyLineMatch? parse(String line) {
     final n = line.length;
     if (n < 2 || n > maxLineLength) return null;
@@ -354,10 +393,15 @@ class MarkdownMoneySyntax {
         i++;
       }
       final level = i - h;
-      if (level > 6 || i >= n || !_isSpace(line.codeUnitAt(i))) return null;
+      if (level > 6 || i >= n) return null;
+      // Space after the hashes is optional (`##$$` = `## $$`): a
+      // no-space hash run is not a valid heading, so the `$` that must
+      // follow keeps the shape unambiguous. Mirrors
+      // [leadsWithMoneyInRange].
       while (i < n && _isSpace(line.codeUnitAt(i))) {
         i++;
       }
+      if (i >= n || line.codeUnitAt(i) != _kDollar) return null;
       headerStart = h;
       headerLevel = level;
     }
@@ -417,28 +461,67 @@ class MarkdownMoneySyntax {
     }
 
     if (isDisplay) {
-      // `$^`/`$~` take an optional window count: 1–3 digits ending at a
-      // space or the line end (`$^` counts entries, `$~` counts `$=`
-      // checkpoints). Anything else (`2024`, `3x`, and a zero count —
-      // a window of 0 measures nothing) is label text, so
-      // numeric-looking labels never change a row's window and
-      // [MoneyLineMatch.windowCount] is always ≥ 1.
+      // `$^`/`$~` take an optional window count: a digit run of any
+      // length or `ALL` ending at a space or the line end (`$^` counts
+      // entries, `$~` counts `$=` checkpoints; `ALL` means all
+      // entries/checkpoints since this period/note start). An over-large
+      // count clamps to the oldest entry/checkpoint in the fold, so any
+      // leading number is a valid window. Only a non-count shape (`3x`,
+      // and a zero count — a window of 0 measures nothing) stays label
+      // text; [MoneyLineMatch.windowCount] is always ≥ 1 (or -1 for ALL).
       final amountStart = i;
       var amountEnd = i;
       var windowCount = 1;
       final bool takesCount =
           kind == MoneyLineKind.diff || kind == MoneyLineKind.span;
-      if (takesCount && i < n && _isDigit(line.codeUnitAt(i))) {
-        var j = i;
-        var v = 0;
-        while (j < n && j - i < 4 && _isDigit(line.codeUnitAt(j))) {
-          v = v * 10 + (line.codeUnitAt(j) - 0x30);
-          j++;
+      if (takesCount && i < n) {
+        // Check for "ALL" keyword
+        if (i + 3 <= n &&
+            line.codeUnitAt(i) == 0x41 && // A
+            line.codeUnitAt(i + 1) == 0x4C && // L
+            line.codeUnitAt(i + 2) == 0x4C && // L
+            (i + 3 >= n || _isSpace(line.codeUnitAt(i + 3)))) {
+          amountEnd = i + 3;
+          windowCount = -1; // Sentinel: all entries/checkpoints
+          i = i + 3;
+          while (i < n && _isSpace(line.codeUnitAt(i))) {
+            i++;
+          }
+        } else if (_isDigit(line.codeUnitAt(i))) {
+          // Numeric window count. Accumulation saturates at 10^9 so an
+          // absurd digit run can't overflow — a saturated count already
+          // clamps to the oldest entry/checkpoint anyway.
+          var j = i;
+          var v = 0;
+          while (j < n && _isDigit(line.codeUnitAt(j))) {
+            if (v < 1000000000) {
+              v = v * 10 + (line.codeUnitAt(j) - 0x30);
+            }
+            j++;
+          }
+          if (v > 0 && (j >= n || _isSpace(line.codeUnitAt(j)))) {
+            amountEnd = j;
+            windowCount = v;
+            i = j;
+            while (i < n && _isSpace(line.codeUnitAt(i))) {
+              i++;
+            }
+          }
         }
-        if (v > 0 && j - i <= 3 && (j >= n || _isSpace(line.codeUnitAt(j)))) {
-          amountEnd = j;
-          windowCount = v;
-          i = j;
+      }
+      // A count-taking display row (`$^`/`$~`) may place its accent token
+      // *after* the count (`$~ 2 teal:`) instead of before it
+      // (`$~ teal: 2`) — the more natural spelling, since the count belongs
+      // to the operator and the colour to the whole row. Scan for one here
+      // when the pre-count scan found none, so both orders resolve to the
+      // same match (accent offsets then sit above the count, the one shape
+      // where [accentStart] is past [amountEnd]).
+      if (takesCount && accentStart < 0) {
+        final colon2 = _scanAccentEnd(line, i, n);
+        if (colon2 > 0) {
+          accentStart = i;
+          accentEnd = colon2;
+          i = colon2 + 1;
           while (i < n && _isSpace(line.codeUnitAt(i))) {
             i++;
           }
@@ -477,13 +560,33 @@ class MarkdownMoneySyntax {
     // one that allows a label with no separator rules at all.
     final head = _parseAmount(line, i, n, maxInt, maxDec);
     if (head != null && (head.end >= n || _isSpace(line.codeUnitAt(head.end)))) {
-      amountStart = i;
-      amountEnd = head.end;
-      amountFixed = head.fixed;
       var j = head.end;
       while (j < n && _isSpace(line.codeUnitAt(j))) {
         j++;
       }
+      if (head.error != null) {
+        // A clean amount shape past the digit limits: an error row, so
+        // the over-limit line is visibly broken instead of silently
+        // rendering plain and not counting.
+        return MoneyLineMatch(
+          kind: kind,
+          headerStart: headerStart,
+          headerLevel: headerLevel,
+          markerStart: markerStart,
+          markerEnd: markerEnd,
+          accentStart: accentStart,
+          accentEnd: accentEnd,
+          amountStart: i,
+          amountEnd: head.end,
+          labelStart: j,
+          labelEnd: n,
+          amountFixed: 0,
+          error: head.error,
+        );
+      }
+      amountStart = i;
+      amountEnd = head.end;
+      amountFixed = head.fixed;
       labelStart = j;
       labelEnd = n;
     } else {
@@ -493,14 +596,57 @@ class MarkdownMoneySyntax {
       // 2024 — and it costs nothing, since a label ending in `:` is how
       // you would write the line anyway.
       final tail = _scanTrailingAmount(line, i, n, maxInt, maxDec);
-      if (tail == null) return null;
+      if (tail == null) {
+        // Check if the label ends with a colon (syntax error: missing amount)
+        var trimEnd = n;
+        while (trimEnd > i && _isSpace(line.codeUnitAt(trimEnd - 1))) {
+          trimEnd--;
+        }
+        if (trimEnd > i && line.codeUnitAt(trimEnd - 1) == _kColon) {
+          // Label-first shape detected (ends with `:`) but no trailing amount
+          return MoneyLineMatch(
+            kind: kind,
+            headerStart: headerStart,
+            headerLevel: headerLevel,
+            markerStart: markerStart,
+            markerEnd: markerEnd,
+            accentStart: accentStart,
+            accentEnd: accentEnd,
+            amountStart: i,
+            amountEnd: i,
+            labelStart: i,
+            labelEnd: trimEnd,
+            amountFixed: 0,
+            error: MoneyLineError.labelFirstMissingAmount,
+          );
+        }
+        return null;
+      }
+      if (tail.error != null) {
+        // Same over-limit rule as the amount-first shape: a clean
+        // trailing amount past the digit limits is an error row.
+        return MoneyLineMatch(
+          kind: kind,
+          headerStart: headerStart,
+          headerLevel: headerLevel,
+          markerStart: markerStart,
+          markerEnd: markerEnd,
+          accentStart: accentStart,
+          accentEnd: accentEnd,
+          amountStart: tail.amountStart,
+          amountEnd: tail.amountEnd,
+          labelStart: i,
+          labelEnd: tail.labelEnd,
+          amountFixed: 0,
+          error: tail.error,
+        );
+      }
       amountStart = tail.amountStart;
       amountEnd = tail.amountEnd;
       amountFixed = tail.fixed;
       labelStart = i;
       labelEnd = tail.labelEnd;
     }
-    if (kind == MoneyLineKind.divide && amountFixed == 0) return null;
 
     return MoneyLineMatch(
       kind: kind,
@@ -516,14 +662,25 @@ class MarkdownMoneySyntax {
       labelEnd: labelEnd,
       amountFixed: amountFixed,
       valueSlot: _scanValueSlot(line, labelStart, labelEnd),
+      // `$/ 0` is an error row (yellow, does not count) rather than
+      // silent plain text — the enum and sheet always promised this
+      // message; parse used to bail to `null` instead of emitting it.
+      error: kind == MoneyLineKind.divide && amountFixed == 0
+          ? MoneyLineError.divideByZero
+          : null,
     );
   }
 
   /// Parses an amount at [start]: up to [maxInt] integer digits and an
   /// optional `.`/`,` fraction of up to [maxDec] digits. Returns the
   /// offset just past it plus its fixed-point value, or `null` when the
-  /// run is not a well-formed amount. Callers decide what must follow.
-  static ({int end, int fixed})? _parseAmount(
+  /// run is not an amount shape at all. A run that *is* an amount shape
+  /// but exceeds a limit still consumes to its end and comes back with
+  /// [MoneyLineError.amountTooLarge] / [MoneyLineError.tooManyDecimals]
+  /// set (and `fixed` 0) — callers turn that into an error row rather
+  /// than silent plain text. Accumulation stops at the limit, so an
+  /// over-long run can never overflow. Callers decide what must follow.
+  static ({int end, int fixed, MoneyLineError? error})? _parseAmount(
     String line,
     int start,
     int n,
@@ -534,12 +691,15 @@ class MarkdownMoneySyntax {
     var intPart = 0;
     var intDigits = 0;
     while (i < n && _isDigit(line.codeUnitAt(i))) {
-      intPart = intPart * 10 + (line.codeUnitAt(i) - 0x30);
+      if (intDigits < maxInt) {
+        intPart = intPart * 10 + (line.codeUnitAt(i) - 0x30);
+      }
       i++;
       intDigits++;
-      if (intDigits > maxInt) return null;
     }
     if (intDigits == 0) return null;
+    MoneyLineError? error;
+    if (intDigits > maxInt) error = MoneyLineError.amountTooLarge;
 
     var decPart = 0;
     var decDigits = 0;
@@ -547,19 +707,22 @@ class MarkdownMoneySyntax {
         (line.codeUnitAt(i) == _kDot || line.codeUnitAt(i) == _kComma)) {
       var j = i + 1;
       while (j < n && _isDigit(line.codeUnitAt(j))) {
-        decPart = decPart * 10 + (line.codeUnitAt(j) - 0x30);
+        if (decDigits < maxDec) {
+          decPart = decPart * 10 + (line.codeUnitAt(j) - 0x30);
+        }
         j++;
         decDigits++;
-        if (decDigits > maxDec) return null;
       }
       if (decDigits == 0) return null;
       i = j;
+      if (decDigits > maxDec) error ??= MoneyLineError.tooManyDecimals;
     }
+    if (error != null) return (end: i, fixed: 0, error: error);
     var scale = amountScale;
     for (var d = 0; d < decDigits; d++) {
       scale ~/= 10;
     }
-    return (end: i, fixed: intPart * amountScale + decPart * scale);
+    return (end: i, fixed: intPart * amountScale + decPart * scale, error: null);
   }
 
   /// Scans a label-first op row's trailing amount: `label: 5000` ending
@@ -570,7 +733,13 @@ class MarkdownMoneySyntax {
   /// The whole tail after the last `:` must be the amount and nothing
   /// else, so `$= Net worth: 5000 as of today` stays plain text rather
   /// than guessing which number was meant.
-  static ({int labelEnd, int amountStart, int amountEnd, int fixed})?
+  static ({
+    int labelEnd,
+    int amountStart,
+    int amountEnd,
+    int fixed,
+    MoneyLineError? error,
+  })?
   _scanTrailingAmount(String line, int from, int n, int maxInt, int maxDec) {
     var end = n;
     while (end > from && _isSpace(line.codeUnitAt(end - 1))) {
@@ -591,7 +760,13 @@ class MarkdownMoneySyntax {
       c--;
     }
     if (c <= from || line.codeUnitAt(c - 1) != _kColon) return null;
-    return (labelEnd: c, amountStart: s, amountEnd: end, fixed: parsed.fixed);
+    return (
+      labelEnd: c,
+      amountStart: s,
+      amountEnd: end,
+      fixed: parsed.fixed,
+      error: parsed.error,
+    );
   }
 
   /// Scans the label region `[from, n)` for the value slot: a lone `$`
@@ -641,11 +816,45 @@ class MarkdownMoneySyntax {
       c == 0x5F || // _
       c == 0x2D; // -
 
+  /// Returns true if [m] has a syntax error. Error lines render but do
+  /// not mutate the ledger balance.
+  static bool hasError(MoneyLineMatch m) => m.error != null;
+
+  /// Short description of [e], shared by the preview, the live editor,
+  /// and the detail sheet so every surface names an error identically.
+  /// Hardcoded EN like the money toolbar shortcut labels.
+  static String errorMessage(MoneyLineError e) {
+    switch (e) {
+      case MoneyLineError.labelFirstMissingAmount:
+        return 'missing amount after ":"';
+      case MoneyLineError.unresolvedAccent:
+        return 'unknown colour name';
+      case MoneyLineError.nonNumericAmount:
+        return 'invalid amount';
+      case MoneyLineError.nonNumericWindowCount:
+        return 'invalid count';
+      case MoneyLineError.divideByZero:
+        return 'divide by zero';
+      case MoneyLineError.amountTooLarge:
+        return 'amount too large (max 99,999,999,999.99)';
+      case MoneyLineError.tooManyDecimals:
+        return 'too many decimals';
+    }
+  }
+
+  /// Whether [cents] sits exactly at the clamp limit — i.e. the
+  /// computed value is the cap, not real arithmetic. Renderers show
+  /// pinned values in the warning accent so a capped balance is never
+  /// mistaken for a genuine one.
+  static bool valuePinned(int cents) =>
+      cents == balanceLimitCents || cents == -balanceLimitCents;
+
   /// Applies [m] to a running [balanceCents] and returns the new
   /// balance in cents, clamped to ±[balanceLimitCents]. Totals return
-  /// the balance unchanged. Multiplication/division round half away
-  /// from zero to the nearest cent.
+  /// the balance unchanged. Error lines return unchanged. Multiplication/division
+  /// round half away from zero to the nearest cent.
   static int apply(int balanceCents, MoneyLineMatch m) {
+    if (hasError(m)) return balanceCents;
     switch (m.kind) {
       case MoneyLineKind.set:
         return _clamp(m.amountFixed ~/ 100);
@@ -654,9 +863,9 @@ class MarkdownMoneySyntax {
       case MoneyLineKind.subtract:
         return _clamp(balanceCents - m.amountFixed ~/ 100);
       case MoneyLineKind.multiply:
-        return _clamp(_roundedDiv(balanceCents * m.amountFixed, amountScale));
+        return _clamp(_mulScaled(balanceCents, m.amountFixed));
       case MoneyLineKind.divide:
-        return _clamp(_roundedDiv(balanceCents * amountScale, m.amountFixed));
+        return _clamp(_divScaled(balanceCents, m.amountFixed));
       case MoneyLineKind.total:
       case MoneyLineKind.delta:
       case MoneyLineKind.target:
@@ -706,8 +915,10 @@ class MarkdownMoneySyntax {
   /// [anchors] is the parallel append-only *checkpoint*-balance history:
   /// index 0 is the note's start balance and every `$=` appends its
   /// resulting balance. `$~ N` counts back N entries in it — deliberately
-  /// reaching across checkpoints, floored at the note start — so `$~ 1`
-  /// equals `$?` while `$~ 3` spans the last three `$=` periods.
+  /// reaching across checkpoints, floored at the first checkpoint (index 1,
+  /// or index 0 only when the note has no `$=`) — so `$~ 1` equals `$?`
+  /// while `$~ 3` spans the last three `$=` periods and any larger N
+  /// reports the change since the oldest checkpoint.
   ///
   /// Single source of truth for the editor index pass, the preview
   /// ledger fold, and [collectEntries], so the three can never disagree.
@@ -724,12 +935,20 @@ class MarkdownMoneySyntax {
       case MoneyLineKind.target:
         return m.amountFixed ~/ 100 + balance - history[periodStart];
       case MoneyLineKind.diff:
-        final back = history.length - 1 - m.windowCount;
+        final count = m.windowCount < 0 ? history.length : m.windowCount;
+        final back = history.length - 1 - count;
         final ref = back < periodStart ? periodStart : back;
         return balance - history[ref];
       case MoneyLineKind.span:
-        final back = anchors.length - m.windowCount;
-        final ref = back < 0 ? 0 : back;
+        final count = m.windowCount < 0 ? anchors.length : m.windowCount;
+        final back = anchors.length - count;
+        // Floor at the first `$=` checkpoint (index 1) rather than the
+        // note start (index 0), so a `$~ N` reaching past the oldest
+        // checkpoint still reports a change *between checkpoints* — never
+        // the absolute balance measured from a synthetic zero start. Falls
+        // back to the note start only when the note has no `$=` at all.
+        final floor = anchors.length > 1 ? 1 : 0;
+        final ref = back < floor ? floor : back;
         return balance - anchors[ref];
       default:
         return balance;
@@ -822,14 +1041,17 @@ class MarkdownMoneySyntax {
       if (line.isEmpty || !leadsWithMoney(line) || isInert(i)) continue;
       final m = parse(line);
       if (m == null) continue;
-      balance = apply(balance, m);
-      if (isEntryKind(m.kind)) {
-        history.add(balance);
-        entryLines.add(i);
-        if (m.kind == MoneyLineKind.set) {
-          periodStart = history.length - 1;
-          anchors.add(balance);
-          anchorLines.add(i);
+      // Error lines don't mutate the balance, but still appear in entries.
+      if (!hasError(m)) {
+        balance = apply(balance, m);
+        if (isEntryKind(m.kind)) {
+          history.add(balance);
+          entryLines.add(i);
+          if (m.kind == MoneyLineKind.set) {
+            periodStart = history.length - 1;
+            anchors.add(balance);
+            anchorLines.add(i);
+          }
         }
       }
       entries.add(
@@ -853,6 +1075,44 @@ class MarkdownMoneySyntax {
       : cents > balanceLimitCents
       ? balanceLimitCents
       : cents;
+
+  /// `balance × factor` where [f] is the factor in fixed-point
+  /// 1/[amountScale]ths, rounding half away from zero to the cent.
+  /// Split so no intermediate exceeds ~[balanceLimitCents]: the naive
+  /// `balance * f` product overflows 2^53 (web) and can overflow 2^63
+  /// with the raised balance limit. Splitting the balance at the scale
+  /// keeps every term exact: `(hi·S + lo)·f/S = hi·f + lo·f/S`, where
+  /// the first term is a plain integer product bounded by the early
+  /// clamp check and the second stays under S·f.
+  static int _mulScaled(int balanceCents, int f) {
+    if (balanceCents == 0 || f == 0) return 0;
+    final neg = balanceCents < 0;
+    final a = neg ? -balanceCents : balanceCents;
+    final hi = a ~/ amountScale;
+    final lo = a % amountScale;
+    if (hi > balanceLimitCents ~/ f) {
+      return neg ? -balanceLimitCents : balanceLimitCents;
+    }
+    final r = hi * f + _roundedDiv(lo * f, amountScale);
+    return neg ? -r : r;
+  }
+
+  /// `balance ÷ factor` with [f] as in [_mulScaled] (never 0 — the
+  /// parser turns `$/ 0` into an error row), i.e. `balance·S/f`,
+  /// rounding half away from zero. Same splitting rationale:
+  /// `(q·f + rem)·S/f = q·S + rem·S/f`, early-clamped so `q·S` can
+  /// never overflow even when dividing by a factor below 1.
+  static int _divScaled(int balanceCents, int f) {
+    if (balanceCents == 0) return 0;
+    final neg = balanceCents < 0;
+    final a = neg ? -balanceCents : balanceCents;
+    final q = a ~/ f;
+    if (q > balanceLimitCents ~/ amountScale) {
+      return neg ? -balanceLimitCents : balanceLimitCents;
+    }
+    final r = q * amountScale + _roundedDiv(a % f * amountScale, f);
+    return neg ? -r : r;
+  }
 
   static int _roundedDiv(int a, int b) {
     final r = (a.abs() + (b >> 1)) ~/ b;

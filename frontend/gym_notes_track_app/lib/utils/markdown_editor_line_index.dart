@@ -347,12 +347,17 @@ class MarkdownEditorLineIndex {
         }
         final MoneyLineMatch? m = MarkdownMoneySyntax.parse(text);
         if (m == null) continue;
-        balance = MarkdownMoneySyntax.apply(balance, m);
-        if (MarkdownMoneySyntax.isEntryKind(m.kind)) {
-          _entryBalances.add(balance);
-          if (m.kind == MoneyLineKind.set) {
-            periodStart = _entryBalances.length - 1;
-            _anchorBalances.add(balance);
+        // Error lines never mutate the fold — including the history and
+        // checkpoint appends, or an error `$=` would shift every window
+        // here while `collectEntries` (which guards) disagreed.
+        if (!MarkdownMoneySyntax.hasError(m)) {
+          balance = MarkdownMoneySyntax.apply(balance, m);
+          if (MarkdownMoneySyntax.isEntryKind(m.kind)) {
+            _entryBalances.add(balance);
+            if (m.kind == MoneyLineKind.set) {
+              periodStart = _entryBalances.length - 1;
+              _anchorBalances.add(balance);
+            }
           }
         }
         _moneyLines.add(g);

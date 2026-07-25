@@ -1293,7 +1293,11 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     final periodStartHist = lastAnchorLine < 0
         ? 0
         : entryLines.lastIndexOf(lastAnchorLine) + 1;
-    var refHist = e - tapped.windowCount;
+    // `ALL` (windowCount < 0) counts every entry in the history (length
+    // e + 1, incl. the note-start index 0); clamped to the period start
+    // below, exactly like [MarkdownMoneySyntax.displayValue].
+    final count = tapped.windowCount < 0 ? e + 1 : tapped.windowCount;
+    var refHist = e - count;
     if (refHist < periodStartHist) refHist = periodStartHist;
     // history[refHist] is the balance after entryLines[refHist - 1], so
     // that entry is the window's visible baseline (the note start when
@@ -1306,8 +1310,9 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   }
 
   /// The ledger rows a tapped `$~ N` measures across: every money row
-  /// from the Nth-most-recent `$=` checkpoint (floored at the note
-  /// start) through the tapped row. Resolves the window the same way
+  /// from the Nth-most-recent `$=` checkpoint (floored at the first
+  /// checkpoint, or the note start only when the note has no `$=`)
+  /// through the tapped row. Resolves the window the same way
   /// `displayValue` does — N entries back in the append-only
   /// checkpoint-balance history (index 0 = note start, one per `$=`) —
   /// so the sheet's running column reconstructs the change end to end.
@@ -1325,11 +1330,17 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     int lineIndex,
   ) {
     final anchorLines = collected.anchorLines;
-    // Reference index in the checkpoint-balance history: N checkpoints
-    // back, floored at index 0 (the note start). The history is one
-    // longer than [anchorLines] because index 0 is that start.
-    var ref = anchorLines.length + 1 - tapped.windowCount;
-    if (ref < 0) ref = 0;
+    // Checkpoint-balance history length, incl. the note-start index 0 that
+    // [anchorLines] omits. `ALL` (windowCount < 0) counts every checkpoint.
+    final anchorsLen = anchorLines.length + 1;
+    final count = tapped.windowCount < 0 ? anchorsLen : tapped.windowCount;
+    // Reference index in that history: N checkpoints back, floored at the
+    // first checkpoint (index 1) so an over-large N stays a change between
+    // checkpoints — matching [MarkdownMoneySyntax.displayValue]. Only a
+    // note with no `$=` falls back to the note start (index 0).
+    final floor = anchorsLen > 1 ? 1 : 0;
+    var ref = anchorsLen - count;
+    if (ref < floor) ref = floor;
     // Its source line: the note start (line 0) when ref floors there,
     // else the `$=` that set the reference balance.
     final baselineLine = ref >= 1 ? anchorLines[ref - 1] : 0;
