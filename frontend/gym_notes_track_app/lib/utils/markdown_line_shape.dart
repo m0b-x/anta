@@ -9,11 +9,14 @@ import 'markdown_money_syntax.dart';
 /// line-breaker never splits such a line (the tail would lose the lead
 /// marker and the construct's meaning with it — a torn money row stops
 /// counting, a torn table row breaks the table) and the list-aware
-/// paste never prefixes one with a list marker (all of these grammars
-/// are line-led, so `- $+ 12.50` is no longer a money line). List items
-/// are deliberately not covered: both consumers already have their own
-/// list handling via `MarkdownListSyntax`, and wrapping long list prose
-/// is exactly what the width breaker exists for.
+/// paste never prefixes one with a list marker (`- $+ 12.50` *is* a
+/// money row nowadays, but prefixing pasted ledger lines would still
+/// change what the user pasted, so the no-prefix rule stays). List
+/// items are deliberately not covered: both consumers already have
+/// their own list handling via `MarkdownListSyntax`, and wrapping long
+/// list prose is exactly what the width breaker exists for — except a
+/// **list-prefixed money row**, which is a money row first and must
+/// stay intact like its unprefixed spelling.
 ///
 /// Matched by shape only, mirroring the preview's line dispatch in
 /// `LineBasedMarkdownBuilder`: `$`-led lines count only when the full
@@ -49,6 +52,9 @@ class MarkdownLineShape {
         return i <= 6 &&
             (i == trimmed.length || trimmed.codeUnitAt(i) == 0x20);
     }
-    return false;
+    // List-prefixed money rows (`- $+ 12.50`, `1. $$`): the probe is
+    // cheap and rejects ordinary list prose before the full parse runs.
+    return MarkdownMoneySyntax.leadsWithMoney(trimmed) &&
+        MarkdownMoneySyntax.parse(trimmed) != null;
   }
 }

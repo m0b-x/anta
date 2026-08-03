@@ -9,7 +9,8 @@
 /// $/ 2            divide the balance (e.g. split)
 /// $$ label        show the running total at this point
 /// $? label        show the net change since the last `$=` checkpoint
-/// $! 500 label    spending target: shows the remaining budget
+/// $! 500 label    declare a spending target (budget)
+/// $! label        show the remaining budget vs the active target
 /// $^ label        show the change caused by the most recent entry
 /// $^ 3 label      show the change across the last 3 entries
 /// $~ label        show the change since the last `$=` checkpoint
@@ -44,6 +45,21 @@
 /// all falls back to the start balance. Where `$?` never reaches past the
 /// last checkpoint and `$^` never reaches past it *by counting entries*,
 /// `$~ N` deliberately reaches across N of them.
+///
+/// `$!` splits on the presence of an amount. With one it *declares* a
+/// spending target — a pure statement whose displayed value is the
+/// target itself — and remembers the balance at that point as the
+/// budget's baseline. Without one it is the *status* row ([remaining]):
+/// its value is `target − spent since the declaration` (equivalently
+/// `target + balance − baseline`), rendered green while ≥ 0 and red
+/// once overspent. The baseline survives `$=` checkpoints on purpose:
+/// updating the balance with `$= 450` counts as spending against the
+/// budget, so a ledger kept entirely with `$=` set-rows still measures
+/// its targets. A later `$!` declaration replaces the active target and
+/// re-anchors the baseline; a status row with no declaration above it
+/// has nothing to measure and renders a "no target" chip
+/// ([noTargetSentinel]) instead of a number. The status shape needs a
+/// space (or line end) after `$!`, so `$!important` stays plain text.
 ///
 /// Two optional prefixes compose with every money line:
 ///
@@ -127,13 +143,17 @@
 /// leading backslash or any non-matching shape renders as plain text.
 library;
 
-/// Kinds of money line. [total], [delta], [target], [diff], and [span]
-/// perform no arithmetic — [total] displays the running balance where it
-/// appears, [delta] the net change since the last [set] (or the note
-/// start), [target] declares a spending goal whose displayed value is
-/// the remaining budget (target − spent since the last [set]), [diff]
-/// the change across the last N balance-changing *entries*, and [span]
-/// the change across the last N `$=` *checkpoints*.
+/// Kinds of money line. [total], [delta], [target], [remaining],
+/// [diff], and [span] perform no arithmetic — [total] displays the
+/// running balance where it appears, [delta] the net change since the
+/// last [set] (or the note start), [target] declares a spending goal
+/// (`$!` with an amount; its displayed value is the target itself, and
+/// the fold remembers the balance at the declaration as the budget's
+/// baseline), [remaining] is the target's status row (`$!` with no
+/// amount; displays `target − spent since the declaration`, the
+/// [noTargetSentinel] when no declaration precedes it), [diff] the
+/// change across the last N balance-changing *entries*, and [span] the
+/// change across the last N `$=` *checkpoints*.
 enum MoneyLineKind {
   set,
   add,
@@ -143,6 +163,7 @@ enum MoneyLineKind {
   total,
   delta,
   target,
+  remaining,
   diff,
   span,
 }
@@ -180,6 +201,41 @@ class MoneyLineMatch {
   /// Heading level 1..6, or 0 when the line has no heading prefix.
   final int headerLevel;
 
+  /// `[listMarkerStart, listMarkerEnd)` covers an optional list-marker
+  /// prefix before the `$` — a bullet (`- $= 500`, markers `-`/`*`/`+`/
+  /// `•`) or an ordered marker incl. its delimiter (`1. $+ 50`) — or
+  /// -1/-1. Shape-only like the heading prefix: the row renders as a
+  /// list item (indent + glyph + hanging wrap) while the ledger is
+  /// unaffected. Leading indent runs `[0, listMarkerStart)`; nesting
+  /// level comes from `MarkdownListSyntax.indentLevel`. Mutually
+  /// exclusive with the heading prefix — after a list marker only `$`
+  /// is accepted — and task items (`- [ ]`) never parse as money, so
+  /// checkbox lines keep their checkbox behaviour.
+  final int listMarkerStart;
+  final int listMarkerEnd;
+
+  /// An optional emphasis wrapper around the whole row —
+  /// `*$~ 2 Change: $ *`, `**$$ Total: $**` — recorded as the opening
+  /// run `[emphasisStart, emphasisStart + emphasisLen)` (uniform `*` or
+  /// `_`, 1–3 chars, tight against the `$`) and the matching closing
+  /// run starting at [emphasisCloseStart] (same char, same length, at
+  /// the line end after optional trailing spaces). -1/0/-1 when absent.
+  /// Shape-only chrome like the other prefixes: the ledger is
+  /// unaffected, renderers style the row italic/bold and conceal the
+  /// runs. The row's content ends at [emphasisCloseStart] — every
+  /// in-row offset (label, amount, slot) already respects it. An
+  /// opening run without its matching closer rejects the whole line
+  /// (visibly raw, never a half-styled guess).
+  final int emphasisStart;
+  final int emphasisLen;
+  final int emphasisCloseStart;
+
+  /// `*`/`_` (1 marker char) and `***` (3) render italic.
+  bool get emphasisItalic => emphasisLen == 1 || emphasisLen == 3;
+
+  /// `**`/`__` (2 marker chars) and `***` (3) render bold.
+  bool get emphasisBold => emphasisLen >= 2;
+
   /// Offset of the leading `$`.
   final int markerStart;
 
@@ -210,7 +266,10 @@ class MoneyLineMatch {
   /// where the label ends at its `:` and the amount trails behind it —
   /// the one shape where [labelStart] is *below* [amountStart]. Compare
   /// the two to know which order to render in; never assume the label
-  /// runs to the end of the line.
+  /// runs to the end of the line. A label-first row may also carry free
+  /// trailing text in `[amountEnd, line.length)` (`$= Worth: 500 lei so
+  /// far`), covered by no offset pair here — renderers emit it like a
+  /// second label region.
   final int labelEnd;
 
   /// The amount in fixed-point 1/10000ths (`12.5` → `125000`). Zero
@@ -240,6 +299,11 @@ class MoneyLineMatch {
     required this.kind,
     this.headerStart = -1,
     this.headerLevel = 0,
+    this.listMarkerStart = -1,
+    this.listMarkerEnd = -1,
+    this.emphasisStart = -1,
+    this.emphasisLen = 0,
+    this.emphasisCloseStart = -1,
     required this.markerStart,
     required this.markerEnd,
     this.accentStart = -1,
@@ -253,6 +317,93 @@ class MoneyLineMatch {
     this.valueSlot = -1,
     this.error,
   });
+}
+
+/// The per-row rendering decisions every surface shares, derived once
+/// from a [MoneyLineMatch] plus the note's currency symbol — so the
+/// preview, the live editor, and the detail sheet can never disagree
+/// about a row's *shape*. Pure data: each surface keeps its own
+/// emission (paint, conceal, offset mapping) but reads the same facts.
+/// This is the render-side counterpart of [MoneyFold] — that class
+/// stopped the folds drifting apart, this one stops the decision trees.
+///
+/// The currency-skipping offsets ([labelFrom], [trailingFrom]) encode
+/// the *preview/sheet* reading, where the currency word is chrome; the
+/// editor renders source-faithfully and deliberately keeps reading its
+/// raw `m` offsets for label text, consuming only the shape flags and
+/// [slot] from here.
+class MoneyRowLayout {
+  /// `$$` / `$?` / `$^` / `$~` — the row features its value as a pill.
+  final bool isDisplay;
+
+  /// The amount trails its label (`$= Worth: 500`), so the op glyph
+  /// renders at the `:` and free trailing text may follow the amount.
+  final bool labelFirst;
+
+  /// A count-taking display row carries its accent token *after* the
+  /// count (`$~ 2 teal:`) — the token then sits between the count and
+  /// the label instead of in the marker gap.
+  final bool accentAfterCount;
+
+  /// The effective value slot ([MarkdownMoneySyntax.effectiveValueSlot]
+  /// — currency-voided), or -1.
+  final int slot;
+
+  /// End of the inline currency word, or -1
+  /// ([MarkdownMoneySyntax.inlineCurrencyEnd]).
+  final int currencyEnd;
+
+  /// Currency-skipped label start
+  /// ([MarkdownMoneySyntax.labelStartAfterCurrency]).
+  final int labelFrom;
+
+  /// Label end with the label-first colon trimmed off.
+  final int labelTo;
+
+  /// First char of a label-first row's free trailing text with the
+  /// currency word skipped, or -1 on every other shape.
+  final int trailingFrom;
+
+  /// End of the row's content: the emphasis closer when the row is
+  /// wrapped (`*$~ 2 x*`), else the line length. Renderers bound every
+  /// free-running emission with this, never `line.length`, so the
+  /// closing run stays chrome.
+  final int contentEnd;
+
+  const MoneyRowLayout._({
+    required this.isDisplay,
+    required this.labelFirst,
+    required this.accentAfterCount,
+    required this.slot,
+    required this.currencyEnd,
+    required this.labelFrom,
+    required this.labelTo,
+    required this.trailingFrom,
+    required this.contentEnd,
+  });
+
+  factory MoneyRowLayout.of(String line, MoneyLineMatch m, String symbol) {
+    final labelFirst = m.labelStart < m.amountStart;
+    final currencyEnd = MarkdownMoneySyntax.inlineCurrencyEnd(line, m, symbol);
+    return MoneyRowLayout._(
+      isDisplay: MarkdownMoneySyntax.isDisplayKind(m.kind),
+      labelFirst: labelFirst,
+      accentAfterCount:
+          m.accentStart >= 0 &&
+          m.amountEnd > m.amountStart &&
+          m.accentStart >= m.amountEnd,
+      slot: MarkdownMoneySyntax.effectiveValueSlot(line, m, symbol),
+      currencyEnd: currencyEnd,
+      labelFrom: MarkdownMoneySyntax.labelStartAfterCurrency(line, m, symbol),
+      labelTo: labelFirst ? m.labelEnd - 1 : m.labelEnd,
+      trailingFrom: labelFirst
+          ? (currencyEnd >= 0 ? currencyEnd : m.amountEnd)
+          : -1,
+      contentEnd: m.emphasisCloseStart >= 0
+          ? m.emphasisCloseStart
+          : line.length,
+    );
+  }
 }
 
 /// One collected money line with its folded running value — the
@@ -280,13 +431,15 @@ class MoneyLedgerEntry {
 }
 
 /// Everything one whole-document ledger scan produces: each money row
-/// with its folded value, plus the line indices of every counted entry
-/// and of every `$=` checkpoint (both in document order — the window
-/// resolvers below count back through them).
+/// with its folded value, plus the line indices of every counted entry,
+/// of every `$=` checkpoint, and of every `$!` target declaration (all
+/// in document order — the window resolvers below count back through
+/// them).
 typedef MoneyLedgerCollection = ({
   List<MoneyLedgerEntry> entries,
   List<int> entryLines,
   List<int> anchorLines,
+  List<int> targetLines,
 });
 
 /// Mutable accumulator for one ledger fold — the single home for how a
@@ -316,11 +469,25 @@ class MoneyFold {
   /// or 0 before any).
   int periodStart;
 
+  /// The active spending target in cents (the last `$!` declaration),
+  /// or null while none has been declared. Targets are note-scoped
+  /// scalars, not histories: a new declaration simply replaces the
+  /// active one.
+  int? targetCents;
+
+  /// The balance at the moment the active target was declared — the
+  /// budget's baseline. Deliberately *not* reset by `$=`: a checkpoint
+  /// that lowers the balance is spending against the budget, so a
+  /// ledger kept entirely with `$=` set-rows still measures its target.
+  int targetAnchor;
+
   MoneyFold(int startCents)
     : balance = startCents,
       history = <int>[startCents],
       anchors = <int>[startCents],
-      periodStart = 0;
+      periodStart = 0,
+      targetCents = null,
+      targetAnchor = startCents;
 
   /// Resumes mid-document from persisted state: [history] and [anchors]
   /// are adopted by reference (already truncated to the resume point by
@@ -330,12 +497,14 @@ class MoneyFold {
     required this.history,
     required this.anchors,
     required this.periodStart,
+    required this.targetCents,
+    required this.targetAnchor,
   });
 
   /// Applies [m] and returns the row's display value. Error lines are
   /// fold-inert: no balance change, no history/anchor append, no period
-  /// move — but they still get a display value so every money row can
-  /// carry one.
+  /// move, no target re-declaration — but they still get a display
+  /// value so every money row can carry one.
   int step(MoneyLineMatch m) {
     if (!MarkdownMoneySyntax.hasError(m)) {
       balance = MarkdownMoneySyntax.apply(balance, m);
@@ -346,6 +515,10 @@ class MoneyFold {
           anchors.add(balance);
         }
       }
+      if (m.kind == MoneyLineKind.target) {
+        targetCents = m.amountFixed ~/ 100;
+        targetAnchor = balance;
+      }
     }
     return MarkdownMoneySyntax.displayValue(
       m,
@@ -353,6 +526,8 @@ class MoneyFold {
       history,
       periodStart,
       anchors,
+      targetCents: targetCents,
+      targetAnchor: targetAnchor,
     );
   }
 }
@@ -377,6 +552,18 @@ class MarkdownMoneySyntax {
   /// Fixed-point scale of [MoneyLineMatch.amountFixed].
   static const int amountScale = 10000;
 
+  /// Display value of a `$!` status row with no target declared above
+  /// it. Sits outside every reachable value — a real display value is
+  /// bounded by ±3×[balanceLimitCents] (target + balance − anchor, each
+  /// term clamped) — and stays well under 2^53, so it is exact on web.
+  /// Renderers check [isNoTarget] before formatting and paint a
+  /// "no target" chip in the warning accent instead of a number.
+  static const int noTargetSentinel = 4 * balanceLimitCents;
+
+  /// Whether [value] is the [noTargetSentinel] — a `$!` status row with
+  /// nothing to measure. One helper so no surface compares raw ints.
+  static bool isNoTarget(int value) => value == noTargetSentinel;
+
   static const int _kDollar = 0x24; // $
   static const int _kEquals = 0x3D; // =
   static const int _kPlus = 0x2B; // +
@@ -391,6 +578,9 @@ class MarkdownMoneySyntax {
   static const int _kTilde = 0x7E; // ~
   static const int _kHash = 0x23; // #
   static const int _kColon = 0x3A; // :
+  static const int _kBullet = 0x2022; // • (list bullet, matching the list grammar)
+  static const int _kParen = 0x29; // ) (ordered-list delimiter)
+  static const int _kUnderscore = 0x5F; // _ (emphasis wrapper)
 
   /// Longest accepted colour-name token, mirroring
   /// `MarkdownColorPalette.maxNameLength` (kept local so this library
@@ -414,8 +604,8 @@ class MarkdownMoneySyntax {
 
   /// Whether [line] can possibly be a money line: its first
   /// non-whitespace run is the `$` marker, optionally preceded by a
-  /// 1–6 `#` heading prefix + space (cheap pre-check so hot per-line
-  /// paths can skip the full parse).
+  /// 1–6 `#` heading prefix + space or a list marker + space (cheap
+  /// pre-check so hot per-line paths can skip the full parse).
   static bool leadsWithMoney(String line) =>
       leadsWithMoneyInRange(line, 0, line.length);
 
@@ -428,8 +618,37 @@ class MarkdownMoneySyntax {
     }
     if (i >= end) return false;
     final c = source.codeUnitAt(i);
-    if (c == _kDollar) return true;
-    if (c != _kHash) return false;
+    // Optional list-marker prefix, mirroring [parse]: bullet char or
+    // digit run + `.`/`)`, then a space — after which the shared tail
+    // below probes for the `$` or a heading prefix leading to one, so
+    // all three chrome prefixes compose (`- ## $$`).
+    if ((c == _kMinus || c == _kStar || c == _kPlus || c == _kBullet) &&
+        i + 1 < end &&
+        _isSpace(source.codeUnitAt(i + 1))) {
+      i += 2;
+      while (i < end && _isSpace(source.codeUnitAt(i))) {
+        i++;
+      }
+      if (i >= end) return false;
+    } else if (_isDigit(c)) {
+      var j = i + 1;
+      while (j < end && _isDigit(source.codeUnitAt(j))) {
+        j++;
+      }
+      if (j + 1 >= end ||
+          (source.codeUnitAt(j) != _kDot && source.codeUnitAt(j) != _kParen) ||
+          !_isSpace(source.codeUnitAt(j + 1))) {
+        return false;
+      }
+      i = j + 2;
+      while (i < end && _isSpace(source.codeUnitAt(i))) {
+        i++;
+      }
+      if (i >= end) return false;
+    }
+    final c2 = source.codeUnitAt(i);
+    if (_probeDollar(source, i, end)) return true;
+    if (c2 != _kHash) return false;
     final h = i;
     while (i < end && source.codeUnitAt(i) == _kHash) {
       i++;
@@ -441,27 +660,90 @@ class MarkdownMoneySyntax {
     while (i < end && _isSpace(source.codeUnitAt(i))) {
       i++;
     }
-    return i < end && source.codeUnitAt(i) == _kDollar;
+    return _probeDollar(source, i, end);
+  }
+
+  /// Probe tail: a `$` at [i], directly or behind a 1–3 char emphasis
+  /// run (`*$$`, `**$=`, `_$~`). Prefix-only — the closing run is
+  /// [parse]'s job, and a probe over-accept just falls back to plain
+  /// rendering, while the reverse (parse ⊆ probe) is the invariant the
+  /// folds depend on.
+  static bool _probeDollar(String source, int i, int end) {
+    if (i >= end) return false;
+    final c = source.codeUnitAt(i);
+    if (c == _kDollar) return true;
+    if (c != _kStar && c != _kUnderscore) return false;
+    var j = i;
+    while (j < end && source.codeUnitAt(j) == c) {
+      j++;
+    }
+    return j - i <= 3 && j < end && source.codeUnitAt(j) == _kDollar;
   }
 
   /// Parses [line] as a money line, or `null` when it is not one.
   ///
-  /// Shape: optional leading spaces/tabs, an optional 1–6 `#` heading
-  /// prefix (space before the `$` optional), `$` + op char, an optional
-  /// letter-led colour-name token ending in `:` (followed by a space or
-  /// the line end), then for ops an amount (`digits` with optional
-  /// `.`/`,` decimals) that must end at a space or the line end, then
-  /// an optional label. `$$` / `$?` / `$^` take no amount. A malformed
+  /// Shape: optional leading spaces/tabs, an optional list marker
+  /// (bullet or ordered) + space, an optional 1–6 `#` heading prefix
+  /// (space before the `$` optional) — all three chrome prefixes
+  /// compose (`- ## $$`) — then `$` + op char, an optional letter-led
+  /// colour-name token ending in `:` (followed by a space or the line
+  /// end), then for ops an amount (`digits` with optional `.`/`,`
+  /// decimals) that must end at a space or the line end, then an
+  /// optional label. `$$` / `$?` / `$^` take no amount. A malformed
   /// amount rejects the whole line so it renders as plain text; a
   /// *well-formed* amount past the digit limits (and `$/ 0`) instead
   /// parses as an error row — yellow, does not count — so an over-limit
   /// line is visibly broken rather than silently inert.
   static MoneyLineMatch? parse(String line) {
-    final n = line.length;
+    // Not final: an emphasis wrapper reduces the parse end to its
+    // closing run, so the whole body reads only the wrapped content.
+    var n = line.length;
     if (n < 2 || n > maxLineLength) return null;
     var i = 0;
     while (i < n && _isSpace(line.codeUnitAt(i))) {
       i++;
+    }
+    // Optional list-marker prefix (`- $= 500`, `1. $+ 50`), scanned
+    // exactly like [MarkdownListSyntax] shapes it: bullet char or
+    // digits + `.`/`)`, a space, then — for this grammar — the `$`
+    // or a heading prefix leading to one (`- ## $$`; all three chrome
+    // prefixes compose). A task box (`- [ ]`) never reaches the `$`,
+    // so checkbox lines keep their behaviour.
+    var listMarkerStart = -1;
+    var listMarkerEnd = -1;
+    if (i < n) {
+      final c0 = line.codeUnitAt(i);
+      if ((c0 == _kMinus || c0 == _kStar || c0 == _kPlus || c0 == _kBullet) &&
+          i + 1 < n &&
+          _isSpace(line.codeUnitAt(i + 1))) {
+        var j = i + 2;
+        while (j < n && _isSpace(line.codeUnitAt(j))) {
+          j++;
+        }
+        if (j < n && _isMoneyLeadChar(line.codeUnitAt(j))) {
+          listMarkerStart = i;
+          listMarkerEnd = i + 1;
+          i = j;
+        }
+      } else if (_isDigit(c0)) {
+        var j = i + 1;
+        while (j < n && _isDigit(line.codeUnitAt(j))) {
+          j++;
+        }
+        if (j + 1 < n &&
+            (line.codeUnitAt(j) == _kDot || line.codeUnitAt(j) == _kParen) &&
+            _isSpace(line.codeUnitAt(j + 1))) {
+          var k = j + 2;
+          while (k < n && _isSpace(line.codeUnitAt(k))) {
+            k++;
+          }
+          if (k < n && _isMoneyLeadChar(line.codeUnitAt(k))) {
+            listMarkerStart = i;
+            listMarkerEnd = j + 1;
+            i = k;
+          }
+        }
+      }
     }
     var headerStart = -1;
     var headerLevel = 0;
@@ -479,16 +761,61 @@ class MarkdownMoneySyntax {
       while (i < n && _isSpace(line.codeUnitAt(i))) {
         i++;
       }
-      if (i >= n || line.codeUnitAt(i) != _kDollar) return null;
+      // `$` directly, or an emphasis run wrapping it (`## *$$*`).
+      if (i >= n ||
+          (line.codeUnitAt(i) != _kDollar &&
+              line.codeUnitAt(i) != _kStar &&
+              line.codeUnitAt(i) != _kUnderscore)) {
+        return null;
+      }
       headerStart = h;
       headerLevel = level;
+    }
+    // Optional emphasis wrapper: 1–3 uniform `*`/`_` tight against the
+    // `$` (so `* $=` stays a bullet, never emphasis), whose matching
+    // closer — same char, same length — ends the line (trailing spaces
+    // allowed). The parse end drops to the closer, so the whole body
+    // below reads only the wrapped content and every in-row offset
+    // respects it. Tight-but-unclosed rejects the line: it renders as
+    // visibly raw text rather than a half-styled guess.
+    var emphasisStart = -1;
+    var emphasisLen = 0;
+    var emphasisCloseStart = -1;
+    if (i < n) {
+      final ec = line.codeUnitAt(i);
+      if (ec == _kStar || ec == _kUnderscore) {
+        var j = i;
+        while (j < n && line.codeUnitAt(j) == ec) {
+          j++;
+        }
+        final runLen = j - i;
+        if (runLen <= 3 && j < n && line.codeUnitAt(j) == _kDollar) {
+          var e = n;
+          while (e > j && _isSpace(line.codeUnitAt(e - 1))) {
+            e--;
+          }
+          var s = e;
+          while (s > j && line.codeUnitAt(s - 1) == ec) {
+            s--;
+          }
+          if (e - s != runLen || s <= j + 1) return null;
+          emphasisStart = i;
+          emphasisLen = runLen;
+          emphasisCloseStart = s;
+          i = j;
+          n = s;
+        }
+      }
     }
     if (i >= n || line.codeUnitAt(i) != _kDollar) return null;
     final markerStart = i;
     i++;
     if (i >= n) return null;
     final op = line.codeUnitAt(i);
-    final MoneyLineKind kind;
+    // Not final: a `$!` with no amount reshapes to [MoneyLineKind
+    // .remaining] below, after both declaration shapes have failed —
+    // the [match] closure captures the variable, so it sees the change.
+    MoneyLineKind kind;
     switch (op) {
       case _kEquals:
         kind = MoneyLineKind.set;
@@ -536,6 +863,46 @@ class MarkdownMoneySyntax {
       while (i < n && _isSpace(line.codeUnitAt(i))) {
         i++;
       }
+    }
+
+    // Single construction point for every accepted shape: the shared
+    // prefix facts (kind, heading, list marker, `$` marker, accent) are
+    // threaded here once — a closure, so it sees later mutations like
+    // the post-count accent of `$~ 2 teal:`. A new [MoneyLineMatch]
+    // field is added here and nowhere else, instead of at five
+    // return sites.
+    MoneyLineMatch match({
+      required int amountStart,
+      required int amountEnd,
+      required int labelStart,
+      required int labelEnd,
+      required int amountFixed,
+      int windowCount = 1,
+      int valueSlot = -1,
+      MoneyLineError? error,
+    }) {
+      return MoneyLineMatch(
+        kind: kind,
+        headerStart: headerStart,
+        headerLevel: headerLevel,
+        listMarkerStart: listMarkerStart,
+        listMarkerEnd: listMarkerEnd,
+        emphasisStart: emphasisStart,
+        emphasisLen: emphasisLen,
+        emphasisCloseStart: emphasisCloseStart,
+        markerStart: markerStart,
+        markerEnd: markerEnd,
+        accentStart: accentStart,
+        accentEnd: accentEnd,
+        amountStart: amountStart,
+        amountEnd: amountEnd,
+        labelStart: labelStart,
+        labelEnd: labelEnd,
+        amountFixed: amountFixed,
+        windowCount: windowCount,
+        valueSlot: valueSlot,
+        error: error,
+      );
     }
 
     if (isDisplay) {
@@ -605,14 +972,7 @@ class MarkdownMoneySyntax {
           }
         }
       }
-      return MoneyLineMatch(
-        kind: kind,
-        headerStart: headerStart,
-        headerLevel: headerLevel,
-        markerStart: markerStart,
-        markerEnd: markerEnd,
-        accentStart: accentStart,
-        accentEnd: accentEnd,
+      return match(
         amountStart: amountStart,
         amountEnd: amountEnd,
         labelStart: i,
@@ -646,14 +1006,7 @@ class MarkdownMoneySyntax {
         // A clean amount shape past the digit limits: an error row, so
         // the over-limit line is visibly broken instead of silently
         // rendering plain and not counting.
-        return MoneyLineMatch(
-          kind: kind,
-          headerStart: headerStart,
-          headerLevel: headerLevel,
-          markerStart: markerStart,
-          markerEnd: markerEnd,
-          accentStart: accentStart,
-          accentEnd: accentEnd,
+        return match(
           amountStart: i,
           amountEnd: head.end,
           labelStart: j,
@@ -668,13 +1021,31 @@ class MarkdownMoneySyntax {
       labelStart = j;
       labelEnd = n;
     } else {
-      // Label-first (`$- Loss on trade: 5000`): the amount trails at the
-      // line end behind a `:`. Requiring the colon is what keeps this
-      // unambiguous — without it `$- food 2024` would silently subtract
-      // 2024 — and it costs nothing, since a label ending in `:` is how
-      // you would write the line anyway.
+      // Label-first (`$- Loss on trade: 5000 with fees`): the amount
+      // trails its label behind a `:`, with free trailing text after
+      // it. Requiring the colon is what keeps this unambiguous —
+      // without it `$- food 2024` would silently subtract 2024 — and
+      // it costs nothing, since a label ending in `:` is how you would
+      // write the line anyway.
       final tail = _scanTrailingAmount(line, i, n, maxInt, maxDec);
       if (tail == null) {
+        // A `$!` with no amount in either shape is the target's status
+        // row: the whole tail (colons included — they are just label
+        // text here, unlike the op rows' amount promise) is its label.
+        // Gated on a space (or line end) right after the marker, like
+        // the other display rows, so `$!important` stays plain text.
+        if (kind == MoneyLineKind.target &&
+            (markerEnd >= n || _isSpace(line.codeUnitAt(markerEnd)))) {
+          kind = MoneyLineKind.remaining;
+          return match(
+            amountStart: i,
+            amountEnd: i,
+            labelStart: i,
+            labelEnd: n,
+            amountFixed: 0,
+            valueSlot: _scanValueSlot(line, i, n),
+          );
+        }
         // Check if the label ends with a colon (syntax error: missing amount)
         var trimEnd = n;
         while (trimEnd > i && _isSpace(line.codeUnitAt(trimEnd - 1))) {
@@ -682,14 +1053,7 @@ class MarkdownMoneySyntax {
         }
         if (trimEnd > i && line.codeUnitAt(trimEnd - 1) == _kColon) {
           // Label-first shape detected (ends with `:`) but no trailing amount
-          return MoneyLineMatch(
-            kind: kind,
-            headerStart: headerStart,
-            headerLevel: headerLevel,
-            markerStart: markerStart,
-            markerEnd: markerEnd,
-            accentStart: accentStart,
-            accentEnd: accentEnd,
+          return match(
             amountStart: i,
             amountEnd: i,
             labelStart: i,
@@ -703,14 +1067,7 @@ class MarkdownMoneySyntax {
       if (tail.error != null) {
         // Same over-limit rule as the amount-first shape: a clean
         // trailing amount past the digit limits is an error row.
-        return MoneyLineMatch(
-          kind: kind,
-          headerStart: headerStart,
-          headerLevel: headerLevel,
-          markerStart: markerStart,
-          markerEnd: markerEnd,
-          accentStart: accentStart,
-          accentEnd: accentEnd,
+        return match(
           amountStart: tail.amountStart,
           amountEnd: tail.amountEnd,
           labelStart: i,
@@ -726,20 +1083,22 @@ class MarkdownMoneySyntax {
       labelEnd = tail.labelEnd;
     }
 
-    return MoneyLineMatch(
-      kind: kind,
-      headerStart: headerStart,
-      headerLevel: headerLevel,
-      markerStart: markerStart,
-      markerEnd: markerEnd,
-      accentStart: accentStart,
-      accentEnd: accentEnd,
+    return match(
       amountStart: amountStart,
       amountEnd: amountEnd,
       labelStart: labelStart,
       labelEnd: labelEnd,
       amountFixed: amountFixed,
-      valueSlot: _scanValueSlot(line, labelStart, labelEnd),
+      // A label-first row has two text regions — the label before the
+      // `:` and the free trailing text after the amount — and a lone
+      // `$` slot may sit in either; document order wins. Every other
+      // shape's label runs to the line end, so one scan covers it.
+      valueSlot: labelStart < amountStart
+          ? _firstNonNegative(
+              _scanValueSlot(line, labelStart, labelEnd),
+              _scanValueSlot(line, amountEnd, n),
+            )
+          : _scanValueSlot(line, labelStart, labelEnd),
       // `$/ 0` is an error row (yellow, does not count) rather than
       // silent plain text — the enum and sheet always promised this
       // message; parse used to bail to `null` instead of emitting it.
@@ -803,14 +1162,24 @@ class MarkdownMoneySyntax {
     return (end: i, fixed: intPart * amountScale + decPart * scale, error: null);
   }
 
-  /// Scans a label-first op row's trailing amount: `label: 5000` ending
-  /// at the line end (trailing spaces allowed). Returns the label's end
-  /// (just past the `:`), the amount's bounds, and its value — or `null`
-  /// when the tail is not a lone well-formed amount behind a colon.
+  /// Scans a label-first op row for its `label: AMOUNT` pair, allowing
+  /// arbitrary trailing text after the amount: `$= Net worth: 5000 lei
+  /// as of today`. Returns the label's end (just past the `:`), the
+  /// amount's bounds, and its value — or `null` when the line has no
+  /// such pair. Trailing text is left in `[amountEnd, line.length)` for
+  /// renderers; parsing stays currency-agnostic, so a display setting
+  /// can never change which lines count as ledger entries.
   ///
-  /// The whole tail after the last `:` must be the amount and nothing
-  /// else, so `$= Net worth: 5000 as of today` stays plain text rather
-  /// than guessing which number was meant.
+  /// The amount is found deterministically — never guessed: the **last**
+  /// whole token in the line that (a) parses as an amount, (b) ends at a
+  /// space or the line end, and (c) directly follows a `:` (spaces
+  /// allowed between). Candidates are walked right-to-left, so
+  /// `$= a: 100 b: 200 end` reads amount 200 with `a: 100 b` as the
+  /// label. A colon tight against the token whose left side is also a
+  /// digit (`9:30`, `2024:500`) is a time/ratio, not a `label: amount`
+  /// pair — that candidate is skipped, so `$= Note: 500 at 9:30` finds
+  /// 500. Something must precede the colon (`label:` shape), so a line
+  /// with no colon-led amount anywhere stays plain text.
   static ({
     int labelEnd,
     int amountStart,
@@ -819,32 +1188,47 @@ class MarkdownMoneySyntax {
     MoneyLineError? error,
   })?
   _scanTrailingAmount(String line, int from, int n, int maxInt, int maxDec) {
-    var end = n;
-    while (end > from && _isSpace(line.codeUnitAt(end - 1))) {
-      end--;
+    var searchEnd = n;
+    while (searchEnd > from) {
+      // Rightmost digit at or before [searchEnd], then the maximal
+      // amount-shaped run (digits plus decimal marks) it belongs to.
+      var e = searchEnd;
+      while (e > from && !_isDigit(line.codeUnitAt(e - 1))) {
+        e--;
+      }
+      if (e <= from) return null;
+      var s = e;
+      while (s > from) {
+        final c = line.codeUnitAt(s - 1);
+        if (!_isDigit(c) && c != _kDot && c != _kComma) break;
+        s--;
+      }
+      // Every rejection below resumes left of this run, so the walk
+      // strictly progresses.
+      searchEnd = s;
+      // Whole token only: `70897lei` is not an amount.
+      if (e < n && !_isSpace(line.codeUnitAt(e))) continue;
+      var c = s;
+      while (c > from && _isSpace(line.codeUnitAt(c - 1))) {
+        c--;
+      }
+      if (c <= from || line.codeUnitAt(c - 1) != _kColon) continue;
+      // digit:digit with a tight colon is a time or ratio, never a
+      // `label: amount` pair.
+      if (c == s && c - 1 > from && _isDigit(line.codeUnitAt(c - 2))) {
+        continue;
+      }
+      final parsed = _parseAmount(line, s, e, maxInt, maxDec);
+      if (parsed == null || parsed.end != e) continue;
+      return (
+        labelEnd: c,
+        amountStart: s,
+        amountEnd: e,
+        fixed: parsed.fixed,
+        error: parsed.error,
+      );
     }
-    if (end <= from) return null;
-    var s = end;
-    while (s > from) {
-      final c = line.codeUnitAt(s - 1);
-      if (!_isDigit(c) && c != _kDot && c != _kComma) break;
-      s--;
-    }
-    if (s >= end) return null;
-    final parsed = _parseAmount(line, s, end, maxInt, maxDec);
-    if (parsed == null || parsed.end != end) return null;
-    var c = s;
-    while (c > from && _isSpace(line.codeUnitAt(c - 1))) {
-      c--;
-    }
-    if (c <= from || line.codeUnitAt(c - 1) != _kColon) return null;
-    return (
-      labelEnd: c,
-      amountStart: s,
-      amountEnd: end,
-      fixed: parsed.fixed,
-      error: parsed.error,
-    );
+    return null;
   }
 
   /// Scans the label region `[from, n)` for the value slot: a lone `$`
@@ -898,6 +1282,89 @@ class MarkdownMoneySyntax {
   /// not mutate the ledger balance.
   static bool hasError(MoneyLineMatch m) => m.error != null;
 
+  /// Whether [kind] is a display row — `$$` / `$?` / bare `$!` / `$^` /
+  /// `$~` — one that performs no arithmetic and features its computed
+  /// value as a pill/chip. The one grouping every surface branches on.
+  /// A `$! N` *declaration* is deliberately not one: like `$=`, its
+  /// operand is its value, so it renders amount-led with no pill.
+  static bool isDisplayKind(MoneyLineKind kind) =>
+      kind == MoneyLineKind.total ||
+      kind == MoneyLineKind.delta ||
+      kind == MoneyLineKind.remaining ||
+      kind == MoneyLineKind.diff ||
+      kind == MoneyLineKind.span;
+
+  /// Whether rendering [m] needs the folded running balance: display
+  /// rows always, plus any row whose label placed a value slot. The
+  /// live editor uses this to route a line onto its positional
+  /// (balance-keyed) span path instead of the text-keyed memo.
+  static bool needsBalance(MoneyLineMatch m) =>
+      m.valueSlot >= 0 || isDisplayKind(m.kind);
+
+  /// Whether [kind]'s displayed value carries an **explicit sign** —
+  /// `+12.50`, `-8.00`, `±0.00` — rather than reading as a plain
+  /// amount. The rule is "a value the surfaces colour by its sign shows
+  /// that sign": `$?`/`$^`/`$~` measure movement and bare `$!` measures
+  /// a budget surplus (`+`) or deficit (`-`), so all four print signed;
+  /// `$$` is an absolute balance (red only when negative, never `+`)
+  /// and every op row's value is a balance too. One predicate for the
+  /// preview pill, the editor chip, and both the detail sheet's header
+  /// and its rows — the four used to spell this out separately and had
+  /// already drifted (bare `$!` was signed on none of them while being
+  /// colour-coded on all).
+  static bool isSignedKind(MoneyLineKind kind) =>
+      kind == MoneyLineKind.delta ||
+      kind == MoneyLineKind.diff ||
+      kind == MoneyLineKind.span ||
+      kind == MoneyLineKind.remaining;
+
+  /// Canonical chrome glyph for [kind] — `= + − × ÷ Σ Δ Δ= Δ~ ◎` —
+  /// shared by the preview's marker rendering, the editor's op
+  /// substitutions and chip labels, and the detail sheet's leading
+  /// glyphs, so the three surfaces can never drift apart. The editor's
+  /// caret rule still narrows `Δ=`/`Δ~` to `Δ` at its call site where a
+  /// substitution must stay one code unit wide.
+  static String glyph(MoneyLineKind kind) => switch (kind) {
+    MoneyLineKind.set => '=',
+    MoneyLineKind.add => '+',
+    MoneyLineKind.subtract => '−',
+    MoneyLineKind.multiply => '×',
+    MoneyLineKind.divide => '÷',
+    MoneyLineKind.total => 'Σ',
+    MoneyLineKind.delta => 'Δ',
+    MoneyLineKind.diff => 'Δ=',
+    MoneyLineKind.span => 'Δ~',
+    MoneyLineKind.target => '◎',
+    MoneyLineKind.remaining => '◎',
+  };
+
+  /// The human label a presenter shows for [m], with the row chrome
+  /// trimmed: the label-first colon dropped, the inline currency word
+  /// skipped, and a label-first row's free trailing text joined on —
+  /// the exact composition the preview renders inline, so a list
+  /// surface (the detail sheet) reads the same sentence as the note.
+  static String displayLabel(String line, MoneyLineMatch m, String symbol) {
+    final labelFirst = m.labelStart < m.amountStart;
+    final to = labelFirst ? m.labelEnd - 1 : m.labelEnd;
+    final from = labelStartAfterCurrency(line, m, symbol);
+    var label = from < to ? line.substring(from, to) : '';
+    // Content ends at the emphasis closer when the row is wrapped —
+    // the closing run is chrome, not label text.
+    final contentEnd = m.emphasisCloseStart >= 0
+        ? m.emphasisCloseStart
+        : line.length;
+    if (labelFirst && m.amountEnd < contentEnd) {
+      final curEnd = inlineCurrencyEnd(line, m, symbol);
+      final tail = line
+          .substring(curEnd >= 0 ? curEnd : m.amountEnd, contentEnd)
+          .trim();
+      if (tail.isNotEmpty) {
+        label = label.isEmpty ? tail : '$label $tail';
+      }
+    }
+    return label;
+  }
+
   /// Short description of [e], shared by the preview, the live editor,
   /// and the detail sheet so every surface names an error identically.
   /// Hardcoded EN like the money toolbar shortcut labels.
@@ -947,6 +1414,7 @@ class MarkdownMoneySyntax {
       case MoneyLineKind.total:
       case MoneyLineKind.delta:
       case MoneyLineKind.target:
+      case MoneyLineKind.remaining:
       case MoneyLineKind.diff:
       case MoneyLineKind.span:
         return balanceCents;
@@ -969,6 +1437,7 @@ class MarkdownMoneySyntax {
       case MoneyLineKind.total:
       case MoneyLineKind.delta:
       case MoneyLineKind.target:
+      case MoneyLineKind.remaining:
       case MoneyLineKind.diff:
       case MoneyLineKind.span:
         return false;
@@ -983,10 +1452,13 @@ class MarkdownMoneySyntax {
       !hasError(m) && isEntryKind(m.kind);
 
   /// The display value a money line's stored entry carries: the running
-  /// balance, except `$?` (net change since the last `$=`), `$!` (the
-  /// remaining budget: target − spent since it), `$^ N` (the change over
-  /// the last N balance-changing entries), and `$~ N` (the change over
-  /// the last N `$=` checkpoints).
+  /// balance, except `$?` (net change since the last `$=`), `$! N` (the
+  /// declared target itself — a declaration is a statement, its operand
+  /// *is* its value, like `$=`), bare `$!` (the remaining budget:
+  /// target − spent since the declaration, via [targetCents] and
+  /// [targetAnchor]; the [noTargetSentinel] when no target is active),
+  /// `$^ N` (the change over the last N balance-changing entries), and
+  /// `$~ N` (the change over the last N `$=` checkpoints).
   ///
   /// [history] is the append-only entry-balance history: index 0 is the
   /// note's start balance, and every balance-changing entry (`$=`,
@@ -1012,13 +1484,18 @@ class MarkdownMoneySyntax {
     int balance,
     List<int> history,
     int periodStart,
-    List<int> anchors,
-  ) {
+    List<int> anchors, {
+    int? targetCents,
+    int targetAnchor = 0,
+  }) {
     switch (m.kind) {
       case MoneyLineKind.delta:
         return balance - history[periodStart];
       case MoneyLineKind.target:
-        return m.amountFixed ~/ 100 + balance - history[periodStart];
+        return m.amountFixed ~/ 100;
+      case MoneyLineKind.remaining:
+        if (targetCents == null) return noTargetSentinel;
+        return targetCents + balance - targetAnchor;
       case MoneyLineKind.diff:
         final count = m.windowCount < 0 ? history.length : m.windowCount;
         final back = history.length - 1 - count;
@@ -1087,6 +1564,91 @@ class MarkdownMoneySyntax {
     return '${plain.substring(0, 1)}$symbol${plain.substring(1)}';
   }
 
+  /// The end offset (exclusive) of a currency word typed inline right
+  /// after the amount — `$= 500 lei`, `$+ 50 lei coffee` — or -1 when
+  /// the row has none.
+  ///
+  /// Recognised **only** when the word is the note's effective currency
+  /// [symbol] (ASCII-case-insensitively, so `Lei` matches `lei`), so the
+  /// engine never guesses: any other word after the amount stays plain
+  /// label text exactly as it always did, and switching the note's
+  /// currency turns a no-longer-matching word back into a label.
+  ///
+  /// Display-only, like every other use of the symbol — [parse] stays
+  /// currency-agnostic and [MoneyLineMatch] is unchanged, so no ledger
+  /// value can depend on how a row was spelled. Renderers use this to
+  /// drop the word from the label, since the row's own value already
+  /// prints the currency; a surface that shows source verbatim (the live
+  /// editor) simply ignores it and leaves the word visible as typed.
+  ///
+  /// Works on both spellings, because the word always sits immediately
+  /// after the amount in source order: at the label start on an
+  /// amount-first row (`$+ 50 lei coffee`), right after the trailing
+  /// amount on a label-first one (`$= Net worth: 500 lei as of today`).
+  static int inlineCurrencyEnd(String line, MoneyLineMatch m, String symbol) {
+    if (symbol.isEmpty) return -1;
+    // A row with no typed amount has nothing for the word to attach to.
+    if (m.amountEnd <= m.amountStart) return -1;
+    final labelFirst = m.labelStart < m.amountStart;
+    // Free trailing text ends at the emphasis closer when wrapped —
+    // the closing run is chrome and can never be part of the word.
+    final limit = labelFirst
+        ? (m.emphasisCloseStart >= 0 ? m.emphasisCloseStart : line.length)
+        : m.labelEnd;
+    var start = m.labelStart;
+    if (labelFirst) {
+      start = m.amountEnd;
+      while (start < limit && _isSpace(line.codeUnitAt(start))) {
+        start++;
+      }
+    }
+    final end = start + symbol.length;
+    if (end > limit) return -1;
+    // Must be a whole word: `lei` never matches inside `leisure`.
+    if (end < limit && !_isSpace(line.codeUnitAt(end))) return -1;
+    for (var i = 0; i < symbol.length; i++) {
+      if (_lower(line.codeUnitAt(start + i)) != _lower(symbol.codeUnitAt(i))) {
+        return -1;
+      }
+    }
+    return end;
+  }
+
+  /// The row's value slot with the inline-currency rule applied: when
+  /// the configured [symbol] is itself `$` and the word right after the
+  /// amount matches it, that `$` reads as the typed currency — never as
+  /// a slot — so `$= Net worth: 500 $` prints one value, not two.
+  /// Renderers must use this instead of [MoneyLineMatch.valueSlot]
+  /// whenever a slot decision is made, so both surfaces void it
+  /// identically.
+  static int effectiveValueSlot(String line, MoneyLineMatch m, String symbol) {
+    final slot = m.valueSlot;
+    if (slot < 0) return -1;
+    final curEnd = inlineCurrencyEnd(line, m, symbol);
+    if (curEnd < 0) return slot;
+    return slot >= curEnd - symbol.length && slot < curEnd ? -1 : slot;
+  }
+
+  /// Start of the label proper on [m], skipping an inline currency word
+  /// and the spaces behind it so the caller never has to re-derive the
+  /// spacing rule. Returns [MoneyLineMatch.labelStart] unchanged when
+  /// the row has no such word — including every label-first row, where
+  /// the word trails the amount and so sits outside the label entirely.
+  static int labelStartAfterCurrency(
+    String line,
+    MoneyLineMatch m,
+    String symbol,
+  ) {
+    if (m.labelStart < m.amountStart) return m.labelStart;
+    final end = inlineCurrencyEnd(line, m, symbol);
+    if (end < 0) return m.labelStart;
+    var i = end;
+    while (i < m.labelEnd && _isSpace(line.codeUnitAt(i))) {
+      i++;
+    }
+    return i;
+  }
+
   /// Collects every money line from line 0 through [toLine] (inclusive;
   /// -1 = whole document), folding the ledger exactly like the render
   /// passes: [startCents] seeds the balance and the entry history,
@@ -1113,6 +1675,7 @@ class MarkdownMoneySyntax {
     final fold = MoneyFold(startCents);
     final entryLines = <int>[];
     final anchorLines = <int>[];
+    final targetLines = <int>[];
     for (var i = 0; i <= last && i < lineCount; i++) {
       final line = lineAt(i);
       if (line.isEmpty || !leadsWithMoney(line) || isInert(i)) continue;
@@ -1121,6 +1684,12 @@ class MarkdownMoneySyntax {
       if (isCountedEntry(m)) {
         entryLines.add(i);
         if (m.kind == MoneyLineKind.set) anchorLines.add(i);
+      }
+      // Target declarations mirror the fold's error guard: an error
+      // declaration never becomes the active target, so it never
+      // becomes a window baseline either.
+      if (m.kind == MoneyLineKind.target && !hasError(m)) {
+        targetLines.add(i);
       }
       // Error lines don't mutate the fold, but still appear in entries.
       entries.add(
@@ -1136,6 +1705,7 @@ class MarkdownMoneySyntax {
       entries: entries,
       entryLines: entryLines,
       anchorLines: anchorLines,
+      targetLines: targetLines,
     );
   }
 
@@ -1210,6 +1780,27 @@ class MarkdownMoneySyntax {
     ];
   }
 
+  /// The ledger rows a bare `$!` status row measures across: every
+  /// money row from the active target's declaration (the last `$!`
+  /// above the tapped row — [collectEntries] is run with
+  /// `toLine: lineIndex`, so that is `targetLines.last`) through
+  /// [lineIndex], the declaration itself included so the sheet opens on
+  /// the budget being measured. With no declaration above, just the
+  /// tapped row — its "no target" value is the whole story. Lives
+  /// beside [displayValue] like the other window resolvers: the two
+  /// resolve the same baseline and must move together.
+  static List<MoneyLedgerEntry> targetWindowEntries(
+    MoneyLedgerCollection collected,
+    int lineIndex,
+  ) {
+    final targetLines = collected.targetLines;
+    final baselineLine = targetLines.isEmpty ? lineIndex : targetLines.last;
+    return [
+      for (final row in collected.entries)
+        if (row.lineIndex >= baselineLine && row.lineIndex <= lineIndex) row,
+    ];
+  }
+
   static int _clamp(int cents) => cents < -balanceLimitCents
       ? -balanceLimitCents
       : cents > balanceLimitCents
@@ -1259,7 +1850,21 @@ class MarkdownMoneySyntax {
     return a < 0 ? -r : r;
   }
 
+  static int _firstNonNegative(int a, int b) => a >= 0 ? a : b;
+
+  /// Whether [c] can begin the money portion of a line after a chrome
+  /// prefix: the `$` itself, a heading hash, or an emphasis-run char
+  /// (`*`/`_`) that may wrap the marker. Used by the prefix scans'
+  /// lookahead — a false positive is harmless (the later `$` check
+  /// rejects and the line falls back to its plain rendering).
+  static bool _isMoneyLeadChar(int c) =>
+      c == _kDollar || c == _kHash || c == _kStar || c == _kUnderscore;
+
   static bool _isSpace(int c) => c == 0x20 || c == 0x09;
 
   static bool _isDigit(int c) => c >= 0x30 && c <= 0x39;
+
+  /// ASCII-only lowering, so `Lei`/`LEI` match a configured `lei` while
+  /// symbols outside ASCII (`€`, `£`, `лв`) compare unchanged.
+  static int _lower(int c) => (c >= 0x41 && c <= 0x5A) ? c + 0x20 : c;
 }

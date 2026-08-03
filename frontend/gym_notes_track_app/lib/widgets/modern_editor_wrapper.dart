@@ -340,21 +340,20 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
     final onMoneyTap = widget.onMoneyTap;
     if (onMoneyTap != null && MarkdownMoneySyntax.leadsWithMoney(text)) {
       final money = MarkdownMoneySyntax.parse(text);
-      // Only the painted `$$` / `$?` / `$^` / `$~` chip is a zone: from
-      // the marker up to the amount range (the chip is wider than its
-      // two source chars, so the spaces and any concealed accent token
-      // ride along); heading hashes, `$^`/`$~` count digits, label text,
-      // and op lines stay editable. When a value slot moved the chip
+      // Only a display row's painted chip (`$$` / `$?` / bare `$!` /
+      // `$^` / `$~` — the shared [MarkdownMoneySyntax.isDisplayKind]
+      // grouping) is a zone: from the marker up to the amount range
+      // (the chip is wider than its two source chars, so the spaces and
+      // any concealed accent token ride along); heading hashes,
+      // `$^`/`$~` count digits, label text, op lines, and `$! N`
+      // declarations stay editable. When a value slot moved the chip
       // into the label, its single `$` is a zone too — the marker keeps
       // its own (it still renders the kind's glyph there), so both the
       // glyph and the value open the sheet while the label around them
       // stays editable. Exactly the slot offset, never the space beside
       // it.
       if (money != null &&
-          (money.kind == MoneyLineKind.total ||
-              money.kind == MoneyLineKind.delta ||
-              money.kind == MoneyLineKind.diff ||
-              money.kind == MoneyLineKind.span) &&
+          MarkdownMoneySyntax.isDisplayKind(money.kind) &&
           ((offset >= money.markerStart && offset < money.amountStart) ||
               (money.valueSlot >= 0 && offset == money.valueSlot))) {
         return () {

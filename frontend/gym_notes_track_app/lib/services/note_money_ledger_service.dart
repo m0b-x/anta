@@ -154,6 +154,7 @@ class NoteMoneyLedgerService {
         case MoneyLineKind.total:
         case MoneyLineKind.delta:
         case MoneyLineKind.target:
+        case MoneyLineKind.remaining:
         case MoneyLineKind.diff:
         case MoneyLineKind.span:
           break;

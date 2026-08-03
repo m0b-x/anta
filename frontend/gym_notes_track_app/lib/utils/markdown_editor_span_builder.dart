@@ -55,7 +55,6 @@ import 'money_display_config.dart';
 /// CodeLines instance and resumed at the first changed segment, so a
 /// keystroke rescans ~one segment instead of the whole document.
 class MarkdownEditorSpanBuilder {
-  static final RegExp _headerRe = RegExp(r'^(#{1,6}) ');
 
   /// Mirrors the preview's horizontal-rule pattern (`^[-*_]{3,}\s*$` on
   /// the trimmed line), with the leading indent folded into the regex so
@@ -233,12 +232,7 @@ class MarkdownEditorSpanBuilder {
         _moneyConfig.enabled &&
         MarkdownMoneySyntax.leadsWithMoney(text)) {
       final money = MarkdownMoneySyntax.parse(text);
-      if (money != null &&
-          (money.valueSlot >= 0 ||
-              money.kind == MoneyLineKind.total ||
-              money.kind == MoneyLineKind.delta ||
-              money.kind == MoneyLineKind.diff ||
-              money.kind == MoneyLineKind.span)) {
+      if (money != null && MarkdownMoneySyntax.needsBalance(money)) {
         final balance =
             _lineIndex.moneyValueAt(controller.codeLines, index) ?? 0;
         final moneyKey = 'm:$balance:$text';
@@ -337,12 +331,27 @@ class MarkdownEditorSpanBuilder {
       }
     }
 
-    if (text.codeUnitAt(0) == 0x23) {
-      final match = _headerRe.firstMatch(text);
-      if (match != null) {
+    // Headers accept leading whitespace, matching the preview (which
+    // trims before its check) — an indented ` ## x`, a frequent
+    // leftover of list Enter-continuation, must style identically to a
+    // flush one or the two surfaces visibly disagree. Hand-scanned
+    // because `^`-anchored regexes can't match at an offset.
+    var hStart = 0;
+    while (hStart < text.length &&
+        (text.codeUnitAt(hStart) == 0x20 || text.codeUnitAt(hStart) == 0x09)) {
+      hStart++;
+    }
+    if (hStart < text.length && text.codeUnitAt(hStart) == 0x23) {
+      var h = hStart;
+      while (h < text.length && text.codeUnitAt(h) == 0x23) {
+        h++;
+      }
+      final level = h - hStart;
+      if (level <= 6 && h < text.length && text.codeUnitAt(h) == 0x20) {
         return _buildHeader(
           text: text,
-          level: match.group(1)!.length,
+          start: hStart,
+          level: level,
           style: style,
           baseColor: baseColor,
           primary: primary,
@@ -434,6 +443,93 @@ class MarkdownEditorSpanBuilder {
   /// same as [_buildHeader] — identical in both reveal states). A
   /// resolved accent token is concealed and overrides the semantic
   /// accent; an unresolved one stays visible as plain source text.
+  /// A money row's list-marker prefix, `[listMarkerStart, markerStart)`:
+  /// the bullet substitutes 1:1 with `•` exactly like [_buildListItem]
+  /// (ordered numbers stay as typed, tinted), and the gap spaces keep
+  /// their width — every code unit at its offset, reading as a list
+  /// item. Callers emit `[0, listMarkerStart)` (the indent) themselves.
+  void _emitMoneyListMarker({
+    required String text,
+    required MoneyLineMatch m,
+    required int gapEnd,
+    required TextStyle style,
+    required Color baseColor,
+    required Color primary,
+    required bool reveal,
+    required List<InlineSpan> out,
+  }) {
+    final mc = text.codeUnitAt(m.listMarkerStart);
+    if (mc >= 0x30 && mc <= 0x39) {
+      out.add(
+        TextSpan(
+          text: text.substring(m.listMarkerStart, m.listMarkerEnd),
+          style: style.copyWith(color: primary, fontWeight: FontWeight.w600),
+        ),
+      );
+    } else {
+      out.add(
+        TextSpan(
+          text: reveal
+              ? text.substring(m.listMarkerStart, m.listMarkerEnd)
+              : '•',
+          style: reveal
+              ? _dimStyle(style, baseColor)
+              : style.copyWith(color: primary, fontWeight: FontWeight.bold),
+        ),
+      );
+    }
+    // [gapEnd] is where the next chrome piece begins: heading hashes,
+    // an emphasis opener, or the `$` itself — the caller knows.
+    if (m.listMarkerEnd < gapEnd) {
+      out.add(
+        TextSpan(
+          text: text.substring(m.listMarkerEnd, gapEnd),
+          style: style,
+        ),
+      );
+    }
+  }
+
+  /// The emphasis closing run (plus any trailing spaces): chrome,
+  /// concealed off-caret and dimmed raw on reveal, appended after all
+  /// content so the code-unit inventory stays complete. Error rows skip
+  /// this — their raw warn emit already covers to the line end.
+  void _emitEmphasisCloser({
+    required String text,
+    required MoneyLineMatch m,
+    required TextStyle style,
+    required Color baseColor,
+    required bool reveal,
+    required List<InlineSpan> out,
+  }) {
+    if (m.emphasisCloseStart < 0) return;
+    out.add(
+      TextSpan(
+        text: text.substring(m.emphasisCloseStart),
+        style: reveal ? _dimStyle(style, baseColor) : _concealStyle(style),
+      ),
+    );
+  }
+
+  /// Money-row root span: plain normally, the fork's hanging span when
+  /// the row carries a list-marker prefix so soft-wrapped continuation
+  /// aligns under the `$` like any list item's content. Identical in
+  /// both reveal states, exactly like [_buildListItem]'s root.
+  TextSpan _finishMoneyLine(
+    MoneyLineMatch m,
+    TextStyle style,
+    List<InlineSpan> children,
+  ) {
+    if (m.listMarkerStart < 0) {
+      return TextSpan(style: style, children: children);
+    }
+    return CodeHangingTextSpan(
+      hangingChars: m.markerStart,
+      style: style,
+      children: children,
+    );
+  }
+
   TextSpan _buildMoneyLine({
     required String text,
     required MoneyLineMatch m,
@@ -454,7 +550,15 @@ class MarkdownEditorSpanBuilder {
     if (MarkdownMoneySyntax.hasError(m)) {
       final warn = MarkdownConstants.moneyWarning(dark: _isDark);
       final children = <InlineSpan>[];
-      final lead = m.headerStart >= 0 ? m.headerStart : m.markerStart;
+      // Pre-marker chrome: heading hashes and/or emphasis opener,
+      // contiguous by grammar; the emphasis closer needs no handling
+      // here — the raw warn emit below covers to the line end.
+      final chromeFrom = m.headerStart >= 0
+          ? m.headerStart
+          : m.emphasisStart >= 0
+          ? m.emphasisStart
+          : m.markerStart;
+      final lead = m.listMarkerStart >= 0 ? m.listMarkerStart : chromeFrom;
       if (lead > 0) {
         children.add(TextSpan(text: text.substring(0, lead), style: style));
       }
@@ -468,16 +572,30 @@ class MarkdownEditorSpanBuilder {
           ghosts: ghosts,
           out: children,
         );
-        return TextSpan(style: style, children: children);
+        return _finishMoneyLine(m, style, children);
       }
       final warnStyle = style.copyWith(
         color: warn,
         backgroundColor: warn.withValues(alpha: 0.1),
       );
-      if (m.headerStart >= 0) {
+      if (m.listMarkerStart >= 0) {
+        // A broken bulleted row keeps its list marker, so the list
+        // reads intact around the yellow row.
+        _emitMoneyListMarker(
+          text: text,
+          m: m,
+          gapEnd: chromeFrom,
+          style: style,
+          baseColor: baseColor,
+          primary: primary,
+          reveal: false,
+          out: children,
+        );
+      }
+      if (chromeFrom < m.markerStart) {
         children.add(
           TextSpan(
-            text: text.substring(m.headerStart, m.markerStart),
+            text: text.substring(chromeFrom, m.markerStart),
             style: _concealStyle(style),
           ),
         );
@@ -497,35 +615,78 @@ class MarkdownEditorSpanBuilder {
         ghosts: ghosts,
         out: children,
       );
-      return TextSpan(style: style, children: children);
+      return _finishMoneyLine(m, style, children);
     }
 
+    // The list-marker prefix is chrome *outside* the row's own styling:
+    // it must render exactly like [_buildListItem]'s, or a bulleted
+    // money row stops aligning with its plain siblings. Captured before
+    // the heading/emphasis mutations below — a heading-scaled bullet is
+    // bigger and a bold one has a wider trailing space, either of which
+    // pushes the row's marker (and everything after it) off the list's
+    // left edge.
+    final listStyle = style;
     if (m.headerLevel > 0) {
       style = style.copyWith(
         fontSize: (style.fontSize ?? 16.0) * _headerScale(m.headerLevel),
         fontWeight: FontWeight.bold,
       );
     }
+    // An emphasis wrapper styles the whole row; its marker runs conceal
+    // with the rest of the pre-marker chrome below, and the closer is
+    // appended (concealed) at the end of every path, so all code units
+    // keep their offsets.
+    if (m.emphasisLen > 0) {
+      style = style.copyWith(
+        fontStyle: m.emphasisItalic ? FontStyle.italic : null,
+        fontWeight: m.emphasisBold ? FontWeight.bold : null,
+      );
+    }
+    // The pre-marker chrome run: heading hashes and/or emphasis opener,
+    // contiguous by grammar, concealed as one — `_buildHeader` does the
+    // same for its `level + 1` chars.
+    final chromeFrom = m.headerStart >= 0
+        ? m.headerStart
+        : m.emphasisStart >= 0
+        ? m.emphasisStart
+        : m.markerStart;
     final children = <InlineSpan>[];
-    if (m.headerStart >= 0) {
-      if (m.headerStart > 0) {
+    if (m.listMarkerStart >= 0) {
+      // List-marker prefix: the indent stays visible so nesting keeps
+      // its width, then the marker renders exactly like a list item's —
+      // in [listStyle], the row's *unstyled* base, so the bullet sits on
+      // the same left edge as every sibling bullet. Heading hashes / an
+      // emphasis opener may follow (`- ## $$`, `- *$~ 2 x*`) — they
+      // conceal below just like the list-less shapes.
+      if (m.listMarkerStart > 0) {
         children.add(
-          TextSpan(text: text.substring(0, m.headerStart), style: style),
+          TextSpan(
+            text: text.substring(0, m.listMarkerStart),
+            style: listStyle,
+          ),
         );
       }
-      // Hashes *and* the space after them, in one concealed run — the
-      // whole prefix is chrome. `_buildHeader` does the same (it hides
-      // `level + 1` chars); concealing only the hashes left the row
-      // indented by the leftover space.
+      _emitMoneyListMarker(
+        text: text,
+        m: m,
+        gapEnd: chromeFrom,
+        style: listStyle,
+        baseColor: baseColor,
+        primary: primary,
+        reveal: reveal,
+        out: children,
+      );
+    } else if (chromeFrom > 0) {
+      children.add(
+        TextSpan(text: text.substring(0, chromeFrom), style: style),
+      );
+    }
+    if (chromeFrom < m.markerStart) {
       children.add(
         TextSpan(
-          text: text.substring(m.headerStart, m.markerStart),
+          text: text.substring(chromeFrom, m.markerStart),
           style: reveal ? _dimStyle(style, baseColor) : _concealStyle(style),
         ),
-      );
-    } else if (m.markerStart > 0) {
-      children.add(
-        TextSpan(text: text.substring(0, m.markerStart), style: style),
       );
     }
 
@@ -536,44 +697,30 @@ class MarkdownEditorSpanBuilder {
       );
     }
 
-    Color accent;
-    final String opGlyph;
-    switch (m.kind) {
-      case MoneyLineKind.add:
-        accent = MarkdownConstants.moneyPositive(dark: _isDark);
-        opGlyph = '+';
-      case MoneyLineKind.subtract:
-        accent = MarkdownConstants.moneyNegative(dark: _isDark);
-        opGlyph = '−';
-      case MoneyLineKind.multiply:
-        accent = MarkdownConstants.moneyNeutral(dark: _isDark);
-        opGlyph = '×';
-      case MoneyLineKind.divide:
-        accent = MarkdownConstants.moneyNeutral(dark: _isDark);
-        opGlyph = '÷';
-      case MoneyLineKind.set:
-        accent = primary;
-        opGlyph = '=';
-      case MoneyLineKind.total:
-        accent = balance < 0
-            ? MarkdownConstants.moneyNegative(dark: _isDark)
-            : primary;
-        opGlyph = '';
-      case MoneyLineKind.delta:
-      case MoneyLineKind.diff:
-      case MoneyLineKind.span:
-        accent = balance > 0
-            ? MarkdownConstants.moneyPositive(dark: _isDark)
-            : balance < 0
-            ? MarkdownConstants.moneyNegative(dark: _isDark)
-            : primary;
-        opGlyph = '';
-      case MoneyLineKind.target:
-        // Targets render source-faithfully like op rows (`!` → `◎`);
-        // the remaining budget shows in the preview and detail sheet.
-        accent = primary;
-        opGlyph = '◎';
-    }
+    // Glyph and semantic accent come from the shared palette (same two
+    // functions the preview reads). Display kinds carry no op glyph
+    // here — their chip paints the glyph itself — and `$! N`
+    // declarations render source-faithfully like op rows (`!` → `◎`
+    // amount-first; written label-first the row is a statement and the
+    // glyph is suppressed, the `:` staying visible as typed). The
+    // remaining budget lives on the bare `$!` status chip. A `$!`
+    // status row with no target above it warns instead of reading green
+    // off the sentinel; a resolved accent token overrides the semantic
+    // colour either way.
+    final bool noTarget =
+        m.kind == MoneyLineKind.remaining &&
+        MarkdownMoneySyntax.isNoTarget(balance);
+    Color accent = noTarget
+        ? MarkdownConstants.moneyWarning(dark: _isDark)
+        : MarkdownConstants.moneyAccent(
+            m.kind,
+            balance,
+            dark: _isDark,
+            primary: primary,
+          );
+    final String opGlyph = MarkdownMoneySyntax.isDisplayKind(m.kind)
+        ? ''
+        : MarkdownMoneySyntax.glyph(m.kind);
     if (accentSpec != null) {
       accent = accentSpec.text(dark: _isDark);
     }
@@ -613,23 +760,22 @@ class MarkdownEditorSpanBuilder {
       }
     }
 
-    final isDisplay =
-        m.kind == MoneyLineKind.total ||
-        m.kind == MoneyLineKind.delta ||
-        m.kind == MoneyLineKind.diff ||
-        m.kind == MoneyLineKind.span;
-    final hasSlot = m.valueSlot >= 0;
+    // One shared derivation of the row's shape (same object the preview
+    // builds), so the surfaces cannot disagree on flags or slot. Label
+    // text still renders from the raw match offsets — this surface is
+    // source-faithful and keeps the currency word visible.
+    final layout = MoneyRowLayout.of(text, m, _moneyConfig.currencySymbol);
+    final isDisplay = layout.isDisplay;
+    final slot = layout.slot;
+    final hasSlot = slot >= 0;
     // Label-first rows (`$= Net worth: 5000`) read as an equation: the
     // op glyph renders at the `:` instead of leading the row. Needed
     // this early because it changes how the marker itself is emitted.
-    final bool amountTrails = m.labelStart < m.amountStart;
+    final bool amountTrails = layout.labelFirst;
     // A count-taking display row may carry its accent token *after* the
     // count (`$~ 2 teal:`); the token then sits between the count and the
     // label rather than in the marker gap, and is concealed there instead.
-    final bool accentAfterCount =
-        m.accentStart >= 0 &&
-        m.amountEnd > m.amountStart &&
-        m.accentStart >= m.amountEnd;
+    final bool accentAfterCount = layout.accentAfterCount;
     if (isDisplay) {
       if (reveal) {
         children.add(
@@ -644,10 +790,15 @@ class MarkdownEditorSpanBuilder {
         // kind's glyph. The substitution must stay one code unit wide or
         // the caret drifts, so `Δ=` narrows to `Δ` here — the `$^` count
         // digits and the signed value carry the distinction from `$?`.
+        // (`Σ` and `◎` are already single code units.)
         children.add(TextSpan(text: r'$', style: _concealStyle(style)));
         children.add(
           TextSpan(
-            text: m.kind == MoneyLineKind.total ? 'Σ' : 'Δ',
+            text: switch (m.kind) {
+              MoneyLineKind.total => 'Σ',
+              MoneyLineKind.remaining => '◎',
+              _ => 'Δ',
+            },
             style: accentStyle,
           ),
         );
@@ -689,18 +840,18 @@ class MarkdownEditorSpanBuilder {
 
     // Emits a label region, substituting the value slot's lone `$` 1:1
     // with the painted value — exactly like the second `$` of a `$$`
-    // marker. Featured as a tinted chip on display and target rows,
-    // dimmed and unfilled on op rows, mirroring the preview's
-    // pill/annotation split. On reveal the slot stays literal text so
-    // the user edits real source.
+    // marker. Featured as a tinted chip on display rows, dimmed and
+    // unfilled on op rows and `$=`/`$!` declarations, mirroring the
+    // preview's pill/annotation split. On reveal the slot stays literal
+    // text so the user edits real source.
     void emitLabelRegion(int from, int to) {
       if (from >= to) return;
-      if (hasSlot && !reveal && m.valueSlot >= from && m.valueSlot < to) {
-        if (from < m.valueSlot) {
+      if (hasSlot && !reveal && slot >= from && slot < to) {
+        if (from < slot) {
           _appendInline(
             text: text,
             start: from,
-            end: m.valueSlot,
+            end: slot,
             contextStyle: labelStyle,
             baseColor: baseColor,
             primary: primary,
@@ -710,30 +861,24 @@ class MarkdownEditorSpanBuilder {
             depth: 0,
           );
         }
-        final bool featured = isDisplay || m.kind == MoneyLineKind.target;
         children.add(
           _moneyTotalSpan(
             style: style,
-            // Targets take their sign-based status colour only when no
-            // accent token resolved — a token wins on every row kind, so
-            // `$! red:` never leaves one element off-colour.
-            accent: m.kind == MoneyLineKind.target && accentSpec == null
-                ? (balance < 0
-                      ? MarkdownConstants.moneyNegative(dark: _isDark)
-                      : MarkdownConstants.moneyPositive(dark: _isDark))
-                : featured
-                ? accent
-                : baseColor.withValues(alpha: 0.5),
+            // Display rows keep their row accent (sentinel and pinned
+            // resolve to the warning inside); op rows and the `$=`/`$!`
+            // declaration slot spellings take the dimmed bare-number
+            // look their preview annotation has.
+            accent: isDisplay ? accent : baseColor.withValues(alpha: 0.5),
             balance: balance,
             kind: m.kind,
             atSlot: true,
-            filled: featured,
+            filled: isDisplay,
           ),
         );
-        if (m.valueSlot + 1 < to) {
+        if (slot + 1 < to) {
           _appendInline(
             text: text,
-            start: m.valueSlot + 1,
+            start: slot + 1,
             end: to,
             contextStyle: labelStyle,
             baseColor: baseColor,
@@ -758,6 +903,54 @@ class MarkdownEditorSpanBuilder {
           depth: 0,
         );
       }
+    }
+
+    // A count-taking display row's window count (`$^ 2`, `$~ ALL`) is
+    // syntax, not content — it selects the window the row measures just
+    // as the accent token selects its colour — so the whole chrome run
+    // from the marker to the label (spaces, accent token, count, in
+    // either order) is concealed as one, keeping only the single space
+    // that separates the painted chip from the label. Concealed, never
+    // dropped: every source char stays in the span tree at its true
+    // offset, so caret arithmetic is untouched and reveal (caret on the
+    // line) shows the count again for editing. An unresolved accent
+    // token opts the row out — nothing the parser could not resolve is
+    // ever silently eaten — matching the preview, which simply declines
+    // to paint the same run.
+    final bool concealCount =
+        isDisplay &&
+        !reveal &&
+        m.amountEnd > m.amountStart &&
+        (m.accentStart < 0 || accentSpec != null);
+    if (concealCount) {
+      // The parser skips spaces to reach the label, so whenever a label
+      // follows there is a space right before it to leave visible.
+      final int keep = m.labelStart < text.length
+          ? m.labelStart - 1
+          : m.labelStart;
+      if (m.markerEnd < keep) {
+        children.add(
+          TextSpan(
+            text: text.substring(m.markerEnd, keep),
+            style: _concealStyle(style),
+          ),
+        );
+      }
+      if (keep < m.labelStart) {
+        children.add(
+          TextSpan(text: text.substring(keep, m.labelStart), style: style),
+        );
+      }
+      emitLabelRegion(m.labelStart, layout.contentEnd);
+      _emitEmphasisCloser(
+        text: text,
+        m: m,
+        style: style,
+        baseColor: baseColor,
+        reveal: reveal,
+        out: children,
+      );
+      return _finishMoneyLine(m, style, children);
     }
 
     // Between the marker and whatever comes first sit only spaces and
@@ -787,9 +980,13 @@ class MarkdownEditorSpanBuilder {
       }
     }
     if (amountTrails) {
-      if (reveal) {
+      if (reveal || m.kind == MoneyLineKind.target) {
         // Raw source while editing: the `:` stays a plain character and
-        // the marker above shows its dimmed `$=`.
+        // the marker above shows its dimmed `$=`. A `$!` declaration
+        // keeps its `:` in *both* states — written label-first it is a
+        // statement, not an equation, so no target glyph renders and
+        // `### $! yellow: Groceries: 500` reads "Groceries: 500"
+        // (matching the preview's icon suppression).
         emitLabelRegion(m.labelStart, m.labelEnd);
       } else {
         emitLabelRegion(m.labelStart, m.labelEnd - 1);
@@ -819,11 +1016,11 @@ class MarkdownEditorSpanBuilder {
         ghosts: ghosts,
         out: children,
       );
-      if (m.amountEnd < text.length) {
-        children.add(
-          TextSpan(text: text.substring(m.amountEnd), style: style),
-        );
-      }
+      // Free trailing text after the amount (`$= Worth: 500 lei so
+      // far`): a label region like any other, slot included. The
+      // currency word stays visible as typed — this surface renders
+      // source faithfully, same as amounts.
+      emitLabelRegion(m.amountEnd, layout.contentEnd);
     } else {
       // The amount run covers op amounts and `$^ N` count digits alike —
       // display rows without a count have an empty range.
@@ -844,12 +1041,20 @@ class MarkdownEditorSpanBuilder {
         // and the label, then render the label proper. An unresolved
         // token falls through to the label run and stays visible as typed.
         emitAccentToken(m.amountEnd, m.labelStart);
-        emitLabelRegion(m.labelStart, text.length);
+        emitLabelRegion(m.labelStart, layout.contentEnd);
       } else {
-        emitLabelRegion(m.amountEnd, text.length);
+        emitLabelRegion(m.amountEnd, layout.contentEnd);
       }
     }
-    return TextSpan(style: style, children: children);
+    _emitEmphasisCloser(
+      text: text,
+      m: m,
+      style: style,
+      baseColor: baseColor,
+      reveal: reveal,
+      out: children,
+    );
+    return _finishMoneyLine(m, style, children);
   }
 
   /// A single op glyph painted into a label-first row's `:` placeholder,
@@ -891,10 +1096,11 @@ class MarkdownEditorSpanBuilder {
   }
 
   /// Builds the painted chip for a `$$` total (`Σ` + balance), a `$?`
-  /// net change (`Δ` + signed change), a `$^` entry diff (`Δ=` + signed
-  /// move), or a `$~` checkpoint span (`Δ~` + signed move), laid out
-  /// once here (memoized upstream via the positional span cache) and
-  /// painted into the placeholder box.
+  /// net change (`Δ` + signed change), a bare `$!` target status (`◎` +
+  /// remaining budget, or "no target"), a `$^` entry diff (`Δ=` +
+  /// signed move), or a `$~` checkpoint span (`Δ~` + signed move), laid
+  /// out once here (memoized upstream via the positional span cache)
+  /// and painted into the placeholder box.
   /// The box height stays under the line's strut height so the line
   /// never grows.
   ///
@@ -913,15 +1119,20 @@ class MarkdownEditorSpanBuilder {
   }) {
     // A value pinned at the clamp limit paints in the warning accent —
     // the number shown is the cap, not real arithmetic. Checked here so
-    // the marker chip and the slot chip can never disagree.
-    if (MarkdownMoneySyntax.valuePinned(balance)) {
+    // the marker chip and the slot chip can never disagree. A bare `$!`
+    // with no target above it is the same shape of exception: the
+    // sentinel is not money, so the chip says "no target" in the same
+    // warning accent instead of formatting it.
+    final noTarget =
+        kind == MoneyLineKind.remaining &&
+        MarkdownMoneySyntax.isNoTarget(balance);
+    if (noTarget || MarkdownMoneySyntax.valuePinned(balance)) {
       accent = MarkdownConstants.moneyWarning(dark: _isDark);
     }
-    final signed =
-        kind == MoneyLineKind.delta ||
-        kind == MoneyLineKind.diff ||
-        kind == MoneyLineKind.span;
-    final value = signed
+    final signed = MarkdownMoneySyntax.isSignedKind(kind);
+    final value = noTarget
+        ? 'no target'
+        : signed
         ? MarkdownMoneySyntax.formatCentsSignedWithSymbol(
             balance,
             symbol: _moneyConfig.currencySymbol,
@@ -932,14 +1143,11 @@ class MarkdownEditorSpanBuilder {
             symbol: _moneyConfig.currencySymbol,
             suffix: _moneyConfig.currencySuffix,
           );
+    // Chip glyph from the shared palette; only display kinds reach the
+    // non-slot label (op-row chips always sit at a slot).
     final label = atSlot
         ? value
-        : switch (kind) {
-            MoneyLineKind.delta => 'Δ $value',
-            MoneyLineKind.diff => 'Δ= $value',
-            MoneyLineKind.span => 'Δ~ $value',
-            _ => 'Σ $value',
-          };
+        : '${MarkdownMoneySyntax.glyph(kind)} $value';
     final fontSize = style.fontSize ?? 16.0;
     final lineBox = fontSize * (style.height ?? MarkdownConstants.lineHeight);
     final painter = TextPainter(
@@ -973,6 +1181,7 @@ class MarkdownEditorSpanBuilder {
   TextSpan _buildHeader({
     required String text,
     required int level,
+    int start = 0,
     required TextStyle style,
     required Color baseColor,
     required Color primary,
@@ -993,10 +1202,15 @@ class MarkdownEditorSpanBuilder {
         color: level == 5 ? blended : blended.withValues(alpha: _h6Alpha),
       );
     }
-    final markerEnd = level + 1;
+    // [start] is past any leading indent — kept visible (like list
+    // indent) while the hashes + their space conceal, so an indented
+    // header keeps its width and only the chrome disappears.
+    final markerEnd = start + level + 1;
     final children = <InlineSpan>[
+      if (start > 0)
+        TextSpan(text: text.substring(0, start), style: headerStyle),
       TextSpan(
-        text: text.substring(0, markerEnd),
+        text: text.substring(start, markerEnd),
         style: reveal
             ? _dimStyle(headerStyle, baseColor)
             : _concealStyle(headerStyle),

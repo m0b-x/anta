@@ -1,6 +1,7 @@
 import 'dart:ui' show Color;
 
 import '../utils/markdown_callout_syntax.dart';
+import '../utils/markdown_money_syntax.dart';
 
 /// Constants for markdown rendering and preview
 class MarkdownConstants {
@@ -127,6 +128,38 @@ class MarkdownConstants {
   /// every surface warns in the same yellow.
   static Color moneyWarning({required bool dark}) =>
       dark ? const Color(0xFFFFC107) : const Color(0xFFB28704);
+
+  /// Semantic accent for a money row: fixed sign colours on op rows,
+  /// value-sign colours on display rows (`$$` red only when negative,
+  /// `$?`/`$^`/`$~` by direction, bare `$!` green while the budget
+  /// holds — zero included, "didn't spend more than the target" — red
+  /// once overspent), [primary] where the row is a neutral statement
+  /// (`$=`, and `$! N` declarations, whose value is the target itself).
+  /// One source for the preview and the live editor — they used to keep
+  /// twin switches — while the detail sheet keeps its deliberately
+  /// flatter row-accent policy. An explicit accent token overrides this
+  /// at the call site, exactly as before; callers resolve the
+  /// no-target sentinel to [moneyWarning] before asking here.
+  static Color moneyAccent(
+    MoneyLineKind kind,
+    int value, {
+    required bool dark,
+    required Color primary,
+  }) => switch (kind) {
+    MoneyLineKind.add => moneyPositive(dark: dark),
+    MoneyLineKind.subtract => moneyNegative(dark: dark),
+    MoneyLineKind.multiply || MoneyLineKind.divide => moneyNeutral(dark: dark),
+    MoneyLineKind.set || MoneyLineKind.target => primary,
+    MoneyLineKind.total => value < 0 ? moneyNegative(dark: dark) : primary,
+    MoneyLineKind.remaining =>
+      value < 0 ? moneyNegative(dark: dark) : moneyPositive(dark: dark),
+    MoneyLineKind.delta || MoneyLineKind.diff || MoneyLineKind.span =>
+      value > 0
+          ? moneyPositive(dark: dark)
+          : value < 0
+          ? moneyNegative(dark: dark)
+          : primary,
+  };
 
   /// The accent colour for a callout [type], in a light/dark variant.
   /// Shared by the preview renderer (bar, icon-label header, band tint)

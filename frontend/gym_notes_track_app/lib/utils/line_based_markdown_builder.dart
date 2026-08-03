@@ -1087,6 +1087,13 @@ class LineBasedMarkdownBuilder {
     TextStyle baseStyle,
   ) {
     final dark = style.isDark;
+    // The list-marker prefix is chrome *outside* the row's own styling:
+    // it renders exactly like [_buildListItem]'s marker, so a bulleted
+    // money row aligns with its plain siblings. Captured before the
+    // heading/emphasis mutations below — a heading-scaled bullet is
+    // bigger and an italic one leans, either of which breaks the list's
+    // left edge.
+    final listStyle = baseStyle;
 
     // Error rows render as a warning that keeps the typed source
     // visible and offset-mapped (search still lands on it, nothing the
@@ -1099,22 +1106,28 @@ class LineBasedMarkdownBuilder {
         color: warn,
         backgroundColor: warn.withValues(alpha: 0.1),
       );
-      return TextSpan(
-        children: [
-          TextSpan(
-            text: '! ',
-            style: warnStyle.copyWith(fontWeight: FontWeight.bold),
-          ),
-          _applyHighlighting(
-            line.substring(m.markerStart),
-            warnStyle,
-            lineStart + m.markerStart,
-          ),
-          TextSpan(
-            text: '  — ${moneyConfig.errorText(m.error!)}',
-            style: baseStyle.copyWith(color: warn.withValues(alpha: 0.7)),
-          ),
-        ],
+      return _wrapMoneyList(
+        line,
+        m,
+        TextSpan(
+          children: [
+            TextSpan(
+              text: '! ',
+              style: warnStyle.copyWith(fontWeight: FontWeight.bold),
+            ),
+            _applyHighlighting(
+              line.substring(m.markerStart),
+              warnStyle,
+              lineStart + m.markerStart,
+            ),
+            TextSpan(
+              text: '  — ${moneyConfig.errorText(m.error!)}',
+              style: baseStyle.copyWith(color: warn.withValues(alpha: 0.7)),
+            ),
+          ],
+        ),
+        baseStyle,
+        listStyle,
       );
     }
 
@@ -1133,65 +1146,42 @@ class LineBasedMarkdownBuilder {
         fontWeight: FontWeight.bold,
       );
     }
+    // An emphasis wrapper (`*$~ 2 x*`, `**$$**`) styles the whole row;
+    // the marker runs themselves are chrome and are never emitted here
+    // (every emission below is bounded by the reduced parse offsets).
+    if (m.emphasisLen > 0) {
+      baseStyle = baseStyle.copyWith(
+        fontStyle: m.emphasisItalic ? FontStyle.italic : null,
+        fontWeight: m.emphasisBold ? FontWeight.bold : null,
+      );
+    }
     MarkdownColorSpec? accentSpec;
     if (m.accentStart >= 0) {
       accentSpec = colorPalette.lookup(
         line.substring(m.accentStart, m.accentEnd),
       );
     }
-    final isDisplay =
-        m.kind == MoneyLineKind.total ||
-        m.kind == MoneyLineKind.delta ||
-        m.kind == MoneyLineKind.diff ||
-        m.kind == MoneyLineKind.span;
-    Color accent;
-    final String chrome;
-    switch (m.kind) {
-      case MoneyLineKind.add:
-        accent = MarkdownConstants.moneyPositive(dark: dark);
-        chrome = '+';
-      case MoneyLineKind.subtract:
-        accent = MarkdownConstants.moneyNegative(dark: dark);
-        chrome = '−';
-      case MoneyLineKind.multiply:
-        accent = MarkdownConstants.moneyNeutral(dark: dark);
-        chrome = '×';
-      case MoneyLineKind.divide:
-        accent = MarkdownConstants.moneyNeutral(dark: dark);
-        chrome = '÷';
-      case MoneyLineKind.set:
-        accent = style.primaryColor;
-        chrome = '=';
-      case MoneyLineKind.total:
-        accent = value < 0
-            ? MarkdownConstants.moneyNegative(dark: dark)
-            : style.primaryColor;
-        chrome = 'Σ';
-      case MoneyLineKind.delta:
-        accent = value > 0
-            ? MarkdownConstants.moneyPositive(dark: dark)
-            : value < 0
-            ? MarkdownConstants.moneyNegative(dark: dark)
-            : style.primaryColor;
-        chrome = 'Δ';
-      case MoneyLineKind.diff:
-        accent = value > 0
-            ? MarkdownConstants.moneyPositive(dark: dark)
-            : value < 0
-            ? MarkdownConstants.moneyNegative(dark: dark)
-            : style.primaryColor;
-        chrome = 'Δ=';
-      case MoneyLineKind.span:
-        accent = value > 0
-            ? MarkdownConstants.moneyPositive(dark: dark)
-            : value < 0
-            ? MarkdownConstants.moneyNegative(dark: dark)
-            : style.primaryColor;
-        chrome = 'Δ~';
-      case MoneyLineKind.target:
-        accent = style.primaryColor;
-        chrome = '◎';
-    }
+    // One shared derivation of the row's shape — the editor builds the
+    // same object from the same inputs, so the two surfaces cannot
+    // disagree on regions, slot, or currency handling.
+    final layout = MoneyRowLayout.of(line, m, moneyConfig.currencySymbol);
+    final isDisplay = layout.isDisplay;
+    // Glyph and semantic accent come from the shared palette — the
+    // editor reads the same two functions, so the surfaces cannot
+    // drift. A `$!` status row with no target above it warns instead of
+    // reading green off the sentinel; a resolved accent token overrides
+    // the semantic colour either way.
+    final noTarget =
+        m.kind == MoneyLineKind.remaining && MarkdownMoneySyntax.isNoTarget(value);
+    Color accent = noTarget
+        ? MarkdownConstants.moneyWarning(dark: dark)
+        : MarkdownConstants.moneyAccent(
+            m.kind,
+            value,
+            dark: dark,
+            primary: style.primaryColor,
+          );
+    final chrome = MarkdownMoneySyntax.glyph(m.kind);
     if (accentSpec != null) {
       accent = accentSpec.text(dark: dark);
     }
@@ -1212,12 +1202,13 @@ class LineBasedMarkdownBuilder {
     // the row shows `Net worth = 5000`. The `:` becomes chrome, exactly
     // like the `$=` marker it replaces. Amount-first rows keep the
     // glyph in front — the spelling picks the layout.
-    final amountTrails = !isDisplay && m.labelStart < m.amountStart;
+    final amountTrails = layout.labelFirst;
     final children = <InlineSpan>[
       if (!amountTrails) TextSpan(text: '$chrome ', style: accentStyle),
     ];
     final unresolvedAccent = m.accentStart >= 0 && accentSpec == null;
-    final hasSlot = m.valueSlot >= 0;
+    final slot = layout.slot;
+    final hasSlot = slot >= 0;
 
     // A value pinned at the clamp limit renders in the warning accent
     // on every path below — the number shown is the cap, not the
@@ -1226,37 +1217,13 @@ class LineBasedMarkdownBuilder {
     final warnColor = MarkdownConstants.moneyWarning(dark: dark);
 
     // The row's computed value, styled by how load-bearing it is:
-    // display rows and targets feature it as a tinted pill, op rows
-    // carry it as a dimmed echo beside the amount that was typed. Built
-    // in one place so the slot and default positions can never drift
-    // apart. [atSlot] only drops the `=` lead-in that reads as an
-    // annotation at the end of a row but as noise mid-sentence.
+    // display rows feature it as a tinted pill, op rows (and the
+    // `$=`/`$!` declaration slot spellings) carry it as a dimmed echo
+    // beside the amount that was typed. Built in one place so the slot
+    // and default positions can never drift apart. [atSlot] only drops
+    // the `=` lead-in that reads as an annotation at the end of a row
+    // but as noise mid-sentence.
     InlineSpan buildValue({required bool atSlot}) {
-      if (m.kind == MoneyLineKind.target) {
-        // Sign-based status colour — green while under, red when over —
-        // unless an explicit accent token overrides it, exactly like
-        // `$$`'s negative-red and `$?`'s direction colour. Targets used
-        // to be the one carve-out, which made a `$! red:` row ambiguous
-        // (is red the token or the over-budget warning?). Over-budget
-        // stays readable without the colour: the remaining value is
-        // negative, so it renders with a leading `-`.
-        final remainColor = pinned
-            ? warnColor
-            : accentSpec != null
-            ? accent
-            : value < 0
-            ? MarkdownConstants.moneyNegative(dark: dark)
-            : MarkdownConstants.moneyPositive(dark: dark);
-        return TextSpan(
-          text:
-              ' ${MarkdownMoneySyntax.formatCentsWithSymbol(value, symbol: moneyConfig.currencySymbol, suffix: moneyConfig.currencySuffix)} ',
-          style: baseStyle.copyWith(
-            color: remainColor,
-            fontWeight: FontWeight.bold,
-            backgroundColor: remainColor.withValues(alpha: 0.12),
-          ),
-        );
-      }
       if (!isDisplay) {
         final text = MarkdownMoneySyntax.formatCentsWithSymbol(
           value,
@@ -1272,15 +1239,25 @@ class LineBasedMarkdownBuilder {
           ),
         );
       }
-      final signed = m.kind != MoneyLineKind.total;
+      // Every row whose colour encodes a sign also *shows* it (shared
+      // `isSignedKind`): the direction rows and bare `$!`, whose `+`
+      // reads as budget left and `-` as overspent. `$$` stays unsigned —
+      // it is an absolute balance, not a move. With no target declared
+      // the pill says so instead of formatting the sentinel as money.
+      final signed = MarkdownMoneySyntax.isSignedKind(m.kind);
+      // Like a pinned value, the "no target" chip keeps the warning
+      // colour even under an accent token — it marks a measurement that
+      // could not be made, and that outranks row styling.
       InlineSpan pill = TextSpan(
-        text: signed
+        text: noTarget
+            ? ' no target '
+            : signed
             ? ' ${MarkdownMoneySyntax.formatCentsSignedWithSymbol(value, symbol: moneyConfig.currencySymbol, suffix: moneyConfig.currencySuffix)} '
             : ' ${MarkdownMoneySyntax.formatCentsWithSymbol(value, symbol: moneyConfig.currencySymbol, suffix: moneyConfig.currencySuffix)} ',
         style: accentStyle.copyWith(
-          color: pinned ? warnColor : null,
+          color: pinned || noTarget ? warnColor : null,
           fontWeight: FontWeight.bold,
-          backgroundColor: (pinned ? warnColor : accent).withValues(
+          backgroundColor: (pinned || noTarget ? warnColor : accent).withValues(
             alpha: 0.12,
           ),
         ),
@@ -1306,41 +1283,52 @@ class LineBasedMarkdownBuilder {
       children.add(TextSpan(text: ' ', style: baseStyle));
     }
     void emitAmount() {
+      // A `$=` row is the one place where the typed operand *is* the
+      // row's value — it sets the balance rather than moving it — so it
+      // renders as a value: formatted to two decimals with the currency
+      // in its configured prefix/suffix position, through the same
+      // formatter every other value on every surface goes through. Every
+      // other row keeps its operand raw (`$+ 50`) because its computed
+      // annotation carries the currency instead; `$=` has no annotation
+      // (appending `= 5000.00` beside a typed `5000` is a duplicate), so
+      // before this it was the only row that showed a bare, currency-less
+      // number — and it disagreed with its own `$= 5000 Net worth: $`
+      // spelling, where the slot has always rendered the formatted value.
+      // The number itself never changes: [value] equals the typed amount
+      // for a `set` row by definition of the fold. `$! N` declarations
+      // share the rule — a declaration's operand *is* the target it
+      // declares — so a budget statement prints its currency too.
+      final text =
+          m.kind == MoneyLineKind.set || m.kind == MoneyLineKind.target
+          ? MarkdownMoneySyntax.formatCentsWithSymbol(
+              value,
+              symbol: moneyConfig.currencySymbol,
+              suffix: moneyConfig.currencySuffix,
+            )
+          : line.substring(m.amountStart, m.amountEnd);
       children.add(
-        _applyHighlighting(
-          line.substring(m.amountStart, m.amountEnd),
-          accentStyle,
-          lineStart + m.amountStart,
-        ),
+        // The source offset still anchors search highlighting; a rendered
+        // run that is not the same length as its source run only shifts
+        // where the highlight ends, since the ranges clamp to it.
+        _applyHighlighting(text, accentStyle, lineStart + m.amountStart),
       );
     }
 
-    // [separator] is the gap from whatever precedes the label; a
-    // label-first row puts it right after the chrome glyph, which
-    // already carries its own trailing space.
-    void emitLabel({bool separator = true}) {
-      // An unresolved token on display rows folds back into the label so
-      // the typed text stays visible at its exact offsets — starting from
-      // whichever of the token or the count comes first, since the accent
-      // may be written either before (`$~ teal: 2`) or after (`$~ 2 teal:`)
-      // the count.
-      final from = isDisplay && unresolvedAccent
-          ? (m.accentStart < m.amountStart ? m.accentStart : m.amountStart)
-          : m.labelStart;
-      // On a label-first row the trailing `:` is chrome — the op glyph
-      // renders in its place — so it is not part of the label text.
-      final to = amountTrails ? m.labelEnd - 1 : m.labelEnd;
+    // Emits one text region at its true offsets, substituting the value
+    // at the slot when it falls inside this region — the label proper
+    // and a label-first row's free trailing text both route through
+    // here, so a slot behaves identically wherever the row put it.
+    void emitRegion(int from, int to) {
       if (from >= to) return;
-      if (separator) children.add(TextSpan(text: ' ', style: baseStyle));
-      if (hasSlot) {
-        // The slot splits the label into two independently inline-parsed
-        // runs at their true source offsets, so search still lands on
-        // the label text either side of the value.
-        if (from < m.valueSlot) {
+      if (hasSlot && slot >= from && slot < to) {
+        // The slot splits the region into two independently
+        // inline-parsed runs at their true source offsets, so search
+        // still lands on the text either side of the value.
+        if (from < slot) {
           _appendFlattened(
             children,
             _buildInlineFormatted(
-              line.substring(from, m.valueSlot),
+              line.substring(from, slot),
               labelStyle,
               lineStart + from,
               lineEnd,
@@ -1348,13 +1336,13 @@ class LineBasedMarkdownBuilder {
           );
         }
         children.add(buildValue(atSlot: true));
-        if (m.valueSlot + 1 < to) {
+        if (slot + 1 < to) {
           _appendFlattened(
             children,
             _buildInlineFormatted(
-              line.substring(m.valueSlot + 1, to),
+              line.substring(slot + 1, to),
               labelStyle,
-              lineStart + m.valueSlot + 1,
+              lineStart + slot + 1,
               lineEnd,
             ),
           );
@@ -1372,43 +1360,145 @@ class LineBasedMarkdownBuilder {
       }
     }
 
+    // [separator] is the gap from whatever precedes the label; a
+    // label-first row puts it right after the chrome glyph, which
+    // already carries its own trailing space.
+    void emitLabel({bool separator = true}) {
+      // An unresolved token on display rows folds back into the label so
+      // the typed text stays visible at its exact offsets — starting from
+      // whichever of the token or the count comes first, since the accent
+      // may be written either before (`$~ teal: 2`) or after (`$~ 2 teal:`)
+      // the count.
+      //
+      // Otherwise the label starts past an inline currency word
+      // (`$= 500 lei`, `$+ 50 lei coffee`): the row's value already
+      // prints the currency in its configured position, so echoing the
+      // typed word would double it. Recognised only when it *is* this
+      // note's currency, so every other word is still ordinary label
+      // text — the rule lives in the grammar lib, shared with the
+      // detail sheet.
+      final from = isDisplay && unresolvedAccent
+          ? (m.accentStart < m.amountStart ? m.accentStart : m.amountStart)
+          : layout.labelFrom;
+      // On a label-first row the trailing `:` is chrome — the op glyph
+      // renders in its place — so it is not part of the label text.
+      final to = layout.labelTo;
+      if (from >= to) return;
+      if (separator) children.add(TextSpan(text: ' ', style: baseStyle));
+      emitRegion(from, to);
+    }
+
     if (isDisplay) {
-      // `$^ N` keeps its count digits as an offset-mapped source run
-      // (like op amounts), so search lands on them and the window is
-      // visible at a glance. With an unresolved accent token the digits
-      // ride along in the literal label run below instead.
-      if (m.amountEnd > m.amountStart && !unresolvedAccent) {
-        emitAmount();
-        children.add(TextSpan(text: ' ', style: baseStyle));
-      }
+      // The `$^ N` / `$~ N` window count is syntax, not content: it
+      // selects the window the row measures exactly as the accent token
+      // selects its colour, so like that token it is chrome and never
+      // painted — the row reads as the sentence the label writes. (The
+      // editor still reveals it with the rest of the raw source when the
+      // caret lands on the line, and the detail sheet lists the window
+      // itself.) With an unresolved accent token the digits ride along
+      // in the literal label run below instead, so nothing the parser
+      // could not resolve is ever silently eaten.
       if (!hasSlot) children.add(buildValue(atSlot: false));
       emitLabel();
     } else if (amountTrails) {
       // Label-first (`$- Loss on trade: 5000`): the typed amount trails
       // its label instead of leading it, with the op glyph between them
       // in place of the `:`. Source order is what renders — both runs
-      // keep their true offsets either way.
-      emitLabel(separator: false);
-      children.add(TextSpan(text: ' $chrome ', style: accentStyle));
+      // keep their true offsets either way. A `$!` declaration is the
+      // exception: written label-first it is a statement, not an
+      // equation (`### $! yellow: Groceries: 500` should read
+      // "Groceries: 500.00 lei", not sprout a target icon mid-header),
+      // so the `:` stays visible text and no glyph renders at all.
+      if (m.kind == MoneyLineKind.target) {
+        emitRegion(layout.labelFrom, m.labelEnd);
+        children.add(TextSpan(text: ' ', style: baseStyle));
+      } else {
+        emitLabel(separator: false);
+        children.add(TextSpan(text: ' $chrome ', style: accentStyle));
+      }
       emitAmount();
+      // Free trailing text after the amount (`$= Worth: 500 lei as of
+      // today`): the currency word is chrome when it is this note's
+      // symbol — the value beside it already prints it — and everything
+      // else renders at its true offsets, value slot included, so the
+      // parser can never eat a word it did not understand.
+      emitRegion(layout.trailingFrom, layout.contentEnd);
     } else {
       emitAmount();
       emitLabel();
     }
     // Default trailing position, used only when the label placed no
-    // slot. `$=` is the one row with nothing to append — its typed
-    // amount already is the balance it sets — but an explicit slot
-    // still renders it, which is how a `$=` row gets a formatted,
-    // currency-suffixed value.
-    if (!hasSlot) {
-      if (m.kind == MoneyLineKind.target) {
-        children.add(TextSpan(text: '  ', style: baseStyle));
-        children.add(buildValue(atSlot: false));
-      } else if (m.kind != MoneyLineKind.set && !isDisplay) {
-        children.add(buildValue(atSlot: false));
-      }
+    // slot. `$=` and `$! N` declarations append nothing — their amount
+    // already renders as the value it is (see [emitAmount]), so an
+    // annotation beside it would just repeat the number — while an
+    // explicit slot renders that same value wherever in the label the
+    // row put it. The remaining budget lives on the bare `$!` status
+    // row now, not beside the declaration.
+    if (!hasSlot &&
+        m.kind != MoneyLineKind.set &&
+        m.kind != MoneyLineKind.target &&
+        !isDisplay) {
+      children.add(buildValue(atSlot: false));
     }
-    return TextSpan(style: baseStyle, children: children);
+    return _wrapMoneyList(
+      line,
+      m,
+      TextSpan(style: baseStyle, children: children),
+      baseStyle,
+      listStyle,
+    );
+  }
+
+  /// Wraps a money row's span in list chrome — indent plus a synthetic
+  /// bullet / the typed ordered number — when the row carries a
+  /// list-marker prefix (`- $+ 50`, `1. $$`). Same [WidgetSpan] row as
+  /// [_buildListItem] / [_buildOrderedListItem], so a bulleted money
+  /// row aligns and hangs exactly like any other list item, while the
+  /// money content inside keeps its true source offsets for search.
+  ///
+  /// [markerStyle] is the row's style *before* its heading/emphasis
+  /// mutations, so the bullet matches a plain list item's exactly;
+  /// [baseStyle] (the styled row) stays the default for the content.
+  TextSpan _wrapMoneyList(
+    String line,
+    MoneyLineMatch m,
+    TextSpan span,
+    TextStyle baseStyle,
+    TextStyle markerStyle,
+  ) {
+    if (m.listMarkerStart < 0) return span;
+    final level = MarkdownListSyntax.indentLevel(line);
+    final c = line.codeUnitAt(m.listMarkerStart);
+    final ordered = c >= 0x30 && c <= 0x39;
+    final marker = ordered
+        ? '${line.substring(m.listMarkerStart, m.listMarkerEnd)} '
+        : '${_bulletForLevel(level)} ';
+    return TextSpan(
+      children: [
+        WidgetSpan(
+          alignment: PlaceholderAlignment.top,
+          child: Padding(
+            padding: EdgeInsets.only(left: _listIndent(level)),
+            child: DefaultTextStyle(
+              style: baseStyle,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    marker,
+                    style: markerStyle.copyWith(
+                      color: style.primaryColor,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Expanded(child: Text.rich(span, style: baseStyle)),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   /// Appends [span] to [children], flattening one wrapper level. Every

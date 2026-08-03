@@ -1233,15 +1233,17 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     AppNavigator.toSearch(context, query: tag);
   }
 
-  /// Opens the ledger detail sheet for a tapped `$$` / `$?` / `$^` /
-  /// `$~` row — reached from both the preview pill and the editor's
-  /// painted chip. Entries are collected on demand from the current
-  /// editor content (grammar-shared, fence-aware), so preview and editor
-  /// taps always agree with what is rendered. `$?` sheets list entries
-  /// since the last `$=`; `$^ N` sheets list the window it measures —
-  /// the last N balance-changing entries (clamped to the current period)
-  /// from their baseline through the tapped row; `$~ N` sheets span the
-  /// last N `$=` checkpoints, reaching across period boundaries.
+  /// Opens the ledger detail sheet for a tapped `$$` / `$?` / bare `$!`
+  /// / `$^` / `$~` row — reached from both the preview pill and the
+  /// editor's painted chip. Entries are collected on demand from the
+  /// current editor content (grammar-shared, fence-aware), so preview
+  /// and editor taps always agree with what is rendered. `$?` sheets
+  /// list entries since the last `$=`; bare `$!` sheets list the budget
+  /// window — the active target's declaration through the tapped row;
+  /// `$^ N` sheets list the window it measures — the last N
+  /// balance-changing entries (clamped to the current period) from
+  /// their baseline through the tapped row; `$~ N` sheets span the last
+  /// N `$=` checkpoints, reaching across period boundaries.
   void _handleMoneyTap(int lineIndex) {
     final codeLines = _contentController.codeLines;
     if (lineIndex < 0 || lineIndex >= codeLines.length) return;
@@ -1269,6 +1271,10 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       MoneyLineKind.span => MarkdownMoneySyntax.spanWindowEntries(
         collected,
         tapped,
+        lineIndex,
+      ),
+      MoneyLineKind.remaining => MarkdownMoneySyntax.targetWindowEntries(
+        collected,
         lineIndex,
       ),
       _ => collected.entries,

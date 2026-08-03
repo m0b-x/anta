@@ -6,9 +6,9 @@ import '../utils/markdown_money_syntax.dart';
 import '../utils/money_display_config.dart';
 
 /// Bottom sheet listing the ledger entries that feed a tapped `$$`
-/// total, `$?` net-change, `$^` entry-diff, or `$~` checkpoint-span row
-/// — reached from both the preview pill and the live editor's painted
-/// chip. Read-only: rows mirror the
+/// total, `$?` net-change, bare-`$!` target-status, `$^` entry-diff, or
+/// `$~` checkpoint-span row — reached from both the preview pill and
+/// the live editor's painted chip. Read-only: rows mirror the
 /// inline rendering (same glyphs and accent palette) so the sheet and
 /// the note always read as one system.
 class MoneyDetailSheet extends StatelessWidget {
@@ -64,12 +64,21 @@ class MoneyDetailSheet extends StatelessWidget {
     final primary = theme.colorScheme.primary;
     final tapped = entries.isNotEmpty ? entries.last : null;
     final headerValue = tapped?.valueAfter ?? 0;
-    final signedHeader =
-        tappedKind == MoneyLineKind.delta ||
-        tappedKind == MoneyLineKind.diff ||
-        tappedKind == MoneyLineKind.span;
-    final headerColor = MarkdownMoneySyntax.valuePinned(headerValue)
+    final signedHeader = MarkdownMoneySyntax.isSignedKind(tappedKind);
+    // A bare-`$!` header wears the row's own status colour — green
+    // while the budget holds (zero included), red once overspent — and
+    // warns when there is no target to measure, exactly like the inline
+    // chip it was opened from.
+    final noTargetHeader =
+        tappedKind == MoneyLineKind.remaining &&
+        MarkdownMoneySyntax.isNoTarget(headerValue);
+    final headerColor =
+        noTargetHeader || MarkdownMoneySyntax.valuePinned(headerValue)
         ? MarkdownConstants.moneyWarning(dark: dark)
+        : tappedKind == MoneyLineKind.remaining
+        ? (headerValue < 0
+              ? MarkdownConstants.moneyNegative(dark: dark)
+              : MarkdownConstants.moneyPositive(dark: dark))
         : signedHeader
         ? (headerValue > 0
               ? MarkdownConstants.moneyPositive(dark: dark)
@@ -93,12 +102,7 @@ class MoneyDetailSheet extends StatelessWidget {
               child: Row(
                 children: [
                   Text(
-                    switch (tappedKind) {
-                      MoneyLineKind.delta => 'Δ',
-                      MoneyLineKind.diff => 'Δ=',
-                      MoneyLineKind.span => 'Δ~',
-                      _ => 'Σ',
-                    },
+                    MarkdownMoneySyntax.glyph(tappedKind),
                     style: theme.textTheme.titleLarge?.copyWith(
                       color: headerColor,
                       fontWeight: FontWeight.bold,
@@ -115,7 +119,9 @@ class MoneyDetailSheet extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    _format(headerValue, signed: signedHeader),
+                    noTargetHeader
+                        ? 'no target'
+                        : _format(headerValue, signed: signedHeader),
                     style: theme.textTheme.titleMedium?.copyWith(
                       color: headerColor,
                       fontWeight: FontWeight.bold,
@@ -163,59 +169,42 @@ class MoneyDetailSheet extends StatelessWidget {
                       ),
                     );
                   }
-                  final isDisplay =
-                      m.kind == MoneyLineKind.total ||
-                      m.kind == MoneyLineKind.delta ||
-                      m.kind == MoneyLineKind.diff ||
-                      m.kind == MoneyLineKind.span;
-                  final (glyph, accent) = switch (m.kind) {
-                    MoneyLineKind.add => (
-                      '+',
-                      MarkdownConstants.moneyPositive(dark: dark),
-                    ),
-                    MoneyLineKind.subtract => (
-                      '−',
-                      MarkdownConstants.moneyNegative(dark: dark),
-                    ),
-                    MoneyLineKind.multiply => (
-                      '×',
-                      MarkdownConstants.moneyNeutral(dark: dark),
-                    ),
-                    MoneyLineKind.divide => (
-                      '÷',
-                      MarkdownConstants.moneyNeutral(dark: dark),
-                    ),
-                    MoneyLineKind.set => ('=', primary),
-                    MoneyLineKind.total => ('Σ', primary),
-                    MoneyLineKind.delta => ('Δ', primary),
-                    MoneyLineKind.diff => ('Δ=', primary),
-                    MoneyLineKind.span => ('Δ~', primary),
-                    MoneyLineKind.target => (
-                      '◎',
-                      e.valueAfter < 0
-                          ? MarkdownConstants.moneyNegative(dark: dark)
-                          : MarkdownConstants.moneyPositive(dark: dark),
+                  final isDisplay = MarkdownMoneySyntax.isDisplayKind(m.kind);
+                  // Glyph from the shared palette; the row accent stays
+                  // the sheet's deliberately flatter policy — display
+                  // rows read in primary (their sign colour lives in
+                  // the header value) and `$! N` declarations are
+                  // neutral statements, like `$=`.
+                  final glyph = MarkdownMoneySyntax.glyph(m.kind);
+                  final accent = switch (m.kind) {
+                    MoneyLineKind.set || MoneyLineKind.target => primary,
+                    _ when isDisplay => primary,
+                    _ => MarkdownConstants.moneyAccent(
+                      m.kind,
+                      e.valueAfter,
+                      dark: dark,
+                      primary: primary,
                     ),
                   };
                   final amount = isDisplay
-                      ? _format(
-                          e.valueAfter,
-                          signed:
-                              m.kind == MoneyLineKind.delta ||
-                              m.kind == MoneyLineKind.diff ||
-                              m.kind == MoneyLineKind.span,
-                        )
+                      ? (m.kind == MoneyLineKind.remaining &&
+                                MarkdownMoneySyntax.isNoTarget(e.valueAfter)
+                            ? 'no target'
+                            : _format(
+                                e.valueAfter,
+                                signed: MarkdownMoneySyntax.isSignedKind(
+                                  m.kind,
+                                ),
+                              ))
                       : e.line.substring(m.amountStart, m.amountEnd);
-                  // `labelEnd` is not the line end on a label-first row
-                  // (`$- Loss: 5000`), where the amount trails the label
-                  // and the trailing `:` is chrome (the op glyph renders
-                  // in its place), so it is trimmed off here too.
-                  final labelTo = m.labelStart < m.amountStart
-                      ? m.labelEnd - 1
-                      : m.labelEnd;
-                  final label = m.labelStart < labelTo
-                      ? e.line.substring(m.labelStart, labelTo)
-                      : '';
+                  // One lib call composes the label the way the preview
+                  // renders it inline: label-first colon trimmed,
+                  // currency word skipped, free trailing text joined.
+                  final label = MarkdownMoneySyntax.displayLabel(
+                    e.line,
+                    m,
+                    config.currencySymbol,
+                  );
                   return ListTile(
                     dense: true,
                     leading: Text(
