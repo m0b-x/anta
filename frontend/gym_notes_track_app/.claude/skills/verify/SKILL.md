@@ -48,5 +48,5 @@ Release / device helpers:
 
 ## Notes
 
-- There is no meaningful test suite to run by default, and the project convention is **no new tests unless explicitly requested** — verification is analyzer + running the app.
+- The test suite is small and targeted (`test/` — currently the money-ledger grammar in `test/utils/markdown_money_syntax_test.dart`). Run `flutter test` when the change touches covered code; a single file is `flutter test test/utils/markdown_money_syntax_test.dart`, a single case adds `--plain-name "<substring>"`. Otherwise verification is analyzer + running the app, and the project convention remains **no new tests unless explicitly requested**.
 - Do not use `flutter analyze` on the whole workspace (platform shells add noise); `dart analyze lib` is the convention.

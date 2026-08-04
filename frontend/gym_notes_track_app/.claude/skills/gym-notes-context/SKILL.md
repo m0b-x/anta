@@ -56,6 +56,7 @@ Run only what the change requires:
 | UI-only Dart change | `dart analyze lib` |
 | ARB / l10n change | `flutter gen-l10n`, then `dart analyze lib` |
 | Drift table / DAO / migration | `dart run build_runner build --delete-conflicting-outputs`, then `dart analyze lib` |
+| Code covered by `test/` (e.g. money syntax) | `flutter test` (single file: `flutter test <path>`; single case: `--plain-name "<substring>"`) |
 | Manual run | `flutter run` |
 
 Helper scripts: `.\build_release.bat arm64`, `.\install_to_device.bat arm64`, `.\generate_drift.bat`.
