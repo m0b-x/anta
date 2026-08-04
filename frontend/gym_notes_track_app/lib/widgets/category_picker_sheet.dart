@@ -41,6 +41,15 @@ class CategoryPickerSheet extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final categories = CalendarCategories.all;
+    // `useSafeArea: true` on the modal route avoids the status bar but has
+    // proven unreliable against the bottom gesture/nav bar on real devices
+    // (the "Create category" row rendered under it) — same fix as
+    // `EventEditorSheet` / `CategoryEditorSheet`: pad the list's bottom by
+    // the larger of the keyboard inset and the system's bottom inset so the
+    // last row always lands above both.
+    final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
+    final viewPadding = MediaQuery.viewPaddingOf(context).bottom;
+    final bottomClearance = viewInsets > viewPadding ? viewInsets : viewPadding;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -55,7 +64,7 @@ class CategoryPickerSheet extends StatelessWidget {
         ),
         Expanded(
           child: ListView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            padding: EdgeInsets.fromLTRB(8, 4, 8, 4 + bottomClearance),
             itemCount: categories.length + 1,
             itemBuilder: (context, index) {
               if (index == categories.length) {

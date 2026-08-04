@@ -103,97 +103,111 @@ class _CalendarFilterSheetState extends State<CalendarFilterSheet> {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final allSelected = _hidden.isEmpty;
+    // `useSafeArea: true` on the modal route avoids the status bar but has
+    // proven unreliable against the bottom gesture/nav bar on real devices —
+    // same fix as `EventEditorSheet` / `CategoryEditorSheet`: pad the whole
+    // sheet by the larger of the keyboard inset and the system's bottom
+    // inset so the fixed Cancel/Apply row is never obscured.
+    final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
+    final viewPadding = MediaQuery.viewPaddingOf(context).bottom;
+    final bottomClearance = viewInsets > viewPadding ? viewInsets : viewPadding;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-          child: Text(
-            l10n.calendarFiltersTitle,
-            style: theme.textTheme.titleLarge,
-            textAlign: TextAlign.center,
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomClearance),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+            child: Text(
+              l10n.calendarFiltersTitle,
+              style: theme.textTheme.titleLarge,
+              textAlign: TextAlign.center,
+            ),
           ),
-        ),
-        Expanded(
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
-            children: [
-              _SectionLabel(text: l10n.calendarViewRange),
-              const SizedBox(height: 8),
-              SegmentedButton<CalendarFormat>(
-                segments: [
-                  for (final f in CalendarFormat.values)
-                    ButtonSegment<CalendarFormat>(
-                      value: f,
-                      label: Text(_formatLabel(l10n, f)),
-                    ),
-                ],
-                selected: {_format},
-                showSelectedIcon: false,
-                onSelectionChanged: (sel) {
-                  setState(() => _format = sel.first);
-                },
-              ),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: _SectionLabel(text: l10n.calendarEventCategories),
-                  ),
-                  TextButton(
-                    onPressed: allSelected ? _clearAll : _selectAll,
-                    child: Text(
-                      allSelected
-                          ? l10n.calendarClearAll
-                          : l10n.calendarSelectAll,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final c in CalendarCategories.all)
-                    FilterChip(
-                      avatar: CircleAvatar(
-                        backgroundColor: c.color.withValues(alpha: 0.18),
-                        foregroundColor: c.color,
-                        child: Icon(
-                          CalendarIcons.forKey(c.iconKey) ??
-                              Icons.event_rounded,
-                          size: 16,
-                        ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+              children: [
+                _SectionLabel(text: l10n.calendarViewRange),
+                const SizedBox(height: 8),
+                SegmentedButton<CalendarFormat>(
+                  segments: [
+                    for (final f in CalendarFormat.values)
+                      ButtonSegment<CalendarFormat>(
+                        value: f,
+                        label: Text(_formatLabel(l10n, f)),
                       ),
-                      label: Text(CalendarCategories.labelOf(c, l10n)),
-                      selected: !_hidden.contains(c.id),
-                      onSelected: (sel) => _toggleCategory(c.id, sel),
-                    ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
-          child: Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: Text(l10n.cancel),
+                  ],
+                  selected: {_format},
+                  showSelectedIcon: false,
+                  onSelectionChanged: (sel) {
+                    setState(() => _format = sel.first);
+                  },
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: FilledButton(onPressed: _apply, child: Text(l10n.apply)),
-              ),
-            ],
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _SectionLabel(text: l10n.calendarEventCategories),
+                    ),
+                    TextButton(
+                      onPressed: allSelected ? _clearAll : _selectAll,
+                      child: Text(
+                        allSelected
+                            ? l10n.calendarClearAll
+                            : l10n.calendarSelectAll,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final c in CalendarCategories.all)
+                      FilterChip(
+                        avatar: CircleAvatar(
+                          backgroundColor: c.color.withValues(alpha: 0.18),
+                          foregroundColor: c.color,
+                          child: Icon(
+                            CalendarIcons.forKey(c.iconKey) ??
+                                Icons.event_rounded,
+                            size: 16,
+                          ),
+                        ),
+                        label: Text(CalendarCategories.labelOf(c, l10n)),
+                        selected: !_hidden.contains(c.id),
+                        onSelected: (sel) => _toggleCategory(c.id, sel),
+                      ),
+                  ],
+                ),
+              ],
+            ),
           ),
-        ),
-      ],
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: Text(l10n.cancel),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: _apply,
+                    child: Text(l10n.apply),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

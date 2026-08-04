@@ -47,6 +47,14 @@ class IconPickerSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
+    // `useSafeArea: true` on the modal route avoids the status bar but has
+    // proven unreliable against the bottom gesture/nav bar on real devices
+    // (the last icon row rendered under it) — same fix as `EventEditorSheet`
+    // / `CategoryEditorSheet`: pad the grid's bottom by the larger of the
+    // keyboard inset and the system's bottom inset.
+    final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
+    final viewPadding = MediaQuery.viewPaddingOf(context).bottom;
+    final bottomClearance = viewInsets > viewPadding ? viewInsets : viewPadding;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -62,7 +70,7 @@ class IconPickerSheet extends StatelessWidget {
         const Divider(height: 1),
         Expanded(
           child: ListView.builder(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+            padding: EdgeInsets.fromLTRB(16, 12, 16, 20 + bottomClearance),
             itemCount: CalendarIcons.groups.length,
             itemBuilder: (context, index) {
               final group = CalendarIcons.groups[index];
