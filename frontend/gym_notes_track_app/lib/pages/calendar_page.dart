@@ -5,6 +5,9 @@ import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 
 import '../bloc/calendar/calendar_bloc.dart';
+import '../bloc/import_export/import_export_bloc.dart';
+import '../bloc/import_export/import_export_event.dart';
+import '../bloc/import_export/import_export_state.dart';
 import '../constants/public_holidays.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
@@ -12,17 +15,19 @@ import '../models/calendar_event.dart';
 import '../repositories/note_repository.dart';
 import '../services/app_navigator.dart';
 import '../services/day_bars_resolver.dart';
-import '../services/day_summary_resolver.dart';
 import '../services/note_money_ledger_service.dart';
 import '../services/public_holiday_service.dart';
 import '../services/settings_service.dart';
 import '../utils/custom_snackbar.dart';
 import '../widgets/app_dialogs.dart';
+import '../widgets/calendar_bottom_panel.dart';
 import '../widgets/calendar_day_bars.dart';
 import '../widgets/calendar_day_cell.dart';
 import '../widgets/calendar_filter_sheet.dart';
-import '../widgets/day_summary_panel.dart';
 import '../widgets/event_editor_sheet.dart';
+
+/// Overflow-menu actions on the calendar app bar.
+enum _CalendarMenuAction { exportIcs }
 
 class CalendarPage extends StatelessWidget {
   const CalendarPage({super.key});
@@ -43,6 +48,11 @@ class _CalendarView extends StatefulWidget {
 class _CalendarViewState extends State<_CalendarView> {
   CalendarAppearance _appearance = const CalendarAppearance();
 
+  /// Whether the bottom panel is expanded over the calendar grid. Transient
+  /// on purpose: restoring a hidden calendar across app opens would read as
+  /// "the calendar disappeared", so every visit starts with the grid shown.
+  bool _panelExpanded = false;
+
   @override
   void initState() {
     super.initState();
@@ -60,7 +70,7 @@ class _CalendarViewState extends State<_CalendarView> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
 
-    return Scaffold(
+    final scaffold = Scaffold(
       appBar: AppBar(
         title: Text(l10n.calendar),
         actions: [
@@ -87,6 +97,31 @@ class _CalendarViewState extends State<_CalendarView> {
             icon: const Icon(Icons.settings_outlined),
             onPressed: () => _openSettings(context),
           ),
+          BlocBuilder<CalendarBloc, CalendarPageState>(
+            builder: (context, state) {
+              final loaded = state is CalendarPageLoaded ? state : null;
+              final hasEvents = loaded != null && loaded.allEvents.isNotEmpty;
+              return PopupMenuButton<_CalendarMenuAction>(
+                onSelected: (action) => switch (action) {
+                  _CalendarMenuAction.exportIcs => _exportCalendar(
+                    context,
+                    loaded!,
+                  ),
+                },
+                itemBuilder: (context) => [
+                  PopupMenuItem<_CalendarMenuAction>(
+                    value: _CalendarMenuAction.exportIcs,
+                    enabled: hasEvents,
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.ios_share_rounded),
+                      title: Text(l10n.exportEventsIcs),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
         ],
       ),
       body: BlocBuilder<CalendarBloc, CalendarPageState>(
@@ -98,24 +133,30 @@ class _CalendarViewState extends State<_CalendarView> {
             return Center(child: Text(state.message));
           }
           final loaded = state as CalendarPageLoaded;
-          final summaryResolver = DaySummaryResolver.defaults(l10n);
-          final entries = summaryResolver.resolve(
-            loaded.selectedDay,
-            context.read<CalendarBloc>().eventsForDay(loaded.selectedDay),
-          );
           return Column(
             children: [
-              _CalendarTable(state: loaded, appearance: _appearance),
+              // AnimatedSize collapses the grid to zero height when the
+              // panel is expanded — the grid keeps its own state either way
+              // and no manual layout math is involved.
+              AnimatedSize(
+                duration: const Duration(milliseconds: 250),
+                curve: Curves.easeInOut,
+                alignment: Alignment.topCenter,
+                child: _panelExpanded
+                    ? const SizedBox(width: double.infinity)
+                    : _CalendarTable(state: loaded, appearance: _appearance),
+              ),
               const Divider(height: 1),
               Expanded(
-                child: DaySummaryPanel(
-                  day: loaded.selectedDay,
-                  entries: entries,
-                  onEventTap: (event) =>
+                child: CalendarBottomPanel(
+                  loaded: loaded,
+                  expanded: _panelExpanded,
+                  onToggleExpanded: () =>
+                      setState(() => _panelExpanded = !_panelExpanded),
+                  onEditEvent: (event) =>
                       _openEditorSheet(context, initialEvent: event),
                   onOpenNote: (event) => _openLinkedNote(context, event),
-                  onSuppressHoliday: () =>
-                      _removeHoliday(context, loaded.selectedDay),
+                  onSuppressHoliday: (day) => _removeHoliday(context, day),
                 ),
               ),
             ],
@@ -135,6 +176,43 @@ class _CalendarViewState extends State<_CalendarView> {
         },
       ),
     );
+
+    // Export feedback funnels through one listener so the menu action only
+    // has to dispatch. Guarded on the calendar operation because the bloc is
+    // app-wide and also serves note/folder exports.
+    return BlocListener<ImportExportBloc, ImportExportState>(
+      listener: _onImportExportState,
+      child: scaffold,
+    );
+  }
+
+  /// Hands the loaded event list to [ImportExportBloc] for `.ics` export.
+  /// The share sheet (and the temp-file cleanup behind it) is the service's
+  /// job — pages never touch `SharePlus` directly.
+  void _exportCalendar(BuildContext context, CalendarPageLoaded state) {
+    context.read<ImportExportBloc>().add(
+      ExportCalendarRequested(events: state.allEvents, share: true),
+    );
+  }
+
+  void _onImportExportState(BuildContext context, ImportExportState state) {
+    final l10n = AppLocalizations.of(context)!;
+    if (state is ImportExportFailure) {
+      if (state.operation != ImportExportOperation.exportCalendar) return;
+      CustomSnackbar.showError(
+        context,
+        '${l10n.eventsExportError}: ${state.message}',
+      );
+    } else if (state is ImportExportExportSuccess) {
+      if (state.operation != ImportExportOperation.exportCalendar) return;
+      CustomSnackbar.showSuccess(
+        context,
+        l10n.eventsExported(state.result.eventsExported),
+      );
+    } else {
+      return;
+    }
+    context.read<ImportExportBloc>().add(const ImportExportReset());
   }
 
   Future<void> _openEditorSheet(
@@ -176,17 +254,22 @@ class _CalendarViewState extends State<_CalendarView> {
     final noteId = event.noteId;
     if (noteId == null) return;
     final l10n = AppLocalizations.of(context)!;
-    final notes = await GetIt.I<NoteRepository>().getNotesByIds([noteId]);
+    final repository = GetIt.I<NoteRepository>();
+    final notes = await repository.getNotesByIds([noteId]);
     if (!context.mounted) return;
     final note = notes.isEmpty ? null : notes.first;
     if (note == null) {
       CustomSnackbar.showError(context, l10n.eventLinkedNoteMissing);
       return;
     }
+    // Pass the metadata mapped from the row we already fetched: the editor
+    // seeds its title bar from it, so a metadata-less push showed
+    // "New note" instead of the note's real title.
     AppNavigator.toNoteEditor(
       context,
       folderId: note.folderId,
       noteId: note.id,
+      metadata: repository.noteToMetadata(note),
     );
   }
 

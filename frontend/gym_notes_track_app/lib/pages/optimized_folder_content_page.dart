@@ -723,6 +723,8 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
         return l10n.exportingFolder;
       case ImportExportOperation.exportItems:
         return l10n.exportingSelection;
+      case ImportExportOperation.exportCalendar:
+        return l10n.exportingEvents;
       case ImportExportOperation.importFile:
       case ImportExportOperation.importArchive:
         return l10n.importingFile;
@@ -737,6 +739,8 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
         return l10n.folderExportError;
       case ImportExportOperation.exportItems:
         return l10n.selectionExportError;
+      case ImportExportOperation.exportCalendar:
+        return l10n.eventsExportError;
       case ImportExportOperation.importFile:
       case ImportExportOperation.importArchive:
         return l10n.importFileError;

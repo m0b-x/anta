@@ -8,6 +8,7 @@ enum ImportExportOperation {
   exportNote,
   exportFolder,
   exportItems,
+  exportCalendar,
   importFile,
   importArchive,
 }

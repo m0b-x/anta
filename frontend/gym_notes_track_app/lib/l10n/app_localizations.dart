@@ -1000,18 +1000,6 @@ abstract class AppLocalizations {
   /// **'Higher priority shows first and keeps its bar when a day is full'**
   String get eventPriorityHint;
 
-  /// Tooltip for the button that lowers the event priority
-  ///
-  /// In en, this message translates to:
-  /// **'Lower priority'**
-  String get eventPriorityDecrease;
-
-  /// Tooltip for the button that raises the event priority
-  ///
-  /// In en, this message translates to:
-  /// **'Higher priority'**
-  String get eventPriorityIncrease;
-
   /// Qualitative label for priority level 1
   ///
   /// In en, this message translates to:
@@ -4779,6 +4767,144 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Delete \"{name}\"? Notes using it will show plain text.'**
   String markdownColorsDeleteMessage(String name);
+
+  /// Title of the upcoming events bottom sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Upcoming'**
+  String get upcomingEvents;
+
+  /// Hint of the search field in the upcoming events sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Search events'**
+  String get upcomingSearchHint;
+
+  /// Tooltip of the button clearing the upcoming events search field
+  ///
+  /// In en, this message translates to:
+  /// **'Clear search'**
+  String get upcomingClearSearch;
+
+  /// Look-ahead period preset chip in the upcoming events sheet
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one {1 day} other {{count} days}}'**
+  String upcomingPeriodDays(int count);
+
+  /// Chip opening a custom date range picker in the upcoming events sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Custom'**
+  String get upcomingPeriodCustom;
+
+  /// Label of the priority filter in the upcoming agenda
+  ///
+  /// In en, this message translates to:
+  /// **'Priority'**
+  String get upcomingPriority;
+
+  /// Priority filter chip that clears the selection and keeps events of every priority
+  ///
+  /// In en, this message translates to:
+  /// **'Any'**
+  String get upcomingPriorityAny;
+
+  /// Empty state title of the upcoming events sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing coming up'**
+  String get upcomingNoEvents;
+
+  /// Empty state hint of the upcoming events sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Try a longer period or a lower priority'**
+  String get upcomingNoEventsHint;
+
+  /// Day header for today in the upcoming events sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Today'**
+  String get upcomingToday;
+
+  /// Day header for tomorrow in the upcoming events sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Tomorrow'**
+  String get upcomingTomorrow;
+
+  /// Tooltip of the edit affordance on an upcoming event row
+  ///
+  /// In en, this message translates to:
+  /// **'Edit event'**
+  String get upcomingEditEvent;
+
+  /// Agenda filter chip that lists public holidays alongside events
+  ///
+  /// In en, this message translates to:
+  /// **'Holidays'**
+  String get upcomingShowHolidays;
+
+  /// Tooltip of the button expanding the agenda's period and priority filters
+  ///
+  /// In en, this message translates to:
+  /// **'Filters'**
+  String get upcomingFilters;
+
+  /// Tooltip of the toggle that hides the calendar grid so the bottom panel fills the page
+  ///
+  /// In en, this message translates to:
+  /// **'Expand panel'**
+  String get panelExpand;
+
+  /// Tooltip of the toggle that brings the calendar grid back after expanding the panel
+  ///
+  /// In en, this message translates to:
+  /// **'Show calendar'**
+  String get panelShowCalendar;
+
+  /// Calendar panel mode showing the selected day's entries
+  ///
+  /// In en, this message translates to:
+  /// **'Day'**
+  String get panelModeDay;
+
+  /// Calendar panel mode showing the selected day as an hour grid
+  ///
+  /// In en, this message translates to:
+  /// **'Timeline'**
+  String get panelModeTimeline;
+
+  /// Empty state hint of the calendar timeline panel mode
+  ///
+  /// In en, this message translates to:
+  /// **'Events with a start time appear on the timeline'**
+  String get timelineEmptyHint;
+
+  /// Calendar overflow menu action exporting events as iCalendar
+  ///
+  /// In en, this message translates to:
+  /// **'Export events (.ics)'**
+  String get exportEventsIcs;
+
+  /// Progress message shown while writing the .ics export
+  ///
+  /// In en, this message translates to:
+  /// **'Exporting events...'**
+  String get exportingEvents;
+
+  /// Error message shown when the .ics export fails
+  ///
+  /// In en, this message translates to:
+  /// **'Could not export events'**
+  String get eventsExportError;
+
+  /// Confirmation shown after a successful .ics export
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{No events exported} one {1 event exported} other {{count} events exported}}'**
+  String eventsExported(int count);
 }
 
 class _AppLocalizationsDelegate

@@ -1948,7 +1948,9 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
         onMoneyTap: markdownRendering && _moneyConfig.enabled
             ? _handleMoneyTap
             : null,
-        isFenceLine: markdownRendering ? _markdownSpanBuilder.lineInFence : null,
+        isFenceLine: markdownRendering
+            ? _markdownSpanBuilder.lineInFence
+            : null,
         lineNumbersKey: _lineNumbersKey,
         scrollIndicatorKey: _scrollIndicatorKey,
         // Chunk debug visualization (matches preview mode)

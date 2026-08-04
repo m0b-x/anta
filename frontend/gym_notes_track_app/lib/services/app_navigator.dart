@@ -260,16 +260,17 @@ abstract final class AppNavigator {
     // push future only completes when that route is *popped*, so awaiting it
     // deferred the note push until the user pressed Back -- which made Back
     // appear to open a note instead of returning to the folder/home.
-    String? noteIdToRestore;
+    NoteMetadata? noteToRestore;
     final noteId = await settings.getLastNoteId();
     if (noteId != null && noteId.isNotEmpty) {
-      final notes = await GetIt.I<NoteRepository>().getNotesByIds([noteId]);
+      final noteRepository = GetIt.I<NoteRepository>();
+      final notes = await noteRepository.getNotesByIds([noteId]);
       if (notes.isEmpty) {
         // The note was deleted since it was remembered: restore the folder
         // only and forget the stale note.
         await settings.saveLastFolder(folder.id, folder.name);
       } else {
-        noteIdToRestore = noteId;
+        noteToRestore = noteRepository.noteToMetadata(notes.first);
       }
     }
 
@@ -279,11 +280,18 @@ abstract final class AppNavigator {
       ),
     );
 
-    if (noteIdToRestore == null) return;
+    if (noteToRestore == null) return;
 
+    // Pass the metadata we already fetched for the existence check: the
+    // editor seeds its title bar from it, so a metadata-less push showed
+    // "New note" instead of the note's real title until the next edit.
     unawaited(
       rootPush(
-        OptimizedNoteEditorPage(folderId: folder.id, noteId: noteIdToRestore),
+        OptimizedNoteEditorPage(
+          folderId: folder.id,
+          noteId: noteToRestore.id,
+          metadata: noteToRestore,
+        ),
       ),
     );
   }

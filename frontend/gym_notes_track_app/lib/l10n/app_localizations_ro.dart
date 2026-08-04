@@ -553,12 +553,6 @@ class AppLocalizationsRo extends AppLocalizations {
       'Prioritatea mai mare apare prima și își păstrează bara când ziua e plină';
 
   @override
-  String get eventPriorityDecrease => 'Prioritate mai mică';
-
-  @override
-  String get eventPriorityIncrease => 'Prioritate mai mare';
-
-  @override
   String get eventPriorityLowest => 'Minimă';
 
   @override
@@ -2636,5 +2630,95 @@ class AppLocalizationsRo extends AppLocalizations {
   @override
   String markdownColorsDeleteMessage(String name) {
     return 'Ștergi „$name”? Notițele care o folosesc vor afișa text simplu.';
+  }
+
+  @override
+  String get upcomingEvents => 'Urmează';
+
+  @override
+  String get upcomingSearchHint => 'Caută evenimente';
+
+  @override
+  String get upcomingClearSearch => 'Șterge căutarea';
+
+  @override
+  String upcomingPeriodDays(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de zile',
+      few: '$count zile',
+      one: '1 zi',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get upcomingPeriodCustom => 'Personalizat';
+
+  @override
+  String get upcomingPriority => 'Prioritate';
+
+  @override
+  String get upcomingPriorityAny => 'Oricare';
+
+  @override
+  String get upcomingNoEvents => 'Nimic în perioada aleasă';
+
+  @override
+  String get upcomingNoEventsHint =>
+      'Încearcă o perioadă mai lungă sau o prioritate mai mică';
+
+  @override
+  String get upcomingToday => 'Azi';
+
+  @override
+  String get upcomingTomorrow => 'Mâine';
+
+  @override
+  String get upcomingEditEvent => 'Editează evenimentul';
+
+  @override
+  String get upcomingShowHolidays => 'Sărbători';
+
+  @override
+  String get upcomingFilters => 'Filtre';
+
+  @override
+  String get panelExpand => 'Extinde panoul';
+
+  @override
+  String get panelShowCalendar => 'Arată calendarul';
+
+  @override
+  String get panelModeDay => 'Zi';
+
+  @override
+  String get panelModeTimeline => 'Program';
+
+  @override
+  String get timelineEmptyHint =>
+      'Evenimentele cu oră de început apar în program';
+
+  @override
+  String get exportEventsIcs => 'Exportă evenimentele (.ics)';
+
+  @override
+  String get exportingEvents => 'Se exportă evenimentele...';
+
+  @override
+  String get eventsExportError => 'Evenimentele nu au putut fi exportate';
+
+  @override
+  String eventsExported(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de evenimente exportate',
+      few: '$count evenimente exportate',
+      one: '1 eveniment exportat',
+      zero: 'Niciun eveniment exportat',
+    );
+    return '$_temp0';
   }
 }

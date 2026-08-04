@@ -86,9 +86,7 @@ class _CalendarFilterSheetState extends State<CalendarFilterSheet> {
   }
 
   void _clearAll() {
-    setState(
-      () => _hidden = {for (final c in CalendarCategories.all) c.id},
-    );
+    setState(() => _hidden = {for (final c in CalendarCategories.all) c.id});
   }
 
   void _apply() {

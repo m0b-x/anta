@@ -644,14 +644,6 @@
   "@eventPriorityHint": {
     "description": "Hint shown under the event priority stepper"
   },
-  "eventPriorityDecrease": "Lower priority",
-  "@eventPriorityDecrease": {
-    "description": "Tooltip for the button that lowers the event priority"
-  },
-  "eventPriorityIncrease": "Higher priority",
-  "@eventPriorityIncrease": {
-    "description": "Tooltip for the button that raises the event priority"
-  },
   "eventPriorityLowest": "Lowest",
   "@eventPriorityLowest": {
     "description": "Qualitative label for priority level 1"
@@ -3386,6 +3378,108 @@
     "placeholders": {
       "name": {
         "type": "String"
+      }
+    }
+  },
+  "upcomingEvents": "Upcoming",
+  "@upcomingEvents": {
+    "description": "Title of the upcoming events bottom sheet"
+  },
+  "upcomingSearchHint": "Search events",
+  "@upcomingSearchHint": {
+    "description": "Hint of the search field in the upcoming events sheet"
+  },
+  "upcomingClearSearch": "Clear search",
+  "@upcomingClearSearch": {
+    "description": "Tooltip of the button clearing the upcoming events search field"
+  },
+  "upcomingPeriodDays": "{count, plural, one {1 day} other {{count} days}}",
+  "@upcomingPeriodDays": {
+    "description": "Look-ahead period preset chip in the upcoming events sheet",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "upcomingPeriodCustom": "Custom",
+  "@upcomingPeriodCustom": {
+    "description": "Chip opening a custom date range picker in the upcoming events sheet"
+  },
+  "upcomingPriority": "Priority",
+  "@upcomingPriority": {
+    "description": "Label of the priority filter in the upcoming agenda"
+  },
+  "upcomingPriorityAny": "Any",
+  "@upcomingPriorityAny": {
+    "description": "Priority filter chip that clears the selection and keeps events of every priority"
+  },
+  "upcomingNoEvents": "Nothing coming up",
+  "@upcomingNoEvents": {
+    "description": "Empty state title of the upcoming events sheet"
+  },
+  "upcomingNoEventsHint": "Try a longer period or a lower priority",
+  "@upcomingNoEventsHint": {
+    "description": "Empty state hint of the upcoming events sheet"
+  },
+  "upcomingToday": "Today",
+  "@upcomingToday": {
+    "description": "Day header for today in the upcoming events sheet"
+  },
+  "upcomingTomorrow": "Tomorrow",
+  "@upcomingTomorrow": {
+    "description": "Day header for tomorrow in the upcoming events sheet"
+  },
+  "upcomingEditEvent": "Edit event",
+  "@upcomingEditEvent": {
+    "description": "Tooltip of the edit affordance on an upcoming event row"
+  },
+  "upcomingShowHolidays": "Holidays",
+  "@upcomingShowHolidays": {
+    "description": "Agenda filter chip that lists public holidays alongside events"
+  },
+  "upcomingFilters": "Filters",
+  "@upcomingFilters": {
+    "description": "Tooltip of the button expanding the agenda's period and priority filters"
+  },
+  "panelExpand": "Expand panel",
+  "@panelExpand": {
+    "description": "Tooltip of the toggle that hides the calendar grid so the bottom panel fills the page"
+  },
+  "panelShowCalendar": "Show calendar",
+  "@panelShowCalendar": {
+    "description": "Tooltip of the toggle that brings the calendar grid back after expanding the panel"
+  },
+  "panelModeDay": "Day",
+  "@panelModeDay": {
+    "description": "Calendar panel mode showing the selected day's entries"
+  },
+  "panelModeTimeline": "Timeline",
+  "@panelModeTimeline": {
+    "description": "Calendar panel mode showing the selected day as an hour grid"
+  },
+  "timelineEmptyHint": "Events with a start time appear on the timeline",
+  "@timelineEmptyHint": {
+    "description": "Empty state hint of the calendar timeline panel mode"
+  },
+  "exportEventsIcs": "Export events (.ics)",
+  "@exportEventsIcs": {
+    "description": "Calendar overflow menu action exporting events as iCalendar"
+  },
+  "exportingEvents": "Exporting events...",
+  "@exportingEvents": {
+    "description": "Progress message shown while writing the .ics export"
+  },
+  "eventsExportError": "Could not export events",
+  "@eventsExportError": {
+    "description": "Error message shown when the .ics export fails"
+  },
+  "eventsExported": "{count, plural, =0{No events exported} one {1 event exported} other {{count} events exported}}",
+  "@eventsExported": {
+    "description": "Confirmation shown after a successful .ics export",
+    "placeholders": {
+      "count": {
+        "type": "int"
       }
     }
   }

@@ -25,11 +25,12 @@ const String kFallbackCategoryId = 'other';
 /// defaults a brand-new (still one-time) event to a yearly recurrence.
 const String kBirthdayCategoryId = 'birthday';
 
-/// Lowest selectable event priority.
+/// Highest (most important) selectable event priority. Priorities read like
+/// P1..P5: **lower numbers rank higher**, sort first in the day bars, the
+/// day summary and the agenda, and win the limited day-cell bar slots.
 const int kMinEventPriority = 1;
 
-/// Highest selectable event priority. Higher values sort above lower ones in
-/// the day bars and the day summary, and win the limited day-cell bar slots.
+/// Lowest (least important) selectable event priority.
 const int kMaxEventPriority = 5;
 
 /// Neutral default priority assigned to brand-new events.
@@ -150,9 +151,10 @@ class CalendarEvent extends Equatable {
   /// color affects both the bar and the icon unless the user opts out.
   final bool tintIcon;
 
-  /// Display priority in `[kMinEventPriority, kMaxEventPriority]`. Higher
-  /// values sort first in the day bars / day summary and are kept when the
-  /// day cell can only show a limited number of bars.
+  /// Display priority in `[kMinEventPriority, kMaxEventPriority]`, read
+  /// like P1..P5: **lower values rank higher**, sort first in the day bars /
+  /// day summary / agenda and are kept when the day cell can only show a
+  /// limited number of bars.
   final int priority;
 
   const CalendarEvent({

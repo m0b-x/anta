@@ -8,10 +8,12 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../constants/json_keys.dart';
+import '../models/calendar_event.dart';
 import '../models/export_format.dart';
 import '../models/folder.dart';
 import '../models/note_metadata.dart';
 import '../repositories/note_repository.dart';
+import '../utils/ics_serializer.dart';
 import 'duplicate_name_exception.dart';
 import 'folder_storage_service.dart';
 import 'note_storage_service.dart';
@@ -34,12 +36,16 @@ class ExportResult {
   /// Number of notes written into the archive (folder exports only).
   final int notesExported;
 
+  /// Number of calendar events written (calendar `.ics` exports only).
+  final int eventsExported;
+
   const ExportResult({
     required this.filePath,
     this.format,
     this.isArchive = false,
     this.foldersExported = 0,
     this.notesExported = 0,
+    this.eventsExported = 0,
   });
 }
 
@@ -412,6 +418,25 @@ class ImportExportService {
     archive.addFile(ArchiveFile(path, bytes.length, bytes));
   }
 
+  // ─── Calendar export ────────────────────────────────────────────────────
+
+  /// Write [events] to a single `.ics` file in the system temp directory.
+  ///
+  /// Reports [ExportResult.format] as `null`: iCalendar is not one of the
+  /// note [ExportFormat]s and must not become one, or it would show up in
+  /// every note-format picker. The `.ics` extension is registered with
+  /// [sweepStaleExports] so abandoned exports are still cleaned up.
+  Future<ExportResult> exportCalendar({
+    required List<CalendarEvent> events,
+  }) async {
+    final body = IcsSerializer.serialize(events: events);
+    final tempDir = await getTemporaryDirectory();
+    final timestamp = DateTime.now().toIso8601String().replaceAll(':', '-');
+    final file = File(p.join(tempDir.path, 'gym_notes_events_$timestamp.ics'));
+    await file.writeAsString(body);
+    return ExportResult(filePath: file.path, eventsExported: events.length);
+  }
+
   /// Convenience: hand the exported file to the OS share sheet, then
   /// delete it from the temp directory. The OS copies/streams the bytes
   /// through its own share intent before we get control back, so removing
@@ -456,6 +481,7 @@ class ImportExportService {
       final cutoff = DateTime.now().subtract(maxAge);
       final knownExtensions = <String>{
         'zip',
+        'ics',
         for (final f in ExportFormat.values) f.extension,
       };
       await for (final entity in tempDir.list(followLinks: false)) {

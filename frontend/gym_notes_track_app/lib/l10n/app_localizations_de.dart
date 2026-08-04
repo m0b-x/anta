@@ -543,12 +543,6 @@ class AppLocalizationsDe extends AppLocalizations {
       'Höhere Priorität wird zuerst angezeigt und behält ihren Balken, wenn ein Tag voll ist';
 
   @override
-  String get eventPriorityDecrease => 'Niedrigere Priorität';
-
-  @override
-  String get eventPriorityIncrease => 'Höhere Priorität';
-
-  @override
   String get eventPriorityLowest => 'Niedrigste';
 
   @override
@@ -2626,5 +2620,93 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String markdownColorsDeleteMessage(String name) {
     return '„$name“ löschen? Notizen, die sie verwenden, zeigen einfachen Text.';
+  }
+
+  @override
+  String get upcomingEvents => 'Demnächst';
+
+  @override
+  String get upcomingSearchHint => 'Ereignisse suchen';
+
+  @override
+  String get upcomingClearSearch => 'Suche leeren';
+
+  @override
+  String upcomingPeriodDays(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Tage',
+      one: '1 Tag',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get upcomingPeriodCustom => 'Eigener';
+
+  @override
+  String get upcomingPriority => 'Priorität';
+
+  @override
+  String get upcomingPriorityAny => 'Alle';
+
+  @override
+  String get upcomingNoEvents => 'Nichts geplant';
+
+  @override
+  String get upcomingNoEventsHint =>
+      'Längeren Zeitraum oder niedrigere Priorität wählen';
+
+  @override
+  String get upcomingToday => 'Heute';
+
+  @override
+  String get upcomingTomorrow => 'Morgen';
+
+  @override
+  String get upcomingEditEvent => 'Ereignis bearbeiten';
+
+  @override
+  String get upcomingShowHolidays => 'Feiertage';
+
+  @override
+  String get upcomingFilters => 'Filter';
+
+  @override
+  String get panelExpand => 'Bereich vergrößern';
+
+  @override
+  String get panelShowCalendar => 'Kalender anzeigen';
+
+  @override
+  String get panelModeDay => 'Tag';
+
+  @override
+  String get panelModeTimeline => 'Zeitplan';
+
+  @override
+  String get timelineEmptyHint =>
+      'Ereignisse mit Startzeit erscheinen im Zeitplan';
+
+  @override
+  String get exportEventsIcs => 'Ereignisse exportieren (.ics)';
+
+  @override
+  String get exportingEvents => 'Ereignisse werden exportiert...';
+
+  @override
+  String get eventsExportError => 'Ereignisse konnten nicht exportiert werden';
+
+  @override
+  String eventsExported(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Ereignisse exportiert',
+      one: '1 Ereignis exportiert',
+      zero: 'Keine Ereignisse exportiert',
+    );
+    return '$_temp0';
   }
 }

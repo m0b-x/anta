@@ -85,7 +85,9 @@ class BackupService {
     final publicHolidays = await GetIt.I<PublicHolidayService>().exportData();
 
     return {
-      'version': 6,
+      // v7: event priorities are stored inverted (1 = highest). Older
+      // backups carry the old 5-is-highest values and are flipped on import.
+      'version': 7,
       'exportedAt': DateTime.now().toIso8601String(),
       'folders': foldersData,
       'notes': notesWithContent,
@@ -330,7 +332,25 @@ class BackupService {
       }
       final calendarEvents = data['calendarEvents'] as List?;
       if (calendarEvents != null) {
-        await GetIt.I<CalendarEventService>().importData(calendarEvents);
+        // Backups older than v7 store priorities on the retired
+        // 5-is-highest scale; flip them so the user's ranking survives.
+        final backupVersion = data['version'] as int? ?? 1;
+        final events = backupVersion >= 7
+            ? calendarEvents
+            : [
+                for (final event in calendarEvents)
+                  if (event is Map<String, dynamic>)
+                    {
+                      ...event,
+                      if (event['priority'] is int &&
+                          (event['priority'] as int) >= 1 &&
+                          (event['priority'] as int) <= 5)
+                        'priority': 6 - (event['priority'] as int),
+                    }
+                  else
+                    event,
+              ];
+        await GetIt.I<CalendarEventService>().importData(events);
       }
       final publicHolidays = data['publicHolidays'] as List?;
       if (publicHolidays != null) {

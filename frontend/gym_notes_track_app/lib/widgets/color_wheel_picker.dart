@@ -76,7 +76,10 @@ class _ColorWheelDialogState extends State<ColorWheelDialog> {
     // content padding per side.
     final screenWidth = MediaQuery.sizeOf(context).width;
     final available = screenWidth - (40 + 24) * 2;
-    final size = math.min(_maxWheelSize, available > 0 ? available : _maxWheelSize);
+    final size = math.min(
+      _maxWheelSize,
+      available > 0 ? available : _maxWheelSize,
+    );
 
     return AlertDialog(
       title: Text(l10n.eventColorCustomTitle),

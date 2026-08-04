@@ -367,15 +367,9 @@ class MarkdownBarService extends ChangeNotifier {
       _moneyTargetSeedKey,
     );
     // Checkpoint diff (`$^`) shipped after target, same pattern.
-    await _seedDefaultShortcutIfNeeded(
-      'default_money_diff',
-      _moneyDiffSeedKey,
-    );
+    await _seedDefaultShortcutIfNeeded('default_money_diff', _moneyDiffSeedKey);
     // Checkpoint span (`$~`) shipped after diff, same pattern.
-    await _seedDefaultShortcutIfNeeded(
-      'default_money_span',
-      _moneySpanSeedKey,
-    );
+    await _seedDefaultShortcutIfNeeded('default_money_span', _moneySpanSeedKey);
     // The two colour shortcuts ship together as one family.
     await _seedDefaultShortcutBatchIfNeeded(const [
       'default_color_text',

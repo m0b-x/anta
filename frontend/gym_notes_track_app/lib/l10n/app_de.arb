@@ -152,8 +152,6 @@
   "eventTintIconHint": "Die Ereignisfarbe auch für das Symbol verwenden",
   "eventPriority": "Priorität",
   "eventPriorityHint": "Höhere Priorität wird zuerst angezeigt und behält ihren Balken, wenn ein Tag voll ist",
-  "eventPriorityDecrease": "Niedrigere Priorität",
-  "eventPriorityIncrease": "Höhere Priorität",
   "eventPriorityLowest": "Niedrigste",
   "eventPriorityLow": "Niedrig",
   "eventPriorityNormal": "Normal",
@@ -1853,5 +1851,42 @@
   "markdownColorsOverridden": "Durch eigene Farbe ersetzt",
   "markdownColorsNameTaken": "„{name}“ wird bereits verwendet",
   "markdownColorsLimitReached": "Farbgrenze erreicht ({count})",
-  "markdownColorsDeleteMessage": "„{name}“ löschen? Notizen, die sie verwenden, zeigen einfachen Text."
+  "markdownColorsDeleteMessage": "„{name}“ löschen? Notizen, die sie verwenden, zeigen einfachen Text.",
+  "upcomingEvents": "Demnächst",
+  "upcomingSearchHint": "Ereignisse suchen",
+  "upcomingClearSearch": "Suche leeren",
+  "upcomingPeriodDays": "{count, plural, one {1 Tag} other {{count} Tage}}",
+  "@upcomingPeriodDays": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "upcomingPeriodCustom": "Eigener",
+  "upcomingPriority": "Priorität",
+  "upcomingPriorityAny": "Alle",
+  "upcomingNoEvents": "Nichts geplant",
+  "upcomingNoEventsHint": "Längeren Zeitraum oder niedrigere Priorität wählen",
+  "upcomingToday": "Heute",
+  "upcomingTomorrow": "Morgen",
+  "upcomingEditEvent": "Ereignis bearbeiten",
+  "upcomingShowHolidays": "Feiertage",
+  "upcomingFilters": "Filter",
+  "panelExpand": "Bereich vergrößern",
+  "panelShowCalendar": "Kalender anzeigen",
+  "panelModeDay": "Tag",
+  "panelModeTimeline": "Zeitplan",
+  "timelineEmptyHint": "Ereignisse mit Startzeit erscheinen im Zeitplan",
+  "exportEventsIcs": "Ereignisse exportieren (.ics)",
+  "exportingEvents": "Ereignisse werden exportiert...",
+  "eventsExportError": "Ereignisse konnten nicht exportiert werden",
+  "eventsExported": "{count, plural, =0{Keine Ereignisse exportiert} one {1 Ereignis exportiert} other {{count} Ereignisse exportiert}}",
+  "@eventsExported": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  }
 }

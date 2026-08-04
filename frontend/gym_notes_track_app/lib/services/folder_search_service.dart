@@ -6,20 +6,20 @@ import '../models/isolate_data.dart';
 import '../models/note_metadata.dart';
 import 'note_storage_service.dart';
 
-/// Top-level function for isolate processing (required by compute())
+/// Top-level function for isolate processing (required by compute()).
+///
+/// Tokenizes through the same [searchTokens] the main-isolate
+/// [SearchIndex] uses — `compute` isolates share all code, including
+/// `SearchConstants`, so there is exactly one normalization. (A private
+/// isolate-local diacritics map used to live here; it drifted from the
+/// shared one — no Romanian entries — so notes bulk-indexed on launch
+/// folded differently than the query side and never matched.)
 Map<String, dynamic> _buildIndexInIsolate(List<NoteIndexData> notesData) {
   final wordToNoteIds = <String, Set<String>>{};
   final termFrequency = <String, Map<String, int>>{};
 
-  final regex = RegExp(r'\b\w{2,}\b');
-
   for (final note in notesData) {
-    final text = '${note.title} ${note.content}'.toLowerCase();
-
-    // Normalize and tokenize
-    final normalizedText = _removeDiacriticsIsolate(text);
-    final matches = regex.allMatches(normalizedText);
-    final words = matches.map((m) => m.group(0)!).toSet();
+    final words = searchTokens('${note.title} ${note.content}');
 
     termFrequency[note.id] = {};
 
@@ -38,50 +38,6 @@ Map<String, dynamic> _buildIndexInIsolate(List<NoteIndexData> notesData) {
   };
 }
 
-/// Diacritics removal for isolate (can't access SearchConstants)
-String _removeDiacriticsIsolate(String text) {
-  const diacriticsMap = {
-    'à': 'a',
-    'á': 'a',
-    'â': 'a',
-    'ã': 'a',
-    'ä': 'a',
-    'å': 'a',
-    'æ': 'ae',
-    'ç': 'c',
-    'è': 'e',
-    'é': 'e',
-    'ê': 'e',
-    'ë': 'e',
-    'ì': 'i',
-    'í': 'i',
-    'î': 'i',
-    'ï': 'i',
-    'ñ': 'n',
-    'ò': 'o',
-    'ó': 'o',
-    'ô': 'o',
-    'õ': 'o',
-    'ö': 'o',
-    'ø': 'o',
-    'ù': 'u',
-    'ú': 'u',
-    'û': 'u',
-    'ü': 'u',
-    'ý': 'y',
-    'ÿ': 'y',
-    'ß': 'ss',
-    'œ': 'oe',
-  };
-
-  final buffer = StringBuffer();
-  for (int i = 0; i < text.length; i++) {
-    final char = text[i];
-    buffer.write(diacriticsMap[char] ?? char);
-  }
-  return buffer.toString();
-}
-
 String removeDiacritics(String text) {
   final buffer = StringBuffer();
   for (int i = 0; i < text.length; i++) {
@@ -98,6 +54,29 @@ String normalizeForSearch(String text, {bool caseSensitive = false}) {
   }
   return normalized;
 }
+
+final RegExp _searchTokenRegex = RegExp(r'\b\w{2,}\b');
+
+/// Every word occurrence of [text] as the search index stores and looks
+/// words up: folded through [normalizeForSearch], split on word boundaries,
+/// minimum two characters. **Duplicates preserved** — the index counts them
+/// as term frequency, so a note mentioning "squat" five times outranks one
+/// that mentions it once.
+///
+/// The single tokenizer for **both** sides of the index — the isolate bulk
+/// build and the main-isolate [SearchIndex] — so the two can never fold
+/// differently again.
+List<String> searchTokens(String text) {
+  final normalized = normalizeForSearch(text);
+  return _searchTokenRegex
+      .allMatches(normalized)
+      .map((m) => m.group(0)!)
+      .toList(growable: false);
+}
+
+/// Unique words of [text]: [searchTokens] deduplicated. The query-side
+/// shape — a query word matters once no matter how often it is typed.
+Set<String> tokenizeForSearch(String text) => searchTokens(text).toSet();
 
 class SearchResult {
   final NoteMetadata metadata;
@@ -181,8 +160,10 @@ class SearchIndex {
   bool get isBuilt => _isBuilt;
 
   void addNote(String noteId, String title, String content) {
-    final text = '$title $content'.toLowerCase();
-    final words = _tokenize(text);
+    // Occurrence list, not a set: the loop below counts duplicates into
+    // real term frequencies (a set fed every TF as 1, which made the
+    // relevance scorer's frequency weighting a constant).
+    final words = searchTokens('$title $content');
 
     _termFrequency[noteId] = {};
 
@@ -337,13 +318,7 @@ class SearchIndex {
     return score * (matchCount / queryWords.length);
   }
 
-  Set<String> _tokenize(String text) {
-    // Normalize text by removing diacritics and converting to lowercase
-    final normalizedText = normalizeForSearch(text, caseSensitive: false);
-    final regex = RegExp(r'\b\w{2,}\b');
-    final matches = regex.allMatches(normalizedText);
-    return matches.map((m) => m.group(0)!).toSet();
-  }
+  Set<String> _tokenize(String text) => tokenizeForSearch(text);
 
   void markBuilt() {
     _isBuilt = true;

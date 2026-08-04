@@ -541,12 +541,6 @@ class AppLocalizationsEn extends AppLocalizations {
       'Higher priority shows first and keeps its bar when a day is full';
 
   @override
-  String get eventPriorityDecrease => 'Lower priority';
-
-  @override
-  String get eventPriorityIncrease => 'Higher priority';
-
-  @override
   String get eventPriorityLowest => 'Lowest';
 
   @override
@@ -2604,5 +2598,92 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String markdownColorsDeleteMessage(String name) {
     return 'Delete \"$name\"? Notes using it will show plain text.';
+  }
+
+  @override
+  String get upcomingEvents => 'Upcoming';
+
+  @override
+  String get upcomingSearchHint => 'Search events';
+
+  @override
+  String get upcomingClearSearch => 'Clear search';
+
+  @override
+  String upcomingPeriodDays(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count days',
+      one: '1 day',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get upcomingPeriodCustom => 'Custom';
+
+  @override
+  String get upcomingPriority => 'Priority';
+
+  @override
+  String get upcomingPriorityAny => 'Any';
+
+  @override
+  String get upcomingNoEvents => 'Nothing coming up';
+
+  @override
+  String get upcomingNoEventsHint => 'Try a longer period or a lower priority';
+
+  @override
+  String get upcomingToday => 'Today';
+
+  @override
+  String get upcomingTomorrow => 'Tomorrow';
+
+  @override
+  String get upcomingEditEvent => 'Edit event';
+
+  @override
+  String get upcomingShowHolidays => 'Holidays';
+
+  @override
+  String get upcomingFilters => 'Filters';
+
+  @override
+  String get panelExpand => 'Expand panel';
+
+  @override
+  String get panelShowCalendar => 'Show calendar';
+
+  @override
+  String get panelModeDay => 'Day';
+
+  @override
+  String get panelModeTimeline => 'Timeline';
+
+  @override
+  String get timelineEmptyHint =>
+      'Events with a start time appear on the timeline';
+
+  @override
+  String get exportEventsIcs => 'Export events (.ics)';
+
+  @override
+  String get exportingEvents => 'Exporting events...';
+
+  @override
+  String get eventsExportError => 'Could not export events';
+
+  @override
+  String eventsExported(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count events exported',
+      one: '1 event exported',
+      zero: 'No events exported',
+    );
+    return '$_temp0';
   }
 }

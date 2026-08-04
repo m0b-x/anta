@@ -213,11 +213,7 @@ class _MarkdownColorsPageState extends State<MarkdownColorsPage> {
   /// Live syntax reference: the examples are rendered with the same
   /// resolved palette the editor uses, so what the user sees here is
   /// exactly what a note will show.
-  Widget _buildSyntaxCard(
-    ThemeData theme,
-    AppLocalizations l10n,
-    bool isDark,
-  ) {
+  Widget _buildSyntaxCard(ThemeData theme, AppLocalizations l10n, bool isDark) {
     final sample = _custom.keys.isNotEmpty
         ? _custom.keys.first
         : MarkdownColorPalette.presetNames.first;
@@ -285,11 +281,10 @@ class _MarkdownColorsPageState extends State<MarkdownColorsPage> {
     );
   }
 
-  TextStyle? _monoDim(ThemeData theme) =>
-      theme.textTheme.bodyMedium?.copyWith(
-        fontFamily: 'monospace',
-        color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
-      );
+  TextStyle? _monoDim(ThemeData theme) => theme.textTheme.bodyMedium?.copyWith(
+    fontFamily: 'monospace',
+    color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+  );
 
   Widget _buildCustomRow(String name) {
     final l10n = AppLocalizations.of(context)!;

@@ -154,9 +154,8 @@ class MarkdownEditorLineIndex {
 
     int first = -1;
     int last = -1;
-    bool structural = _lines == null ||
-        n != _segLists.length ||
-        lines.length != _lineCount;
+    bool structural =
+        _lines == null || n != _segLists.length || lines.length != _lineCount;
     if (!structural) {
       for (int s = 0; s < n; s++) {
         final List<CodeLine> backing = segs[s].codeLines;
@@ -257,8 +256,9 @@ class MarkdownEditorLineIndex {
           fence[g] = MarkdownFenceRole.delimiter;
           inFence = !inFence;
         } else if (fence != null) {
-          fence[g] =
-              inFence ? MarkdownFenceRole.interior : MarkdownFenceRole.none;
+          fence[g] = inFence
+              ? MarkdownFenceRole.interior
+              : MarkdownFenceRole.none;
         }
       }
     }
@@ -272,13 +272,11 @@ class MarkdownEditorLineIndex {
     }
     final frames = <_TaskFrame>[];
     for (final _TaskSnapshot snap in _segTaskEntry[first]) {
-      frames.add(_TaskFrame(
-        line: snap.line,
-        level: snap.level,
-        checked: snap.checked,
-      )
-        ..checkedDescendants = snap.checkedDescendants
-        ..totalDescendants = snap.totalDescendants);
+      frames.add(
+        _TaskFrame(line: snap.line, level: snap.level, checked: snap.checked)
+          ..checkedDescendants = snap.checkedDescendants
+          ..totalDescendants = snap.totalDescendants,
+      );
     }
     final List<MarkdownFenceRole>? fence = _fence;
     for (int s = first; s < n; s++) {

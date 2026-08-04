@@ -41,13 +41,14 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
   /// when a custom category is deleted so its events fall back to a surviving
   /// category instead of dangling. Returns the number of rows updated.
   Future<int> reassignCategory(String fromId, String toId) {
-    return (update(calendarEvents)..where((e) => e.category.equals(fromId)))
-        .write(
-          CalendarEventsCompanion(
-            category: Value(toId),
-            updatedAt: Value(DateTime.now()),
-          ),
-        );
+    return (update(
+      calendarEvents,
+    )..where((e) => e.category.equals(fromId))).write(
+      CalendarEventsCompanion(
+        category: Value(toId),
+        updatedAt: Value(DateTime.now()),
+      ),
+    );
   }
 
   Future<void> deleteAll() {

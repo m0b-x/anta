@@ -149,8 +149,6 @@
   "eventTintIconHint": "Folosește culoarea evenimentului și pentru pictogramă",
   "eventPriority": "Prioritate",
   "eventPriorityHint": "Prioritatea mai mare apare prima și își păstrează bara când ziua e plină",
-  "eventPriorityDecrease": "Prioritate mai mică",
-  "eventPriorityIncrease": "Prioritate mai mare",
   "eventPriorityLowest": "Minimă",
   "eventPriorityLow": "Scăzută",
   "eventPriorityNormal": "Normală",
@@ -734,5 +732,42 @@
   "markdownColorsOverridden": "Înlocuită de o culoare personalizată",
   "markdownColorsNameTaken": "„{name}” este deja folosit",
   "markdownColorsLimitReached": "Limită de culori atinsă ({count})",
-  "markdownColorsDeleteMessage": "Ștergi „{name}”? Notițele care o folosesc vor afișa text simplu."
+  "markdownColorsDeleteMessage": "Ștergi „{name}”? Notițele care o folosesc vor afișa text simplu.",
+  "upcomingEvents": "Urmează",
+  "upcomingSearchHint": "Caută evenimente",
+  "upcomingClearSearch": "Șterge căutarea",
+  "upcomingPeriodDays": "{count, plural, one {1 zi} few {{count} zile} other {{count} de zile}}",
+  "@upcomingPeriodDays": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "upcomingPeriodCustom": "Personalizat",
+  "upcomingPriority": "Prioritate",
+  "upcomingPriorityAny": "Oricare",
+  "upcomingNoEvents": "Nimic în perioada aleasă",
+  "upcomingNoEventsHint": "Încearcă o perioadă mai lungă sau o prioritate mai mică",
+  "upcomingToday": "Azi",
+  "upcomingTomorrow": "Mâine",
+  "upcomingEditEvent": "Editează evenimentul",
+  "upcomingShowHolidays": "Sărbători",
+  "upcomingFilters": "Filtre",
+  "panelExpand": "Extinde panoul",
+  "panelShowCalendar": "Arată calendarul",
+  "panelModeDay": "Zi",
+  "panelModeTimeline": "Program",
+  "timelineEmptyHint": "Evenimentele cu oră de început apar în program",
+  "exportEventsIcs": "Exportă evenimentele (.ics)",
+  "exportingEvents": "Se exportă evenimentele...",
+  "eventsExportError": "Evenimentele nu au putut fi exportate",
+  "eventsExported": "{count, plural, =0{Niciun eveniment exportat} one {1 eveniment exportat} few {{count} evenimente exportate} other {{count} de evenimente exportate}}",
+  "@eventsExported": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  }
 }

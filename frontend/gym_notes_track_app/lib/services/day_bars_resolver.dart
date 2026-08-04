@@ -62,10 +62,10 @@ class PublicHolidayDayBarProvider implements DayBarProvider {
 /// Emits one bar per event on the day.
 ///
 /// Each bar is colored by the event's explicit color override (falling back
-/// to its category color) and ordered by the event's priority: higher
-/// priority sorts higher in the stack and wins the day cell's limited bar
-/// slots. The bar [DayBar.priority] stays in `0..kMaxEventPriority-1`, which
-/// is below the contextual holiday/weekend bands so events stay dominant.
+/// to its category color) and ordered by the event's priority: P1 sorts
+/// highest in the stack and wins the day cell's limited bar slots. The bar
+/// [DayBar.priority] stays in `0..kMaxEventPriority-1`, which is below the
+/// contextual holiday/weekend bands so events stay dominant.
 class EventDayBarProvider implements DayBarProvider {
   const EventDayBarProvider();
 
@@ -81,7 +81,7 @@ class EventDayBarProvider implements DayBarProvider {
         DayBar(
           key: 'event:${event.id}',
           color: color,
-          priority: kMaxEventPriority - event.priority,
+          priority: event.priority - kMinEventPriority,
           semanticLabel: event.title,
         ),
       );

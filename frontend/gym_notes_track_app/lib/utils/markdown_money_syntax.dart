@@ -578,7 +578,8 @@ class MarkdownMoneySyntax {
   static const int _kTilde = 0x7E; // ~
   static const int _kHash = 0x23; // #
   static const int _kColon = 0x3A; // :
-  static const int _kBullet = 0x2022; // • (list bullet, matching the list grammar)
+  static const int _kBullet =
+      0x2022; // • (list bullet, matching the list grammar)
   static const int _kParen = 0x29; // ) (ordered-list delimiter)
   static const int _kUnderscore = 0x5F; // _ (emphasis wrapper)
 
@@ -997,7 +998,8 @@ class MarkdownMoneySyntax {
     // Amount-first (`$+ 12.50 rent`): the classic shape, and the only
     // one that allows a label with no separator rules at all.
     final head = _parseAmount(line, i, n, maxInt, maxDec);
-    if (head != null && (head.end >= n || _isSpace(line.codeUnitAt(head.end)))) {
+    if (head != null &&
+        (head.end >= n || _isSpace(line.codeUnitAt(head.end)))) {
       var j = head.end;
       while (j < n && _isSpace(line.codeUnitAt(j))) {
         j++;
@@ -1159,7 +1161,11 @@ class MarkdownMoneySyntax {
     for (var d = 0; d < decDigits; d++) {
       scale ~/= 10;
     }
-    return (end: i, fixed: intPart * amountScale + decPart * scale, error: null);
+    return (
+      end: i,
+      fixed: intPart * amountScale + decPart * scale,
+      error: null,
+    );
   }
 
   /// Scans a label-first op row for its `label: AMOUNT` pair, allowing

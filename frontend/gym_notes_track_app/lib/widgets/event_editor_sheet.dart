@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_colors.dart';
 import '../constants/calendar_icons.dart';
+import '../constants/event_priorities.dart';
 import '../constants/settings_keys.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_event.dart';
@@ -288,18 +289,6 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   bool get _isCustomColor =>
       _colorValue != null &&
       !CalendarColors.swatchPalette.contains(_colorValue);
-
-  /// Qualitative label shown next to the numeric priority so "3" reads as
-  /// "Normal" rather than a bare number.
-  String _priorityLabel(AppLocalizations l10n, int p) {
-    return switch (p) {
-      1 => l10n.eventPriorityLowest,
-      2 => l10n.eventPriorityLow,
-      4 => l10n.eventPriorityHigh,
-      5 => l10n.eventPriorityHighest,
-      _ => l10n.eventPriorityNormal,
-    };
-  }
 
   String _kindLabel(AppLocalizations l10n, _RecurrenceKind k) {
     return switch (k) {
@@ -821,14 +810,30 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                     ),
                   ],
                   _SectionLabel(text: l10n.eventPriority),
-                  _IntervalStepper(
-                    value: _priority,
-                    unitLabel: _priorityLabel(l10n, _priority),
-                    min: kMinEventPriority,
-                    max: kMaxEventPriority,
-                    decrementTooltip: l10n.eventPriorityDecrease,
-                    incrementTooltip: l10n.eventPriorityIncrease,
-                    onChanged: (v) => setState(() => _priority = v),
+                  // One chip per level, P1 (highest) first. Chips replaced
+                  // the numeric stepper when the scale flipped to
+                  // 1-is-highest: a "+" that lowers priority (or raises the
+                  // number while the label says Higher) cannot be made
+                  // unambiguous, while a labeled, iconed chip can.
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (
+                        var p = kMinEventPriority;
+                        p <= kMaxEventPriority;
+                        p++
+                      )
+                        ChoiceChip(
+                          avatar: Icon(EventPriorities.iconFor(p), size: 18),
+                          label: Text(EventPriorities.labelOf(p, l10n)),
+                          visualDensity: VisualDensity.compact,
+                          selected: _priority == p,
+                          onSelected: (selected) {
+                            if (selected) setState(() => _priority = p);
+                          },
+                        ),
+                    ],
                   ),
                   Padding(
                     padding: const EdgeInsets.only(top: 6),

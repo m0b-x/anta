@@ -1056,7 +1056,8 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage> {
                           contentPadding: EdgeInsets.zero,
                           title: Text(l10n.moneyPerNoteCurrency),
                           trailing: const Icon(Icons.chevron_right),
-                          onTap: () => AppNavigator.toNoteMoneyCurrency(context),
+                          onTap: () =>
+                              AppNavigator.toNoteMoneyCurrency(context),
                         ),
                       ],
                     ),

@@ -16,6 +16,7 @@ class ImportExportBloc extends Bloc<ImportExportEvent, ImportExportState> {
     on<ExportNoteRequested>(_onExportNote);
     on<ExportFolderRequested>(_onExportFolder);
     on<ExportItemsRequested>(_onExportItems);
+    on<ExportCalendarRequested>(_onExportCalendar);
     on<ImportFileRequested>(_onImportFile);
     on<ImportArchiveRequested>(_onImportArchive);
     on<ImportExportReset>((_, emit) => emit(const ImportExportInitial()));
@@ -100,6 +101,32 @@ class ImportExportBloc extends Bloc<ImportExportEvent, ImportExportState> {
       emit(
         ImportExportFailure(
           operation: ImportExportOperation.exportItems,
+          message: e.toString(),
+        ),
+      );
+    }
+  }
+
+  Future<void> _onExportCalendar(
+    ExportCalendarRequested event,
+    Emitter<ImportExportState> emit,
+  ) async {
+    emit(const ImportExportInProgress(ImportExportOperation.exportCalendar));
+    try {
+      final result = await _service.exportCalendar(events: event.events);
+      if (event.share) {
+        await _service.shareExport(result);
+      }
+      emit(
+        ImportExportExportSuccess(
+          operation: ImportExportOperation.exportCalendar,
+          result: result,
+        ),
+      );
+    } catch (e) {
+      emit(
+        ImportExportFailure(
+          operation: ImportExportOperation.exportCalendar,
           message: e.toString(),
         ),
       );

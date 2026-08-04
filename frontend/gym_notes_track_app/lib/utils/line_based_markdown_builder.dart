@@ -1172,7 +1172,8 @@ class LineBasedMarkdownBuilder {
     // reading green off the sentinel; a resolved accent token overrides
     // the semantic colour either way.
     final noTarget =
-        m.kind == MoneyLineKind.remaining && MarkdownMoneySyntax.isNoTarget(value);
+        m.kind == MoneyLineKind.remaining &&
+        MarkdownMoneySyntax.isNoTarget(value);
     Color accent = noTarget
         ? MarkdownConstants.moneyWarning(dark: dark)
         : MarkdownConstants.moneyAccent(
@@ -1233,9 +1234,7 @@ class LineBasedMarkdownBuilder {
         return TextSpan(
           text: atSlot ? text : '  =  $text',
           style: baseStyle.copyWith(
-            color: pinned
-                ? warnColor
-                : style.textColor.withValues(alpha: 0.5),
+            color: pinned ? warnColor : style.textColor.withValues(alpha: 0.5),
           ),
         );
       }
@@ -1298,8 +1297,7 @@ class LineBasedMarkdownBuilder {
       // for a `set` row by definition of the fold. `$! N` declarations
       // share the rule — a declaration's operand *is* the target it
       // declares — so a budget statement prints its currency too.
-      final text =
-          m.kind == MoneyLineKind.set || m.kind == MoneyLineKind.target
+      final text = m.kind == MoneyLineKind.set || m.kind == MoneyLineKind.target
           ? MarkdownMoneySyntax.formatCentsWithSymbol(
               value,
               symbol: moneyConfig.currencySymbol,
@@ -1876,7 +1874,9 @@ class LineBasedMarkdownBuilder {
             ),
             contentStart + link.textStart,
           );
-          children.add(_wrapLinkSpan(inner, link.urlOf(text), contentStart + i));
+          children.add(
+            _wrapLinkSpan(inner, link.urlOf(text), contentStart + i),
+          );
           i = link.end;
           runStart = i;
           continue;

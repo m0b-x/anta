@@ -4,6 +4,8 @@ import '../constants/settings_keys.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
 import '../models/calendar_appearance.dart';
+import '../models/calendar_panel_mode.dart';
+import '../models/upcoming_agenda_filters.dart';
 import '../models/utility_button_config.dart';
 import '../utils/markdown_color_syntax.dart';
 
@@ -77,7 +79,8 @@ class SettingsService {
     return (
       enabled: enabled,
       startCents: startCents,
-      symbol: await _db.userSettingsDao.getValue(
+      symbol:
+          await _db.userSettingsDao.getValue(
             SettingsKeys.moneyCurrencySymbol,
           ) ??
           SettingsKeys.defaultMoneyCurrencySymbol,
@@ -496,6 +499,93 @@ class SettingsService {
 
   Future<void> setCalendarShowWeekNumbers(bool value) async {
     await _setBool(SettingsKeys.calendarShowWeekNumbers, value);
+  }
+
+  /// Loads every upcoming-agenda filter in one call.
+  Future<UpcomingAgendaFilters> getUpcomingAgendaFilters() async {
+    final rangeDays = await _getInt(
+      SettingsKeys.calendarUpcomingRangeDays,
+      SettingsKeys.defaultCalendarUpcomingRangeDays,
+    );
+    final (customStart, customEnd) = UpcomingAgendaFilters.decodeRange(
+      await _db.userSettingsDao.getValue(
+            SettingsKeys.calendarUpcomingCustomRange,
+          ) ??
+          '',
+    );
+    return UpcomingAgendaFilters(
+      rangeDays: rangeDays,
+      priorities: await _readUpcomingPriorities(),
+      customStart: customStart,
+      customEnd: customEnd,
+      query:
+          await _db.userSettingsDao.getValue(
+            SettingsKeys.calendarUpcomingQuery,
+          ) ??
+          '',
+      filtersExpanded: await _getBool(
+        SettingsKeys.calendarUpcomingFiltersExpanded,
+        SettingsKeys.defaultCalendarUpcomingFiltersExpanded,
+      ),
+      showHolidays: await _getBool(
+        SettingsKeys.calendarUpcomingShowHolidays,
+        SettingsKeys.defaultCalendarUpcomingShowHolidays,
+      ),
+    );
+  }
+
+  /// Reads the priority set. The superseded single-threshold key is folded
+  /// into this one (values flipped to the 1-is-highest scale) by the v18
+  /// database migration, so no legacy fallback is needed here.
+  Future<Set<int>> _readUpcomingPriorities() async {
+    final raw = await _db.userSettingsDao.getValue(
+      SettingsKeys.calendarUpcomingPriorities,
+    );
+    if (raw == null) return const {};
+    return UpcomingAgendaFilters.decodePriorities(raw);
+  }
+
+  /// Persists every upcoming-agenda filter. Callers debounce the text query
+  /// themselves; the discrete choices are cheap enough to write on change.
+  Future<void> saveUpcomingAgendaFilters(UpcomingAgendaFilters filters) async {
+    await _setInt(SettingsKeys.calendarUpcomingRangeDays, filters.rangeDays);
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.calendarUpcomingPriorities,
+      UpcomingAgendaFilters.encodePriorities(filters.priorities),
+    );
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.calendarUpcomingCustomRange,
+      UpcomingAgendaFilters.encodeRange(filters.customStart, filters.customEnd),
+    );
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.calendarUpcomingQuery,
+      filters.query,
+    );
+    await _setBool(
+      SettingsKeys.calendarUpcomingFiltersExpanded,
+      filters.filtersExpanded,
+    );
+    await _setBool(
+      SettingsKeys.calendarUpcomingShowHolidays,
+      filters.showHolidays,
+    );
+  }
+
+  // Calendar - Which mode the bottom panel was left in.
+  Future<CalendarPanelMode> getCalendarPanelMode() async {
+    final raw = await _db.userSettingsDao.getValue(
+      SettingsKeys.calendarPanelMode,
+    );
+    return CalendarPanelMode.fromName(
+      raw ?? SettingsKeys.defaultCalendarPanelMode,
+    );
+  }
+
+  Future<void> setCalendarPanelMode(CalendarPanelMode mode) async {
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.calendarPanelMode,
+      mode.name,
+    );
   }
 
   /// Loads every calendar look & feel option in one call.

@@ -55,7 +55,6 @@ import 'money_display_config.dart';
 /// CodeLines instance and resumed at the first changed segment, so a
 /// keystroke rescans ~one segment instead of the whole document.
 class MarkdownEditorSpanBuilder {
-
   /// Mirrors the preview's horizontal-rule pattern (`^[-*_]{3,}\s*$` on
   /// the trimmed line), with the leading indent folded into the regex so
   /// no trim allocation happens on the hot path.
@@ -482,10 +481,7 @@ class MarkdownEditorSpanBuilder {
     // an emphasis opener, or the `$` itself — the caller knows.
     if (m.listMarkerEnd < gapEnd) {
       out.add(
-        TextSpan(
-          text: text.substring(m.listMarkerEnd, gapEnd),
-          style: style,
-        ),
+        TextSpan(text: text.substring(m.listMarkerEnd, gapEnd), style: style),
       );
     }
   }
@@ -677,9 +673,7 @@ class MarkdownEditorSpanBuilder {
         out: children,
       );
     } else if (chromeFrom > 0) {
-      children.add(
-        TextSpan(text: text.substring(0, chromeFrom), style: style),
-      );
+      children.add(TextSpan(text: text.substring(0, chromeFrom), style: style));
     }
     if (chromeFrom < m.markerStart) {
       children.add(
@@ -995,9 +989,7 @@ class MarkdownEditorSpanBuilder {
         // mechanism rather than a 1:1 text swap because the source has
         // no character before the `:` to render as a space — a plain
         // substitution would read `Net worth= 5000`.
-        children.add(
-          _glyphSpan(style: style, accent: accent, glyph: opGlyph),
-        );
+        children.add(_glyphSpan(style: style, accent: accent, glyph: opGlyph));
       }
       if (m.labelEnd < m.amountStart) {
         children.add(
@@ -1145,9 +1137,7 @@ class MarkdownEditorSpanBuilder {
           );
     // Chip glyph from the shared palette; only display kinds reach the
     // non-slot label (op-row chips always sit at a slot).
-    final label = atSlot
-        ? value
-        : '${MarkdownMoneySyntax.glyph(kind)} $value';
+    final label = atSlot ? value : '${MarkdownMoneySyntax.glyph(kind)} $value';
     final fontSize = style.fontSize ?? 16.0;
     final lineBox = fontSize * (style.height ?? MarkdownConstants.lineHeight);
     final painter = TextPainter(
@@ -1550,7 +1540,10 @@ class MarkdownEditorSpanBuilder {
             ),
           );
           out.add(
-            TextSpan(text: text.substring(pos + 1, pos + 2), style: contextStyle),
+            TextSpan(
+              text: text.substring(pos + 1, pos + 2),
+              style: contextStyle,
+            ),
           );
           styled = true;
           pos += 2;
@@ -2262,7 +2255,6 @@ class MarkdownEditorSpanBuilder {
     );
     return TextSpan(style: style, children: children);
   }
-
 }
 
 class _InlineRun {

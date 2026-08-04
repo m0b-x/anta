@@ -90,6 +90,11 @@ class DatabaseMigrations {
       toVersion: DatabaseSchema.v17PublicHolidaySuppressed,
       migrate: _migrateV16ToV17,
     ),
+    Migration(
+      fromVersion: DatabaseSchema.v17PublicHolidaySuppressed,
+      toVersion: DatabaseSchema.v18EventPriorityInverted,
+      migrate: _migrateV17ToV18,
+    ),
   ];
 
   Future<void> runMigrations(Migrator m, int from, int to) async {
@@ -534,5 +539,68 @@ class DatabaseMigrations {
         'ALTER TABLE public_holidays ADD COLUMN suppressed INTEGER NOT NULL DEFAULT 0',
       );
     }
+  }
+
+  /// v17→v18: Invert event priority semantics — 1 is now the highest.
+  ///
+  /// Every stored priority flips (`p -> 6 - p`) so an event the user marked
+  /// "Highest" stays highest under the new reading. Data-only migration:
+  /// drift runs it inside the upgrade transaction with the version bump, so
+  /// the self-inverse `6 - p` can never be applied twice. The persisted
+  /// agenda priority filter flips with it, and the superseded
+  /// single-threshold filter key is folded in and removed (old meaning
+  /// "priority >= t on a 5-is-highest scale" becomes the set `{1..6-t}`).
+  Future<void> _migrateV17ToV18(Migrator m, GeneratedDatabase db) async {
+    await _db.customStatement(
+      'UPDATE calendar_events SET priority = 6 - priority '
+      'WHERE priority BETWEEN 1 AND 5',
+    );
+
+    String? settingValue(List<QueryRow> rows) =>
+        rows.isEmpty ? null : rows.first.read<String?>('value');
+
+    int? flip(int? p) => p == null || p < 1 || p > 5 ? null : 6 - p;
+
+    final prioritiesRows = await _db
+        .customSelect(
+          "SELECT value FROM user_settings "
+          "WHERE key = 'calendar_upcoming_priorities'",
+        )
+        .get();
+    final rawPriorities = settingValue(prioritiesRows);
+    if (rawPriorities != null && rawPriorities.isNotEmpty) {
+      final flipped =
+          rawPriorities
+              .split(',')
+              .map((part) => flip(int.tryParse(part.trim())))
+              .whereType<int>()
+              .toList()
+            ..sort();
+      await _db.customStatement(
+        "UPDATE user_settings SET value = ? "
+        "WHERE key = 'calendar_upcoming_priorities'",
+        [flipped.join(',')],
+      );
+    } else {
+      final legacyRows = await _db
+          .customSelect(
+            "SELECT value FROM user_settings "
+            "WHERE key = 'calendar_upcoming_min_priority'",
+          )
+          .get();
+      final threshold = int.tryParse(settingValue(legacyRows) ?? '');
+      if (threshold != null && threshold > 1 && threshold <= 5) {
+        final converted = [for (var p = 1; p <= 6 - threshold; p++) p];
+        // Drift's default DateTime storage is unix SECONDS, not millis.
+        await _db.customStatement(
+          "INSERT OR REPLACE INTO user_settings (key, value, updated_at) "
+          "VALUES ('calendar_upcoming_priorities', ?, ?)",
+          [converted.join(','), DateTime.now().millisecondsSinceEpoch ~/ 1000],
+        );
+      }
+    }
+    await _db.customStatement(
+      "DELETE FROM user_settings WHERE key = 'calendar_upcoming_min_priority'",
+    );
   }
 }

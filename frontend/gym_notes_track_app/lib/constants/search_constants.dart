@@ -160,12 +160,18 @@ class SearchConstants {
     'ş': 's',
     'Š': 'S',
     'š': 's',
+    // Romanian comma-below forms (U+0218–U+021B). Modern Romanian keyboards
+    // emit these, not the legacy cedilla ş/ţ above — both must fold.
+    'Ș': 'S',
+    'ș': 's',
     'Ţ': 'T',
     'ţ': 't',
     'Ť': 'T',
     'ť': 't',
     'Ŧ': 'T',
     'ŧ': 't',
+    'Ț': 'T',
+    'ț': 't',
     'Ũ': 'U',
     'ũ': 'u',
     'Ū': 'U',

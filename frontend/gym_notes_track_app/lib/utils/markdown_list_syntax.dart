@@ -214,7 +214,9 @@ class MarkdownListSyntax {
     // Ordered: digits, then `.` or `)`, then whitespace.
     if (c >= 0x30 && c <= 0x39) {
       int j = i + 1;
-      while (j < n && line.codeUnitAt(j) >= 0x30 && line.codeUnitAt(j) <= 0x39) {
+      while (j < n &&
+          line.codeUnitAt(j) >= 0x30 &&
+          line.codeUnitAt(j) <= 0x39) {
         j++;
       }
       if (j + 1 < n &&

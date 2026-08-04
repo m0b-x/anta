@@ -90,6 +90,37 @@ class SettingsKeys {
   /// most-recent-first).
   static const String recentEventColors = 'recent_event_colors';
 
+  /// Last look-ahead window (in days) used in the upcoming events sheet.
+  static const String calendarUpcomingRangeDays =
+      'calendar_upcoming_range_days';
+
+  /// Priorities selected in the upcoming agenda, as a sorted CSV on the
+  /// 1-is-highest scale. An empty value means "all priorities"; an absent
+  /// key means "never set". (A superseded `calendar_upcoming_min_priority`
+  /// threshold key is folded into this one by the v18 migration.)
+  static const String calendarUpcomingPriorities =
+      'calendar_upcoming_priorities';
+
+  /// Explicit agenda date range as `yyyyMMdd|yyyyMMdd`, empty when the
+  /// preset look-ahead window is in use.
+  static const String calendarUpcomingCustomRange =
+      'calendar_upcoming_custom_range';
+
+  /// Last search text typed in the upcoming agenda.
+  static const String calendarUpcomingQuery = 'calendar_upcoming_query';
+
+  /// Whether the agenda's period/priority chip rows were left expanded.
+  static const String calendarUpcomingFiltersExpanded =
+      'calendar_upcoming_filters_expanded';
+
+  /// Whether the upcoming agenda lists public holidays alongside events.
+  static const String calendarUpcomingShowHolidays =
+      'calendar_upcoming_show_holidays';
+
+  /// Which mode the calendar's bottom panel was left in (day / timeline /
+  /// upcoming). Parsed with a forward-compatible fallback.
+  static const String calendarPanelMode = 'calendar_panel_mode';
+
   // Last navigation location (restored on next app launch)
   static const String lastFolderId = 'last_folder_id';
   static const String lastFolderTitle = 'last_folder_title';
@@ -153,6 +184,23 @@ class SettingsKeys {
   static const String defaultCalendarWeekStart = 'monday';
   static const bool defaultCalendarHighlightWeekends = true;
   static const bool defaultCalendarShowWeekNumbers = false;
+
+  /// Default look-ahead window of the upcoming events sheet, in days.
+  static const int defaultCalendarUpcomingRangeDays = 30;
+
+  /// Default agenda priority filter: empty CSV = every priority shown.
+  static const String defaultCalendarUpcomingPriorities = '';
+
+  /// Default agenda filter-row state: collapsed, so the short bottom panel
+  /// is mostly list rather than chrome.
+  static const bool defaultCalendarUpcomingFiltersExpanded = false;
+
+  /// Default agenda holiday visibility: off, so the agenda stays a training
+  /// log until the user opts in.
+  static const bool defaultCalendarUpcomingShowHolidays = false;
+
+  /// Default bottom-panel mode name (see `CalendarPanelMode`).
+  static const String defaultCalendarPanelMode = 'day';
 
   /// Maximum number of recently-used custom event colors to remember.
   static const int maxRecentEventColors = 6;

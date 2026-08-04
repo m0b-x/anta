@@ -1,18 +1,24 @@
 # Calendar & Events — Feature Reference
 
 A deep, implementation-aware description of the calendar/events subsystem in
-`gym_notes_track_app` as of schema **v14**. This document focuses on the
-**events** feature plus the **public-holiday** subsystem it depends on.
-Everything below is grounded in the actual code paths in
-[lib/](../lib/) — file references are linked.
+`gym_notes_track_app`, written as of schema **v14**; the **Addendum (schema
+v15–v18)** at the end of this document covers everything added since —
+panel modes, the upcoming agenda, the day timeline, `.ics` export, and the
+priority-scale inversion. This document focuses on the **events** feature
+plus the **public-holiday** subsystem it depends on. Everything below is
+grounded in the actual code paths in [lib/](../lib/) — file references are
+linked.
 
 > Schema lineage relevant to this subsystem: **v10** created the calendar
 > tables; **v11** added the Until bound + time-of-day columns; **v12** added
 > `description`; **v13** added holiday profiles; **v14** added the optional
 > event ↔ note link (`note_id`); **v15** added the data-driven
-> `calendar_categories` table (user-creatable categories). The recurrence
-> **interval** ("every N …") shipped without a migration — it rides inside the
-> existing `rule_payload`.
+> `calendar_categories` table (user-creatable categories); **v16** added
+> `color_value` / `tint_icon` / `priority` columns; **v17** added the
+> `suppressed` flag on `public_holidays`; **v18** inverted the stored
+> priority scale (data-only: `p -> 6 - p`, see the Addendum). The recurrence
+> **interval** ("every N …") shipped without a migration — it rides inside
+> the existing `rule_payload`.
 
 ---
 
@@ -550,3 +556,104 @@ filters can use it without decoding `time`.
 | Editor UI                | [lib/widgets/event_editor_sheet.dart](../lib/widgets/event_editor_sheet.dart)     |
 | Category icons & colors  | [lib/constants/calendar_icons.dart](../lib/constants/calendar_icons.dart), [lib/constants/calendar_colors.dart](../lib/constants/calendar_colors.dart) |
 | L10n                     | [lib/l10n/app_en.arb](../lib/l10n/app_en.arb), [lib/l10n/app_de.arb](../lib/l10n/app_de.arb), [lib/l10n/app_ro.arb](../lib/l10n/app_ro.arb) |
+
+---
+
+## Addendum (schema v15–v18): panel system, agenda, timeline, `.ics`, priority scale
+
+Written 2026-08. Everything in this section shipped after the v14 snapshot
+above; where the two disagree, this section wins.
+
+### Bottom panel system
+
+The area under the grid is now a mode-switched panel owned by
+[lib/widgets/calendar_bottom_panel.dart](../lib/widgets/calendar_bottom_panel.dart):
+
+- **`CalendarPanelMode`** ([lib/models/calendar_panel_mode.dart](../lib/models/calendar_panel_mode.dart)):
+  `day` (the original day summary), `timeline`, `upcoming`. Persisted by name
+  (`calendar_panel_mode`, forward-compatible fallback to `day`).
+- `CalendarBottomPanel` owns the mode **and** the agenda filters *below* the
+  page, so agenda keystrokes rebuild only the panel subtree — never the
+  `TableCalendar` grid. It loads its persisted state once in `initState`;
+  nothing on the settings page edits it, so it does not participate in the
+  page's reload-on-return path.
+- **Expand toggle** (in the mode bar): collapses the grid to zero height via
+  `AnimatedSize` on the page so the panel can take the whole screen.
+  Deliberately transient — restoring a hidden calendar across app opens
+  would read as "the calendar disappeared".
+
+### Upcoming agenda (search across events)
+
+- Pure scan module [lib/utils/event_agenda.dart](../lib/utils/event_agenda.dart):
+  `occurrencesInRange` expands recurrences over a clamped range
+  (`maxRangeDays = 366`) using the same O(1) `occursOn` as the bloc's day
+  cache; **never runs inside `eventLoader`**. `holidayDaysInRange` walks the
+  same resolved range; `compareWithinDay` is the **single comparator** for
+  same-day event order (also used by `EventSummaryProvider`, with
+  `DaySummaryResolver.resolve` made stable so the order survives).
+- Filters are one value object,
+  [lib/models/upcoming_agenda_filters.dart](../lib/models/upcoming_agenda_filters.dart)
+  (range preset / custom range / priority set / query / holidays toggle /
+  chip-row expansion), persisted via `SettingsService.getUpcomingAgendaFilters`
+  / `saveUpcomingAgendaFilters`. The query write is debounced 500 ms and
+  flushed on dispose. **Empty priority set means "all"** — the filter off,
+  never "nothing matches". An elapsed custom range is dropped on load.
+- Text matching folds case *and* diacritics through the note search's
+  `normalizeForSearch`, so "sarbatoare" finds "Sărbătoare" here exactly as in
+  note search. Holiday labels match localized.
+- Rendering: [lib/widgets/upcoming_agenda_view.dart](../lib/widgets/upcoming_agenda_view.dart)
+  (controlled; owns nothing persistent) over
+  [lib/widgets/agenda_list_view.dart](../lib/widgets/agenda_list_view.dart)
+  (row list memoized on input identity + locale; holiday days interleave so a
+  holiday-only day still gets a header; rows reuse `EventSummaryProvider`, so
+  agenda and day panel cannot drift).
+
+### Day timeline
+
+[lib/widgets/day_timeline_view.dart](../lib/widgets/day_timeline_view.dart) +
+pure layout [lib/utils/day_timeline_layout.dart](../lib/utils/day_timeline_layout.dart):
+the only surface rendering `EventTime.durationMinutes`. Overlapping events
+pack into side-by-side columns **per overlap cluster**; all-day events pin to
+a chip strip above the grid; a "now" line shows on today. Blocks use
+`colorValue ?? category.color` (the `EventDayBarProvider` rule). All vertical
+placement goes through one `_offsetOf` helper so gridlines, blocks and the
+now-line cannot drift.
+
+### `.ics` export
+
+[lib/utils/ics_serializer.dart](../lib/utils/ics_serializer.dart) →
+`ImportExportService.exportCalendar` → `ExportCalendarRequested` on
+`ImportExportBloc` → `shareExport`. Floating local time (the app stores no
+timezone); `DTSTART` moves to the first *real* occurrence so `BYDAY`/interval
+phase can't drift; workdays emit `BYDAY=MO..FR` + `EXDATE`s for holidays;
+holidays-only and specific-date sets emit `RDATE`s; expansions bounded by
+730 days. `ExportFormat` was deliberately **not** extended (it would leak
+into note-format pickers); `.ics` is registered with `sweepStaleExports`.
+Entry point: calendar app-bar overflow menu.
+
+### Priority scale (v18): 1 is highest
+
+- Stored priorities read like **P1..P5 — lower number = higher priority**.
+  The v18 migration flips existing rows (`p -> 6 - p`) inside the upgrade
+  transaction, flips the persisted agenda priority filter, and folds the
+  retired `calendar_upcoming_min_priority` threshold key into
+  `calendar_upcoming_priorities`.
+- **Backup version is now 7**; backups < 7 carry the old 5-is-highest values
+  and are flipped on import in `BackupService.importFromJson`.
+- Display lives in one place:
+  [lib/constants/event_priorities.dart](../lib/constants/event_priorities.dart)
+  (`iconFor`: double-up / up / drag-handle / down / double-down;
+  `labelOf`: Highest..Lowest). The editor picks priority with icon+label
+  ChoiceChips (the numeric stepper died with the flip — a "+" that lowers
+  priority cannot be made unambiguous); the agenda's filter chips carry the
+  same icons; agenda row badges show the label for non-Normal priorities.
+- Ranking sites all agree: `EventAgenda.compareWithinDay` (ascending),
+  day bars / day summary map `event.priority - kMinEventPriority` into the
+  0-is-top band, and the `.ics` `PRIORITY` maps 1→1, 3→5, 5→9 (RFC 5545
+  shares the 1-is-highest direction).
+
+### Navigation fix that lives here
+
+Opening an event's linked note (and last-location restore) now passes
+`NoteRepository.noteToMetadata(row)` to the editor, so the title bar shows
+the real note title instead of "New note".

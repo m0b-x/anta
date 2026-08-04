@@ -49,8 +49,7 @@ class MarkdownLineShape {
         while (i < trimmed.length && trimmed.codeUnitAt(i) == 0x23) {
           i++;
         }
-        return i <= 6 &&
-            (i == trimmed.length || trimmed.codeUnitAt(i) == 0x20);
+        return i <= 6 && (i == trimmed.length || trimmed.codeUnitAt(i) == 0x20);
     }
     // List-prefixed money rows (`- $+ 12.50`, `1. $$`): the probe is
     // cheap and rejects ordinary list prose before the full parse runs.

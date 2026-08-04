@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 
+import '../../models/calendar_event.dart';
 import '../../models/export_format.dart';
 import '../../models/note_metadata.dart';
 
@@ -57,6 +58,21 @@ final class ExportItemsRequested extends ImportExportEvent {
 
   @override
   List<Object?> get props => [noteIds, folderIds, noteFormat, share];
+}
+
+/// Export calendar events as a single iCalendar (`.ics`) file.
+///
+/// The events travel on the event rather than being re-read from storage:
+/// the calendar page already holds the loaded list, and the export must
+/// match exactly what the user is looking at.
+final class ExportCalendarRequested extends ImportExportEvent {
+  final List<CalendarEvent> events;
+  final bool share;
+
+  const ExportCalendarRequested({required this.events, this.share = false});
+
+  @override
+  List<Object?> get props => [events, share];
 }
 
 /// Import a single file (json/md/txt). Detects format from extension.

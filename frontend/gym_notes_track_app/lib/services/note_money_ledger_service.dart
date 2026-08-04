@@ -64,8 +64,7 @@ class NoteMoneyLedgerService {
   /// longer linked. Per-note failures are logged and skipped so one
   /// broken note cannot hide the rest.
   Future<void> refresh(List<CalendarEvent> events) async {
-    final config = await (await SettingsService.getInstance())
-        .getMoneyConfig();
+    final config = await (await SettingsService.getInstance()).getMoneyConfig();
     _symbol = config.symbol;
     _suffix = config.suffix;
     _startCents = config.startCents;

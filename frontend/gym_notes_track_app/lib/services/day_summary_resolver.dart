@@ -7,6 +7,7 @@ import '../l10n/app_localizations.dart';
 import '../models/calendar_event.dart';
 import '../models/day_summary_entry.dart';
 import '../models/recurrence_rule.dart';
+import '../utils/event_agenda.dart';
 import 'note_money_ledger_service.dart';
 import 'recurrence_formatter.dart';
 import 'event_time_formatter.dart';
@@ -78,6 +79,11 @@ class PublicHolidaySummaryProvider implements DaySummaryProvider {
 }
 
 /// Emits one entry per [CalendarEvent] on the day.
+///
+/// Entries are emitted in [EventAgenda.compareWithinDay] order — the single
+/// comparator for same-day event ordering, shared with the upcoming agenda —
+/// and [DaySummaryResolver.resolve]'s stable sort preserves that order for
+/// events of equal priority.
 class EventSummaryProvider implements DaySummaryProvider {
   final AppLocalizations l10n;
 
@@ -88,7 +94,8 @@ class EventSummaryProvider implements DaySummaryProvider {
     DateTime day,
     List<CalendarEvent> events,
   ) {
-    return events.map((event) {
+    final ordered = [...events]..sort(EventAgenda.compareWithinDay);
+    return ordered.map((event) {
       final category = CalendarCategories.resolve(event.categoryId);
       // The event color tints the icon only when the user opted in
       // (tintIcon); otherwise the icon keeps its category color.
@@ -101,7 +108,7 @@ class EventSummaryProvider implements DaySummaryProvider {
         color: color,
         title: event.title,
         subtitle: _subtitleFor(event),
-        priority: kMaxEventPriority - event.priority,
+        priority: event.priority - kMinEventPriority,
         event: event,
       );
     });
@@ -209,11 +216,17 @@ class DaySummaryResolver {
         byKey.putIfAbsent(entry.key, () => entry);
       }
     }
-    final sorted = byKey.values.toList()
+    // Stable sort by priority: `List.sort` is unstable, so ties are broken
+    // by insertion index instead of the old key comparison — providers
+    // control the order of their own equal-priority entries (events arrive
+    // pre-sorted by `EventAgenda.compareWithinDay`, which a key sort on
+    // `event:<uuid>` used to scramble into id order).
+    final entries = byKey.values.toList();
+    final order = [for (var i = 0; i < entries.length; i++) (i, entries[i])]
       ..sort((a, b) {
-        final byPriority = a.priority.compareTo(b.priority);
-        return byPriority != 0 ? byPriority : a.key.compareTo(b.key);
+        final byPriority = a.$2.priority.compareTo(b.$2.priority);
+        return byPriority != 0 ? byPriority : a.$1.compareTo(b.$1);
       });
-    return sorted;
+    return [for (final (_, entry) in order) entry];
   }
 }
