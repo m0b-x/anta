@@ -186,6 +186,7 @@ Ghost text is an inline, single-line `{{ … }}` placeholder rendered dimmed, us
 - Use Material 3 and existing constants for spacing, text, colors, icons, and dimensions.
 - Keep controls touch-friendly: icon buttons, tooltips, menus, toggles, sliders, reorder handles, and clear destructive confirmations.
 - Avoid layout shifts in editor, toolbar, counters, and folder/note lists. Stable dimensions matter more than decorative styling.
+- Keyboard avoidance in the note editor is manual and gated, not `Scaffold`'s: the editor Scaffold sets `resizeToAvoidBottomInset: false` and pads its body by `_keyboardInset(context)`, which only trusts `viewInsets.bottom` while the page owns an input connection (`_contentHasFocus`, mirrored from `_contentFocusNode`, or an open search bar). Android can hand back a stale keyboard inset after a resume — ungated, that inset floats the markdown toolbar above an empty strip until the app is restarted. The same gated value drives `previewWhenKeyboardHidden` and the toolbar's bottom safe-area spacer (`viewPadding.bottom` when no keyboard). `main.dart` completes the pair by unfocusing on `AppLifecycleState.paused` so the IME animation finishes while the window is still live.
 - For gym progress features, prefer quick capture patterns: reusable templates, pinned counters, recent/frequent actions, clear save status, and minimal taps.
 - Respect light/dark/system themes and supported locales.
 

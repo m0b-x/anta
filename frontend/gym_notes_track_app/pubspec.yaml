@@ -81,6 +81,34 @@ dev_dependencies:
   flutter_lints: ^6.0.0
   drift_dev: ^2.30.0
   build_runner: ^2.4.15
+  flutter_launcher_icons: ^0.14.4
+
+# App icon generation: `dart run flutter_launcher_icons`. Source art lives in
+# assets/icon/ (source.png = original; the rest are derived — see
+# assets/icon/README.md for how to regenerate after an art change).
+flutter_launcher_icons:
+  image_path: "assets/icon/icon_master_flat.png"
+  android: true
+  adaptive_icon_background: "assets/icon/adaptive_background.png"
+  adaptive_icon_foreground: "assets/icon/adaptive_foreground.png"
+  # adaptive_foreground.png already insets the glyph to Android's ~66dp safe
+  # zone itself (art scaled to 62% of the 1024 canvas, transparent padding
+  # around it). The tool's own default inset (16%) would apply on top of
+  # that and shrink the glyph a second time, so it's disabled here.
+  adaptive_icon_foreground_inset: 0
+  ios: true
+  remove_alpha_ios: true
+  macos:
+    generate: true
+    image_path: "assets/icon/icon_master_flat.png"
+  windows:
+    generate: true
+    image_path: "assets/icon/icon_master_flat.png"
+  web:
+    generate: true
+    image_path: "assets/icon/icon_master_flat.png"
+    background_color: "#1C1B1F"
+    theme_color: "#1C1B1F"
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
