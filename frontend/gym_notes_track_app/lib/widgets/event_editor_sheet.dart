@@ -3,6 +3,7 @@ import 'package:get_it/get_it.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
+import '../constants/calendar_bounds.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_colors.dart';
 import '../constants/calendar_icons.dart';
@@ -391,13 +392,13 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   // --- Interactions -------------------------------------------------------
 
   Future<void> _pickDate() async {
-    // Fixed wide bounds, not a window around the current date: a birthday's
-    // start is the birth year, which a ±20-year slide can never reach.
+    // The shared domain, not a window around the current date: a birthday's
+    // start is the birth year, which a ±20-year slide could never reach.
     final picked = await CalendarDatePickerSheet.pickSingle(
       context,
       initialDate: _date,
-      firstDate: CalendarDatePickerSheet.earliestDate,
-      lastDate: CalendarDatePickerSheet.latestDate,
+      firstDate: CalendarBounds.earliest,
+      lastDate: CalendarBounds.latest,
       dayLoad: widget.dayLoad,
       appearance: widget.appearance,
     );
@@ -428,7 +429,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
       context,
       initialDate: initial.isBefore(_date) ? _date : initial,
       firstDate: _date,
-      lastDate: CalendarDatePickerSheet.latestDate,
+      lastDate: CalendarBounds.latest,
       dayLoad: widget.dayLoad,
       appearance: widget.appearance,
     );
@@ -444,8 +445,8 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     final picked = await CalendarDatePickerSheet.pickMulti(
       context,
       initialSelection: current,
-      firstDate: CalendarDatePickerSheet.earliestDate,
-      lastDate: CalendarDatePickerSheet.latestDate,
+      firstDate: CalendarBounds.earliest,
+      lastDate: CalendarBounds.latest,
       dayLoad: widget.dayLoad,
       appearance: widget.appearance,
     );

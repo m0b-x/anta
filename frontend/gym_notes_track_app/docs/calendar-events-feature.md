@@ -264,55 +264,124 @@ The calendar engine consults
 two recurrence rules (`WorkdaysRecurrence`, `PublicHolidaysOnlyRecurrence`)
 and also for visual rendering on calendar tiles.
 
-### 4.1 Seed window
+### 4.1 Built-ins are computed, not stored (schema v22)
 
-[`PublicHolidayService`](../lib/services/public_holiday_service.dart) computes
-a **6-year window** centered on the current year and ensures every built-in
-holiday for those years is present in the `public_holidays` table via
-`insertIfMissing` (idempotent). This includes movable feasts via the
-**Meeus/Jones/Butcher** Easter algorithm, then deriving Good Friday, Easter
-Monday, Ascension, Pentecost, Whit Monday from Easter Sunday.
+A profile's holidays are a **pure function of (profile, year)** — that is
+what [`HolidaySeeds.forYear`](../lib/constants/public_holidays.dart) is, and
+it always was; until v22 the app merely *ran* that function ahead of time and
+persisted the results as rows for a rolling 6-year window.
 
-The cache built on each load is published to a static
-`PublicHolidays._cache`, allowing the rest of the app to query holiday status
-synchronously (no `await`s in calendar tile builders).
+Persisting derived data bought nothing and cost correctness: any year outside
+the window had no movable feasts at all (Good Friday in 1991 or 2099 simply
+did not exist), and a profile switch had to delete and re-seed rows to stay
+honest. So v22 deleted the seeding pass. `PublicHolidays` now computes a
+year on first touch and **memoizes** it (bounded at 12 years, cleared
+wholesale — rebuilding a year costs microseconds, so an LRU would be more
+bookkeeping than it saves), exactly the shape `FastingCalendar` already uses.
 
-### 4.2 Custom holidays
+Every year in [`CalendarBounds`](../lib/constants/calendar_bounds.dart)
+(1900–2100) now resolves fully, Easter-derived feasts included, at a cost of
+one Easter computus plus ~15 date constructions per year touched — a month
+view touches at most two. There is **no window setting to tune and no
+performance cliff to warn about**; both would be configuration over a
+non-problem.
 
-Users may add their own holidays. They live in the same `public_holidays`
-table with `name_key = 'custom'` (the `kCustomPublicHolidayKey` sentinel)
-and a non-null `custom_label`. They are otherwise indistinguishable from
-built-ins for the purposes of recurrence and rendering.
+Resolution order in `PublicHolidays.holidayOn`:
 
-### 4.3 Out-of-window fallback
+1. **Overrides** — the user's custom holidays (and any legacy stored
+   built-in row) win, so a custom entry can sit on a date the profile
+   already claims.
+2. **Computed** — `HolidaySeeds.forYear(profile, year)`, unless the date +
+   holiday name appears in the suppression set.
+3. **Fixed-date fallback** — only while the service has not initialized
+   (`_profile == null`), so tests and the first frame still render something
+   sensible. Movable feasts are unavailable in that state by nature.
 
-`PublicHolidays.holidayOn` first consults the cache. If the queried year is
-**outside** the seeded window, it falls back to a static fixed-date map
-(New Year, Epiphany, Labour Day, Assumption, All Saints, Christmas Eve/Day,
-Boxing Day, NYE). This means `isHoliday(2099-12-25)` still returns true even
-though no row exists for that year. **Movable feasts have no fallback** —
-querying Good Friday in 2099 returns `false`. Acceptable: the seeded window
-covers anything a real user will look at; the fallback is for tests and
-edge-of-rendering corner cases.
+### 4.2 Legislative accuracy: validity years and substitute days
 
-### 4.4 Deleting a built-in for a single year
+Holidays are law, not arithmetic, so a pure generator needs two corrections
+that a naive "compute the date every year" pass gets wrong. Both live inside
+`HolidaySeeds`; neither needs a schema change, a setting, or a network call.
 
-Users can suppress a built-in (e.g., they don't observe Labour Day). Inside
-the seeded window the cache is the source of truth — a missing entry stays
-missing. Outside the window the fixed-date fallback re-introduces it.
+**Validity years.** Each holiday created or moved by legislation carries an
+inline `if (year >= NNNN)` guard, so browsing a past year does not show an
+anachronism. Without them, extending the range to 1900 (§6.5) showed
+Juneteenth in 1991 and German Unity Day in 1980. Covered: US (MLK 1986,
+Uniform Monday Holiday Act 1971 for Presidents'/Memorial/Columbus,
+Thanksgiving 1942, Veterans Day 1954, Juneteenth 2021), UK (New Year 1974,
+Early May 1978, spring/summer bank holidays 1971), Germany (Unity Day 1990),
+Romania (National Day 1990, Pentecost/Assumption 2008, St Andrew 2012,
+Unification Day 2016, Children's Day 2017, Good Friday 2018). The guard sits
+next to the date it governs so each region's history reads in one place.
 
-**v17** added a `suppressed` column so this is durable: removing a holiday
-(via the day-summary panel's delete action, `PublicHolidayService.removeOn`)
-flags the built-in row rather than deleting it, so `insertIfMissing`'s
-insert-or-ignore never resurrects it — the row stays suppressed across app
-restarts and backup restores. `PublicHolidayService._load()` skips
-suppressed rows when building the lookup cache. Custom rows are still
-hard-deleted (no re-seed to defend against). `suppressedHolidays()` /
-`restoreSuppressed()` back the "Removed holidays" list in Calendar Settings
-(`RemovedHolidaysSheet`), and the day-summary panel's snackbar offers an
-immediate Undo as well.
+This is a **best-effort curated set covering the clear cases**, not an
+exhaustive legislative history — the 1971–1977 US move of Veterans Day to
+October is knowingly not modelled, for instance. `generic` and `europe` are
+deliberately unguarded: they are curated convenience sets rather than
+jurisdictions, so dating them by statute would be false precision.
 
-### 4.4 Religious fasting engine
+**Substitute days.** A holiday falling on a weekend earns a statutory day off
+elsewhere, and the two rules differ by country, so `forYear` dispatches per
+profile after building the base set:
+
+- **UK** — moves *forward* to the next weekday that is not already a bank
+  holiday. Order matters: Christmas takes the first free weekday and Boxing
+  Day the next, which is what produces the Mon/Tue pair when Christmas falls
+  on a Saturday (2021 → 27th and 28th) and the single Tuesday when it falls
+  on a Sunday (2022 → 27th, because Monday is Boxing Day itself).
+- **US** — Saturday shifts *back* to the Friday before, Sunday *forward* to
+  the Monday after. A Saturday New Year is observed on 31 December of the
+  **previous** year, so that date is emitted into the prior year's map.
+- **Germany, Romania, generic, europe** — no statutory substitution; the day
+  is simply lost when it lands on a weekend.
+
+Both the real date and the substitute are emitted, because you want to see
+Christmas on Christmas *and* see which weekday is actually off. They are
+distinguished by `HolidayOccurrence.observed` → `PublicHolidayInfo.observed`,
+which `PublicHolidays.labelOf` renders through the `publicHolidayObserved`
+ARB key ("Christmas Day (observed)") — otherwise two identical rows in one
+week would be unexplainable. Suppression keys on `(date, name_key)`, so a
+substitute can be removed independently of the holiday itself.
+
+### 4.3 The table holds only user deltas
+
+`public_holidays` now stores exclusively what **cannot** be recomputed:
+
+- **Custom holidays** — `name_key = 'custom'` (the `kCustomPublicHolidayKey`
+  sentinel) with a non-null `custom_label` and `profile = 'custom'`, so they
+  survive every profile switch. Indistinguishable from built-ins for
+  recurrence and rendering.
+- **Suppressions** — `suppressed = 1` rows (v17), the only durable record
+  that a built-in was removed from one specific date.
+
+The v22 migration deletes every other row (`suppressed = 0 AND name_key !=
+'custom'`), which is lossless because each one is reproducible. `importData`
+applies the same filter: plain built-in rows in an older backup are skipped
+rather than restored, since importing them would pin a stale copy of some
+other profile's holidays over the computed set. Backup stays **version 7** —
+the export shape is unchanged, and a new backup restored into an older build
+simply gets re-seeded by that build's seeder.
+
+### 4.4 Removing and restoring a built-in
+
+Removing a holiday (day-summary panel delete action →
+`PublicHolidayService.removeOn`) hard-deletes custom rows and **writes a
+suppression row** for the computed built-in on that date — with built-ins no
+longer stored, that row is the only thing that can persist "not on this
+date"; without it the next resolve would hand the holiday straight back.
+
+Restoring (`restoreSuppressed`, backing the "Removed holidays" list in
+Calendar Settings via `RemovedHolidaysSheet`, plus the day panel's Undo
+snackbar) **deletes** the suppression row rather than clearing its flag: the
+holiday itself is computed, so dropping the marker is what brings it back,
+and clearing the flag would leave a stored duplicate of derived data behind.
+
+Suppressions are keyed per `(date, name_key)`, so restoring one holiday on a
+day that carries two does not resurrect the other. A profile switch deletes
+the previous profile's rows including its suppressions — a day removed from
+the German set says nothing about the Romanian one.
+
+### 4.5 Religious fasting engine
 
 [`FastingCalendar`](../lib/constants/fasting_calendar.dart) computes fasting
 days for four traditions — **Orthodox, Catholic, Muslim, Jewish** — enabled
@@ -497,9 +566,14 @@ same shape as the agenda search field in `CalendarBottomPanel`.
 
 | Column         | Type     | Null | Notes                                                  |
 | -------------- | -------- | ---- | ------------------------------------------------------ |
-| `date`         | INTEGER  | PK   | Epoch ms at UTC midnight. One row per holiday-day.     |
-| `name_key`     | TEXT     | NN   | Built-in enum name or `custom`.                        |
+| `date`         | INTEGER  | PK   | Epoch ms at UTC midnight. Composite PK with `name_key`. |
+| `name_key`     | TEXT     | PK   | Built-in enum name or `custom`.                        |
+| `profile`      | TEXT     | NN   | **v13**. Owning `HolidayProfile.name`, or `custom`.    |
 | `custom_label` | TEXT     | YES  | Required iff `name_key == 'custom'`.                   |
+| `suppressed`   | INTEGER  | NN   | **v17**. Boolean; marks a built-in removed from a date. |
+
+Since **v22** the table holds only user deltas — custom rows and
+suppressions (§4.3). Built-ins are computed, never stored.
 
 ### 5.2 Migrations
 
@@ -694,11 +768,11 @@ per-field `_SectionLabel`s stay inside each zone):
    start date + recurrence config), so it sits above what it switches — in
    its old spot below the date and time sections, toggling it mutated
    content *above* the control, which read as if nothing happened.
-4. **Date(s)** — `CalendarDatePickerSheet` (§6.5), bounded by its
-   `earliestDate`/`latestDate` (1900–2100): fixed wide bounds, **not** the
-   old ±20-year slide around the current date, because a birthday's start is
-   the birth year and the occurrence-count age (§3.4) depends on it being
-   real. The Until picker keeps the start date as its lower bound. One-time
+4. **Date(s)** — `CalendarDatePickerSheet` (§6.5), bounded by
+   `CalendarBounds`: fixed wide bounds, **not** the old ±20-year
+   slide around the current date, because a birthday's start is the birth
+   year and the occurrence-count age (§3.4) depends on it being real. The
+   Until picker keeps the start date as its lower bound. One-time
    events edit their whole date set in one multi-select pass; recurring
    events pick a start date, then frequency chips, interval stepper, weekly
    weekday chips, occurrence-scope chips (§3.3), the count-occurrences
@@ -781,6 +855,38 @@ file and breaks any file importing both.
 The multi mode deliberately knows nothing about *why* the dates matter (it
 takes a set, returns a set). That is what lets the same surface later drive
 per-occurrence skip dates without a UI rewrite.
+
+#### Navigable range — [`CalendarBounds`](../lib/constants/calendar_bounds.dart)
+
+**1900-01-01 … 2100-12-31**, one constant shared by the grid
+(`_CalendarTable._firstDay/_lastDay`), both day pickers and the month/year
+jump wheel. Single source of truth on purpose: a date the user can anchor an
+event on must also be a date they can browse to, and the two drifting apart
+is what made a 1991 birth year unreachable while the age count depended on
+it.
+
+The **1900 floor is the computus domain floor**, not a guess: the Julian
+calendar's lag behind the Gregorian became 13 days in 1900 (12 through the
+1800s), and that 13 is exactly what
+`LiturgicalComputus.julianToGregorianOffset` returns for the 1900–2099
+window, degrading to a flat 13 below it. Flooring at 1900 means every
+Orthodox-Easter-derived holiday and fasting date stays correct instead of
+silently landing a day off. Do not lower it without fixing that function.
+
+Range width is **free at runtime**, which is why the old narrow windows
+bought nothing:
+
+- `TableCalendar` pages months through a lazy `PageView`; only the visible
+  month is built (2412 months in range, ~1 built).
+- The year wheel is a `ListWheelChildBuilderDelegate` — 201 rows, built as
+  they scroll into view.
+- `FastingCalendar` computes a year on first touch (O(365) of O(1) date
+  math) and memoizes it, bounded at 12 years.
+- `PublicHolidays.holidayOn` answers years outside the seeded window
+  (current year + 5) from a **static fixed-date map** — one map probe, no
+  database, no seeding. Browsing 1991 shows its fixed holidays (Christmas,
+  New Year…) and no Easter-derived ones, exactly as it already did for any
+  past year inside the old 2000 floor.
 
 ### 6.6 Markdown in descriptions
 

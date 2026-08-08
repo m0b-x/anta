@@ -2134,6 +2134,11 @@ class AppLocalizationsDe extends AppLocalizations {
       'Wochennummern am linken Rand anzeigen';
 
   @override
+  String publicHolidayObserved(String name) {
+    return '$name (Ersatztag)';
+  }
+
+  @override
   String get calendarShowRecurrenceLabels => 'Wiederholung in Zeilen';
 
   @override

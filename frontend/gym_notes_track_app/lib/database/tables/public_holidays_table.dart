@@ -19,10 +19,11 @@ import 'package:drift/drift.dart';
 ///   service swap profiles cleanly: rows tagged with the *previous*
 ///   profile are deleted, rows tagged `custom` survive every switch.
 ///
-/// Movable holidays (Easter and its dependents) are seeded as concrete
-/// dated rows per year by `PublicHolidayService` using add-if-not-exists
-/// semantics, so the year window naturally extends forward without
-/// manual migrations.
+/// Since schema v22 this table holds **only user deltas** — custom
+/// holidays and suppressions. Built-in holidays (including Easter and its
+/// dependents) are no longer seeded as rows: they are computed per year
+/// from `HolidaySeeds.forYear(profile, year)` and memoized, so every year
+/// in `CalendarBounds` resolves without any stored rows at all.
 @DataClassName('PublicHolidayRow')
 class PublicHolidaysTable extends Table {
   @override

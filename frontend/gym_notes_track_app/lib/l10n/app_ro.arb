@@ -639,6 +639,12 @@
   "calendarHighlightWeekendsDesc": "Afișează sâmbăta și duminica într-o culoare distinctă",
   "calendarShowWeekNumbers": "Numerele săptămânilor",
   "calendarShowWeekNumbersDesc": "Afișează numărul săptămânii în marginea stângă",
+  "publicHolidayObserved": "{name} (zi compensatorie)",
+  "@publicHolidayObserved": {
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
   "calendarShowRecurrenceLabels": "Repetarea în rânduri",
   "calendarShowRecurrenceLabelsDesc": "Menționează tiparul de repetare (Zilnic, Săptămânal…) în rândurile evenimentelor",
   "calendarWeekStartTitle": "Săptămâna începe",

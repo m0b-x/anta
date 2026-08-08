@@ -2702,6 +2702,13 @@
   "@calendarShowWeekNumbersDesc": {
     "description": "Switch subtitle for ISO week numbers"
   },
+  "publicHolidayObserved": "{name} (observed)",
+  "@publicHolidayObserved": {
+    "description": "Label for a substitute day off given because a holiday fell on a weekend (UK bank holidays, US federal observance)",
+    "placeholders": {
+      "name": { "type": "String", "example": "Christmas Day" }
+    }
+  },
   "calendarShowRecurrenceLabels": "Repeat pattern in rows",
   "@calendarShowRecurrenceLabels": {
     "description": "Switch title: event rows mention the repeat pattern (Daily, Weekly, ...)"

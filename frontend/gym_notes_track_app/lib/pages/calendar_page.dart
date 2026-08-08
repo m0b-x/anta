@@ -10,6 +10,7 @@ import '../bloc/import_export/import_export_event.dart';
 import '../bloc/import_export/import_export_state.dart';
 import '../constants/app_icon_sizes.dart';
 import '../constants/app_spacing.dart';
+import '../constants/calendar_bounds.dart';
 import '../constants/fasting_calendar.dart';
 import '../constants/public_holidays.dart';
 import '../l10n/app_localizations.dart';
@@ -405,9 +406,11 @@ class _CalendarViewState extends State<_CalendarView> {
 
 class _CalendarTable extends StatelessWidget {
   /// Range the grid and the header's date picker both span, so jumping to a
-  /// date can never land on a page the calendar refuses to show.
-  static final DateTime _firstDay = DateTime.utc(2000, 1, 1);
-  static final DateTime _lastDay = DateTime.utc(2100, 12, 31);
+  /// date can never land on a page the calendar refuses to show. Shared with
+  /// the event editor's day pickers via [CalendarBounds] — a date the user
+  /// can anchor an event on must also be a date they can browse to.
+  static final DateTime _firstDay = CalendarBounds.earliest;
+  static final DateTime _lastDay = CalendarBounds.latest;
 
   final CalendarPageLoaded state;
   final CalendarAppearance appearance;

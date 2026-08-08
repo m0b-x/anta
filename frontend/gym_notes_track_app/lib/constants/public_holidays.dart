@@ -1,4 +1,5 @@
 import '../l10n/app_localizations.dart';
+import '../utils/liturgical_computus.dart';
 
 /// Available built-in holiday profiles.
 ///
@@ -149,29 +150,58 @@ const String kCustomPublicHolidayKey = 'custom';
 class PublicHolidayInfo {
   final PublicHoliday? builtIn;
   final String? customLabel;
-  const PublicHolidayInfo._({this.builtIn, this.customLabel});
-  const PublicHolidayInfo.builtIn(PublicHoliday holiday)
-    : this._(builtIn: holiday);
+
+  /// True when this date is a **substitute** day for a holiday that fell on
+  /// a weekend (UK bank holidays, US federal observance) rather than the
+  /// holiday's own date. Display-only: [PublicHolidays.labelOf] marks it, so
+  /// two "Christmas Day" rows in one week explain themselves.
+  final bool observed;
+
+  const PublicHolidayInfo._({
+    this.builtIn,
+    this.customLabel,
+    this.observed = false,
+  });
+  const PublicHolidayInfo.builtIn(PublicHoliday holiday, {bool observed = false})
+    : this._(builtIn: holiday, observed: observed);
   const PublicHolidayInfo.custom(String label) : this._(customLabel: label);
 }
 
-/// Synchronous facade over the cached holiday set populated by
-/// `PublicHolidayService` at startup. Falls back to the static built-in
-/// fixed-date set so [isHoliday] keeps working in tests or before the
-/// service has initialized.
+/// Synchronous facade resolving which holiday (if any) falls on a day.
+///
+/// Built-in holidays are **computed, never stored**: they are a pure function
+/// of (profile, year) — see [HolidaySeeds] — so every year in the calendar's
+/// navigable range resolves correctly, including Easter-derived feasts,
+/// without seeding a single database row. Years are memoized on first touch
+/// exactly like `FastingCalendar`'s per-year maps, which is what makes an
+/// unbounded range free: a month view touches at most two years, and one
+/// year costs one Easter computus plus ~15 date constructions.
+///
+/// The database holds only what cannot be recomputed — the user's deltas:
+/// custom holidays and per-date suppressions — which
+/// [PublicHolidayService] pushes in through [configure].
 abstract final class PublicHolidays {
-  /// In-memory cache keyed by `DateTime.utc(year, month, day)`. Populated by
-  /// `PublicHolidayService` after it loads/seeds the `public_holidays` table.
-  static Map<DateTime, PublicHolidayInfo> _cache = const {};
+  /// User-added custom holidays (and any legacy stored built-in rows),
+  /// keyed by `DateTime.utc(year, month, day)`. Wins over the computed set.
+  static Map<DateTime, PublicHolidayInfo> _overrides = const {};
 
-  /// Inclusive `(minYear, maxYear)` covered by the seeded cache. Outside
-  /// this range we fall back to the static fixed-date map so far-future
-  /// queries like `isHoliday(2099-12-25)` keep returning a sensible answer.
-  /// Null while the service has not initialized.
-  static (int, int)? _coveredYears;
+  /// Built-ins the user removed, as date → suppressed `PublicHoliday.name`s.
+  /// Keyed per name rather than per date so restoring one holiday on a day
+  /// that carries two does not resurrect the other.
+  static Map<DateTime, Set<String>> _suppressed = const {};
 
-  /// Built-in fixed-date fallback used when the cache is empty (e.g. tests)
-  /// or for years outside the covered window.
+  /// Active profile, or null while `PublicHolidayService` has not
+  /// initialized — in which case [holidayOn] answers from [_fixedFallback]
+  /// so the calendar still renders something sensible (and tests that never
+  /// build a database keep working).
+  static HolidayProfile? _profile;
+
+  /// Memoized computed holidays per year. Bounded like the fasting engine's
+  /// year cache: paging a century of months can never grow it without limit.
+  static final Map<int, Map<DateTime, HolidayOccurrence>> _years = {};
+  static const int _yearCacheCap = 12;
+
+  /// Built-in fixed-date fallback used before the service has initialized.
   static const Map<(int, int), PublicHoliday> _fixedFallback = {
     (1, 1): PublicHoliday.newYear,
     (1, 6): PublicHoliday.epiphany,
@@ -184,29 +214,61 @@ abstract final class PublicHolidays {
     (12, 31): PublicHoliday.newYearsEve,
   };
 
-  /// Replaces the cache. Called by `PublicHolidayService`. [coveredYears]
-  /// is the inclusive year range the service guarantees coverage for; pass
-  /// null to disable the out-of-window fallback (tests).
-  static void updateCache(
-    Map<DateTime, PublicHolidayInfo> cache, {
-    (int, int)? coveredYears,
+  /// Publishes the active profile and the user's stored deltas. Called by
+  /// `PublicHolidayService` after every load or mutation; drops the memoized
+  /// years because a profile switch changes what every year resolves to.
+  static void configure({
+    required HolidayProfile profile,
+    required Map<DateTime, PublicHolidayInfo> overrides,
+    required Map<DateTime, Set<String>> suppressed,
   }) {
-    _cache = Map.unmodifiable(cache);
-    _coveredYears = coveredYears;
+    _profile = profile;
+    _overrides = Map.unmodifiable(overrides);
+    _suppressed = Map.unmodifiable(suppressed);
+    _years.clear();
+  }
+
+  /// Returns to the uninitialized state (see [_profile]). Invoked by
+  /// `PublicHolidayService.reset` when the active database changes, so
+  /// deltas from a closed database can never leak into the next one.
+  static void resetCache() {
+    _profile = null;
+    _overrides = const {};
+    _suppressed = const {};
+    _years.clear();
+  }
+
+  /// Computed built-ins for [year], memoized. Clears wholesale at the cap
+  /// rather than evicting one entry: the map is tiny and rebuilding a year
+  /// costs microseconds, so an LRU would be more bookkeeping than it saves.
+  static Map<DateTime, HolidayOccurrence> _computedFor(
+    HolidayProfile profile,
+    int year,
+  ) {
+    final cached = _years[year];
+    if (cached != null) return cached;
+    if (_years.length >= _yearCacheCap) _years.clear();
+    return _years[year] = HolidaySeeds.forYear(profile, year);
   }
 
   static PublicHolidayInfo? holidayOn(DateTime day) {
     final key = DateTime.utc(day.year, day.month, day.day);
-    final cached = _cache[key];
-    if (cached != null) return cached;
-    final covered = _coveredYears;
-    // Inside the seeded window we trust the cache verbatim (so a user can
-    // delete a built-in for a given year and have it stay deleted).
-    if (covered != null && day.year >= covered.$1 && day.year <= covered.$2) {
-      return null;
+    // A user's own entry outranks the computed set, so a custom holiday can
+    // sit on a date the profile already claims.
+    final override = _overrides[key];
+    if (override != null) return override;
+    final profile = _profile;
+    if (profile == null) {
+      final fixed = _fixedFallback[(day.month, day.day)];
+      return fixed == null ? null : PublicHolidayInfo.builtIn(fixed);
     }
-    final fixed = _fixedFallback[(day.month, day.day)];
-    return fixed == null ? null : PublicHolidayInfo.builtIn(fixed);
+    final computed = _computedFor(profile, key.year)[key];
+    if (computed == null) return null;
+    if (_suppressed[key]?.contains(computed.holiday.name) ?? false) return null;
+    return PublicHolidayInfo.builtIn(
+      computed.holiday,
+      observed: computed.observed,
+    );
   }
 
   static bool isHoliday(DateTime day) => holidayOn(day) != null;
@@ -282,7 +344,354 @@ abstract final class PublicHolidays {
   /// [PublicHolidayInfo], including user-added custom entries.
   static String labelOf(PublicHolidayInfo info, AppLocalizations l10n) {
     final builtIn = info.builtIn;
-    if (builtIn != null) return nameOf(builtIn, l10n);
-    return info.customLabel ?? '';
+    if (builtIn == null) return info.customLabel ?? '';
+    final name = nameOf(builtIn, l10n);
+    return info.observed ? l10n.publicHolidayObserved(name) : name;
+  }
+}
+
+/// One generated holiday occurrence: the holiday itself plus whether this
+/// date is a **substitute** (a weekend holiday's statutory day off) rather
+/// than the holiday's own date. Both are emitted — you want to see Christmas
+/// on Christmas *and* see which weekday is actually off.
+typedef HolidayOccurrence = ({PublicHoliday holiday, bool observed});
+
+/// Generates a profile's built-in holidays for a single year.
+///
+/// **Pure and dependency-free** — no database, no I/O, no state. That is the
+/// whole point: because a year's holidays are a function of (profile, year),
+/// they never need to be persisted, and [PublicHolidays] can answer any year
+/// in the calendar's range by calling this and memoizing the result. The
+/// `public_holidays` table therefore stores only user deltas.
+///
+/// Each profile's date math lives in its own builder for testability and so
+/// adding a region is a localized change. Movable feasts derive from Easter
+/// Sunday — Gregorian for the Western profiles, Orthodox (Julian computus
+/// converted to Gregorian) for [HolidayProfile.romania] — via
+/// [LiturgicalComputus], which is exact from 1900 (the floor `CalendarBounds`
+/// enforces).
+///
+/// Holidays created (or moved) by legislation carry a `if (year >= NNNN)`
+/// guard so browsing a past year does not show an anachronism — Juneteenth
+/// did not exist in 1991, and the UK's Monday bank holidays were fixed in
+/// 1971. The guard sits inline with the date it governs, which keeps each
+/// region's history readable in one place. [HolidayProfile.generic] and
+/// [HolidayProfile.europe] are deliberately unguarded: they are curated
+/// convenience sets rather than a jurisdiction, so dating them by statute
+/// would be false precision.
+///
+/// To add a region: add a [HolidayProfile] value, a builder here, branches in
+/// [_seedsFor] and [forYear]'s substitution switch, and the
+/// `holidayProfile<Name>` ARB trio. New holidays also need a [PublicHoliday]
+/// value plus a [PublicHolidays.nameOf] branch.
+abstract final class HolidaySeeds {
+  /// Built-in holidays for [profile] in [year], keyed by date-only UTC.
+  ///
+  /// Later entries win when two holidays share a date, matching the
+  /// last-write-wins behaviour the row-backed cache had. Substitute days are
+  /// applied after the base set, so they can see (and avoid) every date the
+  /// profile already claims.
+  static Map<DateTime, HolidayOccurrence> forYear(
+    HolidayProfile profile,
+    int year,
+  ) {
+    final map = <DateTime, HolidayOccurrence>{};
+    for (final (date, holiday) in _seedsFor(profile, year)) {
+      map[date] = (holiday: holiday, observed: false);
+    }
+    switch (profile) {
+      case HolidayProfile.unitedKingdom:
+        _applyUkSubstitutes(map, year);
+      case HolidayProfile.unitedStates:
+        _applyUsObservance(map, year);
+      case HolidayProfile.generic:
+      case HolidayProfile.europe:
+      case HolidayProfile.germany:
+      case HolidayProfile.romania:
+      case HolidayProfile.none:
+        // No statutory weekend substitution in these sets: Germany and
+        // Romania simply lose the day when a fixed holiday falls on a
+        // weekend, and generic/europe are curated sets rather than a
+        // jurisdiction, so inventing a rule for them would be false
+        // precision.
+        break;
+    }
+    return Map.unmodifiable(map);
+  }
+
+  /// UK rule: a bank holiday landing on a weekend moves to the next weekday
+  /// that is not already a bank holiday. Order matters — Christmas takes the
+  /// first free weekday and Boxing Day the one after, which is what produces
+  /// the familiar Mon/Tue pair when Christmas falls on a Saturday.
+  ///
+  /// Only the fixed-date days can ever need this; Good Friday, Easter Monday
+  /// and the three Monday bank holidays are weekday-anchored by construction.
+  static void _applyUkSubstitutes(
+    Map<DateTime, HolidayOccurrence> map,
+    int year,
+  ) {
+    final taken = <DateTime>{...map.keys};
+    for (final date in [
+      DateTime.utc(year, 1, 1),
+      DateTime.utc(year, 12, 25),
+      DateTime.utc(year, 12, 26),
+    ]) {
+      final entry = map[date];
+      if (entry == null || date.weekday < DateTime.saturday) continue;
+      var substitute = date;
+      do {
+        substitute = substitute.add(const Duration(days: 1));
+      } while (substitute.weekday >= DateTime.saturday ||
+          taken.contains(substitute));
+      map[substitute] = (holiday: entry.holiday, observed: true);
+      taken.add(substitute);
+    }
+  }
+
+  /// US federal rule: a fixed-date holiday on a Saturday is observed the
+  /// Friday before, on a Sunday the Monday after. The Monday- and
+  /// Thursday-anchored holidays can never fall on a weekend.
+  static void _applyUsObservance(
+    Map<DateTime, HolidayOccurrence> map,
+    int year,
+  ) {
+    for (final date in [
+      DateTime.utc(year, 1, 1),
+      DateTime.utc(year, 6, 19),
+      DateTime.utc(year, 7, 4),
+      DateTime.utc(year, 11, 11),
+      DateTime.utc(year, 12, 25),
+    ]) {
+      final entry = map[date];
+      if (entry == null) continue;
+      final DateTime? observed = switch (date.weekday) {
+        DateTime.saturday => date.subtract(const Duration(days: 1)),
+        DateTime.sunday => date.add(const Duration(days: 1)),
+        _ => null,
+      };
+      if (observed == null || map.containsKey(observed)) continue;
+      map[observed] = (holiday: entry.holiday, observed: true);
+    }
+    // A New Year's Day that falls on a Saturday is observed on 31 December
+    // of the *previous* year, so it belongs to this year's map even though
+    // the holiday itself does not.
+    if (DateTime.utc(year + 1, 1, 1).weekday == DateTime.saturday) {
+      final newYearsEve = DateTime.utc(year, 12, 31);
+      if (!map.containsKey(newYearsEve)) {
+        map[newYearsEve] = (holiday: PublicHoliday.newYear, observed: true);
+      }
+    }
+  }
+
+  static Iterable<(DateTime, PublicHoliday)> _seedsFor(
+    HolidayProfile profile,
+    int year,
+  ) {
+    return switch (profile) {
+      HolidayProfile.generic => _generic(year),
+      HolidayProfile.europe => _europe(year),
+      HolidayProfile.germany => _germany(year),
+      HolidayProfile.romania => _romania(year),
+      HolidayProfile.unitedKingdom => _unitedKingdom(year),
+      HolidayProfile.unitedStates => _unitedStates(year),
+      HolidayProfile.none => const [],
+    };
+  }
+
+  /// Catholic-leaning Christian set — historical default. Matches the
+  /// holidays the app shipped before profiles existed.
+  static Iterable<(DateTime, PublicHoliday)> _generic(int year) sync* {
+    final easter = LiturgicalComputus.easterSundayGregorian(year);
+    yield (DateTime.utc(year, 1, 1), PublicHoliday.newYear);
+    yield (DateTime.utc(year, 1, 6), PublicHoliday.epiphany);
+    yield (easter.subtract(const Duration(days: 2)), PublicHoliday.goodFriday);
+    yield (easter, PublicHoliday.easterSunday);
+    yield (easter.add(const Duration(days: 1)), PublicHoliday.easterMonday);
+    yield (DateTime.utc(year, 5, 1), PublicHoliday.labourDay);
+    yield (easter.add(const Duration(days: 39)), PublicHoliday.ascension);
+    yield (easter.add(const Duration(days: 49)), PublicHoliday.pentecost);
+    yield (easter.add(const Duration(days: 50)), PublicHoliday.whitMonday);
+    yield (DateTime.utc(year, 8, 15), PublicHoliday.assumption);
+    yield (DateTime.utc(year, 11, 1), PublicHoliday.allSaints);
+    yield (DateTime.utc(year, 12, 24), PublicHoliday.christmasEve);
+    yield (DateTime.utc(year, 12, 25), PublicHoliday.christmasDay);
+    yield (DateTime.utc(year, 12, 26), PublicHoliday.secondChristmasDay);
+    yield (DateTime.utc(year, 12, 31), PublicHoliday.newYearsEve);
+  }
+
+  /// Romanian official non-working days — civil holidays + Orthodox
+  /// Christian feasts (Julian-computus Easter converted to Gregorian).
+  static Iterable<(DateTime, PublicHoliday)> _romania(int year) sync* {
+    final easter = LiturgicalComputus.easterSundayOrthodox(year);
+    yield (DateTime.utc(year, 1, 1), PublicHoliday.newYear);
+    // Non-working day since 2016.
+    if (year >= 2016) {
+      yield (DateTime.utc(year, 1, 24), PublicHoliday.unificationDay);
+    }
+    // Added to the legal set in 2018.
+    if (year >= 2018) {
+      yield (easter.subtract(const Duration(days: 2)), PublicHoliday.goodFriday);
+    }
+    yield (easter, PublicHoliday.easterSunday);
+    yield (easter.add(const Duration(days: 1)), PublicHoliday.easterMonday);
+    yield (DateTime.utc(year, 5, 1), PublicHoliday.labourDay);
+    // Non-working day since 2017.
+    if (year >= 2017) {
+      yield (DateTime.utc(year, 6, 1), PublicHoliday.childrensDay);
+    }
+    // Pentecost and the Assumption entered the legal set in 2008.
+    if (year >= 2008) {
+      yield (easter.add(const Duration(days: 49)), PublicHoliday.pentecost);
+      yield (easter.add(const Duration(days: 50)), PublicHoliday.whitMonday);
+      yield (DateTime.utc(year, 8, 15), PublicHoliday.assumption);
+    }
+    // Non-working day since 2012.
+    if (year >= 2012) {
+      yield (DateTime.utc(year, 11, 30), PublicHoliday.stAndrewDay);
+    }
+    // The National Day moved to 1 December with the post-1989 constitution.
+    if (year >= 1990) {
+      yield (DateTime.utc(year, 12, 1), PublicHoliday.nationalDayRomania);
+    }
+    yield (DateTime.utc(year, 12, 25), PublicHoliday.christmasDay);
+    yield (DateTime.utc(year, 12, 26), PublicHoliday.secondChristmasDay);
+  }
+
+  /// German nationwide federal public holidays (those observed in every
+  /// federal state). State-specific feasts are intentionally excluded.
+  static Iterable<(DateTime, PublicHoliday)> _germany(int year) sync* {
+    final easter = LiturgicalComputus.easterSundayGregorian(year);
+    yield (DateTime.utc(year, 1, 1), PublicHoliday.newYear);
+    yield (easter.subtract(const Duration(days: 2)), PublicHoliday.goodFriday);
+    yield (easter.add(const Duration(days: 1)), PublicHoliday.easterMonday);
+    yield (DateTime.utc(year, 5, 1), PublicHoliday.labourDay);
+    yield (easter.add(const Duration(days: 39)), PublicHoliday.ascension);
+    yield (easter.add(const Duration(days: 50)), PublicHoliday.whitMonday);
+    // The Day of German Unity dates from reunification in 1990.
+    if (year >= 1990) {
+      yield (DateTime.utc(year, 10, 3), PublicHoliday.germanUnityDay);
+    }
+    yield (DateTime.utc(year, 12, 25), PublicHoliday.christmasDay);
+    yield (DateTime.utc(year, 12, 26), PublicHoliday.secondChristmasDay);
+  }
+
+  /// Pan-European combined set: the most widely shared Christian feasts and
+  /// civil holidays across Europe, plus Europe Day (9 May).
+  static Iterable<(DateTime, PublicHoliday)> _europe(int year) sync* {
+    final easter = LiturgicalComputus.easterSundayGregorian(year);
+    yield (DateTime.utc(year, 1, 1), PublicHoliday.newYear);
+    yield (DateTime.utc(year, 1, 6), PublicHoliday.epiphany);
+    yield (easter.subtract(const Duration(days: 2)), PublicHoliday.goodFriday);
+    yield (easter, PublicHoliday.easterSunday);
+    yield (easter.add(const Duration(days: 1)), PublicHoliday.easterMonday);
+    yield (DateTime.utc(year, 5, 1), PublicHoliday.labourDay);
+    yield (DateTime.utc(year, 5, 9), PublicHoliday.europeDay);
+    yield (easter.add(const Duration(days: 39)), PublicHoliday.ascension);
+    yield (easter.add(const Duration(days: 49)), PublicHoliday.pentecost);
+    yield (easter.add(const Duration(days: 50)), PublicHoliday.whitMonday);
+    yield (DateTime.utc(year, 8, 15), PublicHoliday.assumption);
+    yield (DateTime.utc(year, 11, 1), PublicHoliday.allSaints);
+    yield (DateTime.utc(year, 12, 24), PublicHoliday.christmasEve);
+    yield (DateTime.utc(year, 12, 25), PublicHoliday.christmasDay);
+    yield (DateTime.utc(year, 12, 26), PublicHoliday.secondChristmasDay);
+    yield (DateTime.utc(year, 12, 31), PublicHoliday.newYearsEve);
+  }
+
+  /// United States federal holidays. Movable days are computed Mondays /
+  /// Thursdays; observance shifting to the nearest weekday is intentionally
+  /// not modelled.
+  static Iterable<(DateTime, PublicHoliday)> _unitedStates(int year) sync* {
+    yield (DateTime.utc(year, 1, 1), PublicHoliday.newYear);
+    // First observed 1986, three years after the 1983 enactment.
+    if (year >= 1986) {
+      yield (
+        _nthWeekdayOfMonth(year, 1, DateTime.monday, 3),
+        PublicHoliday.martinLutherKingDay,
+      );
+    }
+    // The Uniform Monday Holiday Act moved these to fixed Mondays in 1971;
+    // before that they sat on their calendar dates.
+    if (year >= 1971) {
+      yield (
+        _nthWeekdayOfMonth(year, 2, DateTime.monday, 3),
+        PublicHoliday.presidentsDay,
+      );
+      yield (
+        _lastWeekdayOfMonth(year, 5, DateTime.monday),
+        PublicHoliday.memorialDay,
+      );
+      yield (
+        _nthWeekdayOfMonth(year, 10, DateTime.monday, 2),
+        PublicHoliday.columbusDay,
+      );
+    }
+    // Federal holiday since June 2021.
+    if (year >= 2021) {
+      yield (DateTime.utc(year, 6, 19), PublicHoliday.juneteenth);
+    }
+    yield (DateTime.utc(year, 7, 4), PublicHoliday.independenceDay);
+    yield (
+      _nthWeekdayOfMonth(year, 9, DateTime.monday, 1),
+      PublicHoliday.laborDayUnitedStates,
+    );
+    // Armistice Day became a federal holiday in 1938 and was renamed
+    // Veterans Day in 1954; the 1971–1977 move to October is not modelled.
+    if (year >= 1954) {
+      yield (DateTime.utc(year, 11, 11), PublicHoliday.veteransDay);
+    }
+    // Fixed to the fourth Thursday by joint resolution, effective 1942.
+    if (year >= 1942) {
+      yield (
+        _nthWeekdayOfMonth(year, 11, DateTime.thursday, 4),
+        PublicHoliday.thanksgiving,
+      );
+    }
+    yield (DateTime.utc(year, 12, 25), PublicHoliday.christmasDay);
+  }
+
+  /// United Kingdom (England & Wales) bank holidays.
+  static Iterable<(DateTime, PublicHoliday)> _unitedKingdom(int year) sync* {
+    final easter = LiturgicalComputus.easterSundayGregorian(year);
+    // A bank holiday in England & Wales only since 1974.
+    if (year >= 1974) {
+      yield (DateTime.utc(year, 1, 1), PublicHoliday.newYear);
+    }
+    yield (easter.subtract(const Duration(days: 2)), PublicHoliday.goodFriday);
+    yield (easter.add(const Duration(days: 1)), PublicHoliday.easterMonday);
+    // Introduced in 1978.
+    if (year >= 1978) {
+      yield (
+        _nthWeekdayOfMonth(year, 5, DateTime.monday, 1),
+        PublicHoliday.earlyMayBankHoliday,
+      );
+    }
+    // The 1971 Banking and Financial Dealings Act fixed both to Mondays
+    // (spring replacing Whit Monday, summer moving off the first Monday).
+    if (year >= 1971) {
+      yield (
+        _lastWeekdayOfMonth(year, 5, DateTime.monday),
+        PublicHoliday.springBankHoliday,
+      );
+      yield (
+        _lastWeekdayOfMonth(year, 8, DateTime.monday),
+        PublicHoliday.summerBankHoliday,
+      );
+    }
+    yield (DateTime.utc(year, 12, 25), PublicHoliday.christmasDay);
+    yield (DateTime.utc(year, 12, 26), PublicHoliday.secondChristmasDay);
+  }
+
+  /// Date of the [n]-th [weekday] (1 = Mon … 7 = Sun) in [month] of [year].
+  static DateTime _nthWeekdayOfMonth(int year, int month, int weekday, int n) {
+    final first = DateTime.utc(year, month, 1);
+    final offset = (weekday - first.weekday + 7) % 7;
+    return DateTime.utc(year, month, 1 + offset + (n - 1) * 7);
+  }
+
+  /// Date of the last [weekday] in [month] of [year].
+  static DateTime _lastWeekdayOfMonth(int year, int month, int weekday) {
+    final last = DateTime.utc(year, month + 1, 0); // day 0 = last of `month`
+    final offset = (last.weekday - weekday + 7) % 7;
+    return last.subtract(Duration(days: offset));
   }
 }

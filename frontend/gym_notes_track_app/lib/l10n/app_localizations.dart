@@ -3850,6 +3850,12 @@ abstract class AppLocalizations {
   /// **'Show week numbers at the left edge'**
   String get calendarShowWeekNumbersDesc;
 
+  /// Label for a substitute day off given because a holiday fell on a weekend (UK bank holidays, US federal observance)
+  ///
+  /// In en, this message translates to:
+  /// **'{name} (observed)'**
+  String publicHolidayObserved(String name);
+
   /// Switch title: event rows mention the repeat pattern (Daily, Weekly, ...)
   ///
   /// In en, this message translates to:

@@ -2122,6 +2122,11 @@ class AppLocalizationsEn extends AppLocalizations {
       'Show week numbers at the left edge';
 
   @override
+  String publicHolidayObserved(String name) {
+    return '$name (observed)';
+  }
+
+  @override
   String get calendarShowRecurrenceLabels => 'Repeat pattern in rows';
 
   @override

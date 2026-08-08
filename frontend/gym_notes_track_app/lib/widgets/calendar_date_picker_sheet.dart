@@ -36,7 +36,8 @@ class CalendarDatePickerSheet extends StatefulWidget {
   final Set<DateTime> initialSelection;
 
   /// Inclusive lower/upper bounds. Days outside are rendered dimmed and
-  /// refuse selection.
+  /// refuse selection. Callers pass `CalendarBounds` unless a field has its
+  /// own semantic floor (the Until picker starts at the event's start date).
   final DateTime firstDate;
   final DateTime lastDate;
 
@@ -130,14 +131,6 @@ class CalendarDatePickerSheet extends StatefulWidget {
       ),
     );
   }
-
-  /// Sanctioned bounds for event-date entry. Wide on purpose: a birthday's
-  /// occurrence count needs the **real birth year** as the start date, so the
-  /// lower bound reaches a century back; the upper bound matches the calendar
-  /// grid's. Costs nothing — the wheel's year list and the grid's month pages
-  /// are both lazily built, so range width never touches performance.
-  static final DateTime earliestDate = DateTime.utc(1900);
-  static final DateTime latestDate = DateTime.utc(2100, 12, 31);
 
   static DateTime _dateOnly(DateTime d) => DateTime.utc(d.year, d.month, d.day);
 

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:drift/drift.dart';
+import '../../constants/public_holidays.dart';
 import '../database.dart';
 import 'database_indexes.dart';
 import 'database_schema.dart';
@@ -109,6 +110,11 @@ class DatabaseMigrations {
       fromVersion: DatabaseSchema.v20EventOccurrenceCount,
       toVersion: DatabaseSchema.v21EventCountStyle,
       migrate: _migrateV20ToV21,
+    ),
+    Migration(
+      fromVersion: DatabaseSchema.v21EventCountStyle,
+      toVersion: DatabaseSchema.v22ComputedHolidays,
+      migrate: _migrateV21ToV22,
     ),
   ];
 
@@ -677,5 +683,24 @@ class DatabaseMigrations {
         "ALTER TABLE calendar_events ADD COLUMN count_style TEXT NOT NULL DEFAULT 'numbered'",
       );
     }
+  }
+
+  /// v21→v22: Drop seeded built-in rows from `public_holidays`.
+  ///
+  /// Built-in holidays became **computed** from (profile, year) via
+  /// `HolidaySeeds`, so the seeded rows are derived data that would only
+  /// shadow the computed set — and pin a stale profile's holidays after a
+  /// switch. Deleting them loses nothing: every one is reproducible.
+  ///
+  /// What must survive is exactly what cannot be recomputed — the user's
+  /// deltas: custom holidays (`name_key = 'custom'`) and suppressions
+  /// (`suppressed = 1`), the latter being the only record that a built-in
+  /// was removed from a specific date. Idempotent, so a partial upgrade can
+  /// re-run safely.
+  Future<void> _migrateV21ToV22(Migrator m, GeneratedDatabase db) async {
+    await _db.customStatement(
+      "DELETE FROM public_holidays "
+      "WHERE suppressed = 0 AND name_key != '$kCustomPublicHolidayKey'",
+    );
   }
 }

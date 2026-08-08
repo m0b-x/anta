@@ -69,11 +69,14 @@ class PublicHolidayDao extends DatabaseAccessor<AppDatabase>
         .get();
   }
 
-  /// Clears the suppressed flag on one specific dated row.
-  Future<void> unsuppress(DateTime date, String nameKey) {
-    return (update(publicHolidaysTable)
+  /// Deletes one specific dated row. Used to lift a suppression: built-in
+  /// holidays are computed, so dropping the "not here" marker is what makes
+  /// the holiday resolve again — clearing the flag would instead leave a
+  /// stored copy of derived data behind.
+  Future<void> deleteOn(DateTime date, String nameKey) {
+    return (delete(publicHolidaysTable)
           ..where((h) => h.date.equals(date) & h.nameKey.equals(nameKey)))
-        .write(const PublicHolidaysTableCompanion(suppressed: Value(false)));
+        .go();
   }
 
   /// Deletes every built-in row owned by [profile]. Custom rows

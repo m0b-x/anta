@@ -1682,6 +1682,12 @@
   "calendarHighlightWeekendsDesc": "Samstag und Sonntag in eigener Farbe anzeigen",
   "calendarShowWeekNumbers": "Kalenderwochen",
   "calendarShowWeekNumbersDesc": "Wochennummern am linken Rand anzeigen",
+  "publicHolidayObserved": "{name} (Ersatztag)",
+  "@publicHolidayObserved": {
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
   "calendarShowRecurrenceLabels": "Wiederholung in Zeilen",
   "calendarShowRecurrenceLabelsDesc": "Wiederholungsmuster (Täglich, Wöchentlich…) in Ereigniszeilen anzeigen",
   "calendarWeekStartTitle": "Woche beginnt am",

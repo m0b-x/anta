@@ -2147,6 +2147,11 @@ class AppLocalizationsRo extends AppLocalizations {
       'Afișează numărul săptămânii în marginea stângă';
 
   @override
+  String publicHolidayObserved(String name) {
+    return '$name (zi compensatorie)';
+  }
+
+  @override
   String get calendarShowRecurrenceLabels => 'Repetarea în rânduri';
 
   @override
