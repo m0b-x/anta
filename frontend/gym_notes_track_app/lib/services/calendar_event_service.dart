@@ -106,6 +106,7 @@ class CalendarEventService {
           'colorValue': row.colorValue,
           'tintIcon': row.tintIcon,
           'priority': row.priority,
+          'retroactive': row.retroactive,
           'createdAtMs': row.createdAt.millisecondsSinceEpoch,
           'updatedAtMs': row.updatedAt.millisecondsSinceEpoch,
         },
@@ -176,6 +177,11 @@ class CalendarEventService {
             priority: map['priority'] is int
                 ? Value(map['priority'] as int)
                 : const Value.absent(),
+            // Absent in pre-v19 backups: the column default (false) is
+            // exactly the forward-only behaviour those events had.
+            retroactive: map['retroactive'] is bool
+                ? Value(map['retroactive'] as bool)
+                : const Value.absent(),
             createdAt: Value(
               DateTime.fromMillisecondsSinceEpoch(createdMs, isUtc: true),
             ),
@@ -207,6 +213,7 @@ class CalendarEventService {
       colorValue: row.colorValue,
       tintIcon: row.tintIcon,
       priority: row.priority.clamp(kMinEventPriority, kMaxEventPriority),
+      retroactive: row.retroactive,
       rule: _decodeRule(row.ruleKind, row.rulePayload),
     );
   }
@@ -264,6 +271,7 @@ class CalendarEventService {
       colorValue: Value(event.colorValue),
       tintIcon: Value(event.tintIcon),
       priority: Value(event.priority),
+      retroactive: Value(event.retroactive),
       createdAt: Value(updatedAt),
       updatedAt: Value(updatedAt),
     );

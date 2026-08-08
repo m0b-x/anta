@@ -6,8 +6,17 @@ import '../constants/public_holidays.dart';
 ///
 /// All rules are pure value objects. [occursOn] takes a normalized date-only
 /// UTC [day] plus the event's anchor [start] date and returns whether the
-/// rule produces an occurrence on that day. Implementations must never
-/// return `true` for dates before [start].
+/// rule produces an occurrence on that day.
+///
+/// By default a rule never fires before [start]. When [retroactive] is set the
+/// pre-start guard is lifted and the rule's periodic phase extends backwards
+/// through time — a yearly check-up added today then also shows in every
+/// previous year. Every phase test below is written so this works without a
+/// back-projected anchor: Dart's `%` is Euclidean (a negative dividend still
+/// yields the correct non-negative residue) and [_weekIndex] floors toward
+/// negative infinity. Do **not** "fix" this by shifting [start] backwards by
+/// whole periods instead — a day-31 or Feb-29 anchor silently rolls over into
+/// the next month when reconstructed as a `DateTime`, corrupting the phase.
 ///
 /// To add a new rule:
 ///   1. Add a new `final class` here extending [RecurrenceRule].
@@ -16,10 +25,21 @@ import '../constants/public_holidays.dart';
 sealed class RecurrenceRule extends Equatable {
   const RecurrenceRule();
 
-  bool occursOn(DateTime day, DateTime start);
+  bool occursOn(DateTime day, DateTime start, {bool retroactive = false});
+
+  /// Whether [retroactive] can change this rule's output. False for the rules
+  /// whose membership is exact (one-time, explicit date sets), which lets the
+  /// editor hide the scope control instead of showing a dead toggle.
+  bool get supportsRetroactive => true;
 
   @override
   List<Object?> get props => const [];
+}
+
+/// Shared pre-start guard. Returns true when [day] must be rejected because it
+/// precedes the anchor and the rule is not [retroactive].
+bool _beforeStart(DateTime day, DateTime start, bool retroactive) {
+  return !retroactive && day.isBefore(start);
 }
 
 /// Monday-aligned epoch for stable "every N weeks" math. 2000-01-03 is a
@@ -41,7 +61,11 @@ final class OneTimeRecurrence extends RecurrenceRule {
   const OneTimeRecurrence();
 
   @override
-  bool occursOn(DateTime day, DateTime start) => day == start;
+  bool occursOn(DateTime day, DateTime start, {bool retroactive = false}) =>
+      day == start;
+
+  @override
+  bool get supportsRetroactive => false;
 }
 
 /// Fires on an explicit set of one-off [dates] (each date-only UTC).
@@ -56,7 +80,11 @@ final class SpecificDatesRecurrence extends RecurrenceRule {
   const SpecificDatesRecurrence({required this.dates});
 
   @override
-  bool occursOn(DateTime day, DateTime start) => dates.contains(day);
+  bool occursOn(DateTime day, DateTime start, {bool retroactive = false}) =>
+      dates.contains(day);
+
+  @override
+  bool get supportsRetroactive => false;
 
   @override
   List<Object?> get props => [dates];
@@ -69,8 +97,8 @@ final class DailyRecurrence extends RecurrenceRule {
   const DailyRecurrence({this.interval = 1}) : assert(interval >= 1);
 
   @override
-  bool occursOn(DateTime day, DateTime start) {
-    if (day.isBefore(start)) return false;
+  bool occursOn(DateTime day, DateTime start, {bool retroactive = false}) {
+    if (_beforeStart(day, start, retroactive)) return false;
     if (interval <= 1) return true;
     return day.difference(start).inDays % interval == 0;
   }
@@ -93,8 +121,8 @@ final class WeeklyRecurrence extends RecurrenceRule {
     : assert(interval >= 1);
 
   @override
-  bool occursOn(DateTime day, DateTime start) {
-    if (day.isBefore(start)) return false;
+  bool occursOn(DateTime day, DateTime start, {bool retroactive = false}) {
+    if (_beforeStart(day, start, retroactive)) return false;
     if (!weekdays.contains(day.weekday)) return false;
     if (interval <= 1) return true;
     return (_weekIndex(day) - _weekIndex(start)) % interval == 0;
@@ -113,8 +141,8 @@ final class MonthlyRecurrence extends RecurrenceRule {
   const MonthlyRecurrence({this.interval = 1}) : assert(interval >= 1);
 
   @override
-  bool occursOn(DateTime day, DateTime start) {
-    if (day.isBefore(start)) return false;
+  bool occursOn(DateTime day, DateTime start, {bool retroactive = false}) {
+    if (_beforeStart(day, start, retroactive)) return false;
     if (day.day != start.day) return false;
     if (interval <= 1) return true;
     final months = (day.year - start.year) * 12 + (day.month - start.month);
@@ -133,8 +161,8 @@ final class YearlyRecurrence extends RecurrenceRule {
   const YearlyRecurrence({this.interval = 1}) : assert(interval >= 1);
 
   @override
-  bool occursOn(DateTime day, DateTime start) {
-    if (day.isBefore(start)) return false;
+  bool occursOn(DateTime day, DateTime start, {bool retroactive = false}) {
+    if (_beforeStart(day, start, retroactive)) return false;
     if (day.month != start.month || day.day != start.day) return false;
     if (interval <= 1) return true;
     return (day.year - start.year) % interval == 0;
@@ -149,8 +177,8 @@ final class WorkdaysRecurrence extends RecurrenceRule {
   const WorkdaysRecurrence();
 
   @override
-  bool occursOn(DateTime day, DateTime start) {
-    if (day.isBefore(start)) return false;
+  bool occursOn(DateTime day, DateTime start, {bool retroactive = false}) {
+    if (_beforeStart(day, start, retroactive)) return false;
     if (day.weekday > DateTime.friday) return false;
     return !PublicHolidays.isHoliday(day);
   }
@@ -161,8 +189,8 @@ final class WeekendsRecurrence extends RecurrenceRule {
   const WeekendsRecurrence();
 
   @override
-  bool occursOn(DateTime day, DateTime start) {
-    if (day.isBefore(start)) return false;
+  bool occursOn(DateTime day, DateTime start, {bool retroactive = false}) {
+    if (_beforeStart(day, start, retroactive)) return false;
     return day.weekday >= DateTime.saturday;
   }
 }
@@ -172,8 +200,8 @@ final class PublicHolidaysOnlyRecurrence extends RecurrenceRule {
   const PublicHolidaysOnlyRecurrence();
 
   @override
-  bool occursOn(DateTime day, DateTime start) {
-    if (day.isBefore(start)) return false;
+  bool occursOn(DateTime day, DateTime start, {bool retroactive = false}) {
+    if (_beforeStart(day, start, retroactive)) return false;
     return PublicHolidays.isHoliday(day);
   }
 }

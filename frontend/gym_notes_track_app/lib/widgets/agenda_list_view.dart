@@ -5,6 +5,8 @@ import '../constants/event_priorities.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_event.dart';
 import '../models/day_summary_entry.dart';
+import '../utils/markdown_color_syntax.dart';
+import 'markdown_inline_text.dart';
 import '../services/day_summary_resolver.dart';
 import '../utils/event_agenda.dart';
 
@@ -37,6 +39,10 @@ class AgendaListView extends StatefulWidget {
   final String emptyHint;
   final EdgeInsets padding;
 
+  /// Palette for `{name:text}` runs inside event descriptions, mirroring the
+  /// day summary panel so both surfaces render a description identically.
+  final MarkdownColorPalette colorPalette;
+
   const AgendaListView({
     super.key,
     required this.occurrences,
@@ -47,6 +53,7 @@ class AgendaListView extends StatefulWidget {
     required this.emptyTitle,
     required this.emptyHint,
     this.padding = const EdgeInsets.fromLTRB(16, 12, 16, 16),
+    this.colorPalette = MarkdownColorPalette.presets,
   });
 
   /// Qualitative priority word appended to a row subtitle. The neutral
@@ -191,6 +198,7 @@ class _AgendaListViewState extends State<AgendaListView> {
                 entry.event?.priority ?? kDefaultEventPriority,
               ),
               onTap: () => widget.onDaySelected(day),
+              colorPalette: widget.colorPalette,
               onEdit: entry.event == null
                   ? null
                   : () => widget.onEditEvent(entry.event!),
@@ -232,11 +240,13 @@ class _AgendaCard extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback? onEdit;
   final VoidCallback? onOpenNote;
+  final MarkdownColorPalette colorPalette;
 
   const _AgendaCard({
     required this.entry,
     required this.priorityBadge,
     required this.onTap,
+    required this.colorPalette,
     this.onEdit,
     this.onOpenNote,
   });
@@ -244,7 +254,9 @@ class _AgendaCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
     final subtitle = [?entry.subtitle, ?priorityBadge].join(' · ');
+    final description = entry.description;
 
     return Card(
       margin: EdgeInsets.zero,
@@ -261,8 +273,45 @@ class _AgendaCard extends StatelessWidget {
                   foregroundColor: entry.color,
                   child: Icon(entry.icon),
                 ),
-                title: Text(entry.title),
-                subtitle: subtitle.isEmpty ? null : Text(subtitle),
+                title: Row(
+                  children: [
+                    Flexible(
+                      child: Text(entry.title, overflow: TextOverflow.ellipsis),
+                    ),
+                    if (description != null) ...[
+                      const SizedBox(width: 6),
+                      Tooltip(
+                        message: l10n.eventHasDescription,
+                        child: Icon(
+                          Icons.notes_rounded,
+                          size: 14,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                subtitle: (subtitle.isEmpty && description == null)
+                    ? null
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (subtitle.isNotEmpty) Text(subtitle),
+                          if (description != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 2),
+                              child: MarkdownInlineText(
+                                data: description,
+                                colorPalette: colorPalette,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                isThreeLine: description != null,
                 // Holiday rows carry no event, so they get no trailing
                 // actions at all rather than an empty action strip.
                 trailing: onOpenNote == null && onEdit == null

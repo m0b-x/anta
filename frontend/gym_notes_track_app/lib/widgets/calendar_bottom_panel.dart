@@ -10,6 +10,7 @@ import '../models/calendar_panel_mode.dart';
 import '../models/upcoming_agenda_filters.dart';
 import '../services/day_summary_resolver.dart';
 import '../services/settings_service.dart';
+import '../utils/markdown_color_syntax.dart';
 import 'day_summary_panel.dart';
 import 'day_timeline_view.dart';
 import 'upcoming_agenda_view.dart';
@@ -23,7 +24,9 @@ import 'upcoming_agenda_view.dart';
 /// per frame that a page-level `setState` would redraw for no reason).
 /// Both are persisted here too, on change, and restored in [initState];
 /// nothing on the settings page edits them, so the panel never needs the
-/// page's reload-on-return path.
+/// page's reload-on-return path. Anything that *is* settings-editable —
+/// the markdown colour palette — is passed down from the page instead,
+/// which already re-resolves settings when it regains focus.
 class CalendarBottomPanel extends StatefulWidget {
   final CalendarPageLoaded loaded;
 
@@ -34,8 +37,19 @@ class CalendarBottomPanel extends StatefulWidget {
   final VoidCallback onToggleExpanded;
 
   final ValueChanged<CalendarEvent> onEditEvent;
+
+  /// Opens an event read-only. Used by the day panel's row tap; the agenda
+  /// keeps its own affordances (tap = jump to the day, pencil = edit).
+  final ValueChanged<CalendarEvent> onShowEvent;
+
   final ValueChanged<CalendarEvent> onOpenNote;
   final ValueChanged<DateTime> onSuppressHoliday;
+
+  /// Palette for `{name:text}` runs inside event descriptions. Owned by the
+  /// page (which already re-resolves settings when returning from them)
+  /// rather than loaded here a second time — the panel's own settings load
+  /// happens once in `initState` and would go stale after an edit.
+  final MarkdownColorPalette colorPalette;
 
   const CalendarBottomPanel({
     super.key,
@@ -43,8 +57,10 @@ class CalendarBottomPanel extends StatefulWidget {
     required this.expanded,
     required this.onToggleExpanded,
     required this.onEditEvent,
+    required this.onShowEvent,
     required this.onOpenNote,
     required this.onSuppressHoliday,
+    required this.colorPalette,
   });
 
   @override
@@ -157,15 +173,18 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
         return DaySummaryPanel(
           day: loaded.selectedDay,
           entries: entries,
-          onEventTap: widget.onEditEvent,
+          onEventTap: widget.onShowEvent,
           onOpenNote: widget.onOpenNote,
           onSuppressHoliday: () => widget.onSuppressHoliday(loaded.selectedDay),
+          colorPalette: widget.colorPalette,
         );
       case CalendarPanelMode.timeline:
         return DayTimelineView(
           day: loaded.selectedDay,
           events: bloc.eventsForDay(loaded.selectedDay),
-          onEventTap: widget.onEditEvent,
+          // Same tap semantics as the day panel: show first, edit from
+          // there. Both render the same day's events, so they must agree.
+          onEventTap: widget.onShowEvent,
         );
       case CalendarPanelMode.upcoming:
         return UpcomingAgendaView(
@@ -177,6 +196,7 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
               bloc.add(SelectCalendarDay(day: day, focusedDay: day)),
           onEditEvent: widget.onEditEvent,
           onOpenNote: widget.onOpenNote,
+          colorPalette: widget.colorPalette,
         );
     }
   }

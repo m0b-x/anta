@@ -123,9 +123,20 @@ class CalendarEvent extends Equatable {
   /// [EventTime].
   final EventTime? time;
 
+  /// Whether [rule] also produces occurrences **before** [startDate]. `false`
+  /// (the default, and every pre-v19 event) keeps the classic forward-only
+  /// behaviour; `true` extends the rule's periodic phase backwards, so a
+  /// yearly event added today also shows in previous years.
+  ///
+  /// Meaningless for rules whose membership is exact (one-time, explicit date
+  /// sets) — see [RecurrenceRule.supportsRetroactive]. [endDate] still clamps
+  /// the forward side either way.
+  final bool retroactive;
+
   /// Optional free-form description / notes for the event (e.g., "focus on
   /// hamstrings, drop sets on the third exercise"). `null` or empty means
-  /// no description. Stored verbatim — no markdown rendering today.
+  /// no description. Stored verbatim as markdown source — rendering happens
+  /// at display time, nothing pre-rendered is ever persisted.
   final String? description;
 
   /// Optional link to a workout note (`notes.id`). `null` means the event
@@ -164,6 +175,7 @@ class CalendarEvent extends Equatable {
     required this.startDate,
     this.rule = const OneTimeRecurrence(),
     this.endDate,
+    this.retroactive = false,
     this.time,
     this.description,
     this.noteId,
@@ -185,6 +197,7 @@ class CalendarEvent extends Equatable {
     DateTime? startDate,
     RecurrenceRule? rule,
     DateTime? endDate,
+    bool? retroactive,
     EventTime? time,
     String? description,
     String? noteId,
@@ -206,6 +219,7 @@ class CalendarEvent extends Equatable {
       startDate: startDate ?? this.startDate,
       rule: rule ?? this.rule,
       endDate: clearEndDate ? null : (endDate ?? this.endDate),
+      retroactive: retroactive ?? this.retroactive,
       time: clearTime ? null : (time ?? this.time),
       description: clearDescription ? null : (description ?? this.description),
       noteId: clearNoteId ? null : (noteId ?? this.noteId),
@@ -221,7 +235,9 @@ class CalendarEvent extends Equatable {
   /// All edge cases (Feb 29 yearly, day 31 monthly, pre-start dates, public
   /// holidays for the workdays/holidays-only rules) are owned by the
   /// underlying [RecurrenceRule]. The [endDate] upper bound, if any, is
-  /// applied at this layer because it is orthogonal to the rule shape.
+  /// applied at this layer because it is orthogonal to the rule shape — and
+  /// it applies to [retroactive] events too, which are unbounded only
+  /// backwards.
   bool occursOn(DateTime day) {
     final start = DateTime.utc(startDate.year, startDate.month, startDate.day);
     final target = DateTime.utc(day.year, day.month, day.day);
@@ -230,7 +246,7 @@ class CalendarEvent extends Equatable {
       final endUtc = DateTime.utc(end.year, end.month, end.day);
       if (target.isAfter(endUtc)) return false;
     }
-    return rule.occursOn(target, start);
+    return rule.occursOn(target, start, retroactive: retroactive);
   }
 
   @override
@@ -241,6 +257,7 @@ class CalendarEvent extends Equatable {
     startDate,
     rule,
     endDate,
+    retroactive,
     time,
     description,
     noteId,

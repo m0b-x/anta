@@ -108,17 +108,30 @@ class EventSummaryProvider implements DaySummaryProvider {
         color: color,
         title: event.title,
         subtitle: _subtitleFor(event),
+        description: _descriptionFor(event),
         priority: event.priority - kMinEventPriority,
         event: event,
       );
     });
   }
 
+  /// Raw markdown description, or null when the event has none. Emitted
+  /// unrendered on purpose: the row decides how much of it fits.
+  String? _descriptionFor(CalendarEvent event) {
+    final description = event.description?.trim();
+    return (description == null || description.isEmpty) ? null : description;
+  }
+
   String? _subtitleFor(CalendarEvent event) {
     final time = event.time;
     final parts = <String>[
       if (event.rule is! OneTimeRecurrence)
-        RecurrenceFormatter.format(event.rule, l10n, l10n.localeName),
+        RecurrenceFormatter.format(
+          event.rule,
+          l10n,
+          l10n.localeName,
+          retroactive: event.retroactive,
+        ),
       // Timed events show their range; all-day events show the explicit
       // "All day" badge so the type is never ambiguous in the list.
       if (time != null)

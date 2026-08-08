@@ -145,6 +145,36 @@
   "eventUntilLabel": "Endet am",
   "eventUntilNone": "Endet nie",
   "eventUntilHint": "Tippe, um ein Enddatum festzulegen",
+  "recurrenceScopeLabel": "Vorkommen",
+  "recurrenceScopeFromStart": "Ab diesem Datum",
+  "recurrenceScopeAlways": "Immer",
+  "recurrenceScopeEveryYear": "Jedes Jahr",
+  "recurrenceScopeHint": "Erscheint auch an passenden Tagen vor dem Startdatum",
+  "recurrenceScopeAlwaysSuffix": "{rule} · auch davor",
+  "@recurrenceScopeAlwaysSuffix": {
+    "placeholders": {
+      "rule": { "type": "String" }
+    }
+  },
+  "datePickerSingleTitle": "Datum wählen",
+  "datePickerMultiTitle": "Daten wählen",
+  "datePickerSelectedCount": "{count, plural, =0{Keine Daten gewählt} =1{1 Datum gewählt} other{{count} Daten gewählt}}",
+  "@datePickerSelectedCount": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "datePickerClear": "Leeren",
+  "datePickerToday": "Heute",
+  "datePickerBusyDay": "Hat bereits Termine",
+  "eventDescriptionPreviewOn": "Beschreibung gerendert anzeigen",
+  "eventDescriptionPreviewOff": "Beschreibung bearbeiten",
+  "eventDescriptionEmpty": "Noch nichts zum Anzeigen",
+  "eventHasDescription": "Hat Notizen",
+  "eventDetailsTitle": "Termin",
+  "eventDetailsNextOccurrences": "Nächste Vorkommen",
+  "eventDetailsNoOccurrences": "Keine weiteren Vorkommen",
+  "eventDetailsNoDescription": "Keine Notizen für diesen Termin",
   "eventColor": "Farbe",
   "eventColorCustomTitle": "Eigene Farbe",
   "select": "Auswählen",

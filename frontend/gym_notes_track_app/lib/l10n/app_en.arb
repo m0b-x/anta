@@ -616,6 +616,92 @@
   "@eventUntilHint": {
     "description": "Subtitle hint for the recurrence end-date picker when empty"
   },
+  "recurrenceScopeLabel": "Occurrences",
+  "@recurrenceScopeLabel": {
+    "description": "Section label for the recurrence scope chips (forward-only vs retroactive)"
+  },
+  "recurrenceScopeFromStart": "From this date on",
+  "@recurrenceScopeFromStart": {
+    "description": "Recurrence scope option: the rule only fires on or after the start date"
+  },
+  "recurrenceScopeAlways": "Always",
+  "@recurrenceScopeAlways": {
+    "description": "Recurrence scope option for non-yearly rules: also fires before the start date"
+  },
+  "recurrenceScopeEveryYear": "Every year",
+  "@recurrenceScopeEveryYear": {
+    "description": "Recurrence scope option shown for yearly rules: also fires in previous years"
+  },
+  "recurrenceScopeHint": "Also shows on matching days before the start date",
+  "@recurrenceScopeHint": {
+    "description": "Explanation under the recurrence scope chips when the retroactive option is picked"
+  },
+  "recurrenceScopeAlwaysSuffix": "{rule} · also before",
+  "@recurrenceScopeAlwaysSuffix": {
+    "description": "Recurrence label suffixed to mark a rule that also fires before its start date",
+    "placeholders": {
+      "rule": { "type": "String", "example": "Every year" }
+    }
+  },
+  "datePickerSingleTitle": "Pick a date",
+  "@datePickerSingleTitle": {
+    "description": "Title of the in-app calendar date picker in single-date mode"
+  },
+  "datePickerMultiTitle": "Pick dates",
+  "@datePickerMultiTitle": {
+    "description": "Title of the in-app calendar date picker in multi-date mode"
+  },
+  "datePickerSelectedCount": "{count, plural, =0{No dates selected} =1{1 date selected} other{{count} dates selected}}",
+  "@datePickerSelectedCount": {
+    "description": "Count of currently selected days in the multi-date picker",
+    "placeholders": {
+      "count": { "type": "int", "example": "3" }
+    }
+  },
+  "datePickerClear": "Clear",
+  "@datePickerClear": {
+    "description": "Button that clears every selected day in the multi-date picker"
+  },
+  "datePickerToday": "Today",
+  "@datePickerToday": {
+    "description": "Button that jumps the picker's calendar back to the current month"
+  },
+  "datePickerBusyDay": "Already has events",
+  "@datePickerBusyDay": {
+    "description": "Accessibility label for a picker day that already carries events"
+  },
+  "eventDescriptionPreviewOn": "Show rendered description",
+  "@eventDescriptionPreviewOn": {
+    "description": "Tooltip for the button that switches the description field to its markdown preview"
+  },
+  "eventDescriptionPreviewOff": "Edit description",
+  "@eventDescriptionPreviewOff": {
+    "description": "Tooltip for the button that switches the description preview back to editing"
+  },
+  "eventDescriptionEmpty": "Nothing to preview yet",
+  "@eventDescriptionEmpty": {
+    "description": "Placeholder shown in the description preview when the field is empty"
+  },
+  "eventHasDescription": "Has notes",
+  "@eventHasDescription": {
+    "description": "Accessibility label for the indicator marking a day-panel row that carries a description"
+  },
+  "eventDetailsTitle": "Event",
+  "@eventDetailsTitle": {
+    "description": "Title of the read-only event detail sheet"
+  },
+  "eventDetailsNextOccurrences": "Next occurrences",
+  "@eventDetailsNextOccurrences": {
+    "description": "Section label listing the upcoming dates a recurring event fires on"
+  },
+  "eventDetailsNoOccurrences": "No upcoming occurrences",
+  "@eventDetailsNoOccurrences": {
+    "description": "Shown when a recurring event has no occurrence left in the scanned window"
+  },
+  "eventDetailsNoDescription": "No notes for this event",
+  "@eventDetailsNoDescription": {
+    "description": "Shown in the detail sheet when the event carries no description"
+  },
   "eventColor": "Color",
   "@eventColor": {
     "description": "Section label for the per-event color picker"

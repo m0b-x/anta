@@ -108,8 +108,9 @@ extra taps. It never overrides a recurrence the user already configured.
 ## 3. Recurrence engine — [`RecurrenceRule`](../lib/models/recurrence_rule.dart)
 
 A sealed-class hierarchy. Each subtype implements a pure
-`bool occursOn(DateTime target, DateTime start)` where both arguments are
-date-only UTC.
+`bool occursOn(DateTime target, DateTime start, {bool retroactive = false})`
+where both date arguments are date-only UTC. The table below describes the
+default (`retroactive == false`) behaviour; see §3.3 for what the flag lifts.
 
 | Rule                          | Semantics                                                              |
 | ----------------------------- | ---------------------------------------------------------------------- |
@@ -166,6 +167,49 @@ UI rules:
   silently dropped (rather than producing an event with zero occurrences).
 - `_onSave` writes `effectiveEnd = recurring ? _endDate : null`, so a
   one-time event can never carry a stale end date.
+
+### 3.3 Scope / `retroactive` (schema v19)
+
+By default a rule never fires before its anchor. `CalendarEvent.retroactive`
+lifts that guard, so the rule's periodic phase extends backwards through time —
+a yearly check-up added today also shows in every previous year. The editor
+presents it as two chips under "Occurrences": **From this date on** (default)
+vs **Every year** (yearly rules) / **Always** (everything else).
+
+Like `endDate`, the flag lives **on `CalendarEvent`, not the rules** — it is
+orthogonal to every rule shape. Unlike `endDate` it cannot be enforced purely
+in the wrapper (the guard is inside each rule), so `occursOn` takes it as a
+named parameter and each subtype's guard became
+`if (!retroactive && day.isBefore(start))` via the shared `_beforeStart`
+helper.
+
+**Why the guard and not a back-projected anchor.** The tempting alternative —
+leave the rules untouched and hand them a `start` shifted backwards by whole
+periods — is wrong. `MonthlyRecurrence` compares `target.day == start.day`, so
+reconstructing a day-31 anchor in a 30-day month rolls over into the next month
+and corrupts the phase; a Feb-29 anchor rolls to Mar 1 in non-leap years. The
+guard has no such failure mode: every phase test is already correct for a
+negative delta, because Dart's `%` is Euclidean and `_weekIndex` floors toward
+negative infinity by design.
+
+Scope rules and interactions:
+
+- Only rules with `supportsRetroactive == true` are affected. `OneTime` and
+  `SpecificDates` have exact membership and return `false` for it, which is
+  what makes the editor hide the chips for one-time events.
+- `_onSave` writes `recurring && _retroactive`, mirroring the `endDate` guard,
+  so a one-time event can never carry a stale `true`.
+- `endDate` still clamps the forward side — a retroactive event is unbounded
+  only backwards.
+- **`.ics` export stays forward-only.** RFC 5545 cannot express occurrences
+  before `DTSTART`, so `IcsSerializer._firstOccurrenceOf` deliberately queries
+  the rule without the flag rather than emitting something no consumer could
+  represent.
+- The agenda scans forward from today, so retroactive occurrences never enter
+  it; the day cache and `eventLoader` are unaffected (they already call
+  `occursOn` per day).
+- Backup keeps version 7: the column is additive and older backups import as
+  `false`, which is exactly the behaviour those events had.
 
 ---
 
@@ -245,8 +289,9 @@ immediate Undo as well.
 | `end_date`          | INTEGER  | YES  | **v11**. Inclusive Until bound (epoch ms).                           |
 | `start_minute`      | INTEGER  | YES  | **v11**. Time-of-day start (minutes since local midnight).           |
 | `duration_minutes`  | INTEGER  | YES  | **v11**. Optional event duration in minutes.                         |
-| `description`       | TEXT     | YES  | **v12**. Free-form notes, ≤ 500 chars.                               |
+| `description`       | TEXT     | YES  | **v12**. Free-form markdown notes, ≤ 2000 chars (was 500 pre-v19).   |
 | `note_id`           | TEXT     | YES  | **v14**. Optional link to a workout note (`notes.id`).               |
+| `retroactive`       | INTEGER  | NN   | **v19**. Boolean, default 0. Lifts the rule's pre-start guard (§3.3).|
 | `created_at`        | INTEGER  | NN   | Epoch ms (UTC).                                                      |
 | `updated_at`        | INTEGER  | NN   | Epoch ms (UTC).                                                      |
 
@@ -350,23 +395,41 @@ removed).
 ### 6.2 Day list
 
 Tapping a date opens a list of that day's events. Each tile is colored by
-category, optionally overridden with a custom icon. Tapping an event opens
-the editor in **edit** mode.
+category, optionally overridden with a custom icon.
+
+Rows carry the event's **description** below the scheduling line, rendered as
+markdown and clamped to two lines with an ellipsis (`MarkdownInlineText`, §6.6),
+plus a small notes icon next to the title when one exists. The agenda inherits
+this by construction — both surfaces render `EventSummaryProvider` entries, and
+that sharing is deliberate.
+
+Tapping a row — in the day panel **or** the timeline, which render the same
+day and so must agree — opens the **read-only**
+[`EventDetailSheet`](../lib/widgets/event_detail_sheet.dart):
+title, category, date/time, recurrence (with scope), priority, the fully
+rendered description, the linked-note button, and the next 5 occurrences.
+Editing is one button away (`EventDetailAction.edit` → the editor sheet);
+opening the linked note routes through the page's existing resolver.
 
 ### 6.3 [`EventEditorSheet`](../lib/widgets/event_editor_sheet.dart)
 
 A bottom-sheet form (`heightFactor: 0.92`). Sections, top-to-bottom:
 
 1. **Title** — single-line `TextField`, autofocus on add, `maxLength: 120`.
-2. **Type** — category picker (`CategoryPickerSheet`).
-3. **Icon** — icon picker with reset-to-default action.
-4. **Date** — `showDatePicker` ±20 years.
-5. **Repeat mode** — segmented control `oneTime` / `recurring`.
-6. **(if recurring) Frequency** — choice chips for the eight rule kinds.
-7. **(if weekly) Weekdays** — Mon–Sun filter chips, validation hint when empty.
-8. **(if recurring) Ends on** — optional Until date picker. Defaults to
-   "Never ends"; tapping picks a date; the trailing × button clears it.
-9. **(if editing) Delete** — destructive button with a confirmation dialog.
+2. **Description** — markdown source, `maxLength: 2000`, with an eye/pencil
+   toggle that swaps the field for a `SimpleMarkdownPreview` of what it will
+   look like. Money is disabled in that preview (see §6.6).
+3. **Type** — category picker (`CategoryPickerSheet`).
+4. **Icon** — icon picker with reset-to-default action.
+5. **Date(s)** — `CalendarDatePickerSheet` (§6.5), ±20 years. One-time events
+   edit their whole date set in one multi-select pass.
+6. **Repeat mode** — segmented control `oneTime` / `recurring`.
+7. **(if recurring) Frequency** — choice chips for the eight rule kinds.
+8. **(if weekly) Weekdays** — Mon–Sun filter chips, validation hint when empty.
+9. **(if recurring) Occurrences** — scope chips, §3.3.
+10. **(if recurring) Ends on** — optional Until date picker. Defaults to
+    "Never ends"; tapping picks a date; the trailing × button clears it.
+11. **(if editing) Delete** — destructive button with a confirmation dialog.
 
 Header: inline cancel + save in the same row as the title — no detached
 bottom action bar.
@@ -379,6 +442,72 @@ bottom action bar.
 - Weekly weekday set non-empty.
 - Until date ≥ start date (clamped via `firstDate`).
 - Start date moving forward past Until silently clears Until.
+- The multi-date picker cannot confirm an empty set (Save is disabled), so a
+  one-time event always keeps at least one date.
+
+### 6.5 [`CalendarDatePickerSheet`](../lib/widgets/calendar_date_picker_sheet.dart)
+
+The in-app replacement for `showDatePicker`, so date entry happens on the same
+grid as the rest of the calendar. Two modes:
+
+- `pickSingle` → `DateTime?`; tapping a day confirms immediately.
+- `pickMulti` → `Set<DateTime>?`; days toggle, a footer shows the count with
+  Clear / Today, and Save returns the edited set. Never returns empty.
+
+It renders through `CalendarDayCell` / `CalendarDayBars` with the user's
+`CalendarAppearance` (week start, accent, today style, week numbers), so it
+cannot drift from the real grid, and it reuses the same collision-free row
+height formula. An optional `dayLoad` callback draws a neutral "busy" bar on
+days that already carry events — the calendar page passes
+`CalendarBloc.eventsForDay`, which is the memoized O(1) lookup, so the picker
+issues **no** extra queries.
+
+The appearance is **passed in** (page → editor sheet → picker), not re-read:
+`getCalendarAppearance()` is seven sequential settings reads, and resolving it
+after the first frame visibly re-lays-out the grid because week start and row
+height both move. The page already holds a current copy and refreshes it when
+returning from settings. The colour palette threads the same way (page →
+bottom panel → rows) for the same reason plus staleness: a panel-local load
+would happen once in `initState` and never see an edit.
+
+Its mode enum is `CalendarDatePickerMode` — **not** `DatePickerMode`, which
+`material.dart` already exports; the collision compiles inside the declaring
+file and breaks any file importing both.
+
+The multi mode deliberately knows nothing about *why* the dates matter (it
+takes a set, returns a set). That is what lets the same surface later drive
+per-occurrence skip dates without a UI rewrite.
+
+### 6.6 Markdown in descriptions
+
+Descriptions are stored as **raw markdown source** and rendered on demand.
+Nothing pre-rendered is persisted or cached in the database.
+
+- **Rows** (day panel, agenda) use
+  [`MarkdownInlineText`](../lib/widgets/markdown_inline_text.dart): the same
+  `LineBasedMarkdownBuilder` as the preview — there is one grammar in this app
+  and this adds no second one — with display-only adjustments. Headings render
+  at body size via the new `LineMarkdownStyle.flattenHeadings`, blank lines are
+  dropped and only the first 3 lines are kept, and **every tap callback is
+  null**, which is what keeps the builder from allocating a single
+  `TapGestureRecognizer` and makes the spans inert, cacheable and safe to drop.
+  A process-wide memo (128 entries, oldest-inserted evicted first) is keyed on
+  the raw source and invalidated wholesale when the render config
+  (`brightness`, `fontSize`, colour, `palette.source`, `primary`) changes. The
+  **hit path allocates nothing** — this runs in `build` for every visible row
+  on every scrolling frame, so the config is compared field-by-field instead of
+  through a composed key string, and the line-collapsing pass only runs on a
+  miss.
+- **Editor preview / detail sheet** use `SimpleMarkdownPreview` — full
+  fidelity, no flattening.
+- **Money is always disabled** in descriptions (`MoneyDisplayConfig.disabled`).
+  A ledger balance is a per-note concept; a `$+ 50` line in an event
+  description would render a balance derived from nothing, so those lines stay
+  literal text.
+- The colour palette threads from `SettingsService.getColorPalette()` through
+  the calendar page / bottom panel, so `{name:text}` runs show the user's
+  custom colours. It is value-equal on its persisted `source`, which is what
+  makes it a legal cache-key component.
 
 ---
 
@@ -522,7 +651,8 @@ filters can use it without decoding `time`.
 
 | Limitation                                                         | Impact   | Mitigation                                                                             |
 | ------------------------------------------------------------------ | -------- | -------------------------------------------------------------------------------------- |
-| No skip-this-occurrence (exceptions)                                | Medium   | Would need an `event_exceptions(event_id, date)` table; checked in `occursOn`.        |
+| No skip-this-occurrence (exceptions)                                | Medium   | Would need an `event_exceptions(event_id, date)` table; checked in `occursOn`. The multi-date `CalendarDatePickerSheet` (§6.5) is already the UI for it. |
+| Retroactive events export forward-only to `.ics`                    | Low      | RFC 5545 has no pre-`DTSTART` occurrences; the clamp is deliberate (§3.3).            |
 | No "mark done" / completion log                                    | Medium   | Would need a `completions(event_id, date)` table; surfaces as a check on the day card. |
 | Linked note opens read-through only                                 | Low      | The link is one-way (event → note); a note does not list events that reference it.     |
 | Movable feasts have no out-of-window fallback                      | Low      | Acceptable; users only see seeded window.                                              |

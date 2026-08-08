@@ -1,0 +1,367 @@
+import 'package:flutter/material.dart';
+import 'package:table_calendar/table_calendar.dart';
+
+import '../l10n/app_localizations.dart';
+import '../models/calendar_appearance.dart';
+import 'calendar_day_bars.dart';
+import 'calendar_day_cell.dart';
+
+/// How many days a single [CalendarDatePickerSheet] pass may return.
+enum CalendarDatePickerMode { single, multi }
+
+/// Looks up the markers to draw on a picker day. Callers hand in the
+/// calendar's own memoized per-day lookup, so the picker shows what is
+/// already scheduled without issuing a single extra query. Return an empty
+/// list for "nothing on this day".
+typedef PickerDayLoad = int Function(DateTime day);
+
+/// In-app calendar for picking one or several dates.
+///
+/// Replaces `showDatePicker` inside the event editor so date entry happens on
+/// the same grid the rest of the app uses — same week start, same accent, same
+/// today style, all sourced from [CalendarAppearance]. In [CalendarDatePickerMode.multi]
+/// a whole availability set is built in one pass instead of one dialog
+/// round-trip per date.
+///
+/// The multi mode deliberately knows nothing about *why* the dates matter: it
+/// takes a set and returns the edited set. That is what lets the same surface
+/// later drive per-occurrence skip dates without a UI rewrite.
+class CalendarDatePickerSheet extends StatefulWidget {
+  final CalendarDatePickerMode mode;
+
+  /// Days selected when the sheet opens (date-only UTC). Single mode uses the
+  /// first entry as the initially focused day.
+  final Set<DateTime> initialSelection;
+
+  /// Inclusive lower/upper bounds. Days outside are rendered dimmed and
+  /// refuse selection.
+  final DateTime firstDate;
+  final DateTime lastDate;
+
+  /// Optional busy-day lookup used to render markers while picking.
+  final PickerDayLoad? dayLoad;
+
+  /// Look & feel, passed in rather than re-read. `getCalendarAppearance()` is
+  /// seven sequential settings reads, and resolving it after the first frame
+  /// would visibly re-lay-out the grid (week start and row height both move).
+  /// The calendar page already holds a current copy.
+  final CalendarAppearance appearance;
+
+  const CalendarDatePickerSheet({
+    super.key,
+    required this.mode,
+    required this.initialSelection,
+    required this.firstDate,
+    required this.lastDate,
+    required this.appearance,
+    this.dayLoad,
+  });
+
+  /// Picks a single date. Returns null when dismissed.
+  static Future<DateTime?> pickSingle(
+    BuildContext context, {
+    required DateTime initialDate,
+    required DateTime firstDate,
+    required DateTime lastDate,
+    required CalendarAppearance appearance,
+    PickerDayLoad? dayLoad,
+  }) async {
+    final picked = await _show(
+      context,
+      mode: CalendarDatePickerMode.single,
+      initialSelection: {_dateOnly(initialDate)},
+      firstDate: firstDate,
+      lastDate: lastDate,
+      appearance: appearance,
+      dayLoad: dayLoad,
+    );
+    if (picked == null || picked.isEmpty) return null;
+    return picked.first;
+  }
+
+  /// Edits a whole set of dates in one pass. Returns null when dismissed and
+  /// never returns an empty set — clearing everything then confirming keeps
+  /// the caller's original selection, since every caller needs at least one
+  /// date to stay valid.
+  static Future<Set<DateTime>?> pickMulti(
+    BuildContext context, {
+    required Set<DateTime> initialSelection,
+    required DateTime firstDate,
+    required DateTime lastDate,
+    required CalendarAppearance appearance,
+    PickerDayLoad? dayLoad,
+  }) async {
+    final picked = await _show(
+      context,
+      mode: CalendarDatePickerMode.multi,
+      initialSelection: {for (final d in initialSelection) _dateOnly(d)},
+      firstDate: firstDate,
+      lastDate: lastDate,
+      appearance: appearance,
+      dayLoad: dayLoad,
+    );
+    if (picked == null || picked.isEmpty) return null;
+    return picked;
+  }
+
+  static Future<Set<DateTime>?> _show(
+    BuildContext context, {
+    required CalendarDatePickerMode mode,
+    required Set<DateTime> initialSelection,
+    required DateTime firstDate,
+    required DateTime lastDate,
+    required CalendarAppearance appearance,
+    PickerDayLoad? dayLoad,
+  }) {
+    return showModalBottomSheet<Set<DateTime>>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (_) => CalendarDatePickerSheet(
+        mode: mode,
+        initialSelection: initialSelection,
+        firstDate: firstDate,
+        lastDate: lastDate,
+        appearance: appearance,
+        dayLoad: dayLoad,
+      ),
+    );
+  }
+
+  static DateTime _dateOnly(DateTime d) => DateTime.utc(d.year, d.month, d.day);
+
+  @override
+  State<CalendarDatePickerSheet> createState() =>
+      _CalendarDatePickerSheetState();
+}
+
+class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
+  late Set<DateTime> _selection;
+  late DateTime _focusedDay;
+
+  CalendarAppearance get _appearance => widget.appearance;
+
+  @override
+  void initState() {
+    super.initState();
+    _selection = {...widget.initialSelection};
+    final anchor = _selection.isEmpty
+        ? CalendarDatePickerSheet._dateOnly(DateTime.now())
+        : (_selection.toList()..sort()).first;
+    _focusedDay = _clamp(anchor);
+  }
+
+  DateTime _clamp(DateTime day) {
+    if (day.isBefore(widget.firstDate)) return widget.firstDate;
+    if (day.isAfter(widget.lastDate)) return widget.lastDate;
+    return day;
+  }
+
+  void _jumpToToday() {
+    setState(() {
+      _focusedDay = _clamp(CalendarDatePickerSheet._dateOnly(DateTime.now()));
+    });
+  }
+
+  bool _isSelected(DateTime day) =>
+      _selection.contains(CalendarDatePickerSheet._dateOnly(day));
+
+  void _onDaySelected(DateTime selectedDay, DateTime focusedDay) {
+    final day = CalendarDatePickerSheet._dateOnly(selectedDay);
+    if (day.isBefore(widget.firstDate) || day.isAfter(widget.lastDate)) return;
+    if (widget.mode == CalendarDatePickerMode.single) {
+      Navigator.of(context).pop(<DateTime>{day});
+      return;
+    }
+    setState(() {
+      _focusedDay = focusedDay;
+      if (!_selection.remove(day)) _selection.add(day);
+    });
+  }
+
+  StartingDayOfWeek get _startingDayOfWeek {
+    return switch (_appearance.weekStart) {
+      CalendarWeekStart.monday => StartingDayOfWeek.monday,
+      CalendarWeekStart.saturday => StartingDayOfWeek.saturday,
+      CalendarWeekStart.sunday => StartingDayOfWeek.sunday,
+    };
+  }
+
+  /// Same collision-free geometry the real grid uses, so the picker cannot
+  /// drift from it. Markers here are a single "busy" bar, so one slot.
+  double get _rowHeight {
+    final strip = widget.dayLoad == null
+        ? 0.0
+        : CalendarDayBars.stripHeight(1, _appearance.markerStyle);
+    final height = CalendarDayCell.chipZoneHeight + strip + 6;
+    return height < 52 ? 52 : height.ceilToDouble();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final isMulti = widget.mode == CalendarDatePickerMode.multi;
+    final accent = _appearance.accentOr(theme.colorScheme.primary);
+
+    return FractionallySizedBox(
+      heightFactor: 0.86,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+            child: Row(
+              children: [
+                IconButton(
+                  tooltip: l10n.cancel,
+                  icon: const Icon(Icons.close_rounded),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+                Expanded(
+                  child: Text(
+                    isMulti
+                        ? l10n.datePickerMultiTitle
+                        : l10n.datePickerSingleTitle,
+                    style: theme.textTheme.titleLarge,
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+                // Available in both modes: a single-date pick can wander
+                // months too, and there was no way back without swiping.
+                IconButton(
+                  tooltip: l10n.datePickerToday,
+                  icon: const Icon(Icons.today_rounded),
+                  onPressed: _jumpToToday,
+                ),
+                if (isMulti)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4),
+                    child: FilledButton(
+                      onPressed: _selection.isEmpty
+                          ? null
+                          : () => Navigator.of(context).pop({..._selection}),
+                      child: Text(l10n.save),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(8, 0, 8, 16),
+              child: TableCalendar<void>(
+                firstDay: widget.firstDate,
+                lastDay: widget.lastDate,
+                focusedDay: _focusedDay,
+                selectedDayPredicate: _isSelected,
+                calendarFormat: CalendarFormat.month,
+                startingDayOfWeek: _startingDayOfWeek,
+                weekNumbersVisible: _appearance.showWeekNumbers,
+                rowHeight: _rowHeight,
+                daysOfWeekHeight: 24,
+                locale: l10n.localeName,
+                availableGestures: AvailableGestures.horizontalSwipe,
+                headerStyle: HeaderStyle(
+                  titleCentered: true,
+                  formatButtonVisible: false,
+                  leftChevronIcon: Icon(
+                    Icons.chevron_left_rounded,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                  rightChevronIcon: Icon(
+                    Icons.chevron_right_rounded,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                calendarStyle: const CalendarStyle(
+                  outsideDaysVisible: true,
+                  markersMaxCount: 0,
+                ),
+                calendarBuilders: CalendarBuilders<void>(
+                  defaultBuilder: (context, day, _) =>
+                      _cell(day, accent, isOutside: false),
+                  todayBuilder: (context, day, _) =>
+                      _cell(day, accent, isOutside: false),
+                  selectedBuilder: (context, day, _) =>
+                      _cell(day, accent, isOutside: false),
+                  outsideBuilder: (context, day, _) =>
+                      _cell(day, accent, isOutside: true),
+                  markerBuilder: (context, day, _) => _marker(context, day),
+                ),
+                onDaySelected: _onDaySelected,
+                onPageChanged: (focusedDay) =>
+                    setState(() => _focusedDay = focusedDay),
+              ),
+            ),
+          ),
+          if (isMulti)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 8, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      l10n.datePickerSelectedCount(_selection.length),
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _selection.isEmpty
+                        ? null
+                        : () => setState(_selection.clear),
+                    child: Text(l10n.datePickerClear),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _cell(DateTime day, Color accent, {required bool isOutside}) {
+    return CalendarDayCell(
+      day: day,
+      isToday: isSameDay(day, DateTime.now()),
+      isSelected: _isSelected(day),
+      isOutside: isOutside,
+      isWeekend:
+          day.weekday == DateTime.saturday || day.weekday == DateTime.sunday,
+      todayStyle: _appearance.todayStyle,
+      highlightWeekends: _appearance.highlightWeekends,
+      accent: accent,
+    );
+  }
+
+  /// A single neutral bar marking a day that already carries events, so the
+  /// user can see a day is busy before scheduling onto it. Deliberately not
+  /// category-coloured: this is a "taken" signal, not a second calendar.
+  Widget _marker(BuildContext context, DateTime day) {
+    final load = widget.dayLoad;
+    if (load == null) return const SizedBox.shrink();
+    final count = load(CalendarDatePickerSheet._dateOnly(day));
+    if (count <= 0) return const SizedBox.shrink();
+    final l10n = AppLocalizations.of(context)!;
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 4),
+        child: Semantics(
+          label: l10n.datePickerBusyDay,
+          child: Container(
+            width: 16,
+            height: 3,
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              borderRadius: BorderRadius.circular(3),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

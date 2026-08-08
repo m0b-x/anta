@@ -19,6 +19,13 @@ class DaySummaryEntry extends Equatable {
   final Color color;
   final String title;
   final String? subtitle;
+
+  /// Raw markdown description carried by the underlying event, rendered
+  /// clamped by the row. Null for entries that have none (and for the
+  /// non-event entry types). Never pre-rendered — surfaces build spans on
+  /// demand, so nothing derived is stored or persisted.
+  final String? description;
+
   final int priority;
 
   /// Optional payload for callers that want to act on a tap (e.g. the
@@ -32,6 +39,7 @@ class DaySummaryEntry extends Equatable {
     required this.title,
     required this.priority,
     this.subtitle,
+    this.description,
     this.event,
   });
 
@@ -42,6 +50,7 @@ class DaySummaryEntry extends Equatable {
     color,
     title,
     subtitle,
+    description,
     priority,
     event,
   ];

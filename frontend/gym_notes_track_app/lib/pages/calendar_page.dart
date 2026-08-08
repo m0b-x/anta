@@ -19,11 +19,13 @@ import '../services/note_money_ledger_service.dart';
 import '../services/public_holiday_service.dart';
 import '../services/settings_service.dart';
 import '../utils/custom_snackbar.dart';
+import '../utils/markdown_color_syntax.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/calendar_bottom_panel.dart';
 import '../widgets/calendar_day_bars.dart';
 import '../widgets/calendar_day_cell.dart';
 import '../widgets/calendar_filter_sheet.dart';
+import '../widgets/event_detail_sheet.dart';
 import '../widgets/event_editor_sheet.dart';
 
 /// Overflow-menu actions on the calendar app bar.
@@ -48,6 +50,10 @@ class _CalendarView extends StatefulWidget {
 class _CalendarViewState extends State<_CalendarView> {
   CalendarAppearance _appearance = const CalendarAppearance();
 
+  /// Resolved markdown palette, so an event's description renders with the
+  /// user's custom colours in the detail sheet.
+  MarkdownColorPalette _colorPalette = MarkdownColorPalette.presets;
+
   /// Whether the bottom panel is expanded over the calendar grid. Transient
   /// on purpose: restoring a hidden calendar across app opens would read as
   /// "the calendar disappeared", so every visit starts with the grid shown.
@@ -62,8 +68,34 @@ class _CalendarViewState extends State<_CalendarView> {
   Future<void> _loadSettings() async {
     final settings = await SettingsService.getInstance();
     final appearance = await settings.getCalendarAppearance();
+    final palette = await settings.getColorPalette();
     if (!mounted) return;
-    setState(() => _appearance = appearance);
+    setState(() {
+      _appearance = appearance;
+      _colorPalette = palette;
+    });
+  }
+
+  /// Shows an event read-only first, then routes whatever the user chose
+  /// there. Tapping a day-panel row used to drop straight into the edit form;
+  /// now that descriptions are real content, the first thing a tap does is
+  /// show them.
+  Future<void> _openDetailSheet(
+    BuildContext context,
+    CalendarEvent event,
+  ) async {
+    final action = await EventDetailSheet.show(
+      context,
+      event: event,
+      colorPalette: _colorPalette,
+    );
+    if (action == null || !context.mounted) return;
+    switch (action) {
+      case EventDetailAction.edit:
+        await _openEditorSheet(context, initialEvent: event);
+      case EventDetailAction.openNote:
+        await _openLinkedNote(context, event);
+    }
   }
 
   @override
@@ -155,7 +187,9 @@ class _CalendarViewState extends State<_CalendarView> {
                       setState(() => _panelExpanded = !_panelExpanded),
                   onEditEvent: (event) =>
                       _openEditorSheet(context, initialEvent: event),
+                  onShowEvent: (event) => _openDetailSheet(context, event),
                   onOpenNote: (event) => _openLinkedNote(context, event),
+                  colorPalette: _colorPalette,
                   onSuppressHoliday: (day) => _removeHoliday(context, day),
                 ),
               ),
@@ -220,10 +254,16 @@ class _CalendarViewState extends State<_CalendarView> {
     CalendarEvent? initialEvent,
     DateTime? day,
   }) async {
+    // The bloc's per-day lookup is already memoized and O(1), so handing it
+    // to the picker costs nothing and lets the grid show which days are
+    // already busy while the user schedules.
+    final eventsForDay = context.read<CalendarBloc>().eventsForDay;
     final result = await EventEditorSheet.show(
       context,
       defaultDate: initialEvent?.startDate ?? day ?? DateTime.now(),
       initialEvent: initialEvent,
+      dayLoad: (day) => eventsForDay(day).length,
+      appearance: _appearance,
     );
     if (result == null || !context.mounted) return;
     final bloc = context.read<CalendarBloc>();

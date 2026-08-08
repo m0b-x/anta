@@ -9,6 +9,7 @@ import '../models/calendar_event.dart';
 import '../services/folder_search_service.dart' show normalizeForSearch;
 import '../models/upcoming_agenda_filters.dart';
 import '../utils/event_agenda.dart';
+import '../utils/markdown_color_syntax.dart';
 import 'agenda_list_view.dart';
 
 /// Non-modal "Upcoming" mode of the calendar's bottom panel: every event
@@ -35,6 +36,10 @@ class UpcomingAgendaView extends StatefulWidget {
   final ValueChanged<CalendarEvent> onEditEvent;
   final ValueChanged<CalendarEvent> onOpenNote;
 
+  /// Forwarded to the agenda rows so event descriptions render with the
+  /// user's custom markdown colours.
+  final MarkdownColorPalette colorPalette;
+
   const UpcomingAgendaView({
     super.key,
     required this.events,
@@ -44,6 +49,7 @@ class UpcomingAgendaView extends StatefulWidget {
     required this.onDaySelected,
     required this.onEditEvent,
     required this.onOpenNote,
+    this.colorPalette = MarkdownColorPalette.presets,
   });
 
   /// Look-ahead windows offered as presets, in days.
@@ -412,6 +418,7 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
             emptyTitle: l10n.upcomingNoEvents,
             emptyHint: l10n.upcomingNoEventsHint,
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+            colorPalette: widget.colorPalette,
           ),
         ),
       ],

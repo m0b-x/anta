@@ -530,6 +530,78 @@ class AppLocalizationsRo extends AppLocalizations {
   String get eventUntilHint => 'Atinge pentru a seta o dată de final';
 
   @override
+  String get recurrenceScopeLabel => 'Apariții';
+
+  @override
+  String get recurrenceScopeFromStart => 'De la această dată';
+
+  @override
+  String get recurrenceScopeAlways => 'Întotdeauna';
+
+  @override
+  String get recurrenceScopeEveryYear => 'În fiecare an';
+
+  @override
+  String get recurrenceScopeHint =>
+      'Apare și în zilele potrivite dinaintea datei de început';
+
+  @override
+  String recurrenceScopeAlwaysSuffix(String rule) {
+    return '$rule · și înainte';
+  }
+
+  @override
+  String get datePickerSingleTitle => 'Alege o dată';
+
+  @override
+  String get datePickerMultiTitle => 'Alege datele';
+
+  @override
+  String datePickerSelectedCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count date alese',
+      one: '1 dată aleasă',
+      zero: 'Nicio dată aleasă',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get datePickerClear => 'Golește';
+
+  @override
+  String get datePickerToday => 'Azi';
+
+  @override
+  String get datePickerBusyDay => 'Are deja evenimente';
+
+  @override
+  String get eventDescriptionPreviewOn => 'Arată descrierea randată';
+
+  @override
+  String get eventDescriptionPreviewOff => 'Editează descrierea';
+
+  @override
+  String get eventDescriptionEmpty => 'Nimic de afișat încă';
+
+  @override
+  String get eventHasDescription => 'Are notițe';
+
+  @override
+  String get eventDetailsTitle => 'Eveniment';
+
+  @override
+  String get eventDetailsNextOccurrences => 'Următoarele apariții';
+
+  @override
+  String get eventDetailsNoOccurrences => 'Nicio apariție viitoare';
+
+  @override
+  String get eventDetailsNoDescription => 'Fără notițe pentru acest eveniment';
+
+  @override
   String get eventColor => 'Culoare';
 
   @override

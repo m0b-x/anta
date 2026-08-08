@@ -95,6 +95,11 @@ class DatabaseMigrations {
       toVersion: DatabaseSchema.v18EventPriorityInverted,
       migrate: _migrateV17ToV18,
     ),
+    Migration(
+      fromVersion: DatabaseSchema.v18EventPriorityInverted,
+      toVersion: DatabaseSchema.v19EventRetroactive,
+      migrate: _migrateV18ToV19,
+    ),
   ];
 
   Future<void> runMigrations(Migrator m, int from, int to) async {
@@ -602,5 +607,25 @@ class DatabaseMigrations {
     await _db.customStatement(
       "DELETE FROM user_settings WHERE key = 'calendar_upcoming_min_priority'",
     );
+  }
+
+  /// v18→v19: Add `retroactive` to `calendar_events`.
+  ///
+  /// Lets a recurring rule also produce occurrences before its start date
+  /// (a yearly check-up added today then shows in previous years too).
+  /// `NOT NULL DEFAULT 0` means every existing event keeps the classic
+  /// forward-only behaviour, and the `PRAGMA table_info` guard makes a
+  /// partial-upgrade re-run safe.
+  Future<void> _migrateV18ToV19(Migrator m, GeneratedDatabase db) async {
+    final existing = <String>{
+      for (final row
+          in await _db.customSelect('PRAGMA table_info(calendar_events)').get())
+        row.read<String>('name'),
+    };
+    if (!existing.contains('retroactive')) {
+      await _db.customStatement(
+        'ALTER TABLE calendar_events ADD COLUMN retroactive INTEGER NOT NULL DEFAULT 0',
+      );
+    }
   }
 }

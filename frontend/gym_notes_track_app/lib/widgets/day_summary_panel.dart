@@ -4,6 +4,8 @@ import 'package:intl/intl.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_event.dart';
 import '../models/day_summary_entry.dart';
+import '../utils/markdown_color_syntax.dart';
+import 'markdown_inline_text.dart';
 
 /// Renders the calendar's bottom panel: a header naming the selected day
 /// followed by a list of [DaySummaryEntry] cards (events, weekend, public
@@ -27,6 +29,10 @@ class DaySummaryPanel extends StatelessWidget {
   /// carries the action — weekend and event entries are unaffected.
   final VoidCallback? onSuppressHoliday;
 
+  /// Palette used to render `{name:text}` runs inside event descriptions, so
+  /// a row shows the user's custom colours and not just the presets.
+  final MarkdownColorPalette colorPalette;
+
   const DaySummaryPanel({
     super.key,
     required this.day,
@@ -34,7 +40,36 @@ class DaySummaryPanel extends StatelessWidget {
     this.onEventTap,
     this.onOpenNote,
     this.onSuppressHoliday,
+    this.colorPalette = MarkdownColorPalette.presets,
   });
+
+  /// Two-line subtitle: the scheduling line (recurrence · time) followed by
+  /// the event's description rendered as markdown and clamped to two lines.
+  Widget? _buildSubtitle(BuildContext context, DaySummaryEntry entry) {
+    final subtitle = entry.subtitle;
+    final description = entry.description;
+    if (subtitle == null && description == null) return null;
+    if (description == null) return Text(subtitle!);
+
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (subtitle != null) Text(subtitle),
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: MarkdownInlineText(
+            data: description,
+            colorPalette: colorPalette,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -152,10 +187,31 @@ class DaySummaryPanel extends StatelessWidget {
                             foregroundColor: entry.color,
                             child: Icon(entry.icon),
                           ),
-                          title: Text(entry.title),
-                          subtitle: entry.subtitle == null
-                              ? null
-                              : Text(entry.subtitle!),
+                          title: Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  entry.title,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              if (entry.description != null) ...[
+                                const SizedBox(width: 6),
+                                Tooltip(
+                                  message: l10n.eventHasDescription,
+                                  child: Icon(
+                                    Icons.notes_rounded,
+                                    size: 14,
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                          subtitle: _buildSubtitle(context, entry),
+                          // The description adds a second subtitle line; the
+                          // tile has to be told, or it clips to one.
+                          isThreeLine: entry.description != null,
                           trailing: event != null
                               ? (hasLinkedNote && onOpenNote != null
                                     ? Row(

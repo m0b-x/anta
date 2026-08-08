@@ -198,6 +198,10 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   double _previousKeyboardHeight = 0;
   bool _isTogglingPreview = false;
 
+  /// Mirrors [_contentFocusNode.hasFocus] so the bottom-inset gate in
+  /// [build] re-runs when the editor gains or loses the IME.
+  bool _contentHasFocus = false;
+
   @override
   void initState() {
     super.initState();
@@ -218,7 +222,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     _markdownSpanBuilder.bind(_contentController);
     _historyObserver = TextHistoryObserver(_contentController);
     _previousTextLength = 0;
-    _contentFocusNode = FocusNode();
+    _contentFocusNode = FocusNode()..addListener(_onContentFocusChanged);
     _editorScrollController = CodeScrollController();
     _searchController = ReEditorSearchController();
     _searchController.initialize(_contentController);
@@ -249,6 +253,12 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     _initializeAutoSave();
     _loadFontSizes();
     _initializePositionService();
+  }
+
+  void _onContentFocusChanged() {
+    final hasFocus = _contentFocusNode.hasFocus;
+    if (hasFocus == _contentHasFocus || !mounted) return;
+    setState(() => _contentHasFocus = hasFocus);
   }
 
   @override
@@ -1055,6 +1065,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     _titleController.dispose();
     _historyObserver.dispose();
     _contentController.dispose();
+    _contentFocusNode.removeListener(_onContentFocusChanged);
     _contentFocusNode.dispose();
     _editorScrollController.dispose();
     _searchController.removeListener(_onSearchChanged);
@@ -1499,8 +1510,27 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   int _getOffsetFromSelection(CodeLinePosition position) =>
       CodeLineOffsetUtils.offsetFromPosition(_contentController, position);
 
+  /// Bottom inset the body must give up to the on-screen keyboard.
+  ///
+  /// The raw `viewInsets.bottom` is only trusted while this page actually
+  /// owns an input connection (editor caret or the search field). Android
+  /// can report a stale keyboard inset after a resume — with nothing
+  /// focused there is no keyboard to avoid, so the toolbar stays at the
+  /// bottom instead of floating above an empty strip.
+  double _keyboardInset(BuildContext context) {
+    final inset = MediaQuery.viewInsetsOf(context).bottom;
+    if (inset <= 0) return 0;
+    final ownsInput = _contentHasFocus || _searchController.isSearching;
+    return ownsInput ? inset : 0;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final keyboardInset = _keyboardInset(context);
+    final keyboardVisible = keyboardInset > 0;
+    final bottomSpacing = keyboardVisible
+        ? 0.0
+        : MediaQuery.viewPaddingOf(context).bottom;
     return BlocProvider<MarkdownPreviewBloc>.value(
       value: _previewBloc,
       child: MultiBlocListener(
@@ -1558,6 +1588,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
             }
           },
           child: Scaffold(
+            resizeToAvoidBottomInset: false,
             drawer: const AppDrawer(),
             drawerEnableOpenDragGesture: _noteSwipeEnabled,
             appBar: NoteAppBar(
@@ -1589,152 +1620,155 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
                 ),
               ],
             ),
-            body: _isLoading
-                ? Column(
-                    children: [
-                      if (_showStatsBar)
-                        RepaintBoundary(child: _buildNoteStats(context)),
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                          child: Container(
-                            color: Theme.of(context).scaffoldBackgroundColor,
+            body: Padding(
+              padding: EdgeInsets.only(bottom: keyboardInset),
+              child: _isLoading
+                  ? Column(
+                      children: [
+                        if (_showStatsBar)
+                          RepaintBoundary(child: _buildNoteStats(context)),
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16.0,
+                            ),
+                            child: Container(
+                              color: Theme.of(context).scaffoldBackgroundColor,
+                            ),
                           ),
                         ),
-                      ),
-                      if (_allShortcuts.isNotEmpty)
-                        RepaintBoundary(
-                          child: _buildMarkdownBar(enabled: false),
-                        ),
-                    ],
-                  )
-                : Column(
-                    children: [
-                      // Search bar
-                      if (_searchController.isSearching)
-                        NoteSearchBar(
-                          searchController: _searchController,
-                          onClose: () => setState(() {}),
-                          onNavigateToMatch: _navigateToSearchMatch,
-                          showReplaceField: !_isPreviewMode,
-                          onReplace: _handleSearchReplace,
-                        ),
-                      if (_showStatsBar)
-                        RepaintBoundary(child: _buildNoteStats(context)),
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: AppSpacing.lg,
+                        if (_allShortcuts.isNotEmpty)
+                          RepaintBoundary(
+                            child: _buildMarkdownBar(enabled: false),
                           ),
-                          child: Builder(
-                            builder: (context) {
-                              final keyboardVisible =
-                                  MediaQuery.of(context).viewInsets.bottom > 0;
-                              // Show preview if:
-                              // 1. User toggled preview mode manually, OR
-                              // 2. previewWhenKeyboardHidden is enabled AND keyboard is hidden
-                              final showPreview =
-                                  _isPreviewMode ||
-                                  (_previewWhenKeyboardHidden &&
-                                      !keyboardVisible);
+                      ],
+                    )
+                  : Column(
+                      children: [
+                        // Search bar
+                        if (_searchController.isSearching)
+                          NoteSearchBar(
+                            searchController: _searchController,
+                            onClose: () => setState(() {}),
+                            onNavigateToMatch: _navigateToSearchMatch,
+                            showReplaceField: !_isPreviewMode,
+                            onReplace: _handleSearchReplace,
+                          ),
+                        if (_showStatsBar)
+                          RepaintBoundary(child: _buildNoteStats(context)),
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: AppSpacing.lg,
+                            ),
+                            child: Builder(
+                              builder: (context) {
+                                // Show preview if:
+                                // 1. User toggled preview mode manually, OR
+                                // 2. previewWhenKeyboardHidden is enabled AND keyboard is hidden
+                                final showPreview =
+                                    _isPreviewMode ||
+                                    (_previewWhenKeyboardHidden &&
+                                        !keyboardVisible);
 
-                              // Only calculate debug info if any debug option is enabled
-                              final devOptions = DevOptions.instance;
-                              if (!devOptions.anyEnabled) {
-                                return Stack(
-                                  children: [
-                                    Offstage(
-                                      offstage: showPreview,
-                                      child: IgnorePointer(
-                                        ignoring: showPreview,
-                                        child: _buildEditor(),
+                                // Only calculate debug info if any debug option is enabled
+                                final devOptions = DevOptions.instance;
+                                if (!devOptions.anyEnabled) {
+                                  return Stack(
+                                    children: [
+                                      Offstage(
+                                        offstage: showPreview,
+                                        child: IgnorePointer(
+                                          ignoring: showPreview,
+                                          child: _buildEditor(),
+                                        ),
                                       ),
-                                    ),
-                                    Offstage(
-                                      offstage: !showPreview,
-                                      child: IgnorePointer(
-                                        ignoring: !showPreview,
-                                        child: _buildPreview(),
+                                      Offstage(
+                                        offstage: !showPreview,
+                                        child: IgnorePointer(
+                                          ignoring: !showPreview,
+                                          child: _buildPreview(),
+                                        ),
                                       ),
-                                    ),
-                                  ],
-                                );
-                              }
+                                    ],
+                                  );
+                                }
 
-                              final selection = _contentController.selection;
-                              final cursorLine = selection.baseIndex + 1;
-                              final cursorColumn = selection.baseOffset;
-                              final cursorOffset =
-                                  _getLineStartOffset(selection.baseIndex) +
-                                  selection.baseOffset;
-                              final int? selStart;
-                              final int? selEnd;
-                              if (selection.isCollapsed) {
-                                selStart = null;
-                                selEnd = null;
-                              } else {
-                                // Get start and end offsets based on normalized selection
-                                final baseOff =
+                                final selection = _contentController.selection;
+                                final cursorLine = selection.baseIndex + 1;
+                                final cursorColumn = selection.baseOffset;
+                                final cursorOffset =
                                     _getLineStartOffset(selection.baseIndex) +
                                     selection.baseOffset;
-                                final extentOff =
-                                    _getLineStartOffset(selection.extentIndex) +
-                                    selection.extentOffset;
-                                if (baseOff <= extentOff) {
-                                  selStart = baseOff;
-                                  selEnd = extentOff;
+                                final int? selStart;
+                                final int? selEnd;
+                                if (selection.isCollapsed) {
+                                  selStart = null;
+                                  selEnd = null;
                                 } else {
-                                  selStart = extentOff;
-                                  selEnd = baseOff;
+                                  // Get start and end offsets based on normalized selection
+                                  final baseOff =
+                                      _getLineStartOffset(selection.baseIndex) +
+                                      selection.baseOffset;
+                                  final extentOff =
+                                      _getLineStartOffset(
+                                        selection.extentIndex,
+                                      ) +
+                                      selection.extentOffset;
+                                  if (baseOff <= extentOff) {
+                                    selStart = baseOff;
+                                    selEnd = extentOff;
+                                  } else {
+                                    selStart = extentOff;
+                                    selEnd = baseOff;
+                                  }
                                 }
-                              }
-                              final noteSize = _contentController.textLength;
+                                final noteSize = _contentController.textLength;
 
-                              return DebugOverlayStack(
-                                cursorLine: cursorLine,
-                                cursorColumn: cursorColumn,
-                                cursorOffset: cursorOffset,
-                                selectionStart: selStart,
-                                selectionEnd: selEnd,
-                                noteSize: noteSize,
-                                child: Stack(
-                                  children: [
-                                    Offstage(
-                                      offstage: showPreview,
-                                      child: IgnorePointer(
-                                        ignoring: showPreview,
-                                        child: _buildEditor(),
+                                return DebugOverlayStack(
+                                  cursorLine: cursorLine,
+                                  cursorColumn: cursorColumn,
+                                  cursorOffset: cursorOffset,
+                                  selectionStart: selStart,
+                                  selectionEnd: selEnd,
+                                  noteSize: noteSize,
+                                  child: Stack(
+                                    children: [
+                                      Offstage(
+                                        offstage: showPreview,
+                                        child: IgnorePointer(
+                                          ignoring: showPreview,
+                                          child: _buildEditor(),
+                                        ),
                                       ),
-                                    ),
-                                    Offstage(
-                                      offstage: !showPreview,
-                                      child: IgnorePointer(
-                                        ignoring: !showPreview,
-                                        child: _buildPreview(),
+                                      Offstage(
+                                        offstage: !showPreview,
+                                        child: IgnorePointer(
+                                          ignoring: !showPreview,
+                                          child: _buildPreview(),
+                                        ),
                                       ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
                           ),
                         ),
-                      ),
-                      // Always show toolbar — in preview mode it provides
-                      // utility actions; in edit mode it appears with keyboard.
-                      RepaintBoundary(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            _buildMarkdownBar(enabled: true),
-                            SizedBox(
-                              height: MediaQuery.of(context).padding.bottom,
-                            ),
-                          ],
+                        // Always show toolbar — in preview mode it provides
+                        // utility actions; in edit mode it appears with keyboard.
+                        RepaintBoundary(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _buildMarkdownBar(enabled: true),
+                              SizedBox(height: bottomSpacing),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
+                      ],
+                    ),
+            ),
           ),
         ),
       ),

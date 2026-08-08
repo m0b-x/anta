@@ -958,6 +958,126 @@ abstract class AppLocalizations {
   /// **'Tap to set an end date'**
   String get eventUntilHint;
 
+  /// Section label for the recurrence scope chips (forward-only vs retroactive)
+  ///
+  /// In en, this message translates to:
+  /// **'Occurrences'**
+  String get recurrenceScopeLabel;
+
+  /// Recurrence scope option: the rule only fires on or after the start date
+  ///
+  /// In en, this message translates to:
+  /// **'From this date on'**
+  String get recurrenceScopeFromStart;
+
+  /// Recurrence scope option for non-yearly rules: also fires before the start date
+  ///
+  /// In en, this message translates to:
+  /// **'Always'**
+  String get recurrenceScopeAlways;
+
+  /// Recurrence scope option shown for yearly rules: also fires in previous years
+  ///
+  /// In en, this message translates to:
+  /// **'Every year'**
+  String get recurrenceScopeEveryYear;
+
+  /// Explanation under the recurrence scope chips when the retroactive option is picked
+  ///
+  /// In en, this message translates to:
+  /// **'Also shows on matching days before the start date'**
+  String get recurrenceScopeHint;
+
+  /// Recurrence label suffixed to mark a rule that also fires before its start date
+  ///
+  /// In en, this message translates to:
+  /// **'{rule} · also before'**
+  String recurrenceScopeAlwaysSuffix(String rule);
+
+  /// Title of the in-app calendar date picker in single-date mode
+  ///
+  /// In en, this message translates to:
+  /// **'Pick a date'**
+  String get datePickerSingleTitle;
+
+  /// Title of the in-app calendar date picker in multi-date mode
+  ///
+  /// In en, this message translates to:
+  /// **'Pick dates'**
+  String get datePickerMultiTitle;
+
+  /// Count of currently selected days in the multi-date picker
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{No dates selected} =1{1 date selected} other{{count} dates selected}}'**
+  String datePickerSelectedCount(int count);
+
+  /// Button that clears every selected day in the multi-date picker
+  ///
+  /// In en, this message translates to:
+  /// **'Clear'**
+  String get datePickerClear;
+
+  /// Button that jumps the picker's calendar back to the current month
+  ///
+  /// In en, this message translates to:
+  /// **'Today'**
+  String get datePickerToday;
+
+  /// Accessibility label for a picker day that already carries events
+  ///
+  /// In en, this message translates to:
+  /// **'Already has events'**
+  String get datePickerBusyDay;
+
+  /// Tooltip for the button that switches the description field to its markdown preview
+  ///
+  /// In en, this message translates to:
+  /// **'Show rendered description'**
+  String get eventDescriptionPreviewOn;
+
+  /// Tooltip for the button that switches the description preview back to editing
+  ///
+  /// In en, this message translates to:
+  /// **'Edit description'**
+  String get eventDescriptionPreviewOff;
+
+  /// Placeholder shown in the description preview when the field is empty
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing to preview yet'**
+  String get eventDescriptionEmpty;
+
+  /// Accessibility label for the indicator marking a day-panel row that carries a description
+  ///
+  /// In en, this message translates to:
+  /// **'Has notes'**
+  String get eventHasDescription;
+
+  /// Title of the read-only event detail sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Event'**
+  String get eventDetailsTitle;
+
+  /// Section label listing the upcoming dates a recurring event fires on
+  ///
+  /// In en, this message translates to:
+  /// **'Next occurrences'**
+  String get eventDetailsNextOccurrences;
+
+  /// Shown when a recurring event has no occurrence left in the scanned window
+  ///
+  /// In en, this message translates to:
+  /// **'No upcoming occurrences'**
+  String get eventDetailsNoOccurrences;
+
+  /// Shown in the detail sheet when the event carries no description
+  ///
+  /// In en, this message translates to:
+  /// **'No notes for this event'**
+  String get eventDetailsNoDescription;
+
   /// Section label for the per-event color picker
   ///
   /// In en, this message translates to:

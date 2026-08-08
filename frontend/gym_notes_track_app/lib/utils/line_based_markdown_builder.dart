@@ -54,6 +54,13 @@ class LineMarkdownStyle {
   /// without re-deriving brightness from a colour's luminance.
   final bool isDark;
 
+  /// Renders `#`-headings at [baseFontSize] instead of their `h*Scale`
+  /// multiple (weight is kept). For compact surfaces that clamp to one or
+  /// two lines — calendar day-panel rows — where a full-size `# Leg day`
+  /// would blow the row open. Purely a size decision: the grammar, the
+  /// marker stripping and every other construct are untouched.
+  final bool flattenHeadings;
+
   const LineMarkdownStyle({
     required this.baseFontSize,
     required this.textColor,
@@ -65,11 +72,17 @@ class LineMarkdownStyle {
     required this.ghostColor,
     required this.markColor,
     required this.isDark,
+    this.flattenHeadings = false,
   });
 
-  factory LineMarkdownStyle.fromTheme(ThemeData theme, double fontSize) {
+  factory LineMarkdownStyle.fromTheme(
+    ThemeData theme,
+    double fontSize, {
+    bool flattenHeadings = false,
+    Color? textColor,
+  }) {
     final isDark = theme.brightness == Brightness.dark;
-    final base = theme.textTheme.bodyLarge?.color ?? Colors.black;
+    final base = textColor ?? theme.textTheme.bodyLarge?.color ?? Colors.black;
     return LineMarkdownStyle(
       baseFontSize: fontSize,
       textColor: base,
@@ -83,6 +96,7 @@ class LineMarkdownStyle {
           ? MarkdownConstants.markBackgroundDark
           : MarkdownConstants.markBackgroundLight,
       isDark: isDark,
+      flattenHeadings: flattenHeadings,
     );
   }
 }
@@ -730,14 +744,16 @@ class LineBasedMarkdownBuilder {
     int contentStart,
     int lineEnd,
   ) {
-    final scale = switch (level) {
-      1 => MarkdownConstants.h1Scale,
-      2 => MarkdownConstants.h2Scale,
-      3 => MarkdownConstants.h3Scale,
-      4 => MarkdownConstants.h4Scale,
-      5 => MarkdownConstants.h5Scale,
-      _ => MarkdownConstants.h6Scale,
-    };
+    final scale = style.flattenHeadings
+        ? 1.0
+        : switch (level) {
+            1 => MarkdownConstants.h1Scale,
+            2 => MarkdownConstants.h2Scale,
+            3 => MarkdownConstants.h3Scale,
+            4 => MarkdownConstants.h4Scale,
+            5 => MarkdownConstants.h5Scale,
+            _ => MarkdownConstants.h6Scale,
+          };
 
     final headingStyle = TextStyle(
       fontSize: style.baseFontSize * scale,

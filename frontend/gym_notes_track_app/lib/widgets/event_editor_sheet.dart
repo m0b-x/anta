@@ -9,16 +9,20 @@ import '../constants/calendar_icons.dart';
 import '../constants/event_priorities.dart';
 import '../constants/settings_keys.dart';
 import '../l10n/app_localizations.dart';
+import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../models/recurrence_rule.dart';
 import '../repositories/note_repository.dart';
 import '../services/event_time_formatter.dart';
 import '../services/recurrence_formatter.dart';
 import '../services/settings_service.dart';
+import '../utils/markdown_color_syntax.dart';
+import 'calendar_date_picker_sheet.dart';
 import 'category_picker_sheet.dart';
 import 'color_wheel_picker.dart';
 import 'icon_picker_sheet.dart';
 import 'note_picker_dialog.dart';
+import 'simple_markdown_preview.dart';
 
 /// Result returned by [EventEditorSheet.show]. `null` means cancelled.
 sealed class EventEditorResult {
@@ -55,16 +59,30 @@ class EventEditorSheet extends StatefulWidget {
   final CalendarEvent? initialEvent;
   final DateTime defaultDate;
 
+  /// How busy a day already is, forwarded to the date picker so a day that
+  /// already carries events is visible while scheduling. Callers pass the
+  /// calendar bloc's memoized per-day lookup — never a fresh query.
+  final PickerDayLoad? dayLoad;
+
+  /// Calendar look & feel, forwarded to the date picker so its grid matches
+  /// the real one on the first frame. Passed down rather than re-read: the
+  /// page already holds a current copy and refreshes it on settings return.
+  final CalendarAppearance appearance;
+
   const EventEditorSheet({
     super.key,
     required this.defaultDate,
     this.initialEvent,
+    this.dayLoad,
+    this.appearance = const CalendarAppearance(),
   });
 
   static Future<EventEditorResult?> show(
     BuildContext context, {
     required DateTime defaultDate,
     CalendarEvent? initialEvent,
+    PickerDayLoad? dayLoad,
+    CalendarAppearance appearance = const CalendarAppearance(),
   }) {
     return showModalBottomSheet<EventEditorResult>(
       context: context,
@@ -75,6 +93,8 @@ class EventEditorSheet extends StatefulWidget {
         child: EventEditorSheet(
           defaultDate: defaultDate,
           initialEvent: initialEvent,
+          dayLoad: dayLoad,
+          appearance: appearance,
         ),
       ),
     );
@@ -111,6 +131,11 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   /// periodic kinds (daily/weekly/monthly/yearly). Carried across kind
   /// switches so toggling daily↔weekly keeps the chosen number.
   int _interval = 1;
+
+  /// Whether the rule also fires before [_date]. Only meaningful (and only
+  /// shown) for recurring events — one-time and specific-date sets have
+  /// exact membership.
+  bool _retroactive = false;
 
   /// Time-of-day state. The trio is the editor's working copy of the
   /// model's [EventTime]; it's serialized back into one on save.
@@ -149,6 +174,14 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   /// from settings on open and updated when the user picks a wheel color.
   List<int> _recentColors = const [];
 
+  /// Whether the description field is showing its rendered markdown instead
+  /// of the raw source. View-only state — the stored value is always source.
+  bool _descriptionPreview = false;
+
+  /// Resolved markdown colour palette for the description preview, so
+  /// `{name:text}` runs show the user's custom colours.
+  MarkdownColorPalette _colorPalette = MarkdownColorPalette.presets;
+
   bool get _isEditing => widget.initialEvent != null;
 
   @override
@@ -171,6 +204,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     _colorValue = initial?.colorValue;
     _tintIcon = initial?.tintIcon ?? true;
     _priority = initial?.priority ?? kDefaultEventPriority;
+    _retroactive = initial?.retroactive ?? false;
     _initRecurrenceFrom(initial?.rule ?? const OneTimeRecurrence());
     if (_noteId != null) _loadLinkedNoteTitle();
     _loadRecentColors();
@@ -290,6 +324,13 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
       _colorValue != null &&
       !CalendarColors.swatchPalette.contains(_colorValue);
 
+  /// Label for the retroactive scope chip. Yearly rules read naturally as
+  /// "Every year"; the others fall back to "Always". Resolved through the
+  /// built rule so the wording follows one switch, not two.
+  String _scopeAlwaysLabel(AppLocalizations l10n) {
+    return RecurrenceFormatter.scopeAlwaysLabel(_buildRule(), l10n);
+  }
+
   String _kindLabel(AppLocalizations l10n, _RecurrenceKind k) {
     return switch (k) {
       _RecurrenceKind.daily => l10n.recurrenceDaily,
@@ -305,11 +346,13 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   // --- Interactions -------------------------------------------------------
 
   Future<void> _pickDate() async {
-    final picked = await showDatePicker(
-      context: context,
+    final picked = await CalendarDatePickerSheet.pickSingle(
+      context,
       initialDate: _date,
-      firstDate: DateTime(_date.year - 20),
-      lastDate: DateTime(_date.year + 20),
+      firstDate: DateTime.utc(_date.year - 20),
+      lastDate: DateTime.utc(_date.year + 20),
+      dayLoad: widget.dayLoad,
+      appearance: widget.appearance,
     );
     if (picked == null || !mounted) return;
     setState(() {
@@ -334,43 +377,33 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
 
   Future<void> _pickEndDate() async {
     final initial = _endDate ?? _date;
-    final picked = await showDatePicker(
-      context: context,
+    final picked = await CalendarDatePickerSheet.pickSingle(
+      context,
       initialDate: initial.isBefore(_date) ? _date : initial,
       firstDate: _date,
-      lastDate: DateTime(_date.year + 20),
+      lastDate: DateTime.utc(_date.year + 20),
+      dayLoad: widget.dayLoad,
+      appearance: widget.appearance,
     );
     if (picked == null || !mounted) return;
     setState(() => _endDate = _normalize(picked));
   }
 
-  Future<void> _pickAdditionalDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _date,
-      firstDate: DateTime(_date.year - 20),
-      lastDate: DateTime(_date.year + 20),
+  /// Edits the whole one-time date set in a single pass. The multi picker
+  /// returns the edited set; [_setOneTimeDates] stays the one place that
+  /// re-derives the anchor (earliest) and the extras list from it.
+  Future<void> _pickOneTimeDates() async {
+    final current = <DateTime>{_date, ..._additionalDates};
+    final picked = await CalendarDatePickerSheet.pickMulti(
+      context,
+      initialSelection: current,
+      firstDate: DateTime.utc(_date.year - 20),
+      lastDate: DateTime.utc(_date.year + 20),
+      dayLoad: widget.dayLoad,
+      appearance: widget.appearance,
     );
-    if (picked == null || !mounted) return;
-    _setOneTimeDates(<DateTime>{
-      _date,
-      ..._additionalDates,
-      _normalize(picked),
-    });
-  }
-
-  Future<void> _editOneTimeDate(DateTime old) async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: old,
-      firstDate: DateTime(old.year - 20),
-      lastDate: DateTime(old.year + 20),
-    );
-    if (picked == null || !mounted) return;
-    final next = <DateTime>{_date, ..._additionalDates}
-      ..remove(old)
-      ..add(_normalize(picked));
-    _setOneTimeDates(next);
+    if (picked == null || !mounted || picked.isEmpty) return;
+    _setOneTimeDates(picked);
   }
 
   void _removeOneTimeDate(DateTime date) {
@@ -475,8 +508,12 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   Future<void> _loadRecentColors() async {
     final settings = await SettingsService.getInstance();
     final colors = await settings.getRecentEventColors();
+    final palette = await settings.getColorPalette();
     if (!mounted) return;
-    setState(() => _recentColors = colors);
+    setState(() {
+      _recentColors = colors;
+      _colorPalette = palette;
+    });
   }
 
   Future<void> _pickCategory() async {
@@ -557,6 +594,9 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     final base = widget.initialEvent;
     // One-time events ignore endDate — their start date is their end.
     final effectiveEnd = _mode == _RepeatMode.recurring ? _endDate : null;
+    // Same guard for the scope flag: an exact-membership rule can never be
+    // retroactive, so a one-time event never carries a stale `true`.
+    final effectiveRetroactive = _mode == _RepeatMode.recurring && _retroactive;
     final effectiveTime = _isAllDay
         ? null
         : EventTime(
@@ -580,6 +620,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             startDate: effectiveStart,
             rule: _buildRule(),
             endDate: effectiveEnd,
+            retroactive: effectiveRetroactive,
             time: effectiveTime,
             description: effectiveDescription,
             noteId: _noteId,
@@ -594,6 +635,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             startDate: effectiveStart,
             rule: _buildRule(),
             endDate: effectiveEnd,
+            retroactive: effectiveRetroactive,
             time: effectiveTime,
             description: effectiveDescription,
             noteId: _noteId,
@@ -639,6 +681,82 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   }
 
   // --- Build --------------------------------------------------------------
+
+  /// Description input with a preview toggle. The field stores raw markdown;
+  /// the preview renders it through the same builder the note preview uses,
+  /// with the money ledger off (a balance is a per-note concept, so `$` rows
+  /// in an event description stay literal text).
+  Widget _buildDescriptionField(
+    BuildContext context,
+    AppLocalizations l10n,
+    ThemeData theme,
+  ) {
+    final text = _descriptionController.text;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                l10n.eventDescription,
+                style: theme.textTheme.labelLarge?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: _descriptionPreview
+                  ? l10n.eventDescriptionPreviewOff
+                  : l10n.eventDescriptionPreviewOn,
+              icon: Icon(
+                _descriptionPreview
+                    ? Icons.edit_outlined
+                    : Icons.visibility_outlined,
+              ),
+              onPressed: () =>
+                  setState(() => _descriptionPreview = !_descriptionPreview),
+            ),
+          ],
+        ),
+        if (_descriptionPreview)
+          Container(
+            constraints: const BoxConstraints(minHeight: 88, maxHeight: 220),
+            decoration: BoxDecoration(
+              border: Border.all(color: theme.colorScheme.outline),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: text.trim().isEmpty
+                ? Center(
+                    child: Text(
+                      l10n.eventDescriptionEmpty,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  )
+                : SimpleMarkdownPreview(
+                    data: text,
+                    padding: const EdgeInsets.all(12),
+                    colorPalette: _colorPalette,
+                  ),
+          )
+        else
+          TextField(
+            controller: _descriptionController,
+            maxLength: 2000,
+            minLines: 2,
+            maxLines: 5,
+            textInputAction: TextInputAction.newline,
+            keyboardType: TextInputType.multiline,
+            decoration: InputDecoration(
+              hintText: l10n.eventDescriptionHint,
+              border: const OutlineInputBorder(),
+            ),
+          ),
+      ],
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -711,19 +829,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                     onChanged: (_) => setState(() {}),
                   ),
                   const SizedBox(height: 8),
-                  TextField(
-                    controller: _descriptionController,
-                    maxLength: 500,
-                    minLines: 2,
-                    maxLines: 5,
-                    textInputAction: TextInputAction.newline,
-                    keyboardType: TextInputType.multiline,
-                    decoration: InputDecoration(
-                      labelText: l10n.eventDescription,
-                      hintText: l10n.eventDescriptionHint,
-                      border: const OutlineInputBorder(),
-                    ),
-                  ),
+                  _buildDescriptionField(context, l10n, theme),
                   _SectionLabel(text: l10n.eventType),
                   _PickerTile(
                     leading: CircleAvatar(
@@ -887,7 +993,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                         for (final d in oneTimeDates)
                           InputChip(
                             label: Text(DateFormat.yMMMd(localeName).format(d)),
-                            onPressed: () => _editOneTimeDate(d),
+                            onPressed: _pickOneTimeDates,
                             onDeleted: oneTimeDates.length > 1
                                 ? () => _removeOneTimeDate(d)
                                 : null,
@@ -896,7 +1002,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                         ActionChip(
                           avatar: const Icon(Icons.add_rounded, size: 18),
                           label: Text(l10n.eventAddDate),
-                          onPressed: _pickAdditionalDate,
+                          onPressed: _pickOneTimeDates,
                         ),
                       ],
                     ),
@@ -1048,6 +1154,35 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                           ),
                         ),
                     ],
+                    _SectionLabel(text: l10n.recurrenceScopeLabel),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        ChoiceChip(
+                          label: Text(l10n.recurrenceScopeFromStart),
+                          selected: !_retroactive,
+                          onSelected: (_) =>
+                              setState(() => _retroactive = false),
+                        ),
+                        ChoiceChip(
+                          label: Text(_scopeAlwaysLabel(l10n)),
+                          selected: _retroactive,
+                          onSelected: (_) =>
+                              setState(() => _retroactive = true),
+                        ),
+                      ],
+                    ),
+                    if (_retroactive)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          l10n.recurrenceScopeHint,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
                     _SectionLabel(text: l10n.eventUntilLabel),
                     _PickerTile(
                       leading: const CircleAvatar(

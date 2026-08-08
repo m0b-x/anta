@@ -519,6 +519,78 @@ class AppLocalizationsEn extends AppLocalizations {
   String get eventUntilHint => 'Tap to set an end date';
 
   @override
+  String get recurrenceScopeLabel => 'Occurrences';
+
+  @override
+  String get recurrenceScopeFromStart => 'From this date on';
+
+  @override
+  String get recurrenceScopeAlways => 'Always';
+
+  @override
+  String get recurrenceScopeEveryYear => 'Every year';
+
+  @override
+  String get recurrenceScopeHint =>
+      'Also shows on matching days before the start date';
+
+  @override
+  String recurrenceScopeAlwaysSuffix(String rule) {
+    return '$rule · also before';
+  }
+
+  @override
+  String get datePickerSingleTitle => 'Pick a date';
+
+  @override
+  String get datePickerMultiTitle => 'Pick dates';
+
+  @override
+  String datePickerSelectedCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count dates selected',
+      one: '1 date selected',
+      zero: 'No dates selected',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get datePickerClear => 'Clear';
+
+  @override
+  String get datePickerToday => 'Today';
+
+  @override
+  String get datePickerBusyDay => 'Already has events';
+
+  @override
+  String get eventDescriptionPreviewOn => 'Show rendered description';
+
+  @override
+  String get eventDescriptionPreviewOff => 'Edit description';
+
+  @override
+  String get eventDescriptionEmpty => 'Nothing to preview yet';
+
+  @override
+  String get eventHasDescription => 'Has notes';
+
+  @override
+  String get eventDetailsTitle => 'Event';
+
+  @override
+  String get eventDetailsNextOccurrences => 'Next occurrences';
+
+  @override
+  String get eventDetailsNoOccurrences => 'No upcoming occurrences';
+
+  @override
+  String get eventDetailsNoDescription => 'No notes for this event';
+
+  @override
   String get eventColor => 'Color';
 
   @override

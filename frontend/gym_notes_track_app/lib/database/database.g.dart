@@ -3780,6 +3780,21 @@ class $CalendarEventsTable extends CalendarEvents
     requiredDuringInsert: false,
     defaultValue: const Constant(3),
   );
+  static const VerificationMeta _retroactiveMeta = const VerificationMeta(
+    'retroactive',
+  );
+  @override
+  late final GeneratedColumn<bool> retroactive = GeneratedColumn<bool>(
+    'retroactive',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("retroactive" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -3820,6 +3835,7 @@ class $CalendarEventsTable extends CalendarEvents
     colorValue,
     tintIcon,
     priority,
+    retroactive,
     createdAt,
     updatedAt,
   ];
@@ -3950,6 +3966,15 @@ class $CalendarEventsTable extends CalendarEvents
         priority.isAcceptableOrUnknown(data['priority']!, _priorityMeta),
       );
     }
+    if (data.containsKey('retroactive')) {
+      context.handle(
+        _retroactiveMeta,
+        retroactive.isAcceptableOrUnknown(
+          data['retroactive']!,
+          _retroactiveMeta,
+        ),
+      );
+    }
     if (data.containsKey('created_at')) {
       context.handle(
         _createdAtMeta,
@@ -4039,6 +4064,10 @@ class $CalendarEventsTable extends CalendarEvents
         DriftSqlType.int,
         data['${effectivePrefix}priority'],
       )!,
+      retroactive: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}retroactive'],
+      )!,
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -4074,6 +4103,7 @@ class CalendarEventRow extends DataClass
   final int? colorValue;
   final bool tintIcon;
   final int priority;
+  final bool retroactive;
   final DateTime createdAt;
   final DateTime updatedAt;
   const CalendarEventRow({
@@ -4093,6 +4123,7 @@ class CalendarEventRow extends DataClass
     this.colorValue,
     required this.tintIcon,
     required this.priority,
+    required this.retroactive,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -4131,6 +4162,7 @@ class CalendarEventRow extends DataClass
     }
     map['tint_icon'] = Variable<bool>(tintIcon);
     map['priority'] = Variable<int>(priority);
+    map['retroactive'] = Variable<bool>(retroactive);
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
     return map;
@@ -4170,6 +4202,7 @@ class CalendarEventRow extends DataClass
           : Value(colorValue),
       tintIcon: Value(tintIcon),
       priority: Value(priority),
+      retroactive: Value(retroactive),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
     );
@@ -4197,6 +4230,7 @@ class CalendarEventRow extends DataClass
       colorValue: serializer.fromJson<int?>(json['colorValue']),
       tintIcon: serializer.fromJson<bool>(json['tintIcon']),
       priority: serializer.fromJson<int>(json['priority']),
+      retroactive: serializer.fromJson<bool>(json['retroactive']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
     );
@@ -4221,6 +4255,7 @@ class CalendarEventRow extends DataClass
       'colorValue': serializer.toJson<int?>(colorValue),
       'tintIcon': serializer.toJson<bool>(tintIcon),
       'priority': serializer.toJson<int>(priority),
+      'retroactive': serializer.toJson<bool>(retroactive),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
     };
@@ -4243,6 +4278,7 @@ class CalendarEventRow extends DataClass
     Value<int?> colorValue = const Value.absent(),
     bool? tintIcon,
     int? priority,
+    bool? retroactive,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) => CalendarEventRow(
@@ -4264,6 +4300,7 @@ class CalendarEventRow extends DataClass
     colorValue: colorValue.present ? colorValue.value : this.colorValue,
     tintIcon: tintIcon ?? this.tintIcon,
     priority: priority ?? this.priority,
+    retroactive: retroactive ?? this.retroactive,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
   );
@@ -4295,6 +4332,9 @@ class CalendarEventRow extends DataClass
           : this.colorValue,
       tintIcon: data.tintIcon.present ? data.tintIcon.value : this.tintIcon,
       priority: data.priority.present ? data.priority.value : this.priority,
+      retroactive: data.retroactive.present
+          ? data.retroactive.value
+          : this.retroactive,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
     );
@@ -4319,6 +4359,7 @@ class CalendarEventRow extends DataClass
           ..write('colorValue: $colorValue, ')
           ..write('tintIcon: $tintIcon, ')
           ..write('priority: $priority, ')
+          ..write('retroactive: $retroactive, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
@@ -4343,6 +4384,7 @@ class CalendarEventRow extends DataClass
     colorValue,
     tintIcon,
     priority,
+    retroactive,
     createdAt,
     updatedAt,
   );
@@ -4366,6 +4408,7 @@ class CalendarEventRow extends DataClass
           other.colorValue == this.colorValue &&
           other.tintIcon == this.tintIcon &&
           other.priority == this.priority &&
+          other.retroactive == this.retroactive &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt);
 }
@@ -4387,6 +4430,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
   final Value<int?> colorValue;
   final Value<bool> tintIcon;
   final Value<int> priority;
+  final Value<bool> retroactive;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   final Value<int> rowid;
@@ -4407,6 +4451,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     this.colorValue = const Value.absent(),
     this.tintIcon = const Value.absent(),
     this.priority = const Value.absent(),
+    this.retroactive = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -4428,6 +4473,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     this.colorValue = const Value.absent(),
     this.tintIcon = const Value.absent(),
     this.priority = const Value.absent(),
+    this.retroactive = const Value.absent(),
     required DateTime createdAt,
     required DateTime updatedAt,
     this.rowid = const Value.absent(),
@@ -4455,6 +4501,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     Expression<int>? colorValue,
     Expression<bool>? tintIcon,
     Expression<int>? priority,
+    Expression<bool>? retroactive,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
     Expression<int>? rowid,
@@ -4476,6 +4523,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
       if (colorValue != null) 'color_value': colorValue,
       if (tintIcon != null) 'tint_icon': tintIcon,
       if (priority != null) 'priority': priority,
+      if (retroactive != null) 'retroactive': retroactive,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (rowid != null) 'rowid': rowid,
@@ -4499,6 +4547,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     Value<int?>? colorValue,
     Value<bool>? tintIcon,
     Value<int>? priority,
+    Value<bool>? retroactive,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
     Value<int>? rowid,
@@ -4520,6 +4569,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
       colorValue: colorValue ?? this.colorValue,
       tintIcon: tintIcon ?? this.tintIcon,
       priority: priority ?? this.priority,
+      retroactive: retroactive ?? this.retroactive,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       rowid: rowid ?? this.rowid,
@@ -4577,6 +4627,9 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     if (priority.present) {
       map['priority'] = Variable<int>(priority.value);
     }
+    if (retroactive.present) {
+      map['retroactive'] = Variable<bool>(retroactive.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -4608,6 +4661,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
           ..write('colorValue: $colorValue, ')
           ..write('tintIcon: $tintIcon, ')
           ..write('priority: $priority, ')
+          ..write('retroactive: $retroactive, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('rowid: $rowid')
@@ -7395,6 +7449,7 @@ typedef $$CalendarEventsTableCreateCompanionBuilder =
       Value<int?> colorValue,
       Value<bool> tintIcon,
       Value<int> priority,
+      Value<bool> retroactive,
       required DateTime createdAt,
       required DateTime updatedAt,
       Value<int> rowid,
@@ -7417,6 +7472,7 @@ typedef $$CalendarEventsTableUpdateCompanionBuilder =
       Value<int?> colorValue,
       Value<bool> tintIcon,
       Value<int> priority,
+      Value<bool> retroactive,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
       Value<int> rowid,
@@ -7508,6 +7564,11 @@ class $$CalendarEventsTableFilterComposer
 
   ColumnFilters<int> get priority => $composableBuilder(
     column: $table.priority,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get retroactive => $composableBuilder(
+    column: $table.retroactive,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -7611,6 +7672,11 @@ class $$CalendarEventsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<bool> get retroactive => $composableBuilder(
+    column: $table.retroactive,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -7689,6 +7755,11 @@ class $$CalendarEventsTableAnnotationComposer
   GeneratedColumn<int> get priority =>
       $composableBuilder(column: $table.priority, builder: (column) => column);
 
+  GeneratedColumn<bool> get retroactive => $composableBuilder(
+    column: $table.retroactive,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
 
@@ -7749,6 +7820,7 @@ class $$CalendarEventsTableTableManager
                 Value<int?> colorValue = const Value.absent(),
                 Value<bool> tintIcon = const Value.absent(),
                 Value<int> priority = const Value.absent(),
+                Value<bool> retroactive = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
@@ -7769,6 +7841,7 @@ class $$CalendarEventsTableTableManager
                 colorValue: colorValue,
                 tintIcon: tintIcon,
                 priority: priority,
+                retroactive: retroactive,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 rowid: rowid,
@@ -7791,6 +7864,7 @@ class $$CalendarEventsTableTableManager
                 Value<int?> colorValue = const Value.absent(),
                 Value<bool> tintIcon = const Value.absent(),
                 Value<int> priority = const Value.absent(),
+                Value<bool> retroactive = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime updatedAt,
                 Value<int> rowid = const Value.absent(),
@@ -7811,6 +7885,7 @@ class $$CalendarEventsTableTableManager
                 colorValue: colorValue,
                 tintIcon: tintIcon,
                 priority: priority,
+                retroactive: retroactive,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 rowid: rowid,

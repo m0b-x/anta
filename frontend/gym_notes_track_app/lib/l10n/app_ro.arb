@@ -142,6 +142,36 @@
   "eventUntilLabel": "Se termină pe",
   "eventUntilNone": "Nu se termină niciodată",
   "eventUntilHint": "Atinge pentru a seta o dată de final",
+  "recurrenceScopeLabel": "Apariții",
+  "recurrenceScopeFromStart": "De la această dată",
+  "recurrenceScopeAlways": "Întotdeauna",
+  "recurrenceScopeEveryYear": "În fiecare an",
+  "recurrenceScopeHint": "Apare și în zilele potrivite dinaintea datei de început",
+  "recurrenceScopeAlwaysSuffix": "{rule} · și înainte",
+  "@recurrenceScopeAlwaysSuffix": {
+    "placeholders": {
+      "rule": { "type": "String" }
+    }
+  },
+  "datePickerSingleTitle": "Alege o dată",
+  "datePickerMultiTitle": "Alege datele",
+  "datePickerSelectedCount": "{count, plural, =0{Nicio dată aleasă} =1{1 dată aleasă} other{{count} date alese}}",
+  "@datePickerSelectedCount": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "datePickerClear": "Golește",
+  "datePickerToday": "Azi",
+  "datePickerBusyDay": "Are deja evenimente",
+  "eventDescriptionPreviewOn": "Arată descrierea randată",
+  "eventDescriptionPreviewOff": "Editează descrierea",
+  "eventDescriptionEmpty": "Nimic de afișat încă",
+  "eventHasDescription": "Are notițe",
+  "eventDetailsTitle": "Eveniment",
+  "eventDetailsNextOccurrences": "Următoarele apariții",
+  "eventDetailsNoOccurrences": "Nicio apariție viitoare",
+  "eventDetailsNoDescription": "Fără notițe pentru acest eveniment",
   "eventColor": "Culoare",
   "eventColorCustomTitle": "Culoare personalizată",
   "select": "Selectează",

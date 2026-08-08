@@ -110,6 +110,11 @@ abstract final class IcsSerializer {
   /// matters for `BYDAY` rules: a weekly Mon/Wed event created on a Saturday
   /// would otherwise hand consumers a `DTSTART` that the `RRULE` does not
   /// produce, and interval phase would drift by a week.
+  ///
+  /// Deliberately queries the rule **without** `retroactive`: RFC 5545 has no
+  /// way to express occurrences before `DTSTART`, so a retroactive event
+  /// exports forward-only from its start date rather than emitting something
+  /// no consumer could represent.
   static DateTime? _firstOccurrenceOf(CalendarEvent event, DateTime anchor) {
     final end = event.endDate == null ? null : _dateOnly(event.endDate!);
     for (var i = 0; i < _firstOccurrenceSearchDays; i++) {

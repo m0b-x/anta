@@ -73,6 +73,15 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         state == AppLifecycleState.detached) {
       getIt<CounterService>().flush();
     }
+    // Close the input connection before the OS suspends us. Android can
+    // pause the activity mid keyboard inset-animation, and the bottom
+    // view inset then stays stuck at the keyboard height on the next
+    // resume — the app comes back with a phantom empty strip under the
+    // note toolbar. Dismissing the IME while the window is still live
+    // lets that animation finish and leaves nothing focused on resume.
+    if (state == AppLifecycleState.paused) {
+      FocusManager.instance.primaryFocus?.unfocus();
+    }
   }
 
   Future<void> _checkOnboarding() async {

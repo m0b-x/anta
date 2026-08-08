@@ -18,6 +18,10 @@ import 'package:drift/drift.dart';
 /// resolved from the note at navigation time, so only the id is stored —
 /// the link survives the note being moved between folders.
 ///
+/// [retroactive] (added in schema v19) lifts the recurrence engine's
+/// pre-start guard: when set, the rule also produces occurrences before
+/// [startDate]. Defaults to 0, which is exactly the pre-v19 behaviour.
+///
 /// [colorValue] / [tintIcon] / [priority] (added in schema v16) drive
 /// per-event presentation. [colorValue] is an optional 32-bit ARGB override
 /// (NULL = use the category color); [tintIcon] decides whether that color
@@ -41,6 +45,7 @@ class CalendarEvents extends Table {
   IntColumn get colorValue => integer().nullable()();
   BoolColumn get tintIcon => boolean().withDefault(const Constant(true))();
   IntColumn get priority => integer().withDefault(const Constant(3))();
+  BoolColumn get retroactive => boolean().withDefault(const Constant(false))();
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
 

@@ -7,7 +7,7 @@ description: Rules and file map for the calendar/events subsystem in Gym Notes -
 
 Read [docs/calendar-events-feature.md](../../../docs/calendar-events-feature.md) — the deep, implementation-aware reference for this subsystem (domain model, recurrence semantics, persistence, editor layout). This skill lists the hard rules and the change-set recipes; the doc has the details.
 
-Schema lineage: v10 calendar tables → v11 `end_date` + time-of-day → v12 `description` → v13 holiday profiles → v14 `note_id` event↔note link → v15 data-driven `calendar_categories` → v16 `color_value`/`tint_icon`/`priority` → v17 `suppressed` holidays → v18 **priority scale inverted** (data-only `p -> 6 - p`; backup version bumped to 7, older backups flip priorities on import). The recurrence **interval** rides inside `rule_payload` JSON with no migration — keep it that way (write only when `> 1`, decode with clamped fallback to `1`; never add an `interval` column).
+Schema lineage: v10 calendar tables → v11 `end_date` + time-of-day → v12 `description` → v13 holiday profiles → v14 `note_id` event↔note link → v15 data-driven `calendar_categories` → v16 `color_value`/`tint_icon`/`priority` → v17 `suppressed` holidays → v18 **priority scale inverted** (data-only `p -> 6 - p`; backup version bumped to 7, older backups flip priorities on import) → v19 `retroactive` (additive, default 0 — **no** backup bump; old backups import as forward-only, which is what they were). The recurrence **interval** rides inside `rule_payload` JSON with no migration — keep it that way (write only when `> 1`, decode with clamped fallback to `1`; never add an `interval` column).
 
 ## Hard rules
 
@@ -26,6 +26,14 @@ Schema lineage: v10 calendar tables → v11 `end_date` + time-of-day → v12 `de
 - Agenda text search folds through the note search's `normalizeForSearch` (case + diacritics) — never `toLowerCase().contains`.
 - `.ics` export goes `IcsSerializer` → `ImportExportService.exportCalendar` → `ExportCalendarRequested`; do not add an `ics` `ExportFormat` variant (it would appear in note-format pickers).
 
+## Descriptions, pickers, detail sheet (v19 surfaces)
+
+- Event descriptions are **raw markdown source**, rendered on demand — never pre-rendered, never a derived column. Rows (`DaySummaryPanel`, `AgendaListView` — both fed by `EventSummaryProvider`, keep it that way) use `MarkdownInlineText`: same `LineBasedMarkdownBuilder`, `flattenHeadings: true`, blank lines dropped, ≤3 lines, clamped to 2 with an ellipsis. **All tap callbacks must stay null** there — that is what stops the builder allocating `TapGestureRecognizer`s and makes the memo-cached spans inert. Full fidelity (`SimpleMarkdownPreview`) only in the editor preview toggle and the detail sheet.
+- **Money is always disabled in descriptions** (`MoneyDisplayConfig.disabled`) — the ledger is per note, so a `$+ 50` row would compute a balance from nothing.
+- Date entry goes through `CalendarDatePickerSheet.pickSingle` / `.pickMulti` — never `showDatePicker`. It renders with `CalendarDayCell`/`CalendarDayBars` and takes an optional `dayLoad` fed by `CalendarBloc.eventsForDay` (memoized O(1) — never a fresh query). `pickMulti` is intentionally semantics-free (set in, set out) so it can later serve skip-dates; it never returns empty. `_setOneTimeDates` stays the single funnel that re-derives the anchor. Its enum is `CalendarDatePickerMode`, **not** `DatePickerMode` — material.dart exports that name and a collision makes any file importing both fail.
+- `CalendarAppearance` and the colour palette are **passed down from `CalendarPage`** (page → editor sheet → picker; page → bottom panel → rows), never re-read in the leaf. `getCalendarAppearance()` is seven sequential settings reads and resolving it after first frame visibly re-lays-out the grid; the page also already refreshes both on settings return, so a leaf-local load would go stale.
+- Day-panel **and timeline** row taps open the read-only `EventDetailSheet` (`onShowEvent`), which returns an `EventDetailAction`; the page routes edit/open-note. Both render the same day, so they must agree. The agenda keeps tap = jump-to-day, pencil = edit.
+
 ## Event editor sheet (`lib/widgets/event_editor_sheet.dart`)
 
 - `FractionallySizedBox(heightFactor: 0.92)`; **inline header row** `close | centered title | FilledButton(Save)` — never a bottom action bar with dividers. Delete (when editing) lives at the bottom of the scrollable body.
@@ -35,7 +43,9 @@ Schema lineage: v10 calendar tables → v11 `end_date` + time-of-day → v12 `de
 
 ## Recurrence semantics (keep consistent)
 
-One-time = start only. Daily/weekly/monthly/yearly carry `interval` (weekly uses a fixed Monday-aligned week grid, `_weekEpoch = 2000-01-03`); short months and non-leap Feb 29 are silently skipped. Workdays = Mon–Fri AND not a public holiday (semantic — do not relax). Weekends = Sat–Sun. Holidays-only = `PublicHolidays.isHoliday(day)`. Every rule guards `day.isBefore(start)` first; `endDate` is enforced at the model layer in `occursOn`.
+One-time = start only. Daily/weekly/monthly/yearly carry `interval` (weekly uses a fixed Monday-aligned week grid, `_weekEpoch = 2000-01-03`); short months and non-leap Feb 29 are silently skipped. Workdays = Mon–Fri AND not a public holiday (semantic — do not relax). Weekends = Sat–Sun. Holidays-only = `PublicHolidays.isHoliday(day)`. `endDate` is enforced at the model layer in `occursOn`.
+
+Every rule guards `day.isBefore(start)` first **unless the event is `retroactive`** (v19): `occursOn(day, start, {retroactive})` and each guard is the shared `_beforeStart(day, start, retroactive)`. The flag lives on `CalendarEvent`, is written as `recurring && _retroactive` (an exact-membership rule can never carry it — `supportsRetroactive` is false for one-time/specific-dates, which is what hides the editor chips), and `endDate` still clamps the forward side. **Never** implement it by back-projecting the anchor instead: rebuilding a day-31 or Feb-29 `start` in a shorter month rolls over and corrupts the phase. The guard is safe because Dart's `%` is Euclidean and `_weekIndex` floors toward −∞. `.ics` export queries the rules *without* the flag on purpose (RFC 5545 has no pre-`DTSTART` occurrences).
 
 ## Change-set recipes
 
