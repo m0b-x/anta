@@ -217,16 +217,27 @@ Scope rules and interactions:
 of a periodic rule carries a count label derived from the start date, shaped
 by `CalendarEvent.countStyle` (`OccurrenceCountStyle`):
 
-- **`numbered`** (default) — "Day 1" / "Week 3" / "Year 2": elapsed + 1 in
+- **`numbered`** (default below yearly) — "Day 1" / "Week 3": elapsed + 1 in
   the rule's calendar unit, so **the start day is the first**. Numbering is
   calendar-based, not sequence-based: an every-2-days rule reads "Day 1,
   Day 3, Day 5" and a Mon/Wed/Fri weekly rule labels all three sessions of
   a week "Week N" — the training-program reading. Pre-start (retroactive)
   days show nothing.
-- **`elapsed`** — "30 years" / "6 months": time since the start date. The
-  birthday/anniversary style: birth date as start + "Always" scope + count
-  = each occurrence shows the age; the start day itself deliberately shows
-  nothing (there is no "0 years").
+- **`elapsed`** (default for yearly) — "30 years" / "6 months": time since
+  the start date. The birthday/anniversary style: birth date as start +
+  "Always" scope + count = each occurrence shows the age; the start day
+  itself deliberately shows nothing (there is no "0 years").
+
+The default is **frequency-dependent** (`_defaultCountStyleFor`), and that
+matters: a yearly counted event is an anniversary, and numbering one is off
+by one against how everyone reads a birthday — someone born in 2000 has
+their 27th *occurrence* in 2026 but turns 26, so "Year 27" reads as a bug
+even though it counts correctly. The editor tracks whether the user has
+actually tapped a style chip (`_countStyleTouched`); until they have, the
+style re-resolves when the frequency changes — the same "only re-anchor an
+implicit default" rule `_pickDate` applies to the weekday set. A saved event
+that was already counting is treated as an explicit choice and never
+rewritten.
 
 Mechanics:
 
@@ -558,7 +569,7 @@ same shape as the agenda search field in `CalendarBottomPanel`.
 | `note_id`           | TEXT     | YES  | **v14**. Optional link to a workout note (`notes.id`).               |
 | `retroactive`       | INTEGER  | NN   | **v19**. Boolean, default 0. Lifts the rule's pre-start guard (§3.3).|
 | `count_occurrences` | INTEGER  | NN   | **v20**. Boolean, default 0. Occurrences carry a count label (§3.4). |
-| `count_style`       | TEXT     | NN   | **v21**. `numbered` (default) / `elapsed` — the label shape (§3.4).  |
+| `count_style`       | TEXT     | NN   | **v21**. `numbered` / `elapsed` — label shape; column default `numbered`, editor default is frequency-dependent (§3.4). |
 | `created_at`        | INTEGER  | NN   | Epoch ms (UTC).                                                      |
 | `updated_at`        | INTEGER  | NN   | Epoch ms (UTC).                                                      |
 

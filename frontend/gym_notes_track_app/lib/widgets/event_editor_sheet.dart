@@ -147,6 +147,27 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   /// the first) or elapsed ("30 years", the birthday/anniversary style).
   OccurrenceCountStyle _countStyle = OccurrenceCountStyle.numbered;
 
+  /// Whether the user has explicitly picked a count style here. Until they
+  /// do, the style follows the frequency's natural default and re-resolves
+  /// when the frequency changes — the same "only re-anchor an implicit
+  /// default" rule [_pickDate] applies to the weekday set.
+  bool _countStyleTouched = false;
+
+  /// Natural count style for [kind].
+  ///
+  /// Yearly is **elapsed**: a yearly counted event is an anniversary, and an
+  /// anniversary is measured in elapsed time. Numbering it instead is off by
+  /// one against how everyone reads a birthday — someone born in 2000 has
+  /// their 27th *occurrence* in 2026, but they turn 26, so "Year 27" reads
+  /// as a mistake even though it counts correctly. Shorter cadences keep
+  /// numbering, where "Day 1 / Week 3" is exactly the training-program
+  /// reading people want.
+  static OccurrenceCountStyle _defaultCountStyleFor(_RecurrenceKind kind) {
+    return kind == _RecurrenceKind.yearly
+        ? OccurrenceCountStyle.elapsed
+        : OccurrenceCountStyle.numbered;
+  }
+
   /// Time-of-day state. The trio is the editor's working copy of the
   /// model's [EventTime]; it's serialized back into one on save.
   ///
@@ -216,8 +237,14 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     _priority = initial?.priority ?? kDefaultEventPriority;
     _retroactive = initial?.retroactive ?? false;
     _countOccurrences = initial?.countOccurrences ?? false;
-    _countStyle = initial?.countStyle ?? OccurrenceCountStyle.numbered;
     _initRecurrenceFrom(initial?.rule ?? const OneTimeRecurrence());
+    // Only a saved event that was actually counting carries a style the user
+    // can be said to have chosen; otherwise the persisted value is just the
+    // column default and the frequency should pick it.
+    _countStyleTouched = initial != null && initial.countOccurrences;
+    _countStyle = _countStyleTouched
+        ? initial!.countStyle
+        : _defaultCountStyleFor(_kind);
     if (_noteId != null) _loadLinkedNoteTitle();
     _loadRecentColors();
   }
@@ -580,11 +607,13 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
         _mode = _RepeatMode.recurring;
         _kind = _RecurrenceKind.yearly;
         // Birthdays are the canonical occurrence-count use: with the birth
-        // date as start, every occurrence shows the age — which is the
-        // elapsed style, not the numbered default. Pre-filled only on the
-        // same fresh-event path as the yearly rule above.
+        // date as start, every occurrence shows the age. Pre-filled only on
+        // the same fresh-event path as the yearly rule above; the style
+        // follows yearly's default unless the user already chose one.
         _countOccurrences = true;
-        _countStyle = OccurrenceCountStyle.elapsed;
+        if (!_countStyleTouched) {
+          _countStyle = _defaultCountStyleFor(_RecurrenceKind.yearly);
+        }
       }
     });
   }
@@ -992,7 +1021,12 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                           ChoiceChip(
                             label: Text(_kindLabel(l10n, k)),
                             selected: _kind == k,
-                            onSelected: (_) => setState(() => _kind = k),
+                            onSelected: (_) => setState(() {
+                              _kind = k;
+                              if (!_countStyleTouched) {
+                                _countStyle = _defaultCountStyleFor(k);
+                              }
+                            }),
                           ),
                       ],
                     ),
@@ -1089,8 +1123,10 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                               ChoiceChip(
                                 label: Text(_countStyleLabel(l10n, style)),
                                 selected: _countStyle == style,
-                                onSelected: (_) =>
-                                    setState(() => _countStyle = style),
+                                onSelected: (_) => setState(() {
+                                  _countStyle = style;
+                                  _countStyleTouched = true;
+                                }),
                               ),
                           ],
                         ),
