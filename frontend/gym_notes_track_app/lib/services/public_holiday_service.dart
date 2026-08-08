@@ -5,6 +5,7 @@ import '../constants/settings_keys.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
 import '../database/daos/public_holiday_dao.dart';
+import '../utils/liturgical_computus.dart';
 
 /// Loads and seeds the `public_holidays` table, exposes a synchronous
 /// in-memory cache used by [PublicHolidays.isHoliday]/[PublicHolidays.holidayOn].
@@ -409,61 +410,13 @@ class PublicHolidayService {
     return last.subtract(Duration(days: offset));
   }
 
-  /// Sunday in the Gregorian calendar for [year] as a date-only UTC
-  /// `DateTime`.
-  static DateTime _easterSundayGregorian(int year) {
-    final a = year % 19;
-    final b = year ~/ 100;
-    final c = year % 100;
-    final d = b ~/ 4;
-    final e = b % 4;
-    final f = (b + 8) ~/ 25;
-    final g = (b - f + 1) ~/ 3;
-    final h = (19 * a + b - d - g + 15) % 30;
-    final i = c ~/ 4;
-    final k = c % 4;
-    final l = (32 + 2 * e + 2 * i - h - k) % 7;
-    final m = (a + 11 * h + 22 * l) ~/ 451;
-    final month = (h + l - 7 * m + 114) ~/ 31;
-    final day = ((h + l - 7 * m + 114) % 31) + 1;
-    return DateTime.utc(year, month, day);
-  }
+  /// Easter computus lives in [LiturgicalComputus] (shared with the
+  /// fasting engine); these wrappers keep the seed builders' call sites.
+  static DateTime _easterSundayGregorian(int year) =>
+      LiturgicalComputus.easterSundayGregorian(year);
 
-  /// Returns Eastern Orthodox Easter Sunday for [year] in the proleptic
-  /// Gregorian calendar.
-  ///
-  /// Uses the Meeus Julian algorithm to compute the date in the Julian
-  /// calendar, then adds the Julian → Gregorian offset for that year.
-  /// The offset is **13 days for the entire 1900–2099 window** (year 2000
-  /// is a Gregorian leap year, so the expected jump at the 2000 century
-  /// boundary does not happen). It increments by 1 at every non-leap
-  /// century boundary thereafter (2100, 2200, 2300; 2400 is leap so no
-  /// jump).
-  static DateTime _easterSundayOrthodox(int year) {
-    final a = year % 4;
-    final b = year % 7;
-    final c = year % 19;
-    final d = (19 * c + 15) % 30;
-    final e = (2 * a + 4 * b - d + 34) % 7;
-    final julianMonth = (d + e + 114) ~/ 31;
-    final julianDay = ((d + e + 114) % 31) + 1;
-    final julianDate = DateTime.utc(year, julianMonth, julianDay);
-    return julianDate.add(Duration(days: _julianToGregorianOffset(year)));
-  }
-
-  /// Days by which the Julian calendar lags the Gregorian calendar in
-  /// the given Gregorian [year]. Constant 13 across 1900–2099. Past 2099
-  /// it increments at every non-leap century boundary; we extend the
-  /// formula symbolically so we never have to revisit this code, even if
-  /// the seed window stretches into the 22nd century.
-  static int _julianToGregorianOffset(int year) {
-    if (year < 1900) return 13; // pre-1900 callers fall outside our domain
-    var offset = 13;
-    for (var c = 21; c <= year ~/ 100; c++) {
-      if (c % 4 != 0) offset += 1;
-    }
-    return offset;
-  }
+  static DateTime _easterSundayOrthodox(int year) =>
+      LiturgicalComputus.easterSundayOrthodox(year);
 
   static final Map<String, PublicHoliday> _nameToHoliday = {
     for (final v in PublicHoliday.values) v.name: v,

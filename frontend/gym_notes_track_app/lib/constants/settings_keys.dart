@@ -121,6 +121,30 @@ class SettingsKeys {
   /// upcoming). Parsed with a forward-compatible fallback.
   static const String calendarPanelMode = 'calendar_panel_mode';
 
+  /// CSV of enabled [FastingTradition] names ('' or absent = fasting off).
+  /// Unknown names are dropped on read for forward compatibility.
+  static const String calendarFastingTraditions = 'calendar_fasting_traditions';
+
+  /// Retired single global [FastingDisplayStyle]; still **read** as the seed
+  /// for [calendarFastingAppearance] when the latter is absent, so an
+  /// install that only ever had the global style keeps its look.
+  static const String calendarFastingStyle = 'calendar_fasting_style';
+
+  /// Per-tradition fasting look & feel, encoded by `FastingAppearance`
+  /// (`tradition:style|argb|iconKey|placement;…`). Unknown traditions and
+  /// malformed fields degrade to defaults on read.
+  static const String calendarFastingAppearance =
+      'calendar_fasting_appearance';
+
+  /// Whether the Orthodox multi-day fasts (plus strict single days and
+  /// Cheesefare) are computed, or only the weekly fast days.
+  static const String calendarFastingOrthodoxGreatFasts =
+      'calendar_fasting_orthodox_great_fasts';
+
+  /// CSV of `DateTime.weekday` ints (1=Mon..7=Sun) for the weekly fast.
+  /// Absent = the traditional Wednesday+Friday; '' = user cleared them all.
+  static const String calendarFastingWeekdays = 'calendar_fasting_weekdays';
+
   // Last navigation location (restored on next app launch)
   static const String lastFolderId = 'last_folder_id';
   static const String lastFolderTitle = 'last_folder_title';
@@ -182,7 +206,7 @@ class SettingsKeys {
   static const String defaultCalendarTodayStyle = 'tonal';
   static const String defaultCalendarMarkerStyle = 'bars';
   static const String defaultCalendarWeekStart = 'monday';
-  static const bool defaultCalendarHighlightWeekends = true;
+  static const bool defaultCalendarHighlightWeekends = false;
   static const bool defaultCalendarShowWeekNumbers = false;
 
   /// Default look-ahead window of the upcoming events sheet, in days.

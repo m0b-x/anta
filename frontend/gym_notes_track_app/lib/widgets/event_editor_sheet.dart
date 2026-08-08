@@ -817,20 +817,14 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  TextField(
-                    controller: _titleController,
-                    autofocus: !_isEditing,
-                    maxLength: 120,
-                    textInputAction: TextInputAction.done,
-                    decoration: InputDecoration(
-                      labelText: l10n.eventTitle,
-                      border: const OutlineInputBorder(),
-                    ),
-                    onChanged: (_) => setState(() {}),
-                  ),
+                  // Category-first: what kind of event this is comes before
+                  // everything else — picking a category tailors the rest
+                  // (the birthday built-in pre-fills yearly recurrence). No
+                  // autofocus on the title for the same reason: a keyboard
+                  // popping up would bury the category tile the flow starts
+                  // with.
+                  _GroupHeader(text: l10n.eventSectionWhat),
                   const SizedBox(height: 8),
-                  _buildDescriptionField(context, l10n, theme),
-                  _SectionLabel(text: l10n.eventType),
                   _PickerTile(
                     leading: CircleAvatar(
                       backgroundColor: categoryColor.withValues(alpha: 0.18),
@@ -844,146 +838,18 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                     subtitle: l10n.pickCategory,
                     onTap: _pickCategory,
                   ),
-                  _SectionLabel(text: l10n.iconLabel),
-                  _PickerTile(
-                    leading: CircleAvatar(
-                      backgroundColor: categoryColor.withValues(alpha: 0.18),
-                      foregroundColor: categoryColor,
-                      child: Icon(
-                        CalendarIcons.forKey(_iconKey) ??
-                            CalendarIcons.forKey(category.iconKey) ??
-                            Icons.event_rounded,
-                      ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _titleController,
+                    maxLength: 120,
+                    textInputAction: TextInputAction.done,
+                    decoration: InputDecoration(
+                      labelText: l10n.eventTitle,
+                      border: const OutlineInputBorder(),
                     ),
-                    title: _iconKey == null
-                        ? l10n.iconDefault
-                        : l10n.iconCustom,
-                    subtitle: l10n.pickIcon,
-                    trailing: _iconKey == null
-                        ? const Icon(Icons.chevron_right_rounded)
-                        : IconButton(
-                            tooltip: l10n.resetToDefault,
-                            icon: const Icon(Icons.refresh_rounded),
-                            onPressed: () => setState(() => _iconKey = null),
-                          ),
-                    onTap: _pickIcon,
+                    onChanged: (_) => setState(() {}),
                   ),
-                  _SectionLabel(text: l10n.eventColor),
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: [
-                      _EventColorDot(
-                        color: categoryColor,
-                        icon:
-                            CalendarIcons.forKey(category.iconKey) ??
-                            Icons.event_rounded,
-                        selected: _colorValue == null,
-                        onTap: () => setState(() => _colorValue = null),
-                      ),
-                      for (final swatch in CalendarColors.swatchPalette)
-                        _EventColorDot(
-                          color: Color(swatch),
-                          selected: _colorValue == swatch,
-                          onTap: () => setState(() => _colorValue = swatch),
-                        ),
-                      for (final c in customColorDots)
-                        _EventColorDot(
-                          color: Color(c),
-                          selected: _colorValue == c,
-                          onTap: () => setState(() => _colorValue = c),
-                        ),
-                      _EventColorDot(
-                        icon: Icons.colorize_rounded,
-                        selected: false,
-                        onTap: _pickCustomColor,
-                      ),
-                    ],
-                  ),
-                  if (_colorValue != null) ...[
-                    const SizedBox(height: 8),
-                    Card(
-                      margin: EdgeInsets.zero,
-                      child: SwitchListTile(
-                        value: _tintIcon,
-                        onChanged: (v) => setState(() => _tintIcon = v),
-                        secondary: const CircleAvatar(
-                          child: Icon(Icons.brush_rounded),
-                        ),
-                        title: Text(l10n.eventTintIcon),
-                        subtitle: Text(l10n.eventTintIconHint),
-                      ),
-                    ),
-                  ],
-                  _SectionLabel(text: l10n.eventPriority),
-                  // One chip per level, P1 (highest) first. Chips replaced
-                  // the numeric stepper when the scale flipped to
-                  // 1-is-highest: a "+" that lowers priority (or raises the
-                  // number while the label says Higher) cannot be made
-                  // unambiguous, while a labeled, iconed chip can.
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (
-                        var p = kMinEventPriority;
-                        p <= kMaxEventPriority;
-                        p++
-                      )
-                        ChoiceChip(
-                          avatar: Icon(EventPriorities.iconFor(p), size: 18),
-                          label: Text(EventPriorities.labelOf(p, l10n)),
-                          visualDensity: VisualDensity.compact,
-                          selected: _priority == p,
-                          onSelected: (selected) {
-                            if (selected) setState(() => _priority = p);
-                          },
-                        ),
-                    ],
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Text(
-                      l10n.eventPriorityHint,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ),
-                  _SectionLabel(text: l10n.eventLinkedNote),
-                  _PickerTile(
-                    leading: CircleAvatar(
-                      backgroundColor: _noteMissing
-                          ? theme.colorScheme.errorContainer
-                          : null,
-                      foregroundColor: _noteMissing
-                          ? theme.colorScheme.onErrorContainer
-                          : null,
-                      child: Icon(
-                        _noteId == null
-                            ? Icons.note_add_outlined
-                            : (_noteMissing
-                                  ? Icons.warning_amber_rounded
-                                  : Icons.sticky_note_2_outlined),
-                      ),
-                    ),
-                    title: _noteId == null
-                        ? l10n.eventLinkNoteHint
-                        : (_noteMissing
-                              ? l10n.eventLinkedNoteMissing
-                              : ((_noteTitle == null || _noteTitle!.isEmpty)
-                                    ? l10n.untitledNote
-                                    : _noteTitle!)),
-                    subtitle: _noteId == null ? null : l10n.selectNote,
-                    trailing: _noteId == null
-                        ? const Icon(Icons.chevron_right_rounded)
-                        : IconButton(
-                            tooltip: l10n.eventRemoveNoteLink,
-                            icon: const Icon(Icons.link_off_rounded),
-                            onPressed: _clearNote,
-                          ),
-                    onTap: _pickNote,
-                  ),
+                  _GroupHeader(text: l10n.eventSectionWhen),
                   if (_mode == _RepeatMode.oneTime) ...[
                     _SectionLabel(text: l10n.eventDatesLabel),
                     Wrap(
@@ -1202,6 +1068,149 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                       onTap: _pickEndDate,
                     ),
                   ],
+                  _GroupHeader(text: l10n.eventSectionDetails),
+                  const SizedBox(height: 8),
+                  _buildDescriptionField(context, l10n, theme),
+                  _SectionLabel(text: l10n.iconLabel),
+                  _PickerTile(
+                    leading: CircleAvatar(
+                      backgroundColor: categoryColor.withValues(alpha: 0.18),
+                      foregroundColor: categoryColor,
+                      child: Icon(
+                        CalendarIcons.forKey(_iconKey) ??
+                            CalendarIcons.forKey(category.iconKey) ??
+                            Icons.event_rounded,
+                      ),
+                    ),
+                    title: _iconKey == null
+                        ? l10n.iconDefault
+                        : l10n.iconCustom,
+                    subtitle: l10n.pickIcon,
+                    trailing: _iconKey == null
+                        ? const Icon(Icons.chevron_right_rounded)
+                        : IconButton(
+                            tooltip: l10n.resetToDefault,
+                            icon: const Icon(Icons.refresh_rounded),
+                            onPressed: () => setState(() => _iconKey = null),
+                          ),
+                    onTap: _pickIcon,
+                  ),
+                  _SectionLabel(text: l10n.eventColor),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      _EventColorDot(
+                        color: categoryColor,
+                        icon:
+                            CalendarIcons.forKey(category.iconKey) ??
+                            Icons.event_rounded,
+                        selected: _colorValue == null,
+                        onTap: () => setState(() => _colorValue = null),
+                      ),
+                      for (final swatch in CalendarColors.swatchPalette)
+                        _EventColorDot(
+                          color: Color(swatch),
+                          selected: _colorValue == swatch,
+                          onTap: () => setState(() => _colorValue = swatch),
+                        ),
+                      for (final c in customColorDots)
+                        _EventColorDot(
+                          color: Color(c),
+                          selected: _colorValue == c,
+                          onTap: () => setState(() => _colorValue = c),
+                        ),
+                      _EventColorDot(
+                        icon: Icons.colorize_rounded,
+                        selected: false,
+                        onTap: _pickCustomColor,
+                      ),
+                    ],
+                  ),
+                  if (_colorValue != null) ...[
+                    const SizedBox(height: 8),
+                    Card(
+                      margin: EdgeInsets.zero,
+                      child: SwitchListTile(
+                        value: _tintIcon,
+                        onChanged: (v) => setState(() => _tintIcon = v),
+                        secondary: const CircleAvatar(
+                          child: Icon(Icons.brush_rounded),
+                        ),
+                        title: Text(l10n.eventTintIcon),
+                        subtitle: Text(l10n.eventTintIconHint),
+                      ),
+                    ),
+                  ],
+                  _SectionLabel(text: l10n.eventPriority),
+                  // One chip per level, P1 (highest) first. Chips replaced
+                  // the numeric stepper when the scale flipped to
+                  // 1-is-highest: a "+" that lowers priority (or raises the
+                  // number while the label says Higher) cannot be made
+                  // unambiguous, while a labeled, iconed chip can.
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (
+                        var p = kMinEventPriority;
+                        p <= kMaxEventPriority;
+                        p++
+                      )
+                        ChoiceChip(
+                          avatar: Icon(EventPriorities.iconFor(p), size: 18),
+                          label: Text(EventPriorities.labelOf(p, l10n)),
+                          visualDensity: VisualDensity.compact,
+                          selected: _priority == p,
+                          onSelected: (selected) {
+                            if (selected) setState(() => _priority = p);
+                          },
+                        ),
+                    ],
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      l10n.eventPriorityHint,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  _SectionLabel(text: l10n.eventLinkedNote),
+                  _PickerTile(
+                    leading: CircleAvatar(
+                      backgroundColor: _noteMissing
+                          ? theme.colorScheme.errorContainer
+                          : null,
+                      foregroundColor: _noteMissing
+                          ? theme.colorScheme.onErrorContainer
+                          : null,
+                      child: Icon(
+                        _noteId == null
+                            ? Icons.note_add_outlined
+                            : (_noteMissing
+                                  ? Icons.warning_amber_rounded
+                                  : Icons.sticky_note_2_outlined),
+                      ),
+                    ),
+                    title: _noteId == null
+                        ? l10n.eventLinkNoteHint
+                        : (_noteMissing
+                              ? l10n.eventLinkedNoteMissing
+                              : ((_noteTitle == null || _noteTitle!.isEmpty)
+                                    ? l10n.untitledNote
+                                    : _noteTitle!)),
+                    subtitle: _noteId == null ? null : l10n.selectNote,
+                    trailing: _noteId == null
+                        ? const Icon(Icons.chevron_right_rounded)
+                        : IconButton(
+                            tooltip: l10n.eventRemoveNoteLink,
+                            icon: const Icon(Icons.link_off_rounded),
+                            onPressed: _clearNote,
+                          ),
+                    onTap: _pickNote,
+                  ),
                   if (_isEditing) ...[
                     const SizedBox(height: 24),
                     FilledButton.icon(
@@ -1219,6 +1228,39 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                 ],
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Accent-colored group divider splitting the editor into its three zones
+/// (what / when / details). One visual level above [_SectionLabel], which
+/// keeps naming the individual fields inside each zone.
+class _GroupHeader extends StatelessWidget {
+  final String text;
+  const _GroupHeader({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = theme.colorScheme.primary;
+    return Padding(
+      padding: const EdgeInsets.only(top: 20),
+      child: Row(
+        children: [
+          Text(
+            text,
+            style: theme.textTheme.titleSmall?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.8,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Divider(color: color.withValues(alpha: 0.25), height: 1),
           ),
         ],
       ),

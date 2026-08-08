@@ -1,6 +1,8 @@
 import 'package:flutter/painting.dart';
 
+import '../constants/fasting_calendar.dart';
 import '../constants/settings_keys.dart';
+import '../models/fasting_appearance.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
 import '../models/calendar_appearance.dart';
@@ -585,6 +587,88 @@ class SettingsService {
     await _db.userSettingsDao.setValue(
       SettingsKeys.calendarPanelMode,
       mode.name,
+    );
+  }
+
+  // Calendar - Enabled religious-fasting traditions (empty set = off).
+  Future<Set<FastingTradition>> getFastingTraditions() async {
+    final raw = await _db.userSettingsDao.getValue(
+      SettingsKeys.calendarFastingTraditions,
+    );
+    if (raw == null || raw.isEmpty) return const {};
+    final traditions = <FastingTradition>{};
+    for (final part in raw.split(',')) {
+      final tradition = FastingTradition.fromName(part.trim());
+      if (tradition != null) traditions.add(tradition);
+    }
+    return traditions;
+  }
+
+  Future<void> setFastingTraditions(Set<FastingTradition> traditions) async {
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.calendarFastingTraditions,
+      traditions.map((t) => t.name).join(','),
+    );
+  }
+
+  /// Per-tradition fasting look & feel. When the appearance key is absent,
+  /// the retired global style key seeds every tradition, so upgrading never
+  /// silently resets someone's chosen look.
+  Future<FastingAppearance> getFastingAppearance() async {
+    final raw = await _db.userSettingsDao.getValue(
+      SettingsKeys.calendarFastingAppearance,
+    );
+    if (raw != null && raw.isNotEmpty) {
+      return FastingAppearance.decode(raw);
+    }
+    final legacy = await _db.userSettingsDao.getValue(
+      SettingsKeys.calendarFastingStyle,
+    );
+    return FastingAppearance.decode(
+      null,
+      fallbackStyle: legacy == null
+          ? null
+          : FastingDisplayStyle.fromName(legacy),
+    );
+  }
+
+  Future<void> setFastingAppearance(FastingAppearance appearance) async {
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.calendarFastingAppearance,
+      appearance.encode(),
+    );
+  }
+
+  Future<bool> getFastingOrthodoxGreatFasts() async {
+    return _getBool(SettingsKeys.calendarFastingOrthodoxGreatFasts, true);
+  }
+
+  Future<void> setFastingOrthodoxGreatFasts(bool value) async {
+    await _setBool(SettingsKeys.calendarFastingOrthodoxGreatFasts, value);
+  }
+
+  // Absent key = the traditional Wednesday+Friday default; an empty string
+  // is a deliberate "no weekly fast", so the two must stay distinguishable.
+  Future<Set<int>> getFastingWeekdays() async {
+    final raw = await _db.userSettingsDao.getValue(
+      SettingsKeys.calendarFastingWeekdays,
+    );
+    if (raw == null) return FastingCalendar.defaultWeekdayFastDays;
+    final days = <int>{};
+    for (final part in raw.split(',')) {
+      final day = int.tryParse(part.trim());
+      if (day != null && day >= DateTime.monday && day <= DateTime.sunday) {
+        days.add(day);
+      }
+    }
+    return days;
+  }
+
+  Future<void> setFastingWeekdays(Set<int> weekdays) async {
+    final sorted = weekdays.toList()..sort();
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.calendarFastingWeekdays,
+      sorted.join(','),
     );
   }
 

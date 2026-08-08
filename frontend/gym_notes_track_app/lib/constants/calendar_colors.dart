@@ -14,6 +14,10 @@ abstract final class CalendarColors {
   static const Color weekend = Color(0xFFB0BEC5); // blue grey 200
   static const Color publicHoliday = Color(0xFFFFB300); // amber 600
 
+  /// Liturgical violet; used for fasting-day rows and the grid's subtle
+  /// fasting tint so both surfaces read as one system.
+  static const Color fasting = Color(0xFF8E24AA); // purple 600
+
   /// Curated swatch palette offered when a user picks an explicit per-event
   /// color override. Stored as 32-bit ARGB ints so they round-trip through
   /// SQLite and backup without any platform `Color` dependency. Mirrors the

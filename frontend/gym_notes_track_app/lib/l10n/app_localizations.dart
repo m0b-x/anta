@@ -1048,6 +1048,372 @@ abstract class AppLocalizations {
   /// **'Choose a year between {first} and {last}'**
   String monthYearPickerRange(String first, String last);
 
+  /// Calendar settings section for computed fasting periods
+  ///
+  /// In en, this message translates to:
+  /// **'Religious fasting'**
+  String get fastingSectionTitle;
+
+  /// Explanatory line under the fasting settings section header
+  ///
+  /// In en, this message translates to:
+  /// **'Computed fasting periods with each day\'s rule, shown on the grid and in the day panel'**
+  String get fastingSectionDesc;
+
+  /// Fasting tradition toggle: Eastern Orthodox
+  ///
+  /// In en, this message translates to:
+  /// **'Orthodox'**
+  String get fastingTraditionOrthodox;
+
+  /// Fasting tradition toggle: Roman Catholic
+  ///
+  /// In en, this message translates to:
+  /// **'Catholic'**
+  String get fastingTraditionCatholic;
+
+  /// Fasting tradition toggle: Islamic
+  ///
+  /// In en, this message translates to:
+  /// **'Muslim'**
+  String get fastingTraditionMuslim;
+
+  /// Fasting tradition toggle: Jewish
+  ///
+  /// In en, this message translates to:
+  /// **'Jewish'**
+  String get fastingTraditionJewish;
+
+  /// Orthodox Easter fast (Postul Pastelui)
+  ///
+  /// In en, this message translates to:
+  /// **'Great Lent'**
+  String get fastingGreatLent;
+
+  /// Orthodox fast before Sts Peter and Paul
+  ///
+  /// In en, this message translates to:
+  /// **'Apostles\' Fast'**
+  String get fastingApostlesFast;
+
+  /// Orthodox fast Aug 1-14
+  ///
+  /// In en, this message translates to:
+  /// **'Dormition Fast'**
+  String get fastingDormitionFast;
+
+  /// Orthodox Christmas fast Nov 15 - Dec 24
+  ///
+  /// In en, this message translates to:
+  /// **'Nativity Fast'**
+  String get fastingNativityFast;
+
+  /// Orthodox year-round fast on Wednesdays and Fridays
+  ///
+  /// In en, this message translates to:
+  /// **'Wednesday/Friday fast'**
+  String get fastingWeekdayFast;
+
+  /// Orthodox week before Lent when dairy is still allowed
+  ///
+  /// In en, this message translates to:
+  /// **'Cheesefare Week'**
+  String get fastingCheesefareWeek;
+
+  /// Orthodox strict fast day on January 5
+  ///
+  /// In en, this message translates to:
+  /// **'Eve of Theophany'**
+  String get fastingEveOfTheophany;
+
+  /// Orthodox strict fast day on August 29
+  ///
+  /// In en, this message translates to:
+  /// **'Beheading of St John'**
+  String get fastingBeheadingOfStJohn;
+
+  /// Orthodox strict fast day on September 14
+  ///
+  /// In en, this message translates to:
+  /// **'Exaltation of the Cross'**
+  String get fastingExaltationOfCross;
+
+  /// Catholic penitential season before Easter
+  ///
+  /// In en, this message translates to:
+  /// **'Lent'**
+  String get fastingLent;
+
+  /// Catholic fast day opening Lent
+  ///
+  /// In en, this message translates to:
+  /// **'Ash Wednesday'**
+  String get fastingAshWednesday;
+
+  /// Catholic fast day before Easter
+  ///
+  /// In en, this message translates to:
+  /// **'Good Friday'**
+  String get fastingGoodFriday;
+
+  /// Catholic year-round Friday abstinence from meat
+  ///
+  /// In en, this message translates to:
+  /// **'Friday abstinence'**
+  String get fastingFridayAbstinence;
+
+  /// Catholic preparation season before Christmas
+  ///
+  /// In en, this message translates to:
+  /// **'Advent'**
+  String get fastingAdvent;
+
+  /// Islamic month of fasting
+  ///
+  /// In en, this message translates to:
+  /// **'Ramadan'**
+  String get fastingRamadan;
+
+  /// Islamic recommended fast on 9 Dhu al-Hijjah
+  ///
+  /// In en, this message translates to:
+  /// **'Day of Arafah'**
+  String get fastingDayOfArafah;
+
+  /// Islamic recommended fast on 10 Muharram
+  ///
+  /// In en, this message translates to:
+  /// **'Ashura'**
+  String get fastingAshura;
+
+  /// Jewish Day of Atonement, a full fast
+  ///
+  /// In en, this message translates to:
+  /// **'Yom Kippur'**
+  String get fastingYomKippur;
+
+  /// Jewish full fast mourning the Temples
+  ///
+  /// In en, this message translates to:
+  /// **'Tisha B\'Av'**
+  String get fastingTishaBAv;
+
+  /// Jewish minor fast on 3 Tishrei
+  ///
+  /// In en, this message translates to:
+  /// **'Fast of Gedaliah'**
+  String get fastingGedaliah;
+
+  /// Jewish minor fast on 10 Tevet
+  ///
+  /// In en, this message translates to:
+  /// **'Tenth of Tevet'**
+  String get fastingTenthOfTevet;
+
+  /// Jewish minor fast on 17 Tammuz
+  ///
+  /// In en, this message translates to:
+  /// **'Seventeenth of Tammuz'**
+  String get fastingSeventeenthOfTammuz;
+
+  /// Jewish minor fast before Purim
+  ///
+  /// In en, this message translates to:
+  /// **'Fast of Esther'**
+  String get fastingEstherFast;
+
+  /// Fasting rule: strict fast, no oil
+  ///
+  /// In en, this message translates to:
+  /// **'Strict fast'**
+  String get fastingRegimeStrict;
+
+  /// Fasting rule: dispensation for wine and oil
+  ///
+  /// In en, this message translates to:
+  /// **'Wine and oil allowed'**
+  String get fastingRegimeOil;
+
+  /// Fasting rule: dispensation for fish
+  ///
+  /// In en, this message translates to:
+  /// **'Fish allowed'**
+  String get fastingRegimeFish;
+
+  /// Fasting rule: dairy and eggs permitted, no meat
+  ///
+  /// In en, this message translates to:
+  /// **'Dairy and eggs allowed'**
+  String get fastingRegimeDairy;
+
+  /// Fasting rule: penitential day without a binding food rule
+  ///
+  /// In en, this message translates to:
+  /// **'Day of penance'**
+  String get fastingRegimePenitential;
+
+  /// Fasting rule: dawn-to-sunset fast (Ramadan, Jewish minor fasts)
+  ///
+  /// In en, this message translates to:
+  /// **'Fast from dawn to sunset'**
+  String get fastingRegimeDaylight;
+
+  /// Fasting rule: complete fast (Yom Kippur, Tisha B'Av)
+  ///
+  /// In en, this message translates to:
+  /// **'Total fast'**
+  String get fastingRegimeFull;
+
+  /// Dropdown choosing how fasting days render on the calendar grid
+  ///
+  /// In en, this message translates to:
+  /// **'Show on the grid'**
+  String get fastingStyleTitle;
+
+  /// Fasting grid style: faint violet cell background
+  ///
+  /// In en, this message translates to:
+  /// **'Subtle tint'**
+  String get fastingStyleTint;
+
+  /// Fasting grid style: a violet bar in the day markers, like events
+  ///
+  /// In en, this message translates to:
+  /// **'Day bar'**
+  String get fastingStyleBar;
+
+  /// Fasting grid style: violet bold day number
+  ///
+  /// In en, this message translates to:
+  /// **'Bold day number'**
+  String get fastingStyleStrong;
+
+  /// Fasting grid style: nothing on the grid, info only in the day panel
+  ///
+  /// In en, this message translates to:
+  /// **'Day panel only'**
+  String get fastingStyleNone;
+
+  /// Toggle for the Orthodox multi-day fasts and strict single days
+  ///
+  /// In en, this message translates to:
+  /// **'Multi-day fasts'**
+  String get fastingOrthodoxGreatFasts;
+
+  /// Subtitle listing what the Orthodox multi-day fasts toggle covers
+  ///
+  /// In en, this message translates to:
+  /// **'Great Lent, Nativity, Apostles\', Dormition, strict single days'**
+  String get fastingOrthodoxGreatFastsDesc;
+
+  /// Label above the weekday chips selecting personal weekly fast days
+  ///
+  /// In en, this message translates to:
+  /// **'Weekly fast days'**
+  String get fastingWeekdayDaysTitle;
+
+  /// Hint under the weekly fast day chips
+  ///
+  /// In en, this message translates to:
+  /// **'Pick the days you keep — many fast only on Wednesday and Friday'**
+  String get fastingWeekdayDaysDesc;
+
+  /// Row opening the per-tradition fasting appearance editor
+  ///
+  /// In en, this message translates to:
+  /// **'Appearance'**
+  String get fastingAppearanceTitle;
+
+  /// Label for the chips choosing where the fasting row sits
+  ///
+  /// In en, this message translates to:
+  /// **'Order in the day panel'**
+  String get fastingPlacementTitle;
+
+  /// Fasting row placement: above everything including events
+  ///
+  /// In en, this message translates to:
+  /// **'First'**
+  String get fastingPlacementFirst;
+
+  /// Fasting row placement: after events, before the public holiday
+  ///
+  /// In en, this message translates to:
+  /// **'After events'**
+  String get fastingPlacementBeforeHolidays;
+
+  /// Fasting row placement: after the public holiday (default)
+  ///
+  /// In en, this message translates to:
+  /// **'After holidays'**
+  String get fastingPlacementAfterHolidays;
+
+  /// Fasting row placement: below everything
+  ///
+  /// In en, this message translates to:
+  /// **'Last'**
+  String get fastingPlacementLast;
+
+  /// Swatch restoring the shared fasting violet
+  ///
+  /// In en, this message translates to:
+  /// **'Default colour'**
+  String get fastingColorDefault;
+
+  /// Shown when a tradition uses its built-in icon
+  ///
+  /// In en, this message translates to:
+  /// **'Default icon'**
+  String get fastingIconDefault;
+
+  /// Label above the live preview of a fasting day row
+  ///
+  /// In en, this message translates to:
+  /// **'Preview'**
+  String get fastingPreviewLabel;
+
+  /// Hint under the fasting row placement chips
+  ///
+  /// In en, this message translates to:
+  /// **'Decides where the row sits among events, holidays and the weekend'**
+  String get fastingPlacementHint;
+
+  /// Field replacing the computed fast name in the day panel row
+  ///
+  /// In en, this message translates to:
+  /// **'Custom title'**
+  String get fastingTitleOverrideLabel;
+
+  /// Field adding a description line to the fasting day panel row
+  ///
+  /// In en, this message translates to:
+  /// **'Description'**
+  String get fastingDescriptionLabel;
+
+  /// Placeholder for the fasting description field
+  ///
+  /// In en, this message translates to:
+  /// **'Shown under the rule — markdown works here'**
+  String get fastingDescriptionHint;
+
+  /// Event editor section header: what the event is
+  ///
+  /// In en, this message translates to:
+  /// **'What'**
+  String get eventSectionWhat;
+
+  /// Event editor section header: scheduling
+  ///
+  /// In en, this message translates to:
+  /// **'When'**
+  String get eventSectionWhen;
+
+  /// Event editor section header: optional details
+  ///
+  /// In en, this message translates to:
+  /// **'Details'**
+  String get eventSectionDetails;
+
   /// Count of currently selected days in the multi-date picker
   ///
   /// In en, this message translates to:

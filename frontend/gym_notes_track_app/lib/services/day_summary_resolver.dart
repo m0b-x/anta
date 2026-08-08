@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_colors.dart';
+import '../constants/fasting_calendar.dart';
 import '../constants/public_holidays.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_event.dart';
@@ -74,6 +75,45 @@ class PublicHolidaySummaryProvider implements DaySummaryProvider {
         subtitle: l10n.dayBarPublicHoliday,
         priority: 150,
       ),
+    ];
+  }
+}
+
+/// Emits one entry per enabled fasting tradition that marks the day,
+/// titled with the fast's name and subtitled with the day's rule
+/// ("Great Lent · Fish allowed"). Reads [FastingCalendar]'s memoized
+/// per-year maps, so a lookup is O(1) after the first day of a year.
+class FastingSummaryProvider implements DaySummaryProvider {
+  final AppLocalizations l10n;
+
+  const FastingSummaryProvider(this.l10n);
+
+  @override
+  Iterable<DaySummaryEntry> summaryFor(
+    DateTime day,
+    List<CalendarEvent> events,
+  ) {
+    final infos = FastingCalendar.on(day);
+    if (infos.isEmpty) return const [];
+    return [
+      for (final info in infos)
+        if (FastingCalendar.styleOf(info.tradition) case final style)
+          DaySummaryEntry(
+            key: 'fasting:${info.tradition.name}',
+            icon: FastingCalendar.iconFor(info.tradition),
+            color: FastingCalendar.colorOf(info.tradition),
+            // A custom title replaces the computed period name outright —
+            // someone who writes "Post" wants that on every Orthodox day,
+            // not the specific fast's name.
+            title:
+                style.titleOverride ??
+                FastingCalendar.periodNameOf(info.period, l10n),
+            subtitle: FastingCalendar.regimeNameOf(info.regime, l10n),
+            // Raw markdown, rendered clamped by the row exactly like an
+            // event's description (money disabled, no tap recognizers).
+            description: style.description,
+            priority: style.priority,
+          ),
     ];
   }
 }
@@ -216,6 +256,7 @@ class DaySummaryResolver {
       providers: [
         EventSummaryProvider(l10n),
         PublicHolidaySummaryProvider(l10n),
+        FastingSummaryProvider(l10n),
         WeekendSummaryProvider(l10n),
         MoneyDaySummaryProvider(l10n),
       ],

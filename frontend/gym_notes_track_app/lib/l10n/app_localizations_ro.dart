@@ -580,6 +580,193 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
+  String get fastingSectionTitle => 'Post religios';
+
+  @override
+  String get fastingSectionDesc =>
+      'Perioade de post calculate, cu regimul fiecărei zile, pe grilă și în panoul zilei';
+
+  @override
+  String get fastingTraditionOrthodox => 'Ortodox';
+
+  @override
+  String get fastingTraditionCatholic => 'Catolic';
+
+  @override
+  String get fastingTraditionMuslim => 'Musulman';
+
+  @override
+  String get fastingTraditionJewish => 'Evreiesc';
+
+  @override
+  String get fastingGreatLent => 'Postul Paștelui';
+
+  @override
+  String get fastingApostlesFast => 'Postul Sfinților Apostoli';
+
+  @override
+  String get fastingDormitionFast => 'Postul Adormirii Maicii Domnului';
+
+  @override
+  String get fastingNativityFast => 'Postul Crăciunului';
+
+  @override
+  String get fastingWeekdayFast => 'Post de miercuri și vineri';
+
+  @override
+  String get fastingCheesefareWeek => 'Săptămâna brânzei';
+
+  @override
+  String get fastingEveOfTheophany => 'Ajunul Bobotezei';
+
+  @override
+  String get fastingBeheadingOfStJohn => 'Tăierea Capului Sf. Ioan Botezătorul';
+
+  @override
+  String get fastingExaltationOfCross => 'Înălțarea Sfintei Cruci';
+
+  @override
+  String get fastingLent => 'Postul Mare';
+
+  @override
+  String get fastingAshWednesday => 'Miercurea Cenușii';
+
+  @override
+  String get fastingGoodFriday => 'Vinerea Mare';
+
+  @override
+  String get fastingFridayAbstinence => 'Abstinență de vineri';
+
+  @override
+  String get fastingAdvent => 'Advent';
+
+  @override
+  String get fastingRamadan => 'Ramadan';
+
+  @override
+  String get fastingDayOfArafah => 'Ziua Arafat';
+
+  @override
+  String get fastingAshura => 'Așura';
+
+  @override
+  String get fastingYomKippur => 'Yom Kippur';
+
+  @override
+  String get fastingTishaBAv => 'Tisha B\'Av';
+
+  @override
+  String get fastingGedaliah => 'Postul lui Ghedalia';
+
+  @override
+  String get fastingTenthOfTevet => '10 Tevet';
+
+  @override
+  String get fastingSeventeenthOfTammuz => '17 Tammuz';
+
+  @override
+  String get fastingEstherFast => 'Postul Esterei';
+
+  @override
+  String get fastingRegimeStrict => 'Post aspru';
+
+  @override
+  String get fastingRegimeOil => 'Dezlegare la vin și ulei';
+
+  @override
+  String get fastingRegimeFish => 'Dezlegare la pește';
+
+  @override
+  String get fastingRegimeDairy => 'Dezlegare la lactate și ouă';
+
+  @override
+  String get fastingRegimePenitential => 'Zi de pocăință';
+
+  @override
+  String get fastingRegimeDaylight => 'Post de la zori la apus';
+
+  @override
+  String get fastingRegimeFull => 'Post total';
+
+  @override
+  String get fastingStyleTitle => 'Afișare pe grilă';
+
+  @override
+  String get fastingStyleTint => 'Tentă discretă';
+
+  @override
+  String get fastingStyleBar => 'Bară de zi';
+
+  @override
+  String get fastingStyleStrong => 'Număr îngroșat';
+
+  @override
+  String get fastingStyleNone => 'Doar în panoul zilei';
+
+  @override
+  String get fastingOrthodoxGreatFasts => 'Posturile de peste an';
+
+  @override
+  String get fastingOrthodoxGreatFastsDesc =>
+      'Postul Paștelui, al Crăciunului, al Sf. Apostoli, al Adormirii, zilele aspre';
+
+  @override
+  String get fastingWeekdayDaysTitle => 'Zile de post săptămânal';
+
+  @override
+  String get fastingWeekdayDaysDesc =>
+      'Alege zilele pe care le ții — mulți postesc doar miercurea și vinerea';
+
+  @override
+  String get fastingAppearanceTitle => 'Aspect';
+
+  @override
+  String get fastingPlacementTitle => 'Ordinea în panoul zilei';
+
+  @override
+  String get fastingPlacementFirst => 'Primul';
+
+  @override
+  String get fastingPlacementBeforeHolidays => 'După evenimente';
+
+  @override
+  String get fastingPlacementAfterHolidays => 'După sărbători';
+
+  @override
+  String get fastingPlacementLast => 'Ultimul';
+
+  @override
+  String get fastingColorDefault => 'Culoare implicită';
+
+  @override
+  String get fastingIconDefault => 'Iconiță implicită';
+
+  @override
+  String get fastingPreviewLabel => 'Previzualizare';
+
+  @override
+  String get fastingPlacementHint =>
+      'Stabilește unde stă rândul între evenimente, sărbători și weekend';
+
+  @override
+  String get fastingTitleOverrideLabel => 'Titlu personalizat';
+
+  @override
+  String get fastingDescriptionLabel => 'Descriere';
+
+  @override
+  String get fastingDescriptionHint => 'Apare sub regim — merge și markdown';
+
+  @override
+  String get eventSectionWhat => 'Ce';
+
+  @override
+  String get eventSectionWhen => 'Când';
+
+  @override
+  String get eventSectionDetails => 'Detalii';
+
+  @override
   String datePickerSelectedCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

@@ -683,6 +683,250 @@
       "last": { "type": "String" }
     }
   },
+  "fastingSectionTitle": "Religious fasting",
+  "@fastingSectionTitle": {
+    "description": "Calendar settings section for computed fasting periods"
+  },
+  "fastingSectionDesc": "Computed fasting periods with each day's rule, shown on the grid and in the day panel",
+  "@fastingSectionDesc": {
+    "description": "Explanatory line under the fasting settings section header"
+  },
+  "fastingTraditionOrthodox": "Orthodox",
+  "@fastingTraditionOrthodox": {
+    "description": "Fasting tradition toggle: Eastern Orthodox"
+  },
+  "fastingTraditionCatholic": "Catholic",
+  "@fastingTraditionCatholic": {
+    "description": "Fasting tradition toggle: Roman Catholic"
+  },
+  "fastingTraditionMuslim": "Muslim",
+  "@fastingTraditionMuslim": {
+    "description": "Fasting tradition toggle: Islamic"
+  },
+  "fastingTraditionJewish": "Jewish",
+  "@fastingTraditionJewish": {
+    "description": "Fasting tradition toggle: Jewish"
+  },
+  "fastingGreatLent": "Great Lent",
+  "@fastingGreatLent": {
+    "description": "Orthodox Easter fast (Postul Pastelui)"
+  },
+  "fastingApostlesFast": "Apostles' Fast",
+  "@fastingApostlesFast": {
+    "description": "Orthodox fast before Sts Peter and Paul"
+  },
+  "fastingDormitionFast": "Dormition Fast",
+  "@fastingDormitionFast": {
+    "description": "Orthodox fast Aug 1-14"
+  },
+  "fastingNativityFast": "Nativity Fast",
+  "@fastingNativityFast": {
+    "description": "Orthodox Christmas fast Nov 15 - Dec 24"
+  },
+  "fastingWeekdayFast": "Wednesday/Friday fast",
+  "@fastingWeekdayFast": {
+    "description": "Orthodox year-round fast on Wednesdays and Fridays"
+  },
+  "fastingCheesefareWeek": "Cheesefare Week",
+  "@fastingCheesefareWeek": {
+    "description": "Orthodox week before Lent when dairy is still allowed"
+  },
+  "fastingEveOfTheophany": "Eve of Theophany",
+  "@fastingEveOfTheophany": {
+    "description": "Orthodox strict fast day on January 5"
+  },
+  "fastingBeheadingOfStJohn": "Beheading of St John",
+  "@fastingBeheadingOfStJohn": {
+    "description": "Orthodox strict fast day on August 29"
+  },
+  "fastingExaltationOfCross": "Exaltation of the Cross",
+  "@fastingExaltationOfCross": {
+    "description": "Orthodox strict fast day on September 14"
+  },
+  "fastingLent": "Lent",
+  "@fastingLent": {
+    "description": "Catholic penitential season before Easter"
+  },
+  "fastingAshWednesday": "Ash Wednesday",
+  "@fastingAshWednesday": {
+    "description": "Catholic fast day opening Lent"
+  },
+  "fastingGoodFriday": "Good Friday",
+  "@fastingGoodFriday": {
+    "description": "Catholic fast day before Easter"
+  },
+  "fastingFridayAbstinence": "Friday abstinence",
+  "@fastingFridayAbstinence": {
+    "description": "Catholic year-round Friday abstinence from meat"
+  },
+  "fastingAdvent": "Advent",
+  "@fastingAdvent": {
+    "description": "Catholic preparation season before Christmas"
+  },
+  "fastingRamadan": "Ramadan",
+  "@fastingRamadan": {
+    "description": "Islamic month of fasting"
+  },
+  "fastingDayOfArafah": "Day of Arafah",
+  "@fastingDayOfArafah": {
+    "description": "Islamic recommended fast on 9 Dhu al-Hijjah"
+  },
+  "fastingAshura": "Ashura",
+  "@fastingAshura": {
+    "description": "Islamic recommended fast on 10 Muharram"
+  },
+  "fastingYomKippur": "Yom Kippur",
+  "@fastingYomKippur": {
+    "description": "Jewish Day of Atonement, a full fast"
+  },
+  "fastingTishaBAv": "Tisha B'Av",
+  "@fastingTishaBAv": {
+    "description": "Jewish full fast mourning the Temples"
+  },
+  "fastingGedaliah": "Fast of Gedaliah",
+  "@fastingGedaliah": {
+    "description": "Jewish minor fast on 3 Tishrei"
+  },
+  "fastingTenthOfTevet": "Tenth of Tevet",
+  "@fastingTenthOfTevet": {
+    "description": "Jewish minor fast on 10 Tevet"
+  },
+  "fastingSeventeenthOfTammuz": "Seventeenth of Tammuz",
+  "@fastingSeventeenthOfTammuz": {
+    "description": "Jewish minor fast on 17 Tammuz"
+  },
+  "fastingEstherFast": "Fast of Esther",
+  "@fastingEstherFast": {
+    "description": "Jewish minor fast before Purim"
+  },
+  "fastingRegimeStrict": "Strict fast",
+  "@fastingRegimeStrict": {
+    "description": "Fasting rule: strict fast, no oil"
+  },
+  "fastingRegimeOil": "Wine and oil allowed",
+  "@fastingRegimeOil": {
+    "description": "Fasting rule: dispensation for wine and oil"
+  },
+  "fastingRegimeFish": "Fish allowed",
+  "@fastingRegimeFish": {
+    "description": "Fasting rule: dispensation for fish"
+  },
+  "fastingRegimeDairy": "Dairy and eggs allowed",
+  "@fastingRegimeDairy": {
+    "description": "Fasting rule: dairy and eggs permitted, no meat"
+  },
+  "fastingRegimePenitential": "Day of penance",
+  "@fastingRegimePenitential": {
+    "description": "Fasting rule: penitential day without a binding food rule"
+  },
+  "fastingRegimeDaylight": "Fast from dawn to sunset",
+  "@fastingRegimeDaylight": {
+    "description": "Fasting rule: dawn-to-sunset fast (Ramadan, Jewish minor fasts)"
+  },
+  "fastingRegimeFull": "Total fast",
+  "@fastingRegimeFull": {
+    "description": "Fasting rule: complete fast (Yom Kippur, Tisha B'Av)"
+  },
+  "fastingStyleTitle": "Show on the grid",
+  "@fastingStyleTitle": {
+    "description": "Dropdown choosing how fasting days render on the calendar grid"
+  },
+  "fastingStyleTint": "Subtle tint",
+  "@fastingStyleTint": {
+    "description": "Fasting grid style: faint violet cell background"
+  },
+  "fastingStyleBar": "Day bar",
+  "@fastingStyleBar": {
+    "description": "Fasting grid style: a violet bar in the day markers, like events"
+  },
+  "fastingStyleStrong": "Bold day number",
+  "@fastingStyleStrong": {
+    "description": "Fasting grid style: violet bold day number"
+  },
+  "fastingStyleNone": "Day panel only",
+  "@fastingStyleNone": {
+    "description": "Fasting grid style: nothing on the grid, info only in the day panel"
+  },
+  "fastingOrthodoxGreatFasts": "Multi-day fasts",
+  "@fastingOrthodoxGreatFasts": {
+    "description": "Toggle for the Orthodox multi-day fasts and strict single days"
+  },
+  "fastingOrthodoxGreatFastsDesc": "Great Lent, Nativity, Apostles', Dormition, strict single days",
+  "@fastingOrthodoxGreatFastsDesc": {
+    "description": "Subtitle listing what the Orthodox multi-day fasts toggle covers"
+  },
+  "fastingWeekdayDaysTitle": "Weekly fast days",
+  "@fastingWeekdayDaysTitle": {
+    "description": "Label above the weekday chips selecting personal weekly fast days"
+  },
+  "fastingWeekdayDaysDesc": "Pick the days you keep — many fast only on Wednesday and Friday",
+  "@fastingWeekdayDaysDesc": {
+    "description": "Hint under the weekly fast day chips"
+  },
+  "fastingAppearanceTitle": "Appearance",
+  "@fastingAppearanceTitle": {
+    "description": "Row opening the per-tradition fasting appearance editor"
+  },
+  "fastingPlacementTitle": "Order in the day panel",
+  "@fastingPlacementTitle": {
+    "description": "Label for the chips choosing where the fasting row sits"
+  },
+  "fastingPlacementFirst": "First",
+  "@fastingPlacementFirst": {
+    "description": "Fasting row placement: above everything including events"
+  },
+  "fastingPlacementBeforeHolidays": "After events",
+  "@fastingPlacementBeforeHolidays": {
+    "description": "Fasting row placement: after events, before the public holiday"
+  },
+  "fastingPlacementAfterHolidays": "After holidays",
+  "@fastingPlacementAfterHolidays": {
+    "description": "Fasting row placement: after the public holiday (default)"
+  },
+  "fastingPlacementLast": "Last",
+  "@fastingPlacementLast": {
+    "description": "Fasting row placement: below everything"
+  },
+  "fastingColorDefault": "Default colour",
+  "@fastingColorDefault": {
+    "description": "Swatch restoring the shared fasting violet"
+  },
+  "fastingIconDefault": "Default icon",
+  "@fastingIconDefault": {
+    "description": "Shown when a tradition uses its built-in icon"
+  },
+  "fastingPreviewLabel": "Preview",
+  "@fastingPreviewLabel": {
+    "description": "Label above the live preview of a fasting day row"
+  },
+  "fastingPlacementHint": "Decides where the row sits among events, holidays and the weekend",
+  "@fastingPlacementHint": {
+    "description": "Hint under the fasting row placement chips"
+  },
+  "fastingTitleOverrideLabel": "Custom title",
+  "@fastingTitleOverrideLabel": {
+    "description": "Field replacing the computed fast name in the day panel row"
+  },
+  "fastingDescriptionLabel": "Description",
+  "@fastingDescriptionLabel": {
+    "description": "Field adding a description line to the fasting day panel row"
+  },
+  "fastingDescriptionHint": "Shown under the rule — markdown works here",
+  "@fastingDescriptionHint": {
+    "description": "Placeholder for the fasting description field"
+  },
+  "eventSectionWhat": "What",
+  "@eventSectionWhat": {
+    "description": "Event editor section header: what the event is"
+  },
+  "eventSectionWhen": "When",
+  "@eventSectionWhen": {
+    "description": "Event editor section header: scheduling"
+  },
+  "eventSectionDetails": "Details",
+  "@eventSectionDetails": {
+    "description": "Event editor section header: optional details"
+  },
   "datePickerSelectedCount": "{count, plural, =0{No dates selected} =1{1 date selected} other{{count} dates selected}}",
   "@datePickerSelectedCount": {
     "description": "Count of currently selected days in the multi-date picker",

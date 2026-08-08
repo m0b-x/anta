@@ -10,6 +10,7 @@ import '../bloc/import_export/import_export_event.dart';
 import '../bloc/import_export/import_export_state.dart';
 import '../constants/app_icon_sizes.dart';
 import '../constants/app_spacing.dart';
+import '../constants/fasting_calendar.dart';
 import '../constants/public_holidays.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
@@ -72,7 +73,19 @@ class _CalendarViewState extends State<_CalendarView> {
     final settings = await SettingsService.getInstance();
     final appearance = await settings.getCalendarAppearance();
     final palette = await settings.getColorPalette();
+    final fastingTraditions = await settings.getFastingTraditions();
+    final fastingAppearance = await settings.getFastingAppearance();
+    final fastingGreatFasts = await settings.getFastingOrthodoxGreatFasts();
+    final fastingWeekdays = await settings.getFastingWeekdays();
     if (!mounted) return;
+    // Static sync facade, mirroring PublicHolidays: configure() is a no-op
+    // when unchanged, so the reload-on-settings-return path stays cheap.
+    FastingCalendar.configure(
+      traditions: fastingTraditions,
+      appearance: fastingAppearance,
+      orthodoxGreatFasts: fastingGreatFasts,
+      weekdayFastDays: fastingWeekdays,
+    );
     setState(() {
       _appearance = appearance;
       _colorPalette = palette;
@@ -449,6 +462,8 @@ class _CalendarTable extends StatelessWidget {
     DateTime day, {
     required bool isOutside,
   }) {
+    // Memoized inside the engine, so this is an O(1) map hit per cell.
+    final fasting = FastingCalendar.cellStyleFor(day);
     return CalendarDayCell(
       day: day,
       isToday: isSameDay(day, DateTime.now()),
@@ -459,6 +474,8 @@ class _CalendarTable extends StatelessWidget {
       todayStyle: appearance.todayStyle,
       highlightWeekends: appearance.highlightWeekends,
       accent: appearance.accentOr(Theme.of(context).colorScheme.primary),
+      fastingTint: fasting.tint,
+      fastingNumberColor: fasting.numberColor,
     );
   }
 

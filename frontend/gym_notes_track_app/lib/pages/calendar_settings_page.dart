@@ -2,14 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../constants/calendar_colors.dart';
+import '../constants/fasting_calendar.dart';
 import '../constants/public_holidays.dart';
 import '../constants/settings_keys.dart';
 import '../l10n/app_localizations.dart';
+import '../constants/calendar_icons.dart';
 import '../models/calendar_appearance.dart';
 import '../models/day_bar.dart';
+import '../models/fasting_appearance.dart';
+import '../widgets/fasting_style_sheet.dart';
 import '../services/app_navigator.dart';
 import '../services/calendar_event_service.dart';
 import '../services/public_holiday_service.dart';
+import '../services/recurrence_formatter.dart';
 import '../services/settings_service.dart';
 import '../utils/custom_snackbar.dart';
 import '../widgets/app_dialogs.dart';
@@ -40,6 +45,11 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
   CalendarEventService? _eventService;
   int _eventCount = 0;
 
+  Set<FastingTradition> _fastingTraditions = const {};
+  FastingAppearance _fastingAppearance = const FastingAppearance();
+  bool _fastingGreatFasts = true;
+  Set<int> _fastingWeekdays = FastingCalendar.defaultWeekdayFastDays;
+
   @override
   void initState() {
     super.initState();
@@ -52,6 +62,10 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     final haptic = await settings.getHapticFeedback();
     final holidayService = await PublicHolidayService.getInstance();
     final eventService = await CalendarEventService.getInstance();
+    final fastingTraditions = await settings.getFastingTraditions();
+    final fastingAppearance = await settings.getFastingAppearance();
+    final fastingGreatFasts = await settings.getFastingOrthodoxGreatFasts();
+    final fastingWeekdays = await settings.getFastingWeekdays();
 
     if (!mounted) return;
     setState(() {
@@ -62,8 +76,66 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
       _holidayProfile = holidayService.profile;
       _eventService = eventService;
       _eventCount = eventService.events.length;
+      _fastingTraditions = fastingTraditions;
+      _fastingAppearance = fastingAppearance;
+      _fastingGreatFasts = fastingGreatFasts;
+      _fastingWeekdays = fastingWeekdays;
       _isLoading = false;
     });
+  }
+
+  Future<void> _toggleFastingTradition(
+    FastingTradition tradition,
+    bool enabled,
+  ) async {
+    _onHapticFeedback();
+    setState(() {
+      final next = {..._fastingTraditions};
+      enabled ? next.add(tradition) : next.remove(tradition);
+      _fastingTraditions = next;
+    });
+    await _settings?.setFastingTraditions(_fastingTraditions);
+  }
+
+  FastingTraditionStyle _fastingStyleOf(FastingTradition tradition) =>
+      _fastingAppearance.styleFor(tradition);
+
+  /// "Subtle tint · After holidays" — the two choices that actually change
+  /// where the user will see the fast.
+  String _fastingStyleSummary(
+    FastingTradition tradition,
+    AppLocalizations l10n,
+  ) {
+    final style = _fastingStyleOf(tradition);
+    return '${FastingCalendar.styleNameOf(style.style, l10n)} · '
+        '${FastingCalendar.placementNameOf(style.placement, l10n)}';
+  }
+
+  /// Opens the per-tradition appearance sheet. Edits arrive live through
+  /// `onChanged`, so each tap persists and repaints the row behind the
+  /// sheet — closing is never a "discard".
+  Future<void> _editFastingStyle(FastingTradition tradition) async {
+    await FastingStyleSheet.show(
+      context,
+      tradition: tradition,
+      initialStyle: _fastingStyleOf(tradition),
+      onChanged: (style) async {
+        setState(() {
+          _fastingAppearance = _fastingAppearance.withStyle(tradition, style);
+        });
+        await _settings?.setFastingAppearance(_fastingAppearance);
+      },
+    );
+  }
+
+  Future<void> _toggleFastingWeekday(int weekday) async {
+    _onHapticFeedback();
+    setState(() {
+      final next = {..._fastingWeekdays};
+      next.contains(weekday) ? next.remove(weekday) : next.add(weekday);
+      _fastingWeekdays = next;
+    });
+    await _settings?.setFastingWeekdays(_fastingWeekdays);
   }
 
   void _onHapticFeedback() {
@@ -479,6 +551,125 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
                 _buildSectionCard(
                   context: context,
                   colorScheme: colorScheme,
+                  icon: Icons.restaurant_menu_rounded,
+                  title: l10n.fastingSectionTitle,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                      child: Text(
+                        l10n.fastingSectionDesc,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                    for (final tradition in FastingTradition.values) ...[
+                      SwitchListTile(
+                        value: _fastingTraditions.contains(tradition),
+                        secondary: Icon(
+                          _fastingStyleOf(tradition).iconKey == null
+                              ? FastingCalendar.defaultIconOf(tradition)
+                              : (CalendarIcons.forKey(
+                                      _fastingStyleOf(tradition).iconKey,
+                                    ) ??
+                                    FastingCalendar.defaultIconOf(tradition)),
+                          color: _fastingTraditions.contains(tradition)
+                              ? _fastingStyleOf(
+                                  tradition,
+                                ).colorOr(CalendarColors.fasting)
+                              : colorScheme.onSurfaceVariant,
+                        ),
+                        title: Text(
+                          FastingCalendar.traditionNameOf(tradition, l10n),
+                        ),
+                        onChanged: (value) =>
+                            _toggleFastingTradition(tradition, value),
+                      ),
+                      // The appearance row only exists for enabled
+                      // traditions — configuring the look of something that
+                      // draws nothing is noise.
+                      if (_fastingTraditions.contains(tradition))
+                        Padding(
+                          padding: const EdgeInsets.only(left: 32),
+                          child: ListTile(
+                            dense: true,
+                            leading: Icon(
+                              Icons.tune_rounded,
+                              color: colorScheme.primary,
+                            ),
+                            title: Text(l10n.fastingAppearanceTitle),
+                            subtitle: Text(
+                              _fastingStyleSummary(tradition, l10n),
+                            ),
+                            trailing: const Icon(Icons.chevron_right_rounded),
+                            onTap: () => _editFastingStyle(tradition),
+                          ),
+                        ),
+                    ],
+                    if (_fastingTraditions.contains(
+                      FastingTradition.orthodox,
+                    )) ...[
+                      const Divider(height: 1),
+                      SwitchListTile(
+                        value: _fastingGreatFasts,
+                        secondary: Icon(
+                          Icons.date_range_rounded,
+                          color: colorScheme.primary,
+                        ),
+                        title: Text(l10n.fastingOrthodoxGreatFasts),
+                        subtitle: Text(l10n.fastingOrthodoxGreatFastsDesc),
+                        onChanged: (value) async {
+                          _onHapticFeedback();
+                          setState(() => _fastingGreatFasts = value);
+                          await _settings?.setFastingOrthodoxGreatFasts(value);
+                        },
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              l10n.fastingWeekdayDaysTitle,
+                              style: theme.textTheme.labelLarge?.copyWith(
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                for (var w = 1; w <= 7; w++)
+                                  FilterChip(
+                                    label: Text(
+                                      RecurrenceFormatter.weekdayShort(
+                                        w,
+                                        l10n.localeName,
+                                      ),
+                                    ),
+                                    selected: _fastingWeekdays.contains(w),
+                                    onSelected: (_) => _toggleFastingWeekday(w),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              l10n.fastingWeekdayDaysDesc,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 16),
+                _buildSectionCard(
+                  context: context,
+                  colorScheme: colorScheme,
                   icon: Icons.event_note_rounded,
                   title: l10n.calendarEventsSection,
                   children: [
@@ -648,6 +839,12 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     await _settings?.setCalendarAccentColor(defaults.accentColorValue);
     await _settings?.setCalendarHighlightWeekends(defaults.highlightWeekends);
     await _settings?.setCalendarShowWeekNumbers(defaults.showWeekNumbers);
+    await _settings?.setFastingTraditions(const {});
+    await _settings?.setFastingAppearance(const FastingAppearance());
+    await _settings?.setFastingOrthodoxGreatFasts(true);
+    await _settings?.setFastingWeekdays(
+      FastingCalendar.defaultWeekdayFastDays,
+    );
     try {
       await _holidayService?.setProfile(HolidayProfile.generic);
     } catch (_) {
@@ -659,6 +856,10 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     setState(() {
       _appearance = defaults;
       _holidayProfile = _holidayService?.profile ?? HolidayProfile.generic;
+      _fastingTraditions = const {};
+      _fastingAppearance = const FastingAppearance();
+      _fastingGreatFasts = true;
+      _fastingWeekdays = FastingCalendar.defaultWeekdayFastDays;
     });
 
     if (!mounted) return;

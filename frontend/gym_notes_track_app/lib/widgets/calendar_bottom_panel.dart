@@ -153,7 +153,12 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
           expanded: widget.expanded,
           onToggleExpanded: widget.onToggleExpanded,
         ),
-        Expanded(child: _buildPanel(context)),
+        // SafeArea keeps the panel's content above the device's system
+        // navigation bar (gesture pill / 3-button bar) — without it the
+        // last rows render underneath and can't be tapped.
+        Expanded(
+          child: SafeArea(top: false, child: _buildPanel(context)),
+        ),
       ],
     );
   }

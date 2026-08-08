@@ -2,10 +2,12 @@ import 'package:flutter/painting.dart';
 
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_colors.dart';
+import '../constants/fasting_calendar.dart';
 import '../constants/public_holidays.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_event.dart';
 import '../models/day_bar.dart';
+import '../models/fasting_appearance.dart';
 import 'note_money_ledger_service.dart';
 
 /// Contract for anything that contributes bars to a calendar day cell.
@@ -56,6 +58,39 @@ class PublicHolidayDayBarProvider implements DayBarProvider {
         semanticLabel: l10n.dayBarPublicHoliday,
       ),
     ];
+  }
+}
+
+/// Emits one bar per tradition whose configured grid style is
+/// [FastingDisplayStyle.bar], in that tradition's colour and at its
+/// configured placement. Traditions using another style contribute nothing
+/// here (the cell wash and the bold number are the day cell's job), which is
+/// why the check is per tradition rather than a single global gate.
+class FastingDayBarProvider implements DayBarProvider {
+  final AppLocalizations l10n;
+
+  const FastingDayBarProvider(this.l10n);
+
+  @override
+  Iterable<DayBar> barsFor(DateTime day, List<CalendarEvent> events) {
+    final infos = FastingCalendar.on(day);
+    if (infos.isEmpty) return const [];
+    final bars = <DayBar>[];
+    for (final info in infos) {
+      final style = FastingCalendar.styleOf(info.tradition);
+      if (style.style != FastingDisplayStyle.bar) continue;
+      bars.add(
+        DayBar(
+          key: 'fasting:${info.tradition.name}',
+          color: style.colorOr(CalendarColors.fasting),
+          priority: style.priority,
+          semanticLabel:
+              style.titleOverride ??
+              FastingCalendar.periodNameOf(info.period, l10n),
+        ),
+      );
+    }
+    return bars;
   }
 }
 
@@ -161,6 +196,7 @@ class DayBarsResolver {
       providers: [
         const EventDayBarProvider(),
         PublicHolidayDayBarProvider(l10n),
+        FastingDayBarProvider(l10n),
         WeekendDayBarProvider(l10n),
         MoneyDayBarProvider(l10n),
       ],

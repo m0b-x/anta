@@ -268,6 +268,158 @@ hard-deleted (no re-seed to defend against). `suppressedHolidays()` /
 (`RemovedHolidaysSheet`), and the day-summary panel's snackbar offers an
 immediate Undo as well.
 
+### 4.4 Religious fasting engine
+
+[`FastingCalendar`](../lib/constants/fasting_calendar.dart) computes fasting
+days for four traditions — **Orthodox, Catholic, Muslim, Jewish** — enabled
+per user via toggles in Calendar Settings (`SettingsService
+.getFastingTraditions`, CSV under `calendar_fasting_traditions`, empty = off,
+unknown names dropped for forward compat, cleared by reset-to-defaults).
+
+**Nothing is persisted beyond that setting.** Fasts are fully deterministic
+from (year, tradition), so the engine mirrors `PublicHolidays`: a static
+sync facade, `configure(traditions)` called from the calendar page's
+settings load (no-op when unchanged), then `on(day)` / `isFastingDay(day)`
+during builds. Years build lazily (O(365) per tradition, bounded cache of
+12 year-maps) and every later lookup is an O(1) map hit — nothing heavy
+ever runs inside a cell build or the `eventLoader` path.
+
+The raw date math lives in
+[`LiturgicalComputus`](../lib/utils/liturgical_computus.dart) — deliberately
+**dependency-free** (no Flutter imports) so a plain `dart run` script can
+assert it against externally known dates (it was validated against
+2000–2038 Easters both computus, Ramadan 1445–1447, and the Hebrew calendar
+anchors RH 5761/5784–5786, Yom Kippur, Pesach, the postponed Tzom Gedaliah
+5785, 10 Tevet, Ta'anit Esther). It provides: Gregorian Easter
+(Meeus/Anonymous), Orthodox Easter (Meeus Julian + century-aware Julian→
+Gregorian offset, shared with `PublicHolidayService` which now delegates to
+it), Fliegel–Van Flandern JDN↔Gregorian, the tabular ("Kuwaiti") Islamic
+calendar (civil epoch JDN 1948440, ±1 day vs moon sighting — the standard
+software caveat), and the full arithmetic Hebrew calendar (molad + all
+dechiyot; every public fast is a fixed offset from Rosh Hashanah or from
+Pesach, which is always RH(next year) − 163 because Nisan–Elul never vary).
+
+Per-day output is a `FastingInfo(tradition, period, regime)`:
+
+- **Periods** name the fast (Great Lent, Nativity Fast, Ramadan, Yom
+  Kippur, …) — localized via sealed switch (`periodNameOf`), never `byKey`.
+- **Regimes** are the day's rule: `strict` (post aspru), `oil` (dezlegare la
+  vin și ulei), `fish`, `dairy` (Cheesefare), `penitential` (Catholic
+  Lent/Advent weekdays), `daylight` (dawn-to-sunset: Ramadan, Jewish minor
+  fasts), `full` (Yom Kippur, Tisha B'Av).
+- Orthodox rules follow the common printed Romanian calendar: the four
+  great fasts with their weekday patterns (Mon/Wed/Fri strict, Tue/Thu
+  wine & oil, weekend dispensations), fish on Annunciation/Palm Sunday/
+  Transfiguration/Entry into the Temple/St John, first week and Holy Week
+  strict, the Dec 20–24 tightening, the three strict single days (Jan 5,
+  Aug 29, Sep 14), Cheesefare Wed/Fri as dairy, year-round Wed/Fri fast
+  suppressed in the harți weeks (Christmastide, Publican & Pharisee week,
+  Bright Week, Trinity week). Apostles' Fast starts Pascha+57 and can
+  vanish entirely in late-Pascha years.
+- Jewish fasts carry their Shabbat deferrals (17 Tammuz / Tisha B'Av /
+  Gedaliah → Sunday, Ta'anit Esther → Thursday).
+
+**Display is configured per tradition**, not globally — Orthodox can tint
+the cell in violet while Ramadan draws a green bar. The config model is
+[`FastingAppearance`](../lib/models/fasting_appearance.dart), which owns
+`FastingTradition`, `FastingDisplayStyle`, `FastingRowPlacement` and
+`FastingTraditionStyle` (the same shape as `CalendarAppearance`: enums with
+forward-compatible `fromName`, `Equatable`, `copyWith` with `clearX` flags
+for the nullable overrides). Each tradition carries:
+
+| Field | Meaning |
+| --- | --- |
+| `style` | `tint` (default) / `bar` / `strong` / `none` |
+| `colorValue` | ARGB override, null = the shared `CalendarColors.fasting` violet |
+| `iconKey` | `CalendarIcons` key, null = the tradition's built-in icon |
+| `placement` | `first` / `beforeHolidays` / `afterHolidays` (default) / `last` |
+| `titleOverride` | replaces the computed period name in the row, null = keep it |
+| `description` | extra markdown line under the regime, null = none |
+
+`titleOverride` replaces the period name **outright** (someone who types
+"Post" wants it on every Orthodox day, not the specific fast's name) and is
+also what the day bar's `semanticLabel` announces. `description` is handed to
+`DaySummaryEntry.description`, so it renders through the same clamped
+`MarkdownInlineText` path event descriptions use and inherits their rules for
+free — money disabled, no tap recognizers, two lines with an ellipsis. Both
+text fields normalize blank input to null inside `copyWith`, so clearing a
+field *is* the reset and no `clearX` flag is needed for them.
+
+`FastingRowPlacement` exists so the UI never exposes a raw priority — the
+enum carries the `DaySummaryEntry.priority` / `DayBar.priority` it maps to
+(10 / 120 / 160 / 260), keeping the band layout (events 0–99, holiday 150,
+weekend 250) an implementation detail.
+
+How each style reaches the screen:
+
+- `tint` / `strong` — resolved by **`FastingCalendar.cellStyleFor(day)`**
+  into a `FastingCellStyle(tint, numberColor)` and handed to
+  `CalendarDayCell` as two plain nullable `Color`s. The cell knows nothing
+  about traditions or styles, and the resolution (highest placement wins per
+  slot; both slots can be filled by different traditions) lives in one
+  place. Memoized in a bounded 512-entry day map so `defaultBuilder` never
+  re-derives colours for ~42 cells a frame.
+- `bar` — `FastingDayBarProvider` emits **one bar per tradition** that asked
+  for it, in that tradition's colour at its placement. The check is per
+  tradition, not a global gate.
+- the day panel always gets one `FastingSummaryProvider` row per active
+  tradition — configured icon, colour and placement — titled with the period
+  and subtitled with the regime ("Postul Crăciunului · Dezlegare la pește").
+
+Appearance is **display-only**: `configure()` drops just the cheap per-day
+cell-style memo when it changes and never touches the computed year maps,
+which only invalidate when traditions or the Orthodox scope options move.
+
+Persistence is one key, `calendar_fasting_appearance`, holding a **JSON**
+object keyed by tradition name. It started as a delimited
+`tradition:style|argb|icon|placement;…` record, which was safe only while
+every field was an enum name, an integer or an icon key — the moment free
+text (title, description) entered, any separator the user typed would have
+corrupted the row, and hand-rolled escaping is exactly the thing that
+silently eats one person's data. `decode` still reads the delimited form
+(detected by the leading `{`) so nothing written before the switch is lost.
+
+Whatever the shape: every field degrades to its default independently,
+unknown traditions are dropped, malformed JSON yields defaults instead of
+throwing (a corrupt settings row must never keep the calendar from opening),
+and when the key is absent the retired global `calendar_fasting_style` seeds
+every tradition. Round-trip (including text carrying `;` `:` `|` `"` `\` and
+newlines), legacy decoding, migration and junk-degradation were all verified
+with a throwaway harness.
+
+**Editing UX**: each enabled tradition gets an indented "Appearance" row
+under its switch, summarising `style · placement`, opening
+[`FastingStyleSheet`](../lib/widgets/fasting_style_sheet.dart). The sheet
+applies **live** via `onChanged` (the settings page persists on every tap)
+rather than gating behind Save — it is a settings surface, so dismissing
+must never mean "discard". It leads with a preview showing both halves at
+once: a sample day cell carrying the grid treatment next to the day-panel
+row it produces, title/description included. Colour and icon reuse the app's
+existing `ColorWheelDialog` / `IconPickerSheet`; the preview resolves its
+icon from the sheet's own draft, because the engine only learns about a
+change after the page has persisted and reconfigured it, and it renders the
+description as plain text — pulling the markdown builder into a settings
+sheet to show two lines is not worth the dependency.
+
+The two text fields debounce their `onChanged` by 400 ms (discrete controls
+still write through immediately) so typing a description does not queue one
+settings write per keystroke, and the pending write is flushed in `dispose`
+— leaving inside the debounce window must not lose the last keystrokes. The
+same shape as the agenda search field in `CalendarBottomPanel`.
+
+**Orthodox scope options** (shown only while Orthodox is enabled):
+
+- *Multi-day fasts* (`calendar_fasting_orthodox_great_fasts`, default on) —
+  turning it off drops the four great fasts, the strict single days and
+  Cheesefare, leaving only the weekly rule, which then applies year-round.
+- *Weekly fast days* (`calendar_fasting_weekdays`, CSV of
+  `DateTime.weekday` ints) — weekday chips for the personal practice:
+  default Wednesday+Friday, but any set works (some keep only Wednesday,
+  some add Monday) and clearing them all disables the weekly fast. An
+  **absent** key means the traditional default; an **empty string** is a
+  deliberate "none" — the two must stay distinguishable. The harți
+  (fast-free) weeks still suppress whatever days are chosen.
+
 ---
 
 ## 5. Persistence layer
@@ -456,7 +608,11 @@ when the keyboard opens.
 ### 6.2 Day list
 
 Tapping a date opens a list of that day's events. Each tile is colored by
-category, optionally overridden with a custom icon.
+category, optionally overridden with a custom icon. When fasting traditions
+are enabled (§4.4) the list also carries one violet row per tradition naming
+the fast and the day's rule. The whole bottom panel sits inside a
+`SafeArea(top: false)` so its last rows clear the device's system
+navigation bar instead of rendering underneath it.
 
 Rows carry the event's **description** below the scheduling line, rendered as
 markdown and clamped to two lines with an ellipsis (`MarkdownInlineText`, §6.6),
@@ -474,23 +630,36 @@ opening the linked note routes through the page's existing resolver.
 
 ### 6.3 [`EventEditorSheet`](../lib/widgets/event_editor_sheet.dart)
 
-A bottom-sheet form (`heightFactor: 0.92`). Sections, top-to-bottom:
+A bottom-sheet form (`heightFactor: 0.92`), organized **category-first**
+into three `_GroupHeader` zones (accent-colored label + divider; the
+per-field `_SectionLabel`s stay inside each zone):
 
-1. **Title** — single-line `TextField`, autofocus on add, `maxLength: 120`.
-2. **Description** — markdown source, `maxLength: 2000`, with an eye/pencil
-   toggle that swaps the field for a `SimpleMarkdownPreview` of what it will
-   look like. Money is disabled in that preview (see §6.6).
-3. **Type** — category picker (`CategoryPickerSheet`).
-4. **Icon** — icon picker with reset-to-default action.
-5. **Date(s)** — `CalendarDatePickerSheet` (§6.5), ±20 years. One-time events
-   edit their whole date set in one multi-select pass.
-6. **Repeat mode** — segmented control `oneTime` / `recurring`.
-7. **(if recurring) Frequency** — choice chips for the eight rule kinds.
-8. **(if weekly) Weekdays** — Mon–Sun filter chips, validation hint when empty.
-9. **(if recurring) Occurrences** — scope chips, §3.3.
-10. **(if recurring) Ends on** — optional Until date picker. Defaults to
-    "Never ends"; tapping picks a date; the trailing × button clears it.
-11. **(if editing) Delete** — destructive button with a confirmation dialog.
+**What** (`eventSectionWhat`):
+1. **Type** — category picker (`CategoryPickerSheet`), deliberately the
+   very first control: picking a category tailors the rest (the birthday
+   built-in pre-fills yearly recurrence). This is also why the title field
+   lost its autofocus — a keyboard popping open would bury the tile the
+   flow starts with.
+2. **Title** — single-line `TextField`, `maxLength: 120`.
+
+**When** (`eventSectionWhen`):
+3. **Date(s)** — `CalendarDatePickerSheet` (§6.5), ±20 years. One-time
+   events edit their whole date set in one multi-select pass.
+4. **Time** — all-day switch, start/end pickers.
+5. **Repeat mode** — segmented control `oneTime` / `recurring`, then (if
+   recurring) frequency chips, interval stepper, weekly weekday chips,
+   occurrence-scope chips (§3.3), and the optional Until date.
+
+**Details** (`eventSectionDetails`):
+6. **Description** — markdown source, `maxLength: 2000`, with an eye/pencil
+   toggle that swaps the field for a `SimpleMarkdownPreview` of what it
+   will look like. Money is disabled in that preview (see §6.6).
+7. **Icon** — icon picker with reset-to-default action.
+8. **Color / priority / linked note** — appearance override, P1–P5 chips,
+   note link.
+
+**(if editing) Delete** — destructive button with a confirmation dialog,
+last in the scroll.
 
 Header: inline cancel + save in the same row as the title — no detached
 bottom action bar.

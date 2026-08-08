@@ -73,7 +73,9 @@ class CalendarAppearance extends Equatable {
   /// the theme's primary color.
   final int? accentColorValue;
 
-  /// Tint Saturday/Sunday day numbers.
+  /// Tint Saturday/Sunday day numbers. Off by default — the red numbers
+  /// read as "something is wrong with these days" to users who don't want
+  /// the emphasis; opting in is one switch away.
   final bool highlightWeekends;
 
   /// Show ISO week numbers along the left edge.
@@ -87,7 +89,7 @@ class CalendarAppearance extends Equatable {
     this.markerStyle = CalendarMarkerStyle.bars,
     this.weekStart = CalendarWeekStart.monday,
     this.accentColorValue,
-    this.highlightWeekends = true,
+    this.highlightWeekends = false,
     this.showWeekNumbers = false,
     this.maxDayBars = 3,
   });

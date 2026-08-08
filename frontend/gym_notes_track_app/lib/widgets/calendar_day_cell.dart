@@ -28,6 +28,15 @@ class CalendarDayCell extends StatelessWidget {
   /// Effective highlight accent (theme primary or the user's custom color).
   final Color accent;
 
+  /// Religious-fasting decoration, already resolved by
+  /// `FastingCalendar.cellStyleFor` — the cell stays a dumb painter and
+  /// never learns about traditions or display styles. [fastingTint] washes
+  /// the cell background; [fastingNumberColor] recolours and bolds the day
+  /// number. Both null when the day carries no fasting decoration (the bar
+  /// style is the marker strip's job, not the cell's).
+  final Color? fastingTint;
+  final Color? fastingNumberColor;
+
   const CalendarDayCell({
     super.key,
     required this.day,
@@ -38,6 +47,8 @@ class CalendarDayCell extends StatelessWidget {
     required this.todayStyle,
     required this.highlightWeekends,
     required this.accent,
+    this.fastingTint,
+    this.fastingNumberColor,
   });
 
   /// Text color that stays legible on top of [accent], whatever the user
@@ -54,11 +65,14 @@ class CalendarDayCell extends StatelessWidget {
 
     final filledToday =
         isToday && !isSelected && todayStyle == CalendarTodayStyle.filled;
+    final strongFasting = fastingNumberColor != null;
     Color numberColor;
     if (isSelected || filledToday) {
       numberColor = _onAccent;
     } else if (isToday) {
       numberColor = accent;
+    } else if (strongFasting) {
+      numberColor = fastingNumberColor!;
     } else if (highlightWeekends && isWeekend) {
       numberColor = colorScheme.error.withValues(alpha: 0.85);
     } else {
@@ -67,7 +81,9 @@ class CalendarDayCell extends StatelessWidget {
 
     final numberStyle = theme.textTheme.bodyMedium!.copyWith(
       color: numberColor,
-      fontWeight: isToday || isSelected ? FontWeight.w700 : FontWeight.w500,
+      fontWeight: isToday || isSelected || strongFasting
+          ? FontWeight.w700
+          : FontWeight.w500,
       height: 1.0,
     );
 
@@ -123,6 +139,17 @@ class CalendarDayCell extends StatelessWidget {
       alignment: Alignment.topCenter,
       child: Padding(padding: const EdgeInsets.only(top: 4), child: chip),
     );
+    final tint = fastingTint;
+    if (tint != null) {
+      cell = Container(
+        margin: const EdgeInsets.all(1.5),
+        decoration: BoxDecoration(
+          color: tint.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: cell,
+      );
+    }
     if (isOutside) {
       cell = Opacity(opacity: 0.35, child: cell);
     }

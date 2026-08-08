@@ -569,6 +569,194 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get fastingSectionTitle => 'Religious fasting';
+
+  @override
+  String get fastingSectionDesc =>
+      'Computed fasting periods with each day\'s rule, shown on the grid and in the day panel';
+
+  @override
+  String get fastingTraditionOrthodox => 'Orthodox';
+
+  @override
+  String get fastingTraditionCatholic => 'Catholic';
+
+  @override
+  String get fastingTraditionMuslim => 'Muslim';
+
+  @override
+  String get fastingTraditionJewish => 'Jewish';
+
+  @override
+  String get fastingGreatLent => 'Great Lent';
+
+  @override
+  String get fastingApostlesFast => 'Apostles\' Fast';
+
+  @override
+  String get fastingDormitionFast => 'Dormition Fast';
+
+  @override
+  String get fastingNativityFast => 'Nativity Fast';
+
+  @override
+  String get fastingWeekdayFast => 'Wednesday/Friday fast';
+
+  @override
+  String get fastingCheesefareWeek => 'Cheesefare Week';
+
+  @override
+  String get fastingEveOfTheophany => 'Eve of Theophany';
+
+  @override
+  String get fastingBeheadingOfStJohn => 'Beheading of St John';
+
+  @override
+  String get fastingExaltationOfCross => 'Exaltation of the Cross';
+
+  @override
+  String get fastingLent => 'Lent';
+
+  @override
+  String get fastingAshWednesday => 'Ash Wednesday';
+
+  @override
+  String get fastingGoodFriday => 'Good Friday';
+
+  @override
+  String get fastingFridayAbstinence => 'Friday abstinence';
+
+  @override
+  String get fastingAdvent => 'Advent';
+
+  @override
+  String get fastingRamadan => 'Ramadan';
+
+  @override
+  String get fastingDayOfArafah => 'Day of Arafah';
+
+  @override
+  String get fastingAshura => 'Ashura';
+
+  @override
+  String get fastingYomKippur => 'Yom Kippur';
+
+  @override
+  String get fastingTishaBAv => 'Tisha B\'Av';
+
+  @override
+  String get fastingGedaliah => 'Fast of Gedaliah';
+
+  @override
+  String get fastingTenthOfTevet => 'Tenth of Tevet';
+
+  @override
+  String get fastingSeventeenthOfTammuz => 'Seventeenth of Tammuz';
+
+  @override
+  String get fastingEstherFast => 'Fast of Esther';
+
+  @override
+  String get fastingRegimeStrict => 'Strict fast';
+
+  @override
+  String get fastingRegimeOil => 'Wine and oil allowed';
+
+  @override
+  String get fastingRegimeFish => 'Fish allowed';
+
+  @override
+  String get fastingRegimeDairy => 'Dairy and eggs allowed';
+
+  @override
+  String get fastingRegimePenitential => 'Day of penance';
+
+  @override
+  String get fastingRegimeDaylight => 'Fast from dawn to sunset';
+
+  @override
+  String get fastingRegimeFull => 'Total fast';
+
+  @override
+  String get fastingStyleTitle => 'Show on the grid';
+
+  @override
+  String get fastingStyleTint => 'Subtle tint';
+
+  @override
+  String get fastingStyleBar => 'Day bar';
+
+  @override
+  String get fastingStyleStrong => 'Bold day number';
+
+  @override
+  String get fastingStyleNone => 'Day panel only';
+
+  @override
+  String get fastingOrthodoxGreatFasts => 'Multi-day fasts';
+
+  @override
+  String get fastingOrthodoxGreatFastsDesc =>
+      'Great Lent, Nativity, Apostles\', Dormition, strict single days';
+
+  @override
+  String get fastingWeekdayDaysTitle => 'Weekly fast days';
+
+  @override
+  String get fastingWeekdayDaysDesc =>
+      'Pick the days you keep — many fast only on Wednesday and Friday';
+
+  @override
+  String get fastingAppearanceTitle => 'Appearance';
+
+  @override
+  String get fastingPlacementTitle => 'Order in the day panel';
+
+  @override
+  String get fastingPlacementFirst => 'First';
+
+  @override
+  String get fastingPlacementBeforeHolidays => 'After events';
+
+  @override
+  String get fastingPlacementAfterHolidays => 'After holidays';
+
+  @override
+  String get fastingPlacementLast => 'Last';
+
+  @override
+  String get fastingColorDefault => 'Default colour';
+
+  @override
+  String get fastingIconDefault => 'Default icon';
+
+  @override
+  String get fastingPreviewLabel => 'Preview';
+
+  @override
+  String get fastingPlacementHint =>
+      'Decides where the row sits among events, holidays and the weekend';
+
+  @override
+  String get fastingTitleOverrideLabel => 'Custom title';
+
+  @override
+  String get fastingDescriptionLabel => 'Description';
+
+  @override
+  String get fastingDescriptionHint =>
+      'Shown under the rule — markdown works here';
+
+  @override
+  String get eventSectionWhat => 'What';
+
+  @override
+  String get eventSectionWhen => 'When';
+
+  @override
+  String get eventSectionDetails => 'Details';
+
+  @override
   String datePickerSelectedCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
