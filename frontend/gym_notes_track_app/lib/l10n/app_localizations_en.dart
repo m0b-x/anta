@@ -540,6 +540,83 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get eventCountOccurrences => 'Count occurrences';
+
+  @override
+  String get eventCountOccurrencesHint =>
+      'Each occurrence gets a label counting from the start date';
+
+  @override
+  String get eventCountStyleNumbered => 'Numbered';
+
+  @override
+  String get eventCountStyleElapsed => 'Time since start';
+
+  @override
+  String eventNumberedDays(int count) {
+    return 'Day $count';
+  }
+
+  @override
+  String eventNumberedWeeks(int count) {
+    return 'Week $count';
+  }
+
+  @override
+  String eventNumberedMonths(int count) {
+    return 'Month $count';
+  }
+
+  @override
+  String eventNumberedYears(int count) {
+    return 'Year $count';
+  }
+
+  @override
+  String eventElapsedDays(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count days',
+      one: '1 day',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String eventElapsedWeeks(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count weeks',
+      one: '1 week',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String eventElapsedMonths(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count months',
+      one: '1 month',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String eventElapsedYears(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count years',
+      one: '1 year',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get datePickerSingleTitle => 'Pick a date';
 
   @override
@@ -2043,6 +2120,13 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get calendarShowWeekNumbersDesc =>
       'Show week numbers at the left edge';
+
+  @override
+  String get calendarShowRecurrenceLabels => 'Repeat pattern in rows';
+
+  @override
+  String get calendarShowRecurrenceLabelsDesc =>
+      'Mention the repeat pattern (Daily, Weekly…) in event rows';
 
   @override
   String get calendarWeekStartTitle => 'Week starts on';

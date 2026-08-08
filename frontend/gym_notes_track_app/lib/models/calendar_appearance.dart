@@ -84,6 +84,12 @@ class CalendarAppearance extends Equatable {
   /// Maximum bar/dot markers per day cell before the "+N" overflow chip.
   final int maxDayBars;
 
+  /// Whether day-panel / agenda event rows mention the repeat pattern
+  /// ("Daily", "Every 2 weeks", …) in their subtitle. On by default; turning
+  /// it off declutters rows for people whose events are mostly timed
+  /// routines, where the pattern reads as redundant next to the time.
+  final bool showRecurrenceLabels;
+
   const CalendarAppearance({
     this.todayStyle = CalendarTodayStyle.tonal,
     this.markerStyle = CalendarMarkerStyle.bars,
@@ -92,6 +98,7 @@ class CalendarAppearance extends Equatable {
     this.highlightWeekends = false,
     this.showWeekNumbers = false,
     this.maxDayBars = 3,
+    this.showRecurrenceLabels = true,
   });
 
   /// The effective highlight accent: the user's custom color when set,
@@ -110,6 +117,7 @@ class CalendarAppearance extends Equatable {
     bool? highlightWeekends,
     bool? showWeekNumbers,
     int? maxDayBars,
+    bool? showRecurrenceLabels,
   }) {
     return CalendarAppearance(
       todayStyle: todayStyle ?? this.todayStyle,
@@ -121,6 +129,7 @@ class CalendarAppearance extends Equatable {
       highlightWeekends: highlightWeekends ?? this.highlightWeekends,
       showWeekNumbers: showWeekNumbers ?? this.showWeekNumbers,
       maxDayBars: maxDayBars ?? this.maxDayBars,
+      showRecurrenceLabels: showRecurrenceLabels ?? this.showRecurrenceLabels,
     );
   }
 
@@ -133,5 +142,6 @@ class CalendarAppearance extends Equatable {
     highlightWeekends,
     showWeekNumbers,
     maxDayBars,
+    showRecurrenceLabels,
   ];
 }

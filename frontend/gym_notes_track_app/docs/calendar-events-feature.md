@@ -211,6 +211,50 @@ Scope rules and interactions:
 - Backup keeps version 7: the column is additive and older backups import as
   `false`, which is exactly the behaviour those events had.
 
+### 3.4 Occurrence count / `countOccurrences` + `countStyle` (schema v20–v21)
+
+`CalendarEvent.countOccurrences` is a **display-only** flag: each occurrence
+of a periodic rule carries a count label derived from the start date, shaped
+by `CalendarEvent.countStyle` (`OccurrenceCountStyle`):
+
+- **`numbered`** (default) — "Day 1" / "Week 3" / "Year 2": elapsed + 1 in
+  the rule's calendar unit, so **the start day is the first**. Numbering is
+  calendar-based, not sequence-based: an every-2-days rule reads "Day 1,
+  Day 3, Day 5" and a Mon/Wed/Fri weekly rule labels all three sessions of
+  a week "Week N" — the training-program reading. Pre-start (retroactive)
+  days show nothing.
+- **`elapsed`** — "30 years" / "6 months": time since the start date. The
+  birthday/anniversary style: birth date as start + "Always" scope + count
+  = each occurrence shows the age; the start day itself deliberately shows
+  nothing (there is no "0 years").
+
+Mechanics:
+
+- The math is `RecurrenceRule.elapsedPeriods(day, start)` — O(1) date
+  arithmetic per rule (days diff / Monday-grid week index diff / month diff /
+  year diff), `null` for rules without a periodic unit (one-time, specific
+  dates, workdays, weekends, holidays-only). It never touches `occursOn`.
+- Formatting is `RecurrenceFormatter.countLabel(event, day, l10n)` — the
+  single entry point both surfaces use; it owns the flag check, the style
+  switch and the ≤ 0 suppression (`eventElapsedDays/Weeks/Months/Years` ICU
+  plurals, `eventNumberedDays/Weeks/Months/Years` unit labels).
+- Surfaces: the count label **leads** the day-panel/agenda row subtitle
+  ("Week 3 · Weekly · All day" — the count is the headline fact and trailing
+  segments ellipsize first), and the detail sheet's next-occurrence chips
+  append it ("Sat, May 10 · 30 years").
+- Editor: a "Count occurrences" switch shown only for the periodic kinds
+  (the `_kindSupportsInterval` set); when on, two style chips appear with a
+  live three-sample example line ("Day 1 · Day 2 · Day 3") rendered from
+  the same l10n keys, so the choice explains itself. `_onSave` writes
+  `recurring && _kindSupportsInterval && _countOccurrences`, mirroring the
+  `retroactive` guard. Picking the birthday built-in on a still-one-time
+  event pre-fills counting **with the elapsed style** together with the
+  yearly rule.
+- `.ics` export ignores both fields (RFC 5545 has no equivalent) and backup
+  keeps version 7 — additive columns; older backups import as off/numbered.
+- v21 is a separate migration from v20 only because v20 had already run on
+  devices when the style choice was added.
+
 ---
 
 ## 4. Public-holiday subsystem
@@ -444,6 +488,8 @@ same shape as the agenda search field in `CalendarBottomPanel`.
 | `description`       | TEXT     | YES  | **v12**. Free-form markdown notes, ≤ 2000 chars (was 500 pre-v19).   |
 | `note_id`           | TEXT     | YES  | **v14**. Optional link to a workout note (`notes.id`).               |
 | `retroactive`       | INTEGER  | NN   | **v19**. Boolean, default 0. Lifts the rule's pre-start guard (§3.3).|
+| `count_occurrences` | INTEGER  | NN   | **v20**. Boolean, default 0. Occurrences carry a count label (§3.4). |
+| `count_style`       | TEXT     | NN   | **v21**. `numbered` (default) / `elapsed` — the label shape (§3.4).  |
 | `created_at`        | INTEGER  | NN   | Epoch ms (UTC).                                                      |
 | `updated_at`        | INTEGER  | NN   | Epoch ms (UTC).                                                      |
 
@@ -643,12 +689,19 @@ per-field `_SectionLabel`s stay inside each zone):
 2. **Title** — single-line `TextField`, `maxLength: 120`.
 
 **When** (`eventSectionWhen`):
-3. **Date(s)** — `CalendarDatePickerSheet` (§6.5), ±20 years. One-time
-   events edit their whole date set in one multi-select pass.
-4. **Time** — all-day switch, start/end pickers.
-5. **Repeat mode** — segmented control `oneTime` / `recurring`, then (if
-   recurring) frequency chips, interval stepper, weekly weekday chips,
-   occurrence-scope chips (§3.3), and the optional Until date.
+3. **Repeat mode** — segmented control `oneTime` / `recurring`, leading the
+   zone: it decides everything the zone renders below it (date chips vs
+   start date + recurrence config), so it sits above what it switches — in
+   its old spot below the date and time sections, toggling it mutated
+   content *above* the control, which read as if nothing happened.
+4. **Date(s)** — `CalendarDatePickerSheet` (§6.5), ±20 years. One-time
+   events edit their whole date set in one multi-select pass; recurring
+   events pick a start date, then frequency chips, interval stepper, weekly
+   weekday chips, occurrence-scope chips (§3.3), the count-occurrences
+   switch (§3.4, periodic kinds only), and the optional Until date — one
+   contiguous recurrence block under the toggle.
+5. **Time** — all-day switch, start/end pickers, closing the zone (shared
+   by both modes).
 
 **Details** (`eventSectionDetails`):
 6. **Description** — markdown source, `maxLength: 2000`, with an eye/pencil
@@ -693,18 +746,29 @@ days that already carry events — the calendar page passes
 issues **no** extra queries.
 
 This sheet picks **days**. Jumping the calendar to another month/year is a
-different job with a different surface — see
-[`MonthYearPickerSheet`](../lib/widgets/month_year_picker_sheet.dart) in §6.1.
-Do not merge the two: bolting month/year stages onto this one turned a
-date-entry surface into a navigation maze.
+different job with a different surface —
+[`MonthYearPickerSheet`](../lib/widgets/month_year_picker_sheet.dart) (§6.1),
+which the header's month title opens (`_openMonthYearJump`), exactly like the
+calendar page's own header. In single mode its Apply confirms the
+wheeled/typed date outright (the wheels carry a full date; re-tapping it on
+the grid would be redundant); in multi mode it only jumps the grid there —
+day toggling stays a grid gesture so a navigation intent can never edit the
+set. Do **not** re-inline month/year *stages* into this sheet itself: that
+was tried and turned a date-entry surface into a navigation maze. Linking
+out to the dedicated jump surface is the sanctioned composition.
 
 The appearance is **passed in** (page → editor sheet → picker), not re-read:
-`getCalendarAppearance()` is seven sequential settings reads, and resolving it
+`getCalendarAppearance()` is eight sequential settings reads, and resolving it
 after the first frame visibly re-lays-out the grid because week start and row
 height both move. The page already holds a current copy and refreshes it when
 returning from settings. The colour palette threads the same way (page →
 bottom panel → rows) for the same reason plus staleness: a panel-local load
 would happen once in `initState` and never see an edit.
+`CalendarAppearance.showRecurrenceLabels` (a Calendar Settings switch,
+default on) rides the same object and threads page → bottom panel →
+`EventSummaryProvider` / `AgendaListView`: off, row subtitles drop the
+repeat-pattern segment ("Daily", "Every 2 weeks", …) — for timed routines it
+reads as redundant next to the time. Count labels (§3.4) and times stay.
 
 Its mode enum is `CalendarDatePickerMode` — **not** `DatePickerMode`, which
 `material.dart` already exports; the collision compiles inside the declaring

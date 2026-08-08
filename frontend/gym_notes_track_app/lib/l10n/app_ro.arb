@@ -147,6 +147,18 @@
   "recurrenceScopeAlways": "Întotdeauna",
   "recurrenceScopeEveryYear": "În fiecare an",
   "recurrenceScopeHint": "Apare și în zilele potrivite dinaintea datei de început",
+  "eventCountOccurrences": "Numără aparițiile",
+  "eventCountOccurrencesHint": "Fiecare apariție primește o etichetă care numără de la data de început",
+  "eventCountStyleNumbered": "Numerotare",
+  "eventCountStyleElapsed": "Timp de la început",
+  "eventNumberedDays": "Ziua {count}",
+  "eventNumberedWeeks": "Săptămâna {count}",
+  "eventNumberedMonths": "Luna {count}",
+  "eventNumberedYears": "Anul {count}",
+  "eventElapsedDays": "{count, plural, =1{1 zi} few{{count} zile} other{{count} de zile}}",
+  "eventElapsedWeeks": "{count, plural, =1{1 săptămână} few{{count} săptămâni} other{{count} de săptămâni}}",
+  "eventElapsedMonths": "{count, plural, =1{1 lună} few{{count} luni} other{{count} de luni}}",
+  "eventElapsedYears": "{count, plural, =1{1 an} few{{count} ani} other{{count} de ani}}",
   "recurrenceScopeAlwaysSuffix": "{rule} · și înainte",
   "@recurrenceScopeAlwaysSuffix": {
     "placeholders": {
@@ -627,6 +639,8 @@
   "calendarHighlightWeekendsDesc": "Afișează sâmbăta și duminica într-o culoare distinctă",
   "calendarShowWeekNumbers": "Numerele săptămânilor",
   "calendarShowWeekNumbersDesc": "Afișează numărul săptămânii în marginea stângă",
+  "calendarShowRecurrenceLabels": "Repetarea în rânduri",
+  "calendarShowRecurrenceLabelsDesc": "Menționează tiparul de repetare (Zilnic, Săptămânal…) în rândurile evenimentelor",
   "calendarWeekStartTitle": "Săptămâna începe",
   "daySummaryEntryCount": "{count, plural, one {1 intrare} few {{count} intrări} other {{count} de intrări}}",
   "@daySummaryEntryCount": {

@@ -3795,6 +3795,33 @@ class $CalendarEventsTable extends CalendarEvents
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _countOccurrencesMeta = const VerificationMeta(
+    'countOccurrences',
+  );
+  @override
+  late final GeneratedColumn<bool> countOccurrences = GeneratedColumn<bool>(
+    'count_occurrences',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("count_occurrences" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _countStyleMeta = const VerificationMeta(
+    'countStyle',
+  );
+  @override
+  late final GeneratedColumn<String> countStyle = GeneratedColumn<String>(
+    'count_style',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('numbered'),
+  );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -3836,6 +3863,8 @@ class $CalendarEventsTable extends CalendarEvents
     tintIcon,
     priority,
     retroactive,
+    countOccurrences,
+    countStyle,
     createdAt,
     updatedAt,
   ];
@@ -3975,6 +4004,21 @@ class $CalendarEventsTable extends CalendarEvents
         ),
       );
     }
+    if (data.containsKey('count_occurrences')) {
+      context.handle(
+        _countOccurrencesMeta,
+        countOccurrences.isAcceptableOrUnknown(
+          data['count_occurrences']!,
+          _countOccurrencesMeta,
+        ),
+      );
+    }
+    if (data.containsKey('count_style')) {
+      context.handle(
+        _countStyleMeta,
+        countStyle.isAcceptableOrUnknown(data['count_style']!, _countStyleMeta),
+      );
+    }
     if (data.containsKey('created_at')) {
       context.handle(
         _createdAtMeta,
@@ -4068,6 +4112,14 @@ class $CalendarEventsTable extends CalendarEvents
         DriftSqlType.bool,
         data['${effectivePrefix}retroactive'],
       )!,
+      countOccurrences: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}count_occurrences'],
+      )!,
+      countStyle: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}count_style'],
+      )!,
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -4104,6 +4156,8 @@ class CalendarEventRow extends DataClass
   final bool tintIcon;
   final int priority;
   final bool retroactive;
+  final bool countOccurrences;
+  final String countStyle;
   final DateTime createdAt;
   final DateTime updatedAt;
   const CalendarEventRow({
@@ -4124,6 +4178,8 @@ class CalendarEventRow extends DataClass
     required this.tintIcon,
     required this.priority,
     required this.retroactive,
+    required this.countOccurrences,
+    required this.countStyle,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -4163,6 +4219,8 @@ class CalendarEventRow extends DataClass
     map['tint_icon'] = Variable<bool>(tintIcon);
     map['priority'] = Variable<int>(priority);
     map['retroactive'] = Variable<bool>(retroactive);
+    map['count_occurrences'] = Variable<bool>(countOccurrences);
+    map['count_style'] = Variable<String>(countStyle);
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
     return map;
@@ -4203,6 +4261,8 @@ class CalendarEventRow extends DataClass
       tintIcon: Value(tintIcon),
       priority: Value(priority),
       retroactive: Value(retroactive),
+      countOccurrences: Value(countOccurrences),
+      countStyle: Value(countStyle),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
     );
@@ -4231,6 +4291,8 @@ class CalendarEventRow extends DataClass
       tintIcon: serializer.fromJson<bool>(json['tintIcon']),
       priority: serializer.fromJson<int>(json['priority']),
       retroactive: serializer.fromJson<bool>(json['retroactive']),
+      countOccurrences: serializer.fromJson<bool>(json['countOccurrences']),
+      countStyle: serializer.fromJson<String>(json['countStyle']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
     );
@@ -4256,6 +4318,8 @@ class CalendarEventRow extends DataClass
       'tintIcon': serializer.toJson<bool>(tintIcon),
       'priority': serializer.toJson<int>(priority),
       'retroactive': serializer.toJson<bool>(retroactive),
+      'countOccurrences': serializer.toJson<bool>(countOccurrences),
+      'countStyle': serializer.toJson<String>(countStyle),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
     };
@@ -4279,6 +4343,8 @@ class CalendarEventRow extends DataClass
     bool? tintIcon,
     int? priority,
     bool? retroactive,
+    bool? countOccurrences,
+    String? countStyle,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) => CalendarEventRow(
@@ -4301,6 +4367,8 @@ class CalendarEventRow extends DataClass
     tintIcon: tintIcon ?? this.tintIcon,
     priority: priority ?? this.priority,
     retroactive: retroactive ?? this.retroactive,
+    countOccurrences: countOccurrences ?? this.countOccurrences,
+    countStyle: countStyle ?? this.countStyle,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
   );
@@ -4335,6 +4403,12 @@ class CalendarEventRow extends DataClass
       retroactive: data.retroactive.present
           ? data.retroactive.value
           : this.retroactive,
+      countOccurrences: data.countOccurrences.present
+          ? data.countOccurrences.value
+          : this.countOccurrences,
+      countStyle: data.countStyle.present
+          ? data.countStyle.value
+          : this.countStyle,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
     );
@@ -4360,6 +4434,8 @@ class CalendarEventRow extends DataClass
           ..write('tintIcon: $tintIcon, ')
           ..write('priority: $priority, ')
           ..write('retroactive: $retroactive, ')
+          ..write('countOccurrences: $countOccurrences, ')
+          ..write('countStyle: $countStyle, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
@@ -4367,7 +4443,7 @@ class CalendarEventRow extends DataClass
   }
 
   @override
-  int get hashCode => Object.hash(
+  int get hashCode => Object.hashAll([
     id,
     title,
     category,
@@ -4385,9 +4461,11 @@ class CalendarEventRow extends DataClass
     tintIcon,
     priority,
     retroactive,
+    countOccurrences,
+    countStyle,
     createdAt,
     updatedAt,
-  );
+  ]);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -4409,6 +4487,8 @@ class CalendarEventRow extends DataClass
           other.tintIcon == this.tintIcon &&
           other.priority == this.priority &&
           other.retroactive == this.retroactive &&
+          other.countOccurrences == this.countOccurrences &&
+          other.countStyle == this.countStyle &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt);
 }
@@ -4431,6 +4511,8 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
   final Value<bool> tintIcon;
   final Value<int> priority;
   final Value<bool> retroactive;
+  final Value<bool> countOccurrences;
+  final Value<String> countStyle;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   final Value<int> rowid;
@@ -4452,6 +4534,8 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     this.tintIcon = const Value.absent(),
     this.priority = const Value.absent(),
     this.retroactive = const Value.absent(),
+    this.countOccurrences = const Value.absent(),
+    this.countStyle = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -4474,6 +4558,8 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     this.tintIcon = const Value.absent(),
     this.priority = const Value.absent(),
     this.retroactive = const Value.absent(),
+    this.countOccurrences = const Value.absent(),
+    this.countStyle = const Value.absent(),
     required DateTime createdAt,
     required DateTime updatedAt,
     this.rowid = const Value.absent(),
@@ -4502,6 +4588,8 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     Expression<bool>? tintIcon,
     Expression<int>? priority,
     Expression<bool>? retroactive,
+    Expression<bool>? countOccurrences,
+    Expression<String>? countStyle,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
     Expression<int>? rowid,
@@ -4524,6 +4612,8 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
       if (tintIcon != null) 'tint_icon': tintIcon,
       if (priority != null) 'priority': priority,
       if (retroactive != null) 'retroactive': retroactive,
+      if (countOccurrences != null) 'count_occurrences': countOccurrences,
+      if (countStyle != null) 'count_style': countStyle,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (rowid != null) 'rowid': rowid,
@@ -4548,6 +4638,8 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     Value<bool>? tintIcon,
     Value<int>? priority,
     Value<bool>? retroactive,
+    Value<bool>? countOccurrences,
+    Value<String>? countStyle,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
     Value<int>? rowid,
@@ -4570,6 +4662,8 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
       tintIcon: tintIcon ?? this.tintIcon,
       priority: priority ?? this.priority,
       retroactive: retroactive ?? this.retroactive,
+      countOccurrences: countOccurrences ?? this.countOccurrences,
+      countStyle: countStyle ?? this.countStyle,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       rowid: rowid ?? this.rowid,
@@ -4630,6 +4724,12 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     if (retroactive.present) {
       map['retroactive'] = Variable<bool>(retroactive.value);
     }
+    if (countOccurrences.present) {
+      map['count_occurrences'] = Variable<bool>(countOccurrences.value);
+    }
+    if (countStyle.present) {
+      map['count_style'] = Variable<String>(countStyle.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -4662,6 +4762,8 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
           ..write('tintIcon: $tintIcon, ')
           ..write('priority: $priority, ')
           ..write('retroactive: $retroactive, ')
+          ..write('countOccurrences: $countOccurrences, ')
+          ..write('countStyle: $countStyle, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('rowid: $rowid')
@@ -7450,6 +7552,8 @@ typedef $$CalendarEventsTableCreateCompanionBuilder =
       Value<bool> tintIcon,
       Value<int> priority,
       Value<bool> retroactive,
+      Value<bool> countOccurrences,
+      Value<String> countStyle,
       required DateTime createdAt,
       required DateTime updatedAt,
       Value<int> rowid,
@@ -7473,6 +7577,8 @@ typedef $$CalendarEventsTableUpdateCompanionBuilder =
       Value<bool> tintIcon,
       Value<int> priority,
       Value<bool> retroactive,
+      Value<bool> countOccurrences,
+      Value<String> countStyle,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
       Value<int> rowid,
@@ -7569,6 +7675,16 @@ class $$CalendarEventsTableFilterComposer
 
   ColumnFilters<bool> get retroactive => $composableBuilder(
     column: $table.retroactive,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get countOccurrences => $composableBuilder(
+    column: $table.countOccurrences,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get countStyle => $composableBuilder(
+    column: $table.countStyle,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -7677,6 +7793,16 @@ class $$CalendarEventsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<bool> get countOccurrences => $composableBuilder(
+    column: $table.countOccurrences,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get countStyle => $composableBuilder(
+    column: $table.countStyle,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -7760,6 +7886,16 @@ class $$CalendarEventsTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<bool> get countOccurrences => $composableBuilder(
+    column: $table.countOccurrences,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get countStyle => $composableBuilder(
+    column: $table.countStyle,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
 
@@ -7821,6 +7957,8 @@ class $$CalendarEventsTableTableManager
                 Value<bool> tintIcon = const Value.absent(),
                 Value<int> priority = const Value.absent(),
                 Value<bool> retroactive = const Value.absent(),
+                Value<bool> countOccurrences = const Value.absent(),
+                Value<String> countStyle = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
@@ -7842,6 +7980,8 @@ class $$CalendarEventsTableTableManager
                 tintIcon: tintIcon,
                 priority: priority,
                 retroactive: retroactive,
+                countOccurrences: countOccurrences,
+                countStyle: countStyle,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 rowid: rowid,
@@ -7865,6 +8005,8 @@ class $$CalendarEventsTableTableManager
                 Value<bool> tintIcon = const Value.absent(),
                 Value<int> priority = const Value.absent(),
                 Value<bool> retroactive = const Value.absent(),
+                Value<bool> countOccurrences = const Value.absent(),
+                Value<String> countStyle = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime updatedAt,
                 Value<int> rowid = const Value.absent(),
@@ -7886,6 +8028,8 @@ class $$CalendarEventsTableTableManager
                 tintIcon: tintIcon,
                 priority: priority,
                 retroactive: retroactive,
+                countOccurrences: countOccurrences,
+                countStyle: countStyle,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 rowid: rowid,

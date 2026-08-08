@@ -40,6 +40,10 @@ class UpcomingAgendaView extends StatefulWidget {
   /// user's custom markdown colours.
   final MarkdownColorPalette colorPalette;
 
+  /// Forwarded to the agenda rows: whether subtitles mention the repeat
+  /// pattern.
+  final bool showRecurrenceLabels;
+
   const UpcomingAgendaView({
     super.key,
     required this.events,
@@ -50,6 +54,7 @@ class UpcomingAgendaView extends StatefulWidget {
     required this.onEditEvent,
     required this.onOpenNote,
     this.colorPalette = MarkdownColorPalette.presets,
+    this.showRecurrenceLabels = true,
   });
 
   /// Look-ahead windows offered as presets, in days.
@@ -419,6 +424,7 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
             emptyHint: l10n.upcomingNoEventsHint,
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
             colorPalette: widget.colorPalette,
+            showRecurrenceLabels: widget.showRecurrenceLabels,
           ),
         ),
       ],

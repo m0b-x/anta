@@ -994,6 +994,78 @@ abstract class AppLocalizations {
   /// **'{rule} · also before'**
   String recurrenceScopeAlwaysSuffix(String rule);
 
+  /// Switch in the event editor: each occurrence shows the elapsed time since the start date
+  ///
+  /// In en, this message translates to:
+  /// **'Count occurrences'**
+  String get eventCountOccurrences;
+
+  /// Explanation under the count-occurrences switch; the style chips below it show concrete examples
+  ///
+  /// In en, this message translates to:
+  /// **'Each occurrence gets a label counting from the start date'**
+  String get eventCountOccurrencesHint;
+
+  /// Count style chip: occurrences read Day 1 / Week 3, the start day being the first
+  ///
+  /// In en, this message translates to:
+  /// **'Numbered'**
+  String get eventCountStyleNumbered;
+
+  /// Count style chip: occurrences show elapsed time (a birthday's age); the start day shows nothing
+  ///
+  /// In en, this message translates to:
+  /// **'Time since start'**
+  String get eventCountStyleElapsed;
+
+  /// Numbered occurrence label for a daily rule
+  ///
+  /// In en, this message translates to:
+  /// **'Day {count}'**
+  String eventNumberedDays(int count);
+
+  /// Numbered occurrence label for a weekly rule (all sessions of a week share the number)
+  ///
+  /// In en, this message translates to:
+  /// **'Week {count}'**
+  String eventNumberedWeeks(int count);
+
+  /// Numbered occurrence label for a monthly rule
+  ///
+  /// In en, this message translates to:
+  /// **'Month {count}'**
+  String eventNumberedMonths(int count);
+
+  /// Numbered occurrence label for a yearly rule
+  ///
+  /// In en, this message translates to:
+  /// **'Year {count}'**
+  String eventNumberedYears(int count);
+
+  /// Elapsed time since an event's start date, shown on counted occurrences of a daily rule
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 day} other{{count} days}}'**
+  String eventElapsedDays(int count);
+
+  /// Elapsed time since an event's start date, shown on counted occurrences of a weekly rule
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 week} other{{count} weeks}}'**
+  String eventElapsedWeeks(int count);
+
+  /// Elapsed time since an event's start date, shown on counted occurrences of a monthly rule
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 month} other{{count} months}}'**
+  String eventElapsedMonths(int count);
+
+  /// Elapsed time since an event's start date, shown on counted occurrences of a yearly rule (a birthday's age)
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 year} other{{count} years}}'**
+  String eventElapsedYears(int count);
+
   /// Title of the in-app calendar date picker in single-date mode
   ///
   /// In en, this message translates to:
@@ -3777,6 +3849,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Show week numbers at the left edge'**
   String get calendarShowWeekNumbersDesc;
+
+  /// Switch title: event rows mention the repeat pattern (Daily, Weekly, ...)
+  ///
+  /// In en, this message translates to:
+  /// **'Repeat pattern in rows'**
+  String get calendarShowRecurrenceLabels;
+
+  /// Switch subtitle for the repeat-pattern-in-rows option
+  ///
+  /// In en, this message translates to:
+  /// **'Mention the repeat pattern (Daily, Weekly…) in event rows'**
+  String get calendarShowRecurrenceLabelsDesc;
 
   /// Label for the first-day-of-week dropdown
   ///

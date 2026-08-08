@@ -121,6 +121,11 @@ class SettingsKeys {
   /// upcoming). Parsed with a forward-compatible fallback.
   static const String calendarPanelMode = 'calendar_panel_mode';
 
+  /// Whether day-panel / agenda event rows mention the repeat pattern
+  /// ("Daily", "Every 2 weeks", …) in their subtitle.
+  static const String calendarShowRecurrenceLabels =
+      'calendar_show_recurrence_labels';
+
   /// CSV of enabled [FastingTradition] names ('' or absent = fasting off).
   /// Unknown names are dropped on read for forward compatibility.
   static const String calendarFastingTraditions = 'calendar_fasting_traditions';
@@ -209,6 +214,7 @@ class SettingsKeys {
   static const String defaultCalendarWeekStart = 'monday';
   static const bool defaultCalendarHighlightWeekends = false;
   static const bool defaultCalendarShowWeekNumbers = false;
+  static const bool defaultCalendarShowRecurrenceLabels = true;
 
   /// Default look-ahead window of the upcoming events sheet, in days.
   static const int defaultCalendarUpcomingRangeDays = 30;

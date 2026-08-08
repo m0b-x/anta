@@ -36,6 +36,29 @@ const int kMaxEventPriority = 5;
 /// Neutral default priority assigned to brand-new events.
 const int kDefaultEventPriority = 3;
 
+/// How a counted occurrence ([CalendarEvent.countOccurrences]) is labelled.
+enum OccurrenceCountStyle {
+  /// "Day 1" / "Week 3" / "Year 2" — the start day is the first, numbering
+  /// runs in the rule's own calendar unit (an every-2-days rule reads
+  /// "Day 1, Day 3, Day 5"; a Mon/Wed/Fri weekly rule labels all three
+  /// sessions of a week "Week N"). The training-program style, and the
+  /// default.
+  numbered,
+
+  /// "30 years" / "6 months" — time elapsed since the start date. The
+  /// birthday/anniversary style: with the birth date as start, each
+  /// occurrence shows the age; the start day itself shows nothing.
+  elapsed;
+
+  /// Forward-compatible parsing: unknown/null names fall back to [numbered].
+  static OccurrenceCountStyle fromName(String? name) {
+    for (final style in values) {
+      if (style.name == name) return style;
+    }
+    return numbered;
+  }
+}
+
 /// Time-of-day annotation for a [CalendarEvent].
 ///
 /// An event is considered **timed** iff it carries a non-null
@@ -133,6 +156,17 @@ class CalendarEvent extends Equatable {
   /// the forward side either way.
   final bool retroactive;
 
+  /// Display-only: when `true`, each occurrence of a periodic rule carries a
+  /// count label derived from [startDate], shaped by [countStyle]. Resolved
+  /// through [RecurrenceRule.elapsedPeriods]; meaningless (and never
+  /// rendered) for rules without a periodic unit. Never affects occurrence
+  /// math.
+  final bool countOccurrences;
+
+  /// Label shape for counted occurrences — see [OccurrenceCountStyle].
+  /// Ignored while [countOccurrences] is `false`.
+  final OccurrenceCountStyle countStyle;
+
   /// Optional free-form description / notes for the event (e.g., "focus on
   /// hamstrings, drop sets on the third exercise"). `null` or empty means
   /// no description. Stored verbatim as markdown source — rendering happens
@@ -176,6 +210,8 @@ class CalendarEvent extends Equatable {
     this.rule = const OneTimeRecurrence(),
     this.endDate,
     this.retroactive = false,
+    this.countOccurrences = false,
+    this.countStyle = OccurrenceCountStyle.numbered,
     this.time,
     this.description,
     this.noteId,
@@ -198,6 +234,8 @@ class CalendarEvent extends Equatable {
     RecurrenceRule? rule,
     DateTime? endDate,
     bool? retroactive,
+    bool? countOccurrences,
+    OccurrenceCountStyle? countStyle,
     EventTime? time,
     String? description,
     String? noteId,
@@ -220,6 +258,8 @@ class CalendarEvent extends Equatable {
       rule: rule ?? this.rule,
       endDate: clearEndDate ? null : (endDate ?? this.endDate),
       retroactive: retroactive ?? this.retroactive,
+      countOccurrences: countOccurrences ?? this.countOccurrences,
+      countStyle: countStyle ?? this.countStyle,
       time: clearTime ? null : (time ?? this.time),
       description: clearDescription ? null : (description ?? this.description),
       noteId: clearNoteId ? null : (noteId ?? this.noteId),
@@ -258,6 +298,8 @@ class CalendarEvent extends Equatable {
     rule,
     endDate,
     retroactive,
+    countOccurrences,
+    countStyle,
     time,
     description,
     noteId,

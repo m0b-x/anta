@@ -43,6 +43,10 @@ class AgendaListView extends StatefulWidget {
   /// day summary panel so both surfaces render a description identically.
   final MarkdownColorPalette colorPalette;
 
+  /// Whether row subtitles mention the repeat pattern; forwarded to
+  /// [EventSummaryProvider] so agenda and day-panel rows always agree.
+  final bool showRecurrenceLabels;
+
   const AgendaListView({
     super.key,
     required this.occurrences,
@@ -54,6 +58,7 @@ class AgendaListView extends StatefulWidget {
     required this.emptyHint,
     this.padding = const EdgeInsets.fromLTRB(16, 12, 16, 16),
     this.colorPalette = MarkdownColorPalette.presets,
+    this.showRecurrenceLabels = true,
   });
 
   /// Qualitative priority word appended to a row subtitle. The neutral
@@ -85,16 +90,19 @@ class _AgendaListViewState extends State<AgendaListView> {
   List<EventOccurrence>? _rowsForOccurrences;
   List<DateTime>? _rowsForHolidays;
   String? _rowsForLocale;
+  bool? _rowsForShowRecurrence;
 
   List<_AgendaRow> _rowsFor(AppLocalizations l10n) {
     if (identical(_rowsForOccurrences, widget.occurrences) &&
         identical(_rowsForHolidays, widget.holidayDays) &&
-        _rowsForLocale == l10n.localeName) {
+        _rowsForLocale == l10n.localeName &&
+        _rowsForShowRecurrence == widget.showRecurrenceLabels) {
       return _rows;
     }
     _rowsForOccurrences = widget.occurrences;
     _rowsForHolidays = widget.holidayDays;
     _rowsForLocale = l10n.localeName;
+    _rowsForShowRecurrence = widget.showRecurrenceLabels;
     return _rows = _buildRows(l10n);
   }
 
@@ -108,7 +116,10 @@ class _AgendaListViewState extends State<AgendaListView> {
   List<_AgendaRow> _buildRows(AppLocalizations l10n) {
     final occurrences = widget.occurrences;
     final holidayDays = widget.holidayDays;
-    final eventProvider = EventSummaryProvider(l10n);
+    final eventProvider = EventSummaryProvider(
+      l10n,
+      showRecurrence: widget.showRecurrenceLabels,
+    );
     final holidayProvider = PublicHolidaySummaryProvider(l10n);
     final rows = <_AgendaRow>[];
     var index = 0;

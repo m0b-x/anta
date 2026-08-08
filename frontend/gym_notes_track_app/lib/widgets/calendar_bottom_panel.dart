@@ -51,6 +51,11 @@ class CalendarBottomPanel extends StatefulWidget {
   /// happens once in `initState` and would go stale after an edit.
   final MarkdownColorPalette colorPalette;
 
+  /// Whether event-row subtitles mention the repeat pattern. Owned by the
+  /// page for the same staleness reason as [colorPalette]: it is edited on
+  /// the settings page, and the page already re-resolves settings on return.
+  final bool showRecurrenceLabels;
+
   const CalendarBottomPanel({
     super.key,
     required this.loaded,
@@ -61,6 +66,7 @@ class CalendarBottomPanel extends StatefulWidget {
     required this.onOpenNote,
     required this.onSuppressHoliday,
     required this.colorPalette,
+    this.showRecurrenceLabels = true,
   });
 
   @override
@@ -174,6 +180,7 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
       case CalendarPanelMode.day:
         final entries = DaySummaryResolver.defaults(
           l10n,
+          showRecurrence: widget.showRecurrenceLabels,
         ).resolve(loaded.selectedDay, bloc.eventsForDay(loaded.selectedDay));
         return DaySummaryPanel(
           day: loaded.selectedDay,
@@ -202,6 +209,7 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
           onEditEvent: widget.onEditEvent,
           onOpenNote: widget.onOpenNote,
           colorPalette: widget.colorPalette,
+          showRecurrenceLabels: widget.showRecurrenceLabels,
         );
     }
   }

@@ -127,7 +127,12 @@ class FastingSummaryProvider implements DaySummaryProvider {
 class EventSummaryProvider implements DaySummaryProvider {
   final AppLocalizations l10n;
 
-  const EventSummaryProvider(this.l10n);
+  /// Whether row subtitles mention the repeat pattern ("Daily", "Every 2
+  /// weeks", …). User-controlled via the calendar appearance settings —
+  /// timed routines make the pattern read as redundant next to the time.
+  final bool showRecurrence;
+
+  const EventSummaryProvider(this.l10n, {this.showRecurrence = true});
 
   @override
   Iterable<DaySummaryEntry> summaryFor(
@@ -147,7 +152,7 @@ class EventSummaryProvider implements DaySummaryProvider {
         icon: CalendarCategories.iconFor(event),
         color: color,
         title: event.title,
-        subtitle: _subtitleFor(event),
+        subtitle: _subtitleFor(event, day),
         description: _descriptionFor(event),
         priority: event.priority - kMinEventPriority,
         event: event,
@@ -162,10 +167,19 @@ class EventSummaryProvider implements DaySummaryProvider {
     return (description == null || description.isEmpty) ? null : description;
   }
 
-  String? _subtitleFor(CalendarEvent event) {
+  String? _subtitleFor(CalendarEvent event, DateTime day) {
     final time = event.time;
+    // The count label leads the subtitle: for a birthday the age (and for a
+    // program its "Week N") is the headline fact, and trailing segments are
+    // the first to be ellipsized.
+    final elapsed = RecurrenceFormatter.countLabel(
+      event,
+      DateTime.utc(day.year, day.month, day.day),
+      l10n,
+    );
     final parts = <String>[
-      if (event.rule is! OneTimeRecurrence)
+      ?elapsed,
+      if (showRecurrence && event.rule is! OneTimeRecurrence)
         RecurrenceFormatter.format(
           event.rule,
           l10n,
@@ -251,10 +265,13 @@ class DaySummaryResolver {
   const DaySummaryResolver({required this.providers});
 
   /// Default resolver bundling events + public holiday + weekend.
-  factory DaySummaryResolver.defaults(AppLocalizations l10n) {
+  factory DaySummaryResolver.defaults(
+    AppLocalizations l10n, {
+    bool showRecurrence = true,
+  }) {
     return DaySummaryResolver(
       providers: [
-        EventSummaryProvider(l10n),
+        EventSummaryProvider(l10n, showRecurrence: showRecurrence),
         PublicHolidaySummaryProvider(l10n),
         FastingSummaryProvider(l10n),
         WeekendSummaryProvider(l10n),

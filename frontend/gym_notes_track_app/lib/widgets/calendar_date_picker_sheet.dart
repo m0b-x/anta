@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import 'calendar_day_bars.dart';
 import 'calendar_day_cell.dart';
+import 'month_year_picker_sheet.dart';
 
 /// How many days a single [CalendarDatePickerSheet] pass may return.
 enum CalendarDatePickerMode { single, multi }
@@ -164,6 +166,27 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
     });
   }
 
+  /// Opens the wheel/typed date picker from the header's month title, exactly
+  /// like the calendar page's own header. Single mode treats Apply as the
+  /// final answer (the wheels carry a full date, so re-tapping it on the grid
+  /// would be redundant); multi mode only jumps the grid there — day toggling
+  /// stays a grid gesture so a navigation intent can never edit the set.
+  Future<void> _openMonthYearJump() async {
+    final picked = await MonthYearPickerSheet.show(
+      context,
+      initialDate: _focusedDay,
+      firstDate: widget.firstDate,
+      lastDate: widget.lastDate,
+      accent: _appearance.accentOr(Theme.of(context).colorScheme.primary),
+    );
+    if (picked == null || !mounted) return;
+    if (widget.mode == CalendarDatePickerMode.single) {
+      Navigator.of(context).pop(<DateTime>{_clamp(picked)});
+      return;
+    }
+    setState(() => _focusedDay = _clamp(picked));
+  }
+
   bool _isSelected(DateTime day) =>
       _selection.contains(CalendarDatePickerSheet._dateOnly(day));
 
@@ -280,6 +303,46 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
                   markersMaxCount: 0,
                 ),
                 calendarBuilders: CalendarBuilders<void>(
+                  headerTitleBuilder: (context, day) {
+                    final title = DateFormat.yMMMM(
+                      l10n.localeName,
+                    ).format(day);
+                    return Center(
+                      child: Tooltip(
+                        message: l10n.monthYearPickerTitle,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(8),
+                          onTap: _openMonthYearJump,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    title,
+                                    style: theme.textTheme.titleMedium
+                                        ?.copyWith(
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                Icon(
+                                  Icons.arrow_drop_down_rounded,
+                                  size: 20,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
                   defaultBuilder: (context, day, _) =>
                       _cell(day, accent, isOutside: false),
                   todayBuilder: (context, day, _) =>

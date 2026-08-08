@@ -206,6 +206,7 @@ class _CalendarViewState extends State<_CalendarView> {
                   onShowEvent: (event) => _openDetailSheet(context, event),
                   onOpenNote: (event) => _openLinkedNote(context, event),
                   colorPalette: _colorPalette,
+                  showRecurrenceLabels: _appearance.showRecurrenceLabels,
                   onSuppressHoliday: (day) => _removeHoliday(context, day),
                 ),
               ),

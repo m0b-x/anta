@@ -526,6 +526,24 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
                         await _settings?.setCalendarShowWeekNumbers(value);
                       },
                     ),
+                    SwitchListTile(
+                      value: _appearance.showRecurrenceLabels,
+                      secondary: Icon(
+                        Icons.repeat_rounded,
+                        color: colorScheme.primary,
+                      ),
+                      title: Text(l10n.calendarShowRecurrenceLabels),
+                      subtitle: Text(l10n.calendarShowRecurrenceLabelsDesc),
+                      onChanged: (value) async {
+                        _onHapticFeedback();
+                        setState(
+                          () => _appearance = _appearance.copyWith(
+                            showRecurrenceLabels: value,
+                          ),
+                        );
+                        await _settings?.setCalendarShowRecurrenceLabels(value);
+                      },
+                    ),
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -839,6 +857,9 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     await _settings?.setCalendarAccentColor(defaults.accentColorValue);
     await _settings?.setCalendarHighlightWeekends(defaults.highlightWeekends);
     await _settings?.setCalendarShowWeekNumbers(defaults.showWeekNumbers);
+    await _settings?.setCalendarShowRecurrenceLabels(
+      defaults.showRecurrenceLabels,
+    );
     await _settings?.setFastingTraditions(const {});
     await _settings?.setFastingAppearance(const FastingAppearance());
     await _settings?.setFastingOrthodoxGreatFasts(true);

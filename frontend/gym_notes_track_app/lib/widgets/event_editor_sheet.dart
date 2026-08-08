@@ -137,6 +137,15 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   /// exact membership.
   bool _retroactive = false;
 
+  /// Whether each occurrence carries a count label derived from [_date].
+  /// Only meaningful (and only shown) for the periodic kinds — the same set
+  /// that supports an interval.
+  bool _countOccurrences = false;
+
+  /// Label shape for counted occurrences: numbered ("Day 1", start day is
+  /// the first) or elapsed ("30 years", the birthday/anniversary style).
+  OccurrenceCountStyle _countStyle = OccurrenceCountStyle.numbered;
+
   /// Time-of-day state. The trio is the editor's working copy of the
   /// model's [EventTime]; it's serialized back into one on save.
   ///
@@ -205,6 +214,8 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     _tintIcon = initial?.tintIcon ?? true;
     _priority = initial?.priority ?? kDefaultEventPriority;
     _retroactive = initial?.retroactive ?? false;
+    _countOccurrences = initial?.countOccurrences ?? false;
+    _countStyle = initial?.countStyle ?? OccurrenceCountStyle.numbered;
     _initRecurrenceFrom(initial?.rule ?? const OneTimeRecurrence());
     if (_noteId != null) _loadLinkedNoteTitle();
     _loadRecentColors();
@@ -296,6 +307,40 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
       _RecurrenceKind.weekends ||
       _RecurrenceKind.holidays => false,
     };
+  }
+
+  String _countStyleLabel(AppLocalizations l10n, OccurrenceCountStyle style) {
+    return switch (style) {
+      OccurrenceCountStyle.numbered => l10n.eventCountStyleNumbered,
+      OccurrenceCountStyle.elapsed => l10n.eventCountStyleElapsed,
+    };
+  }
+
+  /// Three sample labels for the current kind + style ("Day 1 · Day 2 ·
+  /// Day 3", "1 year · 2 years · 3 years") so the style choice explains
+  /// itself without prose. For the elapsed style the samples start at the
+  /// second occurrence — the start day deliberately shows nothing there.
+  String _countStyleExample(AppLocalizations l10n) {
+    String at(int n) {
+      return switch (_countStyle) {
+        OccurrenceCountStyle.numbered => switch (_kind) {
+          _RecurrenceKind.daily => l10n.eventNumberedDays(n),
+          _RecurrenceKind.weekly => l10n.eventNumberedWeeks(n),
+          _RecurrenceKind.monthly => l10n.eventNumberedMonths(n),
+          _RecurrenceKind.yearly => l10n.eventNumberedYears(n),
+          _ => '',
+        },
+        OccurrenceCountStyle.elapsed => switch (_kind) {
+          _RecurrenceKind.daily => l10n.eventElapsedDays(n),
+          _RecurrenceKind.weekly => l10n.eventElapsedWeeks(n),
+          _RecurrenceKind.monthly => l10n.eventElapsedMonths(n),
+          _RecurrenceKind.yearly => l10n.eventElapsedYears(n),
+          _ => '',
+        },
+      };
+    }
+
+    return '${at(1)} · ${at(2)} · ${at(3)}';
   }
 
   String _intervalUnitLabel(AppLocalizations l10n, _RecurrenceKind kind) {
@@ -531,6 +576,12 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
       if (picked == kBirthdayCategoryId && _mode == _RepeatMode.oneTime) {
         _mode = _RepeatMode.recurring;
         _kind = _RecurrenceKind.yearly;
+        // Birthdays are the canonical occurrence-count use: with the birth
+        // date as start, every occurrence shows the age — which is the
+        // elapsed style, not the numbered default. Pre-filled only on the
+        // same fresh-event path as the yearly rule above.
+        _countOccurrences = true;
+        _countStyle = OccurrenceCountStyle.elapsed;
       }
     });
   }
@@ -597,6 +648,12 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     // Same guard for the scope flag: an exact-membership rule can never be
     // retroactive, so a one-time event never carries a stale `true`.
     final effectiveRetroactive = _mode == _RepeatMode.recurring && _retroactive;
+    // And for the occurrence count: only periodic kinds have a unit to count
+    // in, so kind switches can never persist a stale `true`.
+    final effectiveCountOccurrences =
+        _mode == _RepeatMode.recurring &&
+        _kindSupportsInterval(_kind) &&
+        _countOccurrences;
     final effectiveTime = _isAllDay
         ? null
         : EventTime(
@@ -621,6 +678,8 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             rule: _buildRule(),
             endDate: effectiveEnd,
             retroactive: effectiveRetroactive,
+            countOccurrences: effectiveCountOccurrences,
+            countStyle: _countStyle,
             time: effectiveTime,
             description: effectiveDescription,
             noteId: _noteId,
@@ -636,6 +695,8 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             rule: _buildRule(),
             endDate: effectiveEnd,
             retroactive: effectiveRetroactive,
+            countOccurrences: effectiveCountOccurrences,
+            countStyle: _countStyle,
             time: effectiveTime,
             description: effectiveDescription,
             noteId: _noteId,
@@ -849,7 +910,32 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                     ),
                     onChanged: (_) => setState(() {}),
                   ),
+                  // Mode-first inside the When zone: the toggle decides what
+                  // the rest of the zone renders (date chips vs start date +
+                  // recurrence config), so it must sit above the content it
+                  // switches — a control that mutates content above itself
+                  // reads as if nothing happened.
                   _GroupHeader(text: l10n.eventSectionWhen),
+                  _SectionLabel(text: l10n.repeatMode),
+                  Center(
+                    child: SegmentedButton<_RepeatMode>(
+                      segments: [
+                        ButtonSegment(
+                          value: _RepeatMode.oneTime,
+                          label: Text(l10n.repeatOnce),
+                          icon: const Icon(Icons.looks_one_rounded),
+                        ),
+                        ButtonSegment(
+                          value: _RepeatMode.recurring,
+                          label: Text(l10n.repeatRecurring),
+                          icon: const Icon(Icons.repeat_rounded),
+                        ),
+                      ],
+                      selected: {_mode},
+                      onSelectionChanged: (s) =>
+                          setState(() => _mode = s.first),
+                    ),
+                  ),
                   if (_mode == _RepeatMode.oneTime) ...[
                     _SectionLabel(text: l10n.eventDatesLabel),
                     Wrap(
@@ -893,80 +979,6 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                       onTap: _pickDate,
                     ),
                   ],
-                  _SectionLabel(text: l10n.eventTimeSection),
-                  Card(
-                    margin: EdgeInsets.zero,
-                    child: SwitchListTile(
-                      value: _isAllDay,
-                      onChanged: _setAllDay,
-                      secondary: const CircleAvatar(
-                        child: Icon(Icons.schedule_rounded),
-                      ),
-                      title: Text(l10n.eventAllDay),
-                      subtitle: Text(l10n.eventAllDayHint),
-                    ),
-                  ),
-                  if (!_isAllDay) ...[
-                    const SizedBox(height: 8),
-                    _PickerTile(
-                      leading: const CircleAvatar(
-                        child: Icon(Icons.play_arrow_rounded),
-                      ),
-                      title: EventTimeFormatter.formatMinute(
-                        _startMinute,
-                        context,
-                      ),
-                      subtitle: l10n.eventStartTime,
-                      onTap: _pickStartTime,
-                    ),
-                    const SizedBox(height: 8),
-                    _PickerTile(
-                      leading: const CircleAvatar(
-                        child: Icon(Icons.stop_rounded),
-                      ),
-                      title: _durationMinutes == null
-                          ? l10n.eventEndTimeNone
-                          : EventTimeFormatter.formatMinute(
-                              (_startMinute + _durationMinutes!) %
-                                  EventTime.minutesPerDay,
-                              context,
-                            ),
-                      subtitle: _durationMinutes == null
-                          ? l10n.eventEndTimeHint
-                          : (_startMinute + _durationMinutes! >=
-                                    EventTime.minutesPerDay
-                                ? l10n.eventCrossesMidnight
-                                : l10n.eventEndTime),
-                      trailing: _durationMinutes == null
-                          ? const Icon(Icons.chevron_right_rounded)
-                          : IconButton(
-                              tooltip: l10n.resetToDefault,
-                              icon: const Icon(Icons.close_rounded),
-                              onPressed: _clearEndTime,
-                            ),
-                      onTap: _pickEndTime,
-                    ),
-                  ],
-                  _SectionLabel(text: l10n.repeatMode),
-                  Center(
-                    child: SegmentedButton<_RepeatMode>(
-                      segments: [
-                        ButtonSegment(
-                          value: _RepeatMode.oneTime,
-                          label: Text(l10n.repeatOnce),
-                          icon: const Icon(Icons.looks_one_rounded),
-                        ),
-                        ButtonSegment(
-                          value: _RepeatMode.recurring,
-                          label: Text(l10n.repeatRecurring),
-                          icon: const Icon(Icons.repeat_rounded),
-                        ),
-                      ],
-                      selected: {_mode},
-                      onSelectionChanged: (s) =>
-                          setState(() => _mode = s.first),
-                    ),
-                  ),
                   if (_mode == _RepeatMode.recurring) ...[
                     _SectionLabel(text: l10n.frequency),
                     Wrap(
@@ -1049,6 +1061,47 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                           ),
                         ),
                       ),
+                    if (_kindSupportsInterval(_kind)) ...[
+                      const SizedBox(height: 16),
+                      Card(
+                        margin: EdgeInsets.zero,
+                        child: SwitchListTile(
+                          value: _countOccurrences,
+                          onChanged: (v) =>
+                              setState(() => _countOccurrences = v),
+                          secondary: const CircleAvatar(
+                            child: Icon(Icons.numbers_rounded),
+                          ),
+                          title: Text(l10n.eventCountOccurrences),
+                          subtitle: Text(l10n.eventCountOccurrencesHint),
+                        ),
+                      ),
+                      if (_countOccurrences) ...[
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            for (final style in OccurrenceCountStyle.values)
+                              ChoiceChip(
+                                label: Text(_countStyleLabel(l10n, style)),
+                                selected: _countStyle == style,
+                                onSelected: (_) =>
+                                    setState(() => _countStyle = style),
+                              ),
+                          ],
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            _countStyleExample(l10n),
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                     _SectionLabel(text: l10n.eventUntilLabel),
                     _PickerTile(
                       leading: const CircleAvatar(
@@ -1066,6 +1119,60 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                               onPressed: () => setState(() => _endDate = null),
                             ),
                       onTap: _pickEndDate,
+                    ),
+                  ],
+                  _SectionLabel(text: l10n.eventTimeSection),
+                  Card(
+                    margin: EdgeInsets.zero,
+                    child: SwitchListTile(
+                      value: _isAllDay,
+                      onChanged: _setAllDay,
+                      secondary: const CircleAvatar(
+                        child: Icon(Icons.schedule_rounded),
+                      ),
+                      title: Text(l10n.eventAllDay),
+                      subtitle: Text(l10n.eventAllDayHint),
+                    ),
+                  ),
+                  if (!_isAllDay) ...[
+                    const SizedBox(height: 8),
+                    _PickerTile(
+                      leading: const CircleAvatar(
+                        child: Icon(Icons.play_arrow_rounded),
+                      ),
+                      title: EventTimeFormatter.formatMinute(
+                        _startMinute,
+                        context,
+                      ),
+                      subtitle: l10n.eventStartTime,
+                      onTap: _pickStartTime,
+                    ),
+                    const SizedBox(height: 8),
+                    _PickerTile(
+                      leading: const CircleAvatar(
+                        child: Icon(Icons.stop_rounded),
+                      ),
+                      title: _durationMinutes == null
+                          ? l10n.eventEndTimeNone
+                          : EventTimeFormatter.formatMinute(
+                              (_startMinute + _durationMinutes!) %
+                                  EventTime.minutesPerDay,
+                              context,
+                            ),
+                      subtitle: _durationMinutes == null
+                          ? l10n.eventEndTimeHint
+                          : (_startMinute + _durationMinutes! >=
+                                    EventTime.minutesPerDay
+                                ? l10n.eventCrossesMidnight
+                                : l10n.eventEndTime),
+                      trailing: _durationMinutes == null
+                          ? const Icon(Icons.chevron_right_rounded)
+                          : IconButton(
+                              tooltip: l10n.resetToDefault,
+                              icon: const Icon(Icons.close_rounded),
+                              onPressed: _clearEndTime,
+                            ),
+                      onTap: _pickEndTime,
                     ),
                   ],
                   _GroupHeader(text: l10n.eventSectionDetails),

@@ -156,6 +156,18 @@
       "rule": { "type": "String" }
     }
   },
+  "eventCountOccurrences": "Wiederholungen zählen",
+  "eventCountOccurrencesHint": "Jede Wiederholung erhält eine Beschriftung, die ab dem Startdatum zählt",
+  "eventCountStyleNumbered": "Nummerierung",
+  "eventCountStyleElapsed": "Zeit seit Beginn",
+  "eventNumberedDays": "Tag {count}",
+  "eventNumberedWeeks": "Woche {count}",
+  "eventNumberedMonths": "Monat {count}",
+  "eventNumberedYears": "Jahr {count}",
+  "eventElapsedDays": "{count, plural, =1{1 Tag} other{{count} Tage}}",
+  "eventElapsedWeeks": "{count, plural, =1{1 Woche} other{{count} Wochen}}",
+  "eventElapsedMonths": "{count, plural, =1{1 Monat} other{{count} Monate}}",
+  "eventElapsedYears": "{count, plural, =1{1 Jahr} other{{count} Jahre}}",
   "datePickerSingleTitle": "Datum wählen",
   "datePickerMultiTitle": "Daten wählen",
   "monthYearPickerTitle": "Datum wählen",
@@ -1670,6 +1682,8 @@
   "calendarHighlightWeekendsDesc": "Samstag und Sonntag in eigener Farbe anzeigen",
   "calendarShowWeekNumbers": "Kalenderwochen",
   "calendarShowWeekNumbersDesc": "Wochennummern am linken Rand anzeigen",
+  "calendarShowRecurrenceLabels": "Wiederholung in Zeilen",
+  "calendarShowRecurrenceLabelsDesc": "Wiederholungsmuster (Täglich, Wöchentlich…) in Ereigniszeilen anzeigen",
   "calendarWeekStartTitle": "Woche beginnt am",
   "daySummaryEntryCount": "{count, plural, one {1 Eintrag} other {{count} Einträge}}",
   "@daySummaryEntryCount": {

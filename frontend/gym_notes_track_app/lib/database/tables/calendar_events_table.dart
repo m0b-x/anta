@@ -22,6 +22,12 @@ import 'package:drift/drift.dart';
 /// pre-start guard: when set, the rule also produces occurrences before
 /// [startDate]. Defaults to 0, which is exactly the pre-v19 behaviour.
 ///
+/// [countOccurrences] (added in schema v20) is display-only: each occurrence
+/// of a periodic rule carries a count label derived from [startDate]. It
+/// never affects occurrence math. [countStyle] (v21) picks the label shape:
+/// `numbered` ("Day 1", "Week 3" — the start day is the first) or `elapsed`
+/// ("30 years" — a birthday anchored on the birth date shows the age).
+///
 /// [colorValue] / [tintIcon] / [priority] (added in schema v16) drive
 /// per-event presentation. [colorValue] is an optional 32-bit ARGB override
 /// (NULL = use the category color); [tintIcon] decides whether that color
@@ -46,6 +52,9 @@ class CalendarEvents extends Table {
   BoolColumn get tintIcon => boolean().withDefault(const Constant(true))();
   IntColumn get priority => integer().withDefault(const Constant(3))();
   BoolColumn get retroactive => boolean().withDefault(const Constant(false))();
+  BoolColumn get countOccurrences =>
+      boolean().withDefault(const Constant(false))();
+  TextColumn get countStyle => text().withDefault(const Constant('numbered'))();
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
 

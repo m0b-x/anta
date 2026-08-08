@@ -90,6 +90,20 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
     return days;
   }
 
+  /// "Sat, May 10" — with the count label appended ("Sat, May 10 · 30
+  /// years", "Mon, Aug 10 · Week 3") when the event counts its occurrences,
+  /// so a birthday's chips read as the coming ages and a program's as its
+  /// coming weeks.
+  String _occurrenceChipLabel(DateTime day, String localeName) {
+    final date = DateFormat.MMMEd(localeName).format(day);
+    final count = RecurrenceFormatter.countLabel(
+      widget.event,
+      day,
+      AppLocalizations.of(context)!,
+    );
+    return count == null ? date : '$date · $count';
+  }
+
   @override
   Widget build(BuildContext context) {
     final event = widget.event;
@@ -270,7 +284,7 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
                       for (final day in _upcoming)
                         Chip(
                           visualDensity: VisualDensity.compact,
-                          label: Text(DateFormat.MMMEd(localeName).format(day)),
+                          label: Text(_occurrenceChipLabel(day, localeName)),
                         ),
                     ],
                   ),

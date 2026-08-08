@@ -551,6 +551,87 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
+  String get eventCountOccurrences => 'Numără aparițiile';
+
+  @override
+  String get eventCountOccurrencesHint =>
+      'Fiecare apariție primește o etichetă care numără de la data de început';
+
+  @override
+  String get eventCountStyleNumbered => 'Numerotare';
+
+  @override
+  String get eventCountStyleElapsed => 'Timp de la început';
+
+  @override
+  String eventNumberedDays(int count) {
+    return 'Ziua $count';
+  }
+
+  @override
+  String eventNumberedWeeks(int count) {
+    return 'Săptămâna $count';
+  }
+
+  @override
+  String eventNumberedMonths(int count) {
+    return 'Luna $count';
+  }
+
+  @override
+  String eventNumberedYears(int count) {
+    return 'Anul $count';
+  }
+
+  @override
+  String eventElapsedDays(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de zile',
+      few: '$count zile',
+      one: '1 zi',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String eventElapsedWeeks(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de săptămâni',
+      few: '$count săptămâni',
+      one: '1 săptămână',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String eventElapsedMonths(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de luni',
+      few: '$count luni',
+      one: '1 lună',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String eventElapsedYears(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de ani',
+      few: '$count ani',
+      one: '1 an',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get datePickerSingleTitle => 'Alege o dată';
 
   @override
@@ -2064,6 +2145,13 @@ class AppLocalizationsRo extends AppLocalizations {
   @override
   String get calendarShowWeekNumbersDesc =>
       'Afișează numărul săptămânii în marginea stângă';
+
+  @override
+  String get calendarShowRecurrenceLabels => 'Repetarea în rânduri';
+
+  @override
+  String get calendarShowRecurrenceLabelsDesc =>
+      'Menționează tiparul de repetare (Zilnic, Săptămânal…) în rândurile evenimentelor';
 
   @override
   String get calendarWeekStartTitle => 'Săptămâna începe';

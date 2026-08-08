@@ -100,6 +100,16 @@ class DatabaseMigrations {
       toVersion: DatabaseSchema.v19EventRetroactive,
       migrate: _migrateV18ToV19,
     ),
+    Migration(
+      fromVersion: DatabaseSchema.v19EventRetroactive,
+      toVersion: DatabaseSchema.v20EventOccurrenceCount,
+      migrate: _migrateV19ToV20,
+    ),
+    Migration(
+      fromVersion: DatabaseSchema.v20EventOccurrenceCount,
+      toVersion: DatabaseSchema.v21EventCountStyle,
+      migrate: _migrateV20ToV21,
+    ),
   ];
 
   Future<void> runMigrations(Migrator m, int from, int to) async {
@@ -625,6 +635,46 @@ class DatabaseMigrations {
     if (!existing.contains('retroactive')) {
       await _db.customStatement(
         'ALTER TABLE calendar_events ADD COLUMN retroactive INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+  }
+
+  /// v19→v20: Add `count_occurrences` to `calendar_events`.
+  ///
+  /// Display-only flag: each occurrence of a periodic rule shows the time
+  /// elapsed since the start date (a birthday anchored on the birth date
+  /// shows the age). `NOT NULL DEFAULT 0` keeps every existing event
+  /// unchanged, and the `PRAGMA table_info` guard makes a partial-upgrade
+  /// re-run safe.
+  Future<void> _migrateV19ToV20(Migrator m, GeneratedDatabase db) async {
+    final existing = <String>{
+      for (final row
+          in await _db.customSelect('PRAGMA table_info(calendar_events)').get())
+        row.read<String>('name'),
+    };
+    if (!existing.contains('count_occurrences')) {
+      await _db.customStatement(
+        'ALTER TABLE calendar_events ADD COLUMN count_occurrences INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+  }
+
+  /// v20→v21: Add `count_style` to `calendar_events`.
+  ///
+  /// How a counted occurrence is labelled: `numbered` ("Day 1", "Week 3" —
+  /// the start day is the first) or `elapsed` ("30 years" — the
+  /// birthday/anniversary style, start day unlabelled). A separate step from
+  /// v20 because that migration had already run on devices when the style
+  /// choice was added; same additive shape, same `PRAGMA` guard.
+  Future<void> _migrateV20ToV21(Migrator m, GeneratedDatabase db) async {
+    final existing = <String>{
+      for (final row
+          in await _db.customSelect('PRAGMA table_info(calendar_events)').get())
+        row.read<String>('name'),
+    };
+    if (!existing.contains('count_style')) {
+      await _db.customStatement(
+        "ALTER TABLE calendar_events ADD COLUMN count_style TEXT NOT NULL DEFAULT 'numbered'",
       );
     }
   }

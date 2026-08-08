@@ -1,6 +1,7 @@
 import 'package:intl/intl.dart';
 
 import '../l10n/app_localizations.dart';
+import '../models/calendar_event.dart';
 import '../models/recurrence_rule.dart';
 
 /// Locale-aware human-readable label for a [RecurrenceRule].
@@ -26,6 +27,49 @@ abstract final class RecurrenceFormatter {
     return switch (rule) {
       YearlyRecurrence() => l10n.recurrenceScopeEveryYear,
       _ => l10n.recurrenceScopeAlways,
+    };
+  }
+
+  /// Occurrence-count label for the occurrence of [event] on [day], or
+  /// `null` when the event does not count, the rule has no periodic unit,
+  /// or nothing renders for this day under the chosen style. [day] must be
+  /// date-only UTC, matching [RecurrenceRule.elapsedPeriods].
+  ///
+  /// Styles ([OccurrenceCountStyle]):
+  /// - `numbered` — "Day 1" / "Week 3": elapsed + 1 in the rule's calendar
+  ///   unit, so the start day is the first. Retroactive pre-start days
+  ///   (number ≤ 0) show nothing.
+  /// - `elapsed` — "30 years": time since start; the start day itself (and
+  ///   pre-start days) show nothing, which is what makes a birth-date
+  ///   anchor read as the age.
+  static String? countLabel(
+    CalendarEvent event,
+    DateTime day,
+    AppLocalizations l10n,
+  ) {
+    if (!event.countOccurrences) return null;
+    final rule = event.rule;
+    final elapsed = rule.elapsedPeriods(day, event.startDate);
+    if (elapsed == null) return null;
+    return switch (event.countStyle) {
+      OccurrenceCountStyle.numbered => elapsed < 0
+          ? null
+          : switch (rule) {
+              DailyRecurrence() => l10n.eventNumberedDays(elapsed + 1),
+              WeeklyRecurrence() => l10n.eventNumberedWeeks(elapsed + 1),
+              MonthlyRecurrence() => l10n.eventNumberedMonths(elapsed + 1),
+              YearlyRecurrence() => l10n.eventNumberedYears(elapsed + 1),
+              _ => null,
+            },
+      OccurrenceCountStyle.elapsed => elapsed <= 0
+          ? null
+          : switch (rule) {
+              DailyRecurrence() => l10n.eventElapsedDays(elapsed),
+              WeeklyRecurrence() => l10n.eventElapsedWeeks(elapsed),
+              MonthlyRecurrence() => l10n.eventElapsedMonths(elapsed),
+              YearlyRecurrence() => l10n.eventElapsedYears(elapsed),
+              _ => null,
+            },
     };
   }
 

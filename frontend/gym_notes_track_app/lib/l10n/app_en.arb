@@ -643,6 +643,78 @@
       "rule": { "type": "String", "example": "Every year" }
     }
   },
+  "eventCountOccurrences": "Count occurrences",
+  "@eventCountOccurrences": {
+    "description": "Switch in the event editor: each occurrence shows the elapsed time since the start date"
+  },
+  "eventCountOccurrencesHint": "Each occurrence gets a label counting from the start date",
+  "@eventCountOccurrencesHint": {
+    "description": "Explanation under the count-occurrences switch; the style chips below it show concrete examples"
+  },
+  "eventCountStyleNumbered": "Numbered",
+  "@eventCountStyleNumbered": {
+    "description": "Count style chip: occurrences read Day 1 / Week 3, the start day being the first"
+  },
+  "eventCountStyleElapsed": "Time since start",
+  "@eventCountStyleElapsed": {
+    "description": "Count style chip: occurrences show elapsed time (a birthday's age); the start day shows nothing"
+  },
+  "eventNumberedDays": "Day {count}",
+  "@eventNumberedDays": {
+    "description": "Numbered occurrence label for a daily rule",
+    "placeholders": {
+      "count": { "type": "int", "example": "3" }
+    }
+  },
+  "eventNumberedWeeks": "Week {count}",
+  "@eventNumberedWeeks": {
+    "description": "Numbered occurrence label for a weekly rule (all sessions of a week share the number)",
+    "placeholders": {
+      "count": { "type": "int", "example": "3" }
+    }
+  },
+  "eventNumberedMonths": "Month {count}",
+  "@eventNumberedMonths": {
+    "description": "Numbered occurrence label for a monthly rule",
+    "placeholders": {
+      "count": { "type": "int", "example": "3" }
+    }
+  },
+  "eventNumberedYears": "Year {count}",
+  "@eventNumberedYears": {
+    "description": "Numbered occurrence label for a yearly rule",
+    "placeholders": {
+      "count": { "type": "int", "example": "3" }
+    }
+  },
+  "eventElapsedDays": "{count, plural, =1{1 day} other{{count} days}}",
+  "@eventElapsedDays": {
+    "description": "Elapsed time since an event's start date, shown on counted occurrences of a daily rule",
+    "placeholders": {
+      "count": { "type": "int", "example": "45" }
+    }
+  },
+  "eventElapsedWeeks": "{count, plural, =1{1 week} other{{count} weeks}}",
+  "@eventElapsedWeeks": {
+    "description": "Elapsed time since an event's start date, shown on counted occurrences of a weekly rule",
+    "placeholders": {
+      "count": { "type": "int", "example": "12" }
+    }
+  },
+  "eventElapsedMonths": "{count, plural, =1{1 month} other{{count} months}}",
+  "@eventElapsedMonths": {
+    "description": "Elapsed time since an event's start date, shown on counted occurrences of a monthly rule",
+    "placeholders": {
+      "count": { "type": "int", "example": "6" }
+    }
+  },
+  "eventElapsedYears": "{count, plural, =1{1 year} other{{count} years}}",
+  "@eventElapsedYears": {
+    "description": "Elapsed time since an event's start date, shown on counted occurrences of a yearly rule (a birthday's age)",
+    "placeholders": {
+      "count": { "type": "int", "example": "30" }
+    }
+  },
   "datePickerSingleTitle": "Pick a date",
   "@datePickerSingleTitle": {
     "description": "Title of the in-app calendar date picker in single-date mode"
@@ -2629,6 +2701,14 @@
   "calendarShowWeekNumbersDesc": "Show week numbers at the left edge",
   "@calendarShowWeekNumbersDesc": {
     "description": "Switch subtitle for ISO week numbers"
+  },
+  "calendarShowRecurrenceLabels": "Repeat pattern in rows",
+  "@calendarShowRecurrenceLabels": {
+    "description": "Switch title: event rows mention the repeat pattern (Daily, Weekly, ...)"
+  },
+  "calendarShowRecurrenceLabelsDesc": "Mention the repeat pattern (Daily, Weekly…) in event rows",
+  "@calendarShowRecurrenceLabelsDesc": {
+    "description": "Switch subtitle for the repeat-pattern-in-rows option"
   },
   "calendarWeekStartTitle": "Week starts on",
   "@calendarWeekStartTitle": {

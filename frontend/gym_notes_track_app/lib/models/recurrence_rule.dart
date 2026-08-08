@@ -32,6 +32,14 @@ sealed class RecurrenceRule extends Equatable {
   /// editor hide the scope control instead of showing a dead toggle.
   bool get supportsRetroactive => true;
 
+  /// Whole periods between [start] and [day] in this rule's own unit
+  /// (days / weeks / months / years), or `null` for rules without a periodic
+  /// unit. Pure display math for the occurrence-count feature — it never
+  /// participates in [occursOn]. Both arguments must be date-only UTC, like
+  /// every other date in this file. May be negative for retroactive
+  /// occurrences before [start]; callers suppress non-positive values.
+  int? elapsedPeriods(DateTime day, DateTime start) => null;
+
   @override
   List<Object?> get props => const [];
 }
@@ -104,6 +112,10 @@ final class DailyRecurrence extends RecurrenceRule {
   }
 
   @override
+  int elapsedPeriods(DateTime day, DateTime start) =>
+      day.difference(start).inDays;
+
+  @override
   List<Object?> get props => [interval];
 }
 
@@ -129,6 +141,10 @@ final class WeeklyRecurrence extends RecurrenceRule {
   }
 
   @override
+  int elapsedPeriods(DateTime day, DateTime start) =>
+      _weekIndex(day) - _weekIndex(start);
+
+  @override
   List<Object?> get props => [weekdays, interval];
 }
 
@@ -150,6 +166,10 @@ final class MonthlyRecurrence extends RecurrenceRule {
   }
 
   @override
+  int elapsedPeriods(DateTime day, DateTime start) =>
+      (day.year - start.year) * 12 + (day.month - start.month);
+
+  @override
   List<Object?> get props => [interval];
 }
 
@@ -167,6 +187,9 @@ final class YearlyRecurrence extends RecurrenceRule {
     if (interval <= 1) return true;
     return (day.year - start.year) % interval == 0;
   }
+
+  @override
+  int elapsedPeriods(DateTime day, DateTime start) => day.year - start.year;
 
   @override
   List<Object?> get props => [interval];

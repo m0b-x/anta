@@ -107,6 +107,8 @@ class CalendarEventService {
           'tintIcon': row.tintIcon,
           'priority': row.priority,
           'retroactive': row.retroactive,
+          'countOccurrences': row.countOccurrences,
+          'countStyle': row.countStyle,
           'createdAtMs': row.createdAt.millisecondsSinceEpoch,
           'updatedAtMs': row.updatedAt.millisecondsSinceEpoch,
         },
@@ -182,6 +184,18 @@ class CalendarEventService {
             retroactive: map['retroactive'] is bool
                 ? Value(map['retroactive'] as bool)
                 : const Value.absent(),
+            // Absent in pre-v20 backups: default false = no count shown,
+            // which is what those events displayed.
+            countOccurrences: map['countOccurrences'] is bool
+                ? Value(map['countOccurrences'] as bool)
+                : const Value.absent(),
+            countStyle: map['countStyle'] is String
+                ? Value(
+                    OccurrenceCountStyle.fromName(
+                      map['countStyle'] as String,
+                    ).name,
+                  )
+                : const Value.absent(),
             createdAt: Value(
               DateTime.fromMillisecondsSinceEpoch(createdMs, isUtc: true),
             ),
@@ -214,6 +228,8 @@ class CalendarEventService {
       tintIcon: row.tintIcon,
       priority: row.priority.clamp(kMinEventPriority, kMaxEventPriority),
       retroactive: row.retroactive,
+      countOccurrences: row.countOccurrences,
+      countStyle: OccurrenceCountStyle.fromName(row.countStyle),
       rule: _decodeRule(row.ruleKind, row.rulePayload),
     );
   }
@@ -272,6 +288,8 @@ class CalendarEventService {
       tintIcon: Value(event.tintIcon),
       priority: Value(event.priority),
       retroactive: Value(event.retroactive),
+      countOccurrences: Value(event.countOccurrences),
+      countStyle: Value(event.countStyle.name),
       createdAt: Value(updatedAt),
       updatedAt: Value(updatedAt),
     );

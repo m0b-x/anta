@@ -541,6 +541,83 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String get eventCountOccurrences => 'Wiederholungen zählen';
+
+  @override
+  String get eventCountOccurrencesHint =>
+      'Jede Wiederholung erhält eine Beschriftung, die ab dem Startdatum zählt';
+
+  @override
+  String get eventCountStyleNumbered => 'Nummerierung';
+
+  @override
+  String get eventCountStyleElapsed => 'Zeit seit Beginn';
+
+  @override
+  String eventNumberedDays(int count) {
+    return 'Tag $count';
+  }
+
+  @override
+  String eventNumberedWeeks(int count) {
+    return 'Woche $count';
+  }
+
+  @override
+  String eventNumberedMonths(int count) {
+    return 'Monat $count';
+  }
+
+  @override
+  String eventNumberedYears(int count) {
+    return 'Jahr $count';
+  }
+
+  @override
+  String eventElapsedDays(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Tage',
+      one: '1 Tag',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String eventElapsedWeeks(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Wochen',
+      one: '1 Woche',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String eventElapsedMonths(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Monate',
+      one: '1 Monat',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String eventElapsedYears(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Jahre',
+      one: '1 Jahr',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get datePickerSingleTitle => 'Datum wählen';
 
   @override
@@ -2055,6 +2132,13 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get calendarShowWeekNumbersDesc =>
       'Wochennummern am linken Rand anzeigen';
+
+  @override
+  String get calendarShowRecurrenceLabels => 'Wiederholung in Zeilen';
+
+  @override
+  String get calendarShowRecurrenceLabelsDesc =>
+      'Wiederholungsmuster (Täglich, Wöchentlich…) in Ereigniszeilen anzeigen';
 
   @override
   String get calendarWeekStartTitle => 'Woche beginnt am';

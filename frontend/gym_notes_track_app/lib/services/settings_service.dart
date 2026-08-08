@@ -503,6 +503,17 @@ class SettingsService {
     await _setBool(SettingsKeys.calendarShowWeekNumbers, value);
   }
 
+  Future<bool> getCalendarShowRecurrenceLabels() async {
+    return _getBool(
+      SettingsKeys.calendarShowRecurrenceLabels,
+      SettingsKeys.defaultCalendarShowRecurrenceLabels,
+    );
+  }
+
+  Future<void> setCalendarShowRecurrenceLabels(bool value) async {
+    await _setBool(SettingsKeys.calendarShowRecurrenceLabels, value);
+  }
+
   /// Loads every upcoming-agenda filter in one call.
   Future<UpcomingAgendaFilters> getUpcomingAgendaFilters() async {
     final rangeDays = await _getInt(
@@ -682,6 +693,7 @@ class SettingsService {
       highlightWeekends: await getCalendarHighlightWeekends(),
       showWeekNumbers: await getCalendarShowWeekNumbers(),
       maxDayBars: await getCalendarMaxDayBars(),
+      showRecurrenceLabels: await getCalendarShowRecurrenceLabels(),
     );
   }
 
