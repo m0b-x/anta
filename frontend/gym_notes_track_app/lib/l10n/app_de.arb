@@ -158,6 +158,19 @@
   },
   "datePickerSingleTitle": "Datum wählen",
   "datePickerMultiTitle": "Daten wählen",
+  "monthYearPickerTitle": "Datum wählen",
+  "monthYearPickerManualEntry": "Stattdessen eingeben",
+  "monthYearPickerWheelEntry": "Über die Räder wählen",
+  "monthYearPickerFieldLabel": "Datum",
+  "monthYearPickerFieldHint": "15.08.2026",
+  "monthYearPickerInvalid": "Datum eingeben, z. B. 15.08.2026",
+  "monthYearPickerRange": "Jahr zwischen {first} und {last} wählen",
+  "@monthYearPickerRange": {
+    "placeholders": {
+      "first": { "type": "String" },
+      "last": { "type": "String" }
+    }
+  },
   "datePickerSelectedCount": "{count, plural, =0{Keine Daten gewählt} =1{1 Datum gewählt} other{{count} Daten gewählt}}",
   "@datePickerSelectedCount": {
     "placeholders": {

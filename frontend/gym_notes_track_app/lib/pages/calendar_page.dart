@@ -8,6 +8,8 @@ import '../bloc/calendar/calendar_bloc.dart';
 import '../bloc/import_export/import_export_bloc.dart';
 import '../bloc/import_export/import_export_event.dart';
 import '../bloc/import_export/import_export_state.dart';
+import '../constants/app_icon_sizes.dart';
+import '../constants/app_spacing.dart';
 import '../constants/public_holidays.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
@@ -27,6 +29,7 @@ import '../widgets/calendar_day_cell.dart';
 import '../widgets/calendar_filter_sheet.dart';
 import '../widgets/event_detail_sheet.dart';
 import '../widgets/event_editor_sheet.dart';
+import '../widgets/month_year_picker_sheet.dart';
 
 /// Overflow-menu actions on the calendar app bar.
 enum _CalendarMenuAction { exportIcs }
@@ -387,6 +390,11 @@ class _CalendarViewState extends State<_CalendarView> {
 }
 
 class _CalendarTable extends StatelessWidget {
+  /// Range the grid and the header's date picker both span, so jumping to a
+  /// date can never land on a page the calendar refuses to show.
+  static final DateTime _firstDay = DateTime.utc(2000, 1, 1);
+  static final DateTime _lastDay = DateTime.utc(2100, 12, 31);
+
   final CalendarPageLoaded state;
   final CalendarAppearance appearance;
 
@@ -409,6 +417,31 @@ class _CalendarTable extends StatelessWidget {
     );
     final height = CalendarDayCell.chipZoneHeight + strip + 6;
     return height < 52 ? 52 : height.ceilToDouble();
+  }
+
+  /// Jumps to a date picked from the header title. The picker's wheels
+  /// carry a day too, so this both focuses the month and selects the day —
+  /// dispatching [SelectCalendarDay] so the panel below moves with it. Opens
+  /// on the currently selected day.
+  Future<void> _openMonthYearPicker(BuildContext context) async {
+    final bloc = context.read<CalendarBloc>();
+    final picked = await MonthYearPickerSheet.show(
+      context,
+      initialDate: state.selectedDay,
+      firstDate: _firstDay,
+      lastDate: _lastDay,
+      accent: appearance.accentOr(Theme.of(context).colorScheme.primary),
+    );
+    if (picked == null) return;
+    bloc.add(SelectCalendarDay(day: picked, focusedDay: picked));
+  }
+
+  void _goToToday(BuildContext context) {
+    final today = DateTime.now();
+    final normalized = DateTime.utc(today.year, today.month, today.day);
+    context.read<CalendarBloc>().add(
+      SelectCalendarDay(day: normalized, focusedDay: normalized),
+    );
   }
 
   Widget _buildDayCell(
@@ -472,8 +505,8 @@ class _CalendarTable extends StatelessWidget {
     );
 
     return TableCalendar<CalendarEvent>(
-      firstDay: DateTime.utc(2000, 1, 1),
-      lastDay: DateTime.utc(2100, 12, 31),
+      firstDay: _firstDay,
+      lastDay: _lastDay,
       focusedDay: state.focusedDay,
       selectedDayPredicate: (day) => isSameDay(state.selectedDay, day),
       calendarFormat: state.format,
@@ -489,8 +522,19 @@ class _CalendarTable extends StatelessWidget {
         CalendarFormat.week: l10n.calendarFormatWeek,
       },
       headerStyle: HeaderStyle(
-        titleCentered: true,
         formatButtonVisible: false,
+        // The default chevrons claim 64dp each — a third of a phone's width
+        // spent on two arrows the user can also swipe. Tightened to 40dp
+        // touch targets so the month title and the Today button fit on the
+        // same row without either of them shrinking.
+        headerPadding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.xs,
+          vertical: AppSpacing.xs,
+        ),
+        leftChevronMargin: EdgeInsets.zero,
+        rightChevronMargin: EdgeInsets.zero,
+        leftChevronPadding: AppSpacing.allSm,
+        rightChevronPadding: AppSpacing.allSm,
         leftChevronIcon: Icon(
           Icons.chevron_left_rounded,
           color: colorScheme.onSurfaceVariant,
@@ -532,6 +576,10 @@ class _CalendarTable extends StatelessWidget {
           final title = DateFormat.yMMMM(l10n.localeName).format(day);
           final ledger = NoteMoneyLedgerService.instanceOrNull;
           final monthNet = ledger == null ? 0 : _monthNet(ledger, day);
+          // Today sits to the left of the title, and the whole cluster
+          // (button, title, net) centers as a block via mainAxisAlignment —
+          // matching the original layout's feel rather than pinning the
+          // title dead-center of the full header or the button flush right.
           return Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -541,30 +589,45 @@ class _CalendarTable extends StatelessWidget {
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                 icon: const Icon(Icons.today_rounded, size: 20),
-                onPressed: () {
-                  final today = DateTime.now();
-                  final normalized = DateTime.utc(
-                    today.year,
-                    today.month,
-                    today.day,
-                  );
-                  context.read<CalendarBloc>().add(
-                    SelectCalendarDay(day: normalized, focusedDay: normalized),
-                  );
-                },
+                onPressed: () => _goToToday(context),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: AppSpacing.xs),
               Flexible(
-                child: Text(
-                  title,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
+                child: Tooltip(
+                  message: l10n.monthYearPickerTitle,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(AppSpacing.sm),
+                    onTap: () => _openMonthYearPicker(context),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.xs,
+                        vertical: AppSpacing.xs,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              title,
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          Icon(
+                            Icons.arrow_drop_down_rounded,
+                            size: AppIconSizes.small,
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                  overflow: TextOverflow.ellipsis,
                 ),
               ),
               if (ledger != null && monthNet != 0) ...[
-                const SizedBox(width: 8),
+                const SizedBox(width: AppSpacing.xs),
                 Text(
                   'Δ ${ledger.formatNetSigned(monthNet)}',
                   style: theme.textTheme.bodySmall?.copyWith(

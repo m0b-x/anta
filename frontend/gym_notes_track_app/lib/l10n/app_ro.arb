@@ -155,6 +155,19 @@
   },
   "datePickerSingleTitle": "Alege o dată",
   "datePickerMultiTitle": "Alege datele",
+  "monthYearPickerTitle": "Alege data",
+  "monthYearPickerManualEntry": "Scrie manual",
+  "monthYearPickerWheelEntry": "Alege din rotițe",
+  "monthYearPickerFieldLabel": "Data",
+  "monthYearPickerFieldHint": "15/08/2026",
+  "monthYearPickerInvalid": "Scrie o dată, ex. 15/08/2026",
+  "monthYearPickerRange": "Alege un an între {first} și {last}",
+  "@monthYearPickerRange": {
+    "placeholders": {
+      "first": { "type": "String" },
+      "last": { "type": "String" }
+    }
+  },
   "datePickerSelectedCount": "{count, plural, =0{Nicio dată aleasă} =1{1 dată aleasă} other{{count} date alese}}",
   "@datePickerSelectedCount": {
     "placeholders": {

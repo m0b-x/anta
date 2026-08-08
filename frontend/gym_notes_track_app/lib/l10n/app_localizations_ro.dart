@@ -557,6 +557,29 @@ class AppLocalizationsRo extends AppLocalizations {
   String get datePickerMultiTitle => 'Alege datele';
 
   @override
+  String get monthYearPickerTitle => 'Alege data';
+
+  @override
+  String get monthYearPickerManualEntry => 'Scrie manual';
+
+  @override
+  String get monthYearPickerWheelEntry => 'Alege din rotițe';
+
+  @override
+  String get monthYearPickerFieldLabel => 'Data';
+
+  @override
+  String get monthYearPickerFieldHint => '15/08/2026';
+
+  @override
+  String get monthYearPickerInvalid => 'Scrie o dată, ex. 15/08/2026';
+
+  @override
+  String monthYearPickerRange(String first, String last) {
+    return 'Alege un an între $first și $last';
+  }
+
+  @override
   String datePickerSelectedCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

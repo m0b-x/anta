@@ -547,6 +547,29 @@ class AppLocalizationsDe extends AppLocalizations {
   String get datePickerMultiTitle => 'Daten wählen';
 
   @override
+  String get monthYearPickerTitle => 'Datum wählen';
+
+  @override
+  String get monthYearPickerManualEntry => 'Stattdessen eingeben';
+
+  @override
+  String get monthYearPickerWheelEntry => 'Über die Räder wählen';
+
+  @override
+  String get monthYearPickerFieldLabel => 'Datum';
+
+  @override
+  String get monthYearPickerFieldHint => '15.08.2026';
+
+  @override
+  String get monthYearPickerInvalid => 'Datum eingeben, z. B. 15.08.2026';
+
+  @override
+  String monthYearPickerRange(String first, String last) {
+    return 'Jahr zwischen $first und $last wählen';
+  }
+
+  @override
   String datePickerSelectedCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

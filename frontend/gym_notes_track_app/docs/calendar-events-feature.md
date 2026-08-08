@@ -392,6 +392,67 @@ the bottom day-summary panel, so there is a single recurrence-expansion code
 path (the old uncached `CalendarPageLoaded.selectedEvents` getter was
 removed).
 
+**Header** (`headerTitleBuilder`, chevrons still table_calendar's). Three
+controls share one row between the chevrons:
+
+- the **month title opens
+  [`MonthYearPickerSheet`](../lib/widgets/month_year_picker_sheet.dart)** —
+  see below. Its wheels carry a day too, so a pick is a full date: the page
+  dispatches `SelectCalendarDay` (focus **and** select), moving the panel
+  below with it, and opens the sheet on the current `selectedDay`.
+- the **Today button** stays the original plain, unfilled icon button,
+  positioned to the left of the title.
+- the **month net** (`Δ`, money-ledger sum for the focused month) sits after
+  the title. Today, title, and net form one cluster centered as a block via
+  `mainAxisAlignment.center` — the title is not dead-center of the full
+  header, matching the pre-existing layout feel.
+
+The default chevron padding/margin is overridden to 40dp touch targets
+(table_calendar's default claims 64dp each, a third of a phone's width for
+two arrows the user can also swipe). Only the title text is `Flexible` with
+an ellipsis under pressure — the Today button and the net stay at their
+intrinsic size.
+
+#### [`MonthYearPickerSheet`](../lib/widgets/month_year_picker_sheet.dart)
+
+A full-date picker for jumping the calendar — distinct from
+`CalendarDatePickerSheet` (§6.5), which is the grid used for event date entry.
+One screen, no drill-down (a day → month → year drill was built here once and
+rejected outright), with two input modes behind a toggle pinned top-right:
+
+- **Wheels** (default): three `ListWheelScrollView`s side by side — day |
+  month | year (the dd/mm/yyyy order, so both modes read the same way) — that
+  scroll up/down independently, so a flick crosses days, months or decades
+  without leaving the screen. `Apply` commits the centred rows. The **day
+  wheel is bounded by the month** (`_daysInMonth`, `day 0` of next month —
+  leap-aware); when the month or year moves the day is clamped back inside it
+  (`_clampDayToMonth`: Jan 31 → Feb → 28/29) and the day wheel is realigned by
+  a post-frame `jumpToItem`, because its child count shrinks in the same
+  build. Kept intentionally quiet after an over-designed version was rejected:
+  one faint `surfaceContainerHighest` band marks the selected row, a
+  `ShaderMask` fades the top/bottom edges so it reads as a wheel and not a
+  clipped list, and the only accent is the selected label's colour.
+- **Typed**: a single text field, canonical form `dd/mm/yyyy` (the hint), with
+  forgiving parsing (`_parse`). Separators and order are free-form:
+  `15/08/2026`, `15.8.2026`, `2026-08-15` all give the 15th (a 4-digit year on
+  either end fixes d/m/Y vs Y/m/d — the month is the middle number). Shorter
+  forms work too: `08/2026` keeps the wheel's day, `15 august 2026` /
+  `15 aug` read the day next to a named month, a bare `2026` keeps month+day,
+  a bare number `>12` is taken as a day. Impossible days (`31/02`) clamp to
+  the month length. Unparseable input and out-of-range years surface as field
+  errors instead of silently doing nothing.
+
+`Apply` commits either mode; `Today` moves the wheels to the current date
+(animated) rather than closing, so it composes with a manual tweak. The
+mode-toggle icon shows a keyboard in wheel mode and `calendar_month` in typed
+mode (a `filledTonal` button — the earlier `view_day` icon was rejected).
+Month names come from `intl` + `toBeginningOfSentenceCase` (locales like
+Romanian spell them lowercase), never an ARB matrix. The mode switch is
+wrapped in `AnimatedSize`, because typed mode is shorter than the wheels and a
+fixed height would overflow with the keyboard up; the keyboard inset is read
+from the **sheet's** context, not the caller's, since only that one rebuilds
+when the keyboard opens.
+
 ### 6.2 Day list
 
 Tapping a date opens a list of that day's events. Each tile is colored by
@@ -461,6 +522,12 @@ height formula. An optional `dayLoad` callback draws a neutral "busy" bar on
 days that already carry events — the calendar page passes
 `CalendarBloc.eventsForDay`, which is the memoized O(1) lookup, so the picker
 issues **no** extra queries.
+
+This sheet picks **days**. Jumping the calendar to another month/year is a
+different job with a different surface — see
+[`MonthYearPickerSheet`](../lib/widgets/month_year_picker_sheet.dart) in §6.1.
+Do not merge the two: bolting month/year stages onto this one turned a
+date-entry surface into a navigation maze.
 
 The appearance is **passed in** (page → editor sheet → picker), not re-read:
 `getCalendarAppearance()` is seven sequential settings reads, and resolving it

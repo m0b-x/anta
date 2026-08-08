@@ -1006,6 +1006,48 @@ abstract class AppLocalizations {
   /// **'Pick dates'**
   String get datePickerMultiTitle;
 
+  /// Title of the sheet that jumps the calendar to a chosen date
+  ///
+  /// In en, this message translates to:
+  /// **'Pick a date'**
+  String get monthYearPickerTitle;
+
+  /// Tooltip for switching the month/year picker to typed input
+  ///
+  /// In en, this message translates to:
+  /// **'Type it instead'**
+  String get monthYearPickerManualEntry;
+
+  /// Tooltip for switching the month/year picker back to the scroll wheels
+  ///
+  /// In en, this message translates to:
+  /// **'Pick from the wheels'**
+  String get monthYearPickerWheelEntry;
+
+  /// Label of the text field for typing a date
+  ///
+  /// In en, this message translates to:
+  /// **'Date'**
+  String get monthYearPickerFieldLabel;
+
+  /// Placeholder showing the expected typed day/month/year format
+  ///
+  /// In en, this message translates to:
+  /// **'15/08/2026'**
+  String get monthYearPickerFieldHint;
+
+  /// Error shown when the typed date cannot be understood
+  ///
+  /// In en, this message translates to:
+  /// **'Type a date, like 15/08/2026'**
+  String get monthYearPickerInvalid;
+
+  /// Error shown when the typed year falls outside the calendar range
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a year between {first} and {last}'**
+  String monthYearPickerRange(String first, String last);
+
   /// Count of currently selected days in the multi-date picker
   ///
   /// In en, this message translates to:

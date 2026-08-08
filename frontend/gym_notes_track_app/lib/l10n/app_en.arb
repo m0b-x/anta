@@ -651,6 +651,38 @@
   "@datePickerMultiTitle": {
     "description": "Title of the in-app calendar date picker in multi-date mode"
   },
+  "monthYearPickerTitle": "Pick a date",
+  "@monthYearPickerTitle": {
+    "description": "Title of the sheet that jumps the calendar to a chosen date"
+  },
+  "monthYearPickerManualEntry": "Type it instead",
+  "@monthYearPickerManualEntry": {
+    "description": "Tooltip for switching the month/year picker to typed input"
+  },
+  "monthYearPickerWheelEntry": "Pick from the wheels",
+  "@monthYearPickerWheelEntry": {
+    "description": "Tooltip for switching the month/year picker back to the scroll wheels"
+  },
+  "monthYearPickerFieldLabel": "Date",
+  "@monthYearPickerFieldLabel": {
+    "description": "Label of the text field for typing a date"
+  },
+  "monthYearPickerFieldHint": "15/08/2026",
+  "@monthYearPickerFieldHint": {
+    "description": "Placeholder showing the expected typed day/month/year format"
+  },
+  "monthYearPickerInvalid": "Type a date, like 15/08/2026",
+  "@monthYearPickerInvalid": {
+    "description": "Error shown when the typed date cannot be understood"
+  },
+  "monthYearPickerRange": "Choose a year between {first} and {last}",
+  "@monthYearPickerRange": {
+    "description": "Error shown when the typed year falls outside the calendar range",
+    "placeholders": {
+      "first": { "type": "String" },
+      "last": { "type": "String" }
+    }
+  },
   "datePickerSelectedCount": "{count, plural, =0{No dates selected} =1{1 date selected} other{{count} dates selected}}",
   "@datePickerSelectedCount": {
     "description": "Count of currently selected days in the multi-date picker",
