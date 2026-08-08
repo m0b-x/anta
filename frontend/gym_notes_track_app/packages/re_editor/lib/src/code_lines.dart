@@ -333,7 +333,9 @@ class CodeLines {
       }
       if (start <= offset) {
         if (end - offset >= segment.length) {
-          newSegments.add(segment.copyWith(dirty: true));
+          // Same dirty shallow copy as `copyWith(dirty: true)`, but reuses
+          // the cached lineCount/charCount instead of re-folding the segment.
+          newSegments.add(segment.cloneShallowDirty());
           offset += segment.length;
           continue;
         } else {

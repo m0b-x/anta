@@ -218,7 +218,11 @@ class _CodeLineEditingControllerImpl extends ValueNotifier<CodeLineEditingValue>
     final CodeLines newCodeLines;
     final TextSelection newSelection;
     final TextRange newComposing;
-    // FIXME: large list operation is very very slow
+    // Upstream flagged this branch as "large list operation is very very
+    // slow". Resolved in this fork: CodeLines.from/sublines produce dirty
+    // shallow segment clones with cached line/char counts (code_lines.dart),
+    // so a keystroke costs O(segments) + one bounded segment copy, not
+    // O(lines).
     if (selection.isSameLine) {
       if (startLine.text == newValue.text) {
         newCodeLines = codeLines;

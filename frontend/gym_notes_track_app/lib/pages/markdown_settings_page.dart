@@ -266,7 +266,6 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage> {
 
   void _reorderUtility(int oldIndex, int newIndex) {
     setState(() {
-      if (oldIndex < newIndex) newIndex -= 1;
       final item = _utilityConfigs.removeAt(oldIndex);
       _utilityConfigs.insert(newIndex, item);
     });
@@ -1132,7 +1131,7 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage> {
                   physics: const NeverScrollableScrollPhysics(),
                   scrollController: _scrollController,
                   itemCount: _utilityConfigs.length,
-                  onReorder: _reorderUtility,
+                  onReorderItem: _reorderUtility,
                   itemBuilder: (context, index) {
                     final config = _utilityConfigs[index];
                     final isLocked =
@@ -1311,9 +1310,8 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage> {
                       bottom: 110, // Extra space at bottom for FAB
                     ),
                     itemCount: _shortcuts.length,
-                    onReorder: (oldIndex, newIndex) {
+                    onReorderItem: (oldIndex, newIndex) {
                       setState(() {
-                        if (oldIndex < newIndex) newIndex -= 1;
                         final item = _shortcuts.removeAt(oldIndex);
                         _shortcuts.insert(newIndex, item);
                       });

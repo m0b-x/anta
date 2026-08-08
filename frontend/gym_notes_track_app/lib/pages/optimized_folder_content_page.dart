@@ -75,11 +75,11 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   List<NoteMetadata> _visibleNotes = const [];
 
   // Optimistic reorder state for the unified mixed (folders + notes)
-  // sliver. SliverReorderableList only calls onReorder; it does not mutate
-  // the data itself, so without an immediate local update the list would
-  // visually "snap back" while the bloc round-trip (DB write -> refresh ->
-  // reload) completes. We render from this list during selection mode and
-  // mutate it synchronously inside onReorder.
+  // sliver. SliverReorderableList only calls onReorderItem; it does not
+  // mutate the data itself, so without an immediate local update the list
+  // would visually "snap back" while the bloc round-trip (DB write ->
+  // refresh -> reload) completes. We render from this list during selection
+  // mode and mutate it synchronously inside onReorderItem.
   List<ContentItem>? _localMixed;
 
   // Drag-in-progress tracking for multi-selection visual feedback. While a
@@ -267,20 +267,17 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     required int newIndex,
     required MovableItemRef Function(T) refOf,
   }) {
-    // Standard Flutter reorder index adjustment: when moving an item down,
-    // the index after removal is one less than the requested newIndex.
-    var insertAt = newIndex;
-    if (oldIndex < insertAt) insertAt -= 1;
-
     final draggedItem = source[oldIndex];
     final draggedRef = refOf(draggedItem);
     final selectionContainsDragged = _selection.contains(draggedRef);
     final isMulti = selectionContainsDragged && _selection.count > 1;
 
     if (!isMulti) {
+      // `onReorderItem` hands over the post-removal index, so it can be used
+      // directly as the insertion point.
       final result = List<T>.from(source);
       final item = result.removeAt(oldIndex);
-      result.insert(insertAt, item);
+      result.insert(newIndex, item);
       return result;
     }
 
@@ -289,9 +286,10 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     // the unselected items.
     final selected = <T>[];
     final unselected = <T>[];
-    // Track how many unselected items live strictly before the drop target
-    // in the *current* visible list — that's where the selection block
-    // should land in the unselected-only list.
+    // Track how many unselected items live strictly before the drop target.
+    // `newIndex` addresses the list *without* the dragged item, so each
+    // unselected item is compared via its position in that same list (the
+    // dragged item itself is selected here and never reaches this branch).
     var unselectedBeforeTarget = 0;
     for (var i = 0; i < source.length; i++) {
       final item = source[i];
@@ -299,7 +297,8 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
       if (inSelection) {
         selected.add(item);
       } else {
-        if (i < newIndex) unselectedBeforeTarget += 1;
+        final positionWithoutDragged = i < oldIndex ? i : i - 1;
+        if (positionWithoutDragged < newIndex) unselectedBeforeTarget += 1;
         unselected.add(item);
       }
     }
@@ -1157,7 +1156,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
             _buildReorderProxy(child, animation, _selection.count),
         onReorderStart: (_) => _onReorderStart(),
         onReorderEnd: (_) => _onReorderEnd(),
-        onReorder: (oldIndex, newIndex) {
+        onReorderItem: (oldIndex, newIndex) {
           final reordered = _applyMultiReorder<ContentItem>(
             source: display,
             oldIndex: oldIndex,

@@ -225,12 +225,9 @@ class CounterPerNoteBloc
     final current = state;
     if (current is! CounterPerNoteLoaded) return;
     try {
-      var oldIndex = event.oldIndex;
-      var newIndex = event.newIndex;
-      if (oldIndex < newIndex) newIndex -= 1;
       final entries = List<NoteValueEntry>.from(current.entries);
-      final item = entries.removeAt(oldIndex);
-      entries.insert(newIndex, item);
+      final item = entries.removeAt(event.oldIndex);
+      entries.insert(event.newIndex, item);
       emit(current.copyWith(entries: entries));
       final positions = <String, int>{};
       for (var i = 0; i < entries.length; i++) {

@@ -177,7 +177,6 @@ class CounterService {
   }
 
   Future<void> reorderCounters(int oldIndex, int newIndex) async {
-    if (oldIndex < newIndex) newIndex -= 1;
     final counter = _counters.removeAt(oldIndex);
     _counters.insert(newIndex, counter);
     _rebuildIndex();

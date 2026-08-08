@@ -163,7 +163,7 @@ class _CounterPerNoteView extends StatelessWidget {
                 child: child,
               );
             },
-            onReorder: (oldIndex, newIndex) {
+            onReorderItem: (oldIndex, newIndex) {
               context.read<CounterPerNoteBloc>().add(
                 CounterPerNoteReorder(oldIndex: oldIndex, newIndex: newIndex),
               );

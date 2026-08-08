@@ -55,7 +55,7 @@ class CounterManagementPage extends StatelessWidget {
               bottom: 96, // room for FAB
             ),
             itemCount: counters.length,
-            onReorder: (oldIndex, newIndex) {
+            onReorderItem: (oldIndex, newIndex) {
               context.read<CounterBloc>().add(
                 ReorderCounters(oldIndex: oldIndex, newIndex: newIndex),
               );
