@@ -130,9 +130,10 @@ class SettingsKeys {
   /// install that only ever had the global style keeps its look.
   static const String calendarFastingStyle = 'calendar_fasting_style';
 
-  /// Per-tradition fasting look & feel, encoded by `FastingAppearance`
-  /// (`tradition:style|argb|iconKey|placement;…`). Unknown traditions and
-  /// malformed fields degrade to defaults on read.
+  /// Per-tradition fasting look & feel, encoded by `FastingAppearance` as a
+  /// JSON object keyed by tradition name (the retired
+  /// `tradition:style|argb|iconKey|placement;…` form is still readable).
+  /// Unknown traditions and malformed fields degrade to defaults on read.
   static const String calendarFastingAppearance =
       'calendar_fasting_appearance';
 

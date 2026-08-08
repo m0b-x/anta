@@ -500,6 +500,14 @@ class _CalendarTable extends StatelessWidget {
       if (startUtc.year != month.year || startUtc.month != month.month) {
         continue;
       }
+      // Cells attribute money on the start day only when the event actually
+      // occurs there; a rule that skips its own anchor (weekly with the
+      // anchor's weekday deselected) shows on no cell, so it must not count.
+      if (!event.occursOn(
+        DateTime.utc(startUtc.year, startUtc.month, startUtc.day),
+      )) {
+        continue;
+      }
       seen ??= <String>{};
       if (!seen.add('${startUtc.day}:$noteId')) continue;
       final entry = ledger.ledgerFor(noteId);

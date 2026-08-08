@@ -164,29 +164,46 @@ class _MonthYearPickerSheetState extends State<MonthYearPickerSheet> {
     Navigator.of(context).pop(_bounded(_year, _month, _day));
   }
 
+  /// Moves the three wheels to the current [_day]/[_month]/[_year]. Needed
+  /// whenever the wheels re-enter the tree (leaving typed mode re-attaches
+  /// their controllers at `initialItem`, not at the last scrolled values) and
+  /// after programmatic state changes like the Today button.
+  void _alignWheelsToState({required bool animate}) {
+    void move(FixedExtentScrollController controller, int item) {
+      if (!controller.hasClients) return;
+      if (animate) {
+        controller.animateToItem(
+          item,
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
+        );
+      } else {
+        controller.jumpToItem(item);
+      }
+    }
+
+    move(_dayController, _day - 1);
+    move(_monthController, _month - 1);
+    move(_yearController, _year - _firstYear);
+  }
+
   void _goToCurrent() {
     final now = DateTime.now();
-    final year = now.year.clamp(_firstYear, _lastYear);
+    final wasTyping = _typing;
     setState(() {
-      _year = year;
+      _typing = false;
+      _error = null;
+      _year = now.year.clamp(_firstYear, _lastYear);
       _month = now.month;
       _day = now.day;
     });
-    _dayController.animateToItem(
-      now.day - 1,
-      duration: const Duration(milliseconds: 260),
-      curve: Curves.easeOutCubic,
-    );
-    _monthController.animateToItem(
-      now.month - 1,
-      duration: const Duration(milliseconds: 260),
-      curve: Curves.easeOutCubic,
-    );
-    _yearController.animateToItem(
-      year - _firstYear,
-      duration: const Duration(milliseconds: 260),
-      curve: Curves.easeOutCubic,
-    );
+    if (wasTyping) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _alignWheelsToState(animate: false);
+      });
+    } else {
+      _alignWheelsToState(animate: true);
+    }
   }
 
   void _toggleTyping() {
@@ -194,6 +211,9 @@ class _MonthYearPickerSheetState extends State<MonthYearPickerSheet> {
       setState(() {
         _typing = false;
         _error = null;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _alignWheelsToState(animate: false);
       });
       return;
     }
@@ -322,7 +342,7 @@ class _MonthYearPickerSheetState extends State<MonthYearPickerSheet> {
   }
 
   /// Turns a two-digit year into the one in the picker's range nearest the
-  /// 2000s, so `aug 26` means 2026 rather than year 26.
+  /// 2000s, so `8/26` means August 2026 rather than year 26.
   int _expandYear(int value) {
     if (value >= 100) return value;
     final candidate = 2000 + value;
