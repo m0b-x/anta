@@ -344,10 +344,10 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     };
   }
 
-  /// Three sample labels for the current kind + style ("Day 1 · Day 2 ·
-  /// Day 3", "1 year · 2 years · 3 years") so the style choice explains
-  /// itself without prose. For the elapsed style the samples start at the
-  /// second occurrence — the start day deliberately shows nothing there.
+  /// Labels for the **first three occurrences** under the current kind and
+  /// style ("Day 1 · Day 2 · Day 3" against "0 years · 1 year · 2 years"),
+  /// so the counting origin — the entire difference between the two styles —
+  /// is visible before saving rather than discovered on the calendar.
   String _countStyleExample(AppLocalizations l10n) {
     String at(int n) {
       return switch (_countStyle) {
@@ -368,7 +368,8 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
       };
     }
 
-    return '${at(1)} · ${at(2)} · ${at(3)}';
+    final first = _countStyle == OccurrenceCountStyle.numbered ? 1 : 0;
+    return '${at(first)} · ${at(first + 1)} · ${at(first + 2)}';
   }
 
   String _intervalUnitLabel(AppLocalizations l10n, _RecurrenceKind kind) {

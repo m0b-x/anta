@@ -545,13 +545,13 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get eventCountOccurrencesHint =>
-      'Jede Wiederholung erhält eine Beschriftung, die ab dem Startdatum zählt';
+      'Jede Wiederholung erhält eine Beschriftung, die ab dem Startdatum zählt. Für Alter und Jahrestage ab 0 zählen.';
 
   @override
-  String get eventCountStyleNumbered => 'Nummerierung';
+  String get eventCountStyleNumbered => 'Ab 1 zählen';
 
   @override
-  String get eventCountStyleElapsed => 'Zeit seit Beginn';
+  String get eventCountStyleElapsed => 'Ab 0 zählen';
 
   @override
   String eventNumberedDays(int count) {

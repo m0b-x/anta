@@ -157,9 +157,9 @@
     }
   },
   "eventCountOccurrences": "Wiederholungen zählen",
-  "eventCountOccurrencesHint": "Jede Wiederholung erhält eine Beschriftung, die ab dem Startdatum zählt",
-  "eventCountStyleNumbered": "Nummerierung",
-  "eventCountStyleElapsed": "Zeit seit Beginn",
+  "eventCountOccurrencesHint": "Jede Wiederholung erhält eine Beschriftung, die ab dem Startdatum zählt. Für Alter und Jahrestage ab 0 zählen.",
+  "eventCountStyleNumbered": "Ab 1 zählen",
+  "eventCountStyleElapsed": "Ab 0 zählen",
   "eventNumberedDays": "Tag {count}",
   "eventNumberedWeeks": "Woche {count}",
   "eventNumberedMonths": "Monat {count}",

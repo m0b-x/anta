@@ -35,13 +35,16 @@ abstract final class RecurrenceFormatter {
   /// or nothing renders for this day under the chosen style. [day] must be
   /// date-only UTC, matching [RecurrenceRule.elapsedPeriods].
   ///
-  /// Styles ([OccurrenceCountStyle]):
-  /// - `numbered` — "Day 1" / "Week 3": elapsed + 1 in the rule's calendar
-  ///   unit, so the start day is the first. Retroactive pre-start days
-  ///   (number ≤ 0) show nothing.
-  /// - `elapsed` — "30 years": time since start; the start day itself (and
-  ///   pre-start days) show nothing, which is what makes a birth-date
-  ///   anchor read as the age.
+  /// The two styles ([OccurrenceCountStyle]) differ **only in where counting
+  /// starts** — that is the whole user-facing choice, and the wording of each
+  /// follows from it:
+  /// - `numbered` (from 1) — "Day 1" / "Week 3": the start day is the first
+  ///   occurrence, which is how a training block reads.
+  /// - `elapsed` (from 0) — "0 years" / "26 years": the start day is zero, so
+  ///   a birth-date anchor makes every later occurrence the age.
+  ///
+  /// Both render on the start day and both suppress only genuinely pre-start
+  /// days (retroactive occurrences), so the origin is the single difference.
   static String? countLabel(
     CalendarEvent event,
     DateTime day,
@@ -61,7 +64,7 @@ abstract final class RecurrenceFormatter {
               YearlyRecurrence() => l10n.eventNumberedYears(elapsed + 1),
               _ => null,
             },
-      OccurrenceCountStyle.elapsed => elapsed <= 0
+      OccurrenceCountStyle.elapsed => elapsed < 0
           ? null
           : switch (rule) {
               DailyRecurrence() => l10n.eventElapsedDays(elapsed),

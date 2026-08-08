@@ -555,13 +555,13 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get eventCountOccurrencesHint =>
-      'Fiecare apariție primește o etichetă care numără de la data de început';
+      'Fiecare apariție primește o etichetă care numără de la data de început. Pentru vârste și aniversări, numără de la 0.';
 
   @override
-  String get eventCountStyleNumbered => 'Numerotare';
+  String get eventCountStyleNumbered => 'Numără de la 1';
 
   @override
-  String get eventCountStyleElapsed => 'Timp de la început';
+  String get eventCountStyleElapsed => 'Numără de la 0';
 
   @override
   String eventNumberedDays(int count) {

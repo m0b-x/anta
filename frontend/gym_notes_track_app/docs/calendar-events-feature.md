@@ -217,27 +217,38 @@ Scope rules and interactions:
 of a periodic rule carries a count label derived from the start date, shaped
 by `CalendarEvent.countStyle` (`OccurrenceCountStyle`):
 
-- **`numbered`** (default below yearly) — "Day 1" / "Week 3": elapsed + 1 in
-  the rule's calendar unit, so **the start day is the first**. Numbering is
-  calendar-based, not sequence-based: an every-2-days rule reads "Day 1,
-  Day 3, Day 5" and a Mon/Wed/Fri weekly rule labels all three sessions of
-  a week "Week N" — the training-program reading. Pre-start (retroactive)
-  days show nothing.
-- **`elapsed`** (default for yearly) — "30 years" / "6 months": time since
-  the start date. The birthday/anniversary style: birth date as start +
-  "Always" scope + count = each occurrence shows the age; the start day
-  itself deliberately shows nothing (there is no "0 years").
+The two values differ in **exactly one thing — where counting starts** — and
+the UI says so outright ("Count from 1" / "Count from 0"). Everything else
+about them follows from that:
+
+- **`numbered`** = count from 1 (default below yearly) — "Day 1" / "Week 3":
+  the start day is occurrence one. Numbering is calendar-based, not
+  sequence-based: an every-2-days rule reads "Day 1, Day 3, Day 5" and a
+  Mon/Wed/Fri weekly rule labels all three sessions of a week "Week N" — the
+  training-program reading.
+- **`elapsed`** = count from 0 (default for yearly) — "0 years" / "26 years":
+  the start day is zero, so a birth-date anchor makes every later occurrence
+  the **age**.
+
+Both render on the start day and both suppress only genuinely pre-start
+(retroactive) days, so the origin really is the single difference — that
+symmetry is what makes the choice explainable in a chip label. The editor's
+live example shows the **first three occurrences** under the current
+selection ("Day 1 · Day 2 · Day 3" against "0 years · 1 year · 2 years"), so
+the origin is visible before saving rather than discovered on the calendar.
 
 The default is **frequency-dependent** (`_defaultCountStyleFor`), and that
-matters: a yearly counted event is an anniversary, and numbering one is off
-by one against how everyone reads a birthday — someone born in 2000 has
+matters: a yearly counted event is an anniversary, and counting one from 1 is
+off by one against how everyone reads a birthday — someone born in 2000 has
 their 27th *occurrence* in 2026 but turns 26, so "Year 27" reads as a bug
 even though it counts correctly. The editor tracks whether the user has
-actually tapped a style chip (`_countStyleTouched`); until they have, the
-style re-resolves when the frequency changes — the same "only re-anchor an
-implicit default" rule `_pickDate` applies to the weekday set. A saved event
-that was already counting is treated as an explicit choice and never
-rewritten.
+actually tapped a chip (`_countStyleTouched`); until they have, the style
+re-resolves when the frequency changes — the same "only re-anchor an implicit
+default" rule `_pickDate` applies to the weekday set. A saved event that was
+already counting is treated as an explicit choice and never rewritten by the
+editor; the one-off repair of rows written under the old flat `numbered`
+default was done as a **v23 data migration** instead, scoped to yearly rules
+(shorter cadences were already correct).
 
 Mechanics:
 
@@ -264,7 +275,10 @@ Mechanics:
 - `.ics` export ignores both fields (RFC 5545 has no equivalent) and backup
   keeps version 7 — additive columns; older backups import as off/numbered.
 - v21 is a separate migration from v20 only because v20 had already run on
-  devices when the style choice was added.
+  devices when the style choice was added; **v23** likewise repairs data v21
+  had already written (`count_occurrences = 1 AND rule_kind = 'yearly' AND
+  count_style = 'numbered'` → `elapsed`). Both are cases of the same rule:
+  never edit a migration that has shipped, add the next one.
 
 ---
 

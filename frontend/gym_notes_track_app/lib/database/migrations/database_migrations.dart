@@ -116,6 +116,11 @@ class DatabaseMigrations {
       toVersion: DatabaseSchema.v22ComputedHolidays,
       migrate: _migrateV21ToV22,
     ),
+    Migration(
+      fromVersion: DatabaseSchema.v22ComputedHolidays,
+      toVersion: DatabaseSchema.v23YearlyCountsFromZero,
+      migrate: _migrateV22ToV23,
+    ),
   ];
 
   Future<void> runMigrations(Migrator m, int from, int to) async {
@@ -701,6 +706,25 @@ class DatabaseMigrations {
     await _db.customStatement(
       "DELETE FROM public_holidays "
       "WHERE suppressed = 0 AND name_key != '$kCustomPublicHolidayKey'",
+    );
+  }
+
+  /// v22→v23: Yearly counted events count from zero.
+  ///
+  /// `count_style` shipped in v21 defaulting to `numbered` for every
+  /// frequency, which is off by one for the case the feature exists to
+  /// serve: a birthday anchored on the birth date showed "Year 27" in the
+  /// year its owner turned 26, because the start day was occurrence 1. The
+  /// editor now defaults yearly rules to `elapsed` (count from 0), and this
+  /// repairs the rows written under the old default.
+  ///
+  /// Scoped to `yearly` on purpose — "Day 1 / Week 3" is correct for shorter
+  /// cadences, so those keep counting from one. Data-only and idempotent.
+  Future<void> _migrateV22ToV23(Migrator m, GeneratedDatabase db) async {
+    await _db.customStatement(
+      "UPDATE calendar_events SET count_style = 'elapsed' "
+      "WHERE count_occurrences = 1 AND rule_kind = 'yearly' "
+      "AND count_style = 'numbered'",
     );
   }
 }

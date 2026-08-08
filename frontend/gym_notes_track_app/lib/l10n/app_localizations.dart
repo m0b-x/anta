@@ -1000,22 +1000,22 @@ abstract class AppLocalizations {
   /// **'Count occurrences'**
   String get eventCountOccurrences;
 
-  /// Explanation under the count-occurrences switch; the style chips below it show concrete examples
+  /// Explanation under the count-occurrences switch; the origin chips below it show concrete examples
   ///
   /// In en, this message translates to:
-  /// **'Each occurrence gets a label counting from the start date'**
+  /// **'Each occurrence gets a label counting from the start date. Count from 0 for ages and anniversaries.'**
   String get eventCountOccurrencesHint;
 
-  /// Count style chip: occurrences read Day 1 / Week 3, the start day being the first
+  /// Counting origin chip: the start day is the first occurrence, so labels read Day 1 / Week 3
   ///
   /// In en, this message translates to:
-  /// **'Numbered'**
+  /// **'Count from 1'**
   String get eventCountStyleNumbered;
 
-  /// Count style chip: occurrences show elapsed time (a birthday's age); the start day shows nothing
+  /// Counting origin chip: the start day is zero, so a birth date makes later occurrences the age
   ///
   /// In en, this message translates to:
-  /// **'Time since start'**
+  /// **'Count from 0'**
   String get eventCountStyleElapsed;
 
   /// Numbered occurrence label for a daily rule

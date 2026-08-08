@@ -544,13 +544,13 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get eventCountOccurrencesHint =>
-      'Each occurrence gets a label counting from the start date';
+      'Each occurrence gets a label counting from the start date. Count from 0 for ages and anniversaries.';
 
   @override
-  String get eventCountStyleNumbered => 'Numbered';
+  String get eventCountStyleNumbered => 'Count from 1';
 
   @override
-  String get eventCountStyleElapsed => 'Time since start';
+  String get eventCountStyleElapsed => 'Count from 0';
 
   @override
   String eventNumberedDays(int count) {
