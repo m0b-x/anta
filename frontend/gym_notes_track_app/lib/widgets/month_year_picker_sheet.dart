@@ -341,12 +341,16 @@ class _MonthYearPickerSheetState extends State<MonthYearPickerSheet> {
     return (day: resolvedDay, month: month, year: year);
   }
 
-  /// Turns a two-digit year into the one in the picker's range nearest the
-  /// 2000s, so `8/26` means August 2026 rather than year 26.
+  /// Turns a two-digit year into a full one, pivoting on the current year
+  /// like a date-of-birth field: up to ten years ahead reads as 20xx
+  /// (`8/26` → August 2026), anything further reads as 19xx (`5/91` →
+  /// May 1991 — a birth year, not 2091). Pivoting beats "nearest the
+  /// range" because the range now spans two centuries. Four-digit years
+  /// are never touched.
   int _expandYear(int value) {
     if (value >= 100) return value;
     final candidate = 2000 + value;
-    return candidate <= _lastYear ? candidate : 1900 + value;
+    return candidate <= DateTime.now().year + 10 ? candidate : 1900 + value;
   }
 
   @override

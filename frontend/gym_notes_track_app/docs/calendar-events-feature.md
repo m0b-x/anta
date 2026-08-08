@@ -694,7 +694,11 @@ per-field `_SectionLabel`s stay inside each zone):
    start date + recurrence config), so it sits above what it switches — in
    its old spot below the date and time sections, toggling it mutated
    content *above* the control, which read as if nothing happened.
-4. **Date(s)** — `CalendarDatePickerSheet` (§6.5), ±20 years. One-time
+4. **Date(s)** — `CalendarDatePickerSheet` (§6.5), bounded by its
+   `earliestDate`/`latestDate` (1900–2100): fixed wide bounds, **not** the
+   old ±20-year slide around the current date, because a birthday's start is
+   the birth year and the occurrence-count age (§3.4) depends on it being
+   real. The Until picker keeps the start date as its lower bound. One-time
    events edit their whole date set in one multi-select pass; recurring
    events pick a start date, then frequency chips, interval stepper, weekly
    weekday chips, occurrence-scope chips (§3.3), the count-occurrences

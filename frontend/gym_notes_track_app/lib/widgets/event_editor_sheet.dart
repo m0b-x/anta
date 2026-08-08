@@ -391,11 +391,13 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   // --- Interactions -------------------------------------------------------
 
   Future<void> _pickDate() async {
+    // Fixed wide bounds, not a window around the current date: a birthday's
+    // start is the birth year, which a ±20-year slide can never reach.
     final picked = await CalendarDatePickerSheet.pickSingle(
       context,
       initialDate: _date,
-      firstDate: DateTime.utc(_date.year - 20),
-      lastDate: DateTime.utc(_date.year + 20),
+      firstDate: CalendarDatePickerSheet.earliestDate,
+      lastDate: CalendarDatePickerSheet.latestDate,
       dayLoad: widget.dayLoad,
       appearance: widget.appearance,
     );
@@ -426,7 +428,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
       context,
       initialDate: initial.isBefore(_date) ? _date : initial,
       firstDate: _date,
-      lastDate: DateTime.utc(_date.year + 20),
+      lastDate: CalendarDatePickerSheet.latestDate,
       dayLoad: widget.dayLoad,
       appearance: widget.appearance,
     );
@@ -442,8 +444,8 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     final picked = await CalendarDatePickerSheet.pickMulti(
       context,
       initialSelection: current,
-      firstDate: DateTime.utc(_date.year - 20),
-      lastDate: DateTime.utc(_date.year + 20),
+      firstDate: CalendarDatePickerSheet.earliestDate,
+      lastDate: CalendarDatePickerSheet.latestDate,
       dayLoad: widget.dayLoad,
       appearance: widget.appearance,
     );
