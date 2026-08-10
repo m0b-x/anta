@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:drift/drift.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:drift/native.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
@@ -70,6 +71,20 @@ class AppDatabase extends _$AppDatabase {
 
   AppDatabase._internal(super.e, this._deviceId) {
     hlc = HybridLogicalClock(nodeId: _deviceId);
+  }
+
+  /// Builds a database over an arbitrary executor, bypassing [getInstance]'s
+  /// singleton, `path_provider` lookup and device-id file.
+  ///
+  /// Exists so tests can run the real schema, the real migrations and the real
+  /// DAOs against `NativeDatabase.memory()`. Never use it in app code — the
+  /// singleton is what the `DatabaseLifecycle` reset contract is built on.
+  @visibleForTesting
+  factory AppDatabase.forTesting(
+    QueryExecutor executor, {
+    String deviceId = 'test-device',
+  }) {
+    return AppDatabase._internal(executor, deviceId);
   }
 
   static Future<AppDatabase> getInstance({String? databaseName}) async {

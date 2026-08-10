@@ -13,6 +13,27 @@ class DatabaseIndexes {
     await createCalendarIndexes();
     await _createFtsTable();
     await createUniqueNameIndexes();
+    await createPositionIndexes();
+  }
+
+  /// Indexes backing the manual-ordering browse queries
+  /// (`FolderDao.getFoldersInParent` / `NoteDao.getNotesInFolder` ordering by
+  /// `position`) — the folder content page's primary read.
+  ///
+  /// Public because the v4 and v25 migrations both call it. **v25 exists
+  /// because these were originally created only inside the v3→v4 migration
+  /// and never added here**, so every database created through `onCreate`
+  /// (a new user, or any database added via the multi-database feature) was
+  /// scanning and sorting where an upgraded one used an index.
+  Future<void> createPositionIndexes() async {
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_folders_position '
+      'ON folders(parent_id, position) WHERE is_deleted = 0',
+    );
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_notes_position '
+      'ON notes(folder_id, position) WHERE is_deleted = 0',
+    );
   }
 
   Future<void> _createFolderIndexes() async {

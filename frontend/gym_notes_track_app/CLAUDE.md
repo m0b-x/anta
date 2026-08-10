@@ -31,13 +31,19 @@ flutter run                                             # Android is the primary
 flutter run -d windows                                  # quick desktop UI check
 ```
 
-Tests (`test/` — currently only the money-ledger grammar suite):
+Tests (`test/` — the money-ledger grammar suite plus the database suite):
 
 ```powershell
-flutter test                                            # whole suite
+flutter test                                            # whole suite (benchmarks skipped)
 flutter test test/utils/markdown_money_syntax_test.dart # single file
 flutter test test/utils/markdown_money_syntax_test.dart --plain-name "substring of test name"
+flutter test --tags benchmark --run-skipped             # seeded-volume DB timings
 ```
+
+`test/database/` guards SQLite behaviour deterministically — query plans (index
+usage), statement counts (no query-in-a-loop) and create-vs-migrate schema
+parity. It runs against `NativeDatabase.memory()`, needs no setup, and asserts
+no wall-clock times; see the `drift-migrations` skill for why.
 
 Helper scripts (each wraps build_runner + gen-l10n + clean + build):
 

@@ -384,6 +384,10 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
 
   /// Write explicit positions for a set of notes. Used by the mixed reorder
   /// service to assign global (folder + note interleaved) positions.
+  /// Bumps `version` in SQL rather than reading each row to compute
+  /// `version + 1`, which halves the statements a reorder issues (a drag of 50
+  /// notes was a SELECT **and** an UPDATE per note). A missing id updates zero
+  /// rows, which is the same outcome the previous existence check produced.
   Future<void> setNotePositions(Map<String, int> positionByNoteId) async {
     if (positionByNoteId.isEmpty) return;
     final now = DateTime.now();
@@ -391,18 +395,18 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
 
     await transaction(() async {
       for (final entry in positionByNoteId.entries) {
-        final existing = await getNoteById(entry.key);
-        if (existing != null) {
-          await (update(notes)..where((n) => n.id.equals(entry.key))).write(
-            NotesCompanion(
-              position: Value(entry.value),
-              updatedAt: Value(now),
-              hlcTimestamp: Value(hlc),
-              deviceId: Value(db.deviceId),
-              version: Value(existing.version + 1),
-            ),
-          );
-        }
+        await customUpdate(
+          'UPDATE notes SET position = ?, updated_at = ?, hlc_timestamp = ?, '
+          'device_id = ?, version = version + 1 WHERE id = ?',
+          variables: [
+            Variable<int>(entry.value),
+            Variable<DateTime>(now),
+            Variable<String>(hlc),
+            Variable<String>(db.deviceId),
+            Variable<String>(entry.key),
+          ],
+          updates: {notes},
+        );
       }
     });
   }

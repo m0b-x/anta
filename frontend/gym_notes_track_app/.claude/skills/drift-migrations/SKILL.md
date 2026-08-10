@@ -18,6 +18,16 @@ description: Workflow for Drift SQLite schema changes, migrations, the DatabaseL
 - Keep FTS/app-level search indexes in sync on create/update/delete/move.
 - Prefer avoiding a migration when the data can ride an existing JSON payload (precedent: recurrence `interval` inside `rule_payload`) or be derived/rebuilt from note content (precedent: planned `TagIndex`).
 
+- **Every index must be created on BOTH paths.** `DatabaseIndexes.createAllIndexes()` runs from `onCreate` (fresh installs); migrations run on upgraders. An index defined only inside a migration leaves every *fresh* install slower than an upgraded one — `idx_folders_position` / `idx_notes_position` were exactly that for years, so new users scanned-and-sorted the folder content page's primary query until **v25** repaired it. Define the index once as a public method on `DatabaseIndexes`, call it from `createAllIndexes()`, and have the migration call the same method. `test/database/schema_parity_test.dart` scrapes `lib/database/**` for `CREATE INDEX`/`CREATE TABLE` names and fails if a fresh database lacks any of them, so this cannot regress silently.
+
+## Database tests
+
+`NativeDatabase.memory()` works under `flutter test` with no extra setup, so the real schema, migrations and DAOs are all testable. `test/database/support/db_test_support.dart` provides `openTestDatabase()`, `queryPlan()`, `explainCaptured()` and a `StatementCounter` interceptor.
+
+- **`EXPLAIN QUERY PLAN` guards** (`query_plan_test.dart`) — the deterministic half of performance testing. Assert `USING INDEX <name>` and the absence of `USE TEMP B-TREE FOR ORDER BY`. Matters here because several indexes are **partial** (`WHERE is_deleted = 0`) or **expression** (`COALESCE(parent_id, '')`, `LOWER(TRIM(name))`) indexes, which stop being usable if a query's expression drifts even slightly — with no visible symptom until a user has thousands of rows. Statements are captured from the DAO as it really ran, so the tests can't assert about SQL the app doesn't issue.
+- **Statement-count guards** (`query_count_test.dart`) — catch query-in-a-loop. This is what found the reorder path issuing a `SELECT` **and** an `UPDATE` per row (100 statements for 50 notes) purely to read `version` so it could write `version + 1`; SQL does that arithmetic itself.
+- **Volume benchmark** (`volume_benchmark_test.dart`) — tagged `benchmark`, skipped by default via `dart_test.yaml`. Run with `flutter test --tags benchmark --run-skipped`. **Do not add wall-clock assertions to the normal suite**: the numbers move with background load (a 5000-row sort measured *faster* than the same 500-row sort across runs), so any threshold loose enough to be stable catches nothing. Assert catastrophe-only ceilings and read the printed table for signal.
+
 ## Full change set for a new persisted field/table
 
 1. Table definition in `lib/database/tables/` + migration step in the database class (bump `schemaVersion`).

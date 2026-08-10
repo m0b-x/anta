@@ -126,6 +126,11 @@ class DatabaseMigrations {
       toVersion: DatabaseSchema.v24EventOccurrenceDescriptions,
       migrate: _migrateV23ToV24,
     ),
+    Migration(
+      fromVersion: DatabaseSchema.v24EventOccurrenceDescriptions,
+      toVersion: DatabaseSchema.v25PositionIndexesOnFreshInstalls,
+      migrate: _migrateV24ToV25,
+    ),
   ];
 
   Future<void> runMigrations(Migrator m, int from, int to) async {
@@ -179,13 +184,11 @@ class DatabaseMigrations {
     ''');
   }
 
+  /// Delegates to the shared definition so the create path and the migration
+  /// path can never drift again — keeping a private copy here is exactly how
+  /// `onCreate` ended up without these indexes for years (see v25).
   Future<void> _createPositionIndexes() async {
-    await _db.customStatement(
-      'CREATE INDEX IF NOT EXISTS idx_folders_position ON folders(parent_id, position) WHERE is_deleted = 0',
-    );
-    await _db.customStatement(
-      'CREATE INDEX IF NOT EXISTS idx_notes_position ON notes(folder_id, position) WHERE is_deleted = 0',
-    );
+    await DatabaseIndexes(_db).createPositionIndexes();
   }
 
   Future<void> _migrateV4ToV5(Migrator m, GeneratedDatabase db) async {
@@ -760,5 +763,21 @@ class DatabaseMigrations {
       '  PRIMARY KEY (event_id, day)'
       ')',
     );
+  }
+
+  /// v24→v25: Repairs the manual-ordering indexes on databases created through
+  /// `onCreate`.
+  ///
+  /// `idx_folders_position` / `idx_notes_position` were introduced in the v3→v4
+  /// migration but never added to [DatabaseIndexes.createAllIndexes], so they
+  /// existed **only** on databases that had upgraded through v4. Every fresh
+  /// install — a new user, or any database added through the multi-database
+  /// feature — was scanning and sorting `folders`/`notes` for the folder
+  /// content page's primary query instead of walking an index.
+  ///
+  /// Index-only and idempotent (`IF NOT EXISTS`): no data is read or written,
+  /// and upgraders that already have them are unaffected.
+  Future<void> _migrateV24ToV25(Migrator m, GeneratedDatabase db) async {
+    await DatabaseIndexes(_db).createPositionIndexes();
   }
 }

@@ -1,0 +1,9 @@
+tags:
+  # Seeded-volume timings. Excluded from the default run because wall-clock
+  # numbers are not a pass/fail signal — they move with background load and
+  # thermal state, and a threshold loose enough to survive that catches
+  # nothing. Run them deliberately when you want the numbers:
+  #
+  #   flutter test --tags benchmark --run-skipped
+  benchmark:
+    skip: "timing-only; run with: flutter test --tags benchmark --run-skipped"

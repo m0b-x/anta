@@ -321,6 +321,9 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   /// Write explicit positions for a set of folders. Used by the mixed
   /// reorder service to assign global (folder + note interleaved) positions
   /// without forcing the caller to pass dense 0..N ranges per kind.
+  /// Bumps `version` in SQL rather than reading each row first — see
+  /// [NoteDao.setNotePositions] for why. A missing id updates zero rows, the
+  /// same outcome the previous existence check produced.
   Future<void> setFolderPositions(Map<String, int> positionByFolderId) async {
     if (positionByFolderId.isEmpty) return;
     final now = DateTime.now();
@@ -328,18 +331,19 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
 
     await transaction(() async {
       for (final entry in positionByFolderId.entries) {
-        final existing = await getFolderById(entry.key);
-        if (existing != null) {
-          await (update(folders)..where((f) => f.id.equals(entry.key))).write(
-            FoldersCompanion(
-              position: Value(entry.value),
-              updatedAt: Value(now),
-              hlcTimestamp: Value(hlc),
-              deviceId: Value(db.deviceId),
-              version: Value(existing.version + 1),
-            ),
-          );
-        }
+        await customUpdate(
+          'UPDATE folders SET position = ?, updated_at = ?, '
+          'hlc_timestamp = ?, device_id = ?, version = version + 1 '
+          'WHERE id = ?',
+          variables: [
+            Variable<int>(entry.value),
+            Variable<DateTime>(now),
+            Variable<String>(hlc),
+            Variable<String>(db.deviceId),
+            Variable<String>(entry.key),
+          ],
+          updates: {folders},
+        );
       }
     });
   }
