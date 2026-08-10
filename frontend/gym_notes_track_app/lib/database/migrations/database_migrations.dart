@@ -121,6 +121,11 @@ class DatabaseMigrations {
       toVersion: DatabaseSchema.v23YearlyCountsFromZero,
       migrate: _migrateV22ToV23,
     ),
+    Migration(
+      fromVersion: DatabaseSchema.v23YearlyCountsFromZero,
+      toVersion: DatabaseSchema.v24EventOccurrenceDescriptions,
+      migrate: _migrateV23ToV24,
+    ),
   ];
 
   Future<void> runMigrations(Migrator m, int from, int to) async {
@@ -725,6 +730,35 @@ class DatabaseMigrations {
       "UPDATE calendar_events SET count_style = 'elapsed' "
       "WHERE count_occurrences = 1 AND rule_kind = 'yearly' "
       "AND count_style = 'numbered'",
+    );
+  }
+
+  /// v23→v24: Per-occurrence description overrides.
+  ///
+  /// Creates `calendar_event_occurrences`, a sparse deltas-only table in the
+  /// spirit of `public_holidays` since v22: one row per `(event_id, day)` the
+  /// user has actually written on, with every other day falling back to the
+  /// event's own description as a template. Existing installs get an empty
+  /// table and behave exactly as before until the setting is turned on.
+  ///
+  /// No index: the composite `PRIMARY KEY (event_id, day)` already gives
+  /// SQLite an automatic index with `event_id` leftmost, which covers both the
+  /// point lookup and the per-event cascade.
+  ///
+  /// Raw DDL frozen at the v24 shape (the v6/v10/v15 precedent) rather than
+  /// `m.createTable`, which emits the *live* Drift declaration and would make
+  /// upgraders and fresh installs disagree the moment a column is added. Any
+  /// future column here ships its own migration step.
+  Future<void> _migrateV23ToV24(Migrator m, GeneratedDatabase db) async {
+    await _db.customStatement(
+      'CREATE TABLE IF NOT EXISTS calendar_event_occurrences ('
+      '  event_id TEXT NOT NULL, '
+      '  day INTEGER NOT NULL, '
+      '  description TEXT NOT NULL, '
+      '  created_at INTEGER NOT NULL, '
+      '  updated_at INTEGER NOT NULL, '
+      '  PRIMARY KEY (event_id, day)'
+      ')',
     );
   }
 }

@@ -16,9 +16,10 @@ linked.
 > `calendar_categories` table (user-creatable categories); **v16** added
 > `color_value` / `tint_icon` / `priority` columns; **v17** added the
 > `suppressed` flag on `public_holidays`; **v18** inverted the stored
-> priority scale (data-only: `p -> 6 - p`, see the Addendum). The recurrence
-> **interval** ("every N …") shipped without a migration — it rides inside
-> the existing `rule_payload`.
+> priority scale (data-only: `p -> 6 - p`, see the Addendum); **v24** added
+> the sparse `calendar_event_occurrences` table (per-occurrence description
+> overrides, §6.6). The recurrence **interval** ("every N …") shipped without
+> a migration — it rides inside the existing `rule_payload`.
 
 ---
 
@@ -57,7 +58,7 @@ immutable; mutation is done through `copyWith`.
 | `rule`          | `RecurrenceRule`           | Sealed hierarchy — see §3.                                                                         |
 | `endDate`       | `DateTime?` (date-only UTC) | Optional inclusive upper bound for recurring rules. `null` = "no end".                            |
 | `time`          | `EventTime?`               | Optional time-of-day annotation (start minute + optional duration). `null` = all-day.             |
-| `description`   | `String?`                  | **v12**. Free-form notes, ≤ 500 chars (UI-enforced). `null`/empty = none. Stored verbatim.        |
+| `description`   | `String?`                  | **v12**. Free-form markdown, length capped by the `eventDescriptionLimit` setting (§6.6). `null`/empty = none. Stored verbatim. |
 | `noteId`        | `String?`                  | **v14**. Optional link to a workout note (`notes.id`). Folder resolved at navigation time.        |
 | `iconKey`       | `String?`                  | Key into `CalendarIcons.palette`. `null` = use category default.                                  |
 | `allDay`        | `bool` (derived)           | Computed as `time == null`. The persisted `all_day` column mirrors this on write only.            |
@@ -579,7 +580,7 @@ same shape as the agenda search field in `CalendarBottomPanel`.
 | `end_date`          | INTEGER  | YES  | **v11**. Inclusive Until bound (epoch ms).                           |
 | `start_minute`      | INTEGER  | YES  | **v11**. Time-of-day start (minutes since local midnight).           |
 | `duration_minutes`  | INTEGER  | YES  | **v11**. Optional event duration in minutes.                         |
-| `description`       | TEXT     | YES  | **v12**. Free-form markdown notes, ≤ 2000 chars (was 500 pre-v19).   |
+| `description`       | TEXT     | YES  | **v12**. Free-form markdown notes; length is a UI setting, not a schema constraint (§6.6). Acts as the **template** when per-occurrence descriptions are on. |
 | `note_id`           | TEXT     | YES  | **v14**. Optional link to a workout note (`notes.id`).               |
 | `retroactive`       | INTEGER  | NN   | **v19**. Boolean, default 0. Lifts the rule's pre-start guard (§3.3).|
 | `count_occurrences` | INTEGER  | NN   | **v20**. Boolean, default 0. Occurrences carry a count label (§3.4). |
@@ -772,6 +773,8 @@ title, category, date/time, recurrence (with scope), priority, the fully
 rendered description, the linked-note button, and the next 5 occurrences.
 Editing is one button away (`EventDetailAction.edit` → the editor sheet);
 opening the linked note routes through the page's existing resolver.
+"Read-only" has one exception: description checkboxes on **single-occurrence**
+events toggle in place and write back through `onEventChanged` (§6.6).
 
 ### 6.3 [`EventEditorSheet`](../lib/widgets/event_editor_sheet.dart)
 
@@ -807,9 +810,11 @@ per-field `_SectionLabel`s stay inside each zone):
    by both modes).
 
 **Details** (`eventSectionDetails`):
-6. **Description** — markdown source, `maxLength: 2000`, with an eye/pencil
-   toggle that swaps the field for a `SimpleMarkdownPreview` of what it
-   will look like. Money is disabled in that preview (see §6.6).
+6. **Description** — markdown source in a real `ModernEditorWrapper` /
+   re_editor surface, live-rendered Obsidian-style by the note editor's own
+   `MarkdownEditorSpanBuilder` (see §6.6), with a `count / limit` counter
+   above it. The eye/pencil preview toggle survives only for users who turned
+   live rendering off. Money is disabled throughout (see §6.6).
 7. **Icon** — icon picker with reset-to-default action.
 8. **Color / priority / linked note** — appearance override, P1–P5 chips,
    note link.
@@ -933,8 +938,126 @@ Nothing pre-rendered is persisted or cached in the database.
   on every scrolling frame, so the config is compared field-by-field instead of
   through a composed key string, and the line-collapsing pass only runs on a
   miss.
-- **Editor preview / detail sheet** use `SimpleMarkdownPreview` — full
-  fidelity, no flattening.
+- **Detail sheet** (and the editor's fallback preview) use
+  `SimpleMarkdownPreview` — full fidelity, no flattening.
+- **The editor sheet's description is a real re_editor surface.** It builds a
+  `ListAwarePasteController` over a `CodeLineEditingController` whose
+  `spanBuilder` is a sheet-owned `MarkdownEditorSpanBuilder`, hosted in the
+  note editor's `ModernEditorWrapper` (`showScrollIndicator: false`). That is
+  what makes live rendering, tap-to-toggle checkboxes, list continuation, Tab
+  indent, ghost runs and the selection toolbar behave identically in both
+  places without a second implementation. The whole stack is created and
+  destroyed with the sheet; a ≤ few-dozen-line description makes the span
+  builder's incremental line index and LRU memos effectively free. The global
+  **live markdown rendering** setting is honoured, and a late-resolving
+  setting is applied with `configureColors` + `forceRepaint()` — **never** by
+  remounting the editor, which crashes re_editor's controller-delegate handoff
+  mid-initialization (the same rule the note editor documents for money
+  config). The editor box is height-bounded (120–260 px) because a
+  `CodeEditor` owns its own scroller and cannot be unbounded inside the
+  sheet's `SingleChildScrollView`; taking focus scrolls it into view, since a
+  `CodeEditor` is not an `EditableText` and nothing does that automatically.
+- **The markdown bar appears on description focus**, below the sheet's scroll
+  view (so the form never shifts), reduced to `splitEnabled: false`, no
+  settings / reorder, and undo+redo+paste as its only utility buttons.
+  Shortcuts come from the app-wide `MarkdownBarBloc`'s active profile, with
+  **counter-bound shortcuts filtered out** — `{c1}` resolves against a note
+  context an event does not have. Ghost / colour-slot shortcuts route through
+  the shared
+  [`MarkdownShortcutInserter`](../lib/controllers/markdown_shortcut_inserter.dart),
+  extracted from the note editor so both surfaces keep one implementation.
+- **Checkboxes toggle only where "checked" has one meaning.** In the editor
+  sheet, tapping a task box edits the buffer and persists on Save like any
+  other keystroke. In the read-only detail sheet, tapping is enabled **only
+  for `OneTimeRecurrence` events**: the description is a single string on a
+  single row, so a checked box on a repeating (or specific-dates) event would
+  read as checked on every occurrence — per-occurrence state would need an
+  occurrence-keyed table. Those events keep inert boxes and are edited through
+  the pencil. Detail-sheet toggles update local state immediately and coalesce
+  into **one** `UpdateCalendarEvent` after 600 ms (flushed on close, on
+  routing to edit, and in `dispose` so a drag-dismiss never loses a tap),
+  because every write invalidates the bloc's day cache. The sheet renders and
+  rewrites the **same trimmed string**, since the builder reports absolute
+  source offsets for the `[ ]` / `[x]` bracket.
+- **Description length is a setting, enforced by refusing to save.**
+  `SettingsKeys.eventDescriptionLimit` (default 2000, slider 500–10000 in
+  steps of 500, under Calendar Settings → Events, included in reset-to-
+  defaults) replaces the old hardcoded `TextField(maxLength: 2000)`, which
+  re_editor has no equivalent for. It is **never** enforced by truncation —
+  the description is markdown the user typed, and dropping its tail silently
+  is worse than refusing. Over budget: the counter above the field turns red,
+  a line explains why, and Save is disabled. A **grandfather rule** keeps the
+  guard from locking anyone out: a description is also allowed at any length
+  it already had when the sheet opened (`_initialDescriptionLength`), so
+  lowering the limit blocks *growth*, not editing. The getter/setter clamp to
+  the slider bounds, so a corrupted value can never make every event
+  unsavable. Both the counter and the Save button track the controller
+  through `ListenableBuilder`s rather than keystroke-wide `setState`. Since
+  v24 **each description scope carries its own budget and its own
+  grandfather** (`_initialTemplateLength` / `_initialDayLength`), and
+  `_canSave` checks both — reading only the live controller would let
+  over-limit day text through while the template view is on screen.
+- **Descriptions can be per-occurrence (v24), behind one global setting.**
+  `SettingsKeys.eventPerOccurrenceDescriptions` (default **off** = the exact
+  pre-v24 behaviour; Calendar Settings → Events; in reset-to-defaults) turns
+  the event's `description` into a **template**: a day with no row of its own
+  renders the template, and the first edit or tick on a day materialises a row
+  in `calendar_event_occurrences` seeded from it (copy-on-write). The table
+  holds **only user deltas**, exactly like `public_holidays` since v22, so a
+  daily event costs zero rows until it is touched.
+  - **One resolution entry point**: `OccurrenceDescriptions.descriptionFor(event, day)`
+    (`lib/constants/occurrence_descriptions.dart`). Never resolve a description
+    for a day any other way, or the template fallback drifts between the day
+    panel, the agenda, the detail sheet and search.
+  - **The gate is `rule is OneTimeRecurrence`, and nothing else.** An event
+    firing on one day has nothing to separate; a `SpecificDatesRecurrence` is a
+    list of distinct occasions and *does* participate. Never gate on the
+    editor's `_RepeatMode`, which files specific-dates under `oneTime`.
+  - **A row that exists always wins, including when empty.** `overrideFor`
+    returns non-null (possibly `''`) for a present row and `null` only for a
+    missing one — that is what keeps a deliberately blanked day blank instead
+    of falling back. "Reset this day" **deletes** the row; it never writes `''`.
+    This also makes the notes-icon badge per-day-correct for free.
+  - **Reversible in both directions.** Turning the setting on moves nothing;
+    turning it off leaves rows dormant rather than deleting them. Rules that
+    change so a day no longer occurs keep their row — a stored delta is the
+    only durable record of a deliberate act. Deleting an event cascades
+    (one transaction in `CalendarEventService.deleteById`/`deleteAll`).
+  - **Static facade published by the service, not a page.** `EventOccurrenceService`
+    reads the flag at `getInstance()` and publishes it *with* the data — the
+    `PublicHolidayService` shape, deliberately not `FastingCalendar`'s, whose
+    post-first-frame `configure` would render templates for one frame and then
+    flip every row on a cold start into the calendar. `reset()` must clear the
+    singleton **and** the facade.
+  - **Agenda search needs two passes.** `EventAgenda._matches` runs in the
+    candidate pre-filter, *before* the day is known, so it is a deliberate
+    **superset** test (title OR template OR *any* override); `_matchesOnDay`
+    then narrows per day inside the scan. Testing only the superset would emit
+    every occurrence of an event whose hit lives on one day.
+  - **Writes skip the day cache.** `SetOccurrenceDescription` /
+    `ClearOccurrenceDescription` bump `CalendarPageLoaded.occurrenceRevision`
+    and deliberately do **not** call `_invalidateDayCache()` — that cache
+    answers "which events occur on this day", and description text is not an
+    input. (Ticking a box used to wipe all 512 entries via the whole-event
+    update; it no longer does.) The revision is load-bearing twice over: the
+    state is `Equatable`, so an otherwise-identical copy would be dropped, and
+    `AgendaListView`'s identity-based row memo would keep serving stale text.
+    `UpcomingAgendaView` forwards it but must never rescan on it.
+  - **Editor scope control**: a `SegmentedButton` ("All days" / "This day")
+    above the description, shown only when `initialEvent != null && occurrenceDay != null &&
+    enabled && rule-has-many-occurrences`. **One controller throughout** —
+    only its text is swapped, with the inactive scope buffered in a plain
+    `String`. Swapping controllers would orphan `ModernEditorWrapper`'s
+    listener (it binds in `initState` and has no `didUpdateWidget`), the span
+    builder and the search controller, and drag re_editor through a delegate
+    handoff nothing else in this app exercises. `clearHistory()` after every
+    swap is mandatory: `set text` runs as a revocable op, so without it undo
+    pulls the *other* scope's text into the active one and Save persists it.
+    Flipping the form to one-time hides the control and calls
+    `_syncScopeToRule`, which parks the day text unwritten — never merge an
+    occurrence's text into the template. The sheet never persists: it reports
+    `(occurrenceDay, occurrenceDescription)` on `EventEditorSaved` and the page
+    dispatches, event write first.
 - **Money is always disabled** in descriptions (`MoneyDisplayConfig.disabled`).
   A ledger balance is a per-note concept; a `$+ 50` line in an event
   description would render a balance derived from nothing, so those lines stay
@@ -1088,6 +1211,7 @@ filters can use it without decoding `time`.
 | ------------------------------------------------------------------ | -------- | -------------------------------------------------------------------------------------- |
 | No skip-this-occurrence (exceptions)                                | Medium   | Would need an `event_exceptions(event_id, date)` table; checked in `occursOn`. The multi-date `CalendarDatePickerSheet` (§6.5) is already the UI for it. |
 | Retroactive events export forward-only to `.ics`                    | Low      | RFC 5545 has no pre-`DTSTART` occurrences; the clamp is deliberate (§3.3).            |
+| `.ics` exports the template, never per-occurrence descriptions       | Low      | A **scope call, not a format limit**: RFC 5545 supports it via a second `VEVENT` with the same `UID` plus `RECURRENCE-ID`, and `EXDATE`/`RDATE` already prove per-day components are cheap here (§6.6). |
 | No "mark done" / completion log                                    | Medium   | Would need a `completions(event_id, date)` table; surfaces as a check on the day card. |
 | Linked note opens read-through only                                 | Low      | The link is one-way (event → note); a note does not list events that reference it.     |
 | Movable feasts have no out-of-window fallback                      | Low      | Acceptable; users only see seeded window.                                              |
@@ -1107,6 +1231,9 @@ filters can use it without decoding `time`.
 | Category table / DAO       | [lib/database/tables/calendar_categories_table.dart](../lib/database/tables/calendar_categories_table.dart), [lib/database/daos/calendar_category_dao.dart](../lib/database/daos/calendar_category_dao.dart) |
 | Category UI                | [lib/widgets/category_editor_sheet.dart](../lib/widgets/category_editor_sheet.dart), [lib/pages/calendar_categories_page.dart](../lib/pages/calendar_categories_page.dart), [lib/widgets/category_picker_sheet.dart](../lib/widgets/category_picker_sheet.dart) |
 | Recurrence rules         | [lib/models/recurrence_rule.dart](../lib/models/recurrence_rule.dart)             |
+| Occurrence override facade | [lib/constants/occurrence_descriptions.dart](../lib/constants/occurrence_descriptions.dart) |
+| Occurrence override service | [lib/services/event_occurrence_service.dart](../lib/services/event_occurrence_service.dart) |
+| Occurrence table / DAO   | [lib/database/tables/event_occurrences_table.dart](../lib/database/tables/event_occurrences_table.dart), [lib/database/daos/event_occurrence_dao.dart](../lib/database/daos/event_occurrence_dao.dart) |
 | Holiday enum + facade    | [lib/constants/public_holidays.dart](../lib/constants/public_holidays.dart)       |
 | Drift table (events)     | [lib/database/tables/calendar_events_table.dart](../lib/database/tables/calendar_events_table.dart) |
 | Drift table (holidays)   | [lib/database/tables/public_holidays_table.dart](../lib/database/tables/public_holidays_table.dart) |

@@ -302,6 +302,49 @@ class AppLocalizationsEn extends AppLocalizations {
   String get calendarEventsSection => 'Events';
 
   @override
+  String get eventDescriptionLimit => 'Description length';
+
+  @override
+  String eventDescriptionLimitDesc(int count) {
+    return 'Allow up to $count characters in an event description.';
+  }
+
+  @override
+  String eventDescriptionCount(int count, int limit) {
+    return '$count / $limit';
+  }
+
+  @override
+  String eventDescriptionTooLong(int limit) {
+    return 'The description is over the $limit character limit. Shorten it or raise the limit in calendar settings.';
+  }
+
+  @override
+  String get eventPerOccurrenceDescriptions => 'Separate description per day';
+
+  @override
+  String get eventPerOccurrenceDescriptionsDesc =>
+      'Repeating events keep their own description for each day. The event\'s description becomes the template every day starts from.';
+
+  @override
+  String get eventDescriptionScopeAllDays => 'All days';
+
+  @override
+  String get eventDescriptionScopeThisDay => 'This day';
+
+  @override
+  String get eventDescriptionScopeAllDaysHint =>
+      'Editing the description every day starts from.';
+
+  @override
+  String get eventDescriptionScopeThisDayHint =>
+      'Editing this day only. Other days keep the shared description.';
+
+  @override
+  String get eventDescriptionResetDay =>
+      'Reset this day to the shared description';
+
+  @override
   String get deleteAllEvents => 'Delete all events';
 
   @override

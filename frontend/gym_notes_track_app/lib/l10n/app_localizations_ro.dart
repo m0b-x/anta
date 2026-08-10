@@ -304,6 +304,50 @@ class AppLocalizationsRo extends AppLocalizations {
   String get calendarEventsSection => 'Evenimente';
 
   @override
+  String get eventDescriptionLimit => 'Lungimea descrierii';
+
+  @override
+  String eventDescriptionLimitDesc(int count) {
+    return 'Permite până la $count caractere în descrierea unui eveniment.';
+  }
+
+  @override
+  String eventDescriptionCount(int count, int limit) {
+    return '$count / $limit';
+  }
+
+  @override
+  String eventDescriptionTooLong(int limit) {
+    return 'Descrierea depășește limita de $limit caractere. Scurtează-o sau mărește limita în setările calendarului.';
+  }
+
+  @override
+  String get eventPerOccurrenceDescriptions =>
+      'Descriere separată pentru fiecare zi';
+
+  @override
+  String get eventPerOccurrenceDescriptionsDesc =>
+      'Evenimentele recurente păstrează câte o descriere pentru fiecare zi. Descrierea evenimentului devine șablonul de la care pornește fiecare zi.';
+
+  @override
+  String get eventDescriptionScopeAllDays => 'Toate zilele';
+
+  @override
+  String get eventDescriptionScopeThisDay => 'Ziua aceasta';
+
+  @override
+  String get eventDescriptionScopeAllDaysHint =>
+      'Editezi descrierea de la care pornește fiecare zi.';
+
+  @override
+  String get eventDescriptionScopeThisDayHint =>
+      'Editezi doar ziua aceasta. Celelalte zile păstrează descrierea comună.';
+
+  @override
+  String get eventDescriptionResetDay =>
+      'Readu ziua aceasta la descrierea comună';
+
+  @override
   String get deleteAllEvents => 'Șterge toate evenimentele';
 
   @override

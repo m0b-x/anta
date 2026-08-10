@@ -97,21 +97,46 @@ class _CalendarViewState extends State<_CalendarView> {
   /// there. Tapping a day-panel row used to drop straight into the edit form;
   /// now that descriptions are real content, the first thing a tap does is
   /// show them.
+  ///
+  /// Ticking a description checkbox there rewrites the description in place,
+  /// so [current] tracks the latest version and the routed actions carry it —
+  /// otherwise "edit" would reopen the form on the pre-tick text. A
+  /// per-occurrence tick never touches [current]: it writes one day's row,
+  /// leaving the event (and its template) exactly as it was.
   Future<void> _openDetailSheet(
     BuildContext context,
     CalendarEvent event,
+    DateTime day,
   ) async {
+    final bloc = context.read<CalendarBloc>();
+    var current = event;
     final action = await EventDetailSheet.show(
       context,
       event: event,
+      day: day,
       colorPalette: _colorPalette,
+      onEventChanged: (updated) {
+        current = updated;
+        bloc.add(UpdateCalendarEvent(event: updated));
+      },
+      onOccurrenceChanged: (occurrenceDay, description) => bloc.add(
+        SetOccurrenceDescription(
+          eventId: event.id,
+          day: occurrenceDay,
+          description: description,
+        ),
+      ),
     );
     if (action == null || !context.mounted) return;
     switch (action) {
       case EventDetailAction.edit:
-        await _openEditorSheet(context, initialEvent: event);
+        await _openEditorSheet(
+          context,
+          initialEvent: current,
+          occurrenceDay: day,
+        );
       case EventDetailAction.openNote:
-        await _openLinkedNote(context, event);
+        await _openLinkedNote(context, current);
     }
   }
 
@@ -202,9 +227,13 @@ class _CalendarViewState extends State<_CalendarView> {
                   expanded: _panelExpanded,
                   onToggleExpanded: () =>
                       setState(() => _panelExpanded = !_panelExpanded),
-                  onEditEvent: (event) =>
-                      _openEditorSheet(context, initialEvent: event),
-                  onShowEvent: (event) => _openDetailSheet(context, event),
+                  onEditEvent: (event, day) => _openEditorSheet(
+                    context,
+                    initialEvent: event,
+                    occurrenceDay: day,
+                  ),
+                  onShowEvent: (event, day) =>
+                      _openDetailSheet(context, event, day),
                   onOpenNote: (event) => _openLinkedNote(context, event),
                   colorPalette: _colorPalette,
                   showRecurrenceLabels: _appearance.showRecurrenceLabels,
@@ -267,10 +296,15 @@ class _CalendarViewState extends State<_CalendarView> {
     context.read<ImportExportBloc>().add(const ImportExportReset());
   }
 
+  /// Opens the event form. [occurrenceDay] is the day the user came from —
+  /// only set when editing an existing event from a dated surface, which is
+  /// what lets the sheet offer "this day" vs "all days". The FAB path leaves
+  /// it null: a brand-new event has no occurrence yet.
   Future<void> _openEditorSheet(
     BuildContext context, {
     CalendarEvent? initialEvent,
     DateTime? day,
+    DateTime? occurrenceDay,
   }) async {
     // The bloc's per-day lookup is already memoized and O(1), so handing it
     // to the picker costs nothing and lets the grid show which days are
@@ -280,6 +314,7 @@ class _CalendarViewState extends State<_CalendarView> {
       context,
       defaultDate: initialEvent?.startDate ?? day ?? DateTime.now(),
       initialEvent: initialEvent,
+      occurrenceDay: occurrenceDay,
       dayLoad: (day) => eventsForDay(day).length,
       appearance: _appearance,
     );
@@ -292,8 +327,37 @@ class _CalendarViewState extends State<_CalendarView> {
         } else {
           bloc.add(UpdateCalendarEvent(event: event));
         }
+        // The event write lands first so a day override can never reference an
+        // event the bloc has not seen yet.
+        _dispatchOccurrenceResult(bloc, event.id, result);
       case EventEditorDeleted(:final id):
         bloc.add(DeleteCalendarEvent(eventId: id));
+    }
+  }
+
+  /// Routes the editor's occurrence outcome. The sheet never writes; it
+  /// reports what the user did and the page dispatches it, so persistence
+  /// stays on one path.
+  void _dispatchOccurrenceResult(
+    CalendarBloc bloc,
+    String eventId,
+    EventEditorSaved result,
+  ) {
+    final occurrenceDay = result.occurrenceDay;
+    if (occurrenceDay == null) return;
+    final description = result.occurrenceDescription;
+    if (description == null) {
+      bloc.add(
+        ClearOccurrenceDescription(eventId: eventId, day: occurrenceDay),
+      );
+    } else {
+      bloc.add(
+        SetOccurrenceDescription(
+          eventId: eventId,
+          day: occurrenceDay,
+          description: description,
+        ),
+      );
     }
   }
 

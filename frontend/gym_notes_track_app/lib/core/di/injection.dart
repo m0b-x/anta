@@ -9,6 +9,7 @@ import '../../services/import_export_service.dart';
 import '../../services/markdown_bar_service.dart';
 import '../../services/counter_service.dart';
 import '../../services/calendar_event_service.dart';
+import '../../services/event_occurrence_service.dart';
 import '../../services/category_service.dart';
 import '../../services/public_holiday_service.dart';
 import '../../services/mixed_reorder_service.dart';
@@ -78,6 +79,9 @@ Future<void> _registerServices() async {
 
   final calendarEventService = await CalendarEventService.getInstance();
   getIt.registerSingleton<CalendarEventService>(calendarEventService);
+
+  final eventOccurrenceService = await EventOccurrenceService.getInstance();
+  getIt.registerSingleton<EventOccurrenceService>(eventOccurrenceService);
 
   getIt.registerSingleton<MoveHistoryService>(
     MoveHistoryService(store: InMemoryMoveHistoryStore()),

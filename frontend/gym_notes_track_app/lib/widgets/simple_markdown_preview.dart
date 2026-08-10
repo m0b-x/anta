@@ -11,6 +11,12 @@ class SimpleMarkdownPreview extends StatefulWidget {
   final EdgeInsets? padding;
   final LinkTapCallback? onTapLink;
 
+  /// Toggles a task checkbox. Null (the default) leaves the rendered
+  /// boxes inert: [LineBasedMarkdownBuilder] only allocates a
+  /// [TapGestureRecognizer] per checkbox when this is non-null, so a
+  /// read-only surface pays nothing for them.
+  final CheckboxTapCallback? onCheckboxTap;
+
   /// Money ledger display config, mirroring [LineBasedMarkdownBuilder].
   /// The default leaves the ledger off — a caller that does not resolve
   /// `SettingsService.getMoneyConfig()` renders `$` lines as plain text,
@@ -27,6 +33,7 @@ class SimpleMarkdownPreview extends StatefulWidget {
     this.fontSize = 14.0,
     this.padding,
     this.onTapLink,
+    this.onCheckboxTap,
     this.moneyConfig = MoneyDisplayConfig.disabled,
     this.colorPalette = MarkdownColorPalette.presets,
   });
@@ -42,6 +49,7 @@ class _SimpleMarkdownPreviewState extends State<SimpleMarkdownPreview> {
   ThemeData? _lastTheme;
   MoneyDisplayConfig? _lastMoneyConfig;
   MarkdownColorPalette? _lastColorPalette;
+  bool _lastInteractiveCheckboxes = false;
 
   @override
   void dispose() {
@@ -51,14 +59,17 @@ class _SimpleMarkdownPreviewState extends State<SimpleMarkdownPreview> {
 
   /// The money config and palette arrive asynchronously, so they must be
   /// part of the rebuild check — otherwise the first (config-less) build
-  /// sticks and `$` lines stay plain text forever.
+  /// sticks and `$` lines stay plain text forever. The checkbox callback
+  /// is compared by null-ness for the same reason: the builder decides
+  /// once, at construction, whether checkboxes get recognizers.
   bool _shouldRebuild(ThemeData theme) {
     return _builder == null ||
         _lastData != widget.data ||
         _lastFontSize != widget.fontSize ||
         _lastTheme?.brightness != theme.brightness ||
         _lastMoneyConfig != widget.moneyConfig ||
-        _lastColorPalette != widget.colorPalette;
+        _lastColorPalette != widget.colorPalette ||
+        _lastInteractiveCheckboxes != (widget.onCheckboxTap != null);
   }
 
   void _buildCache(BuildContext context) {
@@ -75,12 +86,14 @@ class _SimpleMarkdownPreviewState extends State<SimpleMarkdownPreview> {
     _lastTheme = theme;
     _lastMoneyConfig = widget.moneyConfig;
     _lastColorPalette = widget.colorPalette;
+    _lastInteractiveCheckboxes = widget.onCheckboxTap != null;
 
     final mdStyle = LineMarkdownStyle.fromTheme(theme, widget.fontSize);
 
     _builder = LineBasedMarkdownBuilder(
       style: mdStyle,
       onLinkTap: widget.onTapLink,
+      onCheckboxTap: widget.onCheckboxTap,
       moneyConfig: widget.moneyConfig,
       colorPalette: widget.colorPalette,
       linesPerChunk: 100,

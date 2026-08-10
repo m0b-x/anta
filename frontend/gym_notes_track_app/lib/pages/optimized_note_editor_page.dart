@@ -54,6 +54,7 @@ import '../utils/money_display_config.dart';
 import '../widgets/money_detail_sheet.dart';
 import '../utils/list_aware_paste.dart';
 import '../utils/paste_line_breaker.dart';
+import '../controllers/markdown_shortcut_inserter.dart';
 import '../controllers/preview_scroll_controller.dart';
 import '../controllers/shortcut_applier.dart';
 import '../database/database.dart';
@@ -2166,71 +2167,18 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// no selection, inserts an empty `{{  }}` and parks the caret between
   /// the markers so the user can type the placeholder.
   void _insertGhostText() {
-    final controller = _contentController;
-    final selected = controller.selectedText;
-    if (selected.isEmpty) {
-      final caret = controller.selection;
-      final line = caret.baseIndex;
-      final col = caret.baseOffset;
-      controller.runRevocableOp(() {
-        controller.replaceSelection(GhostText.wrap(''));
-        // '{{  }}' → drop the caret between the two spaces (col + 3).
-        controller.selection = CodeLineSelection.collapsed(
-          index: line,
-          offset: col + GhostText.open.length + 1,
-        );
-      });
-    } else {
-      controller.runRevocableOp(() {
-        controller.replaceSelection(GhostText.wrap(selected));
-      });
-    }
+    MarkdownShortcutInserter.insertGhost(_contentController);
     _onTextChanged();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _contentController.makeCursorVisible();
     });
   }
 
-  /// Wraps the selection in [shortcut]'s before/after text. With no
-  /// selection, drops an empty ghost placeholder into the slot and
-  /// **selects the whole run** so the first keystroke replaces it —
-  /// `{red:` yields `{red:{{  }}}` with `{{  }}` selected, and typing
-  /// produces `{red:hello}`, which renders in the colour.
-  ///
-  /// The ghost must be selected, not merely have the caret inside it:
-  /// typing *into* the placeholder leaves the run a ghost
-  /// (`{red:{{ hello }}}`), and the ghost's dim styling overrides the
-  /// colour — the text renders grey and the feature looks broken.
-  ///
-  /// The wrapper text is read from the shortcut itself rather than
-  /// hardcoded, so a user who edits the shortcut to `{green:` (or
-  /// duplicates it per colour) keeps the same insert behavior.
+  /// Wraps the selection in [shortcut]'s before/after text, dropping a
+  /// selected ghost placeholder into the slot when there is no selection —
+  /// see [MarkdownShortcutInserter.insertWithGhostSlot].
   void _insertWithGhostSlot(CustomMarkdownShortcut shortcut) {
-    final controller = _contentController;
-    final before = shortcut.beforeText;
-    final after = shortcut.afterText;
-    final selected = controller.selectedText;
-
-    if (selected.isNotEmpty) {
-      controller.runRevocableOp(() {
-        controller.replaceSelection('$before$selected$after');
-      });
-    } else {
-      final caret = controller.selection;
-      final line = caret.baseIndex;
-      final col = caret.baseOffset;
-      final ghost = GhostText.wrap('');
-      controller.runRevocableOp(() {
-        controller.replaceSelection('$before$ghost$after');
-        controller.selection = CodeLineSelection(
-          baseIndex: line,
-          baseOffset: col + before.length,
-          extentIndex: line,
-          extentOffset: col + before.length + ghost.length,
-        );
-      });
-    }
-
+    MarkdownShortcutInserter.insertWithGhostSlot(_contentController, shortcut);
     _onTextChanged();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _contentController.makeCursorVisible();

@@ -676,6 +676,72 @@ abstract class AppLocalizations {
   /// **'Events'**
   String get calendarEventsSection;
 
+  /// Title of the slider setting the character budget of an event description
+  ///
+  /// In en, this message translates to:
+  /// **'Description length'**
+  String get eventDescriptionLimit;
+
+  /// Subtitle for the event description length slider
+  ///
+  /// In en, this message translates to:
+  /// **'Allow up to {count} characters in an event description.'**
+  String eventDescriptionLimitDesc(int count);
+
+  /// Character counter shown above the event description field
+  ///
+  /// In en, this message translates to:
+  /// **'{count} / {limit}'**
+  String eventDescriptionCount(int count, int limit);
+
+  /// Explanation shown under the description field when it exceeds the configured limit
+  ///
+  /// In en, this message translates to:
+  /// **'The description is over the {limit} character limit. Shorten it or raise the limit in calendar settings.'**
+  String eventDescriptionTooLong(int limit);
+
+  /// Title of the switch enabling per-occurrence event descriptions
+  ///
+  /// In en, this message translates to:
+  /// **'Separate description per day'**
+  String get eventPerOccurrenceDescriptions;
+
+  /// Subtitle explaining per-occurrence event descriptions
+  ///
+  /// In en, this message translates to:
+  /// **'Repeating events keep their own description for each day. The event\'s description becomes the template every day starts from.'**
+  String get eventPerOccurrenceDescriptionsDesc;
+
+  /// Segment label: edit the shared template description
+  ///
+  /// In en, this message translates to:
+  /// **'All days'**
+  String get eventDescriptionScopeAllDays;
+
+  /// Segment label: edit only the selected occurrence's description
+  ///
+  /// In en, this message translates to:
+  /// **'This day'**
+  String get eventDescriptionScopeThisDay;
+
+  /// Hint shown while the description scope is the shared template
+  ///
+  /// In en, this message translates to:
+  /// **'Editing the description every day starts from.'**
+  String get eventDescriptionScopeAllDaysHint;
+
+  /// Hint shown while the description scope is a single occurrence
+  ///
+  /// In en, this message translates to:
+  /// **'Editing this day only. Other days keep the shared description.'**
+  String get eventDescriptionScopeThisDayHint;
+
+  /// Action removing one occurrence's description override
+  ///
+  /// In en, this message translates to:
+  /// **'Reset this day to the shared description'**
+  String get eventDescriptionResetDay;
+
   /// Action/title for deleting every custom calendar event
   ///
   /// In en, this message translates to:

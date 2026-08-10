@@ -36,12 +36,19 @@ class CalendarBottomPanel extends StatefulWidget {
   final bool expanded;
   final VoidCallback onToggleExpanded;
 
-  final ValueChanged<CalendarEvent> onEditEvent;
+  /// Edits an event, carrying **which occurrence** the tap came from so the
+  /// editor can offer "this day" vs "all days" (v24). Day and timeline modes
+  /// supply the selected day; the agenda supplies the row's own day.
+  final void Function(CalendarEvent event, DateTime day) onEditEvent;
 
-  /// Opens an event read-only. Used by the day panel's row tap; the agenda
-  /// keeps its own affordances (tap = jump to the day, pencil = edit).
-  final ValueChanged<CalendarEvent> onShowEvent;
+  /// Opens an event read-only for a specific day. Used by the day panel's row
+  /// tap; the agenda keeps its own affordances (tap = jump to the day, pencil
+  /// = edit). The day is required because a recurring event's description can
+  /// now differ per occurrence.
+  final void Function(CalendarEvent event, DateTime day) onShowEvent;
 
+  /// Opens the linked note. Deliberately still day-less — a note link belongs
+  /// to the event, not to one of its occurrences.
   final ValueChanged<CalendarEvent> onOpenNote;
   final ValueChanged<DateTime> onSuppressHoliday;
 
@@ -185,7 +192,10 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
         return DaySummaryPanel(
           day: loaded.selectedDay,
           entries: entries,
-          onEventTap: widget.onShowEvent,
+          // The panel renders exactly one day, so the occurrence is known
+          // here — DaySummaryPanel itself stays day-less.
+          onEventTap: (event) =>
+              widget.onShowEvent(event, loaded.selectedDay),
           onOpenNote: widget.onOpenNote,
           onSuppressHoliday: () => widget.onSuppressHoliday(loaded.selectedDay),
           colorPalette: widget.colorPalette,
@@ -196,7 +206,8 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
           events: bloc.eventsForDay(loaded.selectedDay),
           // Same tap semantics as the day panel: show first, edit from
           // there. Both render the same day's events, so they must agree.
-          onEventTap: widget.onShowEvent,
+          onEventTap: (event) =>
+              widget.onShowEvent(event, loaded.selectedDay),
         );
       case CalendarPanelMode.upcoming:
         return UpcomingAgendaView(
@@ -210,6 +221,7 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
           onOpenNote: widget.onOpenNote,
           colorPalette: widget.colorPalette,
           showRecurrenceLabels: widget.showRecurrenceLabels,
+          occurrenceRevision: loaded.occurrenceRevision,
         );
     }
   }

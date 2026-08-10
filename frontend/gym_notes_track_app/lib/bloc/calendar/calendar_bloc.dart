@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../models/calendar_event.dart';
 import '../../services/calendar_event_service.dart';
+import '../../services/event_occurrence_service.dart';
 import '../../services/note_money_ledger_service.dart';
 import 'calendar_event.dart';
 import 'calendar_state.dart';
@@ -33,6 +34,8 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     on<CreateCalendarEvent>(_onCreateEvent);
     on<UpdateCalendarEvent>(_onUpdateEvent);
     on<DeleteCalendarEvent>(_onDeleteEvent);
+    on<SetOccurrenceDescription>(_onSetOccurrenceDescription);
+    on<ClearOccurrenceDescription>(_onClearOccurrenceDescription);
   }
 
   /// Amortized O(1) lookup over the in-memory cache populated by
@@ -211,6 +214,55 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     }
     _invalidateDayCache();
     emit(current.copyWith(allEvents: List.unmodifiable(_service.events)));
+  }
+
+  /// Writes one occurrence's description override.
+  ///
+  /// Deliberately does **not** invalidate the day cache: that cache answers
+  /// "which events occur on this day", and description text is not one of its
+  /// inputs. Ticking a checkbox therefore no longer wipes 512 memoized days,
+  /// which is what the whole-event update path used to do. It also skips the
+  /// money-ledger refresh — descriptions never feed the ledger.
+  ///
+  /// Bumping `occurrenceRevision` is what makes the emit survive: the state is
+  /// `Equatable`, so an otherwise-identical copy would be dropped, and the
+  /// agenda's identity-based row memo would keep serving stale text.
+  Future<void> _onSetOccurrenceDescription(
+    SetOccurrenceDescription event,
+    Emitter<CalendarPageState> emit,
+  ) async {
+    final current = state;
+    if (current is! CalendarPageLoaded) return;
+    try {
+      final service = await EventOccurrenceService.getInstance();
+      await service.setDescription(event.eventId, event.day, event.description);
+    } catch (e) {
+      debugPrint('[CalendarBloc] Occurrence write error: $e');
+      return;
+    }
+    emit(
+      current.copyWith(occurrenceRevision: current.occurrenceRevision + 1),
+    );
+  }
+
+  /// Deletes one occurrence's override, returning that day to the event's
+  /// template. Same cache reasoning as [_onSetOccurrenceDescription].
+  Future<void> _onClearOccurrenceDescription(
+    ClearOccurrenceDescription event,
+    Emitter<CalendarPageState> emit,
+  ) async {
+    final current = state;
+    if (current is! CalendarPageLoaded) return;
+    try {
+      final service = await EventOccurrenceService.getInstance();
+      await service.clearDescription(event.eventId, event.day);
+    } catch (e) {
+      debugPrint('[CalendarBloc] Occurrence clear error: $e');
+      return;
+    }
+    emit(
+      current.copyWith(occurrenceRevision: current.occurrenceRevision + 1),
+    );
   }
 
   static DateTime _dateOnly(DateTime date) {

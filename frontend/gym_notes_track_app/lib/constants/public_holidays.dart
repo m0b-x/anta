@@ -3,18 +3,18 @@ import '../utils/liturgical_computus.dart';
 
 /// Available built-in holiday profiles.
 ///
-/// Each profile is a curated list of holidays for a region or tradition.
-/// `PublicHolidayService` seeds the active profile into the database on
-/// startup using insert-if-not-exists semantics; switching profiles
-/// (via `setProfile`) wipes the previous profile's seeded rows and
-/// re-seeds, while user-added custom rows always survive.
+/// Each profile is a curated list of holidays for a region or tradition,
+/// **computed on demand** by [HolidaySeeds] rather than stored — switching
+/// profiles (via `setProfile`) is just a settings write plus dropping the
+/// previous profile's stored deltas; user-added custom rows always survive.
 ///
 /// Declared in the order they appear in the settings dropdown (the display
 /// names are alphabetical, with `none` pinned last as the "off" option).
 ///
 /// To add a new profile:
 ///   1. Add a value here.
-///   2. Add a builder branch in `PublicHolidayService._buildSeeds`.
+///   2. Add a builder plus its [HolidaySeeds._seedsFor] branch (and a branch
+///      in the substitute-day switch in [HolidaySeeds.forYear]).
 ///   3. Localize its display name in `PublicHolidays.profileNameOf`
 ///      and add the matching ARB key (`holidayProfile<EnumName>`).
 enum HolidayProfile {
@@ -50,18 +50,17 @@ const String kCustomHolidayProfileKey = 'custom';
 
 /// Known public holidays recognized by the app.
 ///
-/// Built-in holidays are seeded into the `public_holidays` Drift table on
-/// first launch (and re-seeded with add-if-not-exists semantics on every
-/// app start to extend the year window forward). Each row stores either a
-/// built-in [PublicHoliday.name] in `name_key` or the sentinel `custom`
-/// alongside a user-provided `custom_label`.
+/// Built-in holidays are **computed per year** by [HolidaySeeds], never
+/// stored. The `public_holidays` table holds only user deltas: a custom
+/// holiday (sentinel `custom` in `name_key` plus a `custom_label`) or a
+/// suppression marking a built-in removed from one date.
 ///
 /// To add a new built-in holiday:
 ///   1. Add a value to [PublicHoliday].
 ///   2. Localize its label in [PublicHolidays.nameOf] and in the ARB files
 ///      (key pattern: `publicHoliday<EnumName>`).
-///   3. Add it to the appropriate per-profile seed list in
-///      `PublicHolidayService._buildSeeds`.
+///   3. Yield it from the appropriate per-profile builder in [HolidaySeeds],
+///      with an `if (year >= NNNN)` guard when it has a start year.
 enum PublicHoliday {
   // ── Christian / shared ─────────────────────────────────────────────
   newYear,

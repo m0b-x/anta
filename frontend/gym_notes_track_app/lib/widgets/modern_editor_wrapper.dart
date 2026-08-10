@@ -51,6 +51,11 @@ class ModernEditorWrapper extends StatefulWidget {
   final GlobalKey? lineNumbersKey;
   final GlobalKey? scrollIndicatorKey;
 
+  /// Whether the scroll-progress rail is painted down the right edge. Off
+  /// for short embedded editors, where a progress rail beside three lines
+  /// of text reads as clutter.
+  final bool showScrollIndicator;
+
   /// Number of lines per chunk for debug visualization (matches preview mode)
   final int linesPerChunk;
 
@@ -77,6 +82,7 @@ class ModernEditorWrapper extends StatefulWidget {
     this.isFenceLine,
     this.lineNumbersKey,
     this.scrollIndicatorKey,
+    this.showScrollIndicator = true,
     this.linesPerChunk = 10,
     this.showChunkColors = false,
     this.showChunkBorders = false,
@@ -653,17 +659,18 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
             ),
           ),
         // Scrollbar positioned on the right - uses IgnorePointer except for the thumb area
-        Positioned(
-          top: 8,
-          bottom: 8,
-          right: 0,
-          child: KeyedSubtree(
-            key: widget.scrollIndicatorKey,
-            child: ScrollProgressIndicator(
-              scrollController: widget.scrollController.verticalScroller,
+        if (widget.showScrollIndicator)
+          Positioned(
+            top: 8,
+            bottom: 8,
+            right: 0,
+            child: KeyedSubtree(
+              key: widget.scrollIndicatorKey,
+              child: ScrollProgressIndicator(
+                scrollController: widget.scrollController.verticalScroller,
+              ),
             ),
           ),
-        ),
       ],
     );
   }

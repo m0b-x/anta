@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_colors.dart';
 import '../constants/fasting_calendar.dart';
+import '../constants/occurrence_descriptions.dart';
 import '../constants/public_holidays.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_event.dart';
@@ -153,17 +154,27 @@ class EventSummaryProvider implements DaySummaryProvider {
         color: color,
         title: event.title,
         subtitle: _subtitleFor(event, day),
-        description: _descriptionFor(event),
+        description: _descriptionFor(event, day),
         priority: event.priority - kMinEventPriority,
         event: event,
       );
     });
   }
 
-  /// Raw markdown description, or null when the event has none. Emitted
-  /// unrendered on purpose: the row decides how much of it fits.
-  String? _descriptionFor(CalendarEvent event) {
-    final description = event.description?.trim();
+  /// Raw markdown description for this event **on this day**, or null when it
+  /// has none. Emitted unrendered on purpose: the row decides how much of it
+  /// fits.
+  ///
+  /// Resolution goes through [OccurrenceDescriptions.descriptionFor], which
+  /// degrades to `event.description` whenever per-occurrence descriptions are
+  /// off or the event fires on a single day. An override that is deliberately
+  /// empty maps to null here, so that day loses its notes badge while its
+  /// siblings keep theirs.
+  String? _descriptionFor(CalendarEvent event, DateTime day) {
+    final description = OccurrenceDescriptions.descriptionFor(
+      event,
+      day,
+    )?.trim();
     return (description == null || description.isEmpty) ? null : description;
   }
 

@@ -412,6 +412,30 @@ class SettingsService {
     await _setInt(SettingsKeys.calendarMaxDayBars, value);
   }
 
+  // Calendar - character budget for an event description. Clamped on both
+  // sides of the boundary so a hand-edited or future-written value can never
+  // leave the editor unable to save anything.
+  Future<int> getEventDescriptionLimit() async {
+    final stored = await _getInt(
+      SettingsKeys.eventDescriptionLimit,
+      SettingsKeys.defaultEventDescriptionLimit,
+    );
+    return stored.clamp(
+      SettingsKeys.minEventDescriptionLimit,
+      SettingsKeys.maxEventDescriptionLimit,
+    );
+  }
+
+  Future<void> setEventDescriptionLimit(int value) async {
+    await _setInt(
+      SettingsKeys.eventDescriptionLimit,
+      value.clamp(
+        SettingsKeys.minEventDescriptionLimit,
+        SettingsKeys.maxEventDescriptionLimit,
+      ),
+    );
+  }
+
   // Calendar appearance - today highlight style.
   Future<CalendarTodayStyle> getCalendarTodayStyle() async {
     final raw = await _db.userSettingsDao.getValue(

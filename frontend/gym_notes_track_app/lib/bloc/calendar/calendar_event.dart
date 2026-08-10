@@ -77,3 +77,35 @@ final class DeleteCalendarEvent extends CalendarPageEvent {
   @override
   List<Object?> get props => [eventId];
 }
+
+/// Writes one occurrence's description override (**v24**).
+///
+/// An empty [description] is meaningful — it blanks that day rather than
+/// falling back to the event's template. Use [ClearOccurrenceDescription] to
+/// return the day to the template.
+final class SetOccurrenceDescription extends CalendarPageEvent {
+  final String eventId;
+  final DateTime day;
+  final String description;
+
+  const SetOccurrenceDescription({
+    required this.eventId,
+    required this.day,
+    required this.description,
+  });
+
+  @override
+  List<Object?> get props => [eventId, day, description];
+}
+
+/// Deletes one occurrence's override, returning that day to the event's
+/// template. Distinct from writing an empty string.
+final class ClearOccurrenceDescription extends CalendarPageEvent {
+  final String eventId;
+  final DateTime day;
+
+  const ClearOccurrenceDescription({required this.eventId, required this.day});
+
+  @override
+  List<Object?> get props => [eventId, day];
+}

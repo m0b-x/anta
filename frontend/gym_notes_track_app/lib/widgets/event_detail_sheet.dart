@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../constants/calendar_categories.dart';
 import '../constants/event_priorities.dart';
+import '../constants/occurrence_descriptions.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_event.dart';
 import '../models/recurrence_rule.dart';
@@ -24,6 +28,16 @@ enum EventDetailAction { edit, openNote }
 /// The description renders through the same builder as the note preview, with
 /// the money ledger off — a balance is a per-note concept, so `$` rows in an
 /// event description stay literal text.
+///
+/// The sheet is always opened **for a specific [day]**, because since v24 a
+/// recurring event's description can differ per occurrence.
+///
+/// Task checkboxes are tappable when a tick has one unambiguous meaning:
+/// either the event fires on exactly one day ([OneTimeRecurrence], where the
+/// tick edits the event itself), or per-occurrence descriptions are on (where
+/// it materialises a row for [day] and leaves every other day alone). With the
+/// setting off, a repeating event still keeps inert boxes — one string shared
+/// by every occurrence would read as ticked on all of them.
 class EventDetailSheet extends StatefulWidget {
   /// How far ahead the "next occurrences" list scans, in days. Matches the
   /// agenda's clamp so the two never disagree about what is upcoming.
@@ -32,19 +46,49 @@ class EventDetailSheet extends StatefulWidget {
   /// How many upcoming dates to list.
   static const int _maxOccurrences = 5;
 
+  /// How long a checkbox toggle waits before it is handed to [onEventChanged].
+  /// Ticking a short list is a burst, and every write invalidates the bloc's
+  /// day cache, so the taps coalesce into one update instead of one each.
+  static const Duration _writeDelay = Duration(milliseconds: 600);
+
   final CalendarEvent event;
+
+  /// The occurrence being viewed (date-only UTC). Decides which description
+  /// renders and which day a checkbox tick materialises.
+  final DateTime day;
+
   final MarkdownColorPalette colorPalette;
+
+  /// Receives the event with its description rewritten after a checkbox
+  /// toggle, for events whose description is shared. Null makes the boxes
+  /// inert — the caller opts in by wiring the persistence. Called at most once
+  /// per burst of taps, and once more on dismissal if a burst is pending.
+  final ValueChanged<CalendarEvent>? onEventChanged;
+
+  /// Receives `(day, description)` when the tick belongs to one occurrence.
+  ///
+  /// Deliberately separate from [onEventChanged] rather than reusing it with a
+  /// rewritten event: the caller feeds that event straight into the editor as
+  /// `initialEvent`, so routing a *day's* text through it would hand the
+  /// editor an event whose template field holds one occurrence's text.
+  final void Function(DateTime day, String description)? onOccurrenceChanged;
 
   const EventDetailSheet({
     super.key,
     required this.event,
+    required this.day,
     this.colorPalette = MarkdownColorPalette.presets,
+    this.onEventChanged,
+    this.onOccurrenceChanged,
   });
 
   static Future<EventDetailAction?> show(
     BuildContext context, {
     required CalendarEvent event,
+    required DateTime day,
     MarkdownColorPalette colorPalette = MarkdownColorPalette.presets,
+    ValueChanged<CalendarEvent>? onEventChanged,
+    void Function(DateTime day, String description)? onOccurrenceChanged,
   }) {
     return showModalBottomSheet<EventDetailAction>(
       context: context,
@@ -56,7 +100,13 @@ class EventDetailSheet extends StatefulWidget {
       ),
       builder: (_) => FractionallySizedBox(
         heightFactor: 0.8,
-        child: EventDetailSheet(event: event, colorPalette: colorPalette),
+        child: EventDetailSheet(
+          event: event,
+          day: day,
+          colorPalette: colorPalette,
+          onEventChanged: onEventChanged,
+          onOccurrenceChanged: onOccurrenceChanged,
+        ),
       ),
     );
   }
@@ -70,6 +120,92 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
   /// scan walks up to 366 days and the sheet body is a `ListView`, so doing
   /// it in `build` would re-run it on every scroll-driven rebuild.
   late final List<DateTime> _upcoming = _computeUpcoming();
+
+  /// Working copy of this day's description, trimmed on entry so the offsets
+  /// the builder reports for a checkbox address exactly this string. Rendering
+  /// a trimmed copy while rewriting the untrimmed original would shift every
+  /// bracket by the leading whitespace.
+  ///
+  /// Resolved for [widget.day], so a per-occurrence event shows its override
+  /// and every other event shows the shared description.
+  late String _description =
+      OccurrenceDescriptions.descriptionFor(
+        widget.event,
+        widget.day,
+      )?.trim() ??
+      '';
+
+  Timer? _writeTimer;
+  bool _pendingWrite = false;
+
+  /// Whether the tick belongs to this one occurrence rather than to the whole
+  /// event. Drives which callback [_flushWrite] uses.
+  bool get _perOccurrence =>
+      widget.onOccurrenceChanged != null &&
+      OccurrenceDescriptions.appliesTo(widget.event);
+
+  /// Whether a checkbox tap edits anything at all. Either the event fires on a
+  /// single day (the tick edits the event), or per-occurrence descriptions are
+  /// on (the tick materialises this day). See the class doc.
+  bool get _tasksInteractive {
+    if (_perOccurrence) return true;
+    return widget.onEventChanged != null &&
+        widget.event.rule is OneTimeRecurrence;
+  }
+
+  @override
+  void dispose() {
+    _writeTimer?.cancel();
+    _writeTimer = null;
+    // Drag-dismiss and the system back gesture never route through
+    // [_close], so the last burst of taps is flushed here.
+    _flushWrite();
+    super.dispose();
+  }
+
+  /// Rewrites the `[ ]` / `[x]` bracket spanning [start]..[end] and schedules
+  /// the persist. The UI updates immediately; only the write is delayed.
+  void _toggleTask(int start, int end, bool isChecked) {
+    if (start < 0 || end > _description.length || start >= end) return;
+    HapticFeedback.lightImpact();
+    setState(() {
+      _description = _description.replaceRange(
+        start,
+        end,
+        isChecked ? '[ ]' : '[x]',
+      );
+      _pendingWrite = true;
+    });
+    _writeTimer?.cancel();
+    _writeTimer = Timer(EventDetailSheet._writeDelay, _flushWrite);
+  }
+
+  void _flushWrite() {
+    _writeTimer?.cancel();
+    _writeTimer = null;
+    if (!_pendingWrite) return;
+    _pendingWrite = false;
+    if (_perOccurrence) {
+      // Materialises a row for this day only; every other occurrence keeps
+      // falling back to the event's template.
+      widget.onOccurrenceChanged!(widget.day, _description);
+      return;
+    }
+    widget.onEventChanged?.call(
+      widget.event.copyWith(
+        description: _description,
+        clearDescription: _description.isEmpty,
+      ),
+    );
+  }
+
+  /// Single exit funnel: a pending toggle is persisted **before** the pop so
+  /// the caller routes `edit` into the editor with the description the user
+  /// is looking at, not the one it opened with.
+  void _close(EventDetailAction? action) {
+    _flushWrite();
+    Navigator.of(context).pop(action);
+  }
 
   List<DateTime> _computeUpcoming() {
     final event = widget.event;
@@ -116,7 +252,7 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
     final accent = (event.colorValue != null && event.tintIcon)
         ? Color(event.colorValue!)
         : category.color;
-    final description = event.description?.trim();
+    final description = _description;
     final time = event.time;
     final isRecurring = event.rule is! OneTimeRecurrence;
 
@@ -130,7 +266,7 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
               IconButton(
                 tooltip: l10n.close,
                 icon: const Icon(Icons.close_rounded),
-                onPressed: () => Navigator.of(context).pop(),
+                onPressed: () => _close(null),
               ),
               Expanded(
                 child: Text(
@@ -142,8 +278,7 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4),
                 child: FilledButton.icon(
-                  onPressed: () =>
-                      Navigator.of(context).pop(EventDetailAction.edit),
+                  onPressed: () => _close(EventDetailAction.edit),
                   icon: const Icon(Icons.edit_rounded, size: 18),
                   label: Text(l10n.edit),
                 ),
@@ -223,8 +358,7 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
                   child: OutlinedButton.icon(
-                    onPressed: () =>
-                        Navigator.of(context).pop(EventDetailAction.openNote),
+                    onPressed: () => _close(EventDetailAction.openNote),
                     icon: const Icon(Icons.sticky_note_2_outlined, size: 18),
                     label: Text(l10n.eventOpenLinkedNote),
                   ),
@@ -237,7 +371,7 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
                 ),
               ),
               const SizedBox(height: 4),
-              if (description == null || description.isEmpty)
+              if (description.isEmpty)
                 Text(
                   l10n.eventDetailsNoDescription,
                   style: theme.textTheme.bodySmall?.copyWith(
@@ -258,6 +392,7 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
                     padding: const EdgeInsets.all(12),
                     colorPalette: colorPalette,
                     moneyConfig: MoneyDisplayConfig.disabled,
+                    onCheckboxTap: _tasksInteractive ? _toggleTask : null,
                   ),
                 ),
               if (isRecurring) ...[

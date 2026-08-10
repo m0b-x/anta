@@ -33,7 +33,10 @@ class UpcomingAgendaView extends StatefulWidget {
   final ValueChanged<UpcomingAgendaFilters> onFiltersChanged;
 
   final ValueChanged<DateTime> onDaySelected;
-  final ValueChanged<CalendarEvent> onEditEvent;
+
+  /// Carries the row's own occurrence day, so editing from the agenda can
+  /// target that day rather than the event's start (v24).
+  final void Function(CalendarEvent event, DateTime day) onEditEvent;
   final ValueChanged<CalendarEvent> onOpenNote;
 
   /// Forwarded to the agenda rows so event descriptions render with the
@@ -43,6 +46,12 @@ class UpcomingAgendaView extends StatefulWidget {
   /// Forwarded to the agenda rows: whether subtitles mention the repeat
   /// pattern.
   final bool showRecurrenceLabels;
+
+  /// Bumped when a per-occurrence description changes. Forwarded to
+  /// [AgendaListView]'s row memo and **deliberately excluded** from this
+  /// widget's rescan test: editing a day's text changes no occurrence, so
+  /// re-running a 366-day scan on every keystroke-write would be pure waste.
+  final int occurrenceRevision;
 
   const UpcomingAgendaView({
     super.key,
@@ -55,6 +64,7 @@ class UpcomingAgendaView extends StatefulWidget {
     required this.onOpenNote,
     this.colorPalette = MarkdownColorPalette.presets,
     this.showRecurrenceLabels = true,
+    this.occurrenceRevision = 0,
   });
 
   /// Look-ahead windows offered as presets, in days.
@@ -425,6 +435,7 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
             colorPalette: widget.colorPalette,
             showRecurrenceLabels: widget.showRecurrenceLabels,
+            occurrenceRevision: widget.occurrenceRevision,
           ),
         ),
       ],

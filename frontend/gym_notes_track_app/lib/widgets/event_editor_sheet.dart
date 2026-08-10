@@ -1,27 +1,41 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get_it/get_it.dart';
 import 'package:intl/intl.dart';
+import 'package:re_editor/re_editor.dart';
 import 'package:uuid/uuid.dart';
 
+import '../bloc/markdown_bar/markdown_bar_bloc.dart';
 import '../constants/calendar_bounds.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_colors.dart';
 import '../constants/calendar_icons.dart';
 import '../constants/event_priorities.dart';
+import '../constants/font_constants.dart';
+import '../constants/occurrence_descriptions.dart';
 import '../constants/settings_keys.dart';
+import '../controllers/markdown_shortcut_inserter.dart';
+import '../controllers/shortcut_applier.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
+import '../models/custom_markdown_shortcut.dart';
 import '../models/recurrence_rule.dart';
+import '../models/utility_button_config.dart';
 import '../repositories/note_repository.dart';
 import '../services/event_time_formatter.dart';
 import '../services/recurrence_formatter.dart';
 import '../services/settings_service.dart';
+import '../utils/list_aware_paste.dart';
 import '../utils/markdown_color_syntax.dart';
+import '../utils/markdown_editor_span_builder.dart';
+import '../utils/re_editor_search_controller.dart';
 import 'calendar_date_picker_sheet.dart';
 import 'category_picker_sheet.dart';
 import 'color_wheel_picker.dart';
 import 'icon_picker_sheet.dart';
+import 'markdown_bar.dart';
+import 'modern_editor_wrapper.dart';
 import 'note_picker_dialog.dart';
 import 'simple_markdown_preview.dart';
 
@@ -32,7 +46,25 @@ sealed class EventEditorResult {
 
 class EventEditorSaved extends EventEditorResult {
   final CalendarEvent event;
-  const EventEditorSaved(this.event);
+
+  /// The occurrence the user was editing, when they said anything about it.
+  /// Null means "nothing to do for any single day".
+  final DateTime? occurrenceDay;
+
+  /// What to store for [occurrenceDay]: a string writes that day's override
+  /// (an empty one deliberately blanks the day), `null` **deletes** it so the
+  /// day returns to the event's template. Only meaningful when
+  /// [occurrenceDay] is non-null.
+  ///
+  /// The sheet never persists any of this itself — it reports the outcome and
+  /// the page dispatches it, so writes stay on one path.
+  final String? occurrenceDescription;
+
+  const EventEditorSaved(
+    this.event, {
+    this.occurrenceDay,
+    this.occurrenceDescription,
+  });
 }
 
 class EventEditorDeleted extends EventEditorResult {
@@ -42,6 +74,11 @@ class EventEditorDeleted extends EventEditorResult {
 
 /// Top-level repeat mode shown as a segmented control.
 enum _RepeatMode { oneTime, recurring }
+
+/// Which description the editor's field is currently showing (v24). Only
+/// meaningful while the scope control is visible; otherwise the field always
+/// shows [allDays].
+enum _DescriptionScope { allDays, thisDay }
 
 /// Recurring frequency choices. Maps 1:1 onto a concrete [RecurrenceRule]
 /// at save time (Weekly carries the user-selected weekday set).
@@ -60,6 +97,12 @@ class EventEditorSheet extends StatefulWidget {
   final CalendarEvent? initialEvent;
   final DateTime defaultDate;
 
+  /// The occurrence the user opened the editor from (date-only UTC), or null
+  /// when there isn't one — the FAB path, where a brand-new event has no
+  /// occurrence yet. Non-null is what unlocks the "this day / all days"
+  /// description scope control.
+  final DateTime? occurrenceDay;
+
   /// How busy a day already is, forwarded to the date picker so a day that
   /// already carries events is visible while scheduling. Callers pass the
   /// calendar bloc's memoized per-day lookup — never a fresh query.
@@ -74,6 +117,7 @@ class EventEditorSheet extends StatefulWidget {
     super.key,
     required this.defaultDate,
     this.initialEvent,
+    this.occurrenceDay,
     this.dayLoad,
     this.appearance = const CalendarAppearance(),
   });
@@ -82,6 +126,7 @@ class EventEditorSheet extends StatefulWidget {
     BuildContext context, {
     required DateTime defaultDate,
     CalendarEvent? initialEvent,
+    DateTime? occurrenceDay,
     PickerDayLoad? dayLoad,
     CalendarAppearance appearance = const CalendarAppearance(),
   }) {
@@ -94,6 +139,7 @@ class EventEditorSheet extends StatefulWidget {
         child: EventEditorSheet(
           defaultDate: defaultDate,
           initialEvent: initialEvent,
+          occurrenceDay: occurrenceDay,
           dayLoad: dayLoad,
           appearance: appearance,
         ),
@@ -118,8 +164,40 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   /// stepper compact while comfortably covering any realistic training split.
   static const int _maxInterval = 99;
 
+  /// Bounds of the description editor box. Roughly three lines at rest and
+  /// eight when filled, after which the editor scrolls internally.
+  static const double _descriptionMinHeight = 120;
+  static const double _descriptionMaxHeight = 260;
+
+  /// Utility buttons the description bar carries. Font sizing, sharing, bar
+  /// switching, counters and scroll jumps all belong to a note, not to a
+  /// 2000-character field; settings and reorder are suppressed by flag.
+  static const List<UtilityButtonConfig> _descriptionUtilities = [
+    UtilityButtonConfig(id: UtilityButtonId.undo),
+    UtilityButtonConfig(id: UtilityButtonId.redo),
+    UtilityButtonConfig(id: UtilityButtonId.paste),
+  ];
+
   late final TextEditingController _titleController;
-  late final TextEditingController _descriptionController;
+
+  /// The description is edited in the same re_editor surface the note editor
+  /// uses, so live markdown rendering, tap-to-toggle checkboxes, list
+  /// continuation and the markdown bar all behave identically here. The
+  /// stored value is still plain markdown source on the event row — nothing
+  /// about this widget is persisted.
+  late final CodeLineEditingController _descriptionController;
+  late final FocusNode _descriptionFocus;
+  late final CodeScrollController _descriptionScroll;
+
+  /// The wrapper requires one; the description has no search UI, so it is
+  /// created, wired and thrown away with the sheet.
+  late final ReEditorSearchController _descriptionSearch;
+
+  final MarkdownEditorSpanBuilder _descriptionSpanBuilder =
+      MarkdownEditorSpanBuilder();
+
+  /// Anchors the scroll-into-view on focus.
+  final GlobalKey _descriptionKey = GlobalKey();
   late String _categoryId;
   String? _iconKey;
   late DateTime _date;
@@ -207,7 +285,58 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
 
   /// Whether the description field is showing its rendered markdown instead
   /// of the raw source. View-only state — the stored value is always source.
+  /// Only reachable while live rendering is off: with it on, the editor
+  /// already *is* the preview and a second read-only mode is dead weight.
   bool _descriptionPreview = false;
+
+  /// Mirrors [_descriptionFocus], so the markdown bar's presence is driven by
+  /// a rebuild rather than by reading the focus node during layout.
+  bool _descriptionFocused = false;
+
+  /// Global "live markdown rendering" setting, honoured here so the
+  /// description reads the same way the note editor does. Resolved after the
+  /// first frame; the flip is applied with a repaint nudge, never a remount
+  /// (remounting a CodeEditor mid-initialization crashes re_editor's
+  /// controller-delegate handoff).
+  bool _liveMarkdownRendering = SettingsKeys.defaultLiveMarkdownRendering;
+
+  /// Character budget for the description (Calendar Settings). Enforced by
+  /// blocking Save, never by truncating — the description is markdown the
+  /// user typed, and silently dropping its tail is the one outcome worse
+  /// than refusing to save.
+  int _descriptionLimit = SettingsKeys.defaultEventDescriptionLimit;
+
+  /// Lengths the two descriptions had when the sheet opened. An event written
+  /// under a larger budget stays editable after the limit is lowered: the
+  /// guard blocks *growing* past the limit, so nobody is locked out of an
+  /// event they already have. Tracked per scope — a grandfathered template
+  /// must not license an unrelated over-limit day override.
+  late final int _initialTemplateLength;
+  late final int _initialDayLength;
+
+  /// Which description the field is showing. The controller always holds the
+  /// active scope's text; the inactive one lives in its buffer below.
+  _DescriptionScope _scope = _DescriptionScope.allDays;
+
+  /// The inactive scope's text. Only one of these is live at a time — the
+  /// other mirrors the controller. Buffering in plain strings rather than
+  /// swapping controllers is deliberate: [ModernEditorWrapper] binds its
+  /// listener in `initState` with no `didUpdateWidget`, so a second controller
+  /// would orphan that listener (and the span builder, and the search
+  /// controller) and drag re_editor through a delegate handoff nothing else
+  /// in this app exercises.
+  String _templateBuffer = '';
+  String _dayBuffer = '';
+
+  /// Whether [widget.occurrenceDay] already had a stored override when the
+  /// sheet opened. Decides whether saving an unchanged day scope still writes
+  /// a row (it does — the row already existed) or writes nothing.
+  bool _dayMaterialized = false;
+
+  /// Set by the "reset to template" action: save then *deletes* the day's
+  /// row rather than writing text, which is the only way back once a day has
+  /// been materialized.
+  bool _dayResetRequested = false;
 
   /// Resolved markdown colour palette for the description preview, so
   /// `{name:text}` runs show the user's custom colours.
@@ -220,9 +349,30 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     super.initState();
     final initial = widget.initialEvent;
     _titleController = TextEditingController(text: initial?.title ?? '');
-    _descriptionController = TextEditingController(
-      text: initial?.description ?? '',
+    _descriptionController = ListAwarePasteController(
+      delegate: CodeLineEditingController(spanBuilder: _buildDescriptionSpan),
     );
+    _templateBuffer = initial?.description ?? '';
+    // Copy-on-write seed: a day with no row of its own starts from the
+    // template, so a checklist written once is what every session begins
+    // with. Only an edit that actually diverges materializes a row.
+    final storedOverride = (initial != null && widget.occurrenceDay != null)
+        ? OccurrenceDescriptions.overrideFor(initial.id, widget.occurrenceDay!)
+        : null;
+    _dayMaterialized = storedOverride != null;
+    _dayBuffer = storedOverride ?? _templateBuffer;
+    _initialTemplateLength = _templateBuffer.length;
+    _initialDayLength = _dayBuffer.length;
+    // Seeded in the shared scope; the day scope is adopted below, once the
+    // recurrence rule is known. Seeding the text is itself a revocable op, so
+    // without clearHistory undo can wipe what the sheet opened with.
+    _descriptionController.text = _templateBuffer;
+    _descriptionController.clearHistory();
+    _descriptionSpanBuilder.bind(_descriptionController);
+    _descriptionFocus = FocusNode()..addListener(_onDescriptionFocusChanged);
+    _descriptionScroll = CodeScrollController();
+    _descriptionSearch = ReEditorSearchController()
+      ..initialize(_descriptionController);
     _categoryId = initial?.categoryId ?? kDefaultCategoryId;
     _iconKey = initial?.iconKey;
     _date = _normalize(initial?.startDate ?? widget.defaultDate);
@@ -245,8 +395,28 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     _countStyle = _countStyleTouched
         ? initial!.countStyle
         : _defaultCountStyleFor(_kind);
+    // Adopt the day scope only now: it needs the recurrence rule, which
+    // `_initRecurrenceFrom` has just decoded. Gated on the same condition as
+    // the control itself, so a *dormant* row (setting off) can never leave the
+    // field showing one day's text with nothing on screen to explain it.
+    // `OccurrenceDescriptions.enabled` is safe to read synchronously here —
+    // the service publishes it at DI time, unlike the settings resolved in
+    // `_loadSheetSettings` below.
+    if (_dayMaterialized && _scopeControlVisible) {
+      _scope = _DescriptionScope.thisDay;
+      _descriptionController.text = _dayBuffer;
+      _descriptionController.clearHistory();
+    }
     if (_noteId != null) _loadLinkedNoteTitle();
-    _loadRecentColors();
+    _loadSheetSettings();
+    // The bar bloc is app-wide and only the note editor loads it, so from a
+    // cold start into the calendar it is still Initial. Resolving with a null
+    // note id yields the active profile — the right default for a field that
+    // belongs to no note. An already-loaded bar is left alone.
+    final barBloc = context.read<MarkdownBarBloc>();
+    if (barBloc.state is! MarkdownBarLoaded) {
+      barBloc.add(const LoadMarkdownBar());
+    }
   }
 
   void _initRecurrenceFrom(RecurrenceRule rule) {
@@ -295,7 +465,56 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   void dispose() {
     _titleController.dispose();
     _descriptionController.dispose();
+    _descriptionFocus.dispose();
+    _descriptionScroll.dispose();
+    _descriptionSearch.dispose();
     super.dispose();
+  }
+
+  void _onDescriptionFocusChanged() {
+    final hasFocus = _descriptionFocus.hasFocus;
+    if (hasFocus == _descriptionFocused || !mounted) return;
+    setState(() => _descriptionFocused = hasFocus);
+    if (hasFocus) _revealDescription();
+  }
+
+  /// Scrolls the description into view when it takes focus. A CodeEditor is
+  /// not an [EditableText], so nothing does this automatically, and the field
+  /// sits far enough down the form that the rising keyboard would otherwise
+  /// cover the line being typed. The delay lets the keyboard inset and the
+  /// markdown bar settle first, so the target rect is the final one.
+  void _revealDescription() {
+    Future.delayed(const Duration(milliseconds: 320), () {
+      if (!mounted || !_descriptionFocus.hasFocus) return;
+      final target = _descriptionKey.currentContext;
+      if (target == null || !target.mounted) return;
+      Scrollable.ensureVisible(
+        target,
+        alignment: 0.5,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+      );
+    });
+  }
+
+  /// Restyles one description line, exactly as the note editor does.
+  /// Unhandled lines (and every line while live rendering is off) fall back
+  /// to re_editor's own span.
+  TextSpan _buildDescriptionSpan({
+    required BuildContext context,
+    required int index,
+    required CodeLine codeLine,
+    required TextSpan textSpan,
+    required TextStyle style,
+  }) {
+    if (!_liveMarkdownRendering) return textSpan;
+    return _descriptionSpanBuilder.build(
+          context: context,
+          index: index,
+          codeLine: codeLine,
+          style: style,
+        ) ??
+        textSpan;
   }
 
   // --- Pure helpers -------------------------------------------------------
@@ -389,7 +608,106 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
         _weekdays.isEmpty) {
       return false;
     }
+    // Both scopes, not just the visible one: text parked in the inactive
+    // buffer is still about to be saved, so checking only the live controller
+    // would let an over-limit day override through from the template view.
+    if (!_withinLimit(_templateText, _initialTemplateLength)) return false;
+    if (_scopeControlVisible &&
+        !_withinLimit(_dayText, _initialDayLength)) {
+      return false;
+    }
     return true;
+  }
+
+  /// Whether [text] may be saved at its current length. Over the limit is
+  /// allowed only while it is no longer than it already was, so lowering the
+  /// setting blocks growth instead of locking the user out.
+  bool _withinLimit(String text, int grandfathered) =>
+      text.length <= _descriptionLimit || text.length <= grandfathered;
+
+  /// Whether the *active* scope is within its own budget — what the counter
+  /// and the over-limit hint report.
+  bool get _activeScopeWithinLimit => _scope == _DescriptionScope.thisDay
+      ? _withinLimit(_dayText, _initialDayLength)
+      : _withinLimit(_templateText, _initialTemplateLength);
+
+  /// The template's current text — from the controller when it is the active
+  /// scope, otherwise from its buffer.
+  String get _templateText => _scope == _DescriptionScope.allDays
+      ? _descriptionController.text
+      : _templateBuffer;
+
+  /// This day's current text, same rule as [_templateText].
+  String get _dayText => _scope == _DescriptionScope.thisDay
+      ? _descriptionController.text
+      : _dayBuffer;
+
+  /// Whether the rule the form currently describes has more than one
+  /// occurrence. Equivalent to `_buildRule() is! OneTimeRecurrence` without
+  /// building a rule object on every frame — `_mode == oneTime` with extra
+  /// dates is a `SpecificDatesRecurrence`, which *is* multi-occurrence.
+  bool get _ruleHasManyOccurrences =>
+      _mode == _RepeatMode.recurring || _additionalDates.isNotEmpty;
+
+  /// Whether to offer the "this day / all days" control.
+  ///
+  /// Requires a saved event (a new one has no id until `_onSave`), an
+  /// occurrence to scope to (the FAB path has none), the global setting, and a
+  /// rule that actually repeats. Flipping the form to one-time mid-edit hides
+  /// it — see [_syncScopeToRule].
+  bool get _scopeControlVisible =>
+      _isEditing &&
+      widget.occurrenceDay != null &&
+      OccurrenceDescriptions.enabled &&
+      _ruleHasManyOccurrences;
+
+  /// Moves the field between the template and this day's text.
+  ///
+  /// One controller throughout — only its content changes. `clearHistory()` is
+  /// mandatory, not tidiness: `set text` runs as a revocable op, so without it
+  /// the toolbar's undo would pull the *other* scope's text into the active
+  /// one and Save would persist it.
+  void _setScope(_DescriptionScope next) {
+    if (next == _scope) return;
+    if (_scope == _DescriptionScope.allDays) {
+      _templateBuffer = _descriptionController.text;
+    } else {
+      _dayBuffer = _descriptionController.text;
+    }
+    setState(() {
+      _scope = next;
+      _descriptionController.text = next == _DescriptionScope.thisDay
+          ? _dayBuffer
+          : _templateBuffer;
+      _descriptionController.clearHistory();
+    });
+  }
+
+  /// Returns this day to the template. Deleting the row is the only way back
+  /// once a day has been materialized, so it is an explicit action rather
+  /// than something inferred from the text matching again.
+  void _resetDayToTemplate() {
+    setState(() {
+      _dayResetRequested = true;
+      _dayBuffer = _templateText;
+      if (_scope == _DescriptionScope.thisDay) {
+        _descriptionController.text = _dayBuffer;
+        _descriptionController.clearHistory();
+      }
+    });
+  }
+
+  /// Drops back to the template scope when the form stops describing a
+  /// repeating rule, so the field can never show a day's text while the
+  /// control that explains it is hidden. The day buffer is kept in memory and
+  /// simply not written — flipping to one-time must not silently merge one
+  /// occurrence's text into the template.
+  void _syncScopeToRule() {
+    if (_ruleHasManyOccurrences || _scope == _DescriptionScope.allDays) return;
+    _dayBuffer = _descriptionController.text;
+    _scope = _DescriptionScope.allDays;
+    _descriptionController.text = _templateBuffer;
+    _descriptionController.clearHistory();
   }
 
   /// Whether the chosen color is a freeform value not present in the swatch
@@ -496,6 +814,9 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     setState(() {
       _date = sorted.first;
       _additionalDates = sorted.skip(1).toList();
+      // Dropping back to a single date makes this a one-time event, which has
+      // no occurrences to scope to.
+      _syncScopeToRule();
     });
   }
 
@@ -581,15 +902,27 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     await settings.addRecentEventColor(picked);
   }
 
-  Future<void> _loadRecentColors() async {
+  Future<void> _loadSheetSettings() async {
     final settings = await SettingsService.getInstance();
     final colors = await settings.getRecentEventColors();
     final palette = await settings.getColorPalette();
+    final liveRendering = await settings.getLiveMarkdownRendering();
+    final descriptionLimit = await settings.getEventDescriptionLimit();
     if (!mounted) return;
+    // Both reach the editor surface non-destructively: the span memos are
+    // cleared and re_editor is nudged to rebuild its display paragraphs.
+    // Money stays disabled (the builder's default) — the ledger is a
+    // per-note concept, so `$` rows in a description are literal text.
+    _descriptionSpanBuilder.configureColors(palette);
+    final rerender =
+        palette != _colorPalette || liveRendering != _liveMarkdownRendering;
     setState(() {
       _recentColors = colors;
       _colorPalette = palette;
+      _liveMarkdownRendering = liveRendering;
+      _descriptionLimit = descriptionLimit;
     });
+    if (rerender) _descriptionController.forceRepaint();
   }
 
   Future<void> _pickCategory() async {
@@ -673,7 +1006,9 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   void _onSave() {
     if (!_canSave) return;
     final title = _titleController.text.trim();
-    final description = _descriptionController.text.trim();
+    // Always the template, whichever scope the field happens to be showing —
+    // `description` on the event row is the shared text by definition.
+    final description = _templateText.trim();
     final effectiveDescription = description.isEmpty ? null : description;
     final base = widget.initialEvent;
     // One-time events ignore endDate — their start date is their end.
@@ -744,7 +1079,41 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             clearIconKey: _iconKey == null,
             clearColorValue: _colorValue == null,
           );
-    Navigator.of(context).pop(EventEditorSaved(event));
+    final (occurrenceDay, occurrenceDescription) = _resolveOccurrenceOutcome(
+      description,
+    );
+    Navigator.of(context).pop(
+      EventEditorSaved(
+        event,
+        occurrenceDay: occurrenceDay,
+        occurrenceDescription: occurrenceDescription,
+      ),
+    );
+  }
+
+  /// What saving should do to this day's row, as `(day, description)`.
+  ///
+  /// A null day means "leave the occurrence table alone"; a non-null day with
+  /// a null description means "delete that row". The copy-on-write rule lives
+  /// here: an untouched day whose text still equals [template] writes nothing,
+  /// so a sparse table stays sparse. A day that already had a row keeps it
+  /// even when its text matches again — only the explicit reset removes one.
+  ///
+  /// Returns nothing at all once the form no longer describes a repeating
+  /// rule: flipping to one-time must not merge an occurrence's text anywhere.
+  (DateTime?, String?) _resolveOccurrenceOutcome(String template) {
+    final day = widget.occurrenceDay;
+    if (day == null || !_isEditing) return (null, null);
+    if (!OccurrenceDescriptions.enabled || !_ruleHasManyOccurrences) {
+      return (null, null);
+    }
+    final dayText = _dayText.trim();
+    // The reset survives a scope switch (which is why it isn't cleared there),
+    // but typing something different afterwards outranks it — that is a normal
+    // divergence, not a request to delete.
+    if (_dayResetRequested && dayText == template) return (day, null);
+    if (!_dayMaterialized && dayText == template) return (null, null);
+    return (day, dayText);
   }
 
   Future<void> _onDelete() async {
@@ -776,16 +1145,24 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
 
   // --- Build --------------------------------------------------------------
 
-  /// Description input with a preview toggle. The field stores raw markdown;
-  /// the preview renders it through the same builder the note preview uses,
-  /// with the money ledger off (a balance is a per-note concept, so `$` rows
-  /// in an event description stay literal text).
+  /// Description input. The field stores raw markdown and renders it live
+  /// (Obsidian-style) through the note editor's own span builder, so headers,
+  /// lists, task boxes and inline styles read the same in both places and a
+  /// tap on a checkbox toggles it. The money ledger is off (a balance is a
+  /// per-note concept, so `$` rows in an event description stay literal text).
+  ///
+  /// The read-only preview toggle survives only for users who turned live
+  /// rendering off — with it on, the editor already is the preview.
   Widget _buildDescriptionField(
     BuildContext context,
     AppLocalizations l10n,
     ThemeData theme,
   ) {
-    final text = _descriptionController.text;
+    final showPreviewToggle = !_liveMarkdownRendering;
+    final previewing = showPreviewToggle && _descriptionPreview;
+    // Only the preview branch needs the joined source; the editor reads the
+    // controller's lines directly.
+    final text = previewing ? _descriptionController.text : '';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -799,21 +1176,72 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                 ),
               ),
             ),
-            IconButton(
-              tooltip: _descriptionPreview
-                  ? l10n.eventDescriptionPreviewOff
-                  : l10n.eventDescriptionPreviewOn,
-              icon: Icon(
-                _descriptionPreview
-                    ? Icons.edit_outlined
-                    : Icons.visibility_outlined,
-              ),
-              onPressed: () =>
-                  setState(() => _descriptionPreview = !_descriptionPreview),
+            // The counter follows the controller rather than `setState`, so a
+            // keystroke repaints these few characters instead of the form.
+            ListenableBuilder(
+              listenable: _descriptionController,
+              builder: (context, _) {
+                final length = _descriptionController.textLength;
+                // Reports the scope on screen, whose budget is its own.
+                final over = !_activeScopeWithinLimit;
+                return Text(
+                  l10n.eventDescriptionCount(length, _descriptionLimit),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: over
+                        ? theme.colorScheme.error
+                        : theme.colorScheme.onSurfaceVariant,
+                    fontWeight: over ? FontWeight.w600 : null,
+                  ),
+                );
+              },
             ),
+            if (showPreviewToggle)
+              IconButton(
+                tooltip: _descriptionPreview
+                    ? l10n.eventDescriptionPreviewOff
+                    : l10n.eventDescriptionPreviewOn,
+                icon: Icon(
+                  _descriptionPreview
+                      ? Icons.edit_outlined
+                      : Icons.visibility_outlined,
+                ),
+                onPressed: () =>
+                    setState(() => _descriptionPreview = !_descriptionPreview),
+              ),
           ],
         ),
-        if (_descriptionPreview)
+        if (_scopeControlVisible) ...[
+          const SizedBox(height: 4),
+          SegmentedButton<_DescriptionScope>(
+            segments: [
+              ButtonSegment(
+                value: _DescriptionScope.allDays,
+                label: Text(l10n.eventDescriptionScopeAllDays),
+                icon: const Icon(Icons.repeat_rounded, size: 18),
+              ),
+              ButtonSegment(
+                value: _DescriptionScope.thisDay,
+                label: Text(l10n.eventDescriptionScopeThisDay),
+                icon: const Icon(Icons.today_rounded, size: 18),
+              ),
+            ],
+            selected: {_scope},
+            showSelectedIcon: false,
+            style: const ButtonStyle(visualDensity: VisualDensity.compact),
+            onSelectionChanged: (s) => _setScope(s.first),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            _scope == _DescriptionScope.thisDay
+                ? l10n.eventDescriptionScopeThisDayHint
+                : l10n.eventDescriptionScopeAllDaysHint,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 6),
+        ],
+        if (previewing)
           Container(
             constraints: const BoxConstraints(minHeight: 88, maxHeight: 220),
             decoration: BoxDecoration(
@@ -836,20 +1264,130 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                   ),
           )
         else
-          TextField(
-            controller: _descriptionController,
-            maxLength: 2000,
-            minLines: 2,
-            maxLines: 5,
-            textInputAction: TextInputAction.newline,
-            keyboardType: TextInputType.multiline,
-            decoration: InputDecoration(
-              hintText: l10n.eventDescriptionHint,
-              border: const OutlineInputBorder(),
+          Container(
+            key: _descriptionKey,
+            // A CodeEditor owns its own scroller, so it needs a bounded box
+            // inside the sheet's scroll view. Long descriptions scroll in
+            // place rather than stretching the form.
+            constraints: const BoxConstraints(
+              minHeight: _descriptionMinHeight,
+              maxHeight: _descriptionMaxHeight,
+            ),
+            decoration: BoxDecoration(
+              border: Border.all(color: theme.colorScheme.outline),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: ModernEditorWrapper(
+              controller: _descriptionController,
+              focusNode: _descriptionFocus,
+              scrollController: _descriptionScroll,
+              searchController: _descriptionSearch,
+              editorFontSize: FontConstants.defaultFontSize,
+              onTextChanged: () {},
+              checkboxTapToggle: _liveMarkdownRendering,
+              showScrollIndicator: false,
+            ),
+          ),
+        // Says *why* Save is disabled. Only appears once the description is
+        // actually over budget, so the normal case has no extra row. Reports
+        // whichever scope is on screen; `_canSave` checks both.
+        ListenableBuilder(
+          listenable: _descriptionController,
+          builder: (context, _) {
+            if (_activeScopeWithinLimit) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                l10n.eventDescriptionTooLong(_descriptionLimit),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.error,
+                ),
+              ),
+            );
+          },
+        ),
+        // The only way back to the template once a day has its own text —
+        // matching the template again is not enough, because a row that
+        // exists always wins over it.
+        if (_scopeControlVisible &&
+            _scope == _DescriptionScope.thisDay &&
+            _dayMaterialized &&
+            !_dayResetRequested)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: _resetDayToTemplate,
+              icon: const Icon(Icons.settings_backup_restore_rounded, size: 18),
+              label: Text(l10n.eventDescriptionResetDay),
             ),
           ),
       ],
     );
+  }
+
+  /// The markdown bar, shown only while the description has focus. It sits
+  /// below the sheet's scroll view so appearing costs the form no layout
+  /// shift — the sheet's height is fixed, so the bar takes its strip from
+  /// the scrollable area.
+  ///
+  /// Counter-bound shortcuts are filtered out: `{c1}` resolves against a note
+  /// context an event does not have, and wiring them to the global counters
+  /// would mutate them from a calendar sheet.
+  ///
+  /// Undo/redo enablement follows the controller through a [ListenableBuilder]
+  /// rather than `setState`, so a keystroke repaints the bar instead of the
+  /// whole form.
+  Widget _buildDescriptionBar() {
+    return BlocBuilder<MarkdownBarBloc, MarkdownBarState>(
+      builder: (context, state) {
+        if (state is! MarkdownBarLoaded) return const SizedBox.shrink();
+        final shortcuts = state.currentShortcuts
+            .where((s) => s.effectiveCounters.isEmpty)
+            .toList();
+        return ListenableBuilder(
+          listenable: _descriptionController,
+          builder: (context, _) => MarkdownBar(
+            shortcuts: shortcuts,
+            isPreviewMode: false,
+            canUndo: _descriptionController.canUndo,
+            canRedo: _descriptionController.canRedo,
+            previewFontSize: FontConstants.defaultFontSize,
+            splitEnabled: false,
+            showSettings: false,
+            showReorder: false,
+            utilityConfigs: _descriptionUtilities,
+            onUndo: _descriptionController.undo,
+            onRedo: _descriptionController.redo,
+            onPaste: _descriptionController.paste,
+            onDecreaseFontSize: () {},
+            onIncreaseFontSize: () {},
+            onSettings: () {},
+            onShortcutPressed: _handleDescriptionShortcut,
+          ),
+        );
+      },
+    );
+  }
+
+  /// Applies a bar shortcut to the description. Mirrors the note editor's
+  /// routing: the ghost / colour-slot shortcuts have bespoke inserts, and
+  /// everything else goes through the shared applier as one undo entry.
+  /// Counter mutation is unreachable — those shortcuts never reach the bar.
+  void _handleDescriptionShortcut(CustomMarkdownShortcut shortcut) {
+    if (MarkdownShortcutInserter.handles(shortcut)) {
+      MarkdownShortcutInserter.apply(_descriptionController, shortcut);
+    } else {
+      _descriptionController.runRevocableOp(() {
+        ShortcutApplier.apply(
+          controller: _descriptionController,
+          shortcut: shortcut,
+          mutateCounter: (_, _) async => null,
+        );
+      });
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _descriptionController.makeCursorVisible();
+    });
   }
 
   @override
@@ -897,9 +1435,16 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                 ),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: FilledButton(
-                    onPressed: _canSave ? _onSave : null,
-                    child: Text(l10n.save),
+                  // _canSave reads the description length, which changes
+                  // without a form rebuild — so the button tracks the
+                  // controller directly instead of forcing keystroke-wide
+                  // setStates.
+                  child: ListenableBuilder(
+                    listenable: _descriptionController,
+                    builder: (context, _) => FilledButton(
+                      onPressed: _canSave ? _onSave : null,
+                      child: Text(l10n.save),
+                    ),
                   ),
                 ),
               ],
@@ -966,7 +1511,12 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                       ],
                       selected: {_mode},
                       onSelectionChanged: (s) =>
-                          setState(() => _mode = s.first),
+                          setState(() {
+                            _mode = s.first;
+                            // Switching to one-time hides the scope control,
+                            // so the field must stop showing a day's text.
+                            _syncScopeToRule();
+                          }),
                     ),
                   ),
                   if (_mode == _RepeatMode.oneTime) ...[
@@ -1375,6 +1925,14 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                 ],
               ),
             ),
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            alignment: Alignment.topCenter,
+            child: _descriptionFocused
+                ? _buildDescriptionBar()
+                : const SizedBox(width: double.infinity),
           ),
         ],
       ),

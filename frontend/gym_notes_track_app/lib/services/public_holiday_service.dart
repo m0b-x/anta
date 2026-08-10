@@ -6,23 +6,23 @@ import '../database/database.dart';
 import '../database/database_lifecycle.dart';
 import '../database/daos/public_holiday_dao.dart';
 
-/// Loads and seeds the `public_holidays` table, exposes a synchronous
-/// in-memory cache used by [PublicHolidays.isHoliday]/[PublicHolidays.holidayOn].
+/// Owns the user's holiday **deltas** in the `public_holidays` table and
+/// publishes them to the synchronous [PublicHolidays] facade, which layers
+/// them over the computed built-in set.
 ///
 /// On [getInstance] it:
 ///   1. Reads the user's selected [HolidayProfile] from `user_settings`
 ///      (defaulting to [HolidayProfile.generic] for backward compat with
 ///      pre-profile installs).
-///   2. Seeds that profile's holidays for the current year and the five
-///      following years using insert-if-not-exists semantics, so the
-///      window naturally rolls forward and never overwrites user edits.
-///   3. Loads every row into memory and publishes the cache via
-///      [PublicHolidays.updateCache].
+///   2. Loads every stored row and publishes profile + deltas via
+///      [PublicHolidays.configure].
 ///
-/// Switching profiles is a single call to [setProfile]: rows tagged with
-/// the previous profile are dropped, the new profile is seeded, and the
-/// cache is republished. User-added customs (rows whose `profile` column
-/// equals [kCustomHolidayProfileKey]) survive every switch.
+/// There is no seeding pass: built-in holidays are computed per year from
+/// (profile, year) since schema v22, so every year in the calendar's range
+/// resolves without a single stored row. Switching profiles ([setProfile])
+/// drops the previous profile's rows and republishes. User-added customs
+/// (rows whose `profile` column equals [kCustomHolidayProfileKey]) survive
+/// every switch.
 class PublicHolidayService {
   static PublicHolidayService? _instance;
 

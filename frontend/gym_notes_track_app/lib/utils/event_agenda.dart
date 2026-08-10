@@ -1,3 +1,4 @@
+import '../constants/occurrence_descriptions.dart';
 import '../constants/public_holidays.dart';
 import '../models/calendar_event.dart';
 import '../services/folder_search_service.dart' show normalizeForSearch;
@@ -68,7 +69,7 @@ abstract final class EventAgenda {
     ) {
       final onDay = <CalendarEvent>[
         for (final event in candidates)
-          if (event.occursOn(day)) event,
+          if (event.occursOn(day) && _matchesOnDay(event, day, needle)) event,
       ];
       if (onDay.isEmpty) continue;
       onDay.sort(compareWithinDay);
@@ -140,11 +141,37 @@ abstract final class EventAgenda {
   static DateTime dateOnly(DateTime date) =>
       DateTime.utc(date.year, date.month, date.day);
 
+  /// Candidate pre-filter, run once per event **before the day is known**.
+  ///
+  /// Deliberately a *superset* test: with per-occurrence descriptions an event
+  /// may match only through text that lives on one specific day, so dropping
+  /// it here would make that text unfindable. Anything this admits is narrowed
+  /// per day by [_matchesOnDay] inside the scan.
+  ///
   /// [needle] must already be folded through [normalizeForSearch].
   static bool _matches(CalendarEvent event, String needle) {
     if (needle.isEmpty) return true;
     if (normalizeForSearch(event.title).contains(needle)) return true;
     final description = event.description;
+    if (description != null &&
+        normalizeForSearch(description).contains(needle)) {
+      return true;
+    }
+    // Cheap existence probe — the per-day pass decides which days actually
+    // match. Without it, an event whose only hit is a single day's override
+    // never reaches the scan.
+    return OccurrenceDescriptions.appliesTo(event) &&
+        OccurrenceDescriptions.hasAnyOverride(event.id);
+  }
+
+  /// Narrows a [_matches] candidate to the days that really match, so an
+  /// override on one day cannot drag the event's every other occurrence into
+  /// the results. Short-circuits on the no-query and title-hit paths so the
+  /// common case allocates nothing.
+  static bool _matchesOnDay(CalendarEvent event, DateTime day, String needle) {
+    if (needle.isEmpty) return true;
+    if (normalizeForSearch(event.title).contains(needle)) return true;
+    final description = OccurrenceDescriptions.descriptionFor(event, day);
     return description != null &&
         normalizeForSearch(description).contains(needle);
   }

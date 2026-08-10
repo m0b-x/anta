@@ -5676,6 +5676,387 @@ class CalendarCategoriesCompanion extends UpdateCompanion<CalendarCategoryRow> {
   }
 }
 
+class $EventOccurrenceDescriptionsTable extends EventOccurrenceDescriptions
+    with TableInfo<$EventOccurrenceDescriptionsTable, EventOccurrenceRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $EventOccurrenceDescriptionsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _eventIdMeta = const VerificationMeta(
+    'eventId',
+  );
+  @override
+  late final GeneratedColumn<String> eventId = GeneratedColumn<String>(
+    'event_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _dayMeta = const VerificationMeta('day');
+  @override
+  late final GeneratedColumn<DateTime> day = GeneratedColumn<DateTime>(
+    'day',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _descriptionMeta = const VerificationMeta(
+    'description',
+  );
+  @override
+  late final GeneratedColumn<String> description = GeneratedColumn<String>(
+    'description',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    eventId,
+    day,
+    description,
+    createdAt,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'calendar_event_occurrences';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<EventOccurrenceRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('event_id')) {
+      context.handle(
+        _eventIdMeta,
+        eventId.isAcceptableOrUnknown(data['event_id']!, _eventIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_eventIdMeta);
+    }
+    if (data.containsKey('day')) {
+      context.handle(
+        _dayMeta,
+        day.isAcceptableOrUnknown(data['day']!, _dayMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_dayMeta);
+    }
+    if (data.containsKey('description')) {
+      context.handle(
+        _descriptionMeta,
+        description.isAcceptableOrUnknown(
+          data['description']!,
+          _descriptionMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_descriptionMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {eventId, day};
+  @override
+  EventOccurrenceRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return EventOccurrenceRow(
+      eventId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}event_id'],
+      )!,
+      day: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}day'],
+      )!,
+      description: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}description'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $EventOccurrenceDescriptionsTable createAlias(String alias) {
+    return $EventOccurrenceDescriptionsTable(attachedDatabase, alias);
+  }
+}
+
+class EventOccurrenceRow extends DataClass
+    implements Insertable<EventOccurrenceRow> {
+  final String eventId;
+
+  /// UTC date-only (year, month, day).
+  final DateTime day;
+
+  /// Materialized markdown source for this one occurrence. Non-nullable: the
+  /// row's existence is the override, and an empty string is a meaningful
+  /// value (see the class doc).
+  final String description;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  const EventOccurrenceRow({
+    required this.eventId,
+    required this.day,
+    required this.description,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['event_id'] = Variable<String>(eventId);
+    map['day'] = Variable<DateTime>(day);
+    map['description'] = Variable<String>(description);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  EventOccurrenceDescriptionsCompanion toCompanion(bool nullToAbsent) {
+    return EventOccurrenceDescriptionsCompanion(
+      eventId: Value(eventId),
+      day: Value(day),
+      description: Value(description),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory EventOccurrenceRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return EventOccurrenceRow(
+      eventId: serializer.fromJson<String>(json['eventId']),
+      day: serializer.fromJson<DateTime>(json['day']),
+      description: serializer.fromJson<String>(json['description']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'eventId': serializer.toJson<String>(eventId),
+      'day': serializer.toJson<DateTime>(day),
+      'description': serializer.toJson<String>(description),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  EventOccurrenceRow copyWith({
+    String? eventId,
+    DateTime? day,
+    String? description,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) => EventOccurrenceRow(
+    eventId: eventId ?? this.eventId,
+    day: day ?? this.day,
+    description: description ?? this.description,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  EventOccurrenceRow copyWithCompanion(
+    EventOccurrenceDescriptionsCompanion data,
+  ) {
+    return EventOccurrenceRow(
+      eventId: data.eventId.present ? data.eventId.value : this.eventId,
+      day: data.day.present ? data.day.value : this.day,
+      description: data.description.present
+          ? data.description.value
+          : this.description,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('EventOccurrenceRow(')
+          ..write('eventId: $eventId, ')
+          ..write('day: $day, ')
+          ..write('description: $description, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(eventId, day, description, createdAt, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is EventOccurrenceRow &&
+          other.eventId == this.eventId &&
+          other.day == this.day &&
+          other.description == this.description &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class EventOccurrenceDescriptionsCompanion
+    extends UpdateCompanion<EventOccurrenceRow> {
+  final Value<String> eventId;
+  final Value<DateTime> day;
+  final Value<String> description;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+  final Value<int> rowid;
+  const EventOccurrenceDescriptionsCompanion({
+    this.eventId = const Value.absent(),
+    this.day = const Value.absent(),
+    this.description = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  EventOccurrenceDescriptionsCompanion.insert({
+    required String eventId,
+    required DateTime day,
+    required String description,
+    required DateTime createdAt,
+    required DateTime updatedAt,
+    this.rowid = const Value.absent(),
+  }) : eventId = Value(eventId),
+       day = Value(day),
+       description = Value(description),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt);
+  static Insertable<EventOccurrenceRow> custom({
+    Expression<String>? eventId,
+    Expression<DateTime>? day,
+    Expression<String>? description,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (eventId != null) 'event_id': eventId,
+      if (day != null) 'day': day,
+      if (description != null) 'description': description,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  EventOccurrenceDescriptionsCompanion copyWith({
+    Value<String>? eventId,
+    Value<DateTime>? day,
+    Value<String>? description,
+    Value<DateTime>? createdAt,
+    Value<DateTime>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return EventOccurrenceDescriptionsCompanion(
+      eventId: eventId ?? this.eventId,
+      day: day ?? this.day,
+      description: description ?? this.description,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (eventId.present) {
+      map['event_id'] = Variable<String>(eventId.value);
+    }
+    if (day.present) {
+      map['day'] = Variable<DateTime>(day.value);
+    }
+    if (description.present) {
+      map['description'] = Variable<String>(description.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('EventOccurrenceDescriptionsCompanion(')
+          ..write('eventId: $eventId, ')
+          ..write('day: $day, ')
+          ..write('description: $description, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -5691,6 +6072,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       $PublicHolidaysTableTable(this);
   late final $CalendarCategoriesTable calendarCategories =
       $CalendarCategoriesTable(this);
+  late final $EventOccurrenceDescriptionsTable eventOccurrenceDescriptions =
+      $EventOccurrenceDescriptionsTable(this);
   late final FolderDao folderDao = FolderDao(this as AppDatabase);
   late final NoteDao noteDao = NoteDao(this as AppDatabase);
   late final ContentChunkDao contentChunkDao = ContentChunkDao(
@@ -5710,6 +6093,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final CalendarCategoryDao calendarCategoryDao = CalendarCategoryDao(
     this as AppDatabase,
   );
+  late final EventOccurrenceDao eventOccurrenceDao = EventOccurrenceDao(
+    this as AppDatabase,
+  );
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -5725,6 +6111,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     calendarEvents,
     publicHolidaysTable,
     calendarCategories,
+    eventOccurrenceDescriptions,
   ];
 }
 
@@ -8551,6 +8938,227 @@ typedef $$CalendarCategoriesTableProcessedTableManager =
       CalendarCategoryRow,
       PrefetchHooks Function()
     >;
+typedef $$EventOccurrenceDescriptionsTableCreateCompanionBuilder =
+    EventOccurrenceDescriptionsCompanion Function({
+      required String eventId,
+      required DateTime day,
+      required String description,
+      required DateTime createdAt,
+      required DateTime updatedAt,
+      Value<int> rowid,
+    });
+typedef $$EventOccurrenceDescriptionsTableUpdateCompanionBuilder =
+    EventOccurrenceDescriptionsCompanion Function({
+      Value<String> eventId,
+      Value<DateTime> day,
+      Value<String> description,
+      Value<DateTime> createdAt,
+      Value<DateTime> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$EventOccurrenceDescriptionsTableFilterComposer
+    extends Composer<_$AppDatabase, $EventOccurrenceDescriptionsTable> {
+  $$EventOccurrenceDescriptionsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get eventId => $composableBuilder(
+    column: $table.eventId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get day => $composableBuilder(
+    column: $table.day,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get description => $composableBuilder(
+    column: $table.description,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$EventOccurrenceDescriptionsTableOrderingComposer
+    extends Composer<_$AppDatabase, $EventOccurrenceDescriptionsTable> {
+  $$EventOccurrenceDescriptionsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get eventId => $composableBuilder(
+    column: $table.eventId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get day => $composableBuilder(
+    column: $table.day,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get description => $composableBuilder(
+    column: $table.description,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$EventOccurrenceDescriptionsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $EventOccurrenceDescriptionsTable> {
+  $$EventOccurrenceDescriptionsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get eventId =>
+      $composableBuilder(column: $table.eventId, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get day =>
+      $composableBuilder(column: $table.day, builder: (column) => column);
+
+  GeneratedColumn<String> get description => $composableBuilder(
+    column: $table.description,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$EventOccurrenceDescriptionsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $EventOccurrenceDescriptionsTable,
+          EventOccurrenceRow,
+          $$EventOccurrenceDescriptionsTableFilterComposer,
+          $$EventOccurrenceDescriptionsTableOrderingComposer,
+          $$EventOccurrenceDescriptionsTableAnnotationComposer,
+          $$EventOccurrenceDescriptionsTableCreateCompanionBuilder,
+          $$EventOccurrenceDescriptionsTableUpdateCompanionBuilder,
+          (
+            EventOccurrenceRow,
+            BaseReferences<
+              _$AppDatabase,
+              $EventOccurrenceDescriptionsTable,
+              EventOccurrenceRow
+            >,
+          ),
+          EventOccurrenceRow,
+          PrefetchHooks Function()
+        > {
+  $$EventOccurrenceDescriptionsTableTableManager(
+    _$AppDatabase db,
+    $EventOccurrenceDescriptionsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$EventOccurrenceDescriptionsTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$EventOccurrenceDescriptionsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$EventOccurrenceDescriptionsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> eventId = const Value.absent(),
+                Value<DateTime> day = const Value.absent(),
+                Value<String> description = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => EventOccurrenceDescriptionsCompanion(
+                eventId: eventId,
+                day: day,
+                description: description,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String eventId,
+                required DateTime day,
+                required String description,
+                required DateTime createdAt,
+                required DateTime updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => EventOccurrenceDescriptionsCompanion.insert(
+                eventId: eventId,
+                day: day,
+                description: description,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$EventOccurrenceDescriptionsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $EventOccurrenceDescriptionsTable,
+      EventOccurrenceRow,
+      $$EventOccurrenceDescriptionsTableFilterComposer,
+      $$EventOccurrenceDescriptionsTableOrderingComposer,
+      $$EventOccurrenceDescriptionsTableAnnotationComposer,
+      $$EventOccurrenceDescriptionsTableCreateCompanionBuilder,
+      $$EventOccurrenceDescriptionsTableUpdateCompanionBuilder,
+      (
+        EventOccurrenceRow,
+        BaseReferences<
+          _$AppDatabase,
+          $EventOccurrenceDescriptionsTable,
+          EventOccurrenceRow
+        >,
+      ),
+      EventOccurrenceRow,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -8575,4 +9183,10 @@ class $AppDatabaseManager {
       $$PublicHolidaysTableTableTableManager(_db, _db.publicHolidaysTable);
   $$CalendarCategoriesTableTableManager get calendarCategories =>
       $$CalendarCategoriesTableTableManager(_db, _db.calendarCategories);
+  $$EventOccurrenceDescriptionsTableTableManager
+  get eventOccurrenceDescriptions =>
+      $$EventOccurrenceDescriptionsTableTableManager(
+        _db,
+        _db.eventOccurrenceDescriptions,
+      );
 }

@@ -13,6 +13,7 @@ import '../models/fasting_appearance.dart';
 import '../widgets/fasting_style_sheet.dart';
 import '../services/app_navigator.dart';
 import '../services/calendar_event_service.dart';
+import '../services/event_occurrence_service.dart';
 import '../services/public_holiday_service.dart';
 import '../services/recurrence_formatter.dart';
 import '../services/settings_service.dart';
@@ -44,6 +45,14 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
 
   CalendarEventService? _eventService;
   int _eventCount = 0;
+  int _descriptionLimit = SettingsKeys.defaultEventDescriptionLimit;
+
+  /// Owned by the service, not by `SettingsService`: writing the flag and
+  /// republishing the static facade have to happen together, so there is
+  /// deliberately no settable path that could leave them disagreeing.
+  EventOccurrenceService? _occurrenceService;
+  bool _perOccurrenceDescriptions =
+      SettingsKeys.defaultEventPerOccurrenceDescriptions;
 
   Set<FastingTradition> _fastingTraditions = const {};
   FastingAppearance _fastingAppearance = const FastingAppearance();
@@ -66,6 +75,8 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     final fastingAppearance = await settings.getFastingAppearance();
     final fastingGreatFasts = await settings.getFastingOrthodoxGreatFasts();
     final fastingWeekdays = await settings.getFastingWeekdays();
+    final descriptionLimit = await settings.getEventDescriptionLimit();
+    final occurrenceService = await EventOccurrenceService.getInstance();
 
     if (!mounted) return;
     setState(() {
@@ -76,6 +87,9 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
       _holidayProfile = holidayService.profile;
       _eventService = eventService;
       _eventCount = eventService.events.length;
+      _descriptionLimit = descriptionLimit;
+      _occurrenceService = occurrenceService;
+      _perOccurrenceDescriptions = occurrenceService.enabled;
       _fastingTraditions = fastingTraditions;
       _fastingAppearance = fastingAppearance;
       _fastingGreatFasts = fastingGreatFasts;
@@ -691,6 +705,48 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
                   icon: Icons.event_note_rounded,
                   title: l10n.calendarEventsSection,
                   children: [
+                    SwitchListTile(
+                      value: _perOccurrenceDescriptions,
+                      secondary: Icon(
+                        Icons.event_note_outlined,
+                        color: colorScheme.primary,
+                      ),
+                      title: Text(l10n.eventPerOccurrenceDescriptions),
+                      subtitle: Text(l10n.eventPerOccurrenceDescriptionsDesc),
+                      onChanged: (value) async {
+                        _onHapticFeedback();
+                        setState(() => _perOccurrenceDescriptions = value);
+                        // Through the service, never SettingsService: the
+                        // write and the facade republish must be one step.
+                        // Existing per-day rows are never touched, so turning
+                        // this off is dormancy rather than deletion.
+                        await _occurrenceService?.setEnabled(value);
+                      },
+                    ),
+                    const Divider(height: 1),
+                    _buildSliderTile(
+                      context: context,
+                      colorScheme: colorScheme,
+                      title: l10n.eventDescriptionLimit,
+                      subtitle: l10n.eventDescriptionLimitDesc(
+                        _descriptionLimit,
+                      ),
+                      value: _descriptionLimit.toDouble(),
+                      min: SettingsKeys.minEventDescriptionLimit.toDouble(),
+                      max: SettingsKeys.maxEventDescriptionLimit.toDouble(),
+                      divisions:
+                          (SettingsKeys.maxEventDescriptionLimit -
+                              SettingsKeys.minEventDescriptionLimit) ~/
+                          SettingsKeys.eventDescriptionLimitStep,
+                      onChanged: (value) async {
+                        _onHapticFeedback();
+                        setState(() => _descriptionLimit = value.round());
+                        await _settings?.setEventDescriptionLimit(
+                          value.round(),
+                        );
+                      },
+                    ),
+                    const Divider(height: 1),
                     ListTile(
                       enabled: _eventCount > 0,
                       leading: Icon(
@@ -860,6 +916,15 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     await _settings?.setCalendarShowRecurrenceLabels(
       defaults.showRecurrenceLabels,
     );
+    await _settings?.setEventDescriptionLimit(
+      SettingsKeys.defaultEventDescriptionLimit,
+    );
+    // Routed through the service (like the holiday profile) so the static
+    // facade is republished too. Per-day rows survive a settings reset —
+    // resetting preferences must not delete content.
+    await _occurrenceService?.setEnabled(
+      SettingsKeys.defaultEventPerOccurrenceDescriptions,
+    );
     await _settings?.setFastingTraditions(const {});
     await _settings?.setFastingAppearance(const FastingAppearance());
     await _settings?.setFastingOrthodoxGreatFasts(true);
@@ -881,6 +946,9 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
       _fastingAppearance = const FastingAppearance();
       _fastingGreatFasts = true;
       _fastingWeekdays = FastingCalendar.defaultWeekdayFastDays;
+      _descriptionLimit = SettingsKeys.defaultEventDescriptionLimit;
+      _perOccurrenceDescriptions =
+          SettingsKeys.defaultEventPerOccurrenceDescriptions;
     });
 
     if (!mounted) return;

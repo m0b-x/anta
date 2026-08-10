@@ -303,6 +303,49 @@ class AppLocalizationsDe extends AppLocalizations {
   String get calendarEventsSection => 'Ereignisse';
 
   @override
+  String get eventDescriptionLimit => 'Beschreibungslänge';
+
+  @override
+  String eventDescriptionLimitDesc(int count) {
+    return 'Bis zu $count Zeichen in einer Ereignisbeschreibung zulassen.';
+  }
+
+  @override
+  String eventDescriptionCount(int count, int limit) {
+    return '$count / $limit';
+  }
+
+  @override
+  String eventDescriptionTooLong(int limit) {
+    return 'Die Beschreibung überschreitet das Limit von $limit Zeichen. Kürze sie oder erhöhe das Limit in den Kalendereinstellungen.';
+  }
+
+  @override
+  String get eventPerOccurrenceDescriptions => 'Eigene Beschreibung pro Tag';
+
+  @override
+  String get eventPerOccurrenceDescriptionsDesc =>
+      'Wiederkehrende Ereignisse behalten für jeden Tag eine eigene Beschreibung. Die Beschreibung des Ereignisses wird zur Vorlage, mit der jeder Tag beginnt.';
+
+  @override
+  String get eventDescriptionScopeAllDays => 'Alle Tage';
+
+  @override
+  String get eventDescriptionScopeThisDay => 'Dieser Tag';
+
+  @override
+  String get eventDescriptionScopeAllDaysHint =>
+      'Du bearbeitest die Beschreibung, mit der jeder Tag beginnt.';
+
+  @override
+  String get eventDescriptionScopeThisDayHint =>
+      'Du bearbeitest nur diesen Tag. Andere Tage behalten die gemeinsame Beschreibung.';
+
+  @override
+  String get eventDescriptionResetDay =>
+      'Diesen Tag auf die gemeinsame Beschreibung zurücksetzen';
+
+  @override
   String get deleteAllEvents => 'Alle Ereignisse löschen';
 
   @override

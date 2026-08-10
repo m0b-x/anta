@@ -8,6 +8,7 @@ import '../database/database_lifecycle.dart';
 import '../database/daos/calendar_event_dao.dart';
 import '../models/calendar_event.dart';
 import '../models/recurrence_rule.dart';
+import 'event_occurrence_service.dart';
 
 /// Persists custom calendar events via Drift and exposes a synchronous
 /// in-memory cache so `CalendarBloc.eventsForDay` stays O(N) over a
@@ -68,16 +69,40 @@ class CalendarEventService {
     ]);
   }
 
+  /// Deletes the event and cascades to its per-occurrence description rows in
+  /// one transaction — nothing else references an event id, so leaving them
+  /// behind would strand rows no surface can reach or clean up. Composed here
+  /// rather than in the bloc, mirroring `CategoryService.deleteCategory`.
   Future<void> deleteById(String id) async {
-    await _dao.deleteById(id);
+    await _db.transaction(() async {
+      await _dao.deleteById(id);
+      await _db.eventOccurrenceDao.deleteForEvent(id);
+    });
     _cache = List.unmodifiable(_cache.where((e) => e.id != id));
+    await _refreshOccurrences();
   }
 
-  /// Removes every custom calendar event. Public holidays live in a separate
-  /// table and are untouched.
+  /// Removes every custom calendar event, cascading to their occurrence
+  /// overrides. Public holidays live in a separate table and are untouched.
   Future<void> deleteAll() async {
-    await _dao.deleteAll();
+    await _db.transaction(() async {
+      await _dao.deleteAll();
+      await _db.eventOccurrenceDao.deleteAll();
+    });
     _cache = const [];
+    await _refreshOccurrences();
+  }
+
+  /// Republishes the occurrence facade after a cascade. Tolerates the service
+  /// not being constructed yet — the cascade already hit the table, and the
+  /// facade populates from it on first load either way.
+  Future<void> _refreshOccurrences() async {
+    try {
+      final service = await EventOccurrenceService.getInstance();
+      await service.refreshAfterEventRemoval();
+    } catch (e) {
+      debugPrint('[CalendarEventService] Occurrence refresh error: $e');
+    }
   }
 
   // ── Backup export / import ────────────────────────────────────────────

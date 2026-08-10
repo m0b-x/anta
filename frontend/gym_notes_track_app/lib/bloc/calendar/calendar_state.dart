@@ -30,12 +30,22 @@ final class CalendarPageLoaded extends CalendarPageState {
   /// leaves at most a harmless stale id behind.
   final Set<String> hiddenCategoryIds;
 
+  /// Bumped whenever a per-occurrence description is written or cleared.
+  ///
+  /// Editing one day's text changes neither the event list nor which days an
+  /// event occurs on, so without this the state would compare equal to its
+  /// predecessor and bloc would drop the emit — and the agenda's identity-based
+  /// row memo would keep serving rows built from the old text. Threaded down to
+  /// `AgendaListView` as part of its cache key.
+  final int occurrenceRevision;
+
   const CalendarPageLoaded({
     required this.allEvents,
     required this.focusedDay,
     required this.selectedDay,
     this.format = CalendarFormat.month,
     this.hiddenCategoryIds = const {},
+    this.occurrenceRevision = 0,
   });
 
   CalendarPageLoaded copyWith({
@@ -44,6 +54,7 @@ final class CalendarPageLoaded extends CalendarPageState {
     DateTime? selectedDay,
     CalendarFormat? format,
     Set<String>? hiddenCategoryIds,
+    int? occurrenceRevision,
   }) {
     return CalendarPageLoaded(
       allEvents: allEvents ?? this.allEvents,
@@ -51,6 +62,7 @@ final class CalendarPageLoaded extends CalendarPageState {
       selectedDay: selectedDay ?? this.selectedDay,
       format: format ?? this.format,
       hiddenCategoryIds: hiddenCategoryIds ?? this.hiddenCategoryIds,
+      occurrenceRevision: occurrenceRevision ?? this.occurrenceRevision,
     );
   }
 
@@ -61,6 +73,7 @@ final class CalendarPageLoaded extends CalendarPageState {
     selectedDay,
     format,
     hiddenCategoryIds,
+    occurrenceRevision,
   ];
 }
 

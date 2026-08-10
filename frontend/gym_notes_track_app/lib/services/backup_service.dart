@@ -8,6 +8,7 @@ import '../database/database_lifecycle.dart';
 import '../constants/json_keys.dart';
 import '../constants/settings_keys.dart';
 import 'calendar_event_service.dart';
+import 'event_occurrence_service.dart';
 import 'category_service.dart';
 import 'counter_service.dart';
 import 'markdown_bar_service.dart';
@@ -83,6 +84,8 @@ class BackupService {
     final calendarCategories = await GetIt.I<CategoryService>().exportData();
     final calendarEvents = await GetIt.I<CalendarEventService>().exportData();
     final publicHolidays = await GetIt.I<PublicHolidayService>().exportData();
+    final eventOccurrences = await GetIt.I<EventOccurrenceService>()
+        .exportData();
 
     return {
       // v7: event priorities are stored inverted (1 = highest). Older
@@ -101,6 +104,11 @@ class BackupService {
       'calendarCategories': calendarCategories,
       'calendarEvents': calendarEvents,
       'publicHolidays': publicHolidays,
+      // Purely additive (v24): an absent key on an older backup is simply a
+      // database with no per-occurrence overrides, which is what those
+      // installs had. No version bump — 7 was needed only because an existing
+      // field changed meaning.
+      'eventOccurrences': eventOccurrences,
     };
   }
 
@@ -351,6 +359,16 @@ class BackupService {
                     event,
               ];
         await GetIt.I<CalendarEventService>().importData(events);
+      }
+      // Per-occurrence description overrides (v24+ backups). Unlike the keys
+      // above, an absent key here is NOT a no-op when the backup carried
+      // events: the event import wipes and reinserts, so keeping the previous
+      // database's overrides would strand them against unrelated event ids.
+      final eventOccurrences = data['eventOccurrences'] as List?;
+      if (eventOccurrences != null) {
+        await GetIt.I<EventOccurrenceService>().importData(eventOccurrences);
+      } else if (calendarEvents != null) {
+        await GetIt.I<EventOccurrenceService>().clearAllForImport();
       }
       final publicHolidays = data['publicHolidays'] as List?;
       if (publicHolidays != null) {

@@ -32,7 +32,8 @@ class AgendaListView extends StatefulWidget {
   /// occurrence's day.
   final ValueChanged<DateTime> onDaySelected;
 
-  final ValueChanged<CalendarEvent> onEditEvent;
+  /// Carries the row's occurrence day so the editor can scope to it (v24).
+  final void Function(CalendarEvent event, DateTime day) onEditEvent;
   final ValueChanged<CalendarEvent> onOpenNote;
 
   final String emptyTitle;
@@ -47,6 +48,12 @@ class AgendaListView extends StatefulWidget {
   /// [EventSummaryProvider] so agenda and day-panel rows always agree.
   final bool showRecurrenceLabels;
 
+  /// Bumped when a per-occurrence description changes. Part of the row-memo
+  /// key below: the rows embed resolved description text, but editing one
+  /// day's text leaves the occurrence list identical, so nothing else here
+  /// would ever notice.
+  final int occurrenceRevision;
+
   const AgendaListView({
     super.key,
     required this.occurrences,
@@ -59,6 +66,7 @@ class AgendaListView extends StatefulWidget {
     this.padding = const EdgeInsets.fromLTRB(16, 12, 16, 16),
     this.colorPalette = MarkdownColorPalette.presets,
     this.showRecurrenceLabels = true,
+    this.occurrenceRevision = 0,
   });
 
   /// Qualitative priority word appended to a row subtitle. The neutral
@@ -91,18 +99,21 @@ class _AgendaListViewState extends State<AgendaListView> {
   List<DateTime>? _rowsForHolidays;
   String? _rowsForLocale;
   bool? _rowsForShowRecurrence;
+  int? _rowsForOccurrenceRevision;
 
   List<_AgendaRow> _rowsFor(AppLocalizations l10n) {
     if (identical(_rowsForOccurrences, widget.occurrences) &&
         identical(_rowsForHolidays, widget.holidayDays) &&
         _rowsForLocale == l10n.localeName &&
-        _rowsForShowRecurrence == widget.showRecurrenceLabels) {
+        _rowsForShowRecurrence == widget.showRecurrenceLabels &&
+        _rowsForOccurrenceRevision == widget.occurrenceRevision) {
       return _rows;
     }
     _rowsForOccurrences = widget.occurrences;
     _rowsForHolidays = widget.holidayDays;
     _rowsForLocale = l10n.localeName;
     _rowsForShowRecurrence = widget.showRecurrenceLabels;
+    _rowsForOccurrenceRevision = widget.occurrenceRevision;
     return _rows = _buildRows(l10n);
   }
 
@@ -212,7 +223,7 @@ class _AgendaListViewState extends State<AgendaListView> {
               colorPalette: widget.colorPalette,
               onEdit: entry.event == null
                   ? null
-                  : () => widget.onEditEvent(entry.event!),
+                  : () => widget.onEditEvent(entry.event!, day),
               onOpenNote: entry.event?.noteId == null
                   ? null
                   : () => widget.onOpenNote(entry.event!),

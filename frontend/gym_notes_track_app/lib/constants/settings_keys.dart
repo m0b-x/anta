@@ -75,6 +75,20 @@ class SettingsKeys {
   static const String calendarMaxDayBars = 'calendar_max_day_bars';
   static const String holidayProfile = 'holiday_profile';
 
+  /// Maximum characters allowed in an event description. Enforced by the
+  /// editor sheet's save guard, not by truncation — a description is markdown
+  /// the user typed, so going over blocks Save and says so rather than
+  /// silently dropping the tail.
+  static const String eventDescriptionLimit = 'event_description_limit';
+
+  /// Whether a recurring event keeps one description per occurrence instead of
+  /// one shared by every day. The event's own description becomes a template
+  /// that each day falls back to. Written only through
+  /// `EventOccurrenceService.setEnabled`, which republishes the static facade
+  /// in the same step — `SettingsService` deliberately exposes no setter.
+  static const String eventPerOccurrenceDescriptions =
+      'event_per_occurrence_descriptions';
+
   // Calendar appearance settings
   static const String calendarTodayStyle = 'calendar_today_style';
   static const String calendarMarkerStyle = 'calendar_marker_style';
@@ -206,6 +220,23 @@ class SettingsKeys {
   /// Maximum number of bars shown in a calendar day cell before an "+X"
   /// overflow indicator is rendered in place of the last bar.
   static const int defaultCalendarMaxDayBars = 3;
+
+  /// Character budget for an event description. 2000 is the value the field
+  /// carried as a hardcoded `maxLength` before it became configurable.
+  static const int defaultEventDescriptionLimit = 2000;
+
+  /// Slider bounds for [eventDescriptionLimit]. The floor still comfortably
+  /// holds a session checklist; the ceiling is where an "event note" has
+  /// clearly become a note and belongs in one.
+  static const int minEventDescriptionLimit = 500;
+  static const int maxEventDescriptionLimit = 10000;
+
+  /// Slider step for [eventDescriptionLimit].
+  static const int eventDescriptionLimitStep = 500;
+
+  /// Off preserves the pre-v24 behaviour exactly: one description shared by
+  /// every occurrence of a recurring event.
+  static const bool defaultEventPerOccurrenceDescriptions = false;
 
   // Default values for calendar appearance (enum names are parsed with a
   // forward-compatible fallback in `calendar_appearance.dart`).
