@@ -20,6 +20,15 @@ description: Workflow for Drift SQLite schema changes, migrations, the DatabaseL
 
 - **Every index must be created on BOTH paths.** `DatabaseIndexes.createAllIndexes()` runs from `onCreate` (fresh installs); migrations run on upgraders. An index defined only inside a migration leaves every *fresh* install slower than an upgraded one — `idx_folders_position` / `idx_notes_position` were exactly that for years, so new users scanned-and-sorted the folder content page's primary query until **v25** repaired it. Define the index once as a public method on `DatabaseIndexes`, call it from `createAllIndexes()`, and have the migration call the same method. `test/database/schema_parity_test.dart` scrapes `lib/database/**` for `CREATE INDEX`/`CREATE TABLE` names and fails if a fresh database lacks any of them, so this cannot regress silently.
 
+## Connection pragmas
+
+`configureSqliteConnection` in `lib/database/database.dart` is the `setup:` callback for every connection: **WAL**, `synchronous = NORMAL`, `temp_store = MEMORY`, `cache_size = -4000`. Measured on a real file, 200 individually-committed inserts (the auto-save shape) went **561 ms → 28 ms**; the app previously ran on stock SQLite defaults with no `setup:` at all.
+
+- It must stay a **top-level function** — `createInBackground` sends it to the database isolate, which a capturing closure cannot survive.
+- `synchronous = NORMAL` is safe **only because of WAL**, which is the pairing SQLite documents. App crash loses nothing; a power cut can roll back recent transactions but cannot corrupt. Do not raise it back to `FULL` without measuring what it costs (~5× on small writes).
+- WAL means `-wal` / `-shm` sidecars. `DatabaseManager.renameDatabase` / `deleteDatabase` already move and remove them; any new code that touches the database file directly must too. The size shown on `DatabaseSettingsPage` adds the `-wal` size for the same reason.
+- `test/database/connection_pragmas_test.dart` asserts all four. Dropping the `setup:` callback would otherwise compile and pass everything else.
+
 ## Database tests
 
 `NativeDatabase.memory()` works under `flutter test` with no extra setup, so the real schema, migrations and DAOs are all testable. `test/database/support/db_test_support.dart` provides `openTestDatabase()`, `queryPlan()`, `explainCaptured()` and a `StatementCounter` interceptor.

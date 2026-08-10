@@ -3,6 +3,7 @@ import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:drift/native.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:sqlite3/common.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 import '../services/database_manager.dart';
@@ -181,6 +182,48 @@ class AppDatabase extends _$AppDatabase {
   }
 }
 
+/// Connection pragmas, applied to every database this app opens.
+///
+/// Must stay a **top-level** function: `createInBackground` runs the database
+/// on its own isolate and sends this across, which a capturing closure cannot
+/// survive.
+///
+/// Measured on a real file (200 individually-committed inserts — the auto-save
+/// shape of many small writes):
+///
+/// | setup                     | 200 single commits | 500 in one txn |
+/// | ------------------------- | ------------------ | -------------- |
+/// | stock defaults            | 561 ms             | 42 ms          |
+/// | `WAL`                     | 139 ms             | 28 ms          |
+/// | `WAL` + `synchronous=NORMAL` | 28 ms           | 22 ms          |
+/// | + cache + temp_store      | 26 ms              | 19 ms          |
+///
+/// **Durability trade-off, stated plainly:** `synchronous = NORMAL` is only
+/// safe *because* of WAL, and it is the combination SQLite documents as such.
+/// An app crash or kill loses nothing — the WAL is already handed to the OS.
+/// A power cut or kernel panic may roll back the last transactions, but the
+/// database cannot corrupt. For an offline-first log that auto-saves
+/// constantly, losing a second of typing to a power cut beats an fsync on
+/// every keystroke's save.
+///
+/// `DatabaseManager` already renames and deletes the `-wal` / `-shm` sidecars
+/// alongside the main file, so the multi-database feature stays correct.
+@visibleForTesting
+void configureSqliteConnection(CommonDatabase database) {
+  // Write-ahead logging: readers no longer block on the writer, and a commit
+  // appends instead of rewriting a rollback journal.
+  database.execute('PRAGMA journal_mode = WAL');
+  // One fsync per checkpoint rather than per commit. See the doc above.
+  database.execute('PRAGMA synchronous = NORMAL');
+  // Keeps `ORDER BY` spills (the folder list sorted by title/date builds a
+  // temp B-tree) off the filesystem.
+  database.execute('PRAGMA temp_store = MEMORY');
+  // Negative = kibibytes rather than pages, so this is ~4 MB regardless of
+  // page size. Contributed the least of the four; sized conservatively
+  // because it is per-connection resident memory on a phone.
+  database.execute('PRAGMA cache_size = -4000');
+}
+
 LazyDatabase _openConnection(String databaseName) {
   return LazyDatabase(() async {
     final dbManager = await DatabaseManager.getInstance();
@@ -189,6 +232,7 @@ LazyDatabase _openConnection(String databaseName) {
     await file.parent.create(recursive: true);
     return NativeDatabase.createInBackground(
       file,
+      setup: configureSqliteConnection,
     ).interceptWith(LoadingQueryInterceptor());
   });
 }

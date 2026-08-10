@@ -49,9 +49,17 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
 
       if (await dbFile.exists()) {
         final stats = await dbFile.stat();
+        // Since the connection runs in WAL mode, committed data sits in the
+        // `-wal` sidecar until a checkpoint folds it back. Reporting only the
+        // main file would under-state the size right after heavy writing —
+        // exactly when a user goes looking.
+        final walFile = File('$dbPath-wal');
+        final walBytes = await walFile.exists()
+            ? (await walFile.stat()).size
+            : 0;
         setState(() {
           _databasePath = dbPath;
-          _databaseSizeBytes = stats.size;
+          _databaseSizeBytes = stats.size + walBytes;
           _lastModified = stats.modified;
           _isLoading = false;
         });

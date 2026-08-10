@@ -6,11 +6,11 @@ import '../services/loading_service.dart';
 class LoadingQueryInterceptor extends QueryInterceptor {
   final LoadingService _loadingService = LoadingService();
 
-  /// Minimum duration threshold (in ms) before showing loading indicator.
-  /// Prevents flashing for very quick queries.
-  final int thresholdMs;
-
-  LoadingQueryInterceptor({this.thresholdMs = 50});
+  /// The "don't flash for quick queries" delay lives on [LoadingService] as
+  /// `showDelay`, because it has to be decided where the notifier is flipped.
+  /// This class previously declared a `thresholdMs` that nothing read, so
+  /// every sub-millisecond statement toggled the indicator.
+  LoadingQueryInterceptor();
 
   @override
   TransactionExecutor beginTransaction(QueryExecutor parent) {
