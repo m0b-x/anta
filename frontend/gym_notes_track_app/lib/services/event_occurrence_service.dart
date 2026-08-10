@@ -78,24 +78,36 @@ class EventOccurrenceService {
 
   Future<void> reload() => _load();
 
+  /// Mutable working copy behind the published facade. Single-row mutations
+  /// patch this and republish rather than re-reading the table, mirroring
+  /// `CalendarEventService.upsert` — a checkbox tick should not cost a full
+  /// `SELECT` and map rebuild.
+  final Map<String, Map<DateTime, String>> _byEvent = {};
+
   Future<void> _load() async {
+    _byEvent.clear();
     try {
       final rows = await _dao.getAll();
-      final byEvent = <String, Map<DateTime, String>>{};
       for (final row in rows) {
-        (byEvent[row.eventId] ??= {})[_dateOnlyUtc(row.day)] = row.description;
+        (_byEvent[row.eventId] ??= {})[_dateOnlyUtc(row.day)] = row.description;
       }
-      OccurrenceDescriptions.updateCache(
-        enabled: _enabled,
-        byEvent: {
-          for (final entry in byEvent.entries)
-            entry.key: Map.unmodifiable(entry.value),
-        },
-      );
     } catch (e) {
       debugPrint('[EventOccurrenceService] Load error: $e');
-      OccurrenceDescriptions.updateCache(enabled: _enabled, byEvent: const {});
+      _byEvent.clear();
     }
+    _publish();
+  }
+
+  /// Hands the facade an unmodifiable snapshot. Copied per publish so a later
+  /// in-place patch can never mutate what render paths are already reading.
+  void _publish() {
+    OccurrenceDescriptions.updateCache(
+      enabled: _enabled,
+      byEvent: {
+        for (final entry in _byEvent.entries)
+          entry.key: Map.unmodifiable(Map<DateTime, String>.of(entry.value)),
+      },
+    );
   }
 
   // ── Mutations ────────────────────────────────────────────────────────
@@ -119,14 +131,21 @@ class EventOccurrenceService {
         updatedAt: Value(now),
       ),
     );
-    await _load();
+    (_byEvent[eventId] ??= {})[key] = description;
+    _publish();
   }
 
   /// Deletes one day's override, returning that day to the template. Distinct
   /// from writing `''`, which is a deliberately blank day.
   Future<void> clearDescription(String eventId, DateTime day) async {
-    await _dao.deleteFor(eventId, _dateOnlyUtc(day));
-    await _load();
+    final key = _dateOnlyUtc(day);
+    await _dao.deleteFor(eventId, key);
+    final forEvent = _byEvent[eventId];
+    if (forEvent != null) {
+      forEvent.remove(key);
+      if (forEvent.isEmpty) _byEvent.remove(eventId);
+    }
+    _publish();
   }
 
   /// Cascade for a deleted event. Called inside the event service's delete

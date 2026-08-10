@@ -992,7 +992,14 @@ Nothing pre-rendered is persisted or cached in the database.
   lowering the limit blocks *growth*, not editing. The getter/setter clamp to
   the slider bounds, so a corrupted value can never make every event
   unsavable. Both the counter and the Save button track the controller
-  through `ListenableBuilder`s rather than keystroke-wide `setState`. Since
+  through `ListenableBuilder`s rather than keystroke-wide `setState` — but via
+  the sheet's `_descriptionRevision` relay, **never the controller directly**:
+  `_CodeEditorState.initState` wraps the controller in its own delegate and
+  that `delegate =` setter calls `notifyListeners()` synchronously *while the
+  framework is building*, so any builder mounted above the editor throws
+  "setState() called during build" on the first frame. The relay is a
+  `ValueNotifier<int>` that defers a mid-frame notification to a post-frame
+  callback; keystrokes arrive outside the frame and take the fast path. Since
   v24 **each description scope carries its own budget and its own
   grandfather** (`_initialTemplateLength` / `_initialDayLength`), and
   `_canSave` checks both — reading only the live controller would let

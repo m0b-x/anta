@@ -52,13 +52,27 @@ abstract final class EventAgenda {
     final (start, end) = range;
 
     final needle = normalizeForSearch(query.trim());
-    final candidates = <CalendarEvent>[
-      for (final event in events)
-        if ((priorities.isEmpty || priorities.contains(event.priority)) &&
-            !hiddenCategoryIds.contains(event.categoryId) &&
-            _matches(event, needle))
-          event,
-    ];
+    // Ids whose **title** matches. A title belongs to the event, not to one of
+    // its days, so these need no per-day narrowing below — which also keeps
+    // the title normalization to once per event instead of once per
+    // (event, day).
+    final titleMatched = <String>{};
+    final candidates = <CalendarEvent>[];
+    for (final event in events) {
+      if (priorities.isNotEmpty && !priorities.contains(event.priority)) {
+        continue;
+      }
+      if (hiddenCategoryIds.contains(event.categoryId)) continue;
+      if (needle.isEmpty) {
+        candidates.add(event);
+        continue;
+      }
+      final byTitle = normalizeForSearch(event.title).contains(needle);
+      if (byTitle) titleMatched.add(event.id);
+      if (byTitle || _descriptionCandidate(event, needle)) {
+        candidates.add(event);
+      }
+    }
     if (candidates.isEmpty) return const [];
 
     final result = <EventOccurrence>[];
@@ -69,7 +83,11 @@ abstract final class EventAgenda {
     ) {
       final onDay = <CalendarEvent>[
         for (final event in candidates)
-          if (event.occursOn(day) && _matchesOnDay(event, day, needle)) event,
+          if (event.occursOn(day) &&
+              (needle.isEmpty ||
+                  titleMatched.contains(event.id) ||
+                  _dayDescriptionMatches(event, day, needle)))
+            event,
       ];
       if (onDay.isEmpty) continue;
       onDay.sort(compareWithinDay);
@@ -141,17 +159,17 @@ abstract final class EventAgenda {
   static DateTime dateOnly(DateTime date) =>
       DateTime.utc(date.year, date.month, date.day);
 
-  /// Candidate pre-filter, run once per event **before the day is known**.
+  /// Description half of the candidate pre-filter, run once per event
+  /// **before the day is known** (the title half is inlined at the call site
+  /// so a title hit can be remembered).
   ///
   /// Deliberately a *superset* test: with per-occurrence descriptions an event
-  /// may match only through text that lives on one specific day, so dropping
-  /// it here would make that text unfindable. Anything this admits is narrowed
-  /// per day by [_matchesOnDay] inside the scan.
+  /// may match only through text living on one specific day, so dropping it
+  /// here would make that text unfindable. Whatever this admits is narrowed
+  /// per day by [_dayDescriptionMatches] inside the scan.
   ///
   /// [needle] must already be folded through [normalizeForSearch].
-  static bool _matches(CalendarEvent event, String needle) {
-    if (needle.isEmpty) return true;
-    if (normalizeForSearch(event.title).contains(needle)) return true;
+  static bool _descriptionCandidate(CalendarEvent event, String needle) {
     final description = event.description;
     if (description != null &&
         normalizeForSearch(description).contains(needle)) {
@@ -164,13 +182,18 @@ abstract final class EventAgenda {
         OccurrenceDescriptions.hasAnyOverride(event.id);
   }
 
-  /// Narrows a [_matches] candidate to the days that really match, so an
-  /// override on one day cannot drag the event's every other occurrence into
-  /// the results. Short-circuits on the no-query and title-hit paths so the
-  /// common case allocates nothing.
-  static bool _matchesOnDay(CalendarEvent event, DateTime day, String needle) {
-    if (needle.isEmpty) return true;
-    if (normalizeForSearch(event.title).contains(needle)) return true;
+  /// Whether this event's description **on this day** matches, so an override
+  /// on one day cannot drag the event's every other occurrence into the
+  /// results — and, symmetrically, a day whose override no longer mentions the
+  /// needle drops out even though the template still does.
+  ///
+  /// Only reached for candidates whose title did not already match, so no
+  /// title normalization happens per day.
+  static bool _dayDescriptionMatches(
+    CalendarEvent event,
+    DateTime day,
+    String needle,
+  ) {
     final description = OccurrenceDescriptions.descriptionFor(event, day);
     return description != null &&
         normalizeForSearch(description).contains(needle);

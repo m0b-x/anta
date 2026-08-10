@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get_it/get_it.dart';
 import 'package:intl/intl.dart';
@@ -103,6 +104,15 @@ class EventEditorSheet extends StatefulWidget {
   /// description scope control.
   final DateTime? occurrenceDay;
 
+  /// A just-written override for [occurrenceDay] that may not have reached the
+  /// database yet, used instead of reading the facade.
+  ///
+  /// Closes a real race: the detail sheet flushes a checkbox tick as a bloc
+  /// event and pops in the same turn, so the editor can mount before that
+  /// write lands. Reading the facade there would show the pre-tick text and a
+  /// subsequent save could overwrite the tick.
+  final String? pendingOccurrenceDescription;
+
   /// How busy a day already is, forwarded to the date picker so a day that
   /// already carries events is visible while scheduling. Callers pass the
   /// calendar bloc's memoized per-day lookup — never a fresh query.
@@ -118,6 +128,7 @@ class EventEditorSheet extends StatefulWidget {
     required this.defaultDate,
     this.initialEvent,
     this.occurrenceDay,
+    this.pendingOccurrenceDescription,
     this.dayLoad,
     this.appearance = const CalendarAppearance(),
   });
@@ -127,6 +138,7 @@ class EventEditorSheet extends StatefulWidget {
     required DateTime defaultDate,
     CalendarEvent? initialEvent,
     DateTime? occurrenceDay,
+    String? pendingOccurrenceDescription,
     PickerDayLoad? dayLoad,
     CalendarAppearance appearance = const CalendarAppearance(),
   }) {
@@ -140,6 +152,7 @@ class EventEditorSheet extends StatefulWidget {
           defaultDate: defaultDate,
           initialEvent: initialEvent,
           occurrenceDay: occurrenceDay,
+          pendingOccurrenceDescription: pendingOccurrenceDescription,
           dayLoad: dayLoad,
           appearance: appearance,
         ),
@@ -195,6 +208,21 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
 
   final MarkdownEditorSpanBuilder _descriptionSpanBuilder =
       MarkdownEditorSpanBuilder();
+
+  /// Build-safe relay for [_descriptionController]'s notifications.
+  ///
+  /// Nothing in this sheet may listen to the controller directly. re_editor's
+  /// `_CodeEditorState.initState` wraps the controller in its own delegate and
+  /// the `delegate =` setter calls `notifyListeners()` **synchronously** — and
+  /// `initState` runs while the framework is building. Every `ListenableBuilder`
+  /// mounted above the editor (the Save button, the counter, the over-limit
+  /// hint) is already clean by then, so its `markNeedsBuild` throws
+  /// "setState() called during build" on the sheet's very first frame.
+  ///
+  /// Keystrokes arrive outside the frame and take the synchronous path; only a
+  /// mid-build notification is deferred, and repeats coalesce into one bump.
+  final ValueNotifier<int> _descriptionRevision = ValueNotifier<int>(0);
+  bool _revisionBumpScheduled = false;
 
   /// Anchors the scroll-into-view on focus.
   final GlobalKey _descriptionKey = GlobalKey();
@@ -338,6 +366,13 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   /// been materialized.
   bool _dayResetRequested = false;
 
+  /// The day text as the reset left it. The request stands while the day scope
+  /// still holds exactly this, and is outranked once the user types something
+  /// else there. Compared against the snapshot rather than the *current*
+  /// template so that editing the template afterwards still deletes the row —
+  /// a reset day should follow the new template, not be pinned to the old one.
+  String _dayResetBaseline = '';
+
   /// Resolved markdown colour palette for the description preview, so
   /// `{name:text}` runs show the user's custom colours.
   MarkdownColorPalette _colorPalette = MarkdownColorPalette.presets;
@@ -356,9 +391,16 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     // Copy-on-write seed: a day with no row of its own starts from the
     // template, so a checklist written once is what every session begins
     // with. Only an edit that actually diverges materializes a row.
-    final storedOverride = (initial != null && widget.occurrenceDay != null)
-        ? OccurrenceDescriptions.overrideFor(initial.id, widget.occurrenceDay!)
-        : null;
+    // A write still in flight beats the facade — see
+    // [EventEditorSheet.pendingOccurrenceDescription].
+    final storedOverride =
+        widget.pendingOccurrenceDescription ??
+        ((initial != null && widget.occurrenceDay != null)
+            ? OccurrenceDescriptions.overrideFor(
+                initial.id,
+                widget.occurrenceDay!,
+              )
+            : null);
     _dayMaterialized = storedOverride != null;
     _dayBuffer = storedOverride ?? _templateBuffer;
     _initialTemplateLength = _templateBuffer.length;
@@ -407,6 +449,9 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
       _descriptionController.text = _dayBuffer;
       _descriptionController.clearHistory();
     }
+    // Subscribed last, after every seeding write above, so opening the sheet
+    // costs no spurious relay bump.
+    _descriptionController.addListener(_relayDescriptionChange);
     if (_noteId != null) _loadLinkedNoteTitle();
     _loadSheetSettings();
     // The bar bloc is app-wide and only the note editor loads it, so from a
@@ -464,11 +509,33 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   @override
   void dispose() {
     _titleController.dispose();
+    _descriptionController.removeListener(_relayDescriptionChange);
     _descriptionController.dispose();
+    _descriptionRevision.dispose();
     _descriptionFocus.dispose();
     _descriptionScroll.dispose();
     _descriptionSearch.dispose();
     super.dispose();
+  }
+
+  /// Republishes a controller notification on [_descriptionRevision], moving
+  /// it out of the build phase when it arrives during one. See that field for
+  /// why a direct listener is unsafe here.
+  void _relayDescriptionChange() {
+    final phase = SchedulerBinding.instance.schedulerPhase;
+    final duringFrame =
+        phase == SchedulerPhase.persistentCallbacks ||
+        phase == SchedulerPhase.midFrameMicrotasks;
+    if (!duringFrame) {
+      _descriptionRevision.value++;
+      return;
+    }
+    if (_revisionBumpScheduled) return;
+    _revisionBumpScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _revisionBumpScheduled = false;
+      if (mounted) _descriptionRevision.value++;
+    });
   }
 
   void _onDescriptionFocusChanged() {
@@ -690,6 +757,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     setState(() {
       _dayResetRequested = true;
       _dayBuffer = _templateText;
+      _dayResetBaseline = _dayBuffer;
       if (_scope == _DescriptionScope.thisDay) {
         _descriptionController.text = _dayBuffer;
         _descriptionController.clearHistory();
@@ -1108,10 +1176,13 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
       return (null, null);
     }
     final dayText = _dayText.trim();
-    // The reset survives a scope switch (which is why it isn't cleared there),
-    // but typing something different afterwards outranks it — that is a normal
-    // divergence, not a request to delete.
-    if (_dayResetRequested && dayText == template) return (day, null);
+    // The reset survives a scope switch (which is why it isn't cleared there)
+    // and survives editing the template afterwards — the day should follow the
+    // *new* shared text, which is what deleting the row achieves. Only typing
+    // something else into the day scope outranks it.
+    if (_dayResetRequested && dayText == _dayResetBaseline.trim()) {
+      return (day, null);
+    }
     if (!_dayMaterialized && dayText == template) return (null, null);
     return (day, dayText);
   }
@@ -1179,7 +1250,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             // The counter follows the controller rather than `setState`, so a
             // keystroke repaints these few characters instead of the form.
             ListenableBuilder(
-              listenable: _descriptionController,
+              listenable: _descriptionRevision,
               builder: (context, _) {
                 final length = _descriptionController.textLength;
                 // Reports the scope on screen, whose budget is its own.
@@ -1292,7 +1363,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
         // actually over budget, so the normal case has no extra row. Reports
         // whichever scope is on screen; `_canSave` checks both.
         ListenableBuilder(
-          listenable: _descriptionController,
+          listenable: _descriptionRevision,
           builder: (context, _) {
             if (_activeScopeWithinLimit) return const SizedBox.shrink();
             return Padding(
@@ -1345,7 +1416,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             .where((s) => s.effectiveCounters.isEmpty)
             .toList();
         return ListenableBuilder(
-          listenable: _descriptionController,
+          listenable: _descriptionRevision,
           builder: (context, _) => MarkdownBar(
             shortcuts: shortcuts,
             isPreviewMode: false,
@@ -1440,7 +1511,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                   // controller directly instead of forcing keystroke-wide
                   // setStates.
                   child: ListenableBuilder(
-                    listenable: _descriptionController,
+                    listenable: _descriptionRevision,
                     builder: (context, _) => FilledButton(
                       onPressed: _canSave ? _onSave : null,
                       child: Text(l10n.save),

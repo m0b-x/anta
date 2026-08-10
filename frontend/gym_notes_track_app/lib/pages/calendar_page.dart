@@ -110,6 +110,10 @@ class _CalendarViewState extends State<_CalendarView> {
   ) async {
     final bloc = context.read<CalendarBloc>();
     var current = event;
+    // The occurrence write is dispatched, not awaited, and the sheet pops in
+    // the same turn — so the editor can mount before it lands. Carry the text
+    // forward rather than letting the editor race the database for it.
+    String? pendingOccurrence;
     final action = await EventDetailSheet.show(
       context,
       event: event,
@@ -119,13 +123,16 @@ class _CalendarViewState extends State<_CalendarView> {
         current = updated;
         bloc.add(UpdateCalendarEvent(event: updated));
       },
-      onOccurrenceChanged: (occurrenceDay, description) => bloc.add(
-        SetOccurrenceDescription(
-          eventId: event.id,
-          day: occurrenceDay,
-          description: description,
-        ),
-      ),
+      onOccurrenceChanged: (occurrenceDay, description) {
+        pendingOccurrence = description;
+        bloc.add(
+          SetOccurrenceDescription(
+            eventId: event.id,
+            day: occurrenceDay,
+            description: description,
+          ),
+        );
+      },
     );
     if (action == null || !context.mounted) return;
     switch (action) {
@@ -134,6 +141,7 @@ class _CalendarViewState extends State<_CalendarView> {
           context,
           initialEvent: current,
           occurrenceDay: day,
+          pendingOccurrenceDescription: pendingOccurrence,
         );
       case EventDetailAction.openNote:
         await _openLinkedNote(context, current);
@@ -305,6 +313,7 @@ class _CalendarViewState extends State<_CalendarView> {
     CalendarEvent? initialEvent,
     DateTime? day,
     DateTime? occurrenceDay,
+    String? pendingOccurrenceDescription,
   }) async {
     // The bloc's per-day lookup is already memoized and O(1), so handing it
     // to the picker costs nothing and lets the grid show which days are
@@ -315,6 +324,7 @@ class _CalendarViewState extends State<_CalendarView> {
       defaultDate: initialEvent?.startDate ?? day ?? DateTime.now(),
       initialEvent: initialEvent,
       occurrenceDay: occurrenceDay,
+      pendingOccurrenceDescription: pendingOccurrenceDescription,
       dayLoad: (day) => eventsForDay(day).length,
       appearance: _appearance,
     );
