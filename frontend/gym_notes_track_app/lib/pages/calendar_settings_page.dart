@@ -18,11 +18,14 @@ import '../services/public_holiday_service.dart';
 import '../services/recurrence_formatter.dart';
 import '../services/settings_service.dart';
 import '../utils/custom_snackbar.dart';
+import '../utils/settings_search.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/calendar_day_bars.dart';
 import '../widgets/calendar_day_cell.dart';
 import '../widgets/color_wheel_picker.dart';
 import '../widgets/removed_holidays_sheet.dart';
+import '../widgets/settings_search_field.dart';
+import '../widgets/settings_section_list.dart';
 import '../widgets/unified_app_bars.dart';
 
 /// Calendar settings page grouping every calendar-specific option
@@ -37,6 +40,9 @@ class CalendarSettingsPage extends StatefulWidget {
 class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
   SettingsService? _settings;
   bool _isLoading = true;
+
+  final TextEditingController _searchController = TextEditingController();
+  SettingsQuery _query = SettingsQuery.empty;
 
   CalendarAppearance _appearance = const CalendarAppearance();
   PublicHolidayService? _holidayService;
@@ -63,6 +69,12 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
   void initState() {
     super.initState();
     _loadSettings();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadSettings() async {
@@ -193,592 +205,33 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.all(16),
+          : Column(
               children: [
-                _buildSectionCard(
-                  context: context,
-                  colorScheme: colorScheme,
-                  icon: Icons.calendar_month_rounded,
-                  title: l10n.calendarSection,
-                  children: [
-                    ListTile(
-                      leading: Icon(
-                        Icons.view_week_outlined,
-                        color: colorScheme.primary,
-                      ),
-                      title: Text(l10n.calendarWeekStartTitle),
-                      trailing: DropdownButton<CalendarWeekStart>(
-                        value: _appearance.weekStart,
-                        underline: const SizedBox.shrink(),
-                        onChanged: (next) async {
-                          if (next == null || next == _appearance.weekStart) {
-                            return;
-                          }
-                          _onHapticFeedback();
-                          setState(
-                            () => _appearance = _appearance.copyWith(
-                              weekStart: next,
-                            ),
-                          );
-                          await _settings?.setCalendarWeekStart(next);
-                        },
-                        items: [
-                          for (final start in CalendarWeekStart.values)
-                            DropdownMenuItem(
-                              value: start,
-                              child: Text(
-                                _weekStartLabel(start, l10n.localeName),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    const Divider(height: 1),
-                    ListTile(
-                      leading: Icon(
-                        Icons.public_rounded,
-                        color: colorScheme.primary,
-                      ),
-                      title: Text(l10n.holidayProfileTitle),
-                      subtitle: Text(
-                        PublicHolidays.profileNameOf(_holidayProfile, l10n),
-                      ),
-                      trailing: DropdownButton<HolidayProfile>(
-                        value: _holidayProfile,
-                        underline: const SizedBox.shrink(),
-                        onChanged: (next) async {
-                          if (next == null || next == _holidayProfile) {
-                            return;
-                          }
-                          _onHapticFeedback();
-                          // Optimistic UI update — the service mutation is
-                          // transactional so a failure leaves the cache in a
-                          // consistent state and we can resync from it.
-                          setState(() => _holidayProfile = next);
-                          try {
-                            await _holidayService?.setProfile(next);
-                          } catch (e) {
-                            if (!context.mounted) return;
-                            setState(
-                              () => _holidayProfile =
-                                  _holidayService?.profile ?? next,
-                            );
-                            CustomSnackbar.showError(
-                              context,
-                              'Failed to switch holiday profile: $e',
-                            );
-                          }
-                        },
-                        items: [
-                          for (final profile in HolidayProfile.values)
-                            DropdownMenuItem(
-                              value: profile,
-                              child: Text(
-                                PublicHolidays.profileNameOf(profile, l10n),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    const Divider(height: 1),
-                    ListTile(
-                      leading: Icon(
-                        Icons.restore_rounded,
-                        color: colorScheme.primary,
-                      ),
-                      title: Text(l10n.removedHolidays),
-                      trailing: const Icon(Icons.chevron_right_rounded),
-                      onTap: _holidayService == null
-                          ? null
-                          : () => RemovedHolidaysSheet.show(
-                              context,
-                              _holidayService!,
-                            ),
-                    ),
-                  ],
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                  child: SettingsSearchField(
+                    controller: _searchController,
+                    hint: l10n.searchSettings,
+                    onChanged: (value) =>
+                        setState(() => _query = SettingsQuery.parse(value)),
+                  ),
                 ),
-                const SizedBox(height: 16),
-                _buildSectionCard(
-                  context: context,
-                  colorScheme: colorScheme,
-                  icon: Icons.palette_rounded,
-                  title: l10n.calendarAppearanceSection,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-                      child: _AppearancePreview(appearance: _appearance),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            l10n.calendarTodayStyleTitle,
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                            ),
+                Expanded(
+                  child: SettingsSectionList(
+                    query: _query,
+                    sections: _buildSections(context, theme, colorScheme, l10n),
+                    footer: [
+                      Center(
+                        child: TextButton.icon(
+                          onPressed: _showResetConfirmation,
+                          icon: const Icon(Icons.refresh_rounded),
+                          label: Text(l10n.resetToDefaults),
+                          style: TextButton.styleFrom(
+                            foregroundColor: colorScheme.error,
                           ),
-                          const SizedBox(height: 8),
-                          SegmentedButton<CalendarTodayStyle>(
-                            segments: [
-                              ButtonSegment(
-                                value: CalendarTodayStyle.tonal,
-                                label: Text(l10n.todayStyleTonal),
-                              ),
-                              ButtonSegment(
-                                value: CalendarTodayStyle.ring,
-                                label: Text(l10n.todayStyleRing),
-                              ),
-                              ButtonSegment(
-                                value: CalendarTodayStyle.filled,
-                                label: Text(l10n.todayStyleFilled),
-                              ),
-                            ],
-                            selected: {_appearance.todayStyle},
-                            showSelectedIcon: false,
-                            onSelectionChanged: (sel) async {
-                              _onHapticFeedback();
-                              setState(
-                                () => _appearance = _appearance.copyWith(
-                                  todayStyle: sel.first,
-                                ),
-                              );
-                              await _settings?.setCalendarTodayStyle(sel.first);
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            l10n.calendarAccentColor,
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            l10n.calendarAccentColorDesc,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Wrap(
-                            spacing: 10,
-                            runSpacing: 10,
-                            children: [
-                              _AccentColorDot(
-                                color: colorScheme.primary,
-                                icon: Icons.format_color_reset_rounded,
-                                tooltip: l10n.calendarAccentThemeDefault,
-                                selected: _appearance.accentColorValue == null,
-                                onTap: () async {
-                                  _onHapticFeedback();
-                                  setState(
-                                    () => _appearance = _appearance.copyWith(
-                                      clearAccentColor: true,
-                                    ),
-                                  );
-                                  await _settings?.setCalendarAccentColor(null);
-                                },
-                              ),
-                              for (final swatch in CalendarColors.swatchPalette)
-                                _AccentColorDot(
-                                  color: Color(swatch),
-                                  selected:
-                                      _appearance.accentColorValue == swatch,
-                                  onTap: () async {
-                                    _onHapticFeedback();
-                                    setState(
-                                      () => _appearance = _appearance.copyWith(
-                                        accentColorValue: swatch,
-                                      ),
-                                    );
-                                    await _settings?.setCalendarAccentColor(
-                                      swatch,
-                                    );
-                                  },
-                                ),
-                              if (_appearance.accentColorValue != null &&
-                                  !CalendarColors.swatchPalette.contains(
-                                    _appearance.accentColorValue,
-                                  ))
-                                _AccentColorDot(
-                                  color: Color(_appearance.accentColorValue!),
-                                  selected: true,
-                                  onTap: _pickCustomAccent,
-                                ),
-                              _AccentColorDot(
-                                color: colorScheme.surfaceContainerHighest,
-                                icon: Icons.colorize_rounded,
-                                tooltip: l10n.eventColorCustomTitle,
-                                selected: false,
-                                onTap: _pickCustomAccent,
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            l10n.calendarMarkerStyleTitle,
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          SegmentedButton<CalendarMarkerStyle>(
-                            segments: [
-                              ButtonSegment(
-                                value: CalendarMarkerStyle.bars,
-                                icon: const Icon(Icons.view_agenda_outlined),
-                                label: Text(l10n.markerStyleBars),
-                              ),
-                              ButtonSegment(
-                                value: CalendarMarkerStyle.dots,
-                                icon: const Icon(Icons.more_horiz_rounded),
-                                label: Text(l10n.markerStyleDots),
-                              ),
-                            ],
-                            selected: {_appearance.markerStyle},
-                            showSelectedIcon: false,
-                            onSelectionChanged: (sel) async {
-                              _onHapticFeedback();
-                              setState(
-                                () => _appearance = _appearance.copyWith(
-                                  markerStyle: sel.first,
-                                ),
-                              );
-                              await _settings?.setCalendarMarkerStyle(
-                                sel.first,
-                              );
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                    _buildSliderTile(
-                      context: context,
-                      colorScheme: colorScheme,
-                      title: l10n.calendarMaxDayBars,
-                      subtitle: l10n.calendarMaxDayBarsDesc(
-                        _appearance.maxDayBars,
-                      ),
-                      value: _appearance.maxDayBars.toDouble(),
-                      min: 1,
-                      max: 6,
-                      divisions: 5,
-                      onChanged: (value) async {
-                        _onHapticFeedback();
-                        setState(
-                          () => _appearance = _appearance.copyWith(
-                            maxDayBars: value.round(),
-                          ),
-                        );
-                        await _settings?.setCalendarMaxDayBars(value.round());
-                      },
-                    ),
-                    const Divider(height: 1),
-                    SwitchListTile(
-                      value: _appearance.highlightWeekends,
-                      secondary: Icon(
-                        Icons.weekend_outlined,
-                        color: colorScheme.primary,
-                      ),
-                      title: Text(l10n.calendarHighlightWeekends),
-                      subtitle: Text(l10n.calendarHighlightWeekendsDesc),
-                      onChanged: (value) async {
-                        _onHapticFeedback();
-                        setState(
-                          () => _appearance = _appearance.copyWith(
-                            highlightWeekends: value,
-                          ),
-                        );
-                        await _settings?.setCalendarHighlightWeekends(value);
-                      },
-                    ),
-                    SwitchListTile(
-                      value: _appearance.showWeekNumbers,
-                      secondary: Icon(
-                        Icons.tag_rounded,
-                        color: colorScheme.primary,
-                      ),
-                      title: Text(l10n.calendarShowWeekNumbers),
-                      subtitle: Text(l10n.calendarShowWeekNumbersDesc),
-                      onChanged: (value) async {
-                        _onHapticFeedback();
-                        setState(
-                          () => _appearance = _appearance.copyWith(
-                            showWeekNumbers: value,
-                          ),
-                        );
-                        await _settings?.setCalendarShowWeekNumbers(value);
-                      },
-                    ),
-                    SwitchListTile(
-                      value: _appearance.showRecurrenceLabels,
-                      secondary: Icon(
-                        Icons.repeat_rounded,
-                        color: colorScheme.primary,
-                      ),
-                      title: Text(l10n.calendarShowRecurrenceLabels),
-                      subtitle: Text(l10n.calendarShowRecurrenceLabelsDesc),
-                      onChanged: (value) async {
-                        _onHapticFeedback();
-                        setState(
-                          () => _appearance = _appearance.copyWith(
-                            showRecurrenceLabels: value,
-                          ),
-                        );
-                        await _settings?.setCalendarShowRecurrenceLabels(value);
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                _buildSectionCard(
-                  context: context,
-                  colorScheme: colorScheme,
-                  icon: Icons.category_rounded,
-                  title: l10n.calendarCategories,
-                  children: [
-                    ListTile(
-                      leading: Icon(
-                        Icons.palette_outlined,
-                        color: colorScheme.primary,
-                      ),
-                      title: Text(l10n.calendarCategories),
-                      subtitle: Text(l10n.calendarCategoriesDesc),
-                      trailing: const Icon(Icons.chevron_right_rounded),
-                      onTap: () => AppNavigator.toCalendarCategories(context),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                _buildSectionCard(
-                  context: context,
-                  colorScheme: colorScheme,
-                  icon: Icons.restaurant_menu_rounded,
-                  title: l10n.fastingSectionTitle,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                      child: Text(
-                        l10n.fastingSectionDesc,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
-                    for (final tradition in FastingTradition.values) ...[
-                      SwitchListTile(
-                        value: _fastingTraditions.contains(tradition),
-                        secondary: Icon(
-                          _fastingStyleOf(tradition).iconKey == null
-                              ? FastingCalendar.defaultIconOf(tradition)
-                              : (CalendarIcons.forKey(
-                                      _fastingStyleOf(tradition).iconKey,
-                                    ) ??
-                                    FastingCalendar.defaultIconOf(tradition)),
-                          color: _fastingTraditions.contains(tradition)
-                              ? _fastingStyleOf(
-                                  tradition,
-                                ).colorOr(CalendarColors.fasting)
-                              : colorScheme.onSurfaceVariant,
-                        ),
-                        title: Text(
-                          FastingCalendar.traditionNameOf(tradition, l10n),
-                        ),
-                        onChanged: (value) =>
-                            _toggleFastingTradition(tradition, value),
-                      ),
-                      // The appearance row only exists for enabled
-                      // traditions — configuring the look of something that
-                      // draws nothing is noise.
-                      if (_fastingTraditions.contains(tradition))
-                        Padding(
-                          padding: const EdgeInsets.only(left: 32),
-                          child: ListTile(
-                            dense: true,
-                            leading: Icon(
-                              Icons.tune_rounded,
-                              color: colorScheme.primary,
-                            ),
-                            title: Text(l10n.fastingAppearanceTitle),
-                            subtitle: Text(
-                              _fastingStyleSummary(tradition, l10n),
-                            ),
-                            trailing: const Icon(Icons.chevron_right_rounded),
-                            onTap: () => _editFastingStyle(tradition),
-                          ),
-                        ),
-                    ],
-                    if (_fastingTraditions.contains(
-                      FastingTradition.orthodox,
-                    )) ...[
-                      const Divider(height: 1),
-                      SwitchListTile(
-                        value: _fastingGreatFasts,
-                        secondary: Icon(
-                          Icons.date_range_rounded,
-                          color: colorScheme.primary,
-                        ),
-                        title: Text(l10n.fastingOrthodoxGreatFasts),
-                        subtitle: Text(l10n.fastingOrthodoxGreatFastsDesc),
-                        onChanged: (value) async {
-                          _onHapticFeedback();
-                          setState(() => _fastingGreatFasts = value);
-                          await _settings?.setFastingOrthodoxGreatFasts(value);
-                        },
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              l10n.fastingWeekdayDaysTitle,
-                              style: theme.textTheme.labelLarge?.copyWith(
-                                color: colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: [
-                                for (var w = 1; w <= 7; w++)
-                                  FilterChip(
-                                    label: Text(
-                                      RecurrenceFormatter.weekdayShort(
-                                        w,
-                                        l10n.localeName,
-                                      ),
-                                    ),
-                                    selected: _fastingWeekdays.contains(w),
-                                    onSelected: (_) => _toggleFastingWeekday(w),
-                                  ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              l10n.fastingWeekdayDaysDesc,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
                         ),
                       ),
                     ],
-                  ],
-                ),
-                const SizedBox(height: 16),
-                _buildSectionCard(
-                  context: context,
-                  colorScheme: colorScheme,
-                  icon: Icons.event_note_rounded,
-                  title: l10n.calendarEventsSection,
-                  children: [
-                    SwitchListTile(
-                      value: _perOccurrenceDescriptions,
-                      secondary: Icon(
-                        Icons.event_note_outlined,
-                        color: colorScheme.primary,
-                      ),
-                      title: Text(l10n.eventPerOccurrenceDescriptions),
-                      subtitle: Text(l10n.eventPerOccurrenceDescriptionsDesc),
-                      onChanged: (value) async {
-                        _onHapticFeedback();
-                        setState(() => _perOccurrenceDescriptions = value);
-                        // Through the service, never SettingsService: the
-                        // write and the facade republish must be one step.
-                        // Existing per-day rows are never touched, so turning
-                        // this off is dormancy rather than deletion.
-                        await _occurrenceService?.setEnabled(value);
-                      },
-                    ),
-                    const Divider(height: 1),
-                    _buildSliderTile(
-                      context: context,
-                      colorScheme: colorScheme,
-                      title: l10n.eventDescriptionLimit,
-                      subtitle: l10n.eventDescriptionLimitDesc(
-                        _descriptionLimit,
-                      ),
-                      value: _descriptionLimit.toDouble(),
-                      min: SettingsKeys.minEventDescriptionLimit.toDouble(),
-                      max: SettingsKeys.maxEventDescriptionLimit.toDouble(),
-                      divisions:
-                          (SettingsKeys.maxEventDescriptionLimit -
-                              SettingsKeys.minEventDescriptionLimit) ~/
-                          SettingsKeys.eventDescriptionLimitStep,
-                      onChanged: (value) async {
-                        _onHapticFeedback();
-                        setState(() => _descriptionLimit = value.round());
-                        await _settings?.setEventDescriptionLimit(
-                          value.round(),
-                        );
-                      },
-                    ),
-                    const Divider(height: 1),
-                    ListTile(
-                      enabled: _eventCount > 0,
-                      leading: Icon(
-                        Icons.delete_sweep_outlined,
-                        color: _eventCount > 0
-                            ? colorScheme.error
-                            : colorScheme.onSurfaceVariant,
-                      ),
-                      title: Text(
-                        l10n.deleteAllEvents,
-                        style: TextStyle(
-                          color: _eventCount > 0 ? colorScheme.error : null,
-                        ),
-                      ),
-                      subtitle: Text(
-                        _eventCount > 0
-                            ? l10n.deleteAllEventsDesc
-                            : l10n.noEventsToDelete,
-                      ),
-                      onTap: _eventCount > 0 ? _confirmDeleteAllEvents : null,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 32),
-                Center(
-                  child: TextButton.icon(
-                    onPressed: _showResetConfirmation,
-                    icon: const Icon(Icons.refresh_rounded),
-                    label: Text(l10n.resetToDefaults),
-                    style: TextButton.styleFrom(
-                      foregroundColor: colorScheme.error,
-                    ),
                   ),
                 ),
               ],
@@ -786,55 +239,596 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     );
   }
 
-  Widget _buildSectionCard({
-    required BuildContext context,
-    required ColorScheme colorScheme,
-    required IconData icon,
-    required String title,
-    required List<Widget> children,
-  }) {
-    return Card(
-      elevation: 0,
-      color: colorScheme.surfaceContainer,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
+  List<SettingsSectionData> _buildSections(
+    BuildContext context,
+    ThemeData theme,
+    ColorScheme colorScheme,
+    AppLocalizations l10n,
+  ) {
+    return [
+      _buildCalendarSection(colorScheme, l10n),
+      _buildAppearanceSection(colorScheme, l10n),
+      _buildCategoriesSection(colorScheme, l10n),
+      _buildFastingSection(theme, colorScheme, l10n),
+      _buildEventsSection(colorScheme, l10n),
+    ];
+  }
+
+  SettingsSectionData _buildCalendarSection(
+    ColorScheme colorScheme,
+    AppLocalizations l10n,
+  ) {
+    return SettingsSectionData(
+      icon: Icons.calendar_month_rounded,
+      title: l10n.calendarSection,
+      entries: [
+        SettingsEntry(
+          title: l10n.calendarWeekStartTitle,
+          builder: (context, title, description) => ListTile(
+            leading: Icon(
+              Icons.view_week_outlined,
+              color: colorScheme.primary,
+            ),
+            title: title,
+            trailing: DropdownButton<CalendarWeekStart>(
+              value: _appearance.weekStart,
+              underline: const SizedBox.shrink(),
+              onChanged: (next) async {
+                if (next == null || next == _appearance.weekStart) {
+                  return;
+                }
+                _onHapticFeedback();
+                setState(
+                  () => _appearance = _appearance.copyWith(weekStart: next),
+                );
+                await _settings?.setCalendarWeekStart(next);
+              },
+              items: [
+                for (final start in CalendarWeekStart.values)
+                  DropdownMenuItem(
+                    value: start,
+                    child: Text(_weekStartLabel(start, l10n.localeName)),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        SettingsEntry(
+          title: l10n.holidayProfileTitle,
+          description: PublicHolidays.profileNameOf(_holidayProfile, l10n),
+          builder: (context, title, description) => ListTile(
+            leading: Icon(Icons.public_rounded, color: colorScheme.primary),
+            title: title,
+            subtitle: description,
+            trailing: DropdownButton<HolidayProfile>(
+              value: _holidayProfile,
+              underline: const SizedBox.shrink(),
+              onChanged: (next) async {
+                if (next == null || next == _holidayProfile) {
+                  return;
+                }
+                _onHapticFeedback();
+                // Optimistic UI update — the service mutation is
+                // transactional so a failure leaves the cache in a
+                // consistent state and we can resync from it.
+                setState(() => _holidayProfile = next);
+                try {
+                  await _holidayService?.setProfile(next);
+                } catch (e) {
+                  if (!context.mounted) return;
+                  setState(
+                    () => _holidayProfile = _holidayService?.profile ?? next,
+                  );
+                  CustomSnackbar.showError(
+                    context,
+                    'Failed to switch holiday profile: $e',
+                  );
+                }
+              },
+              items: [
+                for (final profile in HolidayProfile.values)
+                  DropdownMenuItem(
+                    value: profile,
+                    child: Text(PublicHolidays.profileNameOf(profile, l10n)),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        SettingsEntry(
+          title: l10n.removedHolidays,
+          builder: (context, title, description) => ListTile(
+            leading: Icon(Icons.restore_rounded, color: colorScheme.primary),
+            title: title,
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: _holidayService == null
+                ? null
+                : () => RemovedHolidaysSheet.show(context, _holidayService!),
+          ),
+        ),
+      ],
+    );
+  }
+
+  SettingsSectionData _buildAppearanceSection(
+    ColorScheme colorScheme,
+    AppLocalizations l10n,
+  ) {
+    return SettingsSectionData(
+      icon: Icons.palette_rounded,
+      title: l10n.calendarAppearanceSection,
+      intro: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+        child: _AppearancePreview(appearance: _appearance),
+      ),
+      entries: [
+        SettingsEntry(
+          title: l10n.calendarTodayStyleTitle,
+          builder: (context, title, description) => Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: colorScheme.primaryContainer,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(icon, size: 20, color: colorScheme.primary),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: colorScheme.onSurface,
-                  ),
+                title,
+                const SizedBox(height: 8),
+                SegmentedButton<CalendarTodayStyle>(
+                  segments: [
+                    ButtonSegment(
+                      value: CalendarTodayStyle.tonal,
+                      label: Text(l10n.todayStyleTonal),
+                    ),
+                    ButtonSegment(
+                      value: CalendarTodayStyle.ring,
+                      label: Text(l10n.todayStyleRing),
+                    ),
+                    ButtonSegment(
+                      value: CalendarTodayStyle.filled,
+                      label: Text(l10n.todayStyleFilled),
+                    ),
+                  ],
+                  selected: {_appearance.todayStyle},
+                  showSelectedIcon: false,
+                  onSelectionChanged: (sel) async {
+                    _onHapticFeedback();
+                    setState(
+                      () => _appearance = _appearance.copyWith(
+                        todayStyle: sel.first,
+                      ),
+                    );
+                    await _settings?.setCalendarTodayStyle(sel.first);
+                  },
                 ),
               ],
             ),
           ),
-          ...children,
-        ],
-      ),
+        ),
+        SettingsEntry(
+          title: l10n.calendarAccentColor,
+          description: l10n.calendarAccentColorDesc,
+          builder: (context, title, description) => Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                title,
+                const SizedBox(height: 4),
+                ?description,
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    _AccentColorDot(
+                      color: colorScheme.primary,
+                      icon: Icons.format_color_reset_rounded,
+                      tooltip: l10n.calendarAccentThemeDefault,
+                      selected: _appearance.accentColorValue == null,
+                      onTap: () async {
+                        _onHapticFeedback();
+                        setState(
+                          () => _appearance = _appearance.copyWith(
+                            clearAccentColor: true,
+                          ),
+                        );
+                        await _settings?.setCalendarAccentColor(null);
+                      },
+                    ),
+                    for (final swatch in CalendarColors.swatchPalette)
+                      _AccentColorDot(
+                        color: Color(swatch),
+                        selected: _appearance.accentColorValue == swatch,
+                        onTap: () async {
+                          _onHapticFeedback();
+                          setState(
+                            () => _appearance = _appearance.copyWith(
+                              accentColorValue: swatch,
+                            ),
+                          );
+                          await _settings?.setCalendarAccentColor(swatch);
+                        },
+                      ),
+                    if (_appearance.accentColorValue != null &&
+                        !CalendarColors.swatchPalette.contains(
+                          _appearance.accentColorValue,
+                        ))
+                      _AccentColorDot(
+                        color: Color(_appearance.accentColorValue!),
+                        selected: true,
+                        onTap: _pickCustomAccent,
+                      ),
+                    _AccentColorDot(
+                      color: colorScheme.surfaceContainerHighest,
+                      icon: Icons.colorize_rounded,
+                      tooltip: l10n.eventColorCustomTitle,
+                      selected: false,
+                      onTap: _pickCustomAccent,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        SettingsEntry(
+          title: l10n.calendarMarkerStyleTitle,
+          builder: (context, title, description) => Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                title,
+                const SizedBox(height: 8),
+                SegmentedButton<CalendarMarkerStyle>(
+                  segments: [
+                    ButtonSegment(
+                      value: CalendarMarkerStyle.bars,
+                      icon: const Icon(Icons.view_agenda_outlined),
+                      label: Text(l10n.markerStyleBars),
+                    ),
+                    ButtonSegment(
+                      value: CalendarMarkerStyle.dots,
+                      icon: const Icon(Icons.more_horiz_rounded),
+                      label: Text(l10n.markerStyleDots),
+                    ),
+                  ],
+                  selected: {_appearance.markerStyle},
+                  showSelectedIcon: false,
+                  onSelectionChanged: (sel) async {
+                    _onHapticFeedback();
+                    setState(
+                      () => _appearance = _appearance.copyWith(
+                        markerStyle: sel.first,
+                      ),
+                    );
+                    await _settings?.setCalendarMarkerStyle(sel.first);
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+        SettingsEntry(
+          title: l10n.calendarMaxDayBars,
+          description: l10n.calendarMaxDayBarsDesc(_appearance.maxDayBars),
+          builder: (context, title, description) => _sliderRow(
+            title: title,
+            description: description,
+            value: _appearance.maxDayBars.toDouble(),
+            min: 1,
+            max: 6,
+            divisions: 5,
+            onChanged: (value) async {
+              _onHapticFeedback();
+              setState(
+                () => _appearance = _appearance.copyWith(
+                  maxDayBars: value.round(),
+                ),
+              );
+              await _settings?.setCalendarMaxDayBars(value.round());
+            },
+          ),
+        ),
+        SettingsEntry(
+          title: l10n.calendarHighlightWeekends,
+          description: l10n.calendarHighlightWeekendsDesc,
+          builder: (context, title, description) => SwitchListTile(
+            value: _appearance.highlightWeekends,
+            secondary: Icon(
+              Icons.weekend_outlined,
+              color: colorScheme.primary,
+            ),
+            title: title,
+            subtitle: description,
+            onChanged: (value) async {
+              _onHapticFeedback();
+              setState(
+                () => _appearance = _appearance.copyWith(
+                  highlightWeekends: value,
+                ),
+              );
+              await _settings?.setCalendarHighlightWeekends(value);
+            },
+          ),
+        ),
+        SettingsEntry(
+          title: l10n.calendarShowWeekNumbers,
+          description: l10n.calendarShowWeekNumbersDesc,
+          builder: (context, title, description) => SwitchListTile(
+            value: _appearance.showWeekNumbers,
+            secondary: Icon(Icons.tag_rounded, color: colorScheme.primary),
+            title: title,
+            subtitle: description,
+            onChanged: (value) async {
+              _onHapticFeedback();
+              setState(
+                () => _appearance = _appearance.copyWith(
+                  showWeekNumbers: value,
+                ),
+              );
+              await _settings?.setCalendarShowWeekNumbers(value);
+            },
+          ),
+        ),
+        SettingsEntry(
+          title: l10n.calendarShowRecurrenceLabels,
+          description: l10n.calendarShowRecurrenceLabelsDesc,
+          builder: (context, title, description) => SwitchListTile(
+            value: _appearance.showRecurrenceLabels,
+            secondary: Icon(Icons.repeat_rounded, color: colorScheme.primary),
+            title: title,
+            subtitle: description,
+            onChanged: (value) async {
+              _onHapticFeedback();
+              setState(
+                () => _appearance = _appearance.copyWith(
+                  showRecurrenceLabels: value,
+                ),
+              );
+              await _settings?.setCalendarShowRecurrenceLabels(value);
+            },
+          ),
+        ),
+      ],
     );
   }
 
-  Widget _buildSliderTile({
-    required BuildContext context,
-    required ColorScheme colorScheme,
-    required String title,
-    required String subtitle,
+  SettingsSectionData _buildCategoriesSection(
+    ColorScheme colorScheme,
+    AppLocalizations l10n,
+  ) {
+    return SettingsSectionData(
+      icon: Icons.category_rounded,
+      title: l10n.calendarCategories,
+      entries: [
+        SettingsEntry(
+          title: l10n.calendarCategories,
+          description: l10n.calendarCategoriesDesc,
+          builder: (context, title, description) => ListTile(
+            leading: Icon(Icons.palette_outlined, color: colorScheme.primary),
+            title: title,
+            subtitle: description,
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => AppNavigator.toCalendarCategories(context),
+          ),
+        ),
+      ],
+    );
+  }
+
+  SettingsSectionData _buildFastingSection(
+    ThemeData theme,
+    ColorScheme colorScheme,
+    AppLocalizations l10n,
+  ) {
+    final entries = <SettingsEntry>[];
+
+    for (final tradition in FastingTradition.values) {
+      final traditionName = FastingCalendar.traditionNameOf(tradition, l10n);
+      entries.add(
+        SettingsEntry(
+          title: traditionName,
+          builder: (context, title, description) => SwitchListTile(
+            value: _fastingTraditions.contains(tradition),
+            secondary: Icon(
+              _fastingStyleOf(tradition).iconKey == null
+                  ? FastingCalendar.defaultIconOf(tradition)
+                  : (CalendarIcons.forKey(
+                          _fastingStyleOf(tradition).iconKey,
+                        ) ??
+                        FastingCalendar.defaultIconOf(tradition)),
+              color: _fastingTraditions.contains(tradition)
+                  ? _fastingStyleOf(tradition).colorOr(CalendarColors.fasting)
+                  : colorScheme.onSurfaceVariant,
+            ),
+            title: title,
+            onChanged: (value) => _toggleFastingTradition(tradition, value),
+          ),
+        ),
+      );
+      // The appearance row only exists for enabled traditions — configuring
+      // the look of something that draws nothing is noise.
+      if (_fastingTraditions.contains(tradition)) {
+        entries.add(
+          SettingsEntry(
+            title: l10n.fastingAppearanceTitle,
+            description: _fastingStyleSummary(tradition, l10n),
+            // Searchable by the tradition it belongs to, since the visible
+            // title is the same word for every one of them.
+            keywords: [traditionName],
+            builder: (context, title, description) => Padding(
+              padding: const EdgeInsets.only(left: 32),
+              child: ListTile(
+                dense: true,
+                leading: Icon(Icons.tune_rounded, color: colorScheme.primary),
+                title: title,
+                subtitle: description,
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => _editFastingStyle(tradition),
+              ),
+            ),
+          ),
+        );
+      }
+    }
+
+    if (_fastingTraditions.contains(FastingTradition.orthodox)) {
+      entries.add(
+        SettingsEntry(
+          title: l10n.fastingOrthodoxGreatFasts,
+          description: l10n.fastingOrthodoxGreatFastsDesc,
+          builder: (context, title, description) => SwitchListTile(
+            value: _fastingGreatFasts,
+            secondary: Icon(
+              Icons.date_range_rounded,
+              color: colorScheme.primary,
+            ),
+            title: title,
+            subtitle: description,
+            onChanged: (value) async {
+              _onHapticFeedback();
+              setState(() => _fastingGreatFasts = value);
+              await _settings?.setFastingOrthodoxGreatFasts(value);
+            },
+          ),
+        ),
+      );
+      entries.add(
+        SettingsEntry(
+          title: l10n.fastingWeekdayDaysTitle,
+          description: l10n.fastingWeekdayDaysDesc,
+          titleStyle: theme.textTheme.labelLarge?.copyWith(
+            color: colorScheme.onSurfaceVariant,
+          ),
+          descriptionStyle: theme.textTheme.bodySmall?.copyWith(
+            color: colorScheme.onSurfaceVariant,
+          ),
+          builder: (context, title, description) => Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                title,
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (var w = 1; w <= 7; w++)
+                      FilterChip(
+                        label: Text(
+                          RecurrenceFormatter.weekdayShort(
+                            w,
+                            l10n.localeName,
+                          ),
+                        ),
+                        selected: _fastingWeekdays.contains(w),
+                        onSelected: (_) => _toggleFastingWeekday(w),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                ?description,
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return SettingsSectionData(
+      icon: Icons.restaurant_menu_rounded,
+      title: l10n.fastingSectionTitle,
+      intro: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+        child: Text(
+          l10n.fastingSectionDesc,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+      entries: entries,
+    );
+  }
+
+  SettingsSectionData _buildEventsSection(
+    ColorScheme colorScheme,
+    AppLocalizations l10n,
+  ) {
+    return SettingsSectionData(
+      icon: Icons.event_note_rounded,
+      title: l10n.calendarEventsSection,
+      entries: [
+        SettingsEntry(
+          title: l10n.eventPerOccurrenceDescriptions,
+          description: l10n.eventPerOccurrenceDescriptionsDesc,
+          builder: (context, title, description) => SwitchListTile(
+            value: _perOccurrenceDescriptions,
+            secondary: Icon(
+              Icons.event_note_outlined,
+              color: colorScheme.primary,
+            ),
+            title: title,
+            subtitle: description,
+            onChanged: (value) async {
+              _onHapticFeedback();
+              setState(() => _perOccurrenceDescriptions = value);
+              // Through the service, never SettingsService: the write and
+              // the facade republish must be one step. Existing per-day rows
+              // are never touched, so turning this off is dormancy rather
+              // than deletion.
+              await _occurrenceService?.setEnabled(value);
+            },
+          ),
+        ),
+        SettingsEntry(
+          title: l10n.eventDescriptionLimit,
+          description: l10n.eventDescriptionLimitDesc(_descriptionLimit),
+          builder: (context, title, description) => _sliderRow(
+            title: title,
+            description: description,
+            value: _descriptionLimit.toDouble(),
+            min: SettingsKeys.minEventDescriptionLimit.toDouble(),
+            max: SettingsKeys.maxEventDescriptionLimit.toDouble(),
+            divisions:
+                (SettingsKeys.maxEventDescriptionLimit -
+                    SettingsKeys.minEventDescriptionLimit) ~/
+                SettingsKeys.eventDescriptionLimitStep,
+            onChanged: (value) async {
+              _onHapticFeedback();
+              setState(() => _descriptionLimit = value.round());
+              await _settings?.setEventDescriptionLimit(value.round());
+            },
+          ),
+        ),
+        SettingsEntry(
+          title: l10n.deleteAllEvents,
+          description: _eventCount > 0
+              ? l10n.deleteAllEventsDesc
+              : l10n.noEventsToDelete,
+          titleStyle: TextStyle(
+            color: _eventCount > 0 ? colorScheme.error : null,
+          ),
+          builder: (context, title, description) => ListTile(
+            enabled: _eventCount > 0,
+            leading: Icon(
+              Icons.delete_sweep_outlined,
+              color: _eventCount > 0
+                  ? colorScheme.error
+                  : colorScheme.onSurfaceVariant,
+            ),
+            title: title,
+            subtitle: description,
+            onTap: _eventCount > 0 ? _confirmDeleteAllEvents : null,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _sliderRow({
+    required Widget title,
+    required Widget? description,
     required double value,
     required double min,
     required double max,
@@ -846,15 +840,9 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-          ),
+          title,
           const SizedBox(height: 4),
-          Text(
-            subtitle,
-            style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
-          ),
+          ?description,
           Slider(
             value: value,
             min: min,

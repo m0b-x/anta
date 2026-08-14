@@ -2049,5 +2049,16 @@
   "collapseAll": "Alle einklappen",
   "expandAll": "Alle ausklappen",
   "searchUtilityButtons": "Schaltflächen suchen",
-  "noMatchesFound": "Keine Treffer"
+  "noMatchesFound": "Keine Treffer",
+  "searchSettings": "Einstellungen suchen",
+  "hapticFeedbackKeywords": "Vibration, Summen, Rütteln",
+  "autoSaveKeywords": "Sicherung, Speichern, Backup",
+  "wordWrapKeywords": "Zeile, Überlauf, Umbruch",
+  "swipeKeywords": "Geste, Wischen, Ziehen",
+  "liveMarkdownKeywords": "Vorschau, Darstellung, Formatierung",
+  "lineNumbersKeywords": "Zeilennummern, Nummerierung",
+  "confirmDeleteKeywords": "Papierkorb, Entfernen, Nachfrage",
+  "performanceKeywords": "Geschwindigkeit, Verzögerung, Abschnitt, schnell",
+  "cursorKeywords": "Einfügemarke, aktuelle Zeile",
+  "keyboardKeywords": "Tippen, Eingabe"
 }

@@ -4,7 +4,10 @@ import '../l10n/app_localizations.dart';
 import '../widgets/app_dialogs.dart';
 import '../services/settings_service.dart';
 import '../utils/custom_snackbar.dart';
+import '../utils/settings_search.dart';
 import '../widgets/app_drawer.dart';
+import '../widgets/settings_search_field.dart';
+import '../widgets/settings_section_list.dart';
 import '../widgets/unified_app_bars.dart';
 
 /// Controls settings page for managing gestures and interactions
@@ -18,6 +21,9 @@ class ControlsSettingsPage extends StatefulWidget {
 class _ControlsSettingsPageState extends State<ControlsSettingsPage> {
   SettingsService? _settings;
   bool _isLoading = true;
+
+  final TextEditingController _searchController = TextEditingController();
+  SettingsQuery _query = SettingsQuery.empty;
 
   // Settings values
   bool _folderSwipeEnabled = true;
@@ -47,6 +53,12 @@ class _ControlsSettingsPageState extends State<ControlsSettingsPage> {
   void initState() {
     super.initState();
     _loadSettings();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadSettings() async {
@@ -99,6 +111,10 @@ class _ControlsSettingsPageState extends State<ControlsSettingsPage> {
     }
   }
 
+  /// Splits a localized comma-separated keyword string into search terms.
+  List<String> _keywords(String csv) =>
+      csv.split(',').map((k) => k.trim()).where((k) => k.isNotEmpty).toList();
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -112,320 +128,34 @@ class _ControlsSettingsPageState extends State<ControlsSettingsPage> {
         top: false,
         child: _isLoading
             ? const Center(child: CircularProgressIndicator())
-            : ListView(
-                padding: const EdgeInsets.all(16),
+            : Column(
                 children: [
-                  // Gestures section
-                  _buildSectionCard(
-                    context: context,
-                    colorScheme: colorScheme,
-                    icon: Icons.swipe_rounded,
-                    title: l10n.gesturesSection,
-                    children: [
-                      _buildSwitchTile(
-                        context: context,
-                        title: l10n.folderSwipeGesture,
-                        subtitle: l10n.folderSwipeGestureDesc,
-                        value: _folderSwipeEnabled,
-                        onChanged: (value) async {
-                          _onHapticFeedback();
-                          setState(() => _folderSwipeEnabled = value);
-                          await _settings?.setFolderSwipeEnabled(value);
-                        },
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                    child: SettingsSearchField(
+                      controller: _searchController,
+                      hint: l10n.searchSettings,
+                      onChanged: (value) => setState(
+                        () => _query = SettingsQuery.parse(value),
                       ),
-                      const Divider(height: 1),
-                      _buildSwitchTile(
-                        context: context,
-                        title: l10n.noteSwipeGesture,
-                        subtitle: l10n.noteSwipeGestureDesc,
-                        value: _noteSwipeEnabled,
-                        onChanged: (value) async {
-                          _onHapticFeedback();
-                          setState(() => _noteSwipeEnabled = value);
-                          await _settings?.setNoteSwipeEnabled(value);
-                        },
-                      ),
-                    ],
+                    ),
                   ),
-
-                  const SizedBox(height: 16),
-
-                  // Feedback section
-                  _buildSectionCard(
-                    context: context,
-                    colorScheme: colorScheme,
-                    icon: Icons.vibration_rounded,
-                    title: l10n.feedbackSection,
-                    children: [
-                      _buildSwitchTile(
-                        context: context,
-                        title: l10n.hapticFeedback,
-                        subtitle: l10n.hapticFeedbackDesc,
-                        value: _hapticFeedback,
-                        onChanged: (value) async {
-                          if (value) HapticFeedback.lightImpact();
-                          setState(() => _hapticFeedback = value);
-                          await _settings?.setHapticFeedback(value);
-                        },
-                      ),
-                      const Divider(height: 1),
-                      _buildSwitchTile(
-                        context: context,
-                        title: l10n.confirmDelete,
-                        subtitle: l10n.confirmDeleteDesc,
-                        value: _confirmDelete,
-                        onChanged: (value) async {
-                          _onHapticFeedback();
-                          setState(() => _confirmDelete = value);
-                          await _settings?.setConfirmDelete(value);
-                        },
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // Auto-save section
-                  _buildSectionCard(
-                    context: context,
-                    colorScheme: colorScheme,
-                    icon: Icons.save_rounded,
-                    title: l10n.autoSaveSection,
-                    children: [
-                      _buildSwitchTile(
-                        context: context,
-                        title: l10n.autoSave,
-                        subtitle: l10n.autoSaveDesc,
-                        value: _autoSaveEnabled,
-                        onChanged: (value) async {
-                          _onHapticFeedback();
-                          setState(() => _autoSaveEnabled = value);
-                          await _settings?.setAutoSaveEnabled(value);
-                        },
-                      ),
-                      if (_autoSaveEnabled) ...[
-                        const Divider(height: 1),
-                        _buildSliderTile(
-                          context: context,
-                          colorScheme: colorScheme,
-                          title: l10n.autoSaveInterval,
-                          subtitle: l10n.autoSaveIntervalDesc(
-                            _autoSaveInterval,
+                  Expanded(
+                    child: SettingsSectionList(
+                      query: _query,
+                      sections: _buildSections(context, l10n),
+                      footer: [
+                        Center(
+                          child: TextButton.icon(
+                            onPressed: _showResetConfirmation,
+                            icon: const Icon(Icons.refresh_rounded),
+                            label: Text(l10n.resetToDefaults),
+                            style: TextButton.styleFrom(
+                              foregroundColor: colorScheme.error,
+                            ),
                           ),
-                          value: _autoSaveInterval.toDouble(),
-                          min: 1,
-                          max: 30,
-                          divisions: 29,
-                          labelBuilder: (v) => '${v}s',
-                          onChanged: (value) async {
-                            _onHapticFeedback();
-                            setState(() => _autoSaveInterval = value.round());
-                            await _settings?.setAutoSaveInterval(value.round());
-                          },
                         ),
                       ],
-                    ],
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // Display section
-                  _buildSectionCard(
-                    context: context,
-                    colorScheme: colorScheme,
-                    icon: Icons.visibility_rounded,
-                    title: l10n.displaySection,
-                    children: [
-                      _buildSwitchTile(
-                        context: context,
-                        title: l10n.showNotePreview,
-                        subtitle: l10n.showNotePreviewDesc,
-                        value: _showNotePreview,
-                        onChanged: (value) async {
-                          _onHapticFeedback();
-                          setState(() => _showNotePreview = value);
-                          await _settings?.setShowNotePreview(value);
-                        },
-                      ),
-                      const Divider(height: 1),
-                      _buildSwitchTile(
-                        context: context,
-                        title: l10n.showStatsBar,
-                        subtitle: l10n.showStatsBarDesc,
-                        value: _showStatsBar,
-                        onChanged: (value) async {
-                          _onHapticFeedback();
-                          setState(() => _showStatsBar = value);
-                          await _settings?.setShowStatsBar(value);
-                        },
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // Editor section
-                  _buildSectionCard(
-                    context: context,
-                    colorScheme: colorScheme,
-                    icon: Icons.code_rounded,
-                    title: l10n.editorSection,
-                    children: [
-                      _buildSwitchTile(
-                        context: context,
-                        title: l10n.liveMarkdownRendering,
-                        subtitle: l10n.liveMarkdownRenderingDesc,
-                        value: _liveMarkdownRendering,
-                        onChanged: (value) async {
-                          _onHapticFeedback();
-                          setState(() => _liveMarkdownRendering = value);
-                          await _settings?.setLiveMarkdownRendering(value);
-                        },
-                      ),
-                      const Divider(height: 1),
-                      _buildSwitchTile(
-                        context: context,
-                        title: l10n.showLineNumbers,
-                        subtitle: l10n.showLineNumbersDesc,
-                        value: _showLineNumbers,
-                        onChanged: (value) async {
-                          _onHapticFeedback();
-                          setState(() => _showLineNumbers = value);
-                          await _settings?.setShowLineNumbers(value);
-                        },
-                      ),
-                      const Divider(height: 1),
-                      _buildSwitchTile(
-                        context: context,
-                        title: l10n.wordWrap,
-                        subtitle: l10n.wordWrapDesc,
-                        value: _wordWrap,
-                        onChanged: (value) async {
-                          _onHapticFeedback();
-                          setState(() => _wordWrap = value);
-                          await _settings?.setWordWrap(value);
-                        },
-                      ),
-                      const Divider(height: 1),
-                      _buildSwitchTile(
-                        context: context,
-                        title: l10n.showCursorLine,
-                        subtitle: l10n.showCursorLineDesc,
-                        value: _showCursorLine,
-                        onChanged: (value) async {
-                          _onHapticFeedback();
-                          setState(() => _showCursorLine = value);
-                          await _settings?.setShowCursorLine(value);
-                        },
-                      ),
-                      const Divider(height: 1),
-                      _buildSwitchTile(
-                        context: context,
-                        title: l10n.autoBreakLongLines,
-                        subtitle: l10n.autoBreakLongLinesDesc,
-                        value: _autoBreakLongLines,
-                        onChanged: (value) async {
-                          _onHapticFeedback();
-                          setState(() => _autoBreakLongLines = value);
-                          await _settings?.setAutoBreakLongLines(value);
-                        },
-                      ),
-                      const Divider(height: 1),
-                      _buildSwitchTile(
-                        context: context,
-                        title: l10n.previewWhenKeyboardHidden,
-                        subtitle: l10n.previewWhenKeyboardHiddenDesc,
-                        value: _previewWhenKeyboardHidden,
-                        onChanged: (value) async {
-                          _onHapticFeedback();
-                          setState(() => _previewWhenKeyboardHidden = value);
-                          await _settings?.setPreviewWhenKeyboardHidden(value);
-                        },
-                      ),
-                      const Divider(height: 1),
-                      _buildSwitchTile(
-                        context: context,
-                        title: l10n.scrollCursorOnKeyboard,
-                        subtitle: l10n.scrollCursorOnKeyboardDesc,
-                        value: _scrollCursorOnKeyboard,
-                        onChanged: (value) async {
-                          _onHapticFeedback();
-                          setState(() => _scrollCursorOnKeyboard = value);
-                          await _settings?.setScrollCursorOnKeyboard(value);
-                        },
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // Preview section
-                  _buildSectionCard(
-                    context: context,
-                    colorScheme: colorScheme,
-                    icon: Icons.visibility_rounded,
-                    title: l10n.previewSection,
-                    children: [
-                      _buildSwitchTile(
-                        context: context,
-                        title: l10n.showPreviewScrollbar,
-                        subtitle: l10n.showPreviewScrollbarDesc,
-                        value: _showPreviewScrollbar,
-                        onChanged: (value) async {
-                          _onHapticFeedback();
-                          setState(() => _showPreviewScrollbar = value);
-                          await _settings?.setShowPreviewScrollbar(value);
-                        },
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // Preview Performance section
-                  _buildSectionCard(
-                    context: context,
-                    colorScheme: colorScheme,
-                    icon: Icons.speed_rounded,
-                    title: l10n.previewPerformanceSection,
-                    children: [
-                      _buildSliderTile(
-                        context: context,
-                        colorScheme: colorScheme,
-                        title: l10n.previewLinesPerChunk,
-                        subtitle: l10n.previewLinesPerChunkDesc(
-                          _previewLinesPerChunk,
-                        ),
-                        value: _previewLinesPerChunk.toDouble(),
-                        min: 1,
-                        max: 50,
-                        divisions: 49,
-                        onChanged: (value) async {
-                          _onHapticFeedback();
-                          setState(() => _previewLinesPerChunk = value.round());
-                          await _settings?.setPreviewLinesPerChunk(
-                            value.round(),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // Calendar options live on the dedicated Calendar settings
-                  // page, reachable from the calendar's app bar.
-                  const SizedBox(height: 16),
-
-                  // Reset button
-                  Center(
-                    child: TextButton.icon(
-                      onPressed: _showResetConfirmation,
-                      icon: const Icon(Icons.refresh_rounded),
-                      label: Text(l10n.resetToDefaults),
-                      style: TextButton.styleFrom(
-                        foregroundColor: colorScheme.error,
-                      ),
                     ),
                   ),
                 ],
@@ -434,79 +164,339 @@ class _ControlsSettingsPageState extends State<ControlsSettingsPage> {
     );
   }
 
-  Widget _buildSectionCard({
-    required BuildContext context,
-    required ColorScheme colorScheme,
-    required IconData icon,
-    required String title,
-    required List<Widget> children,
-  }) {
-    return Card(
-      elevation: 0,
-      color: colorScheme.surfaceContainer,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: colorScheme.primaryContainer,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(icon, size: 20, color: colorScheme.primary),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: colorScheme.onSurface,
-                  ),
-                ),
-              ],
+  List<SettingsSectionData> _buildSections(
+    BuildContext context,
+    AppLocalizations l10n,
+  ) {
+    return [
+      SettingsSectionData(
+        icon: Icons.swipe_rounded,
+        title: l10n.gesturesSection,
+        entries: [
+          SettingsEntry(
+            title: l10n.folderSwipeGesture,
+            description: l10n.folderSwipeGestureDesc,
+            keywords: _keywords(l10n.swipeKeywords),
+            builder: (context, title, description) => _switchRow(
+              title: title,
+              description: description,
+              value: _folderSwipeEnabled,
+              onChanged: (value) async {
+                _onHapticFeedback();
+                setState(() => _folderSwipeEnabled = value);
+                await _settings?.setFolderSwipeEnabled(value);
+              },
             ),
           ),
-          ...children,
+          SettingsEntry(
+            title: l10n.noteSwipeGesture,
+            description: l10n.noteSwipeGestureDesc,
+            keywords: _keywords(l10n.swipeKeywords),
+            builder: (context, title, description) => _switchRow(
+              title: title,
+              description: description,
+              value: _noteSwipeEnabled,
+              onChanged: (value) async {
+                _onHapticFeedback();
+                setState(() => _noteSwipeEnabled = value);
+                await _settings?.setNoteSwipeEnabled(value);
+              },
+            ),
+          ),
         ],
       ),
-    );
+      SettingsSectionData(
+        icon: Icons.vibration_rounded,
+        title: l10n.feedbackSection,
+        entries: [
+          SettingsEntry(
+            title: l10n.hapticFeedback,
+            description: l10n.hapticFeedbackDesc,
+            keywords: _keywords(l10n.hapticFeedbackKeywords),
+            builder: (context, title, description) => _switchRow(
+              title: title,
+              description: description,
+              value: _hapticFeedback,
+              onChanged: (value) async {
+                if (value) HapticFeedback.lightImpact();
+                setState(() => _hapticFeedback = value);
+                await _settings?.setHapticFeedback(value);
+              },
+            ),
+          ),
+          SettingsEntry(
+            title: l10n.confirmDelete,
+            description: l10n.confirmDeleteDesc,
+            keywords: _keywords(l10n.confirmDeleteKeywords),
+            builder: (context, title, description) => _switchRow(
+              title: title,
+              description: description,
+              value: _confirmDelete,
+              onChanged: (value) async {
+                _onHapticFeedback();
+                setState(() => _confirmDelete = value);
+                await _settings?.setConfirmDelete(value);
+              },
+            ),
+          ),
+        ],
+      ),
+      SettingsSectionData(
+        icon: Icons.save_rounded,
+        title: l10n.autoSaveSection,
+        entries: [
+          SettingsEntry(
+            title: l10n.autoSave,
+            description: l10n.autoSaveDesc,
+            keywords: _keywords(l10n.autoSaveKeywords),
+            builder: (context, title, description) => _switchRow(
+              title: title,
+              description: description,
+              value: _autoSaveEnabled,
+              onChanged: (value) async {
+                _onHapticFeedback();
+                setState(() => _autoSaveEnabled = value);
+                await _settings?.setAutoSaveEnabled(value);
+              },
+            ),
+          ),
+          // Only meaningful while auto-save is on; hidden otherwise, exactly
+          // as before.
+          if (_autoSaveEnabled)
+            SettingsEntry(
+              title: l10n.autoSaveInterval,
+              description: l10n.autoSaveIntervalDesc(_autoSaveInterval),
+              keywords: _keywords(l10n.autoSaveKeywords),
+              builder: (context, title, description) => _sliderRow(
+                title: title,
+                description: description,
+                value: _autoSaveInterval.toDouble(),
+                min: 1,
+                max: 30,
+                divisions: 29,
+                labelBuilder: (v) => '${v}s',
+                onChanged: (value) async {
+                  _onHapticFeedback();
+                  setState(() => _autoSaveInterval = value.round());
+                  await _settings?.setAutoSaveInterval(value.round());
+                },
+              ),
+            ),
+        ],
+      ),
+      SettingsSectionData(
+        icon: Icons.visibility_rounded,
+        title: l10n.displaySection,
+        entries: [
+          SettingsEntry(
+            title: l10n.showNotePreview,
+            description: l10n.showNotePreviewDesc,
+            builder: (context, title, description) => _switchRow(
+              title: title,
+              description: description,
+              value: _showNotePreview,
+              onChanged: (value) async {
+                _onHapticFeedback();
+                setState(() => _showNotePreview = value);
+                await _settings?.setShowNotePreview(value);
+              },
+            ),
+          ),
+          SettingsEntry(
+            title: l10n.showStatsBar,
+            description: l10n.showStatsBarDesc,
+            builder: (context, title, description) => _switchRow(
+              title: title,
+              description: description,
+              value: _showStatsBar,
+              onChanged: (value) async {
+                _onHapticFeedback();
+                setState(() => _showStatsBar = value);
+                await _settings?.setShowStatsBar(value);
+              },
+            ),
+          ),
+        ],
+      ),
+      SettingsSectionData(
+        icon: Icons.code_rounded,
+        title: l10n.editorSection,
+        entries: [
+          SettingsEntry(
+            title: l10n.liveMarkdownRendering,
+            description: l10n.liveMarkdownRenderingDesc,
+            keywords: _keywords(l10n.liveMarkdownKeywords),
+            builder: (context, title, description) => _switchRow(
+              title: title,
+              description: description,
+              value: _liveMarkdownRendering,
+              onChanged: (value) async {
+                _onHapticFeedback();
+                setState(() => _liveMarkdownRendering = value);
+                await _settings?.setLiveMarkdownRendering(value);
+              },
+            ),
+          ),
+          SettingsEntry(
+            title: l10n.showLineNumbers,
+            description: l10n.showLineNumbersDesc,
+            keywords: _keywords(l10n.lineNumbersKeywords),
+            builder: (context, title, description) => _switchRow(
+              title: title,
+              description: description,
+              value: _showLineNumbers,
+              onChanged: (value) async {
+                _onHapticFeedback();
+                setState(() => _showLineNumbers = value);
+                await _settings?.setShowLineNumbers(value);
+              },
+            ),
+          ),
+          SettingsEntry(
+            title: l10n.wordWrap,
+            description: l10n.wordWrapDesc,
+            keywords: _keywords(l10n.wordWrapKeywords),
+            builder: (context, title, description) => _switchRow(
+              title: title,
+              description: description,
+              value: _wordWrap,
+              onChanged: (value) async {
+                _onHapticFeedback();
+                setState(() => _wordWrap = value);
+                await _settings?.setWordWrap(value);
+              },
+            ),
+          ),
+          SettingsEntry(
+            title: l10n.showCursorLine,
+            description: l10n.showCursorLineDesc,
+            keywords: _keywords(l10n.cursorKeywords),
+            builder: (context, title, description) => _switchRow(
+              title: title,
+              description: description,
+              value: _showCursorLine,
+              onChanged: (value) async {
+                _onHapticFeedback();
+                setState(() => _showCursorLine = value);
+                await _settings?.setShowCursorLine(value);
+              },
+            ),
+          ),
+          SettingsEntry(
+            title: l10n.autoBreakLongLines,
+            description: l10n.autoBreakLongLinesDesc,
+            keywords: _keywords(l10n.wordWrapKeywords),
+            builder: (context, title, description) => _switchRow(
+              title: title,
+              description: description,
+              value: _autoBreakLongLines,
+              onChanged: (value) async {
+                _onHapticFeedback();
+                setState(() => _autoBreakLongLines = value);
+                await _settings?.setAutoBreakLongLines(value);
+              },
+            ),
+          ),
+          SettingsEntry(
+            title: l10n.previewWhenKeyboardHidden,
+            description: l10n.previewWhenKeyboardHiddenDesc,
+            keywords: _keywords(l10n.keyboardKeywords),
+            builder: (context, title, description) => _switchRow(
+              title: title,
+              description: description,
+              value: _previewWhenKeyboardHidden,
+              onChanged: (value) async {
+                _onHapticFeedback();
+                setState(() => _previewWhenKeyboardHidden = value);
+                await _settings?.setPreviewWhenKeyboardHidden(value);
+              },
+            ),
+          ),
+          SettingsEntry(
+            title: l10n.scrollCursorOnKeyboard,
+            description: l10n.scrollCursorOnKeyboardDesc,
+            keywords: [
+              ..._keywords(l10n.keyboardKeywords),
+              ..._keywords(l10n.cursorKeywords),
+            ],
+            builder: (context, title, description) => _switchRow(
+              title: title,
+              description: description,
+              value: _scrollCursorOnKeyboard,
+              onChanged: (value) async {
+                _onHapticFeedback();
+                setState(() => _scrollCursorOnKeyboard = value);
+                await _settings?.setScrollCursorOnKeyboard(value);
+              },
+            ),
+          ),
+        ],
+      ),
+      SettingsSectionData(
+        icon: Icons.visibility_rounded,
+        title: l10n.previewSection,
+        entries: [
+          SettingsEntry(
+            title: l10n.showPreviewScrollbar,
+            description: l10n.showPreviewScrollbarDesc,
+            builder: (context, title, description) => _switchRow(
+              title: title,
+              description: description,
+              value: _showPreviewScrollbar,
+              onChanged: (value) async {
+                _onHapticFeedback();
+                setState(() => _showPreviewScrollbar = value);
+                await _settings?.setShowPreviewScrollbar(value);
+              },
+            ),
+          ),
+        ],
+      ),
+      SettingsSectionData(
+        icon: Icons.speed_rounded,
+        title: l10n.previewPerformanceSection,
+        entries: [
+          SettingsEntry(
+            title: l10n.previewLinesPerChunk,
+            description: l10n.previewLinesPerChunkDesc(_previewLinesPerChunk),
+            keywords: _keywords(l10n.performanceKeywords),
+            builder: (context, title, description) => _sliderRow(
+              title: title,
+              description: description,
+              value: _previewLinesPerChunk.toDouble(),
+              min: 1,
+              max: 50,
+              divisions: 49,
+              onChanged: (value) async {
+                _onHapticFeedback();
+                setState(() => _previewLinesPerChunk = value.round());
+                await _settings?.setPreviewLinesPerChunk(value.round());
+              },
+            ),
+          ),
+        ],
+      ),
+    ];
   }
 
-  Widget _buildSwitchTile({
-    required BuildContext context,
-    required String title,
-    required String subtitle,
+  Widget _switchRow({
+    required Widget title,
+    required Widget? description,
     required bool value,
     required ValueChanged<bool> onChanged,
   }) {
-    final colorScheme = Theme.of(context).colorScheme;
-
     return SwitchListTile(
-      title: Text(
-        title,
-        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-      ),
-      subtitle: Text(
-        subtitle,
-        style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
-      ),
+      title: title,
+      subtitle: description,
       value: value,
       onChanged: onChanged,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
     );
   }
 
-  Widget _buildSliderTile({
-    required BuildContext context,
-    required ColorScheme colorScheme,
-    required String title,
-    required String subtitle,
+  Widget _sliderRow({
+    required Widget title,
+    required Widget? description,
     required double value,
     required double min,
     required double max,
@@ -519,15 +509,9 @@ class _ControlsSettingsPageState extends State<ControlsSettingsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-          ),
+          title,
           const SizedBox(height: 4),
-          Text(
-            subtitle,
-            style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
-          ),
+          ?description,
           Slider(
             value: value,
             min: min,

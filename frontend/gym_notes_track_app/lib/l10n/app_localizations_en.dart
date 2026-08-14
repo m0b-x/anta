@@ -3151,4 +3151,37 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get noMatchesFound => 'No matches';
+
+  @override
+  String get searchSettings => 'Search settings';
+
+  @override
+  String get hapticFeedbackKeywords => 'vibration, buzz, rumble';
+
+  @override
+  String get autoSaveKeywords => 'backup, persist, write';
+
+  @override
+  String get wordWrapKeywords => 'line, overflow, break';
+
+  @override
+  String get swipeKeywords => 'gesture, slide, drag';
+
+  @override
+  String get liveMarkdownKeywords => 'preview, render, format';
+
+  @override
+  String get lineNumbersKeywords => 'gutter, numbering';
+
+  @override
+  String get confirmDeleteKeywords => 'trash, remove, prompt';
+
+  @override
+  String get performanceKeywords => 'speed, lag, chunk, fast';
+
+  @override
+  String get cursorKeywords => 'caret, current line';
+
+  @override
+  String get keyboardKeywords => 'typing, input';
 }

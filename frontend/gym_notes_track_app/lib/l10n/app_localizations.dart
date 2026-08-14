@@ -5685,6 +5685,72 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No matches'**
   String get noMatchesFound;
+
+  /// Hint text of the search field on settings pages
+  ///
+  /// In en, this message translates to:
+  /// **'Search settings'**
+  String get searchSettings;
+
+  /// Comma-separated hidden search synonyms for the haptic feedback setting. Translate to words users of this locale would actually type; they are matched but never displayed.
+  ///
+  /// In en, this message translates to:
+  /// **'vibration, buzz, rumble'**
+  String get hapticFeedbackKeywords;
+
+  /// Comma-separated hidden search synonyms for the auto-save settings
+  ///
+  /// In en, this message translates to:
+  /// **'backup, persist, write'**
+  String get autoSaveKeywords;
+
+  /// Comma-separated hidden search synonyms for the word wrap setting
+  ///
+  /// In en, this message translates to:
+  /// **'line, overflow, break'**
+  String get wordWrapKeywords;
+
+  /// Comma-separated hidden search synonyms for the swipe gesture settings
+  ///
+  /// In en, this message translates to:
+  /// **'gesture, slide, drag'**
+  String get swipeKeywords;
+
+  /// Comma-separated hidden search synonyms for the live markdown rendering setting
+  ///
+  /// In en, this message translates to:
+  /// **'preview, render, format'**
+  String get liveMarkdownKeywords;
+
+  /// Comma-separated hidden search synonyms for the line numbers setting
+  ///
+  /// In en, this message translates to:
+  /// **'gutter, numbering'**
+  String get lineNumbersKeywords;
+
+  /// Comma-separated hidden search synonyms for the delete confirmation setting
+  ///
+  /// In en, this message translates to:
+  /// **'trash, remove, prompt'**
+  String get confirmDeleteKeywords;
+
+  /// Comma-separated hidden search synonyms for preview performance settings
+  ///
+  /// In en, this message translates to:
+  /// **'speed, lag, chunk, fast'**
+  String get performanceKeywords;
+
+  /// Comma-separated hidden search synonyms for cursor related editor settings
+  ///
+  /// In en, this message translates to:
+  /// **'caret, current line'**
+  String get cursorKeywords;
+
+  /// Comma-separated hidden search synonyms for keyboard related editor settings
+  ///
+  /// In en, this message translates to:
+  /// **'typing, input'**
+  String get keyboardKeywords;
 }
 
 class _AppLocalizationsDelegate

@@ -4,7 +4,10 @@ import '../l10n/app_localizations.dart';
 import '../models/dev_options.dart';
 import '../services/dev_options_service.dart';
 import '../utils/custom_snackbar.dart';
+import '../utils/settings_search.dart';
 import '../widgets/app_drawer.dart';
+import '../widgets/settings_search_field.dart';
+import '../widgets/settings_section_list.dart';
 import '../widgets/unified_app_bars.dart';
 import '../services/app_navigator.dart';
 
@@ -20,10 +23,19 @@ class _DeveloperOptionsPageState extends State<DeveloperOptionsPage> {
   DevOptionsService? _service;
   bool _isLoading = true;
 
+  final TextEditingController _searchController = TextEditingController();
+  SettingsQuery _query = SettingsQuery.empty;
+
   @override
   void initState() {
     super.initState();
     _loadService();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadService() async {
@@ -59,288 +71,71 @@ class _DeveloperOptionsPageState extends State<DeveloperOptionsPage> {
           : ListenableBuilder(
               listenable: devOptions,
               builder: (context, _) {
-                return ListView(
-                  padding: const EdgeInsets.all(16),
+                return Column(
                   children: [
-                    // Warning banner
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: colorScheme.errorContainer.withValues(
-                          alpha: 0.3,
-                        ),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: colorScheme.error.withValues(alpha: 0.5),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                      child: SettingsSearchField(
+                        controller: _searchController,
+                        hint: l10n.searchSettings,
+                        onChanged: (value) => setState(
+                          () => _query = SettingsQuery.parse(value),
                         ),
                       ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.warning_amber_rounded,
-                            color: colorScheme.error,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              l10n.developerOptionsWarning,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: colorScheme.onErrorContainer,
-                              ),
+                    ),
+                    Expanded(
+                      child: SettingsSectionList(
+                        query: _query,
+                        style: SettingsSectionStyle.compact,
+                        sections: _buildSections(l10n, devOptions),
+                        header: [_buildWarningBanner(l10n, colorScheme)],
+                        footer: [
+                          OutlinedButton.icon(
+                            onPressed: () async {
+                              _onHapticFeedback();
+                              await _service?.resetOptions();
+                              if (context.mounted) {
+                                CustomSnackbar.showSuccess(
+                                  context,
+                                  l10n.developerOptionsReset,
+                                );
+                              }
+                            },
+                            icon: const Icon(Icons.refresh_rounded),
+                            label: Text(l10n.resetToDefaults),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
                             ),
                           ),
+                          const SizedBox(height: 12),
+                          FilledButton.icon(
+                            onPressed: () async {
+                              _onHapticFeedback();
+                              devOptions.lockDeveloperMode();
+                              await _service?.saveOptions();
+                              if (context.mounted) {
+                                CustomSnackbar.showSuccess(
+                                  context,
+                                  l10n.developerModeLocked,
+                                );
+                                AppNavigator.pop(
+                                  context,
+                                  SettingsResult.openDrawer,
+                                );
+                              }
+                            },
+                            icon: const Icon(Icons.lock_rounded),
+                            label: Text(l10n.lockDeveloperMode),
+                            style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              backgroundColor: colorScheme.error,
+                              foregroundColor: colorScheme.onError,
+                            ),
+                          ),
+                          const SizedBox(height: 32),
                         ],
                       ),
                     ),
-
-                    const SizedBox(height: 16),
-
-                    // Visualization / Debug section
-                    _buildSectionCard(
-                      context: context,
-                      colorScheme: colorScheme,
-                      icon: Icons.palette_outlined,
-                      title: l10n.visualizationDebug,
-                      children: [
-                        _buildSwitchTile(
-                          context: context,
-                          title: l10n.colorMarkdownBlocks,
-                          subtitle: l10n.colorMarkdownBlocksDesc,
-                          value: devOptions.colorMarkdownBlocks,
-                          onChanged: (value) async {
-                            _onHapticFeedback();
-                            devOptions.colorMarkdownBlocks = value;
-                            await _saveOption();
-                          },
-                        ),
-                        const Divider(height: 1),
-                        _buildSwitchTile(
-                          context: context,
-                          title: l10n.showBlockBoundaries,
-                          subtitle: l10n.showBlockBoundariesDesc,
-                          value: devOptions.showBlockBoundaries,
-                          onChanged: (value) async {
-                            _onHapticFeedback();
-                            devOptions.showBlockBoundaries = value;
-                            await _saveOption();
-                          },
-                        ),
-                        const Divider(height: 1),
-                        _buildSwitchTile(
-                          context: context,
-                          title: l10n.showWhitespace,
-                          subtitle: l10n.showWhitespaceDesc,
-                          value: devOptions.showWhitespace,
-                          onChanged: (value) async {
-                            _onHapticFeedback();
-                            devOptions.showWhitespace = value;
-                            await _saveOption();
-                          },
-                        ),
-                        const Divider(height: 1),
-                        _buildSwitchTile(
-                          context: context,
-                          title: l10n.showPreviewLineNumbers,
-                          subtitle: l10n.showPreviewLineNumbersDesc,
-                          value: devOptions.showPreviewLineNumbers,
-                          onChanged: (value) async {
-                            _onHapticFeedback();
-                            devOptions.showPreviewLineNumbers = value;
-                            await _saveOption();
-                          },
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 16),
-
-                    // Performance Monitoring section
-                    _buildSectionCard(
-                      context: context,
-                      colorScheme: colorScheme,
-                      icon: Icons.speed_outlined,
-                      title: l10n.performanceMonitoring,
-                      children: [
-                        _buildSwitchTile(
-                          context: context,
-                          title: l10n.showRenderTime,
-                          subtitle: l10n.showRenderTimeDesc,
-                          value: devOptions.showRenderTime,
-                          onChanged: (value) async {
-                            _onHapticFeedback();
-                            devOptions.showRenderTime = value;
-                            await _saveOption();
-                          },
-                        ),
-                        const Divider(height: 1),
-                        _buildSwitchTile(
-                          context: context,
-                          title: l10n.showFpsCounter,
-                          subtitle: l10n.showFpsCounterDesc,
-                          value: devOptions.showFpsCounter,
-                          onChanged: (value) async {
-                            _onHapticFeedback();
-                            devOptions.showFpsCounter = value;
-                            await _saveOption();
-                          },
-                        ),
-                        const Divider(height: 1),
-                        _buildSwitchTile(
-                          context: context,
-                          title: l10n.showChunkIndicators,
-                          subtitle: l10n.showChunkIndicatorsDesc,
-                          value: devOptions.showChunkIndicators,
-                          onChanged: (value) async {
-                            _onHapticFeedback();
-                            devOptions.showChunkIndicators = value;
-                            await _saveOption();
-                          },
-                        ),
-                        const Divider(height: 1),
-                        _buildSwitchTile(
-                          context: context,
-                          title: l10n.showRepaintRainbow,
-                          subtitle: l10n.showRepaintRainbowDesc,
-                          value: devOptions.showRepaintRainbow,
-                          onChanged: (value) async {
-                            _onHapticFeedback();
-                            devOptions.showRepaintRainbow = value;
-                            await _saveOption();
-                          },
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 16),
-
-                    // Editor Debug section
-                    _buildSectionCard(
-                      context: context,
-                      colorScheme: colorScheme,
-                      icon: Icons.edit_note_outlined,
-                      title: l10n.editorDebug,
-                      children: [
-                        _buildSwitchTile(
-                          context: context,
-                          title: l10n.showCursorInfo,
-                          subtitle: l10n.showCursorInfoDesc,
-                          value: devOptions.showCursorInfo,
-                          onChanged: (value) async {
-                            _onHapticFeedback();
-                            devOptions.showCursorInfo = value;
-                            await _saveOption();
-                          },
-                        ),
-                        const Divider(height: 1),
-                        _buildSwitchTile(
-                          context: context,
-                          title: l10n.showSelectionDetails,
-                          subtitle: l10n.showSelectionDetailsDesc,
-                          value: devOptions.showSelectionDetails,
-                          onChanged: (value) async {
-                            _onHapticFeedback();
-                            devOptions.showSelectionDetails = value;
-                            await _saveOption();
-                          },
-                        ),
-                        const Divider(height: 1),
-                        _buildSwitchTile(
-                          context: context,
-                          title: l10n.logParserEvents,
-                          subtitle: l10n.logParserEventsDesc,
-                          value: devOptions.logParserEvents,
-                          onChanged: (value) async {
-                            _onHapticFeedback();
-                            devOptions.logParserEvents = value;
-                            await _saveOption();
-                          },
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 16),
-
-                    // Storage / Data section
-                    _buildSectionCard(
-                      context: context,
-                      colorScheme: colorScheme,
-                      icon: Icons.storage_outlined,
-                      title: l10n.storageData,
-                      children: [
-                        _buildSwitchTile(
-                          context: context,
-                          title: l10n.showNoteSize,
-                          subtitle: l10n.showNoteSizeDesc,
-                          value: devOptions.showNoteSize,
-                          onChanged: (value) async {
-                            _onHapticFeedback();
-                            devOptions.showNoteSize = value;
-                            await _saveOption();
-                          },
-                        ),
-                        const Divider(height: 1),
-                        _buildSwitchTile(
-                          context: context,
-                          title: l10n.showDatabaseStats,
-                          subtitle: l10n.showDatabaseStatsDesc,
-                          value: devOptions.showDatabaseStats,
-                          onChanged: (value) async {
-                            _onHapticFeedback();
-                            devOptions.showDatabaseStats = value;
-                            await _saveOption();
-                          },
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 24),
-
-                    // Reset button
-                    OutlinedButton.icon(
-                      onPressed: () async {
-                        _onHapticFeedback();
-                        await _service?.resetOptions();
-                        if (context.mounted) {
-                          CustomSnackbar.showSuccess(
-                            context,
-                            l10n.developerOptionsReset,
-                          );
-                        }
-                      },
-                      icon: const Icon(Icons.refresh_rounded),
-                      label: Text(l10n.resetToDefaults),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                    ),
-
-                    const SizedBox(height: 12),
-
-                    // Lock developer mode button
-                    FilledButton.icon(
-                      onPressed: () async {
-                        _onHapticFeedback();
-                        devOptions.lockDeveloperMode();
-                        await _service?.saveOptions();
-                        if (context.mounted) {
-                          CustomSnackbar.showSuccess(
-                            context,
-                            l10n.developerModeLocked,
-                          );
-                          AppNavigator.pop(context, SettingsResult.openDrawer);
-                        }
-                      },
-                      icon: const Icon(Icons.lock_rounded),
-                      label: Text(l10n.lockDeveloperMode),
-                      style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        backgroundColor: colorScheme.error,
-                        foregroundColor: colorScheme.onError,
-                      ),
-                    ),
-
-                    const SizedBox(height: 32),
                   ],
                 );
               },
@@ -348,67 +143,162 @@ class _DeveloperOptionsPageState extends State<DeveloperOptionsPage> {
     );
   }
 
-  Widget _buildSectionCard({
-    required BuildContext context,
-    required ColorScheme colorScheme,
-    required IconData icon,
-    required String title,
-    required List<Widget> children,
-  }) {
-    return Card(
-      elevation: 0,
-      color: colorScheme.surfaceContainerHigh,
-      shape: RoundedRectangleBorder(
+  Widget _buildWarningBanner(AppLocalizations l10n, ColorScheme colorScheme) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colorScheme.errorContainer.withValues(alpha: 0.3),
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: colorScheme.outlineVariant.withValues(alpha: 0.5),
-        ),
+        border: Border.all(color: colorScheme.error.withValues(alpha: 0.5)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Row(
-              children: [
-                Icon(icon, size: 20, color: colorScheme.primary),
-                const SizedBox(width: 8),
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: colorScheme.primary,
-                  ),
-                ),
-              ],
+          Icon(Icons.warning_amber_rounded, color: colorScheme.error),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              l10n.developerOptionsWarning,
+              style: TextStyle(
+                fontSize: 12,
+                color: colorScheme.onErrorContainer,
+              ),
             ),
           ),
-          ...children,
-          const SizedBox(height: 8),
         ],
       ),
     );
   }
 
-  Widget _buildSwitchTile({
-    required BuildContext context,
-    required String title,
-    required String subtitle,
-    required bool value,
-    required ValueChanged<bool> onChanged,
-  }) {
-    return SwitchListTile(
-      title: Text(title, style: const TextStyle(fontSize: 14)),
-      subtitle: Text(
-        subtitle,
-        style: TextStyle(
-          fontSize: 12,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
+  List<SettingsSectionData> _buildSections(
+    AppLocalizations l10n,
+    DevOptions devOptions,
+  ) {
+    SettingsEntry toggle({
+      required String title,
+      required String description,
+      required bool value,
+      required void Function(bool) apply,
+    }) {
+      return SettingsEntry(
+        title: title,
+        description: description,
+        builder: (context, titleWidget, descriptionWidget) => SwitchListTile(
+          title: titleWidget,
+          subtitle: descriptionWidget,
+          value: value,
+          onChanged: (next) async {
+            _onHapticFeedback();
+            apply(next);
+            await _saveOption();
+          },
+          dense: true,
         ),
+      );
+    }
+
+    return [
+      SettingsSectionData(
+        icon: Icons.palette_outlined,
+        title: l10n.visualizationDebug,
+        entries: [
+          toggle(
+            title: l10n.colorMarkdownBlocks,
+            description: l10n.colorMarkdownBlocksDesc,
+            value: devOptions.colorMarkdownBlocks,
+            apply: (v) => devOptions.colorMarkdownBlocks = v,
+          ),
+          toggle(
+            title: l10n.showBlockBoundaries,
+            description: l10n.showBlockBoundariesDesc,
+            value: devOptions.showBlockBoundaries,
+            apply: (v) => devOptions.showBlockBoundaries = v,
+          ),
+          toggle(
+            title: l10n.showWhitespace,
+            description: l10n.showWhitespaceDesc,
+            value: devOptions.showWhitespace,
+            apply: (v) => devOptions.showWhitespace = v,
+          ),
+          toggle(
+            title: l10n.showPreviewLineNumbers,
+            description: l10n.showPreviewLineNumbersDesc,
+            value: devOptions.showPreviewLineNumbers,
+            apply: (v) => devOptions.showPreviewLineNumbers = v,
+          ),
+        ],
       ),
-      value: value,
-      onChanged: onChanged,
-      dense: true,
-    );
+      SettingsSectionData(
+        icon: Icons.speed_outlined,
+        title: l10n.performanceMonitoring,
+        entries: [
+          toggle(
+            title: l10n.showRenderTime,
+            description: l10n.showRenderTimeDesc,
+            value: devOptions.showRenderTime,
+            apply: (v) => devOptions.showRenderTime = v,
+          ),
+          toggle(
+            title: l10n.showFpsCounter,
+            description: l10n.showFpsCounterDesc,
+            value: devOptions.showFpsCounter,
+            apply: (v) => devOptions.showFpsCounter = v,
+          ),
+          toggle(
+            title: l10n.showChunkIndicators,
+            description: l10n.showChunkIndicatorsDesc,
+            value: devOptions.showChunkIndicators,
+            apply: (v) => devOptions.showChunkIndicators = v,
+          ),
+          toggle(
+            title: l10n.showRepaintRainbow,
+            description: l10n.showRepaintRainbowDesc,
+            value: devOptions.showRepaintRainbow,
+            apply: (v) => devOptions.showRepaintRainbow = v,
+          ),
+        ],
+      ),
+      SettingsSectionData(
+        icon: Icons.edit_note_outlined,
+        title: l10n.editorDebug,
+        entries: [
+          toggle(
+            title: l10n.showCursorInfo,
+            description: l10n.showCursorInfoDesc,
+            value: devOptions.showCursorInfo,
+            apply: (v) => devOptions.showCursorInfo = v,
+          ),
+          toggle(
+            title: l10n.showSelectionDetails,
+            description: l10n.showSelectionDetailsDesc,
+            value: devOptions.showSelectionDetails,
+            apply: (v) => devOptions.showSelectionDetails = v,
+          ),
+          toggle(
+            title: l10n.logParserEvents,
+            description: l10n.logParserEventsDesc,
+            value: devOptions.logParserEvents,
+            apply: (v) => devOptions.logParserEvents = v,
+          ),
+        ],
+      ),
+      SettingsSectionData(
+        icon: Icons.storage_outlined,
+        title: l10n.storageData,
+        entries: [
+          toggle(
+            title: l10n.showNoteSize,
+            description: l10n.showNoteSizeDesc,
+            value: devOptions.showNoteSize,
+            apply: (v) => devOptions.showNoteSize = v,
+          ),
+          toggle(
+            title: l10n.showDatabaseStats,
+            description: l10n.showDatabaseStatsDesc,
+            value: devOptions.showDatabaseStats,
+            apply: (v) => devOptions.showDatabaseStats = v,
+          ),
+        ],
+      ),
+    ];
   }
 }

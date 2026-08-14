@@ -4065,5 +4065,49 @@
   "noMatchesFound": "No matches",
   "@noMatchesFound": {
     "description": "Neutral empty state shown when a settings list search matches nothing"
+  },
+  "searchSettings": "Search settings",
+  "@searchSettings": {
+    "description": "Hint text of the search field on settings pages"
+  },
+  "hapticFeedbackKeywords": "vibration, buzz, rumble",
+  "@hapticFeedbackKeywords": {
+    "description": "Comma-separated hidden search synonyms for the haptic feedback setting. Translate to words users of this locale would actually type; they are matched but never displayed."
+  },
+  "autoSaveKeywords": "backup, persist, write",
+  "@autoSaveKeywords": {
+    "description": "Comma-separated hidden search synonyms for the auto-save settings"
+  },
+  "wordWrapKeywords": "line, overflow, break",
+  "@wordWrapKeywords": {
+    "description": "Comma-separated hidden search synonyms for the word wrap setting"
+  },
+  "swipeKeywords": "gesture, slide, drag",
+  "@swipeKeywords": {
+    "description": "Comma-separated hidden search synonyms for the swipe gesture settings"
+  },
+  "liveMarkdownKeywords": "preview, render, format",
+  "@liveMarkdownKeywords": {
+    "description": "Comma-separated hidden search synonyms for the live markdown rendering setting"
+  },
+  "lineNumbersKeywords": "gutter, numbering",
+  "@lineNumbersKeywords": {
+    "description": "Comma-separated hidden search synonyms for the line numbers setting"
+  },
+  "confirmDeleteKeywords": "trash, remove, prompt",
+  "@confirmDeleteKeywords": {
+    "description": "Comma-separated hidden search synonyms for the delete confirmation setting"
+  },
+  "performanceKeywords": "speed, lag, chunk, fast",
+  "@performanceKeywords": {
+    "description": "Comma-separated hidden search synonyms for preview performance settings"
+  },
+  "cursorKeywords": "caret, current line",
+  "@cursorKeywords": {
+    "description": "Comma-separated hidden search synonyms for cursor related editor settings"
+  },
+  "keyboardKeywords": "typing, input",
+  "@keyboardKeywords": {
+    "description": "Comma-separated hidden search synonyms for keyboard related editor settings"
   }
 }

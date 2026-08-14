@@ -11,6 +11,7 @@ import '../models/utility_button_config.dart';
 import '../models/utility_button_definition.dart';
 import '../services/settings_service.dart';
 import '../utils/markdown_settings_utils.dart';
+import '../utils/settings_search.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/app_loading_bar.dart';
@@ -287,7 +288,15 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
         _moneySymbol = moneyConfig.symbol;
         _moneySuffix = moneyConfig.suffix;
         _applyCollapsedSections(collapsedSections, animated: false);
-        _foldAnimationsEnabled = true;
+      });
+      // Arming `animate` has to land in its own frame. `_FoldableContent`
+      // decides whether to snap or animate by reading its *current*
+      // `animate` value inside `didUpdateWidget` — if both this flag and
+      // the restored `expanded` values changed in the same setState, the
+      // very first restore would already see `animate: true` and fold
+      // shut with a visible animation instead of snapping in place.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _foldAnimationsEnabled = true);
       });
     }
   }
@@ -448,7 +457,7 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
   /// on the real position regardless of what is being shown.
   List<({CustomMarkdownShortcut shortcut, int index})>
   get _filteredShortcuts {
-    final query = _shortcutQuery.trim().toLowerCase();
+    final query = SettingsQuery.parse(_shortcutQuery);
     final result = <({CustomMarkdownShortcut shortcut, int index})>[];
     for (var i = 0; i < _shortcuts.length; i++) {
       final shortcut = _shortcuts[i];
@@ -459,12 +468,15 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
             : _selectedCategories.contains(category);
         if (!matches) continue;
       }
-      if (query.isNotEmpty) {
-        final haystack =
-            '${shortcut.label}\n${shortcut.category ?? ''}\n'
-                    '${shortcut.beforeText}\n${shortcut.afterText}'
-                .toLowerCase();
-        if (!haystack.contains(query)) continue;
+      // Folded through the app's single normalization, so `evidentieri`
+      // finds `evidențieri` and `schriftgrosse` finds `Schriftgröße`.
+      if (!matchesSettingsQuery(query, [
+        shortcut.label,
+        shortcut.category ?? '',
+        shortcut.beforeText,
+        shortcut.afterText,
+      ])) {
+        continue;
       }
       result.add((shortcut: shortcut, index: i));
     }
@@ -1333,12 +1345,12 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
   /// Utility buttons matching the search query, each paired with its index
   /// into [_utilityConfigs] so toggling visibility always hits the real entry.
   List<({UtilityButtonConfig config, int index})> get _filteredUtilityConfigs {
-    final query = _utilityQuery.trim().toLowerCase();
+    final query = SettingsQuery.parse(_utilityQuery);
     final result = <({UtilityButtonConfig config, int index})>[];
     for (var i = 0; i < _utilityConfigs.length; i++) {
       final config = _utilityConfigs[i];
       if (_isFilteringUtilities &&
-          !_utilityLabel(config.id).toLowerCase().contains(query)) {
+          !matchesSettingsQuery(query, [_utilityLabel(config.id)])) {
         continue;
       }
       result.add((config: config, index: i));

@@ -3191,4 +3191,37 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get noMatchesFound => 'Niciun rezultat';
+
+  @override
+  String get searchSettings => 'Caută în setări';
+
+  @override
+  String get hapticFeedbackKeywords => 'vibrație, bâzâit, tremur';
+
+  @override
+  String get autoSaveKeywords => 'salvare, copie, backup';
+
+  @override
+  String get wordWrapKeywords => 'linie, rând, încadrare';
+
+  @override
+  String get swipeKeywords => 'gest, glisare, tragere';
+
+  @override
+  String get liveMarkdownKeywords => 'previzualizare, randare, formatare';
+
+  @override
+  String get lineNumbersKeywords => 'numerotare, numere linii';
+
+  @override
+  String get confirmDeleteKeywords => 'coș, ștergere, confirmare';
+
+  @override
+  String get performanceKeywords => 'viteză, întârziere, fragment, rapid';
+
+  @override
+  String get cursorKeywords => 'cursor, linia curentă';
+
+  @override
+  String get keyboardKeywords => 'tastare, introducere';
 }

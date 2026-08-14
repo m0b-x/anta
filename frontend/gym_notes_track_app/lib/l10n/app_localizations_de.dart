@@ -3175,4 +3175,38 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get noMatchesFound => 'Keine Treffer';
+
+  @override
+  String get searchSettings => 'Einstellungen suchen';
+
+  @override
+  String get hapticFeedbackKeywords => 'Vibration, Summen, Rütteln';
+
+  @override
+  String get autoSaveKeywords => 'Sicherung, Speichern, Backup';
+
+  @override
+  String get wordWrapKeywords => 'Zeile, Überlauf, Umbruch';
+
+  @override
+  String get swipeKeywords => 'Geste, Wischen, Ziehen';
+
+  @override
+  String get liveMarkdownKeywords => 'Vorschau, Darstellung, Formatierung';
+
+  @override
+  String get lineNumbersKeywords => 'Zeilennummern, Nummerierung';
+
+  @override
+  String get confirmDeleteKeywords => 'Papierkorb, Entfernen, Nachfrage';
+
+  @override
+  String get performanceKeywords =>
+      'Geschwindigkeit, Verzögerung, Abschnitt, schnell';
+
+  @override
+  String get cursorKeywords => 'Einfügemarke, aktuelle Zeile';
+
+  @override
+  String get keyboardKeywords => 'Tippen, Eingabe';
 }

@@ -930,5 +930,16 @@
   "collapseAll": "Restrânge tot",
   "expandAll": "Extinde tot",
   "searchUtilityButtons": "Caută butoane",
-  "noMatchesFound": "Niciun rezultat"
+  "noMatchesFound": "Niciun rezultat",
+  "searchSettings": "Caută în setări",
+  "hapticFeedbackKeywords": "vibrație, bâzâit, tremur",
+  "autoSaveKeywords": "salvare, copie, backup",
+  "wordWrapKeywords": "linie, rând, încadrare",
+  "swipeKeywords": "gest, glisare, tragere",
+  "liveMarkdownKeywords": "previzualizare, randare, formatare",
+  "lineNumbersKeywords": "numerotare, numere linii",
+  "confirmDeleteKeywords": "coș, ștergere, confirmare",
+  "performanceKeywords": "viteză, întârziere, fragment, rapid",
+  "cursorKeywords": "cursor, linia curentă",
+  "keyboardKeywords": "tastare, introducere"
 }
