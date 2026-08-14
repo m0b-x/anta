@@ -1,5 +1,5 @@
 ---
-name: gym-notes-context
+name: anta-context
 description: Load project context before any change in the ANTA Flutter app (Dart package `anta`). Covers product purpose, architecture flow, non-negotiable rules, style rules, and which validation commands to run. USE FOR - implementing or changing folders, notes, the editor, markdown shortcuts, the money ledger, counters, search, backup/restore, settings, navigation, import/export, or any feature work in this repo. Load the more specific skills (calendar-events, markdown-engine, drift-migrations, l10n) on top of this one when the task touches those areas.
 ---
 
@@ -9,7 +9,7 @@ ANTA is an **offline-first Flutter app for tracking the things you keep coming b
 
 It started as a training log, and that origin still sets the bar: capture must be fast and reliable in the middle of something else — no lost text, no layout shifts, minimal taps. When two designs are otherwise equal, pick the one that survives one-handed use.
 
-The Dart package is `anta` and the app id is `com.alexzamfir.anta`. Two names look like stale branding and are **not**: the `frontend/gym_notes_track_app/` directory, and the on-disk `gym_notes` database directory (`database_manager.dart`, `database.dart`) that holds every install's `.db` files and `device_id`. Never rename either.
+The Dart package is `anta` and the app id is `com.alexzamfir.anta`. The on-disk `gym_notes` database directory (`database_manager.dart`, `database.dart`) looks like stale branding and is **not** — it holds every install's `.db` files and `device_id`. Never rename it.
 
 ## 1. Read the canonical context first
 

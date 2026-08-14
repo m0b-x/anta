@@ -22,7 +22,7 @@ It started as a training log, and that origin still sets the bar: capture has to
 ## Repository layout
 
 ```
-frontend/gym_notes_track_app/   the Flutter app (all development happens here)
+frontend/anta/   the Flutter app (all development happens here)
 ```
 
 There is no backend — the `frontend/` nesting exists to leave room for one.
@@ -32,14 +32,14 @@ There is no backend — the `frontend/` nesting exists to leave room for one.
 Requires the Flutter SDK (Dart SDK `^3.10.4`). Android is the primary target; Windows desktop works for quick UI checks.
 
 ```bash
-cd frontend/gym_notes_track_app
+cd frontend/anta
 flutter pub get
 dart run build_runner build --delete-conflicting-outputs   # generate Drift code
 flutter gen-l10n                                            # generate localizations
 flutter run
 ```
 
-See [frontend/gym_notes_track_app/README.md](frontend/gym_notes_track_app/README.md) for the full command reference, and [frontend/gym_notes_track_app/CLAUDE.md](frontend/gym_notes_track_app/CLAUDE.md) for architecture and contribution rules.
+See [frontend/anta/README.md](frontend/anta/README.md) for the full command reference, and [frontend/anta/CLAUDE.md](frontend/anta/CLAUDE.md) for architecture and contribution rules.
 
 ## Tech stack
 

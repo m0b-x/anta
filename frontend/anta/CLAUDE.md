@@ -8,14 +8,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 It started as a training log, and that origin still sets the bar: capture must be fast and reliable in the middle of something else — no lost text, no layout shifts, minimal taps. When two designs are otherwise equal, pick the one that survives one-handed use.
 
-The app lives at `frontend/gym_notes_track_app/`; all commands below run from there. That directory name and the on-disk `gym_notes` database directory are load-bearing paths, not branding — never rename them.
+The app lives at `frontend/anta/`; all commands below run from there. The on-disk `gym_notes` database directory is a load-bearing runtime path, not branding — never rename it.
 
 ## Documentation map — read before editing
 
 | Source | Use for |
 | --- | --- |
 | [COPILOT_CONTEXT.md](COPILOT_CONTEXT.md) | **Canonical context.** Product purpose, stack, architecture, per-subsystem invariants (markdown preview pipeline, chunking, lists, money ledger, colors, ghost text), persistence rules, import/export rules, re_editor fork notes. Read the relevant section before planning. Do not restate it back to the user — follow it. |
-| [.claude/skills/](.claude/skills/) | Task-scoped skills: `gym-notes-context` (load first), then `markdown-engine`, `drift-migrations`, `calendar-events`, `l10n`, `verify` as the task demands. |
+| [.claude/skills/](.claude/skills/) | Task-scoped skills: `anta-context` (load first), then `markdown-engine`, `drift-migrations`, `calendar-events`, `l10n`, `verify` as the task demands. |
 | [docs/](docs/) | Feature references and roadmaps written per subsystem (`money-ledger-feature.md`, `live-markdown-editor-roadmap.md`, `calendar-events-feature.md`, `tag-system-roadmap.md`, `markdown-feature-ideas.md`, `re-editor-performance-2026-07.md`). Status headers say what shipped vs. what is planned. |
 
 When a subsystem's behavior changes materially, update the matching `docs/` file and the relevant `COPILOT_CONTEXT.md` section in the same change — those files are the memory between sessions.

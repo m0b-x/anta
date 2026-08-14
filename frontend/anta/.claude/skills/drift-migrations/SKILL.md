@@ -1,6 +1,6 @@
 ---
 name: drift-migrations
-description: Workflow for Drift SQLite schema changes, migrations, the DatabaseLifecycle singleton reset contract, and backup compatibility in ANTA. USE FOR - adding/altering tables or columns, writing migrations, changing DAOs, adding a DB-backed singleton service, multi-database switching behavior, or extending backup/restore. Load together with gym-notes-context.
+description: Workflow for Drift SQLite schema changes, migrations, the DatabaseLifecycle singleton reset contract, and backup compatibility in ANTA. USE FOR - adding/altering tables or columns, writing migrations, changing DAOs, adding a DB-backed singleton service, multi-database switching behavior, or extending backup/restore. Load together with anta-context.
 ---
 
 # Drift Schema Changes & Database Lifecycle

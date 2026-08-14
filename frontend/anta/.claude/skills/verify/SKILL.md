@@ -5,7 +5,7 @@ description: How to validate and run ANTA changes end-to-end on Windows - which 
 
 # Verifying Changes in ANTA
 
-All commands run from the app root (`frontend/gym_notes_track_app`) in PowerShell. Run **only what the change requires**, in this order.
+All commands run from the app root (`frontend/anta`) in PowerShell. Run **only what the change requires**, in this order.
 
 ## 1. Regenerate (when applicable)
 
