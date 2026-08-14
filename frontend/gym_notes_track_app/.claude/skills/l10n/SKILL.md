@@ -1,6 +1,6 @@
 ---
 name: l10n
-description: Localization workflow for Gym Notes - ARB files (en/de/ro), gen-l10n, copy style, and pluralization rules. USE FOR - adding or renaming any user-visible string, changing labels/tooltips/snackbars/dialogs, ICU plural keys, or anything touching lib/l10n. Load together with gym-notes-context.
+description: Localization workflow for ANTA - ARB files (en/de/ro), gen-l10n, copy style, and pluralization rules. USE FOR - adding or renaming any user-visible string, changing labels/tooltips/snackbars/dialogs, ICU plural keys, or anything touching lib/l10n. Load together with gym-notes-context.
 ---
 
 # Localization (en / de / ro)

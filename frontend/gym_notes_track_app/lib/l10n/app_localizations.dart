@@ -103,7 +103,7 @@ abstract class AppLocalizations {
   /// The title of the application
   ///
   /// In en, this message translates to:
-  /// **'Gym Notes'**
+  /// **'ANTA'**
   String get appTitle;
 
   /// Drawer item and page title for the calendar feature
@@ -1831,13 +1831,13 @@ abstract class AppLocalizations {
   /// Welcome message on onboarding screen
   ///
   /// In en, this message translates to:
-  /// **'Welcome to Gym Notes'**
-  String get welcomeToGymNotes;
+  /// **'Welcome to ANTA'**
+  String get welcomeToApp;
 
   /// Description on onboarding screen
   ///
   /// In en, this message translates to:
-  /// **'Track your workouts and notes in one place. Get started by creating a fresh workspace or restore from a previous backup.'**
+  /// **'Track your notes, spending, and schedule in one place. Get started by creating a fresh workspace or restore from a previous backup.'**
   String get onboardingDescription;
 
   /// Button to start with empty workspace

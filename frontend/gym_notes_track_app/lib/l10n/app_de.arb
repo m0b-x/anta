@@ -1,5 +1,5 @@
 {
-  "appTitle": "Gym Notizen",
+  "appTitle": "ANTA",
   "@appTitle": {
     "description": "The title of the application"
   },
@@ -306,8 +306,8 @@
   "iconGroupTravel": "Reise",
   "iconGroupTime": "Zeit",
   "iconGroupGeneric": "Sonstiges",
-  "welcomeToGymNotes": "Willkommen bei Gym Notizen",
-  "onboardingDescription": "Verfolge deine Trainings und Notizen an einem Ort. Starte mit einem neuen Arbeitsbereich oder stelle ein vorheriges Backup wieder her.",
+  "welcomeToApp": "Willkommen bei ANTA",
+  "onboardingDescription": "Verfolge deine Notizen, Ausgaben und Termine an einem Ort. Starte mit einem neuen Arbeitsbereich oder stelle ein vorheriges Backup wieder her.",
   "startFresh": "Neu starten",
   "restoreFromBackup": "Aus Backup wiederherstellen",
   "confirmImport": "Import bestätigen",

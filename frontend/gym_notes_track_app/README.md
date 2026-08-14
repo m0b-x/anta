@@ -1,6 +1,6 @@
-# gym_notes_track_app
+# anta
 
-The Gym Notes Flutter app — an offline-first training log built on folders, markdown notes, counters, and a calendar. See the [repository README](../../README.md) for the feature overview.
+The ANTA Flutter app — an offline-first personal tracker built on folders, markdown notes, a money ledger, counters, and a calendar. See the [repository README](../../README.md) for the feature overview.
 
 ## Setup
 

@@ -1,4 +1,4 @@
-package com.example.gym_notes_track_app
+package com.alexzamfir.anta
 
 import io.flutter.embedding.android.FlutterActivity
 

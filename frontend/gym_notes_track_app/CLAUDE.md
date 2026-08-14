@@ -4,9 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-**Gym Notes** (`gym_notes_track_app`) — an offline-first Flutter app for tracking gym progress through folders, markdown notes, counters, and a calendar. It is a training log first, a generic notes app second. Optimize for mid-workout use: no lost text, no layout shifts, minimal taps.
+**ANTA** (Dart package `anta`, app id `com.alexzamfir.anta`) — an offline-first Flutter app for tracking the things you keep coming back to: training sessions, spending, appointments, and the notes around them. Folders and markdown notes are the substrate; the money ledger, the calendar, and counters are built on top of them.
 
-The app lives at `frontend/gym_notes_track_app/`; all commands below run from there.
+It started as a training log, and that origin still sets the bar: capture must be fast and reliable in the middle of something else — no lost text, no layout shifts, minimal taps. When two designs are otherwise equal, pick the one that survives one-handed use.
+
+The app lives at `frontend/gym_notes_track_app/`; all commands below run from there. That directory name and the on-disk `gym_notes` database directory are load-bearing paths, not branding — never rename them.
 
 ## Documentation map — read before editing
 

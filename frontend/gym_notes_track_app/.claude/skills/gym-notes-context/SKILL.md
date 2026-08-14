@@ -1,11 +1,15 @@
 ---
 name: gym-notes-context
-description: Load project context before any change in the Gym Notes Flutter app (gym_notes_track_app). Covers product purpose, architecture flow, non-negotiable rules, style rules, and which validation commands to run. USE FOR - implementing or changing folders, notes, the editor, markdown shortcuts, counters, search, backup/restore, settings, navigation, import/export, or any feature work in this repo. Load the more specific skills (calendar-events, markdown-engine, drift-migrations, l10n) on top of this one when the task touches those areas.
+description: Load project context before any change in the ANTA Flutter app (Dart package `anta`). Covers product purpose, architecture flow, non-negotiable rules, style rules, and which validation commands to run. USE FOR - implementing or changing folders, notes, the editor, markdown shortcuts, the money ledger, counters, search, backup/restore, settings, navigation, import/export, or any feature work in this repo. Load the more specific skills (calendar-events, markdown-engine, drift-migrations, l10n) on top of this one when the task touches those areas.
 ---
 
-# Gym Notes Context
+# ANTA Context
 
-Gym Notes is an **offline-first Flutter app for tracking gym progress** through folders, markdown notes, counters, and a calendar. It is a training log first, a generic notes app second. Optimize for fast, reliable use mid-workout: no lost text, no layout shifts, minimal taps.
+ANTA is an **offline-first Flutter app for tracking the things you keep coming back to** — training sessions, spending, appointments, and the notes around them. Folders and markdown notes are the substrate; the money ledger, the calendar, and counters are built on top of them.
+
+It started as a training log, and that origin still sets the bar: capture must be fast and reliable in the middle of something else — no lost text, no layout shifts, minimal taps. When two designs are otherwise equal, pick the one that survives one-handed use.
+
+The Dart package is `anta` and the app id is `com.alexzamfir.anta`. Two names look like stale branding and are **not**: the `frontend/gym_notes_track_app/` directory, and the on-disk `gym_notes` database directory (`database_manager.dart`, `database.dart`) that holds every install's `.db` files and `device_id`. Never rename either.
 
 ## 1. Read the canonical context first
 

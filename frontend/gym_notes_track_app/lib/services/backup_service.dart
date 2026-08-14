@@ -190,7 +190,7 @@ class BackupService {
 
     final tempDir = await getTemporaryDirectory();
     final timestamp = DateTime.now().toIso8601String().replaceAll(':', '-');
-    final fileName = 'gym_notes_backup_$timestamp.json';
+    final fileName = 'anta_backup_$timestamp.json';
     final file = File('${tempDir.path}/$fileName');
     await file.writeAsString(jsonString);
 

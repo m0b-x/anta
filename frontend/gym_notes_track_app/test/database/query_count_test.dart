@@ -1,7 +1,7 @@
 import 'package:drift/drift.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gym_notes_track_app/database/daos/note_dao.dart';
-import 'package:gym_notes_track_app/database/database.dart';
+import 'package:anta/database/daos/note_dao.dart';
+import 'package:anta/database/database.dart';
 
 import 'support/db_test_support.dart';
 

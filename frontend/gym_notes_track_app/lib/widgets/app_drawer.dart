@@ -241,7 +241,7 @@ class _AppDrawerState extends State<AppDrawer> {
                   context: context,
                   icon: Icons.info_outline_rounded,
                   title: AppLocalizations.of(context)!.about,
-                  subtitle: 'Gym Notes v1.0.0',
+                  subtitle: 'ANTA v1.0.0',
                   onTap: () {
                     AppNavigator.pop(context);
                     _showAboutDialog(context);
@@ -426,7 +426,7 @@ class _AppDrawerState extends State<AppDrawer> {
           ),
           const SizedBox(width: 6),
           Text(
-            '2025 Gym Notes',
+            '2026 ANTA',
             style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
           ),
         ],
@@ -437,7 +437,7 @@ class _AppDrawerState extends State<AppDrawer> {
   void _showAboutDialog(BuildContext context) {
     showAboutDialog(
       context: context,
-      applicationName: 'Gym Notes',
+      applicationName: 'ANTA',
       applicationVersion: '1.0.0',
       applicationIcon: Container(
         padding: const EdgeInsets.all(8),

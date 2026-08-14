@@ -18,7 +18,7 @@ import '../models/recurrence_rule.dart';
 /// `RDATE`s. Both expansions are bounded by [expansionHorizonDays], so an
 /// export is always finite.
 abstract final class IcsSerializer {
-  static const String productId = '-//Gym Notes//Calendar Export//EN';
+  static const String productId = '-//ANTA//Calendar Export//EN';
 
   /// Bound on how far ahead rules that must be expanded to explicit dates
   /// are walked. Two years keeps a plan useful without unbounded output.

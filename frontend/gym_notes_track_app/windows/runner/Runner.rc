@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "gym_notes_track_app" "\0"
+            VALUE "CompanyName", "Alex Zamfir" "\0"
+            VALUE "FileDescription", "ANTA" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "gym_notes_track_app" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2025 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "gym_notes_track_app.exe" "\0"
-            VALUE "ProductName", "gym_notes_track_app" "\0"
+            VALUE "InternalName", "anta" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 Alex Zamfir. All rights reserved." "\0"
+            VALUE "OriginalFilename", "anta.exe" "\0"
+            VALUE "ProductName", "ANTA" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

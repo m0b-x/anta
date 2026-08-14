@@ -1,4 +1,4 @@
-# Money Ledger Integration Roadmap — Gym Notes
+# Money Ledger Integration Roadmap — ANTA
 
 > **Status: implemented.** All four tiers below shipped (with small
 > deliberate deviations: per-note currency UI is a bulk page reached from the

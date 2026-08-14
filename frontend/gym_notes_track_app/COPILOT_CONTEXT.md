@@ -1,20 +1,23 @@
-# Gym Notes - Copilot Context
+# ANTA - Copilot Context
 
 ## Product Purpose
-Gym Notes is an offline-first Flutter app for tracking gym progress through structured notes, folders, markdown, and counters. Treat it as a training log first and a generic notes app second.
+ANTA is an offline-first Flutter app for tracking the things a person keeps coming back to — training sessions, spending, appointments, and the notes around them. Folders and markdown notes are the substrate; the money ledger, the calendar, and counters are built on top of them, all derived from or stored alongside note content rather than living in separate silos.
 
-When changing the app, optimize for fast workout-session use:
-- Users should be able to capture sets, reps, weights, PRs, bodyweight, soreness, exercises, routines, and session notes with minimal friction.
-- Editing must feel reliable during or after a workout: no lost text, no surprising navigation, no heavy UI while typing.
-- Organization should support real gym habits: folders for programs or muscle groups, notes for sessions/templates, counters for global or per-note metrics.
+The app began as a training log, and that origin still sets the bar. When changing the app, optimize for capture in the middle of something else:
+- Users should be able to record a value, a line, a transaction, or an event with minimal friction — mid-set, at a checkout, or between meetings.
+- Editing must feel reliable when attention is elsewhere: no lost text, no surprising navigation, no heavy UI while typing.
+- Organization should support real habits: folders for programs, projects, months, or topics; notes for sessions/templates/records; counters for global or per-note metrics.
 - Offline data ownership matters. Preserve local SQLite data, backup/restore behavior, and future sync readiness.
-- UI should be practical, touch-friendly, and quick to scan in a gym environment. Prefer clear controls, high contrast, stable layouts, and small but obvious status feedback.
+- UI should be practical, touch-friendly, and quick to scan one-handed. Prefer clear controls, high contrast, stable layouts, and small but obvious status feedback.
+- When two designs are otherwise equal, pick the one that survives one-handed use.
 
 ## Core User Workflows
-- Create folders/subfolders for programs, routines, exercises, weeks, or muscle groups.
-- Create and edit markdown notes for workouts, templates, exercise logs, measurements, and progress history.
-- Use custom markdown toolbar shortcuts for fast entry of headings, lists, checkboxes, tables, dates, and repeated workout structures.
+- Create folders/subfolders for programs, routines, exercises, weeks, muscle groups, projects, or months.
+- Create and edit markdown notes for sessions, templates, logs, measurements, spending, and history.
+- Use custom markdown toolbar shortcuts for fast entry of headings, lists, checkboxes, tables, dates, and repeated structures.
+- Record spending inline with money-ledger lines that fold into a running balance derived purely from note content.
 - Track numeric progress with counters, including global counters and per-note counters with pinning and manual ordering.
+- Plan and review with the calendar: categorized events, recurrence, computed holidays and fasting calendars, day summaries, note links.
 - Search across notes and within the active note, including regex/whole-word options in the editor search overlay.
 - Switch databases, export/import backups, and keep localized app text in English, German, and Romanian.
 
@@ -54,10 +57,10 @@ Page/Widget -> BLoC -> Service -> Repository -> DAO -> Drift database
 
 ## Main Feature Areas
 - `lib/pages/optimized_folder_content_page.dart`: main folder/note browser with nested folders, pagination, sorting, reordering, swipe actions, FAB creation, and navigation.
-- `lib/pages/optimized_note_editor_page.dart`: main workout note editor with `re_editor`, markdown toolbar, preview/split modes, auto-save, note position persistence, search/replace, sharing, and debug overlays.
+- `lib/pages/optimized_note_editor_page.dart`: main note editor with `re_editor`, markdown toolbar, preview/split modes, auto-save, note position persistence, search/replace, sharing, and debug overlays.
 - `lib/widgets/markdown_toolbar.dart`: configurable shortcut and utility toolbar. Use `UtilityButtonDefinition` as the registry for utility buttons.
 - `lib/pages/markdown_settings_page.dart`, `shortcut_editor_page.dart`, `note_bar_assignment_page.dart`: markdown shortcut profiles and per-note toolbar assignment. The settings page body is a `CustomScrollView`: the config sections are `SliverToBoxAdapter`s (each keeping its own height-fold animation) and the shortcut list is a `SliverReorderableList` so `EdgeDraggingAutoScroller` can scroll the page while a card is dragged — never nest it back into a shrink-wrapped list, that is exactly what broke drag auto-scroll. A pinned `SliverPersistentHeader` carries the search field and category filter chips; while a search query or chip is active the list falls back to a plain `SliverList` and drag is disabled, so a shortcut can never be moved to a position the user cannot see. Section fold state is persisted (`SettingsKeys.markdownSectionsCollapsed`, a comma-separated set of *collapsed* ids so the empty default keeps everything open) and restored without animating on entry; an app-bar icon folds/unfolds all sections at once. Fold sections through `_FoldableContent`, never a `TweenAnimationBuilder` around a prebuilt child — `Align`'s `heightFactor` only clips painting, so the old shape still built and laid out every collapsed section on each rebuild (the collapsed toolbar section was constructing a live `MarkdownBar` on every keystroke in the shortcut search). A settings list only grows a search field once it exceeds `AppConstants.listSearchThreshold`; the utility-button list is below that today, so its search path is inert until the `UtilityButtonDefinition` registry grows. The "Text colors" row folds exactly like its neighbours (a `ListTile` there previously supplied its own colors/height and stood out); the actual navigation to `MarkdownColorsPage` lives on an "Edit colors" button inside the fold, not on the header itself.
-- `lib/pages/counter_management_page.dart` and `counter_per_note_page.dart`: global/per-note counter workflows for workout metrics.
+- `lib/pages/counter_management_page.dart` and `counter_per_note_page.dart`: global/per-note counter workflows for repeated numeric metrics.
 - `lib/services/counter_service.dart`: counter cache, debounced writes, pinning, ordering, import/export, and flush behavior.
 - `lib/services/auto_save_service.dart`: note content save reliability. Be careful with debounce, interval saves, lifecycle flushes, and retry behavior.
 - `lib/services/backup_service.dart`: JSON backup/restore. Keep versioned compatibility when adding persisted fields.
@@ -190,7 +193,7 @@ Ghost text is an inline, single-line `{{ … }}` placeholder rendered dimmed, us
 - Keep controls touch-friendly: icon buttons, tooltips, menus, toggles, sliders, reorder handles, and clear destructive confirmations.
 - Avoid layout shifts in editor, toolbar, counters, and folder/note lists. Stable dimensions matter more than decorative styling.
 - Keyboard avoidance in the note editor is manual and gated, not `Scaffold`'s: the editor Scaffold sets `resizeToAvoidBottomInset: false` and pads its body by `_keyboardInset(context)`, which only trusts `viewInsets.bottom` while the page owns an input connection (`_contentHasFocus`, mirrored from `_contentFocusNode`, or an open search bar). Android can hand back a stale keyboard inset after a resume — ungated, that inset floats the markdown toolbar above an empty strip until the app is restarted. The same gated value drives `previewWhenKeyboardHidden` and the toolbar's bottom safe-area spacer (`viewPadding.bottom` when no keyboard). `main.dart` completes the pair by unfocusing on `AppLifecycleState.paused` so the IME animation finishes while the window is still live.
-- For gym progress features, prefer quick capture patterns: reusable templates, pinned counters, recent/frequent actions, clear save status, and minimal taps.
+- For any capture-oriented feature, prefer quick capture patterns: reusable templates, pinned counters, recent/frequent actions, clear save status, and minimal taps.
 - Respect light/dark/system themes and supported locales.
 
 ## Error Handling And State
@@ -238,9 +241,9 @@ Run only the commands relevant to the change. For UI-only Dart changes, `dart an
 - `lib/database/database.g.dart` is generated by Drift.
 - Android/iOS/macOS/Linux/Windows/web folders are platform shells; prefer app-level fixes in `lib/` unless the issue is platform-specific.
 
-## Good Defaults For New Gym Progress Features
-- If a feature captures workout data, decide whether it belongs in note markdown, a counter, settings, or database schema before adding new storage.
-- Prefer note-level features when the data is naturally part of a workout session, and counter features when the value needs repeated numeric updates or cross-note aggregation.
+## Good Defaults For New Tracking Features
+- If a feature captures user data, decide whether it belongs in note markdown, a counter, settings, or database schema before adding new storage.
+- Prefer note-level features when the data is naturally part of a session or entry, and counter features when the value needs repeated numeric updates or cross-note aggregation. Derived-from-content features (the money ledger is the reference case) beat a parallel store that can drift.
 - Preserve backup/export support for any persisted user data.
-- Make sorting, pinning, and reordering explicit when users are likely to curate workout information manually.
+- Make sorting, pinning, and reordering explicit when users are likely to curate the information manually.
 - Keep input flows fast: sensible defaults, remembered choices, localized validation, and no unnecessary dialogs.

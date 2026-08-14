@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gym_notes_track_app/database/database.dart';
+import 'package:anta/database/database.dart';
 
 /// Guards the connection pragmas, which are worth roughly a **20×** speedup on
 /// the app's dominant write shape (many small auto-save commits: 561 ms → 28 ms

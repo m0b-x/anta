@@ -432,7 +432,7 @@ class ImportExportService {
     final body = IcsSerializer.serialize(events: events);
     final tempDir = await getTemporaryDirectory();
     final timestamp = DateTime.now().toIso8601String().replaceAll(':', '-');
-    final file = File(p.join(tempDir.path, 'gym_notes_events_$timestamp.ics'));
+    final file = File(p.join(tempDir.path, 'anta_events_$timestamp.ics'));
     await file.writeAsString(body);
     return ExportResult(filePath: file.path, eventsExported: events.length);
   }

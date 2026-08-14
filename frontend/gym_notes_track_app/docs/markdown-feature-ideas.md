@@ -1,4 +1,4 @@
-# Markdown Feature Ideas — Gym Notes Builder
+# Markdown Feature Ideas — ANTA Builder
 
 Candidate features for the custom markdown engine (`lib/utils/line_based_markdown_builder.dart`
 + `markdown_chunker.dart` + `markdown_list_syntax.dart`), chosen for a **gym /

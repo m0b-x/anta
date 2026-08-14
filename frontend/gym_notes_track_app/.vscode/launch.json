@@ -5,18 +5,18 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "gym_notes_track_app",
+            "name": "anta",
             "request": "launch",
             "type": "dart"
         },
         {
-            "name": "gym_notes_track_app (profile mode)",
+            "name": "anta (profile mode)",
             "request": "launch",
             "type": "dart",
             "flutterMode": "profile"
         },
         {
-            "name": "gym_notes_track_app (release mode)",
+            "name": "anta (release mode)",
             "request": "launch",
             "type": "dart",
             "flutterMode": "release"

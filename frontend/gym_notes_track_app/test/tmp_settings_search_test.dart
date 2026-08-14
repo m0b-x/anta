@@ -1,8 +1,8 @@
 import 'package:flutter/services.dart' show TextRange;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gym_notes_track_app/services/folder_search_service.dart'
+import 'package:anta/services/folder_search_service.dart'
     show normalizeForSearch;
-import 'package:gym_notes_track_app/utils/settings_search.dart';
+import 'package:anta/utils/settings_search.dart';
 
 void main() {
   group('FoldedText', () {

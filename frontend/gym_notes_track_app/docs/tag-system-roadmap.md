@@ -1,4 +1,4 @@
-# Tag System Roadmap — Gym Notes
+# Tag System Roadmap — ANTA
 
 Forward plan for the `#tag` feature. The **baseline is shipped**; this document
 covers what's needed to make tagging a production-grade organizational backbone

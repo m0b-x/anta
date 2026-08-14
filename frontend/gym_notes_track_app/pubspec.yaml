@@ -1,5 +1,5 @@
-name: gym_notes_track_app
-description: "Gym Notes - an offline-first training log built on folders, markdown notes, counters, and a calendar."
+name: anta
+description: "ANTA - an offline-first personal tracker: folders, markdown notes, a money ledger, counters, and a calendar."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev

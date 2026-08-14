@@ -1,21 +1,21 @@
 ---
 name: gym-notes-context
-description: "Use when working in the Gym Notes Flutter app (gym_notes_track_app). Loads product purpose, architecture, persistence rules, l10n requirements, validation commands, and UX direction for this offline-first gym progress tracker built on Flutter, BLoC, Drift SQLite, table_calendar, and re_editor. USE FOR: implementing or changing folders, notes, markdown editor, markdown shortcuts, counters (global and per-note), calendar/events, backup/restore, multi-database management, settings, onboarding, search, or anything touching workout-tracking workflows. DO NOT USE FOR: unrelated Flutter projects or generic Dart questions."
+description: "Use when working in the ANTA Flutter app (Dart package `anta`). Loads product purpose, architecture, persistence rules, l10n requirements, validation commands, and UX direction for this offline-first personal tracker built on Flutter, BLoC, Drift SQLite, table_calendar, and re_editor. USE FOR: implementing or changing folders, notes, markdown editor, markdown shortcuts, the money ledger, counters (global and per-note), calendar/events, backup/restore, multi-database management, settings, onboarding, search, or anything touching tracking workflows. DO NOT USE FOR: unrelated Flutter projects or generic Dart questions."
 ---
 
-# Gym Notes Context Skill
+# ANTA Context Skill
 
-Load this whenever a task touches the `gym_notes_track_app` Flutter workspace. It sets product framing, architecture rules, and validation steps so changes stay consistent with the existing app.
+Load this whenever a task touches the `frontend/gym_notes_track_app/` Flutter workspace (the directory name predates the rename and is load-bearing — never rename it, nor the on-disk `gym_notes` database directory). It sets product framing, architecture rules, and validation steps so changes stay consistent with the existing app.
 
 ## 1. Load The Canonical Context
 
 Read [COPILOT_CONTEXT.md](../../../COPILOT_CONTEXT.md) before planning or editing. It is the source of truth for:
 
-- Product purpose and user workflows (gym/workout tracking, notes, counters).
+- Product purpose and user workflows (notes, money ledger, calendar, counters).
 - Non-negotiable rules (localization, generated files, build_runner, no unsolicited tests/comments).
 - Stack, architecture flow, main feature areas, persistence rules.
 - Localization, UI/UX direction, error handling, validation commands.
-- Defaults for adding new gym progress features.
+- Defaults for adding new tracking features.
 
 Do not restate that file back to the user; just follow it.
 

@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:gym_notes_track_app/constants/search_constants.dart';
+import 'package:anta/constants/search_constants.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/isolate_data.dart';
 import '../models/note_metadata.dart';

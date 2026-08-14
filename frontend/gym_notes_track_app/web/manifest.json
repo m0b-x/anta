@@ -1,11 +1,11 @@
 {
-    "name": "gym_notes_track_app",
-    "short_name": "gym_notes_track_app",
+    "name": "ANTA",
+    "short_name": "ANTA",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#1C1B1F",
     "theme_color": "#1C1B1F",
-    "description": "A new Flutter project.",
+    "description": "An offline-first personal tracker: folders, markdown notes, a money ledger, counters, and a calendar.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

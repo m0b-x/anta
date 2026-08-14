@@ -1,5 +1,5 @@
 {
-  "appTitle": "Gym Notes",
+  "appTitle": "ANTA",
   "@appTitle": {
     "description": "The title of the application"
   },
@@ -1231,11 +1231,11 @@
   "@iconGroupTime": { "description": "Icon picker group: time and schedule" },
   "iconGroupGeneric": "Other",
   "@iconGroupGeneric": { "description": "Icon picker group: miscellaneous icons" },
-  "welcomeToGymNotes": "Welcome to Gym Notes",
-  "@welcomeToGymNotes": {
+  "welcomeToApp": "Welcome to ANTA",
+  "@welcomeToApp": {
     "description": "Welcome message on onboarding screen"
   },
-  "onboardingDescription": "Track your workouts and notes in one place. Get started by creating a fresh workspace or restore from a previous backup.",
+  "onboardingDescription": "Track your notes, spending, and schedule in one place. Get started by creating a fresh workspace or restore from a previous backup.",
   "@onboardingDescription": {
     "description": "Description on onboarding screen"
   },

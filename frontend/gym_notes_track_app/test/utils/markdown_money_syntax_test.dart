@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gym_notes_track_app/utils/markdown_line_shape.dart';
-import 'package:gym_notes_track_app/utils/markdown_money_syntax.dart';
+import 'package:anta/utils/markdown_line_shape.dart';
+import 'package:anta/utils/markdown_money_syntax.dart';
 
 MoneyLineMatch? p(String s) => MarkdownMoneySyntax.parse(s);
 

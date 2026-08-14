@@ -1,6 +1,6 @@
 ---
 name: markdown-engine
-description: Invariants for the custom markdown engine and note editor in Gym Notes - preview pipeline (MarkdownPreviewBloc, LineBasedMarkdownBuilder, MarkdownChunker), live editor rendering (MarkdownEditorSpanBuilder), list grammar, ghost text, tags, callouts, toolbar shortcuts, and the local re_editor fork. USE FOR - any change touching lib/utils/line_based_markdown_builder.dart, markdown_editor_span_builder.dart, markdown_chunker.dart, markdown_list_syntax.dart, ghost_text.dart, lib/bloc/markdown_preview/, markdown_render_service.dart, optimized_note_editor_page.dart, markdown_toolbar.dart, or packages/re_editor. Load together with gym-notes-context.
+description: Invariants for the custom markdown engine and note editor in ANTA - preview pipeline (MarkdownPreviewBloc, LineBasedMarkdownBuilder, MarkdownChunker), live editor rendering (MarkdownEditorSpanBuilder), list grammar, ghost text, tags, callouts, toolbar shortcuts, and the local re_editor fork. USE FOR - any change touching lib/utils/line_based_markdown_builder.dart, markdown_editor_span_builder.dart, markdown_chunker.dart, markdown_list_syntax.dart, ghost_text.dart, lib/bloc/markdown_preview/, markdown_render_service.dart, optimized_note_editor_page.dart, markdown_toolbar.dart, or packages/re_editor. Load together with gym-notes-context.
 ---
 
 # Markdown Engine & Editor

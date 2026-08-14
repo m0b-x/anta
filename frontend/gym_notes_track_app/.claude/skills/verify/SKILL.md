@@ -1,9 +1,9 @@
 ---
 name: verify
-description: How to validate and run Gym Notes changes end-to-end on Windows - which generators/analysis to run per change type, and how to launch or install the Flutter app. USE FOR - verifying a change works, running the app, building a release, or installing to a device.
+description: How to validate and run ANTA changes end-to-end on Windows - which generators/analysis to run per change type, and how to launch or install the Flutter app. USE FOR - verifying a change works, running the app, building a release, or installing to a device.
 ---
 
-# Verifying Changes in Gym Notes
+# Verifying Changes in ANTA
 
 All commands run from the app root (`frontend/gym_notes_track_app`) in PowerShell. Run **only what the change requires**, in this order.
 

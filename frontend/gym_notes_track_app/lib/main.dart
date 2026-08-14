@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:gym_notes_track_app/l10n/app_localizations.dart';
+import 'package:anta/l10n/app_localizations.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'dart:async';
 import 'bloc/app_settings/app_settings_bloc.dart';
@@ -129,7 +129,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           return MaterialApp(
             navigatorKey: AppNavigator.navigatorKey,
             navigatorObservers: [AppNavigator.routeObserver],
-            title: 'Gym Notes',
+            title: 'ANTA',
             debugShowCheckedModeBanner: false,
             localizationsDelegates: const [
               AppLocalizations.delegate,
@@ -167,6 +167,6 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       return OnboardingPage(onComplete: _onOnboardingComplete);
     }
 
-    return const OptimizedFolderContentPage(folderId: null, title: 'Gym Notes');
+    return const OptimizedFolderContentPage(folderId: null, title: 'ANTA');
   }
 }

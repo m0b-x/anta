@@ -1,5 +1,5 @@
 {
-  "appTitle": "Gym Notes",
+  "appTitle": "ANTA",
   "calendar": "Calendar",
   "calendarDesc": "Planifică antrenamente și evenimente",
   "calendarNoEventsForDay": "Niciun eveniment pentru această zi",
@@ -303,8 +303,8 @@
   "iconGroupTravel": "Călătorie",
   "iconGroupTime": "Timp",
   "iconGroupGeneric": "Altele",
-  "welcomeToGymNotes": "Bine ai venit la Gym Notes",
-  "onboardingDescription": "Urmărește-ți antrenamentele și notițele într-un singur loc. Începe cu un spațiu de lucru nou sau restaurează dintr-un backup anterior.",
+  "welcomeToApp": "Bine ai venit la ANTA",
+  "onboardingDescription": "Urmărește-ți notițele, cheltuielile și programul într-un singur loc. Începe cu un spațiu de lucru nou sau restaurează dintr-un backup anterior.",
   "startFresh": "Începe de la zero",
   "restoreFromBackup": "Restaurează din Backup",
   "confirmImport": "Confirmă Importul",

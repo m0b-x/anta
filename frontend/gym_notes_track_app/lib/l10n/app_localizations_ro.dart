@@ -9,7 +9,7 @@ class AppLocalizationsRo extends AppLocalizations {
   AppLocalizationsRo([String locale = 'ro']) : super(locale);
 
   @override
-  String get appTitle => 'Gym Notes';
+  String get appTitle => 'ANTA';
 
   @override
   String get calendar => 'Calendar';
@@ -1052,11 +1052,11 @@ class AppLocalizationsRo extends AppLocalizations {
   String get iconGroupGeneric => 'Altele';
 
   @override
-  String get welcomeToGymNotes => 'Bine ai venit la Gym Notes';
+  String get welcomeToApp => 'Bine ai venit la ANTA';
 
   @override
   String get onboardingDescription =>
-      'Urmărește-ți antrenamentele și notițele într-un singur loc. Începe cu un spațiu de lucru nou sau restaurează dintr-un backup anterior.';
+      'Urmărește-ți notițele, cheltuielile și programul într-un singur loc. Începe cu un spațiu de lucru nou sau restaurează dintr-un backup anterior.';
 
   @override
   String get startFresh => 'Începe de la zero';

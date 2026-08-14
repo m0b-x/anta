@@ -17,7 +17,7 @@ this is the short reference.
    recomputed its code-fence index and its task-indeterminate index from
    scratch whenever the `CodeLines` instance changed — which is every text
    mutation. The task pass also ran three regexes per candidate line via
-   `MarkdownListSyntax.parse`, and gym notes are mostly list lines, so the
+   `MarkdownListSyntax.parse`, and notes here are mostly list lines, so the
    cheap pre-filter barely helped.
 3. **A wasted TextSpan allocation per line per layout.** `_CodeHighlighter`
    always built a plain `TextSpan(text, style)` to hand to the span-builder

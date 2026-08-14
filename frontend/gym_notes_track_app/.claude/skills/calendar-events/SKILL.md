@@ -1,6 +1,6 @@
 ---
 name: calendar-events
-description: Rules and file map for the calendar/events subsystem in Gym Notes - custom events, data-driven categories, recurrence rules, public holidays, event editor sheet, day bars/summary, event-note links. USE FOR - any change touching lib/pages/calendar_page.dart, calendar_settings_page.dart, calendar_categories_page.dart, lib/bloc/calendar/, CalendarEventService, CategoryService, PublicHolidayService, RecurrenceRule, event_editor_sheet.dart, or the calendar_events / calendar_categories / public_holidays tables. Load together with gym-notes-context.
+description: Rules and file map for the calendar/events subsystem in ANTA - custom events, data-driven categories, recurrence rules, public holidays, event editor sheet, day bars/summary, event-note links. USE FOR - any change touching lib/pages/calendar_page.dart, calendar_settings_page.dart, calendar_categories_page.dart, lib/bloc/calendar/, CalendarEventService, CategoryService, PublicHolidayService, RecurrenceRule, event_editor_sheet.dart, or the calendar_events / calendar_categories / public_holidays tables. Load together with gym-notes-context.
 ---
 
 # Calendar & Events

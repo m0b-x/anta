@@ -9,7 +9,7 @@ class AppLocalizationsDe extends AppLocalizations {
   AppLocalizationsDe([String locale = 'de']) : super(locale);
 
   @override
-  String get appTitle => 'Gym Notizen';
+  String get appTitle => 'ANTA';
 
   @override
   String get calendar => 'Kalender';
@@ -1037,11 +1037,11 @@ class AppLocalizationsDe extends AppLocalizations {
   String get iconGroupGeneric => 'Sonstiges';
 
   @override
-  String get welcomeToGymNotes => 'Willkommen bei Gym Notizen';
+  String get welcomeToApp => 'Willkommen bei ANTA';
 
   @override
   String get onboardingDescription =>
-      'Verfolge deine Trainings und Notizen an einem Ort. Starte mit einem neuen Arbeitsbereich oder stelle ein vorheriges Backup wieder her.';
+      'Verfolge deine Notizen, Ausgaben und Termine an einem Ort. Starte mit einem neuen Arbeitsbereich oder stelle ein vorheriges Backup wieder her.';
 
   @override
   String get startFresh => 'Neu starten';

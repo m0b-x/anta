@@ -33,10 +33,10 @@ class _OnboardingPageState extends State<OnboardingPage> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const Spacer(),
-              Icon(Icons.fitness_center, size: 80, color: colorScheme.primary),
+              Icon(Icons.auto_stories, size: 80, color: colorScheme.primary),
               const SizedBox(height: 24),
               Text(
-                l10n.welcomeToGymNotes,
+                l10n.welcomeToApp,
                 style: textTheme.headlineMedium?.copyWith(
                   fontWeight: FontWeight.bold,
                 ),

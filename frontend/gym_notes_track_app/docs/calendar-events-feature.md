@@ -1,7 +1,7 @@
 # Calendar & Events — Feature Reference
 
 A deep, implementation-aware description of the calendar/events subsystem in
-`gym_notes_track_app`, written as of schema **v14**; the **Addendum (schema
+`anta`, written as of schema **v14**; the **Addendum (schema
 v15–v18)** at the end of this document covers everything added since —
 panel modes, the upcoming agenda, the day timeline, `.ics` export, and the
 priority-scale inversion. This document focuses on the **events** feature
@@ -25,14 +25,15 @@ linked.
 
 ## 1. Product purpose
 
-The calendar lives inside an offline-first gym-progress tracker. It is **not**
-a general-purpose calendar (no meetings, no invites, no sync). Its purpose is
-to let a lifter:
+The calendar lives inside an offline-first personal tracker. It is **not** a
+general-purpose calendar (no meetings, no invites, no sync). Its purpose is to
+let one person:
 
-- **Plan training** — schedule recurring sessions (3×/week, every workday,
-  weekends only, etc.) so the calendar surfaces "what should I do today?".
-- **Annotate the year** — mark holidays, competitions, deload windows,
-  measurements, rest days.
+- **Plan recurring commitments** — schedule repeating sessions (3×/week, every
+  workday, weekends only, etc.) so the calendar answers "what should I do
+  today?". Training was the original case and is still the densest one.
+- **Annotate the year** — mark holidays, fasting periods, birthdays,
+  competitions, deload windows, measurements, rest days.
 - **Stay context-rich on a single device** — every event is local SQLite,
   with no account, no cloud, and survives device wipe via the JSON backup.
 

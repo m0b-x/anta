@@ -1,6 +1,6 @@
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
-import 'package:gym_notes_track_app/database/database.dart';
+import 'package:anta/database/database.dart';
 
 /// Opens the real [AppDatabase] — real schema, real migrations, real DAOs —
 /// over an in-memory SQLite database.
