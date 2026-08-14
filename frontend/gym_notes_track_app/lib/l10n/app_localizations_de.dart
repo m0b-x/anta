@@ -2977,6 +2977,9 @@ class AppLocalizationsDe extends AppLocalizations {
   String get markdownColorsSubtitle => 'Farben für Text und Hervorhebungen';
 
   @override
+  String get editColors => 'Farben bearbeiten';
+
+  @override
   String get markdownColorsHowTo =>
       'Farbnamen vor den Text schreiben. Unbekannte Namen bleiben unverändert.';
 
@@ -3124,4 +3127,52 @@ class AppLocalizationsDe extends AppLocalizations {
     );
     return '$_temp0';
   }
+
+  @override
+  String get searchShortcuts => 'Kürzel suchen';
+
+  @override
+  String get shortcutCategory => 'Kategorie';
+
+  @override
+  String get setCategory => 'Kategorie festlegen';
+
+  @override
+  String get uncategorized => 'Ohne Kategorie';
+
+  @override
+  String get categoryHint => 'z. B. Push-Tag';
+
+  @override
+  String get noCategory => 'Keine Kategorie';
+
+  @override
+  String get existingCategories => 'Vorhandene Kategorien';
+
+  @override
+  String get clearFilters => 'Zurücksetzen';
+
+  @override
+  String get clearSearchToReorder =>
+      'Suche und Filter löschen, um zu sortieren';
+
+  @override
+  String get noShortcutsMatchFilter => 'Keine passenden Kürzel';
+
+  @override
+  String shortcutCountFiltered(int shown, int total) {
+    return '$shown / $total';
+  }
+
+  @override
+  String get collapseAll => 'Alle einklappen';
+
+  @override
+  String get expandAll => 'Alle ausklappen';
+
+  @override
+  String get searchUtilityButtons => 'Schaltflächen suchen';
+
+  @override
+  String get noMatchesFound => 'Keine Treffer';
 }

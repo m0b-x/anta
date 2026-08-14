@@ -26,6 +26,7 @@ class JsonKeys {
   static const String isVisible = 'isVisible';
   static const String insertType = 'insertType';
   static const String dateFormat = 'dateFormat';
+  static const String category = 'category';
 
   // Date offset keys
   static const String dateOffset = 'dateOffset';

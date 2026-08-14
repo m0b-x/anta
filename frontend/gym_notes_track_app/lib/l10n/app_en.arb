@@ -3809,6 +3809,10 @@
   "@markdownColorsSubtitle": {
     "description": "Settings row subtitle for the markdown color palette"
   },
+  "editColors": "Edit colors",
+  "@editColors": {
+    "description": "Button inside the folded Text colors section that navigates to the color palette page"
+  },
   "markdownColorsHowTo": "Type a color name before the text. Unknown names stay plain.",
   "@markdownColorsHowTo": {
     "description": "Explains how the colored text syntax works"
@@ -3993,5 +3997,73 @@
         "type": "int"
       }
     }
+  },
+  "searchShortcuts": "Search shortcuts",
+  "@searchShortcuts": {
+    "description": "Hint text of the search field above the shortcut list in markdown settings"
+  },
+  "shortcutCategory": "Category",
+  "@shortcutCategory": {
+    "description": "Label for the free-text category assigned to a markdown shortcut"
+  },
+  "setCategory": "Set category",
+  "@setCategory": {
+    "description": "Shortcut card menu action that opens the category dialog"
+  },
+  "uncategorized": "Uncategorized",
+  "@uncategorized": {
+    "description": "Filter chip and label for shortcuts without a category"
+  },
+  "categoryHint": "e.g. Push day",
+  "@categoryHint": {
+    "description": "Hint text of the category input field"
+  },
+  "noCategory": "No category",
+  "@noCategory": {
+    "description": "Action in the category dialog that removes the shortcut's category"
+  },
+  "existingCategories": "Existing categories",
+  "@existingCategories": {
+    "description": "Header above the list of already used categories in the category dialog"
+  },
+  "clearFilters": "Clear",
+  "@clearFilters": {
+    "description": "Button that clears the shortcut search query and selected category chips"
+  },
+  "clearSearchToReorder": "Clear search and filters to reorder",
+  "@clearSearchToReorder": {
+    "description": "Hint shown above the shortcut list explaining why dragging is disabled"
+  },
+  "noShortcutsMatchFilter": "No shortcuts match",
+  "@noShortcutsMatchFilter": {
+    "description": "Empty state shown when the search or category filter matches nothing"
+  },
+  "shortcutCountFiltered": "{shown} / {total}",
+  "@shortcutCountFiltered": {
+    "description": "Badge next to the shortcuts section title showing matches vs total",
+    "placeholders": {
+      "shown": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "collapseAll": "Collapse all",
+  "@collapseAll": {
+    "description": "App bar action that folds every section of the markdown settings page"
+  },
+  "expandAll": "Expand all",
+  "@expandAll": {
+    "description": "App bar action that unfolds every section of the markdown settings page"
+  },
+  "searchUtilityButtons": "Search buttons",
+  "@searchUtilityButtons": {
+    "description": "Hint text of the search field above the utility button list"
+  },
+  "noMatchesFound": "No matches",
+  "@noMatchesFound": {
+    "description": "Neutral empty state shown when a settings list search matches nothing"
   }
 }

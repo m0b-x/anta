@@ -91,5 +91,9 @@ class AppConstants {
   /// Maximum allowed length for markdown bar profile names.
   static const int maxBarProfileNameLength = 30;
 
+  /// A settings list only grows a search field once it exceeds this many
+  /// entries — short, fixed lists stay free of search chrome.
+  static const int listSearchThreshold = 12;
+
   AppConstants._();
 }

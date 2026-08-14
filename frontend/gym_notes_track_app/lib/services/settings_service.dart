@@ -808,6 +808,23 @@ class SettingsService {
     await _setBool(SettingsKeys.toolbarSplitEnabled, value);
   }
 
+  /// Ids of the markdown settings sections the user left folded. An empty
+  /// set means everything is expanded.
+  Future<Set<String>> getCollapsedMarkdownSections() async {
+    final value = await _db.userSettingsDao.getValue(
+      SettingsKeys.markdownSectionsCollapsed,
+    );
+    if (value == null || value.isEmpty) return <String>{};
+    return value.split(',').where((id) => id.isNotEmpty).toSet();
+  }
+
+  Future<void> setCollapsedMarkdownSections(Set<String> sectionIds) async {
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.markdownSectionsCollapsed,
+      sectionIds.join(','),
+    );
+  }
+
   // Toolbar utility buttons config
   Future<List<UtilityButtonConfig>> getToolbarUtilityConfig() async {
     final value = await _db.userSettingsDao.getValue(

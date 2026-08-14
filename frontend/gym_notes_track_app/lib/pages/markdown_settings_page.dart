@@ -15,6 +15,7 @@ import '../widgets/app_drawer.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/app_loading_bar.dart';
 import '../widgets/markdown_bar.dart';
+import '../widgets/settings_search_field.dart';
 import '../widgets/unified_app_bars.dart';
 import '../services/app_navigator.dart';
 
@@ -27,9 +28,18 @@ class MarkdownSettingsPage extends StatefulWidget {
   State<MarkdownSettingsPage> createState() => _MarkdownSettingsPageState();
 }
 
-class _MarkdownSettingsPageState extends State<MarkdownSettingsPage> {
+class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
+    with SingleTickerProviderStateMixin {
   late List<CustomMarkdownShortcut> _shortcuts;
   final ScrollController _scrollController = ScrollController();
+  final TextEditingController _shortcutSearchController =
+      TextEditingController();
+  String _shortcutQuery = '';
+  final Set<String> _selectedCategories = <String>{};
+  bool _uncategorizedSelected = false;
+  final TextEditingController _utilitySearchController =
+      TextEditingController();
+  String _utilityQuery = '';
   double _toolbarRatio = SettingsKeys.defaultToolbarShortcutRatio;
   bool _toolbarSplitEnabled = SettingsKeys.defaultToolbarSplitEnabled;
   List<UtilityButtonConfig> _utilityConfigs = UtilityButtonConfig.defaults();
@@ -37,6 +47,7 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage> {
   bool _utilityExpanded = true;
   bool _shortcutsExpanded = true;
   bool _toolbarExpanded = true;
+  bool _colorsExpanded = true;
   bool _moneyExpanded = true;
   bool _moneyEnabled = false;
   int _moneyStartCents = 0;
@@ -47,18 +58,131 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage> {
   List<MarkdownBarProfile> _profiles = [];
   String _editingProfileId = MarkdownBarProfile.defaultProfileId;
 
+  /// Drives the cross-fade of the shortcut list slivers when the section is
+  /// folded. A sliver cannot be height-clipped the way the box sections are,
+  /// so the list stays mounted until the fade-out completes.
+  late final AnimationController _shortcutsFoldController;
+  bool _shortcutsListMounted = true;
+
+  /// False until persisted fold state has been applied, so restoring it snaps
+  /// instead of playing five folds on entry.
+  bool _foldAnimationsEnabled = false;
+
+  /// Section ids persisted in [SettingsKeys.markdownSectionsCollapsed].
+  static const String _sectionProfiles = 'profiles';
+  static const String _sectionToolbar = 'toolbar';
+  static const String _sectionColors = 'colors';
+  static const String _sectionMoney = 'money';
+  static const String _sectionUtility = 'utility';
+  static const String _sectionShortcuts = 'shortcuts';
+
   @override
   void initState() {
     super.initState();
     _shortcuts = List.from(widget.allShortcuts);
+    _shortcutsFoldController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 250),
+      value: _shortcutsExpanded ? 1.0 : 0.0,
+    )..addStatusListener((status) {
+      if (status == AnimationStatus.dismissed && mounted) {
+        setState(() => _shortcutsListMounted = false);
+      }
+    });
     _loadToolbarSettings();
     _syncFromBlocState();
   }
 
   @override
   void dispose() {
+    _shortcutsFoldController.dispose();
+    _shortcutSearchController.dispose();
+    _utilitySearchController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  bool get _anySectionExpanded =>
+      _profileExpanded ||
+      _toolbarExpanded ||
+      _colorsExpanded ||
+      _moneyExpanded ||
+      _utilityExpanded ||
+      _shortcutsExpanded;
+
+  Set<String> get _collapsedSections => {
+    if (!_profileExpanded) _sectionProfiles,
+    if (!_toolbarExpanded) _sectionToolbar,
+    if (!_colorsExpanded) _sectionColors,
+    if (!_moneyExpanded) _sectionMoney,
+    if (!_utilityExpanded) _sectionUtility,
+    if (!_shortcutsExpanded) _sectionShortcuts,
+  };
+
+  /// Applies persisted fold state. [animated] is false on the initial load so
+  /// the restored state is already in place on the first frame.
+  void _applyCollapsedSections(Set<String> collapsed, {bool animated = true}) {
+    _profileExpanded = !collapsed.contains(_sectionProfiles);
+    _toolbarExpanded = !collapsed.contains(_sectionToolbar);
+    _colorsExpanded = !collapsed.contains(_sectionColors);
+    _moneyExpanded = !collapsed.contains(_sectionMoney);
+    _utilityExpanded = !collapsed.contains(_sectionUtility);
+    _shortcutsExpanded = !collapsed.contains(_sectionShortcuts);
+
+    if (_shortcutsExpanded) {
+      _shortcutsListMounted = true;
+      if (animated) {
+        _shortcutsFoldController.forward();
+      } else {
+        _shortcutsFoldController.value = 1.0;
+      }
+    } else if (animated) {
+      _shortcutsFoldController.reverse();
+    } else {
+      _shortcutsFoldController.value = 0.0;
+      _shortcutsListMounted = false;
+    }
+  }
+
+  Future<void> _saveCollapsedSections() async {
+    final settings = await _getSettingsService();
+    await settings.setCollapsedMarkdownSections(_collapsedSections);
+  }
+
+  void _toggleShortcutsExpanded() {
+    setState(() {
+      _shortcutsExpanded = !_shortcutsExpanded;
+      if (_shortcutsExpanded) {
+        _shortcutsListMounted = true;
+        _shortcutsFoldController.forward();
+      } else {
+        _shortcutsFoldController.reverse();
+      }
+    });
+    _saveCollapsedSections();
+  }
+
+  void _toggleSection(void Function() mutate) {
+    setState(mutate);
+    _saveCollapsedSections();
+  }
+
+  void _setAllSectionsExpanded(bool expanded) {
+    setState(() {
+      _applyCollapsedSections(
+        expanded
+            ? const <String>{}
+            : {
+                _sectionProfiles,
+                _sectionToolbar,
+                _sectionColors,
+                _sectionMoney,
+                _sectionUtility,
+                _sectionShortcuts,
+              },
+      );
+    });
+    _saveCollapsedSections();
   }
 
   Future<SettingsService> _getSettingsService() async {
@@ -152,6 +276,7 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage> {
     final splitEnabled = await settings.getToolbarSplitEnabled();
     final utilityConfigs = await settings.getToolbarUtilityConfig();
     final moneyConfig = await settings.getMoneyConfig();
+    final collapsedSections = await settings.getCollapsedMarkdownSections();
     if (mounted) {
       setState(() {
         _toolbarRatio = ratio;
@@ -161,6 +286,8 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage> {
         _moneyStartCents = moneyConfig.startCents;
         _moneySymbol = moneyConfig.symbol;
         _moneySuffix = moneyConfig.suffix;
+        _applyCollapsedSections(collapsedSections, animated: false);
+        _foldAnimationsEnabled = true;
       });
     }
   }
@@ -293,12 +420,123 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage> {
     );
   }
 
+  /// Distinct non-empty categories in first-appearance order. The category
+  /// set is derived from the shortcuts themselves — there is no separate
+  /// persisted registry.
+  List<String> get _shortcutCategories {
+    final seen = <String>{};
+    final result = <String>[];
+    for (final shortcut in _shortcuts) {
+      final category = shortcut.category;
+      if (category == null || category.isEmpty) continue;
+      if (seen.add(category)) result.add(category);
+    }
+    return result;
+  }
+
+  bool get _hasUncategorizedShortcuts => _shortcuts.any(
+    (s) => s.category == null || s.category!.isEmpty,
+  );
+
+  bool get _isFilteringShortcuts =>
+      _shortcutQuery.trim().isNotEmpty ||
+      _selectedCategories.isNotEmpty ||
+      _uncategorizedSelected;
+
+  /// Shortcuts matching the current search query and category chips, each
+  /// paired with its index into [_shortcuts] so every action keeps operating
+  /// on the real position regardless of what is being shown.
+  List<({CustomMarkdownShortcut shortcut, int index})>
+  get _filteredShortcuts {
+    final query = _shortcutQuery.trim().toLowerCase();
+    final result = <({CustomMarkdownShortcut shortcut, int index})>[];
+    for (var i = 0; i < _shortcuts.length; i++) {
+      final shortcut = _shortcuts[i];
+      if (_selectedCategories.isNotEmpty || _uncategorizedSelected) {
+        final category = shortcut.category;
+        final matches = (category == null || category.isEmpty)
+            ? _uncategorizedSelected
+            : _selectedCategories.contains(category);
+        if (!matches) continue;
+      }
+      if (query.isNotEmpty) {
+        final haystack =
+            '${shortcut.label}\n${shortcut.category ?? ''}\n'
+                    '${shortcut.beforeText}\n${shortcut.afterText}'
+                .toLowerCase();
+        if (!haystack.contains(query)) continue;
+      }
+      result.add((shortcut: shortcut, index: i));
+    }
+    return result;
+  }
+
+  void _clearShortcutFilters() {
+    _shortcutSearchController.clear();
+    setState(() {
+      _shortcutQuery = '';
+      _selectedCategories.clear();
+      _uncategorizedSelected = false;
+    });
+  }
+
+  void _toggleCategoryFilter(String category) {
+    setState(() {
+      if (!_selectedCategories.remove(category)) {
+        _selectedCategories.add(category);
+      }
+    });
+  }
+
+  void _toggleUncategorizedFilter() {
+    setState(() => _uncategorizedSelected = !_uncategorizedSelected);
+  }
+
+  /// Drops selected chips whose category no longer exists on any shortcut,
+  /// so the list can never end up filtered by a category the user just
+  /// renamed or removed.
+  void _pruneCategorySelection() {
+    final available = _shortcutCategories.toSet();
+    _selectedCategories.removeWhere((key) => !available.contains(key));
+    if (!_hasUncategorizedShortcuts) _uncategorizedSelected = false;
+  }
+
+  Future<void> _setShortcutCategory(int index) async {
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => _CategoryDialog(
+        initialValue: _shortcuts[index].category ?? '',
+        existingCategories: _shortcutCategories,
+      ),
+    );
+    if (result == null) return;
+    final category = result.trim();
+    setState(() {
+      _shortcuts[index] = _shortcuts[index].copyWith(
+        category: category.isEmpty ? null : category,
+        clearCategory: category.isEmpty,
+      );
+      _pruneCategorySelection();
+    });
+    _saveShortcuts();
+  }
+
   void _addShortcut() {
+    // Creating while a single category is filtered keeps the new shortcut in
+    // view instead of dropping it into an unrelated bucket.
+    final presetCategory =
+        _selectedCategories.length == 1 && !_uncategorizedSelected
+        ? _selectedCategories.first
+        : null;
     AppNavigator.toShortcutEditor(
       context,
       onSave: (shortcut) {
         setState(() {
-          _shortcuts.add(shortcut);
+          _shortcuts.add(
+            presetCategory == null
+                ? shortcut
+                : shortcut.copyWith(category: presetCategory),
+          );
         });
         _saveShortcuts();
       },
@@ -350,6 +588,7 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage> {
     if (!confirmed) return;
     setState(() {
       _shortcuts.removeAt(index);
+      _pruneCategorySelection();
     });
     _saveShortcuts();
   }
@@ -381,6 +620,7 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage> {
     final customShortcuts = _shortcuts.where((s) => !s.isDefault).toList();
     setState(() {
       _shortcuts = [...DefaultMarkdownShortcuts.shortcuts, ...customShortcuts];
+      _pruneCategorySelection();
     });
     _saveShortcuts();
   }
@@ -388,6 +628,7 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage> {
   void _removeAllCustom() {
     setState(() {
       _shortcuts = MarkdownSettingsUtils.removeAllCustom(_shortcuts);
+      _pruneCategorySelection();
     });
     _saveShortcuts();
   }
@@ -494,7 +735,8 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           InkWell(
-            onTap: () => setState(() => _profileExpanded = !_profileExpanded),
+            onTap: () =>
+                _toggleSection(() => _profileExpanded = !_profileExpanded),
             borderRadius: BorderRadius.circular(8),
             child: Row(
               children: [
@@ -520,18 +762,10 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage> {
               ],
             ),
           ),
-          TweenAnimationBuilder<double>(
-            tween: Tween(end: _profileExpanded ? 1.0 : 0.0),
-            duration: const Duration(milliseconds: 250),
-            curve: Curves.easeInOut,
-            builder: (context, value, child) => ClipRect(
-              child: Align(
-                alignment: Alignment.topCenter,
-                heightFactor: value,
-                child: child,
-              ),
-            ),
-            child: Column(
+          _FoldableContent(
+            expanded: _profileExpanded,
+            animate: _foldAnimationsEnabled,
+            builder: (context) => Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const SizedBox(height: 8),
@@ -708,7 +942,8 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           InkWell(
-            onTap: () => setState(() => _toolbarExpanded = !_toolbarExpanded),
+            onTap: () =>
+                _toggleSection(() => _toolbarExpanded = !_toolbarExpanded),
             borderRadius: BorderRadius.circular(8),
             child: Row(
               children: [
@@ -734,18 +969,10 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage> {
               ],
             ),
           ),
-          TweenAnimationBuilder<double>(
-            tween: Tween(end: _toolbarExpanded ? 1.0 : 0.0),
-            duration: const Duration(milliseconds: 250),
-            curve: Curves.easeInOut,
-            builder: (context, value, child) => ClipRect(
-              child: Align(
-                alignment: Alignment.topCenter,
-                heightFactor: value,
-                child: child,
-              ),
-            ),
-            child: Column(
+          _FoldableContent(
+            expanded: _toolbarExpanded,
+            animate: _foldAnimationsEnabled,
+            builder: (context) => Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const SizedBox(height: 8),
@@ -868,23 +1095,53 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: Icon(
-              Icons.palette_outlined,
-              size: 26,
-              color: theme.colorScheme.primary,
+          // Same header shape as every other foldable section — a ListTile
+          // here supplied its own text/icon colours and height, which made
+          // this row read as a different kind of thing. It folds like its
+          // neighbours; the actual navigation lives on the "Edit colors"
+          // button inside the fold, same as any other settings entry point.
+          InkWell(
+            onTap: () =>
+                _toggleSection(() => _colorsExpanded = !_colorsExpanded),
+            borderRadius: BorderRadius.circular(8),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.palette_outlined,
+                  size: 26,
+                  color: theme.colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  l10n.markdownColorsTitle,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 17,
+                  ),
+                ),
+                const Spacer(),
+                AnimatedRotation(
+                  turns: _colorsExpanded ? 0.0 : 0.5,
+                  duration: const Duration(milliseconds: 200),
+                  child: const Icon(Icons.expand_more),
+                ),
+              ],
             ),
-            title: Text(
-              l10n.markdownColorsTitle,
-              style: theme.textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w600,
-                fontSize: 17,
+          ),
+          _FoldableContent(
+            expanded: _colorsExpanded,
+            animate: _foldAnimationsEnabled,
+            builder: (context) => Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  onPressed: () => AppNavigator.toMarkdownColors(context),
+                  icon: const Icon(Icons.chevron_right, size: 18),
+                  label: Text(l10n.editColors),
+                ),
               ),
             ),
-            subtitle: Text(l10n.markdownColorsSubtitle),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => AppNavigator.toMarkdownColors(context),
           ),
           Divider(color: theme.colorScheme.outline.withValues(alpha: 0.2)),
         ],
@@ -902,7 +1159,8 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           InkWell(
-            onTap: () => setState(() => _moneyExpanded = !_moneyExpanded),
+            onTap: () =>
+                _toggleSection(() => _moneyExpanded = !_moneyExpanded),
             borderRadius: BorderRadius.circular(8),
             child: Row(
               children: [
@@ -928,18 +1186,10 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage> {
               ],
             ),
           ),
-          TweenAnimationBuilder<double>(
-            tween: Tween(end: _moneyExpanded ? 1.0 : 0.0),
-            duration: const Duration(milliseconds: 250),
-            curve: Curves.easeInOut,
-            builder: (context, value, child) => ClipRect(
-              child: Align(
-                alignment: Alignment.topCenter,
-                heightFactor: value,
-                child: child,
-              ),
-            ),
-            child: Column(
+          _FoldableContent(
+            expanded: _moneyExpanded,
+            animate: _foldAnimationsEnabled,
+            builder: (context) => Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const SizedBox(height: 4),
@@ -1072,6 +1322,135 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage> {
     );
   }
 
+  /// The utility registry is fixed at compile time, so this only becomes true
+  /// if enough `UtilityButtonDefinition`s are added to make the list unwieldy.
+  bool get _showUtilitySearch =>
+      _utilityConfigs.length > AppConstants.listSearchThreshold;
+
+  bool get _isFilteringUtilities =>
+      _showUtilitySearch && _utilityQuery.trim().isNotEmpty;
+
+  /// Utility buttons matching the search query, each paired with its index
+  /// into [_utilityConfigs] so toggling visibility always hits the real entry.
+  List<({UtilityButtonConfig config, int index})> get _filteredUtilityConfigs {
+    final query = _utilityQuery.trim().toLowerCase();
+    final result = <({UtilityButtonConfig config, int index})>[];
+    for (var i = 0; i < _utilityConfigs.length; i++) {
+      final config = _utilityConfigs[i];
+      if (_isFilteringUtilities &&
+          !_utilityLabel(config.id).toLowerCase().contains(query)) {
+        continue;
+      }
+      result.add((config: config, index: i));
+    }
+    return result;
+  }
+
+  Widget _buildUtilityList(
+    BuildContext context,
+    List<({UtilityButtonConfig config, int index})> entries,
+  ) {
+    final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context)!;
+
+    if (entries.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 24),
+        child: Center(
+          child: Text(
+            l10n.noMatchesFound,
+            style: TextStyle(
+              fontSize: 14,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+            ),
+          ),
+        ),
+      );
+    }
+
+    Widget buildCard(
+      UtilityButtonConfig config,
+      int globalIndex,
+      int renderIndex,
+    ) {
+      final isLocked =
+          UtilityButtonDefinition.getById(config.id)?.isLocked ?? false;
+      return Opacity(
+        key: ValueKey(config.id),
+        opacity: config.isVisible ? 1.0 : 0.5,
+        child: Card(
+          margin: const EdgeInsets.only(bottom: 8),
+          child: ListTile(
+            minLeadingWidth: 0,
+            leading: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.drag_handle,
+                  size: 24,
+                  color: theme.colorScheme.onSurface.withValues(
+                    alpha: _isFilteringUtilities ? 0.15 : 0.4,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Icon(
+                  _utilityIcon(config.id),
+                  size: 24,
+                  color: config.isVisible
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurface.withValues(alpha: 0.4),
+                ),
+              ],
+            ),
+            title: Text(_utilityLabel(config.id)),
+            subtitle: Text(
+              isLocked
+                  ? l10n.alwaysVisible
+                  : (config.isVisible ? l10n.visible : l10n.hidden),
+              style: TextStyle(
+                fontSize: 12,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+              ),
+            ),
+            trailing: isLocked
+                ? Icon(
+                    Icons.lock,
+                    size: 18,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
+                  )
+                : IconButton(
+                    icon: Icon(
+                      config.isVisible
+                          ? Icons.visibility
+                          : Icons.visibility_off,
+                    ),
+                    onPressed: () => _toggleUtilityVisibility(globalIndex),
+                    tooltip: config.isVisible ? l10n.hide : l10n.show,
+                  ),
+          ),
+        ),
+      );
+    }
+
+    if (_isFilteringUtilities) {
+      return Column(
+        children: [
+          for (var i = 0; i < entries.length; i++)
+            buildCard(entries[i].config, entries[i].index, i),
+        ],
+      );
+    }
+
+    return ReorderableListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: entries.length,
+      onReorderItem: _reorderUtility,
+      itemBuilder: (context, index) =>
+          buildCard(entries[index].config, entries[index].index, index),
+    );
+  }
+
   Widget _buildUtilityButtonsSection(BuildContext context) {
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context)!;
@@ -1082,7 +1461,8 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           InkWell(
-            onTap: () => setState(() => _utilityExpanded = !_utilityExpanded),
+            onTap: () =>
+                _toggleSection(() => _utilityExpanded = !_utilityExpanded),
             borderRadius: BorderRadius.circular(8),
             child: Row(
               children: [
@@ -1104,18 +1484,10 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage> {
               ],
             ),
           ),
-          TweenAnimationBuilder<double>(
-            tween: Tween(end: _utilityExpanded ? 1.0 : 0.0),
-            duration: const Duration(milliseconds: 250),
-            curve: Curves.easeInOut,
-            builder: (context, value, child) => ClipRect(
-              child: Align(
-                alignment: Alignment.topCenter,
-                heightFactor: value,
-                child: child,
-              ),
-            ),
-            child: Column(
+          _FoldableContent(
+            expanded: _utilityExpanded,
+            animate: _foldAnimationsEnabled,
+            builder: (context) => Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const SizedBox(height: 4),
@@ -1126,85 +1498,20 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                ReorderableListView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  scrollController: _scrollController,
-                  itemCount: _utilityConfigs.length,
-                  onReorderItem: _reorderUtility,
-                  itemBuilder: (context, index) {
-                    final config = _utilityConfigs[index];
-                    final isLocked =
-                        UtilityButtonDefinition.getById(config.id)?.isLocked ??
-                        false;
-                    return Opacity(
-                      key: ValueKey(config.id),
-                      opacity: config.isVisible ? 1.0 : 0.5,
-                      child: Card(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        child: ListTile(
-                          minLeadingWidth: 0,
-                          leading: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.drag_handle,
-                                size: 24,
-                                color: theme.colorScheme.onSurface.withValues(
-                                  alpha: 0.4,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Icon(
-                                _utilityIcon(config.id),
-                                size: 24,
-                                color: config.isVisible
-                                    ? theme.colorScheme.primary
-                                    : theme.colorScheme.onSurface.withValues(
-                                        alpha: 0.4,
-                                      ),
-                              ),
-                            ],
-                          ),
-                          title: Text(_utilityLabel(config.id)),
-                          subtitle: Text(
-                            isLocked
-                                ? l10n.alwaysVisible
-                                : (config.isVisible
-                                      ? l10n.visible
-                                      : l10n.hidden),
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: theme.colorScheme.onSurface.withValues(
-                                alpha: 0.6,
-                              ),
-                            ),
-                          ),
-                          trailing: isLocked
-                              ? Icon(
-                                  Icons.lock,
-                                  size: 18,
-                                  color: theme.colorScheme.onSurface.withValues(
-                                    alpha: 0.3,
-                                  ),
-                                )
-                              : IconButton(
-                                  icon: Icon(
-                                    config.isVisible
-                                        ? Icons.visibility
-                                        : Icons.visibility_off,
-                                  ),
-                                  onPressed: () =>
-                                      _toggleUtilityVisibility(index),
-                                  tooltip: config.isVisible
-                                      ? l10n.hide
-                                      : l10n.show,
-                                ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
+                if (_showUtilitySearch) ...[
+                  SettingsSearchField(
+                    controller: _utilitySearchController,
+                    hint: l10n.searchUtilityButtons,
+                    onChanged: (value) =>
+                        setState(() => _utilityQuery = value),
+                  ),
+                  const SizedBox(height: 8),
+                  if (_isFilteringUtilities) ...[
+                    _buildReorderLockedHint(context, horizontalPadding: 0),
+                    const SizedBox(height: 4),
+                  ],
+                ],
+                _buildUtilityList(context, _filteredUtilityConfigs),
               ],
             ),
           ),
@@ -1215,207 +1522,577 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage> {
     );
   }
 
-  Widget _buildShortcutsSection(BuildContext context) {
+  /// The shortcuts section as slivers. Unlike the other sections it cannot be
+  /// a single box: a shrink-wrapped list inside the page scroll view resolves
+  /// `Scrollable.of` to its own dead viewport, which is what stopped a drag
+  /// from scrolling the page.
+  List<Widget> _buildShortcutSlivers(BuildContext context) {
+    final theme = Theme.of(context);
+    final filtered = _filteredShortcuts;
+    final categories = _shortcutCategories;
+    final showChips = categories.isNotEmpty || _hasUncategorizedShortcuts;
+    // Short lists carry no search chrome; the threshold trips on its own as
+    // the list grows.
+    final showSearch = _shortcuts.length > AppConstants.listSearchThreshold;
+
+    final slivers = <Widget>[
+      SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: _buildShortcutsHeader(context, filtered.length),
+        ),
+      ),
+    ];
+
+    if (!_shortcutsListMounted) {
+      slivers.add(const SliverToBoxAdapter(child: SizedBox(height: 16)));
+      return slivers;
+    }
+
+    slivers.add(
+      SliverFadeTransition(
+        opacity: _shortcutsFoldController,
+        sliver: SliverMainAxisGroup(
+          slivers: [
+            if (showSearch || showChips)
+              SliverPersistentHeader(
+                pinned: true,
+                delegate: _ShortcutFilterHeaderDelegate(
+                  height: (showSearch ? 56.0 : 0.0) + (showChips ? 46.0 : 0.0),
+                  background: theme.colorScheme.surface,
+                  child: _buildShortcutFilterBar(
+                    context,
+                    categories: categories,
+                    showSearch: showSearch,
+                    showChips: showChips,
+                  ),
+                ),
+              ),
+            if (_isFilteringShortcuts && filtered.isNotEmpty)
+              SliverToBoxAdapter(child: _buildReorderLockedHint(context)),
+            _buildShortcutListSliver(context, filtered),
+            const SliverToBoxAdapter(child: SizedBox(height: 110)),
+          ],
+        ),
+      ),
+    );
+
+    return slivers;
+  }
+
+  Widget _buildShortcutsHeader(BuildContext context, int shownCount) {
+    final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context)!;
+
+    return InkWell(
+      onTap: _toggleShortcutsExpanded,
+      borderRadius: BorderRadius.circular(8),
+      child: Row(
+        children: [
+          Icon(Icons.keyboard, size: 26, color: theme.colorScheme.primary),
+          const SizedBox(width: 8),
+          Text(
+            l10n.markdownShortcuts,
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w600,
+              fontSize: 17,
+            ),
+          ),
+          if (_shortcuts.isNotEmpty) ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                _isFilteringShortcuts
+                    ? l10n.shortcutCountFiltered(shownCount, _shortcuts.length)
+                    : '${_shortcuts.length}',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+            ),
+          ],
+          const Spacer(),
+          AnimatedRotation(
+            turns: _shortcutsExpanded ? 0.0 : 0.5,
+            duration: const Duration(milliseconds: 200),
+            child: const Icon(Icons.expand_more),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildShortcutFilterBar(
+    BuildContext context, {
+    required List<String> categories,
+    required bool showSearch,
+    required bool showChips,
+  }) {
+    final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context)!;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (showSearch)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: SettingsSearchField(
+              controller: _shortcutSearchController,
+              hint: l10n.searchShortcuts,
+              onChanged: (value) => setState(() => _shortcutQuery = value),
+            ),
+          ),
+        if (showChips)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: SizedBox(
+              height: 38,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Row(
+                        children: [
+                          for (final category in categories)
+                            _buildCategoryChip(
+                              context,
+                              label: category,
+                              selected: _selectedCategories.contains(category),
+                              onToggle: () => _toggleCategoryFilter(category),
+                            ),
+                          if (_hasUncategorizedShortcuts)
+                            _buildCategoryChip(
+                              context,
+                              label: l10n.uncategorized,
+                              selected: _uncategorizedSelected,
+                              onToggle: _toggleUncategorizedFilter,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  // Always occupies its slot so activating a filter never
+                  // shifts the chip row sideways.
+                  IgnorePointer(
+                    ignoring: !_isFilteringShortcuts,
+                    child: AnimatedOpacity(
+                      opacity: _isFilteringShortcuts ? 1.0 : 0.0,
+                      duration: const Duration(milliseconds: 150),
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: TextButton(
+                          onPressed: _clearShortcutFilters,
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                          ),
+                          child: Text(
+                            l10n.clearFilters,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.primary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildCategoryChip(
+    BuildContext context, {
+    required String label,
+    required bool selected,
+    required VoidCallback onToggle,
+  }) {
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: FilterChip(
+        label: Text(label),
+        selected: selected,
+        onSelected: (_) => onToggle(),
+        showCheckmark: false,
+        visualDensity: VisualDensity.compact,
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        labelStyle: theme.textTheme.bodySmall?.copyWith(
+          fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+          color: selected
+              ? theme.colorScheme.onSecondaryContainer
+              : theme.colorScheme.onSurface,
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      ),
+    );
+  }
+
+  Widget _buildReorderLockedHint(
+    BuildContext context, {
+    double horizontalPadding = 16,
+  }) {
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context)!;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      padding: EdgeInsets.fromLTRB(horizontalPadding, 0, horizontalPadding, 8),
+      child: Row(
         children: [
-          InkWell(
-            onTap: () =>
-                setState(() => _shortcutsExpanded = !_shortcutsExpanded),
-            borderRadius: BorderRadius.circular(8),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.keyboard,
-                  size: 26,
-                  color: theme.colorScheme.primary,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  l10n.markdownShortcuts,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 17,
-                  ),
-                ),
-                const Spacer(),
-                AnimatedRotation(
-                  turns: _shortcutsExpanded ? 0.0 : 0.5,
-                  duration: const Duration(milliseconds: 200),
-                  child: const Icon(Icons.expand_more),
-                ),
-              ],
-            ),
+          Icon(
+            Icons.lock_outline,
+            size: 14,
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
           ),
-          TweenAnimationBuilder<double>(
-            tween: Tween(end: _shortcutsExpanded ? 1.0 : 0.0),
-            duration: const Duration(milliseconds: 250),
-            curve: Curves.easeInOut,
-            builder: (context, value, child) => ClipRect(
-              child: Align(
-                alignment: Alignment.topCenter,
-                heightFactor: value,
-                child: child,
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              l10n.clearSearchToReorder,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
               ),
             ),
-            child: _shortcuts.isEmpty
-                ? Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 48),
-                    child: Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildShortcutListSliver(
+    BuildContext context,
+    List<({CustomMarkdownShortcut shortcut, int index})> filtered,
+  ) {
+    if (_shortcuts.isEmpty) {
+      return SliverToBoxAdapter(child: _buildNoShortcutsState(context));
+    }
+    if (filtered.isEmpty) {
+      return SliverToBoxAdapter(child: _buildNoMatchesState(context));
+    }
+
+    const padding = EdgeInsets.fromLTRB(16, 8, 16, 0);
+
+    if (_isFilteringShortcuts) {
+      return SliverPadding(
+        padding: padding,
+        sliver: SliverList.builder(
+          itemCount: filtered.length,
+          itemBuilder: (context, index) => _buildShortcutCard(
+            context,
+            filtered[index].shortcut,
+            filtered[index].index,
+            index,
+            reorderable: false,
+          ),
+        ),
+      );
+    }
+
+    return SliverPadding(
+      padding: padding,
+      sliver: SliverReorderableList(
+        itemCount: filtered.length,
+        proxyDecorator: _buildShortcutDragProxy,
+        onReorderItem: (oldIndex, newIndex) {
+          setState(() {
+            final item = _shortcuts.removeAt(oldIndex);
+            _shortcuts.insert(newIndex, item);
+          });
+          _saveShortcuts();
+        },
+        itemBuilder: (context, index) => _buildShortcutCard(
+          context,
+          filtered[index].shortcut,
+          filtered[index].index,
+          index,
+          reorderable: true,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildShortcutDragProxy(
+    Widget child,
+    int index,
+    Animation<double> animation,
+  ) {
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (context, _) {
+        final t = Curves.easeInOut.transform(animation.value);
+        return Transform.scale(
+          scale: 1 + 0.02 * t,
+          child: Material(
+            color: Colors.transparent,
+            elevation: 6 * t,
+            borderRadius: BorderRadius.circular(12),
+            child: child,
+          ),
+        );
+      },
+      child: child,
+    );
+  }
+
+  Widget _buildShortcutCard(
+    BuildContext context,
+    CustomMarkdownShortcut shortcut,
+    int globalIndex,
+    int renderIndex, {
+    required bool reorderable,
+  }) {
+    final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context)!;
+    final category = shortcut.category;
+
+    final card = Opacity(
+      opacity: shortcut.isVisible ? 1.0 : 0.5,
+      child: Card(
+        margin: const EdgeInsets.only(bottom: 8),
+        child: ListTile(
+          minLeadingWidth: 0,
+          leading: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // The handle keeps its slot while filtering so clearing the
+              // filter does not shift every row sideways.
+              reorderable
+                  ? ReorderableDragStartListener(
+                      index: renderIndex,
+                      child: Icon(
+                        Icons.drag_handle,
+                        size: 24,
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.4,
+                        ),
+                      ),
+                    )
+                  : Icon(
+                      Icons.drag_handle,
+                      size: 24,
+                      color: theme.colorScheme.onSurface.withValues(
+                        alpha: 0.15,
+                      ),
+                    ),
+              const SizedBox(width: 8),
+              MarkdownSettingsUtils.buildShortcutIcon(context, shortcut),
+            ],
+          ),
+          title: Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text(shortcut.label),
+              if (shortcut.isDefault)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    l10n.defaultLabel,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                ),
+              if (category != null && category.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.secondaryContainer.withValues(
+                      alpha: 0.7,
+                    ),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    category,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: theme.colorScheme.onSecondaryContainer,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          subtitle: Text(
+            MarkdownSettingsUtils.getShortcutSubtitle(context, shortcut),
+            style: TextStyle(
+              fontSize: 12,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+            ),
+          ),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: Icon(
+                  shortcut.isVisible ? Icons.visibility : Icons.visibility_off,
+                ),
+                onPressed: () => _toggleVisibility(globalIndex),
+                tooltip: shortcut.isVisible ? l10n.hide : l10n.show,
+              ),
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert),
+                onSelected: (action) {
+                  switch (action) {
+                    case 'category':
+                      _setShortcutCategory(globalIndex);
+                      break;
+                    case 'edit':
+                      _editShortcut(globalIndex);
+                      break;
+                    case 'delete':
+                      _deleteShortcut(globalIndex);
+                      break;
+                  }
+                },
+                itemBuilder: (ctx) => [
+                  PopupMenuItem(
+                    value: 'category',
+                    child: Row(
+                      children: [
+                        const Icon(Icons.label_outline, size: 18),
+                        const SizedBox(width: 8),
+                        Text(l10n.setCategory),
+                      ],
+                    ),
+                  ),
+                  if (!shortcut.isDefault) ...[
+                    PopupMenuItem(
+                      value: 'edit',
+                      child: Row(
                         children: [
-                          Icon(
-                            Icons.keyboard,
-                            size: 64,
-                            color: theme.colorScheme.onSurface.withValues(
-                              alpha: 0.3,
-                            ),
-                          ),
-                          const SizedBox(height: 16),
+                          const Icon(Icons.edit, size: 18),
+                          const SizedBox(width: 8),
+                          Text(l10n.edit),
+                        ],
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'delete',
+                      child: Row(
+                        children: [
+                          const Icon(Icons.delete, size: 18, color: Colors.red),
+                          const SizedBox(width: 8),
                           Text(
-                            l10n.noCustomShortcutsYet,
-                            style: TextStyle(
-                              fontSize: 18,
-                              color: theme.colorScheme.onSurface.withValues(
-                                alpha: 0.5,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            l10n.tapToAddShortcut,
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: theme.colorScheme.onSurface.withValues(
-                                alpha: 0.5,
-                              ),
-                            ),
+                            l10n.delete,
+                            style: const TextStyle(color: Colors.red),
                           ),
                         ],
                       ),
                     ),
-                  )
-                : ReorderableListView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    scrollController: _scrollController,
-                    padding: const EdgeInsets.only(
-                      top: 16,
-                      bottom: 110, // Extra space at bottom for FAB
-                    ),
-                    itemCount: _shortcuts.length,
-                    onReorderItem: (oldIndex, newIndex) {
-                      setState(() {
-                        final item = _shortcuts.removeAt(oldIndex);
-                        _shortcuts.insert(newIndex, item);
-                      });
-                      _saveShortcuts();
-                    },
-                    itemBuilder: (context, index) {
-                      final shortcut = _shortcuts[index];
-                      return Opacity(
-                        key: ValueKey(shortcut.id),
-                        opacity: shortcut.isVisible ? 1.0 : 0.5,
-                        child: Card(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          child: ListTile(
-                            minLeadingWidth: 0,
-                            leading: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.drag_handle,
-                                  size: 24,
-                                  color: theme.colorScheme.onSurface.withValues(
-                                    alpha: 0.4,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                MarkdownSettingsUtils.buildShortcutIcon(
-                                  context,
-                                  shortcut,
-                                ),
-                              ],
-                            ),
-                            title: Row(
-                              children: [
-                                Text(shortcut.label),
-                                if (shortcut.isDefault) ...[
-                                  const SizedBox(width: 8),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 6,
-                                      vertical: 2,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: theme.colorScheme.primary
-                                          .withValues(alpha: 0.2),
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                    child: Text(
-                                      l10n.defaultLabel,
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold,
-                                        color: theme.colorScheme.primary,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                            subtitle: Text(
-                              MarkdownSettingsUtils.getShortcutSubtitle(
-                                context,
-                                shortcut,
-                              ),
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: theme.colorScheme.onSurface.withValues(
-                                  alpha: 0.6,
-                                ),
-                              ),
-                            ),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  icon: Icon(
-                                    shortcut.isVisible
-                                        ? Icons.visibility
-                                        : Icons.visibility_off,
-                                  ),
-                                  onPressed: () => _toggleVisibility(index),
-                                  tooltip: shortcut.isVisible
-                                      ? l10n.hide
-                                      : l10n.show,
-                                ),
-                                if (!shortcut.isDefault) ...[
-                                  IconButton(
-                                    icon: const Icon(Icons.edit),
-                                    onPressed: () => _editShortcut(index),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.delete),
-                                    onPressed: () => _deleteShortcut(index),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
+                  ],
+                ],
+              ),
+            ],
           ),
-          Divider(color: theme.colorScheme.outline.withValues(alpha: 0.2)),
-        ],
+        ),
+      ),
+    );
+
+    if (!reorderable) {
+      return KeyedSubtree(key: ValueKey(shortcut.id), child: card);
+    }
+    return ReorderableDelayedDragStartListener(
+      key: ValueKey(shortcut.id),
+      index: renderIndex,
+      child: card,
+    );
+  }
+
+  Widget _buildNoShortcutsState(BuildContext context) {
+    final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context)!;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 48),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.keyboard,
+              size: 64,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              l10n.noCustomShortcutsYet,
+              style: TextStyle(
+                fontSize: 18,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              l10n.tapToAddShortcut,
+              style: TextStyle(
+                fontSize: 14,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNoMatchesState(BuildContext context) {
+    final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context)!;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 40),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.search_off,
+              size: 48,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              l10n.noShortcutsMatchFilter,
+              style: TextStyle(
+                fontSize: 16,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: _clearShortcutFilters,
+              child: Text(l10n.clearFilters),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1437,6 +2114,15 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage> {
         appBar: SettingsAppBar(
           title: AppLocalizations.of(context)!.markdownShortcuts,
           actions: [
+            IconButton(
+              icon: Icon(
+                _anySectionExpanded ? Icons.unfold_less : Icons.unfold_more,
+              ),
+              tooltip: _anySectionExpanded
+                  ? AppLocalizations.of(context)!.collapseAll
+                  : AppLocalizations.of(context)!.expandAll,
+              onPressed: () => _setAllSectionsExpanded(!_anySectionExpanded),
+            ),
             PopupMenuButton<String>(
               icon: const Icon(Icons.more_vert),
               onSelected: (value) {
@@ -1471,25 +2157,260 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage> {
             ),
           ],
         ),
-        body: SingleChildScrollView(
+        body: CustomScrollView(
           controller: _scrollController,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildProfileSelector(context),
-              _buildToolbarRatioAdjuster(context),
-              _buildColorsSection(context),
-              _buildMoneySection(context),
-              _buildUtilityButtonsSection(context),
-              _buildShortcutsSection(context),
-            ],
-          ),
+          slivers: [
+            SliverToBoxAdapter(child: _buildProfileSelector(context)),
+            SliverToBoxAdapter(child: _buildToolbarRatioAdjuster(context)),
+            SliverToBoxAdapter(child: _buildColorsSection(context)),
+            SliverToBoxAdapter(child: _buildMoneySection(context)),
+            SliverToBoxAdapter(child: _buildUtilityButtonsSection(context)),
+            ..._buildShortcutSlivers(context),
+          ],
         ),
         floatingActionButton: FloatingActionButton(
           onPressed: _addShortcut,
           child: const Icon(Icons.add),
         ),
       ),
+    );
+  }
+}
+
+/// Pins the shortcut search field and category chips above the list while it
+/// scrolls. Fixed extent — [minExtent] equals [maxExtent] so nothing resizes
+/// under the finger.
+class _ShortcutFilterHeaderDelegate extends SliverPersistentHeaderDelegate {
+  final double height;
+  final Color background;
+  final Widget child;
+
+  const _ShortcutFilterHeaderDelegate({
+    required this.height,
+    required this.background,
+    required this.child,
+  });
+
+  @override
+  double get minExtent => height;
+
+  @override
+  double get maxExtent => height;
+
+  @override
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
+    return Material(
+      color: background,
+      child: SizedBox(height: height, child: child),
+    );
+  }
+
+  @override
+  bool shouldRebuild(covariant _ShortcutFilterHeaderDelegate oldDelegate) {
+    return oldDelegate.height != height ||
+        oldDelegate.background != background ||
+        oldDelegate.child != child;
+  }
+}
+
+/// Height-folds a settings section's content.
+///
+/// Unlike a `TweenAnimationBuilder` wrapped around a prebuilt child, this does
+/// not build the content at all while the section is closed — `Align`'s
+/// `heightFactor` only clips painting, so the old shape still constructed and
+/// laid out every collapsed section on each rebuild. Content is built once per
+/// parent rebuild and handed to `AnimatedBuilder` as its `child`, so animation
+/// ticks never rebuild it.
+///
+/// [animate] is false until persisted fold state has loaded, so restoring it
+/// snaps instead of playing five folds on entry.
+class _FoldableContent extends StatefulWidget {
+  final bool expanded;
+  final bool animate;
+  final WidgetBuilder builder;
+
+  const _FoldableContent({
+    required this.expanded,
+    required this.animate,
+    required this.builder,
+  });
+
+  @override
+  State<_FoldableContent> createState() => _FoldableContentState();
+}
+
+class _FoldableContentState extends State<_FoldableContent>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final CurvedAnimation _factor;
+  late bool _contentMounted;
+
+  @override
+  void initState() {
+    super.initState();
+    _contentMounted = widget.expanded;
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 250),
+      value: widget.expanded ? 1.0 : 0.0,
+    )..addStatusListener((status) {
+      if (status == AnimationStatus.dismissed && mounted) {
+        setState(() => _contentMounted = false);
+      }
+    });
+    _factor = CurvedAnimation(parent: _controller, curve: Curves.easeInOut);
+  }
+
+  @override
+  void didUpdateWidget(covariant _FoldableContent oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.expanded == oldWidget.expanded) return;
+    if (!widget.animate) {
+      _controller.value = widget.expanded ? 1.0 : 0.0;
+      _contentMounted = widget.expanded;
+      return;
+    }
+    if (widget.expanded) {
+      _contentMounted = true;
+      _controller.forward();
+    } else {
+      _controller.reverse();
+    }
+  }
+
+  @override
+  void dispose() {
+    _factor.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_contentMounted) return const SizedBox.shrink();
+    return AnimatedBuilder(
+      animation: _factor,
+      child: widget.builder(context),
+      builder: (context, child) => ClipRect(
+        child: Align(
+          alignment: Alignment.topCenter,
+          heightFactor: _factor.value,
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+/// Assigns the free-text category of a single shortcut. Categories already in
+/// use are offered as chips so the taxonomy stays consistent without a
+/// separate registry to maintain.
+class _CategoryDialog extends StatefulWidget {
+  final String initialValue;
+  final List<String> existingCategories;
+
+  const _CategoryDialog({
+    required this.initialValue,
+    required this.existingCategories,
+  });
+
+  @override
+  State<_CategoryDialog> createState() => _CategoryDialogState();
+}
+
+class _CategoryDialogState extends State<_CategoryDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialValue);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _applySuggestion(String category) {
+    _controller.value = TextEditingValue(
+      text: category,
+      selection: TextSelection.collapsed(offset: category.length),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context)!;
+
+    return AlertDialog(
+      title: Text(l10n.setCategory),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: _controller,
+              autofocus: true,
+              textCapitalization: TextCapitalization.sentences,
+              maxLength: AppConstants.maxBarProfileNameLength,
+              decoration: InputDecoration(
+                labelText: l10n.shortcutCategory,
+                hintText: l10n.categoryHint,
+                border: const OutlineInputBorder(),
+              ),
+              onSubmitted: (value) => Navigator.pop(context, value),
+            ),
+            if (widget.existingCategories.isNotEmpty) ...[
+              Text(
+                l10n.existingCategories,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: widget.existingCategories
+                    .map(
+                      (category) => ActionChip(
+                        label: Text(category),
+                        visualDensity: VisualDensity.compact,
+                        materialTapTargetSize:
+                            MaterialTapTargetSize.shrinkWrap,
+                        labelStyle: theme.textTheme.bodySmall,
+                        onPressed: () => _applySuggestion(category),
+                      ),
+                    )
+                    .toList(),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, ''),
+          child: Text(l10n.noCategory),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(l10n.cancel),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context, _controller.text),
+          child: Text(l10n.save),
+        ),
+      ],
     );
   }
 }

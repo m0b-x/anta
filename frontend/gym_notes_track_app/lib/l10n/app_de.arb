@@ -1970,6 +1970,7 @@
   "moneyDaySummaryTitle": "Geld: {amount}",
   "markdownColorsTitle": "Textfarben",
   "markdownColorsSubtitle": "Farben für Text und Hervorhebungen",
+  "editColors": "Farben bearbeiten",
   "markdownColorsHowTo": "Farbnamen vor den Text schreiben. Unbekannte Namen bleiben unverändert.",
   "markdownColorsSampleText": "Beispieltext",
   "markdownColorsFallbackNote": "Eigene Farben werden automatisch angepasst, wenn sie im aktuellen Design unlesbar wären.",
@@ -2023,5 +2024,30 @@
         "type": "int"
       }
     }
-  }
+  },
+  "searchShortcuts": "Kürzel suchen",
+  "shortcutCategory": "Kategorie",
+  "setCategory": "Kategorie festlegen",
+  "uncategorized": "Ohne Kategorie",
+  "categoryHint": "z. B. Push-Tag",
+  "noCategory": "Keine Kategorie",
+  "existingCategories": "Vorhandene Kategorien",
+  "clearFilters": "Zurücksetzen",
+  "clearSearchToReorder": "Suche und Filter löschen, um zu sortieren",
+  "noShortcutsMatchFilter": "Keine passenden Kürzel",
+  "shortcutCountFiltered": "{shown} / {total}",
+  "@shortcutCountFiltered": {
+    "placeholders": {
+      "shown": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "collapseAll": "Alle einklappen",
+  "expandAll": "Alle ausklappen",
+  "searchUtilityButtons": "Schaltflächen suchen",
+  "noMatchesFound": "Keine Treffer"
 }

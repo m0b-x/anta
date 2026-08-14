@@ -196,6 +196,12 @@ class CustomMarkdownShortcut extends Equatable {
   final RepeatConfig? repeatConfig;
   final String? counterId;
 
+  /// Free-text grouping label used to filter the shortcut list in settings.
+  ///
+  /// Purely organisational metadata: it never affects toolbar order or
+  /// rendering. `null` or empty means uncategorised.
+  final String? category;
+
   /// Counter bindings used by the `{c1}` / `{c2}` tokens in
   /// [beforeText] / [afterText] / repeat wrapper text.
   ///
@@ -223,6 +229,7 @@ class CustomMarkdownShortcut extends Equatable {
     this.dateOffset,
     this.repeatConfig,
     this.counterId,
+    this.category,
     this.counters = const [],
   });
 
@@ -252,6 +259,7 @@ class CustomMarkdownShortcut extends Equatable {
       if (dateOffset != null) JsonKeys.dateOffset: dateOffset!.toJson(),
       if (repeatConfig != null) JsonKeys.repeatConfig: repeatConfig!.toJson(),
       if (counterId != null) JsonKeys.counterId: counterId,
+      if (category != null && category!.isNotEmpty) JsonKeys.category: category,
       if (counters.isNotEmpty)
         JsonKeys.counters: counters.map((c) => c.toJson()).toList(),
     };
@@ -280,6 +288,7 @@ class CustomMarkdownShortcut extends Equatable {
             )
           : null,
       counterId: json[JsonKeys.counterId] as String?,
+      category: json[JsonKeys.category] as String?,
       counters:
           (json[JsonKeys.counters] as List?)
               ?.map((e) => CounterBinding.fromJson(e as Map<String, dynamic>))
@@ -302,9 +311,11 @@ class CustomMarkdownShortcut extends Equatable {
     DateOffset? dateOffset,
     RepeatConfig? repeatConfig,
     String? counterId,
+    String? category,
     bool clearDateOffset = false,
     bool clearRepeatConfig = false,
     bool clearCounterId = false,
+    bool clearCategory = false,
     List<CounterBinding>? counters,
   }) {
     return CustomMarkdownShortcut(
@@ -323,6 +334,7 @@ class CustomMarkdownShortcut extends Equatable {
           ? null
           : (repeatConfig ?? this.repeatConfig),
       counterId: clearCounterId ? null : (counterId ?? this.counterId),
+      category: clearCategory ? null : (category ?? this.category),
       counters: counters ?? this.counters,
     );
   }
@@ -342,6 +354,7 @@ class CustomMarkdownShortcut extends Equatable {
     dateOffset,
     repeatConfig,
     counterId,
+    category,
     counters,
   ];
 }

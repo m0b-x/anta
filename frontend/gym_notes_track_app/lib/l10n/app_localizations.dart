@@ -5350,6 +5350,12 @@ abstract class AppLocalizations {
   /// **'Colors for text and highlights'**
   String get markdownColorsSubtitle;
 
+  /// Button inside the folded Text colors section that navigates to the color palette page
+  ///
+  /// In en, this message translates to:
+  /// **'Edit colors'**
+  String get editColors;
+
   /// Explains how the colored text syntax works
   ///
   /// In en, this message translates to:
@@ -5589,6 +5595,96 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{count, plural, =0{No events exported} one {1 event exported} other {{count} events exported}}'**
   String eventsExported(int count);
+
+  /// Hint text of the search field above the shortcut list in markdown settings
+  ///
+  /// In en, this message translates to:
+  /// **'Search shortcuts'**
+  String get searchShortcuts;
+
+  /// Label for the free-text category assigned to a markdown shortcut
+  ///
+  /// In en, this message translates to:
+  /// **'Category'**
+  String get shortcutCategory;
+
+  /// Shortcut card menu action that opens the category dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Set category'**
+  String get setCategory;
+
+  /// Filter chip and label for shortcuts without a category
+  ///
+  /// In en, this message translates to:
+  /// **'Uncategorized'**
+  String get uncategorized;
+
+  /// Hint text of the category input field
+  ///
+  /// In en, this message translates to:
+  /// **'e.g. Push day'**
+  String get categoryHint;
+
+  /// Action in the category dialog that removes the shortcut's category
+  ///
+  /// In en, this message translates to:
+  /// **'No category'**
+  String get noCategory;
+
+  /// Header above the list of already used categories in the category dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Existing categories'**
+  String get existingCategories;
+
+  /// Button that clears the shortcut search query and selected category chips
+  ///
+  /// In en, this message translates to:
+  /// **'Clear'**
+  String get clearFilters;
+
+  /// Hint shown above the shortcut list explaining why dragging is disabled
+  ///
+  /// In en, this message translates to:
+  /// **'Clear search and filters to reorder'**
+  String get clearSearchToReorder;
+
+  /// Empty state shown when the search or category filter matches nothing
+  ///
+  /// In en, this message translates to:
+  /// **'No shortcuts match'**
+  String get noShortcutsMatchFilter;
+
+  /// Badge next to the shortcuts section title showing matches vs total
+  ///
+  /// In en, this message translates to:
+  /// **'{shown} / {total}'**
+  String shortcutCountFiltered(int shown, int total);
+
+  /// App bar action that folds every section of the markdown settings page
+  ///
+  /// In en, this message translates to:
+  /// **'Collapse all'**
+  String get collapseAll;
+
+  /// App bar action that unfolds every section of the markdown settings page
+  ///
+  /// In en, this message translates to:
+  /// **'Expand all'**
+  String get expandAll;
+
+  /// Hint text of the search field above the utility button list
+  ///
+  /// In en, this message translates to:
+  /// **'Search buttons'**
+  String get searchUtilityButtons;
+
+  /// Neutral empty state shown when a settings list search matches nothing
+  ///
+  /// In en, this message translates to:
+  /// **'No matches'**
+  String get noMatchesFound;
 }
 
 class _AppLocalizationsDelegate

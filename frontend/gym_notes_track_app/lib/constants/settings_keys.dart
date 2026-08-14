@@ -63,6 +63,11 @@ class SettingsKeys {
   // Preview settings
   static const String showPreviewScrollbar = 'show_preview_scrollbar';
 
+  /// Comma-separated ids of the markdown settings sections the user left
+  /// folded. Stores the *collapsed* set so the empty default keeps every
+  /// section open, exactly as before the state was persisted.
+  static const String markdownSectionsCollapsed = 'markdown_sections_collapsed';
+
   // Toolbar settings
   static const String toolbarShortcutRatio = 'toolbar_shortcut_ratio';
   static const String toolbarSplitEnabled = 'toolbar_split_enabled';

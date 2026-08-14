@@ -2956,6 +2956,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get markdownColorsSubtitle => 'Colors for text and highlights';
 
   @override
+  String get editColors => 'Edit colors';
+
+  @override
   String get markdownColorsHowTo =>
       'Type a color name before the text. Unknown names stay plain.';
 
@@ -3101,4 +3104,51 @@ class AppLocalizationsEn extends AppLocalizations {
     );
     return '$_temp0';
   }
+
+  @override
+  String get searchShortcuts => 'Search shortcuts';
+
+  @override
+  String get shortcutCategory => 'Category';
+
+  @override
+  String get setCategory => 'Set category';
+
+  @override
+  String get uncategorized => 'Uncategorized';
+
+  @override
+  String get categoryHint => 'e.g. Push day';
+
+  @override
+  String get noCategory => 'No category';
+
+  @override
+  String get existingCategories => 'Existing categories';
+
+  @override
+  String get clearFilters => 'Clear';
+
+  @override
+  String get clearSearchToReorder => 'Clear search and filters to reorder';
+
+  @override
+  String get noShortcutsMatchFilter => 'No shortcuts match';
+
+  @override
+  String shortcutCountFiltered(int shown, int total) {
+    return '$shown / $total';
+  }
+
+  @override
+  String get collapseAll => 'Collapse all';
+
+  @override
+  String get expandAll => 'Expand all';
+
+  @override
+  String get searchUtilityButtons => 'Search buttons';
+
+  @override
+  String get noMatchesFound => 'No matches';
 }

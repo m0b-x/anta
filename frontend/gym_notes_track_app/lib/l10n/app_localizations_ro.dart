@@ -2991,6 +2991,9 @@ class AppLocalizationsRo extends AppLocalizations {
   String get markdownColorsSubtitle => 'Culori pentru text și evidențieri';
 
   @override
+  String get editColors => 'Editează culorile';
+
+  @override
   String get markdownColorsHowTo =>
       'Scrie numele culorii înaintea textului. Numele necunoscute rămân simple.';
 
@@ -3140,4 +3143,52 @@ class AppLocalizationsRo extends AppLocalizations {
     );
     return '$_temp0';
   }
+
+  @override
+  String get searchShortcuts => 'Caută scurtături';
+
+  @override
+  String get shortcutCategory => 'Categorie';
+
+  @override
+  String get setCategory => 'Setează categoria';
+
+  @override
+  String get uncategorized => 'Fără categorie';
+
+  @override
+  String get categoryHint => 'ex. Zi de împins';
+
+  @override
+  String get noCategory => 'Fără categorie';
+
+  @override
+  String get existingCategories => 'Categorii existente';
+
+  @override
+  String get clearFilters => 'Șterge';
+
+  @override
+  String get clearSearchToReorder =>
+      'Șterge căutarea și filtrele pentru a reordona';
+
+  @override
+  String get noShortcutsMatchFilter => 'Nicio scurtătură potrivită';
+
+  @override
+  String shortcutCountFiltered(int shown, int total) {
+    return '$shown / $total';
+  }
+
+  @override
+  String get collapseAll => 'Restrânge tot';
+
+  @override
+  String get expandAll => 'Extinde tot';
+
+  @override
+  String get searchUtilityButtons => 'Caută butoane';
+
+  @override
+  String get noMatchesFound => 'Niciun rezultat';
 }

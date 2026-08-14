@@ -851,6 +851,7 @@
   "moneyDaySummaryTitle": "Bani: {amount}",
   "markdownColorsTitle": "Culori text",
   "markdownColorsSubtitle": "Culori pentru text și evidențieri",
+  "editColors": "Editează culorile",
   "markdownColorsHowTo": "Scrie numele culorii înaintea textului. Numele necunoscute rămân simple.",
   "markdownColorsSampleText": "text exemplu",
   "markdownColorsFallbackNote": "Culorile personalizate sunt ajustate automat când ar fi ilizibile pe tema curentă.",
@@ -904,5 +905,30 @@
         "type": "int"
       }
     }
-  }
+  },
+  "searchShortcuts": "Caută scurtături",
+  "shortcutCategory": "Categorie",
+  "setCategory": "Setează categoria",
+  "uncategorized": "Fără categorie",
+  "categoryHint": "ex. Zi de împins",
+  "noCategory": "Fără categorie",
+  "existingCategories": "Categorii existente",
+  "clearFilters": "Șterge",
+  "clearSearchToReorder": "Șterge căutarea și filtrele pentru a reordona",
+  "noShortcutsMatchFilter": "Nicio scurtătură potrivită",
+  "shortcutCountFiltered": "{shown} / {total}",
+  "@shortcutCountFiltered": {
+    "placeholders": {
+      "shown": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "collapseAll": "Restrânge tot",
+  "expandAll": "Extinde tot",
+  "searchUtilityButtons": "Caută butoane",
+  "noMatchesFound": "Niciun rezultat"
 }
