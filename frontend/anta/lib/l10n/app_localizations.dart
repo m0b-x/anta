@@ -1534,6 +1534,120 @@ abstract class AppLocalizations {
   /// **'Shown under the rule — markdown works here'**
   String get fastingDescriptionHint;
 
+  /// Settings row opening the personal fasting schedule sheet
+  ///
+  /// In en, this message translates to:
+  /// **'My practice'**
+  String get fastingScheduleTitle;
+
+  /// Schedule summary fragment: every month is kept
+  ///
+  /// In en, this message translates to:
+  /// **'All year'**
+  String get fastingScheduleAllYear;
+
+  /// Schedule summary fragment: no weekday is kept
+  ///
+  /// In en, this message translates to:
+  /// **'No weekly days'**
+  String get fastingScheduleNoDays;
+
+  /// Schedule summary fragment: no month is kept
+  ///
+  /// In en, this message translates to:
+  /// **'No months kept'**
+  String get fastingScheduleNoMonths;
+
+  /// Label above the month chips in the fasting schedule sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Months you keep'**
+  String get fastingMonthsTitle;
+
+  /// Schedule summary fragment: how many months are kept
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 month} other{{count} months}}'**
+  String fastingMonthsCount(int count);
+
+  /// Label above the month scope chips
+  ///
+  /// In en, this message translates to:
+  /// **'Months apply to'**
+  String get fastingMonthScopeTitle;
+
+  /// Month scope option: the month set gates only the weekly fast
+  ///
+  /// In en, this message translates to:
+  /// **'Weekly fast only'**
+  String get fastingMonthScopeWeekly;
+
+  /// Month scope option: the month set gates every fast
+  ///
+  /// In en, this message translates to:
+  /// **'All fasts'**
+  String get fastingMonthScopeAll;
+
+  /// Hint under the month scope chips
+  ///
+  /// In en, this message translates to:
+  /// **'A month you turn off is never marked'**
+  String get fastingMonthScopeHint;
+
+  /// Label above the skipped fasting dates list
+  ///
+  /// In en, this message translates to:
+  /// **'Days off'**
+  String get fastingExceptionsSkipTitle;
+
+  /// Hint under the skipped fasting dates list
+  ///
+  /// In en, this message translates to:
+  /// **'Never marked, whatever the calendar says'**
+  String get fastingExceptionsSkipHint;
+
+  /// Label above the forced fasting dates list
+  ///
+  /// In en, this message translates to:
+  /// **'Extra fast days'**
+  String get fastingExceptionsForceTitle;
+
+  /// Hint under the forced fasting dates list
+  ///
+  /// In en, this message translates to:
+  /// **'Always marked, even outside your practice'**
+  String get fastingExceptionsForceHint;
+
+  /// Schedule summary fragment: how many exception dates exist
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 exception} other{{count} exceptions}}'**
+  String fastingExceptionsCount(int count);
+
+  /// Shown when an exception date list hit its cap
+  ///
+  /// In en, this message translates to:
+  /// **'Limit reached'**
+  String get fastingExceptionsFull;
+
+  /// Button opening the date picker for exception dates
+  ///
+  /// In en, this message translates to:
+  /// **'Add dates'**
+  String get fastingAddDates;
+
+  /// Day panel title for a date the user forced on themselves
+  ///
+  /// In en, this message translates to:
+  /// **'Personal fast'**
+  String get fastingPersonalFast;
+
+  /// Quick action clearing every chip in a selection row
+  ///
+  /// In en, this message translates to:
+  /// **'None'**
+  String get selectNone;
+
   /// Event editor section header: what the event is
   ///
   /// In en, this message translates to:

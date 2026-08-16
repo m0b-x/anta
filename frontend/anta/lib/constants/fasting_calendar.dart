@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
 import '../models/fasting_appearance.dart';
+import '../models/fasting_schedule.dart';
 import '../utils/liturgical_computus.dart';
 import 'calendar_colors.dart';
 import 'calendar_icons.dart';
@@ -56,6 +57,10 @@ enum FastingPeriod {
   tenthOfTevet,
   seventeenthOfTammuz,
   fastOfEsther,
+  // ── Personal ──
+  /// A day the user forced on through their own schedule, where no tradition
+  /// computes a fast.
+  personalFast,
 }
 
 /// One tradition's verdict for one day.
@@ -83,16 +88,10 @@ class FastingInfo {
 /// the standard software caveat); Jewish fasts carry their Shabbat
 /// postponements.
 abstract final class FastingCalendar {
-  /// Default weekly fast days (the traditional Wednesday + Friday).
-  static const Set<int> defaultWeekdayFastDays = {
-    DateTime.wednesday,
-    DateTime.friday,
-  };
-
   static Set<FastingTradition> _traditions = const {};
   static FastingAppearance _appearance = const FastingAppearance();
   static bool _orthodoxGreatFasts = true;
-  static Set<int> _weekdayFastDays = defaultWeekdayFastDays;
+  static FastingSchedule _schedule = const FastingSchedule();
 
   /// Lazily built per-year day maps. Bounded so a century-spanning scroll
   /// through the grid cannot accumulate maps forever.
@@ -108,15 +107,15 @@ abstract final class FastingCalendar {
   /// Replaces the whole configuration.
   ///
   /// The expensive part (year maps) is invalidated only when something that
-  /// changes *which* days are fasting days moved — traditions or the
-  /// Orthodox scope options — so calling this on every settings reload keeps
-  /// warm caches warm. [appearance] is display-only: it drops the cheap
-  /// per-day style memo and nothing else.
+  /// changes *which* days are fasting days moved — traditions, the Orthodox
+  /// scope option or the personal [schedule] — so calling this on every
+  /// settings reload keeps warm caches warm. [appearance] is display-only: it
+  /// drops the cheap per-day style memo and nothing else.
   static void configure({
     required Set<FastingTradition> traditions,
     FastingAppearance appearance = const FastingAppearance(),
     bool orthodoxGreatFasts = true,
-    Set<int> weekdayFastDays = defaultWeekdayFastDays,
+    FastingSchedule schedule = const FastingSchedule(),
   }) {
     if (appearance != _appearance) {
       _appearance = appearance;
@@ -126,12 +125,28 @@ abstract final class FastingCalendar {
         traditions.length == _traditions.length &&
         traditions.every(_traditions.contains) &&
         orthodoxGreatFasts == _orthodoxGreatFasts &&
-        weekdayFastDays.length == _weekdayFastDays.length &&
-        weekdayFastDays.every(_weekdayFastDays.contains);
+        schedule == _schedule;
     if (unchanged) return;
     _traditions = Set.unmodifiable(Set.of(traditions));
     _orthodoxGreatFasts = orthodoxGreatFasts;
-    _weekdayFastDays = Set.unmodifiable(Set.of(weekdayFastDays));
+    _schedule = schedule;
+    _years.clear();
+    _cellStyles.clear();
+  }
+
+  /// Drops every configured input and both caches.
+  ///
+  /// Part of the `DatabaseLifecycle` reset contract: the whole configuration
+  /// is derived from settings rows, so switching databases would otherwise
+  /// leave the previous one's practice painting the grid until the calendar
+  /// page happens to remount. Invoked from `SettingsService.reset` — the
+  /// settings singleton owns these rows, exactly as `PublicHolidayService`
+  /// owns the `PublicHolidays` facade.
+  static void resetConfiguration() {
+    _traditions = const {};
+    _appearance = const FastingAppearance();
+    _orthodoxGreatFasts = true;
+    _schedule = const FastingSchedule();
     _years.clear();
     _cellStyles.clear();
   }
@@ -139,6 +154,7 @@ abstract final class FastingCalendar {
   static Set<FastingTradition> get traditions => _traditions;
   static bool get isEnabled => _traditions.isNotEmpty;
   static FastingAppearance get appearance => _appearance;
+  static FastingSchedule get schedule => _schedule;
 
   static FastingTraditionStyle styleOf(FastingTradition tradition) =>
       _appearance.styleFor(tradition);
@@ -250,6 +266,7 @@ abstract final class FastingCalendar {
       FastingPeriod.tenthOfTevet => l10n.fastingTenthOfTevet,
       FastingPeriod.seventeenthOfTammuz => l10n.fastingSeventeenthOfTammuz,
       FastingPeriod.fastOfEsther => l10n.fastingEstherFast,
+      FastingPeriod.personalFast => l10n.fastingPersonalFast,
     };
   }
 
@@ -299,8 +316,18 @@ abstract final class FastingCalendar {
 
   static Map<DateTime, List<FastingInfo>> _buildYear(int year) {
     final out = <DateTime, List<FastingInfo>>{};
+    // A month the user turned off drops every tradition's mark only in the
+    // "all fasts" scope. In the default scope the month filter lives inside
+    // the weekly loops instead, so a great fast still shows in a month the
+    // weekly fast is not kept in. Filtering here rather than in a pass over
+    // the merged map keeps it O(1) per entry already being visited.
+    final filterEveryFast =
+        _schedule.monthScope == FastingMonthScope.allFasts;
     void merge(Map<DateTime, FastingInfo> tradition) {
-      tradition.forEach((day, info) => (out[day] ??= []).add(info));
+      tradition.forEach((day, info) {
+        if (filterEveryFast && !_schedule.months.contains(day.month)) return;
+        (out[day] ??= []).add(info);
+      });
     }
 
     if (_traditions.contains(FastingTradition.orthodox)) {
@@ -315,7 +342,39 @@ abstract final class FastingCalendar {
     if (_traditions.contains(FastingTradition.jewish)) {
       merge(_buildJewish(year));
     }
+    _applyExceptions(year, out);
     return out;
+  }
+
+  /// Personal exception dates, applied last so they override every computed
+  /// rule. Walks the (hand-picked, capped) date sets rather than the merged
+  /// map, so the cost is proportional to the exceptions and not to the year.
+  ///
+  /// A forced day no tradition claimed is attributed to the first enabled
+  /// tradition in declaration order — the same one whose colour and icon the
+  /// grid already uses for a day only one tradition marks.
+  static void _applyExceptions(
+    int year,
+    Map<DateTime, List<FastingInfo>> out,
+  ) {
+    for (final day in _schedule.skipDates) {
+      if (day.year == year) out.remove(day);
+    }
+    if (_schedule.forceDates.isEmpty) return;
+    FastingTradition? owner;
+    for (final tradition in FastingTradition.values) {
+      if (_traditions.contains(tradition)) {
+        owner = tradition;
+        break;
+      }
+    }
+    if (owner == null) return;
+    for (final day in _schedule.forceDates) {
+      if (day.year != year || out.containsKey(day)) continue;
+      out[day] = [
+        FastingInfo(owner, FastingPeriod.personalFast, FastingRegime.oil),
+      ];
+    }
   }
 
   static const Duration _oneDay = Duration(days: 1);
@@ -362,11 +421,12 @@ abstract final class FastingCalendar {
     }
 
     // Weekly fast on the configured days (traditionally Wed/Fri, but a
-    // personal practice can be any set — or none) wherever nothing above
-    // applies. The fast-free weeks still win: harți suspend the weekly
-    // fast for every practice.
+    // personal practice can be any set — or none) in the configured months,
+    // wherever nothing above applies. The fast-free weeks still win: harți
+    // suspend the weekly fast for every practice.
     for (var d = at(1, 1); d.year == year; d = d.add(_oneDay)) {
-      if (!_weekdayFastDays.contains(d.weekday)) continue;
+      if (!_schedule.weekdays.contains(d.weekday)) continue;
+      if (!_schedule.months.contains(d.month)) continue;
       if (map.containsKey(d) || fastFree.contains(d)) continue;
       map[d] = const FastingInfo(
         t,
@@ -538,14 +598,25 @@ abstract final class FastingCalendar {
       );
     }
 
-    // Friday abstinence outside Lent and Advent.
-    for (var d = DateTime.utc(year, 1, 1); d.year == year; d = d.add(_oneDay)) {
-      if (d.weekday != DateTime.friday || map.containsKey(d)) continue;
-      map[d] = const FastingInfo(
-        t,
-        FastingPeriod.fridayAbstinence,
-        FastingRegime.fish,
-      );
+    // Friday abstinence outside Lent and Advent, in the configured months.
+    // The personal schedule may *subtract* from a tradition's own weekly rule
+    // but never invent days it does not have: dropping Friday silences this
+    // loop, while adding Monday is an Orthodox-side choice that must not
+    // fabricate a Catholic Monday abstinence. Lent and Advent Fridays are
+    // seasonal rather than weekly and are already in the map above, so they
+    // stay either way.
+    if (_schedule.weekdays.contains(DateTime.friday)) {
+      for (var d = DateTime.utc(year, 1, 1);
+          d.year == year;
+          d = d.add(_oneDay)) {
+        if (d.weekday != DateTime.friday || map.containsKey(d)) continue;
+        if (!_schedule.months.contains(d.month)) continue;
+        map[d] = const FastingInfo(
+          t,
+          FastingPeriod.fridayAbstinence,
+          FastingRegime.fish,
+        );
+      }
     }
     return map;
   }

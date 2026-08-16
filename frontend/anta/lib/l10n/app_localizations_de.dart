@@ -869,6 +869,82 @@ class AppLocalizationsDe extends AppLocalizations {
       'Wird unter der Regel angezeigt — Markdown möglich';
 
   @override
+  String get fastingScheduleTitle => 'Meine Praxis';
+
+  @override
+  String get fastingScheduleAllYear => 'Ganzes Jahr';
+
+  @override
+  String get fastingScheduleNoDays => 'Keine wöchentlichen Tage';
+
+  @override
+  String get fastingScheduleNoMonths => 'Keine Monate';
+
+  @override
+  String get fastingMonthsTitle => 'Monate, die du hältst';
+
+  @override
+  String fastingMonthsCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Monate',
+      one: '1 Monat',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get fastingMonthScopeTitle => 'Monate gelten für';
+
+  @override
+  String get fastingMonthScopeWeekly => 'Nur wöchentliches Fasten';
+
+  @override
+  String get fastingMonthScopeAll => 'Alle Fastenzeiten';
+
+  @override
+  String get fastingMonthScopeHint =>
+      'Ein ausgeschalteter Monat wird nie markiert';
+
+  @override
+  String get fastingExceptionsSkipTitle => 'Freie Tage';
+
+  @override
+  String get fastingExceptionsSkipHint =>
+      'Nie markiert, egal was der Kalender sagt';
+
+  @override
+  String get fastingExceptionsForceTitle => 'Zusätzliche Fastentage';
+
+  @override
+  String get fastingExceptionsForceHint =>
+      'Immer markiert, auch außerhalb deiner Praxis';
+
+  @override
+  String fastingExceptionsCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Ausnahmen',
+      one: '1 Ausnahme',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get fastingExceptionsFull => 'Grenze erreicht';
+
+  @override
+  String get fastingAddDates => 'Daten hinzufügen';
+
+  @override
+  String get fastingPersonalFast => 'Persönliches Fasten';
+
+  @override
+  String get selectNone => 'Keine';
+
+  @override
   String get eventSectionWhat => 'Was';
 
   @override

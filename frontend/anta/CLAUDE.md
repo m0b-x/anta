@@ -16,7 +16,7 @@ The app lives at `frontend/anta/`; all commands below run from there. The on-dis
 | --- | --- |
 | [COPILOT_CONTEXT.md](COPILOT_CONTEXT.md) | **Canonical context.** Product purpose, stack, architecture, per-subsystem invariants (markdown preview pipeline, chunking, lists, money ledger, colors, ghost text), persistence rules, import/export rules, re_editor fork notes. Read the relevant section before planning. Do not restate it back to the user — follow it. |
 | [.claude/skills/](.claude/skills/) | Task-scoped skills: `anta-context` (load first), then `markdown-engine`, `drift-migrations`, `calendar-events`, `l10n`, `verify` as the task demands. |
-| [docs/](docs/) | Feature references and roadmaps written per subsystem (`money-ledger-feature.md`, `live-markdown-editor-roadmap.md`, `calendar-events-feature.md`, `tag-system-roadmap.md`, `markdown-feature-ideas.md`, `re-editor-performance-2026-07.md`, `cloud-sync-roadmap.md` + its `cloud-sync-phase-*.md` implementation docs). Status headers say what shipped vs. what is planned. |
+| [docs/](docs/) | Feature references and roadmaps written per subsystem (`money-ledger-feature.md`, `live-markdown-editor-roadmap.md`, `calendar-events-feature.md`, `fasting-schedule-roadmap.md`, `tag-system-roadmap.md`, `markdown-feature-ideas.md`, `re-editor-performance-2026-07.md`, `cloud-sync-roadmap.md` + its `cloud-sync-phase-*.md` implementation docs). Status headers say what shipped vs. what is planned. |
 
 When a subsystem's behavior changes materially, update the matching `docs/` file and the relevant `COPILOT_CONTEXT.md` section in the same change — those files are the memory between sessions.
 

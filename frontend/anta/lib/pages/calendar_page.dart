@@ -77,7 +77,7 @@ class _CalendarViewState extends State<_CalendarView> {
     final fastingTraditions = await settings.getFastingTraditions();
     final fastingAppearance = await settings.getFastingAppearance();
     final fastingGreatFasts = await settings.getFastingOrthodoxGreatFasts();
-    final fastingWeekdays = await settings.getFastingWeekdays();
+    final fastingSchedule = await settings.getFastingSchedule();
     if (!mounted) return;
     // Static sync facade, mirroring PublicHolidays: configure() is a no-op
     // when unchanged, so the reload-on-settings-return path stays cheap.
@@ -85,7 +85,7 @@ class _CalendarViewState extends State<_CalendarView> {
       traditions: fastingTraditions,
       appearance: fastingAppearance,
       orthodoxGreatFasts: fastingGreatFasts,
-      weekdayFastDays: fastingWeekdays,
+      schedule: fastingSchedule,
     );
     setState(() {
       _appearance = appearance;

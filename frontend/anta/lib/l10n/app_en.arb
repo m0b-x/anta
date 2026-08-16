@@ -1049,6 +1049,94 @@
   "@fastingDescriptionHint": {
     "description": "Placeholder for the fasting description field"
   },
+  "fastingScheduleTitle": "My practice",
+  "@fastingScheduleTitle": {
+    "description": "Settings row opening the personal fasting schedule sheet"
+  },
+  "fastingScheduleAllYear": "All year",
+  "@fastingScheduleAllYear": {
+    "description": "Schedule summary fragment: every month is kept"
+  },
+  "fastingScheduleNoDays": "No weekly days",
+  "@fastingScheduleNoDays": {
+    "description": "Schedule summary fragment: no weekday is kept"
+  },
+  "fastingScheduleNoMonths": "No months kept",
+  "@fastingScheduleNoMonths": {
+    "description": "Schedule summary fragment: no month is kept"
+  },
+  "fastingMonthsTitle": "Months you keep",
+  "@fastingMonthsTitle": {
+    "description": "Label above the month chips in the fasting schedule sheet"
+  },
+  "fastingMonthsCount": "{count, plural, =1{1 month} other{{count} months}}",
+  "@fastingMonthsCount": {
+    "description": "Schedule summary fragment: how many months are kept",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "fastingMonthScopeTitle": "Months apply to",
+  "@fastingMonthScopeTitle": {
+    "description": "Label above the month scope chips"
+  },
+  "fastingMonthScopeWeekly": "Weekly fast only",
+  "@fastingMonthScopeWeekly": {
+    "description": "Month scope option: the month set gates only the weekly fast"
+  },
+  "fastingMonthScopeAll": "All fasts",
+  "@fastingMonthScopeAll": {
+    "description": "Month scope option: the month set gates every fast"
+  },
+  "fastingMonthScopeHint": "A month you turn off is never marked",
+  "@fastingMonthScopeHint": {
+    "description": "Hint under the month scope chips"
+  },
+  "fastingExceptionsSkipTitle": "Days off",
+  "@fastingExceptionsSkipTitle": {
+    "description": "Label above the skipped fasting dates list"
+  },
+  "fastingExceptionsSkipHint": "Never marked, whatever the calendar says",
+  "@fastingExceptionsSkipHint": {
+    "description": "Hint under the skipped fasting dates list"
+  },
+  "fastingExceptionsForceTitle": "Extra fast days",
+  "@fastingExceptionsForceTitle": {
+    "description": "Label above the forced fasting dates list"
+  },
+  "fastingExceptionsForceHint": "Always marked, even outside your practice",
+  "@fastingExceptionsForceHint": {
+    "description": "Hint under the forced fasting dates list"
+  },
+  "fastingExceptionsCount": "{count, plural, =1{1 exception} other{{count} exceptions}}",
+  "@fastingExceptionsCount": {
+    "description": "Schedule summary fragment: how many exception dates exist",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "fastingExceptionsFull": "Limit reached",
+  "@fastingExceptionsFull": {
+    "description": "Shown when an exception date list hit its cap"
+  },
+  "fastingAddDates": "Add dates",
+  "@fastingAddDates": {
+    "description": "Button opening the date picker for exception dates"
+  },
+  "fastingPersonalFast": "Personal fast",
+  "@fastingPersonalFast": {
+    "description": "Day panel title for a date the user forced on themselves"
+  },
+  "selectNone": "None",
+  "@selectNone": {
+    "description": "Quick action clearing every chip in a selection row"
+  },
   "eventSectionWhat": "What",
   "@eventSectionWhat": {
     "description": "Event editor section header: what the event is"

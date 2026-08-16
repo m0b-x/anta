@@ -3,6 +3,7 @@ import 'package:flutter/painting.dart';
 import '../constants/fasting_calendar.dart';
 import '../constants/settings_keys.dart';
 import '../models/fasting_appearance.dart';
+import '../models/fasting_schedule.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
 import '../models/calendar_appearance.dart';
@@ -30,8 +31,13 @@ class SettingsService {
   /// Drops the cached singleton so the next [getInstance] rebinds to the
   /// currently-active [AppDatabase]. Invoked by [DatabaseLifecycle] when the
   /// active database changes.
+  ///
+  /// Also clears the static [FastingCalendar] configuration: it is derived
+  /// entirely from settings rows this service owns, and would otherwise keep
+  /// painting the previous database's practice.
   static void reset() {
     _instance = null;
+    FastingCalendar.resetConfiguration();
   }
 
   // Helper methods for type conversion
@@ -682,28 +688,26 @@ class SettingsService {
     await _setBool(SettingsKeys.calendarFastingOrthodoxGreatFasts, value);
   }
 
-  // Absent key = the traditional Wednesday+Friday default; an empty string
-  // is a deliberate "no weekly fast", so the two must stay distinguishable.
-  Future<Set<int>> getFastingWeekdays() async {
+  /// The personal practice schedule. When the JSON key is absent the retired
+  /// weekday CSV seeds it, so upgrading never silently resets someone's
+  /// practice — including the deliberate "no weekly fast" empty string. That
+  /// is why the absent-vs-empty distinction is resolved here rather than
+  /// inside the decoder: a null row means the weekdays were never chosen.
+  Future<FastingSchedule> getFastingSchedule() async {
     final raw = await _db.userSettingsDao.getValue(
+      SettingsKeys.calendarFastingSchedule,
+    );
+    if (raw != null && raw.isNotEmpty) return FastingSchedule.decode(raw);
+    final legacy = await _db.userSettingsDao.getValue(
       SettingsKeys.calendarFastingWeekdays,
     );
-    if (raw == null) return FastingCalendar.defaultWeekdayFastDays;
-    final days = <int>{};
-    for (final part in raw.split(',')) {
-      final day = int.tryParse(part.trim());
-      if (day != null && day >= DateTime.monday && day <= DateTime.sunday) {
-        days.add(day);
-      }
-    }
-    return days;
+    return FastingSchedule.decode(null, legacyWeekdayCsv: legacy);
   }
 
-  Future<void> setFastingWeekdays(Set<int> weekdays) async {
-    final sorted = weekdays.toList()..sort();
+  Future<void> setFastingSchedule(FastingSchedule schedule) async {
     await _db.userSettingsDao.setValue(
-      SettingsKeys.calendarFastingWeekdays,
-      sorted.join(','),
+      SettingsKeys.calendarFastingSchedule,
+      schedule.encode(),
     );
   }
 

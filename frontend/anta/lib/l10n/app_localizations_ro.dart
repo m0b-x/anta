@@ -883,6 +883,84 @@ class AppLocalizationsRo extends AppLocalizations {
   String get fastingDescriptionHint => 'Apare sub regim — merge și markdown';
 
   @override
+  String get fastingScheduleTitle => 'Rânduiala mea';
+
+  @override
+  String get fastingScheduleAllYear => 'Tot anul';
+
+  @override
+  String get fastingScheduleNoDays => 'Fără zile săptămânale';
+
+  @override
+  String get fastingScheduleNoMonths => 'Nicio lună';
+
+  @override
+  String get fastingMonthsTitle => 'Lunile pe care le ții';
+
+  @override
+  String fastingMonthsCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de luni',
+      few: '$count luni',
+      one: '1 lună',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get fastingMonthScopeTitle => 'Lunile se aplică la';
+
+  @override
+  String get fastingMonthScopeWeekly => 'Doar postul săptămânal';
+
+  @override
+  String get fastingMonthScopeAll => 'Toate posturile';
+
+  @override
+  String get fastingMonthScopeHint =>
+      'O lună dezactivată nu e marcată niciodată';
+
+  @override
+  String get fastingExceptionsSkipTitle => 'Zile libere';
+
+  @override
+  String get fastingExceptionsSkipHint =>
+      'Nemarcate, orice ar spune calendarul';
+
+  @override
+  String get fastingExceptionsForceTitle => 'Zile de post în plus';
+
+  @override
+  String get fastingExceptionsForceHint =>
+      'Marcate mereu, chiar în afara rânduielii';
+
+  @override
+  String fastingExceptionsCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de excepții',
+      few: '$count excepții',
+      one: '1 excepție',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get fastingExceptionsFull => 'Limită atinsă';
+
+  @override
+  String get fastingAddDates => 'Adaugă date';
+
+  @override
+  String get fastingPersonalFast => 'Post personal';
+
+  @override
+  String get selectNone => 'Niciuna';
+
+  @override
   String get eventSectionWhat => 'Ce';
 
   @override

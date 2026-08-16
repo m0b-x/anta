@@ -547,18 +547,43 @@ settings write per keystroke, and the pending write is flushed in `dispose`
 — leaving inside the debounce window must not lose the last keystrokes. The
 same shape as the agenda search field in `CalendarBottomPanel`.
 
-**Orthodox scope options** (shown only while Orthodox is enabled):
+**Orthodox scope option** (shown only while Orthodox is enabled):
 
 - *Multi-day fasts* (`calendar_fasting_orthodox_great_fasts`, default on) —
   turning it off drops the four great fasts, the strict single days and
   Cheesefare, leaving only the weekly rule, which then applies year-round.
-- *Weekly fast days* (`calendar_fasting_weekdays`, CSV of
-  `DateTime.weekday` ints) — weekday chips for the personal practice:
-  default Wednesday+Friday, but any set works (some keep only Wednesday,
-  some add Monday) and clearing them all disables the weekly fast. An
-  **absent** key means the traditional default; an **empty string** is a
-  deliberate "none" — the two must stay distinguishable. The harți
-  (fast-free) weeks still suppress whatever days are chosen.
+
+**The personal schedule** ("My practice", `FastingScheduleSheet`, shown while
+**any** tradition is enabled) is one `FastingSchedule` persisted as JSON under
+`calendar_fasting_schedule`:
+
+- *Weekdays* — default Wednesday+Friday, but any set works (some keep only
+  Wednesday, some add Monday) and clearing them all disables the weekly rule.
+  The harți (fast-free) weeks still suppress whatever days are chosen.
+- *Months* — which months the practice is kept in, default all twelve.
+- *Month scope* — `weeklyOnly` (default) gates only the weekly rule, so a
+  great fast still shows in a month the weekly fast is not kept in;
+  `allFasts` gates every mark, other traditions included. Applied inside
+  `_buildYear`'s `merge` closure, so it costs one set probe per produced
+  entry and never a second traversal.
+- *Exception dates* — `skipDates` (never marked) and `forceDates` (always
+  marked, emitted as `FastingPeriod.personalFast` attributed to the first
+  enabled tradition). Applied last, in `_applyExceptions`, by walking the
+  date sets rather than the year map; each is capped at 200 and the two are
+  kept disjoint, force winning.
+
+The schedule may **subtract** from a tradition's own weekly rule but never
+**invent** days it does not have: dropping Friday silences the Catholic
+year-round abstinence, while adding Monday must not fabricate a Catholic
+Monday abstinence. Lent/Advent Fridays and Good Friday are seasonal, not
+weekly, and survive either way.
+
+Migration: an absent `calendar_fasting_schedule` falls back to the retired
+`calendar_fasting_weekdays` CSV, which is read but never written again. That
+CSV's **absent** (traditional default) vs **empty string** (deliberate "none")
+distinction is resolved in `SettingsService.getFastingSchedule`, which passes
+the raw value — `''` included — as `legacyWeekdayCsv`; `FastingSchedule.decode`
+treats `null` and `''` differently and must keep doing so.
 
 ---
 

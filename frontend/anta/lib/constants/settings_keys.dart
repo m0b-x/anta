@@ -166,9 +166,18 @@ class SettingsKeys {
   static const String calendarFastingOrthodoxGreatFasts =
       'calendar_fasting_orthodox_great_fasts';
 
-  /// CSV of `DateTime.weekday` ints (1=Mon..7=Sun) for the weekly fast.
-  /// Absent = the traditional Wednesday+Friday; '' = user cleared them all.
+  /// Retired CSV of `DateTime.weekday` ints (1=Mon..7=Sun) for the weekly
+  /// fast; still **read** as the seed for [calendarFastingSchedule] when the
+  /// latter is absent, so an install that only ever picked weekdays keeps
+  /// them. Absent = the traditional Wednesday+Friday; '' = the user cleared
+  /// them all, and the two must stay distinguishable.
   static const String calendarFastingWeekdays = 'calendar_fasting_weekdays';
+
+  /// The personal fasting practice — weekly days, the months kept, what a
+  /// disabled month suppresses, and exception dates — encoded by
+  /// `FastingSchedule` as a JSON object. Malformed fields degrade to their
+  /// defaults on read; an absent key falls back to [calendarFastingWeekdays].
+  static const String calendarFastingSchedule = 'calendar_fasting_schedule';
 
   // Last navigation location (restored on next app launch)
   static const String lastFolderId = 'last_folder_id';

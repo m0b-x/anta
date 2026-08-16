@@ -10,6 +10,8 @@ import '../constants/calendar_icons.dart';
 import '../models/calendar_appearance.dart';
 import '../models/day_bar.dart';
 import '../models/fasting_appearance.dart';
+import '../models/fasting_schedule.dart';
+import '../widgets/fasting_schedule_sheet.dart';
 import '../widgets/fasting_style_sheet.dart';
 import '../services/app_navigator.dart';
 import '../services/calendar_event_service.dart';
@@ -63,7 +65,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
   Set<FastingTradition> _fastingTraditions = const {};
   FastingAppearance _fastingAppearance = const FastingAppearance();
   bool _fastingGreatFasts = true;
-  Set<int> _fastingWeekdays = FastingCalendar.defaultWeekdayFastDays;
+  FastingSchedule _fastingSchedule = const FastingSchedule();
 
   @override
   void initState() {
@@ -86,7 +88,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     final fastingTraditions = await settings.getFastingTraditions();
     final fastingAppearance = await settings.getFastingAppearance();
     final fastingGreatFasts = await settings.getFastingOrthodoxGreatFasts();
-    final fastingWeekdays = await settings.getFastingWeekdays();
+    final fastingSchedule = await settings.getFastingSchedule();
     final descriptionLimit = await settings.getEventDescriptionLimit();
     final occurrenceService = await EventOccurrenceService.getInstance();
 
@@ -105,7 +107,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
       _fastingTraditions = fastingTraditions;
       _fastingAppearance = fastingAppearance;
       _fastingGreatFasts = fastingGreatFasts;
-      _fastingWeekdays = fastingWeekdays;
+      _fastingSchedule = fastingSchedule;
       _isLoading = false;
     });
   }
@@ -154,14 +156,41 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     );
   }
 
-  Future<void> _toggleFastingWeekday(int weekday) async {
-    _onHapticFeedback();
-    setState(() {
-      final next = {..._fastingWeekdays};
-      next.contains(weekday) ? next.remove(weekday) : next.add(weekday);
-      _fastingWeekdays = next;
-    });
-    await _settings?.setFastingWeekdays(_fastingWeekdays);
+  /// Opens the personal schedule sheet. Like the appearance sheet, edits
+  /// arrive live through `onChanged`, so each tap persists and the summary
+  /// row behind the sheet repaints — closing is never a "discard".
+  Future<void> _editFastingSchedule() async {
+    await FastingScheduleSheet.show(
+      context,
+      initialSchedule: _fastingSchedule,
+      appearance: _appearance,
+      onChanged: (schedule) async {
+        setState(() => _fastingSchedule = schedule);
+        await _settings?.setFastingSchedule(schedule);
+      },
+    );
+  }
+
+  /// "Wed, Fri · All year · 3 exceptions" — the three facts that decide which
+  /// days get marked, in the order the engine applies them.
+  String _fastingScheduleSummary(AppLocalizations l10n) {
+    final parts = <String>[
+      _fastingSchedule.weekdays.isEmpty
+          ? l10n.fastingScheduleNoDays
+          : RecurrenceFormatter.formatWeekdays(
+              _fastingSchedule.weekdays,
+              l10n.localeName,
+            ),
+      if (_fastingSchedule.keepsEveryMonth)
+        l10n.fastingScheduleAllYear
+      else if (_fastingSchedule.months.isEmpty)
+        l10n.fastingScheduleNoMonths
+      else
+        l10n.fastingMonthsCount(_fastingSchedule.months.length),
+      if (_fastingSchedule.exceptionCount > 0)
+        l10n.fastingExceptionsCount(_fastingSchedule.exceptionCount),
+    ];
+    return parts.join(' · ');
   }
 
   void _onHapticFeedback() {
@@ -692,44 +721,32 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
           ),
         ),
       );
+    }
+
+    // Gated on *any* tradition, not just Orthodox: the schedule subtracts
+    // from every tradition's weekly rule, so hiding it behind Orthodox would
+    // leave a Catholic-only install unable to reach the Friday it controls.
+    if (_fastingTraditions.isNotEmpty) {
       entries.add(
         SettingsEntry(
-          title: l10n.fastingWeekdayDaysTitle,
-          description: l10n.fastingWeekdayDaysDesc,
-          titleStyle: theme.textTheme.labelLarge?.copyWith(
-            color: colorScheme.onSurfaceVariant,
-          ),
-          descriptionStyle: theme.textTheme.bodySmall?.copyWith(
-            color: colorScheme.onSurfaceVariant,
-          ),
-          builder: (context, title, description) => Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                title,
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (var w = 1; w <= 7; w++)
-                      FilterChip(
-                        label: Text(
-                          RecurrenceFormatter.weekdayShort(
-                            w,
-                            l10n.localeName,
-                          ),
-                        ),
-                        selected: _fastingWeekdays.contains(w),
-                        onSelected: (_) => _toggleFastingWeekday(w),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                ?description,
-              ],
+          title: l10n.fastingScheduleTitle,
+          description: _fastingScheduleSummary(l10n),
+          // The weekday, month and exception labels live inside the sheet
+          // now, so settings search needs them declared here to stay findable.
+          keywords: [
+            l10n.fastingWeekdayDaysTitle,
+            l10n.fastingMonthsTitle,
+            l10n.fastingExceptionsSkipTitle,
+          ],
+          builder: (context, title, description) => ListTile(
+            leading: Icon(
+              Icons.event_repeat_rounded,
+              color: colorScheme.primary,
             ),
+            title: title,
+            subtitle: description,
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: _editFastingSchedule,
           ),
         ),
       );
@@ -916,9 +933,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     await _settings?.setFastingTraditions(const {});
     await _settings?.setFastingAppearance(const FastingAppearance());
     await _settings?.setFastingOrthodoxGreatFasts(true);
-    await _settings?.setFastingWeekdays(
-      FastingCalendar.defaultWeekdayFastDays,
-    );
+    await _settings?.setFastingSchedule(const FastingSchedule());
     try {
       await _holidayService?.setProfile(HolidayProfile.generic);
     } catch (_) {
@@ -933,7 +948,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
       _fastingTraditions = const {};
       _fastingAppearance = const FastingAppearance();
       _fastingGreatFasts = true;
-      _fastingWeekdays = FastingCalendar.defaultWeekdayFastDays;
+      _fastingSchedule = const FastingSchedule();
       _descriptionLimit = SettingsKeys.defaultEventDescriptionLimit;
       _perOccurrenceDescriptions =
           SettingsKeys.defaultEventPerOccurrenceDescriptions;
