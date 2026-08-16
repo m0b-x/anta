@@ -75,6 +75,12 @@ dependencies:
   # Open external URLs (markdown preview hyperlinks)
   url_launcher: ^6.3.1
 
+  # Cloud sync transport (Android/iOS only — gated by SyncAvailability)
+  firebase_core: ^4.13.0
+  firebase_auth: ^6.5.7
+  cloud_firestore: ^6.8.0
+  google_sign_in: ^7.2.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
