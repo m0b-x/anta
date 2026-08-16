@@ -1,3 +1,4 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:get_it/get_it.dart';
 import '../../database/database.dart';
 import '../../repositories/note_repository.dart';
@@ -17,12 +18,16 @@ import '../../services/move_history_service.dart';
 import '../../services/move_history_store.dart';
 import '../../services/recent_destinations_service.dart';
 import '../../services/folder_name_index.dart';
+import '../../services/auth_service.dart';
+import '../../services/firebase_auth_service.dart';
+import '../../services/sync_availability.dart';
 import '../../bloc/optimized_folder/optimized_folder_bloc.dart';
 import '../../bloc/optimized_note/optimized_note_bloc.dart';
 import '../../bloc/import_export/import_export_bloc.dart';
 import '../../bloc/markdown_bar/markdown_bar_bloc.dart';
 import '../../bloc/counter/counter_bloc.dart';
 import '../../bloc/calendar/calendar_bloc.dart';
+import '../../bloc/sync/sync_bloc.dart';
 
 final getIt = GetIt.instance;
 
@@ -112,6 +117,16 @@ Future<void> _registerServices() async {
       noteRepository: getIt<NoteRepository>(),
     ),
   );
+
+  // Identity is global, not per-database, so this deliberately stays off the
+  // `DatabaseLifecycle` reset contract — switching databases must not tear
+  // down the auth stream. `Firebase.apps` guards the case where init failed
+  // in `main.dart`: degrade to the no-op binding instead of crashing here.
+  final canSync = SyncAvailability.isSupported && Firebase.apps.isNotEmpty;
+  getIt.registerSingleton<AuthService>(
+    canSync ? FirebaseAuthService() : NoOpAuthService(),
+    dispose: (s) => s.dispose(),
+  );
 }
 
 void _registerBlocs() {
@@ -140,6 +155,10 @@ void _registerBlocs() {
 
   getIt.registerFactory<ImportExportBloc>(
     () => ImportExportBloc(service: getIt<ImportExportService>()),
+  );
+
+  getIt.registerFactory<SyncBloc>(
+    () => SyncBloc(authService: getIt<AuthService>()),
   );
 }
 

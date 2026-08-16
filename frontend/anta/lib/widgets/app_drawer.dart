@@ -3,11 +3,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/app_settings/app_settings_bloc.dart';
 import '../bloc/markdown_bar/markdown_bar_bloc.dart';
+import '../core/di/injection.dart';
 import '../l10n/app_localizations.dart';
 import 'app_dialogs.dart';
+import '../models/app_user.dart';
 import '../models/custom_markdown_shortcut.dart';
 import '../models/dev_options.dart';
 import '../services/app_navigator.dart';
+import '../services/auth_service.dart';
 import '../services/dev_options_service.dart';
 import '../utils/custom_snackbar.dart';
 
@@ -166,6 +169,23 @@ class _AppDrawerState extends State<AppDrawer> {
                   onTap: () {
                     AppNavigator.pop(context);
                     AppNavigator.toCounterManagement(context).then((result) {
+                      if (result == SettingsResult.openDrawer &&
+                          context.mounted) {
+                        Scaffold.of(context).openDrawer();
+                      }
+                    });
+                  },
+                ),
+
+                // Sharing (cloud account)
+                _buildMenuItem(
+                  context: context,
+                  icon: Icons.cloud_sync_rounded,
+                  title: AppLocalizations.of(context)!.sharingSettings,
+                  subtitle: AppLocalizations.of(context)!.sharingSettingsDesc,
+                  onTap: () {
+                    AppNavigator.pop(context);
+                    AppNavigator.toSyncSettings(context).then((result) {
                       if (result == SettingsResult.openDrawer &&
                           context.mounted) {
                         Scaffold.of(context).openDrawer();
@@ -357,8 +377,61 @@ class _AppDrawerState extends State<AppDrawer> {
                   : colorScheme.onPrimaryContainer.withValues(alpha: 0.7),
             ),
           ),
+          _buildAccountLine(context, colorScheme, isDark),
         ],
       ),
+    );
+  }
+
+  /// Signed-in identity under the header subtitle. Renders nothing when
+  /// signed out, so the offline experience keeps today's exact header.
+  Widget _buildAccountLine(
+    BuildContext context,
+    ColorScheme colorScheme,
+    bool isDark,
+  ) {
+    final authService = getIt<AuthService>();
+    final subtle = isDark
+        ? colorScheme.onSurfaceVariant
+        : colorScheme.onPrimaryContainer.withValues(alpha: 0.7);
+
+    return StreamBuilder<AppUser?>(
+      stream: authService.authStateChanges,
+      initialData: authService.currentUser,
+      builder: (context, snapshot) {
+        final user = snapshot.data;
+        if (user == null) return const SizedBox.shrink();
+        final label = user.displayName ?? user.email ?? user.uid;
+        return Padding(
+          padding: const EdgeInsets.only(top: 10),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: () {
+              AppNavigator.pop(context);
+              AppNavigator.toSyncSettings(context).then((result) {
+                if (result == SettingsResult.openDrawer && context.mounted) {
+                  Scaffold.of(context).openDrawer();
+                }
+              });
+            },
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.cloud_done_rounded, size: 16, color: subtle),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12, color: subtle),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -453,9 +526,7 @@ class _AppDrawerState extends State<AppDrawer> {
       ),
       children: [
         const SizedBox(height: 16),
-        const Text(
-          'A powerful note-taking app designed for gym enthusiasts to track workouts and progress.',
-        ),
+        Text(AppLocalizations.of(context)!.aboutDescription),
       ],
     );
   }

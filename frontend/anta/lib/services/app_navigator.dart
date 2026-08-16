@@ -23,6 +23,7 @@ import '../pages/optimized_folder_content_page.dart';
 import '../pages/optimized_note_editor_page.dart';
 import '../pages/search_page.dart';
 import '../pages/shortcut_editor_page.dart';
+import '../pages/sync_settings_page.dart';
 
 enum SettingsResult { openDrawer }
 
@@ -154,6 +155,10 @@ abstract final class AppNavigator {
 
   static Future<SettingsResult?> toControlsSettings(BuildContext context) {
     return push<SettingsResult>(context, const ControlsSettingsPage());
+  }
+
+  static Future<SettingsResult?> toSyncSettings(BuildContext context) {
+    return push<SettingsResult>(context, const SyncSettingsPage());
   }
 
   static Future<SettingsResult?> toMarkdownSettings(

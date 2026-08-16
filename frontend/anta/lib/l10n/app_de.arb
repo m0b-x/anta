@@ -2060,5 +2060,18 @@
   "confirmDeleteKeywords": "Papierkorb, Entfernen, Nachfrage",
   "performanceKeywords": "Geschwindigkeit, Verzögerung, Abschnitt, schnell",
   "cursorKeywords": "Einfügemarke, aktuelle Zeile",
-  "keyboardKeywords": "Tippen, Eingabe"
+  "keyboardKeywords": "Tippen, Eingabe",
+  "sharingSettings": "Teilen",
+  "sharingSettingsDesc": "Anmelden, um mit jemandem zu teilen",
+  "accountSection": "Konto",
+  "signInWithGoogle": "Mit Google anmelden",
+  "signOut": "Abmelden",
+  "notSignedIn": "Nicht angemeldet",
+  "signingIn": "Anmeldung läuft…",
+  "syncUnavailablePlatform": "Auf dieser Plattform nicht verfügbar",
+  "syncUnavailablePlatformDesc": "Teilen funktioniert auf Android und iOS. Deine Daten bleiben auf diesem Gerät.",
+  "signInFailed": "Anmeldung fehlgeschlagen",
+  "retry": "Erneut versuchen",
+  "sharingKeywords": "Cloud, Synchronisierung, Konto, Google, Anmeldung, Teilen, Partner",
+  "aboutDescription": "Ein Offline-First-Tracker für den Alltag: Ordner, Markdown-Notizen, ein Geldbuch, Zähler und ein Kalender."
 }

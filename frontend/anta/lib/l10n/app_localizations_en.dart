@@ -3184,4 +3184,46 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get keyboardKeywords => 'typing, input';
+
+  @override
+  String get sharingSettings => 'Sharing';
+
+  @override
+  String get sharingSettingsDesc => 'Sign in to share with someone';
+
+  @override
+  String get accountSection => 'Account';
+
+  @override
+  String get signInWithGoogle => 'Sign in with Google';
+
+  @override
+  String get signOut => 'Sign out';
+
+  @override
+  String get notSignedIn => 'Not signed in';
+
+  @override
+  String get signingIn => 'Signing in…';
+
+  @override
+  String get syncUnavailablePlatform => 'Not available on this platform';
+
+  @override
+  String get syncUnavailablePlatformDesc =>
+      'Sharing works on Android and iOS. Your data stays on this device.';
+
+  @override
+  String get signInFailed => 'Sign-in failed';
+
+  @override
+  String get retry => 'Retry';
+
+  @override
+  String get sharingKeywords =>
+      'cloud, sync, account, google, login, share, partner';
+
+  @override
+  String get aboutDescription =>
+      'An offline-first personal tracker: folders, markdown notes, a money ledger, counters, and a calendar.';
 }

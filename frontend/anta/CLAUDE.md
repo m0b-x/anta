@@ -16,7 +16,7 @@ The app lives at `frontend/anta/`; all commands below run from there. The on-dis
 | --- | --- |
 | [COPILOT_CONTEXT.md](COPILOT_CONTEXT.md) | **Canonical context.** Product purpose, stack, architecture, per-subsystem invariants (markdown preview pipeline, chunking, lists, money ledger, colors, ghost text), persistence rules, import/export rules, re_editor fork notes. Read the relevant section before planning. Do not restate it back to the user — follow it. |
 | [.claude/skills/](.claude/skills/) | Task-scoped skills: `anta-context` (load first), then `markdown-engine`, `drift-migrations`, `calendar-events`, `l10n`, `verify` as the task demands. |
-| [docs/](docs/) | Feature references and roadmaps written per subsystem (`money-ledger-feature.md`, `live-markdown-editor-roadmap.md`, `calendar-events-feature.md`, `tag-system-roadmap.md`, `markdown-feature-ideas.md`, `re-editor-performance-2026-07.md`). Status headers say what shipped vs. what is planned. |
+| [docs/](docs/) | Feature references and roadmaps written per subsystem (`money-ledger-feature.md`, `live-markdown-editor-roadmap.md`, `calendar-events-feature.md`, `tag-system-roadmap.md`, `markdown-feature-ideas.md`, `re-editor-performance-2026-07.md`, `cloud-sync-roadmap.md` + its `cloud-sync-phase-*.md` implementation docs). Status headers say what shipped vs. what is planned. |
 
 When a subsystem's behavior changes materially, update the matching `docs/` file and the relevant `COPILOT_CONTEXT.md` section in the same change — those files are the memory between sessions.
 
@@ -33,7 +33,7 @@ flutter run                                             # Android is the primary
 flutter run -d windows                                  # quick desktop UI check
 ```
 
-Tests (`test/` — the money-ledger grammar suite plus the database suite):
+Tests (`test/` — the money-ledger grammar suite, the database suite, and the sync bloc suite):
 
 ```powershell
 flutter test                                            # whole suite (benchmarks skipped)
@@ -92,7 +92,7 @@ Read the `markdown-engine` skill and the corresponding COPILOT_CONTEXT.md sectio
 - Every user-visible string goes through `AppLocalizations`. Update `lib/l10n/app_en.arb`, `app_de.arb`, `app_ro.arb` **together**, then run `flutter gen-l10n`.
 - Never hand-edit generated files (`lib/database/database.g.dart`, `lib/database/daos/*.g.dart`, `lib/l10n/app_localizations*.dart`).
 - Drift schema changes need a migration; never reset user storage. Any DB-backed singleton must follow the `DatabaseLifecycle` reset contract (multi-database switching).
-- **No code comments, no new tests, no new markdown docs unless explicitly requested.**
+- **No code comments, no new markdown docs unless explicitly requested.** Tests are welcome (standing permission, 2026-08-16): new services and blocs ship with focused suites against fakes — see `test/bloc/sync_bloc_test.dart` for the pattern.
 - Preserve data semantics: soft deletes, CRDT fields (`hlcTimestamp`, `deviceId`, `version`, `isDeleted`), positions, sort preferences, pinned counters, backup format compatibility. Global counter values use `noteId == ''`.
 - Settings go through `SettingsService` + `SettingsKeys` — never raw `SharedPreferences` keys.
 - Import/export: UI only via `ImportExportBloc`; exports funnel through `shareExport` (never `SharePlus` directly); `createX` stamps timestamps to now, `importX` preserves caller timestamps; bumping the archive schema means bumping `ImportExportService.archiveVersion` and accepting the previous version.

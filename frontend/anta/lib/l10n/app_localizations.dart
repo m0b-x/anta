@@ -5751,6 +5751,84 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'typing, input'**
   String get keyboardKeywords;
+
+  /// Sharing settings menu item
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing'**
+  String get sharingSettings;
+
+  /// Sharing settings description
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in to share with someone'**
+  String get sharingSettingsDesc;
+
+  /// Section heading for the cloud account rows
+  ///
+  /// In en, this message translates to:
+  /// **'Account'**
+  String get accountSection;
+
+  /// Button starting the Google sign-in flow
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in with Google'**
+  String get signInWithGoogle;
+
+  /// Button ending the signed-in session
+  ///
+  /// In en, this message translates to:
+  /// **'Sign out'**
+  String get signOut;
+
+  /// Shown when no cloud account is connected
+  ///
+  /// In en, this message translates to:
+  /// **'Not signed in'**
+  String get notSignedIn;
+
+  /// Shown while the sign-in flow is running
+  ///
+  /// In en, this message translates to:
+  /// **'Signing in…'**
+  String get signingIn;
+
+  /// Shown on desktop, where cloud sync cannot run
+  ///
+  /// In en, this message translates to:
+  /// **'Not available on this platform'**
+  String get syncUnavailablePlatform;
+
+  /// Explains that desktop remains local-only
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing works on Android and iOS. Your data stays on this device.'**
+  String get syncUnavailablePlatformDesc;
+
+  /// Error title when the sign-in flow throws
+  ///
+  /// In en, this message translates to:
+  /// **'Sign-in failed'**
+  String get signInFailed;
+
+  /// Button re-running a failed action
+  ///
+  /// In en, this message translates to:
+  /// **'Retry'**
+  String get retry;
+
+  /// Comma-separated hidden search synonyms for the sharing settings
+  ///
+  /// In en, this message translates to:
+  /// **'cloud, sync, account, google, login, share, partner'**
+  String get sharingKeywords;
+
+  /// One-sentence app description in the About dialog
+  ///
+  /// In en, this message translates to:
+  /// **'An offline-first personal tracker: folders, markdown notes, a money ledger, counters, and a calendar.'**
+  String get aboutDescription;
 }
 
 class _AppLocalizationsDelegate

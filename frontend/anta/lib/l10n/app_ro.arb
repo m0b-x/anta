@@ -941,5 +941,18 @@
   "confirmDeleteKeywords": "coș, ștergere, confirmare",
   "performanceKeywords": "viteză, întârziere, fragment, rapid",
   "cursorKeywords": "cursor, linia curentă",
-  "keyboardKeywords": "tastare, introducere"
+  "keyboardKeywords": "tastare, introducere",
+  "sharingSettings": "Partajare",
+  "sharingSettingsDesc": "Conectează-te pentru a partaja cu cineva",
+  "accountSection": "Cont",
+  "signInWithGoogle": "Conectare cu Google",
+  "signOut": "Deconectare",
+  "notSignedIn": "Neconectat",
+  "signingIn": "Se conectează…",
+  "syncUnavailablePlatform": "Indisponibil pe această platformă",
+  "syncUnavailablePlatformDesc": "Partajarea funcționează pe Android și iOS. Datele tale rămân pe acest dispozitiv.",
+  "signInFailed": "Conectare eșuată",
+  "retry": "Reîncearcă",
+  "sharingKeywords": "cloud, sincronizare, cont, google, autentificare, partajare, partener",
+  "aboutDescription": "Un tracker personal offline-first: foldere, notițe markdown, un registru de bani, contoare și calendar."
 }

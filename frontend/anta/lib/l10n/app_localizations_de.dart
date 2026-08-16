@@ -3209,4 +3209,46 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get keyboardKeywords => 'Tippen, Eingabe';
+
+  @override
+  String get sharingSettings => 'Teilen';
+
+  @override
+  String get sharingSettingsDesc => 'Anmelden, um mit jemandem zu teilen';
+
+  @override
+  String get accountSection => 'Konto';
+
+  @override
+  String get signInWithGoogle => 'Mit Google anmelden';
+
+  @override
+  String get signOut => 'Abmelden';
+
+  @override
+  String get notSignedIn => 'Nicht angemeldet';
+
+  @override
+  String get signingIn => 'Anmeldung läuft…';
+
+  @override
+  String get syncUnavailablePlatform => 'Auf dieser Plattform nicht verfügbar';
+
+  @override
+  String get syncUnavailablePlatformDesc =>
+      'Teilen funktioniert auf Android und iOS. Deine Daten bleiben auf diesem Gerät.';
+
+  @override
+  String get signInFailed => 'Anmeldung fehlgeschlagen';
+
+  @override
+  String get retry => 'Erneut versuchen';
+
+  @override
+  String get sharingKeywords =>
+      'Cloud, Synchronisierung, Konto, Google, Anmeldung, Teilen, Partner';
+
+  @override
+  String get aboutDescription =>
+      'Ein Offline-First-Tracker für den Alltag: Ordner, Markdown-Notizen, ein Geldbuch, Zähler und ein Kalender.';
 }

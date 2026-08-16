@@ -3224,4 +3224,46 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get keyboardKeywords => 'tastare, introducere';
+
+  @override
+  String get sharingSettings => 'Partajare';
+
+  @override
+  String get sharingSettingsDesc => 'Conectează-te pentru a partaja cu cineva';
+
+  @override
+  String get accountSection => 'Cont';
+
+  @override
+  String get signInWithGoogle => 'Conectare cu Google';
+
+  @override
+  String get signOut => 'Deconectare';
+
+  @override
+  String get notSignedIn => 'Neconectat';
+
+  @override
+  String get signingIn => 'Se conectează…';
+
+  @override
+  String get syncUnavailablePlatform => 'Indisponibil pe această platformă';
+
+  @override
+  String get syncUnavailablePlatformDesc =>
+      'Partajarea funcționează pe Android și iOS. Datele tale rămân pe acest dispozitiv.';
+
+  @override
+  String get signInFailed => 'Conectare eșuată';
+
+  @override
+  String get retry => 'Reîncearcă';
+
+  @override
+  String get sharingKeywords =>
+      'cloud, sincronizare, cont, google, autentificare, partajare, partener';
+
+  @override
+  String get aboutDescription =>
+      'Un tracker personal offline-first: foldere, notițe markdown, un registru de bani, contoare și calendar.';
 }

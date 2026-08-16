@@ -3,8 +3,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'dart:async';
+import 'firebase_options.dart';
+import 'services/sync_availability.dart';
 import 'bloc/app_settings/app_settings_bloc.dart';
 import 'bloc/calendar/calendar_bloc.dart';
 import 'bloc/optimized_folder/optimized_folder_bloc.dart';
@@ -31,6 +34,18 @@ void main() async {
       systemNavigationBarDividerColor: Colors.transparent,
     ),
   );
+
+  // Degrade to local-only rather than blocking launch: a checkout without
+  // `google-services.json` must still start, just without sync.
+  if (SyncAvailability.isSupported) {
+    try {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+    } catch (e) {
+      debugPrint('[main] Firebase init failed, continuing offline: $e');
+    }
+  }
 
   await configureDependencies();
 

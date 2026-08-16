@@ -4109,5 +4109,57 @@
   "keyboardKeywords": "typing, input",
   "@keyboardKeywords": {
     "description": "Comma-separated hidden search synonyms for keyboard related editor settings"
+  },
+  "sharingSettings": "Sharing",
+  "@sharingSettings": {
+    "description": "Sharing settings menu item"
+  },
+  "sharingSettingsDesc": "Sign in to share with someone",
+  "@sharingSettingsDesc": {
+    "description": "Sharing settings description"
+  },
+  "accountSection": "Account",
+  "@accountSection": {
+    "description": "Section heading for the cloud account rows"
+  },
+  "signInWithGoogle": "Sign in with Google",
+  "@signInWithGoogle": {
+    "description": "Button starting the Google sign-in flow"
+  },
+  "signOut": "Sign out",
+  "@signOut": {
+    "description": "Button ending the signed-in session"
+  },
+  "notSignedIn": "Not signed in",
+  "@notSignedIn": {
+    "description": "Shown when no cloud account is connected"
+  },
+  "signingIn": "Signing in…",
+  "@signingIn": {
+    "description": "Shown while the sign-in flow is running"
+  },
+  "syncUnavailablePlatform": "Not available on this platform",
+  "@syncUnavailablePlatform": {
+    "description": "Shown on desktop, where cloud sync cannot run"
+  },
+  "syncUnavailablePlatformDesc": "Sharing works on Android and iOS. Your data stays on this device.",
+  "@syncUnavailablePlatformDesc": {
+    "description": "Explains that desktop remains local-only"
+  },
+  "signInFailed": "Sign-in failed",
+  "@signInFailed": {
+    "description": "Error title when the sign-in flow throws"
+  },
+  "retry": "Retry",
+  "@retry": {
+    "description": "Button re-running a failed action"
+  },
+  "sharingKeywords": "cloud, sync, account, google, login, share, partner",
+  "@sharingKeywords": {
+    "description": "Comma-separated hidden search synonyms for the sharing settings"
+  },
+  "aboutDescription": "An offline-first personal tracker: folders, markdown notes, a money ledger, counters, and a calendar.",
+  "@aboutDescription": {
+    "description": "One-sentence app description in the About dialog"
   }
 }
