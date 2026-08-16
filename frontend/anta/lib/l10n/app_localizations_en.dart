@@ -1962,6 +1962,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String get databaseCreated => 'Database created successfully';
 
   @override
+  String get importDatabase => 'Import Database';
+
+  @override
+  String get importingDatabase => 'Importing database...';
+
+  @override
+  String get databaseImported => 'Database imported successfully';
+
+  @override
+  String get invalidDatabaseFile => 'This file is not a valid database.';
+
+  @override
   String get renameDatabase => 'Rename Database';
 
   @override

@@ -3538,6 +3538,30 @@ abstract class AppLocalizations {
   /// **'Database created successfully'**
   String get databaseCreated;
 
+  /// Button and dialog title to import an external database file
+  ///
+  /// In en, this message translates to:
+  /// **'Import Database'**
+  String get importDatabase;
+
+  /// Message while importing a database file
+  ///
+  /// In en, this message translates to:
+  /// **'Importing database...'**
+  String get importingDatabase;
+
+  /// Success message after importing a database
+  ///
+  /// In en, this message translates to:
+  /// **'Database imported successfully'**
+  String get databaseImported;
+
+  /// Error when the selected file is not a SQLite database
+  ///
+  /// In en, this message translates to:
+  /// **'This file is not a valid database.'**
+  String get invalidDatabaseFile;
+
   /// Dialog title for renaming database
   ///
   /// In en, this message translates to:

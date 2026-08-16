@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:share_plus/share_plus.dart';
 import '../database/database.dart';
@@ -229,6 +230,17 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
                 onPressed: () => _showCreateDatabaseDialog(context),
                 icon: const Icon(Icons.add_rounded, size: 18),
                 label: Text(AppLocalizations.of(context)!.createNewDatabase),
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            // Import database file button
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _importDatabase(context),
+                icon: const Icon(Icons.file_download_rounded, size: 18),
+                label: Text(AppLocalizations.of(context)!.importDatabase),
               ),
             ),
           ],
@@ -574,6 +586,77 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
         this.context,
         AppLocalizations.of(this.context)!.databaseCreated,
       );
+    } catch (e) {
+      if (!mounted) return;
+      AppNavigator.pop(this.context);
+
+      CustomSnackbar.showError(
+        this.context,
+        '${AppLocalizations.of(this.context)!.error}: $e',
+      );
+    }
+  }
+
+  Future<void> _importDatabase(BuildContext context) async {
+    final l10n = AppLocalizations.of(context)!;
+
+    final result = await FilePicker.pickFiles(
+      type: FileType.any,
+      withData: false,
+    );
+    if (result == null || result.files.isEmpty) return;
+    final sourcePath = result.files.single.path;
+    if (sourcePath == null) return;
+
+    final dbManager = await DatabaseManager.getInstance();
+
+    if (!await dbManager.isSqliteFile(sourcePath)) {
+      if (!mounted) return;
+      CustomSnackbar.showError(this.context, l10n.invalidDatabaseFile);
+      return;
+    }
+
+    final suggested = await dbManager.suggestDatabaseName(
+      p.basenameWithoutExtension(sourcePath),
+    );
+
+    if (!mounted) return;
+    final input = await AppDialogs.textInput(
+      this.context,
+      title: l10n.importDatabase,
+      labelText: l10n.newDatabaseName,
+      hintText: l10n.enterDatabaseName,
+      initialValue: suggested,
+      confirmText: l10n.import,
+    );
+    if (input == null || input.trim().isEmpty) return;
+    final targetName = input.trim();
+
+    if (!dbManager.isValidDatabaseName(targetName)) {
+      if (!mounted) return;
+      CustomSnackbar.showError(this.context, l10n.invalidDatabaseName);
+      return;
+    }
+
+    if (await dbManager.databaseExists(targetName)) {
+      if (!mounted) return;
+      CustomSnackbar.showError(this.context, l10n.databaseExists);
+      return;
+    }
+
+    if (!mounted) return;
+    AppDialogs.showLoading(this.context, message: l10n.importingDatabase);
+
+    try {
+      await dbManager.importDatabase(sourcePath, targetName);
+
+      if (!mounted) return;
+      AppNavigator.pop(this.context);
+
+      await _loadDatabaseInfo();
+
+      if (!mounted) return;
+      CustomSnackbar.showSuccess(this.context, l10n.databaseImported);
     } catch (e) {
       if (!mounted) return;
       AppNavigator.pop(this.context);

@@ -2491,6 +2491,22 @@
   "@databaseCreated": {
     "description": "Success message after creating database"
   },
+  "importDatabase": "Import Database",
+  "@importDatabase": {
+    "description": "Button and dialog title to import an external database file"
+  },
+  "importingDatabase": "Importing database...",
+  "@importingDatabase": {
+    "description": "Message while importing a database file"
+  },
+  "databaseImported": "Database imported successfully",
+  "@databaseImported": {
+    "description": "Success message after importing a database"
+  },
+  "invalidDatabaseFile": "This file is not a valid database.",
+  "@invalidDatabaseFile": {
+    "description": "Error when the selected file is not a SQLite database"
+  },
   "renameDatabase": "Rename Database",
   "@renameDatabase": {
     "description": "Dialog title for renaming database"

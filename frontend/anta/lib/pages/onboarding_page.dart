@@ -1,9 +1,12 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:path/path.dart' as p;
 import '../l10n/app_localizations.dart';
 import '../widgets/app_dialogs.dart';
 import '../services/backup_service.dart';
+import '../services/database_manager.dart';
 import '../services/settings_service.dart';
 import '../utils/custom_snackbar.dart';
 
@@ -91,15 +94,25 @@ class _OnboardingPageState extends State<OnboardingPage> {
 
     try {
       final result = await FilePicker.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['json'],
+        type: FileType.any,
+        withData: false,
       );
 
       if (result == null || result.files.isEmpty) return;
+      final path = result.files.single.path;
+      if (path == null) return;
 
       setState(() => _isImporting = true);
 
-      final file = File(result.files.first.path!);
+      final dbManager = await DatabaseManager.getInstance();
+
+      // A .db restore swaps the active database, which requires a restart.
+      if (await dbManager.isSqliteFile(path)) {
+        await _restoreFromDatabaseFile(dbManager, path);
+        return;
+      }
+
+      final file = File(path);
       final jsonString = await file.readAsString();
 
       final backupService = await BackupService.getInstance();
@@ -153,6 +166,38 @@ class _OnboardingPageState extends State<OnboardingPage> {
     } finally {
       if (mounted) {
         setState(() => _isImporting = false);
+      }
+    }
+  }
+
+  Future<void> _restoreFromDatabaseFile(
+    DatabaseManager dbManager,
+    String sourcePath,
+  ) async {
+    final l10n = AppLocalizations.of(context)!;
+
+    try {
+      final name = await dbManager.suggestDatabaseName(
+        p.basenameWithoutExtension(sourcePath),
+      );
+      await dbManager.importDatabase(sourcePath, name);
+      await dbManager.setActiveDatabaseName(name);
+
+      final settings = await SettingsService.getInstance();
+      await settings.setOnboardingCompleted(true);
+
+      if (!mounted) return;
+      await AppDialogs.action(
+        context,
+        title: l10n.restartRequired,
+        content: l10n.restartRequired,
+        actionText: l10n.exitApp,
+        icon: Icons.restart_alt_rounded,
+        onAction: () => SystemNavigator.pop(),
+      );
+    } catch (e) {
+      if (mounted) {
+        CustomSnackbar.showError(context, '${l10n.importFailed}: $e');
       }
     }
   }

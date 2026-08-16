@@ -1974,6 +1974,18 @@ class AppLocalizationsDe extends AppLocalizations {
   String get databaseCreated => 'Datenbank erfolgreich erstellt';
 
   @override
+  String get importDatabase => 'Datenbank importieren';
+
+  @override
+  String get importingDatabase => 'Datenbank wird importiert...';
+
+  @override
+  String get databaseImported => 'Datenbank erfolgreich importiert';
+
+  @override
+  String get invalidDatabaseFile => 'Diese Datei ist keine gültige Datenbank.';
+
+  @override
   String get renameDatabase => 'Datenbank umbenennen';
 
   @override

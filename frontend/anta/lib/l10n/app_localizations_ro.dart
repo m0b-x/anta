@@ -1989,6 +1989,19 @@ class AppLocalizationsRo extends AppLocalizations {
   String get databaseCreated => 'Baza de date a fost creată cu succes';
 
   @override
+  String get importDatabase => 'Importă baza de date';
+
+  @override
+  String get importingDatabase => 'Se importă baza de date...';
+
+  @override
+  String get databaseImported => 'Baza de date a fost importată cu succes';
+
+  @override
+  String get invalidDatabaseFile =>
+      'Acest fișier nu este o bază de date validă.';
+
+  @override
   String get renameDatabase => 'Redenumește Baza de Date';
 
   @override

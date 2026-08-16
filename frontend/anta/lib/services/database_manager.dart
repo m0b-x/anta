@@ -95,6 +95,67 @@ class DatabaseManager {
     await file.create();
   }
 
+  /// Copies an external SQLite database file into the managed directory as
+  /// [targetName]. The file is imported verbatim; ANTA's migrations upgrade it
+  /// on first open.
+  Future<void> importDatabase(String sourcePath, String targetName) async {
+    if (await databaseExists(targetName)) {
+      throw Exception('Database "$targetName" already exists');
+    }
+
+    final source = File(sourcePath);
+    if (!await source.exists()) {
+      throw Exception('Source database file not found');
+    }
+
+    final targetPath = await getDatabasePath(targetName);
+    final targetFile = File(targetPath);
+    await targetFile.parent.create(recursive: true);
+    await source.copy(targetPath);
+  }
+
+  /// True when [path] begins with the SQLite file magic header. Guards against
+  /// importing a non-database file that would crash the app once it becomes
+  /// the active database.
+  Future<bool> isSqliteFile(String path) async {
+    final file = File(path);
+    if (!await file.exists()) return false;
+
+    final handle = await file.open();
+    try {
+      final header = await handle.read(16);
+      if (header.length < 16) return false;
+      const magic = 'SQLite format 3\u0000';
+      for (var i = 0; i < magic.length; i++) {
+        if (header[i] != magic.codeUnitAt(i)) return false;
+      }
+      return true;
+    } finally {
+      await handle.close();
+    }
+  }
+
+  /// A unique, valid database name derived from [base] by sanitizing invalid
+  /// characters and appending a numeric suffix until it no longer collides.
+  Future<String> suggestDatabaseName(String base) async {
+    var sanitized = base.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+    if (sanitized.length > 50) sanitized = sanitized.substring(0, 50);
+    if (sanitized.isEmpty) sanitized = 'imported';
+
+    var name = sanitized;
+    var counter = 1;
+    while (await databaseExists(name)) {
+      final suffix = '_$counter';
+      final maxBase = 50 - suffix.length;
+      final trimmed = sanitized.length > maxBase
+          ? sanitized.substring(0, maxBase)
+          : sanitized;
+      name = '$trimmed$suffix';
+      counter++;
+    }
+    return name;
+  }
+
   /// Rename a database file
   Future<void> renameDatabase(String oldName, String newName) async {
     if (!await databaseExists(oldName)) {
