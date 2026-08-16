@@ -133,6 +133,8 @@ class _CalendarViewState extends State<_CalendarView> {
           ),
         );
       },
+      onPresenceChanged: (occurrenceDay, missed) =>
+          _setOccurrenceMissed(bloc, event.id, occurrenceDay, missed),
     );
     if (action == null || !context.mounted) return;
     switch (action) {
@@ -245,7 +247,14 @@ class _CalendarViewState extends State<_CalendarView> {
                   onOpenNote: (event) => _openLinkedNote(context, event),
                   colorPalette: _colorPalette,
                   showRecurrenceLabels: _appearance.showRecurrenceLabels,
+                  missedDisplay: _appearance.missedDisplay,
                   onSuppressHoliday: (day) => _removeHoliday(context, day),
+                  onToggleMissed: (event, day, missed) => _setOccurrenceMissed(
+                    context.read<CalendarBloc>(),
+                    event.id,
+                    day,
+                    missed,
+                  ),
                 ),
               ),
             ],
@@ -343,6 +352,23 @@ class _CalendarViewState extends State<_CalendarView> {
       case EventEditorDeleted(:final id):
         bloc.add(DeleteCalendarEvent(eventId: id));
     }
+  }
+
+  /// Single funnel for presence marks, whichever surface produced them — the
+  /// detail sheet's segmented control or the day panel's quick toggle. Both
+  /// write through the bloc, which bumps `occurrenceRevision` and deliberately
+  /// leaves the day cache warm: a missed occurrence still occurs.
+  void _setOccurrenceMissed(
+    CalendarBloc bloc,
+    String eventId,
+    DateTime day,
+    bool missed,
+  ) {
+    bloc.add(
+      missed
+          ? SetOccurrenceMissed(eventId: eventId, day: day)
+          : ClearOccurrenceMissed(eventId: eventId, day: day),
+    );
   }
 
   /// Routes the editor's occurrence outcome. The sheet never writes; it
@@ -601,7 +627,10 @@ class _CalendarTable extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     final l10n = AppLocalizations.of(context)!;
     final calendarBloc = context.read<CalendarBloc>();
-    final barsResolver = DayBarsResolver.defaults(l10n);
+    final barsResolver = DayBarsResolver.defaults(
+      l10n,
+      missedDisplay: appearance.missedDisplay,
+    );
     final dowStyle = theme.textTheme.labelMedium!.copyWith(
       fontWeight: FontWeight.w600,
       color: colorScheme.onSurfaceVariant,

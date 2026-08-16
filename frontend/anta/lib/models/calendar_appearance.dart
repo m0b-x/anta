@@ -38,6 +38,31 @@ enum CalendarMarkerStyle {
   }
 }
 
+/// How an occurrence the user marked as missed is drawn (**v26**).
+///
+/// Applies to the grid markers, the agenda and the timeline. The day summary
+/// panel deliberately ignores this and always shows missed rows faded: it is
+/// the surface the toggle lives on, and a row that vanished the moment it was
+/// marked could never be un-marked.
+enum CalendarMissedDisplay {
+  /// Still drawn, dimmed to [CalendarColors.missedEventAlpha] (default). A
+  /// mark the user just made should visibly do something, and hiding by
+  /// default makes the first mark read as a delete.
+  faded,
+
+  /// Not drawn at all. A render-time filter only — the occurrence still
+  /// occurs, still counts and still exports.
+  hidden;
+
+  /// Forward-compatible parsing: unknown/null values fall back to [faded].
+  static CalendarMissedDisplay fromName(String? name) {
+    for (final display in values) {
+      if (display.name == name) return display;
+    }
+    return faded;
+  }
+}
+
 /// First day of the calendar week.
 enum CalendarWeekStart {
   monday(DateTime.monday),
@@ -90,6 +115,9 @@ class CalendarAppearance extends Equatable {
   /// routines, where the pattern reads as redundant next to the time.
   final bool showRecurrenceLabels;
 
+  /// How occurrences marked as missed on a presence-tracking event are drawn.
+  final CalendarMissedDisplay missedDisplay;
+
   const CalendarAppearance({
     this.todayStyle = CalendarTodayStyle.tonal,
     this.markerStyle = CalendarMarkerStyle.bars,
@@ -99,6 +127,7 @@ class CalendarAppearance extends Equatable {
     this.showWeekNumbers = false,
     this.maxDayBars = 3,
     this.showRecurrenceLabels = true,
+    this.missedDisplay = CalendarMissedDisplay.faded,
   });
 
   /// The effective highlight accent: the user's custom color when set,
@@ -118,6 +147,7 @@ class CalendarAppearance extends Equatable {
     bool? showWeekNumbers,
     int? maxDayBars,
     bool? showRecurrenceLabels,
+    CalendarMissedDisplay? missedDisplay,
   }) {
     return CalendarAppearance(
       todayStyle: todayStyle ?? this.todayStyle,
@@ -130,6 +160,7 @@ class CalendarAppearance extends Equatable {
       showWeekNumbers: showWeekNumbers ?? this.showWeekNumbers,
       maxDayBars: maxDayBars ?? this.maxDayBars,
       showRecurrenceLabels: showRecurrenceLabels ?? this.showRecurrenceLabels,
+      missedDisplay: missedDisplay ?? this.missedDisplay,
     );
   }
 
@@ -143,5 +174,6 @@ class CalendarAppearance extends Equatable {
     showWeekNumbers,
     maxDayBars,
     showRecurrenceLabels,
+    missedDisplay,
   ];
 }

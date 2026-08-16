@@ -799,6 +799,50 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
           ),
         ),
         SettingsEntry(
+          title: l10n.calendarMissedDisplayTitle,
+          description: l10n.calendarMissedDisplayDesc,
+          // The visible title says nothing about presence, so the words the
+          // user would actually search for are declared here.
+          keywords: [l10n.eventTrackPresence, l10n.eventPresenceMissed],
+          builder: (context, title, description) => Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                title,
+                const SizedBox(height: 4),
+                ?description,
+                const SizedBox(height: 8),
+                SegmentedButton<CalendarMissedDisplay>(
+                  segments: [
+                    ButtonSegment(
+                      value: CalendarMissedDisplay.faded,
+                      icon: const Icon(Icons.opacity_rounded),
+                      label: Text(l10n.calendarMissedDisplayFaded),
+                    ),
+                    ButtonSegment(
+                      value: CalendarMissedDisplay.hidden,
+                      icon: const Icon(Icons.visibility_off_outlined),
+                      label: Text(l10n.calendarMissedDisplayHidden),
+                    ),
+                  ],
+                  selected: {_appearance.missedDisplay},
+                  showSelectedIcon: false,
+                  onSelectionChanged: (sel) async {
+                    _onHapticFeedback();
+                    setState(
+                      () => _appearance = _appearance.copyWith(
+                        missedDisplay: sel.first,
+                      ),
+                    );
+                    await _settings?.setCalendarMissedDisplay(sel.first);
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+        SettingsEntry(
           title: l10n.eventDescriptionLimit,
           description: l10n.eventDescriptionLimitDesc(_descriptionLimit),
           builder: (context, title, description) => _sliderRow(
@@ -921,6 +965,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     await _settings?.setCalendarShowRecurrenceLabels(
       defaults.showRecurrenceLabels,
     );
+    await _settings?.setCalendarMissedDisplay(defaults.missedDisplay);
     await _settings?.setEventDescriptionLimit(
       SettingsKeys.defaultEventDescriptionLimit,
     );

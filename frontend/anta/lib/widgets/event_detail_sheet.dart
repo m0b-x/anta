@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../constants/calendar_categories.dart';
+import '../constants/event_presence.dart';
 import '../constants/event_priorities.dart';
 import '../constants/occurrence_descriptions.dart';
 import '../l10n/app_localizations.dart';
@@ -73,6 +74,12 @@ class EventDetailSheet extends StatefulWidget {
   /// editor an event whose template field holds one occurrence's text.
   final void Function(DateTime day, String description)? onOccurrenceChanged;
 
+  /// Receives `(day, missed)` when the user changes this occurrence's
+  /// presence (**v26**). Null hides the control entirely — the caller opts in
+  /// by wiring the persistence, exactly like [onOccurrenceChanged]. Fired
+  /// immediately: a two-state toggle has nothing to coalesce.
+  final void Function(DateTime day, bool missed)? onPresenceChanged;
+
   const EventDetailSheet({
     super.key,
     required this.event,
@@ -80,6 +87,7 @@ class EventDetailSheet extends StatefulWidget {
     this.colorPalette = MarkdownColorPalette.presets,
     this.onEventChanged,
     this.onOccurrenceChanged,
+    this.onPresenceChanged,
   });
 
   static Future<EventDetailAction?> show(
@@ -89,6 +97,7 @@ class EventDetailSheet extends StatefulWidget {
     MarkdownColorPalette colorPalette = MarkdownColorPalette.presets,
     ValueChanged<CalendarEvent>? onEventChanged,
     void Function(DateTime day, String description)? onOccurrenceChanged,
+    void Function(DateTime day, bool missed)? onPresenceChanged,
   }) {
     return showModalBottomSheet<EventDetailAction>(
       context: context,
@@ -106,6 +115,7 @@ class EventDetailSheet extends StatefulWidget {
           colorPalette: colorPalette,
           onEventChanged: onEventChanged,
           onOccurrenceChanged: onOccurrenceChanged,
+          onPresenceChanged: onPresenceChanged,
         ),
       ),
     );
@@ -137,6 +147,24 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
 
   Timer? _writeTimer;
   bool _pendingWrite = false;
+
+  /// This occurrence's presence, seeded from the facade and updated locally so
+  /// the segmented button reflects the tap before the write lands.
+  late bool _missed = EventPresence.isMissed(widget.event.id, widget.day);
+
+  /// Whether the present/missed control is offered at all: the event opts in,
+  /// the rule repeats, and the caller wired persistence.
+  bool get _presenceVisible =>
+      widget.onPresenceChanged != null && EventPresence.appliesTo(widget.event);
+
+  /// A discrete two-state toggle has nothing to coalesce, so unlike a burst of
+  /// checkbox taps this writes through immediately.
+  void _setMissed(bool missed) {
+    if (missed == _missed) return;
+    HapticFeedback.lightImpact();
+    setState(() => _missed = missed);
+    widget.onPresenceChanged!(widget.day, missed);
+  }
 
   /// Whether the tick belongs to this one occurrence rather than to the whole
   /// event. Drives which callback [_flushWrite] uses.
@@ -326,6 +354,42 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
                 icon: Icons.event_rounded,
                 text: DateFormat.yMMMMEEEEd(localeName).format(event.startDate),
               ),
+              if (_presenceVisible)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.how_to_reg_rounded,
+                        size: 18,
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: SegmentedButton<bool>(
+                          segments: [
+                            ButtonSegment(
+                              value: false,
+                              label: Text(l10n.eventPresencePresent),
+                            ),
+                            ButtonSegment(
+                              value: true,
+                              label: Text(l10n.eventPresenceMissed),
+                            ),
+                          ],
+                          selected: {_missed},
+                          showSelectedIcon: false,
+                          style: const ButtonStyle(
+                            visualDensity: VisualDensity.compact,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          onSelectionChanged: (selection) =>
+                              _setMissed(selection.first),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               _InfoRow(
                 icon: Icons.schedule_rounded,
                 text: time == null

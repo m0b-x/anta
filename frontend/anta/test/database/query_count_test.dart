@@ -135,11 +135,24 @@ void main() {
       );
     }
 
+    for (var i = 0; i < 20; i++) {
+      await db.eventAbsenceDao.markMissed('e1', DateTime.utc(2026, 1, i + 1));
+    }
+    // Tombstones must ride the same cascade as live marks, or a hard-deleted
+    // parent strands them in every export.
+    await db.eventAbsenceDao.unmark('e1', DateTime.utc(2026, 1, 1));
+
     counter.reset();
     await db.eventOccurrenceDao.deleteForEvent('e1');
-    // One DELETE covering every override, not one per materialized day.
+    await db.eventAbsenceDao.deleteForEvent('e1');
+    // One DELETE per table covering every row, not one per materialized day.
     expect(
       counter.matching('calendar_event_occurrences'),
+      hasLength(1),
+      reason: 'issued:\n${counter.statements.join('\n')}',
+    );
+    expect(
+      counter.matching('calendar_event_absences'),
       hasLength(1),
       reason: 'issued:\n${counter.statements.join('\n')}',
     );

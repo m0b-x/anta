@@ -167,6 +167,17 @@ class CalendarEvent extends Equatable {
   /// Ignored while [countOccurrences] is `false`.
   final OccurrenceCountStyle countStyle;
 
+  /// Opt-in for presence tracking: skipped occurrences are marked in
+  /// `calendar_event_absences` and rendered faded or hidden. Attendance is
+  /// implicit, so only the exceptions are stored.
+  ///
+  /// Never affects occurrence math — a missed day still occurs, still numbers
+  /// into [countOccurrences] labels and still exports. Meaningless for a rule
+  /// with a single occurrence: the gate every surface uses is
+  /// `EventPresence.appliesTo`, i.e. this flag **and**
+  /// `rule is! OneTimeRecurrence`.
+  final bool tracksPresence;
+
   /// Optional free-form description / notes for the event (e.g., "focus on
   /// hamstrings, drop sets on the third exercise"). `null` or empty means
   /// no description. Stored verbatim as markdown source — rendering happens
@@ -212,6 +223,7 @@ class CalendarEvent extends Equatable {
     this.retroactive = false,
     this.countOccurrences = false,
     this.countStyle = OccurrenceCountStyle.numbered,
+    this.tracksPresence = false,
     this.time,
     this.description,
     this.noteId,
@@ -236,6 +248,7 @@ class CalendarEvent extends Equatable {
     bool? retroactive,
     bool? countOccurrences,
     OccurrenceCountStyle? countStyle,
+    bool? tracksPresence,
     EventTime? time,
     String? description,
     String? noteId,
@@ -260,6 +273,7 @@ class CalendarEvent extends Equatable {
       retroactive: retroactive ?? this.retroactive,
       countOccurrences: countOccurrences ?? this.countOccurrences,
       countStyle: countStyle ?? this.countStyle,
+      tracksPresence: tracksPresence ?? this.tracksPresence,
       time: clearTime ? null : (time ?? this.time),
       description: clearDescription ? null : (description ?? this.description),
       noteId: clearNoteId ? null : (noteId ?? this.noteId),
@@ -300,6 +314,7 @@ class CalendarEvent extends Equatable {
     retroactive,
     countOccurrences,
     countStyle,
+    tracksPresence,
     time,
     description,
     noteId,

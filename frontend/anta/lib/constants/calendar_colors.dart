@@ -18,6 +18,12 @@ abstract final class CalendarColors {
   /// fasting tint so both surfaces read as one system.
   static const Color fasting = Color(0xFF8E24AA); // purple 600
 
+  /// Opacity applied to an occurrence the user marked as missed, on every
+  /// surface that fades one (grid bars, day-panel rows, agenda rows, timeline
+  /// blocks). Matches the outside-month fade so a missed day reads as
+  /// "still there, just not the point" rather than as an error.
+  static const double missedEventAlpha = 0.35;
+
   /// Curated swatch palette offered when a user picks an explicit per-event
   /// color override. Stored as 32-bit ARGB ints so they round-trip through
   /// SQLite and backup without any platform `Color` dependency. Mirrors the

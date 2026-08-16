@@ -145,6 +145,10 @@ class SettingsKeys {
   static const String calendarShowRecurrenceLabels =
       'calendar_show_recurrence_labels';
 
+  /// How occurrences marked as missed are drawn (`faded` / `hidden`). Parsed
+  /// with a forward-compatible fallback by `CalendarMissedDisplay.fromName`.
+  static const String calendarMissedDisplay = 'calendar_missed_display';
+
   /// CSV of enabled [FastingTradition] names ('' or absent = fasting off).
   /// Unknown names are dropped on read for forward compatibility.
   static const String calendarFastingTraditions = 'calendar_fasting_traditions';
@@ -260,6 +264,10 @@ class SettingsKeys {
   static const bool defaultCalendarHighlightWeekends = false;
   static const bool defaultCalendarShowWeekNumbers = false;
   static const bool defaultCalendarShowRecurrenceLabels = true;
+
+  /// Missed occurrences stay visible by default: a mark the user just made
+  /// should visibly do something, and hiding by default reads as a delete.
+  static const String defaultCalendarMissedDisplay = 'faded';
 
   /// Default look-ahead window of the upcoming events sheet, in days.
   static const int defaultCalendarUpcomingRangeDays = 30;

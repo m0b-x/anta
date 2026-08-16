@@ -595,6 +595,25 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
+  String get eventTrackPresence => 'Urmărește prezența';
+
+  @override
+  String get eventTrackPresenceDesc =>
+      'Marchează zilele sărite. Descrierea rămâne aceeași pentru fiecare zi.';
+
+  @override
+  String get eventPresencePresent => 'Prezent';
+
+  @override
+  String get eventPresenceMissed => 'Ratat';
+
+  @override
+  String get eventMarkMissed => 'Marchează ca ratat';
+
+  @override
+  String get eventMarkPresent => 'Marchează ca prezent';
+
+  @override
   String get eventCountOccurrences => 'Numără aparițiile';
 
   @override
@@ -2279,6 +2298,19 @@ class AppLocalizationsRo extends AppLocalizations {
   @override
   String get calendarShowRecurrenceLabelsDesc =>
       'Menționează tiparul de repetare (Zilnic, Săptămânal…) în rândurile evenimentelor';
+
+  @override
+  String get calendarMissedDisplayTitle => 'Zile ratate';
+
+  @override
+  String get calendarMissedDisplayDesc =>
+      'Cum apar în calendar zilele ratate ale unui eveniment urmărit';
+
+  @override
+  String get calendarMissedDisplayFaded => 'Estompat';
+
+  @override
+  String get calendarMissedDisplayHidden => 'Ascuns';
 
   @override
   String get calendarWeekStartTitle => 'Săptămâna începe';

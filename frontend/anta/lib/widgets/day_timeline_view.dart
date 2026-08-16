@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../constants/calendar_categories.dart';
+import '../constants/calendar_colors.dart';
+import '../constants/event_presence.dart';
 import '../l10n/app_localizations.dart';
+import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../services/event_time_formatter.dart';
 import '../utils/day_timeline_layout.dart';
@@ -24,11 +27,17 @@ class DayTimelineView extends StatelessWidget {
 
   final ValueChanged<CalendarEvent> onEventTap;
 
+  /// Whether occurrences marked as missed are dimmed or dropped. Hidden mode
+  /// filters [events] before the layout is computed, so a dropped event costs
+  /// neither a block nor an all-day chip nor a column in the overlap solver.
+  final CalendarMissedDisplay missedDisplay;
+
   const DayTimelineView({
     super.key,
     required this.day,
     required this.events,
     required this.onEventTap,
+    this.missedDisplay = CalendarMissedDisplay.faded,
   });
 
   /// Vertical scale of the grid: logical pixels per hour.
@@ -61,6 +70,11 @@ class DayTimelineView extends StatelessWidget {
         : CalendarCategories.resolve(event.categoryId).color;
   }
 
+  /// Whether this occurrence carries a presence mark. Two static map probes,
+  /// resolved through the same facade every other surface uses.
+  bool _isMissed(CalendarEvent event) =>
+      EventPresence.appliesTo(event) && EventPresence.isMissed(event.id, day);
+
   /// Minutes since midnight of "now", or `null` when [day] is not today.
   int? _nowMinute() {
     final now = DateTime.now();
@@ -75,7 +89,15 @@ class DayTimelineView extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final layout = DayTimelineLayout.compute(events);
+    // Filtered before the layout so the empty state, the hour span and the
+    // overlap columns all reflect what is actually drawn.
+    final visible = missedDisplay == CalendarMissedDisplay.hidden
+        ? [
+            for (final event in events)
+              if (!_isMissed(event)) event,
+          ]
+        : events;
+    final layout = DayTimelineLayout.compute(visible);
 
     if (layout.isEmpty) {
       return AgendaEmptyState(
@@ -100,18 +122,23 @@ class DayTimelineView extends StatelessWidget {
                   for (final event in layout.allDayEvents)
                     Padding(
                       padding: const EdgeInsets.only(right: 8),
-                      child: ActionChip(
-                        avatar: Icon(
-                          CalendarCategories.iconFor(event),
-                          size: 18,
-                          color: _colorFor(event),
+                      child: Opacity(
+                        opacity: _isMissed(event)
+                            ? CalendarColors.missedEventAlpha
+                            : 1.0,
+                        child: ActionChip(
+                          avatar: Icon(
+                            CalendarCategories.iconFor(event),
+                            size: 18,
+                            color: _colorFor(event),
+                          ),
+                          label: Text(event.title),
+                          visualDensity: VisualDensity.compact,
+                          backgroundColor: _colorFor(
+                            event,
+                          ).withValues(alpha: 0.12),
+                          onPressed: () => onEventTap(event),
                         ),
-                        label: Text(event.title),
-                        visualDensity: VisualDensity.compact,
-                        backgroundColor: _colorFor(
-                          event,
-                        ).withValues(alpha: 0.12),
-                        onPressed: () => onEventTap(event),
                       ),
                     ),
                 ],
@@ -152,10 +179,15 @@ class DayTimelineView extends StatelessWidget {
                               block.column * (trackWidth / block.columnCount),
                           width: (trackWidth / block.columnCount) - columnGap,
                           height: _blockHeight(block),
-                          child: _TimelineBlockCard(
-                            block: block,
-                            color: _colorFor(block.event),
-                            onTap: () => onEventTap(block.event),
+                          child: Opacity(
+                            opacity: _isMissed(block.event)
+                                ? CalendarColors.missedEventAlpha
+                                : 1.0,
+                            child: _TimelineBlockCard(
+                              block: block,
+                              color: _colorFor(block.event),
+                              onTap: () => onEventTap(block.event),
+                            ),
                           ),
                         ),
                       if (nowMinute != null &&

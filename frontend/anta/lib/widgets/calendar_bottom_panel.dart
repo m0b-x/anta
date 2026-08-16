@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../bloc/calendar/calendar_bloc.dart';
 import '../l10n/app_localizations.dart';
+import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../models/calendar_panel_mode.dart';
 import '../models/upcoming_agenda_filters.dart';
@@ -52,6 +53,12 @@ class CalendarBottomPanel extends StatefulWidget {
   final ValueChanged<CalendarEvent> onOpenNote;
   final ValueChanged<DateTime> onSuppressHoliday;
 
+  /// Marks or un-marks one occurrence of a presence-tracking event. Bound
+  /// with the selected day here, the same way [onShowEvent] gets its day —
+  /// `DaySummaryPanel` itself stays deliberately day-less.
+  final void Function(CalendarEvent event, DateTime day, bool missed)
+  onToggleMissed;
+
   /// Palette for `{name:text}` runs inside event descriptions. Owned by the
   /// page (which already re-resolves settings when returning from them)
   /// rather than loaded here a second time — the panel's own settings load
@@ -63,6 +70,10 @@ class CalendarBottomPanel extends StatefulWidget {
   /// the settings page, and the page already re-resolves settings on return.
   final bool showRecurrenceLabels;
 
+  /// How missed occurrences render. Owned by the page for the same staleness
+  /// reason as [showRecurrenceLabels].
+  final CalendarMissedDisplay missedDisplay;
+
   const CalendarBottomPanel({
     super.key,
     required this.loaded,
@@ -72,8 +83,10 @@ class CalendarBottomPanel extends StatefulWidget {
     required this.onShowEvent,
     required this.onOpenNote,
     required this.onSuppressHoliday,
+    required this.onToggleMissed,
     required this.colorPalette,
     this.showRecurrenceLabels = true,
+    this.missedDisplay = CalendarMissedDisplay.faded,
   });
 
   @override
@@ -198,6 +211,8 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
               widget.onShowEvent(event, loaded.selectedDay),
           onOpenNote: widget.onOpenNote,
           onSuppressHoliday: () => widget.onSuppressHoliday(loaded.selectedDay),
+          onToggleMissed: (event, missed) =>
+              widget.onToggleMissed(event, loaded.selectedDay, missed),
           colorPalette: widget.colorPalette,
         );
       case CalendarPanelMode.timeline:
@@ -208,6 +223,7 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
           // there. Both render the same day's events, so they must agree.
           onEventTap: (event) =>
               widget.onShowEvent(event, loaded.selectedDay),
+          missedDisplay: widget.missedDisplay,
         );
       case CalendarPanelMode.upcoming:
         return UpcomingAgendaView(
@@ -222,6 +238,7 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
           colorPalette: widget.colorPalette,
           showRecurrenceLabels: widget.showRecurrenceLabels,
           occurrenceRevision: loaded.occurrenceRevision,
+          missedDisplay: widget.missedDisplay,
         );
     }
   }

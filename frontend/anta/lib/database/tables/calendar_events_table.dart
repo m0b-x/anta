@@ -28,6 +28,12 @@ import 'package:drift/drift.dart';
 /// `numbered` ("Day 1", "Week 3" — the start day is the first) or `elapsed`
 /// ("30 years" — a birthday anchored on the birth date shows the age).
 ///
+/// [tracksPresence] (added in schema v26) is the per-event opt-in for
+/// presence tracking: skipped occurrences are marked in
+/// `calendar_event_absences` and rendered faded or hidden. Defaults to 0, and
+/// it only means anything for a rule with more than one occurrence — the gate
+/// is `tracksPresence && rule is! OneTimeRecurrence`.
+///
 /// [colorValue] / [tintIcon] / [priority] (added in schema v16) drive
 /// per-event presentation. [colorValue] is an optional 32-bit ARGB override
 /// (NULL = use the category color); [tintIcon] decides whether that color
@@ -55,6 +61,8 @@ class CalendarEvents extends Table {
   BoolColumn get countOccurrences =>
       boolean().withDefault(const Constant(false))();
   TextColumn get countStyle => text().withDefault(const Constant('numbered'))();
+  BoolColumn get tracksPresence =>
+      boolean().withDefault(const Constant(false))();
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
 

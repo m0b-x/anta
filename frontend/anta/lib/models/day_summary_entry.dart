@@ -32,6 +32,15 @@ class DaySummaryEntry extends Equatable {
   /// event-list entry carries the underlying [CalendarEvent]).
   final CalendarEvent? event;
 
+  /// Whether the underlying event opts into presence tracking **and** this
+  /// day is one it can be marked on (**v26**). Only such rows offer the
+  /// present/missed toggle; false for every non-event entry.
+  final bool presenceTracked;
+
+  /// Whether this occurrence is currently marked as missed. Meaningful only
+  /// when [presenceTracked] is true.
+  final bool missed;
+
   const DaySummaryEntry({
     required this.key,
     required this.icon,
@@ -41,6 +50,8 @@ class DaySummaryEntry extends Equatable {
     this.subtitle,
     this.description,
     this.event,
+    this.presenceTracked = false,
+    this.missed = false,
   });
 
   @override
@@ -53,5 +64,7 @@ class DaySummaryEntry extends Equatable {
     description,
     priority,
     event,
+    presenceTracked,
+    missed,
   ];
 }

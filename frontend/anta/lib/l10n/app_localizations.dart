@@ -1060,6 +1060,42 @@ abstract class AppLocalizations {
   /// **'{rule} · also before'**
   String recurrenceScopeAlwaysSuffix(String rule);
 
+  /// Switch in the event editor: the event records which days were missed
+  ///
+  /// In en, this message translates to:
+  /// **'Track presence'**
+  String get eventTrackPresence;
+
+  /// Explanation under the track-presence switch
+  ///
+  /// In en, this message translates to:
+  /// **'Mark the days you skip. The event keeps one description for every day.'**
+  String get eventTrackPresenceDesc;
+
+  /// Presence toggle option in the event detail sheet: this occurrence was attended
+  ///
+  /// In en, this message translates to:
+  /// **'Present'**
+  String get eventPresencePresent;
+
+  /// Presence toggle option in the event detail sheet: this occurrence was skipped
+  ///
+  /// In en, this message translates to:
+  /// **'Missed'**
+  String get eventPresenceMissed;
+
+  /// Tooltip on the day-panel button that marks an occurrence as missed
+  ///
+  /// In en, this message translates to:
+  /// **'Mark as missed'**
+  String get eventMarkMissed;
+
+  /// Tooltip on the day-panel button that returns a missed occurrence to present
+  ///
+  /// In en, this message translates to:
+  /// **'Mark as present'**
+  String get eventMarkPresent;
+
   /// Switch in the event editor: each occurrence shows the elapsed time since the start date
   ///
   /// In en, this message translates to:
@@ -4047,6 +4083,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Mention the repeat pattern (Daily, Weekly…) in event rows'**
   String get calendarShowRecurrenceLabelsDesc;
+
+  /// Setting title for how missed days of a presence-tracked event are drawn
+  ///
+  /// In en, this message translates to:
+  /// **'Missed days'**
+  String get calendarMissedDisplayTitle;
+
+  /// Setting subtitle for the missed-days display option
+  ///
+  /// In en, this message translates to:
+  /// **'How missed days of a tracked event appear in the calendar'**
+  String get calendarMissedDisplayDesc;
+
+  /// Missed-days display option: still shown, dimmed
+  ///
+  /// In en, this message translates to:
+  /// **'Faded'**
+  String get calendarMissedDisplayFaded;
+
+  /// Missed-days display option: not drawn at all
+  ///
+  /// In en, this message translates to:
+  /// **'Hidden'**
+  String get calendarMissedDisplayHidden;
 
   /// Label for the first-day-of-week dropdown
   ///

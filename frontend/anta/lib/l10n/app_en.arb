@@ -705,6 +705,30 @@
       "rule": { "type": "String", "example": "Every year" }
     }
   },
+  "eventTrackPresence": "Track presence",
+  "@eventTrackPresence": {
+    "description": "Switch in the event editor: the event records which days were missed"
+  },
+  "eventTrackPresenceDesc": "Mark the days you skip. The event keeps one description for every day.",
+  "@eventTrackPresenceDesc": {
+    "description": "Explanation under the track-presence switch"
+  },
+  "eventPresencePresent": "Present",
+  "@eventPresencePresent": {
+    "description": "Presence toggle option in the event detail sheet: this occurrence was attended"
+  },
+  "eventPresenceMissed": "Missed",
+  "@eventPresenceMissed": {
+    "description": "Presence toggle option in the event detail sheet: this occurrence was skipped"
+  },
+  "eventMarkMissed": "Mark as missed",
+  "@eventMarkMissed": {
+    "description": "Tooltip on the day-panel button that marks an occurrence as missed"
+  },
+  "eventMarkPresent": "Mark as present",
+  "@eventMarkPresent": {
+    "description": "Tooltip on the day-panel button that returns a missed occurrence to present"
+  },
   "eventCountOccurrences": "Count occurrences",
   "@eventCountOccurrences": {
     "description": "Switch in the event editor: each occurrence shows the elapsed time since the start date"
@@ -2866,6 +2890,22 @@
   "calendarShowRecurrenceLabelsDesc": "Mention the repeat pattern (Daily, Weekly…) in event rows",
   "@calendarShowRecurrenceLabelsDesc": {
     "description": "Switch subtitle for the repeat-pattern-in-rows option"
+  },
+  "calendarMissedDisplayTitle": "Missed days",
+  "@calendarMissedDisplayTitle": {
+    "description": "Setting title for how missed days of a presence-tracked event are drawn"
+  },
+  "calendarMissedDisplayDesc": "How missed days of a tracked event appear in the calendar",
+  "@calendarMissedDisplayDesc": {
+    "description": "Setting subtitle for the missed-days display option"
+  },
+  "calendarMissedDisplayFaded": "Faded",
+  "@calendarMissedDisplayFaded": {
+    "description": "Missed-days display option: still shown, dimmed"
+  },
+  "calendarMissedDisplayHidden": "Hidden",
+  "@calendarMissedDisplayHidden": {
+    "description": "Missed-days display option: not drawn at all"
   },
   "calendarWeekStartTitle": "Week starts on",
   "@calendarWeekStartTitle": {

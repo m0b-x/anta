@@ -19,6 +19,7 @@ import 'tables/calendar_events_table.dart';
 import 'tables/public_holidays_table.dart';
 import 'tables/calendar_categories_table.dart';
 import 'tables/event_occurrences_table.dart';
+import 'tables/event_absences_table.dart';
 import 'daos/folder_dao.dart';
 import 'daos/note_dao.dart';
 import 'daos/content_chunk_dao.dart';
@@ -29,6 +30,7 @@ import 'daos/calendar_event_dao.dart';
 import 'daos/public_holiday_dao.dart';
 import 'daos/calendar_category_dao.dart';
 import 'daos/event_occurrence_dao.dart';
+import 'daos/event_absence_dao.dart';
 import 'crdt/hlc.dart';
 import 'database_lifecycle.dart';
 import 'loading_interceptor.dart';
@@ -49,6 +51,7 @@ part 'database.g.dart';
     PublicHolidaysTable,
     CalendarCategories,
     EventOccurrenceDescriptions,
+    EventAbsences,
   ],
   daos: [
     FolderDao,
@@ -61,6 +64,7 @@ part 'database.g.dart';
     PublicHolidayDao,
     CalendarCategoryDao,
     EventOccurrenceDao,
+    EventAbsenceDao,
   ],
 )
 class AppDatabase extends _$AppDatabase {

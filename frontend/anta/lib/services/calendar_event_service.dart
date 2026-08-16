@@ -9,6 +9,7 @@ import '../database/daos/calendar_event_dao.dart';
 import '../models/calendar_event.dart';
 import '../models/recurrence_rule.dart';
 import 'event_occurrence_service.dart';
+import 'event_presence_service.dart';
 
 /// Persists custom calendar events via Drift and exposes a synchronous
 /// in-memory cache so `CalendarBloc.eventsForDay` stays O(N) over a
@@ -69,28 +70,39 @@ class CalendarEventService {
     ]);
   }
 
-  /// Deletes the event and cascades to its per-occurrence description rows in
-  /// one transaction — nothing else references an event id, so leaving them
-  /// behind would strand rows no surface can reach or clean up. Composed here
-  /// rather than in the bloc, mirroring `CategoryService.deleteCategory`.
+  /// Deletes the event and cascades to its per-occurrence description and
+  /// absence rows in one transaction — nothing else references an event id, so
+  /// leaving them behind would strand rows no surface can reach or clean up.
+  /// Composed here rather than in the bloc, mirroring
+  /// `CategoryService.deleteCategory`.
+  ///
+  /// Deleting an event is the **only** thing that removes absence rows in
+  /// bulk: turning presence tracking off or changing the rule leaves them
+  /// dormant, because the stored delta is the durable record of a deliberate
+  /// act and flipping the toggle back on must restore every mark.
   Future<void> deleteById(String id) async {
     await _db.transaction(() async {
       await _dao.deleteById(id);
       await _db.eventOccurrenceDao.deleteForEvent(id);
+      await _db.eventAbsenceDao.deleteForEvent(id);
     });
     _cache = List.unmodifiable(_cache.where((e) => e.id != id));
     await _refreshOccurrences();
+    await _refreshPresence();
   }
 
   /// Removes every custom calendar event, cascading to their occurrence
-  /// overrides. Public holidays live in a separate table and are untouched.
+  /// overrides and absence marks. Public holidays live in a separate table and
+  /// are untouched.
   Future<void> deleteAll() async {
     await _db.transaction(() async {
       await _dao.deleteAll();
       await _db.eventOccurrenceDao.deleteAll();
+      await _db.eventAbsenceDao.deleteAll();
     });
     _cache = const [];
     await _refreshOccurrences();
+    await _refreshPresence();
   }
 
   /// Republishes the occurrence facade after a cascade. Tolerates the service
@@ -102,6 +114,16 @@ class CalendarEventService {
       await service.refreshAfterEventRemoval();
     } catch (e) {
       debugPrint('[CalendarEventService] Occurrence refresh error: $e');
+    }
+  }
+
+  /// The presence twin of [_refreshOccurrences], with the same tolerance.
+  Future<void> _refreshPresence() async {
+    try {
+      final service = await EventPresenceService.getInstance();
+      await service.refreshAfterEventRemoval();
+    } catch (e) {
+      debugPrint('[CalendarEventService] Presence refresh error: $e');
     }
   }
 
@@ -134,6 +156,7 @@ class CalendarEventService {
           'retroactive': row.retroactive,
           'countOccurrences': row.countOccurrences,
           'countStyle': row.countStyle,
+          'tracksPresence': row.tracksPresence,
           'createdAtMs': row.createdAt.millisecondsSinceEpoch,
           'updatedAtMs': row.updatedAt.millisecondsSinceEpoch,
         },
@@ -221,6 +244,11 @@ class CalendarEventService {
                     ).name,
                   )
                 : const Value.absent(),
+            // Absent in pre-v26 backups: default false = presence untracked,
+            // which is the only state those events could have been in.
+            tracksPresence: map['tracksPresence'] is bool
+                ? Value(map['tracksPresence'] as bool)
+                : const Value.absent(),
             createdAt: Value(
               DateTime.fromMillisecondsSinceEpoch(createdMs, isUtc: true),
             ),
@@ -255,6 +283,7 @@ class CalendarEventService {
       retroactive: row.retroactive,
       countOccurrences: row.countOccurrences,
       countStyle: OccurrenceCountStyle.fromName(row.countStyle),
+      tracksPresence: row.tracksPresence,
       rule: _decodeRule(row.ruleKind, row.rulePayload),
     );
   }
@@ -315,6 +344,7 @@ class CalendarEventService {
       retroactive: Value(event.retroactive),
       countOccurrences: Value(event.countOccurrences),
       countStyle: Value(event.countStyle.name),
+      tracksPresence: Value(event.tracksPresence),
       createdAt: Value(updatedAt),
       updatedAt: Value(updatedAt),
     );

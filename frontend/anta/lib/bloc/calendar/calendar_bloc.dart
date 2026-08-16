@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../models/calendar_event.dart';
 import '../../services/calendar_event_service.dart';
 import '../../services/event_occurrence_service.dart';
+import '../../services/event_presence_service.dart';
 import '../../services/note_money_ledger_service.dart';
 import 'calendar_event.dart';
 import 'calendar_state.dart';
@@ -36,6 +37,8 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     on<DeleteCalendarEvent>(_onDeleteEvent);
     on<SetOccurrenceDescription>(_onSetOccurrenceDescription);
     on<ClearOccurrenceDescription>(_onClearOccurrenceDescription);
+    on<SetOccurrenceMissed>(_onSetOccurrenceMissed);
+    on<ClearOccurrenceMissed>(_onClearOccurrenceMissed);
   }
 
   /// Amortized O(1) lookup over the in-memory cache populated by
@@ -258,6 +261,53 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       await service.clearDescription(event.eventId, event.day);
     } catch (e) {
       debugPrint('[CalendarBloc] Occurrence clear error: $e');
+      return;
+    }
+    emit(
+      current.copyWith(occurrenceRevision: current.occurrenceRevision + 1),
+    );
+  }
+
+  /// Marks one occurrence missed.
+  ///
+  /// Same cache reasoning as [_onSetOccurrenceDescription], and for a stronger
+  /// reason: presence is a **rendering** concern, never a membership one. A
+  /// missed day still occurs, so "which events occur on this day" is unchanged
+  /// and invalidating would wipe 512 memoized days for nothing. Hiding missed
+  /// occurrences is a render-time filter — the moment a presence check lands in
+  /// [eventsForDay], `EventAgenda` or `.ics`, those surfaces start disagreeing
+  /// about what exists.
+  Future<void> _onSetOccurrenceMissed(
+    SetOccurrenceMissed event,
+    Emitter<CalendarPageState> emit,
+  ) async {
+    final current = state;
+    if (current is! CalendarPageLoaded) return;
+    try {
+      final service = await EventPresenceService.getInstance();
+      await service.markMissed(event.eventId, event.day);
+    } catch (e) {
+      debugPrint('[CalendarBloc] Presence write error: $e');
+      return;
+    }
+    emit(
+      current.copyWith(occurrenceRevision: current.occurrenceRevision + 1),
+    );
+  }
+
+  /// Returns one occurrence to present. Same cache reasoning as
+  /// [_onSetOccurrenceMissed].
+  Future<void> _onClearOccurrenceMissed(
+    ClearOccurrenceMissed event,
+    Emitter<CalendarPageState> emit,
+  ) async {
+    final current = state;
+    if (current is! CalendarPageLoaded) return;
+    try {
+      final service = await EventPresenceService.getInstance();
+      await service.unmark(event.eventId, event.day);
+    } catch (e) {
+      debugPrint('[CalendarBloc] Presence clear error: $e');
       return;
     }
     emit(

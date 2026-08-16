@@ -2,9 +2,11 @@ import 'package:flutter/painting.dart';
 
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_colors.dart';
+import '../constants/event_presence.dart';
 import '../constants/fasting_calendar.dart';
 import '../constants/public_holidays.dart';
 import '../l10n/app_localizations.dart';
+import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../models/day_bar.dart';
 import '../models/fasting_appearance.dart';
@@ -101,17 +103,34 @@ class FastingDayBarProvider implements DayBarProvider {
 /// highest in the stack and wins the day cell's limited bar slots. The bar
 /// [DayBar.priority] stays in `0..kMaxEventPriority-1`, which is below the
 /// contextual holiday/weekend bands so events stay dominant.
+///
+/// This is the one hook with the full `(event, day)` key, so it is also where
+/// presence (**v26**) is applied: a missed occurrence of a tracked event is
+/// either dimmed or skipped entirely, per [missedDisplay]. Skipping happens
+/// **before** the bar is added, so a hidden bar never consumes one of the
+/// cell's `maxDayBars` slots. Both branches cost two static map probes, which
+/// keeps the provider contract (pure & cheap, called for every visible cell
+/// on every rebuild) intact.
 class EventDayBarProvider implements DayBarProvider {
-  const EventDayBarProvider();
+  final CalendarMissedDisplay missedDisplay;
+
+  const EventDayBarProvider({this.missedDisplay = CalendarMissedDisplay.faded});
 
   @override
   Iterable<DayBar> barsFor(DateTime day, List<CalendarEvent> events) {
     if (events.isEmpty) return const [];
     final bars = <DayBar>[];
     for (final event in events) {
-      final color = event.colorValue != null
+      final missed =
+          EventPresence.appliesTo(event) &&
+          EventPresence.isMissed(event.id, day);
+      if (missed && missedDisplay == CalendarMissedDisplay.hidden) continue;
+      var color = event.colorValue != null
           ? Color(event.colorValue!)
           : CalendarCategories.resolve(event.categoryId).color;
+      if (missed) {
+        color = color.withValues(alpha: CalendarColors.missedEventAlpha);
+      }
       bars.add(
         DayBar(
           key: 'event:${event.id}',
@@ -191,10 +210,13 @@ class DayBarsResolver {
   const DayBarsResolver({required this.providers});
 
   /// Default resolver bundling weekend + public holiday + event categories.
-  factory DayBarsResolver.defaults(AppLocalizations l10n) {
+  factory DayBarsResolver.defaults(
+    AppLocalizations l10n, {
+    CalendarMissedDisplay missedDisplay = CalendarMissedDisplay.faded,
+  }) {
     return DayBarsResolver(
       providers: [
-        const EventDayBarProvider(),
+        EventDayBarProvider(missedDisplay: missedDisplay),
         PublicHolidayDayBarProvider(l10n),
         FastingDayBarProvider(l10n),
         WeekendDayBarProvider(l10n),

@@ -249,6 +249,12 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   /// that supports an interval.
   bool _countOccurrences = false;
 
+  /// Whether the event records which of its occurrences were missed. Only
+  /// meaningful for a rule with more than one occurrence — an event that
+  /// fires once has no attendance to keep — which is exactly the set
+  /// [_ruleHasManyOccurrences] describes, so specific-dates participates.
+  bool _tracksPresence = false;
+
   /// Label shape for counted occurrences: numbered ("Day 1", start day is
   /// the first) or elapsed ("30 years", the birthday/anniversary style).
   OccurrenceCountStyle _countStyle = OccurrenceCountStyle.numbered;
@@ -429,6 +435,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     _priority = initial?.priority ?? kDefaultEventPriority;
     _retroactive = initial?.retroactive ?? false;
     _countOccurrences = initial?.countOccurrences ?? false;
+    _tracksPresence = initial?.tracksPresence ?? false;
     _initRecurrenceFrom(initial?.rule ?? const OneTimeRecurrence());
     // Only a saved event that was actually counting carries a style the user
     // can be said to have chosen; otherwise the persisted value is just the
@@ -1090,6 +1097,10 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
         _mode == _RepeatMode.recurring &&
         _kindSupportsInterval(_kind) &&
         _countOccurrences;
+    // And for presence: editing a tracked event down to a single day clears
+    // the opt-in, exactly as the two flags above do. The absence rows survive
+    // untouched, so re-ticking the switch restores every mark.
+    final effectiveTracksPresence = _ruleHasManyOccurrences && _tracksPresence;
     final effectiveTime = _isAllDay
         ? null
         : EventTime(
@@ -1116,6 +1127,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             retroactive: effectiveRetroactive,
             countOccurrences: effectiveCountOccurrences,
             countStyle: _countStyle,
+            tracksPresence: effectiveTracksPresence,
             time: effectiveTime,
             description: effectiveDescription,
             noteId: _noteId,
@@ -1133,6 +1145,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             retroactive: effectiveRetroactive,
             countOccurrences: effectiveCountOccurrences,
             countStyle: _countStyle,
+            tracksPresence: effectiveTracksPresence,
             time: effectiveTime,
             description: effectiveDescription,
             noteId: _noteId,
@@ -1780,6 +1793,24 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                               onPressed: () => setState(() => _endDate = null),
                             ),
                       onTap: _pickEndDate,
+                    ),
+                  ],
+                  // Outside both branches so a specific-dates set — which the
+                  // form files under one-time — can track presence too. The
+                  // gate is the rule's occurrence count, nothing else.
+                  if (_ruleHasManyOccurrences) ...[
+                    const SizedBox(height: 16),
+                    Card(
+                      margin: EdgeInsets.zero,
+                      child: SwitchListTile(
+                        value: _tracksPresence,
+                        onChanged: (v) => setState(() => _tracksPresence = v),
+                        secondary: const CircleAvatar(
+                          child: Icon(Icons.how_to_reg_rounded),
+                        ),
+                        title: Text(l10n.eventTrackPresence),
+                        subtitle: Text(l10n.eventTrackPresenceDesc),
+                      ),
                     ),
                   ],
                   _SectionLabel(text: l10n.eventTimeSection),

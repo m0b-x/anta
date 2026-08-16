@@ -151,5 +151,29 @@ void main() {
       expect(plan, contains(contains('SEARCH calendar_event_occurrences')));
       expect(plan, isNot(contains(contains('SCAN'))));
     });
+
+    test('un-marking an occurrence is a primary-key update', () async {
+      await db.eventAbsenceDao.markMissed('e1', DateTime.utc(2026, 8, 10));
+      final plan = await planOf(
+        () => db.eventAbsenceDao.unmark('e1', DateTime.utc(2026, 8, 10)),
+        containing: 'UPDATE',
+      );
+      // Un-marking tombstones the row rather than deleting it, so this is the
+      // one write that has to *find* a row on the hot path. The composite PK
+      // {event_id, day} is the index; declaring a separate one would be
+      // redundant.
+      expect(plan, contains(contains('SEARCH calendar_event_absences')));
+      expect(plan, isNot(contains(contains('SCAN'))));
+    });
+
+    test('the absence cascade for an event is a prefix search', () async {
+      final plan = await planOf(
+        () => db.eventAbsenceDao.deleteForEvent('e1'),
+      );
+      // `event_id` is leftmost in the PK, which is what lets the per-event
+      // cascade ride the same automatic index as the point lookup.
+      expect(plan, contains(contains('SEARCH calendar_event_absences')));
+      expect(plan, isNot(contains(contains('SCAN'))));
+    });
   });
 }

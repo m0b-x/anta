@@ -583,6 +583,25 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get eventTrackPresence => 'Track presence';
+
+  @override
+  String get eventTrackPresenceDesc =>
+      'Mark the days you skip. The event keeps one description for every day.';
+
+  @override
+  String get eventPresencePresent => 'Present';
+
+  @override
+  String get eventPresenceMissed => 'Missed';
+
+  @override
+  String get eventMarkMissed => 'Mark as missed';
+
+  @override
+  String get eventMarkPresent => 'Mark as present';
+
+  @override
   String get eventCountOccurrences => 'Count occurrences';
 
   @override
@@ -2250,6 +2269,19 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get calendarShowRecurrenceLabelsDesc =>
       'Mention the repeat pattern (Daily, Weekly…) in event rows';
+
+  @override
+  String get calendarMissedDisplayTitle => 'Missed days';
+
+  @override
+  String get calendarMissedDisplayDesc =>
+      'How missed days of a tracked event appear in the calendar';
+
+  @override
+  String get calendarMissedDisplayFaded => 'Faded';
+
+  @override
+  String get calendarMissedDisplayHidden => 'Hidden';
 
   @override
   String get calendarWeekStartTitle => 'Week starts on';

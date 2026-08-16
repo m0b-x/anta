@@ -167,6 +167,12 @@
       "rule": { "type": "String" }
     }
   },
+  "eventTrackPresence": "Anwesenheit erfassen",
+  "eventTrackPresenceDesc": "Markiere ausgelassene Tage. Die Beschreibung gilt für jeden Tag.",
+  "eventPresencePresent": "Anwesend",
+  "eventPresenceMissed": "Verpasst",
+  "eventMarkMissed": "Als verpasst markieren",
+  "eventMarkPresent": "Als anwesend markieren",
   "eventCountOccurrences": "Wiederholungen zählen",
   "eventCountOccurrencesHint": "Jede Wiederholung erhält eine Beschriftung, die ab dem Startdatum zählt. Für Alter und Jahrestage ab 0 zählen.",
   "eventCountStyleNumbered": "Ab 1 zählen",
@@ -1720,6 +1726,10 @@
   },
   "calendarShowRecurrenceLabels": "Wiederholung in Zeilen",
   "calendarShowRecurrenceLabelsDesc": "Wiederholungsmuster (Täglich, Wöchentlich…) in Ereigniszeilen anzeigen",
+  "calendarMissedDisplayTitle": "Verpasste Tage",
+  "calendarMissedDisplayDesc": "Wie verpasste Tage eines erfassten Termins im Kalender erscheinen",
+  "calendarMissedDisplayFaded": "Abgeblendet",
+  "calendarMissedDisplayHidden": "Ausgeblendet",
   "calendarWeekStartTitle": "Woche beginnt am",
   "daySummaryEntryCount": "{count, plural, one {1 Eintrag} other {{count} Einträge}}",
   "@daySummaryEntryCount": {

@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../constants/event_priorities.dart';
 import '../constants/public_holidays.dart';
 import '../l10n/app_localizations.dart';
+import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../services/folder_search_service.dart' show normalizeForSearch;
 import '../models/upcoming_agenda_filters.dart';
@@ -47,11 +48,16 @@ class UpcomingAgendaView extends StatefulWidget {
   /// pattern.
   final bool showRecurrenceLabels;
 
-  /// Bumped when a per-occurrence description changes. Forwarded to
-  /// [AgendaListView]'s row memo and **deliberately excluded** from this
-  /// widget's rescan test: editing a day's text changes no occurrence, so
-  /// re-running a 366-day scan on every keystroke-write would be pure waste.
+  /// Bumped when a per-occurrence description or a presence mark changes.
+  /// Forwarded to [AgendaListView]'s row memo and **deliberately excluded**
+  /// from this widget's rescan test: neither changes which days an event
+  /// occurs on, so re-running a 366-day scan for one would be pure waste.
   final int occurrenceRevision;
+
+  /// Forwarded to the agenda rows: whether missed occurrences are dimmed or
+  /// dropped. Excluded from the rescan test for the same reason — hiding is a
+  /// render-time filter, never a membership one.
+  final CalendarMissedDisplay missedDisplay;
 
   const UpcomingAgendaView({
     super.key,
@@ -65,6 +71,7 @@ class UpcomingAgendaView extends StatefulWidget {
     this.colorPalette = MarkdownColorPalette.presets,
     this.showRecurrenceLabels = true,
     this.occurrenceRevision = 0,
+    this.missedDisplay = CalendarMissedDisplay.faded,
   });
 
   /// Look-ahead windows offered as presets, in days.
@@ -436,6 +443,7 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
             colorPalette: widget.colorPalette,
             showRecurrenceLabels: widget.showRecurrenceLabels,
             occurrenceRevision: widget.occurrenceRevision,
+            missedDisplay: widget.missedDisplay,
           ),
         ),
       ],

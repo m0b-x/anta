@@ -131,6 +131,11 @@ class DatabaseMigrations {
       toVersion: DatabaseSchema.v25PositionIndexesOnFreshInstalls,
       migrate: _migrateV24ToV25,
     ),
+    Migration(
+      fromVersion: DatabaseSchema.v25PositionIndexesOnFreshInstalls,
+      toVersion: DatabaseSchema.v26EventPresence,
+      migrate: _migrateV25ToV26,
+    ),
   ];
 
   Future<void> runMigrations(Migrator m, int from, int to) async {
@@ -779,5 +784,59 @@ class DatabaseMigrations {
   /// and upgraders that already have them are unaffected.
   Future<void> _migrateV24ToV25(Migrator m, GeneratedDatabase db) async {
     await DatabaseIndexes(_db).createPositionIndexes();
+  }
+
+  /// v25→v26: Presence tracking for recurring events.
+  ///
+  /// Adds the per-event opt-in `tracks_presence` to `calendar_events` and
+  /// creates `calendar_event_absences`, a sparse deltas-only table in the
+  /// spirit of `calendar_event_occurrences`: a **live** row for an
+  /// `(event_id, day)` pair means that occurrence was missed, and its absence
+  /// means the user showed up. Attendance therefore costs nothing, and an
+  /// existing install gets `tracks_presence = 0` on every event plus an empty
+  /// table — exactly the pre-feature behaviour.
+  ///
+  /// The five CRDT columns are the Notes/Folders block: the marks are the
+  /// record this feature exists for, so the table is shaped for cloud sync
+  /// from birth and un-marking tombstones instead of deleting. `hlc_timestamp`
+  /// and `device_id` carry **no** default on purpose — every insert must stamp
+  /// them or fail — while `version`/`is_deleted` mirror the Drift declaration's
+  /// `withDefault` values and `deleted_at` is the one nullable column.
+  ///
+  /// No index: the composite `PRIMARY KEY (event_id, day)` already gives
+  /// SQLite an automatic index with `event_id` leftmost, which covers both the
+  /// point lookup and the per-event cascade.
+  ///
+  /// Raw DDL frozen at the v26 shape (the v6/v10/v15/v24 precedent) rather than
+  /// `m.createTable`, which emits the *live* Drift declaration and would make
+  /// upgraders and fresh installs disagree the moment a column is added. Any
+  /// future column here ships its own migration step. Both statements are
+  /// guarded (`PRAGMA table_info`, `IF NOT EXISTS`), so a partial upgrade can
+  /// re-run safely.
+  Future<void> _migrateV25ToV26(Migrator m, GeneratedDatabase db) async {
+    final existing = <String>{
+      for (final row
+          in await _db.customSelect('PRAGMA table_info(calendar_events)').get())
+        row.read<String>('name'),
+    };
+    if (!existing.contains('tracks_presence')) {
+      await _db.customStatement(
+        'ALTER TABLE calendar_events ADD COLUMN tracks_presence INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+    await _db.customStatement(
+      'CREATE TABLE IF NOT EXISTS calendar_event_absences ('
+      '  event_id TEXT NOT NULL, '
+      '  day INTEGER NOT NULL, '
+      '  created_at INTEGER NOT NULL, '
+      '  updated_at INTEGER NOT NULL, '
+      '  hlc_timestamp TEXT NOT NULL, '
+      '  device_id TEXT NOT NULL, '
+      '  version INTEGER NOT NULL DEFAULT 1, '
+      '  is_deleted INTEGER NOT NULL DEFAULT 0, '
+      '  deleted_at INTEGER, '
+      '  PRIMARY KEY (event_id, day)'
+      ')',
+    );
   }
 }

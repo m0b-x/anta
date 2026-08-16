@@ -1382,3 +1382,49 @@ Entry point: calendar app-bar overflow menu.
 Opening an event's linked note (and last-location restore) now passes
 `NoteRepository.noteToMetadata(row)` to the editor, so the title bar shows
 the real note title instead of "New note".
+
+## Addendum (schema v26): presence tracking
+
+Recurring events can opt in to **presence tracking** (`tracks_presence`, v26
+additive column; editor switch at the end of the When section, shown when
+the rule has many occurrences, save mirror `recurring && flag` like
+`retroactive`'s). A missed day is one live row in `calendar_event_absences`
+— PK `{event_id, day}`, plus the five notes/folders CRDT columns, stamped in
+`EventAbsenceDao` (`db.generateHlc()`, `db.deviceId`, read-then-write
+`version + 1`). Un-marking **tombstones** the row; re-marking resurrects it
+with `created_at` intact — a last-writer-wins element set, cloud-ready from
+birth (cloud-sync phase-02, renumbered **v27**, wires transport; absences
+**sync**, unlike per-occurrence descriptions, which stay device-local).
+
+- **One read entry point**: `EventPresence`
+  (`lib/constants/event_presence.dart`) — `appliesTo(event)` is
+  `tracksPresence && rule is! OneTimeRecurrence` (specific-dates
+  participates), `isMissed(eventId, day)` is an O(1) probe safe inside
+  `DayBarProvider.barsFor`. Published by `EventPresenceService` (the
+  `EventOccurrenceService` shape minus the global flag — opt-in is per
+  event); `reset()` clears the singleton **and** the facade.
+- **Presence is render-only.** It never changes `occursOn`, the bloc's day
+  cache, `EventAgenda` scans, `countOccurrences` labels, or `.ics`.
+  `SetOccurrenceMissed` / `ClearOccurrenceMissed` bump `occurrenceRevision`
+  and never `_invalidateDayCache()`.
+- **Display**: `CalendarMissedDisplay` (`faded` | `hidden`) on
+  `CalendarAppearance` (`SettingsKeys.calendarMissedDisplay`, default
+  `faded`, Calendar Settings → Events, in reset-to-defaults). Grid bars fade
+  with `CalendarColors.missedEventAlpha` or are skipped before consuming a
+  `maxDayBars` slot; the agenda (mode in its row-memo key; a day whose only
+  occurrence is hidden loses its header, though the panel-level count still
+  counts hidden occurrences) and the timeline (all-day chips included,
+  filtered before layout) follow the setting; the **day summary panel always
+  shows missed rows, faded** — it is the toggle surface. Marking: a trailing
+  `IconButton` on presence-tracked day-panel rows (replaces the chevron), or
+  the Present/Missed `SegmentedButton` in the detail sheet (immediate write
+  + haptic, no debounce).
+- `DaySummaryEntry` carries `presenceTracked` / `missed` (both in `props` —
+  the agenda's identity-based row memo depends on them).
+- **Backup**: additive `eventAbsences` key — live rows only, no CRDT fields
+  (backups are not a sync channel; `importAbsence` regenerates identity
+  while preserving `createdAt`/`updatedAt`), no version bump, and the same
+  absent-key-with-present-`calendarEvents` clear rule as occurrences.
+- Event deletes hard-cascade absences — tombstones included — in the same
+  transaction (flips to tombstoning when phase-02 soft-deletes events).
+- Design record: `docs/presence-tracking-roadmap.md`.

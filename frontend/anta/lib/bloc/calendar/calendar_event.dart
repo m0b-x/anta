@@ -109,3 +109,30 @@ final class ClearOccurrenceDescription extends CalendarPageEvent {
   @override
   List<Object?> get props => [eventId, day];
 }
+
+/// Marks one occurrence as missed (**v26**).
+///
+/// Records an exception to implicit attendance; the occurrence still occurs,
+/// still numbers into count labels and still exports. Marking an already
+/// missed day is a no-op.
+final class SetOccurrenceMissed extends CalendarPageEvent {
+  final String eventId;
+  final DateTime day;
+
+  const SetOccurrenceMissed({required this.eventId, required this.day});
+
+  @override
+  List<Object?> get props => [eventId, day];
+}
+
+/// Returns one occurrence to present, tombstoning its absence row. Un-marking
+/// a day that was never marked is a no-op.
+final class ClearOccurrenceMissed extends CalendarPageEvent {
+  final String eventId;
+  final DateTime day;
+
+  const ClearOccurrenceMissed({required this.eventId, required this.day});
+
+  @override
+  List<Object?> get props => [eventId, day];
+}

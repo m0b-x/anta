@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_colors.dart';
+import '../constants/event_presence.dart';
 import '../constants/fasting_calendar.dart';
 import '../constants/occurrence_descriptions.dart';
 import '../constants/public_holidays.dart';
@@ -148,6 +149,10 @@ class EventSummaryProvider implements DaySummaryProvider {
       final color = (event.colorValue != null && event.tintIcon)
           ? Color(event.colorValue!)
           : category.color;
+      // Two static map probes, resolved here rather than in each row so the
+      // day panel, the agenda and the timeline can never disagree about
+      // whether a given occurrence was missed.
+      final presenceTracked = EventPresence.appliesTo(event);
       return DaySummaryEntry(
         key: 'event:${event.id}',
         icon: CalendarCategories.iconFor(event),
@@ -157,6 +162,8 @@ class EventSummaryProvider implements DaySummaryProvider {
         description: _descriptionFor(event, day),
         priority: event.priority - kMinEventPriority,
         event: event,
+        presenceTracked: presenceTracked,
+        missed: presenceTracked && EventPresence.isMissed(event.id, day),
       );
     });
   }

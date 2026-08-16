@@ -1,8 +1,10 @@
 # Cloud Sync Phase 02 — Calendar Sync, Ownership, Consent
 
-**Status: planned.** Migration **v26**. Depends on Phase 01. Symbol names
-below are targets from the migration plan — re-verify each against the code
-when this phase starts.
+**Status: planned.** Migration **v27** (renumbered 2026-08-16: v26 went to
+presence tracking — `docs/presence-tracking-roadmap.md` — whose
+`calendar_event_absences` table ships CRDT-shaped from birth). Depends on
+Phase 01. Symbol names below are targets from the migration plan — re-verify
+each against the code when this phase starts.
 
 ## Goal
 
@@ -10,7 +12,7 @@ Both partners' calendars merge on both phones; deletes propagate as
 tombstones; a partner's edits to your events obey your standing consent
 toggle.
 
-## Migration v26 (`calendar_events`)
+## Migration v27 (`calendar_events` + `calendar_event_absences`)
 
 Add, guarded with `PRAGMA table_info` per the v13–v15 precedent:
 
@@ -20,8 +22,13 @@ Add, guarded with `PRAGMA table_info` per the v13–v15 precedent:
 | `hlc_timestamp`, `device_id`, `version` | Merge ordering, matching the notes/folders convention exactly. |
 | `is_deleted`, `deleted_at` | Tombstones. Without them a delete never propagates — the other device pushes the row back forever. |
 
+`calendar_event_absences` (v26) already carries `hlc_timestamp`,
+`device_id`, `version`, `is_deleted`, `deleted_at` with live tombstone
+semantics — here it needs only `owner_id`, added alongside the events
+column.
+
 Run `dart run build_runner build --delete-conflicting-outputs`; extend
-`test/database/` schema-parity for v26 (create-vs-migrate).
+`test/database/` schema-parity for v27 (create-vs-migrate).
 
 ## Tombstone conversion — three hard-write paths
 
@@ -64,6 +71,12 @@ on the partner's device.
   2026-08-16) — rewrite that framing in this phase.
 - Per-occurrence descriptions (`calendar_event_occurrences`) stay
   device-local; only the template description syncs.
+- `calendar_event_absences` (presence marks) is the deliberate opposite: it
+  **does** sync. Wire `keyLastEventAbsenceHlc = 'last_event_absence_hlc'` on
+  `SyncDao`, plus `getAbsencesSince`/`mergeAbsence` in the
+  `NoteDao.getNotesSince`/`mergeNote` shape. A pulled absence republishes
+  the `EventPresence` facade and bumps `occurrenceRevision` — never the
+  day cache (presence is render-only).
 - All new strings en/de/ro; `flutter gen-l10n`.
 
 ## Done when

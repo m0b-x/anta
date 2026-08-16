@@ -544,6 +544,23 @@ class SettingsService {
     await _setBool(SettingsKeys.calendarShowRecurrenceLabels, value);
   }
 
+  // Calendar appearance - how missed occurrences render (faded / hidden).
+  Future<CalendarMissedDisplay> getCalendarMissedDisplay() async {
+    final raw = await _db.userSettingsDao.getValue(
+      SettingsKeys.calendarMissedDisplay,
+    );
+    return CalendarMissedDisplay.fromName(
+      raw ?? SettingsKeys.defaultCalendarMissedDisplay,
+    );
+  }
+
+  Future<void> setCalendarMissedDisplay(CalendarMissedDisplay display) async {
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.calendarMissedDisplay,
+      display.name,
+    );
+  }
+
   /// Loads every upcoming-agenda filter in one call.
   Future<UpcomingAgendaFilters> getUpcomingAgendaFilters() async {
     final rangeDays = await _getInt(
@@ -722,6 +739,7 @@ class SettingsService {
       showWeekNumbers: await getCalendarShowWeekNumbers(),
       maxDayBars: await getCalendarMaxDayBars(),
       showRecurrenceLabels: await getCalendarShowRecurrenceLabels(),
+      missedDisplay: await getCalendarMissedDisplay(),
     );
   }
 

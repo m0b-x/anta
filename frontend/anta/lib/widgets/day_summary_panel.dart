@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../constants/calendar_colors.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_event.dart';
 import '../models/day_summary_entry.dart';
@@ -10,6 +11,11 @@ import 'markdown_inline_text.dart';
 /// Renders the calendar's bottom panel: a header naming the selected day
 /// followed by a list of [DaySummaryEntry] cards (events, weekend, public
 /// holiday, etc.). Shows an empty-state when the resolver returns no entries.
+///
+/// Missed occurrences are dimmed here but **always listed**, even when the
+/// user set missed days to hidden: this panel is where they are marked and
+/// un-marked, and a row that disappeared the moment it was marked could never
+/// be brought back.
 class DaySummaryPanel extends StatelessWidget {
   /// The selected day the entries belong to, shown in the panel header.
   final DateTime day;
@@ -29,6 +35,11 @@ class DaySummaryPanel extends StatelessWidget {
   /// carries the action — weekend and event entries are unaffected.
   final VoidCallback? onSuppressHoliday;
 
+  /// Called with the new presence for a presence-tracking entry's occurrence.
+  /// The panel is deliberately day-less, so the caller — which knows the
+  /// selected day — binds it, exactly like [onEventTap].
+  final void Function(CalendarEvent event, bool missed)? onToggleMissed;
+
   /// Palette used to render `{name:text}` runs inside event descriptions, so
   /// a row shows the user's custom colours and not just the presets.
   final MarkdownColorPalette colorPalette;
@@ -40,6 +51,7 @@ class DaySummaryPanel extends StatelessWidget {
     this.onEventTap,
     this.onOpenNote,
     this.onSuppressHoliday,
+    this.onToggleMissed,
     this.colorPalette = MarkdownColorPalette.presets,
   });
 
@@ -164,6 +176,26 @@ class DaySummaryPanel extends StatelessWidget {
               final event = entry.event;
               final hasLinkedNote = event?.noteId != null;
               final isHoliday = entry.key == 'holiday';
+              final canToggleMissed =
+                  event != null &&
+                  entry.presenceTracked &&
+                  onToggleMissed != null;
+              // Presence replaces the decorative chevron rather than adding a
+              // third widget: the note button already claims one slot, and a
+              // third would not fit a phone-width trailing strip.
+              final tail = canToggleMissed
+                  ? IconButton(
+                      tooltip: entry.missed
+                          ? l10n.eventMarkPresent
+                          : l10n.eventMarkMissed,
+                      icon: Icon(
+                        entry.missed
+                            ? Icons.event_available_rounded
+                            : Icons.event_busy_rounded,
+                      ),
+                      onPressed: () => onToggleMissed!(event, !entry.missed),
+                    )
+                  : const Icon(Icons.chevron_right_rounded);
               return Card(
                 margin: EdgeInsets.zero,
                 clipBehavior: Clip.antiAlias,
@@ -172,79 +204,83 @@ class DaySummaryPanel extends StatelessWidget {
                 // (inside a ListView) hands the Row unbounded height and
                 // the accent-stripe Container tries to stretch to infinity.
                 child: IntrinsicHeight(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // Accent stripe echoing the day-cell marker color, so
-                      // list entries and grid markers read as one system.
-                      Container(width: 4, color: entry.color),
-                      Expanded(
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: entry.color.withValues(
-                              alpha: 0.16,
-                            ),
-                            foregroundColor: entry.color,
-                            child: Icon(entry.icon),
-                          ),
-                          title: Row(
-                            children: [
-                              Flexible(
-                                child: Text(
-                                  entry.title,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
+                  child: Opacity(
+                    opacity: entry.missed
+                        ? CalendarColors.missedEventAlpha
+                        : 1.0,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // Accent stripe echoing the day-cell marker color, so
+                        // list entries and grid markers read as one system.
+                        Container(width: 4, color: entry.color),
+                        Expanded(
+                          child: ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor: entry.color.withValues(
+                                alpha: 0.16,
                               ),
-                              if (entry.description != null) ...[
-                                const SizedBox(width: 6),
-                                Tooltip(
-                                  message: l10n.eventHasDescription,
-                                  child: Icon(
-                                    Icons.notes_rounded,
-                                    size: 14,
-                                    color: colorScheme.onSurfaceVariant,
+                              foregroundColor: entry.color,
+                              child: Icon(entry.icon),
+                            ),
+                            title: Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    entry.title,
+                                    overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
+                                if (entry.description != null) ...[
+                                  const SizedBox(width: 6),
+                                  Tooltip(
+                                    message: l10n.eventHasDescription,
+                                    child: Icon(
+                                      Icons.notes_rounded,
+                                      size: 14,
+                                      color: colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ],
                               ],
-                            ],
-                          ),
-                          subtitle: _buildSubtitle(context, entry),
-                          // The description adds a second subtitle line; the
-                          // tile has to be told, or it clips to one.
-                          isThreeLine: entry.description != null,
-                          trailing: event != null
-                              ? (hasLinkedNote && onOpenNote != null
-                                    ? Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          IconButton(
-                                            tooltip: l10n.eventOpenLinkedNote,
-                                            icon: const Icon(
-                                              Icons.sticky_note_2_outlined,
+                            ),
+                            subtitle: _buildSubtitle(context, entry),
+                            // The description adds a second subtitle line; the
+                            // tile has to be told, or it clips to one.
+                            isThreeLine: entry.description != null,
+                            trailing: event != null
+                                ? (hasLinkedNote && onOpenNote != null
+                                      ? Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            IconButton(
+                                              tooltip: l10n.eventOpenLinkedNote,
+                                              icon: const Icon(
+                                                Icons.sticky_note_2_outlined,
+                                              ),
+                                              onPressed: () =>
+                                                  onOpenNote!(event),
                                             ),
-                                            onPressed: () => onOpenNote!(event),
+                                            tail,
+                                          ],
+                                        )
+                                      : tail)
+                                : (isHoliday && onSuppressHoliday != null
+                                      ? IconButton(
+                                          tooltip: l10n.removeHoliday,
+                                          icon: const Icon(
+                                            Icons.delete_outline_rounded,
                                           ),
-                                          const Icon(
-                                            Icons.chevron_right_rounded,
-                                          ),
-                                        ],
-                                      )
-                                    : const Icon(Icons.chevron_right_rounded))
-                              : (isHoliday && onSuppressHoliday != null
-                                    ? IconButton(
-                                        tooltip: l10n.removeHoliday,
-                                        icon: const Icon(
-                                          Icons.delete_outline_rounded,
-                                        ),
-                                        onPressed: onSuppressHoliday,
-                                      )
-                                    : null),
-                          onTap: event == null || onEventTap == null
-                              ? null
-                              : () => onEventTap!(event),
+                                          onPressed: onSuppressHoliday,
+                                        )
+                                      : null),
+                            onTap: event == null || onEventTap == null
+                                ? null
+                                : () => onEventTap!(event),
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               );

@@ -30,13 +30,14 @@ final class CalendarPageLoaded extends CalendarPageState {
   /// leaves at most a harmless stale id behind.
   final Set<String> hiddenCategoryIds;
 
-  /// Bumped whenever a per-occurrence description is written or cleared.
+  /// Bumped whenever per-occurrence overlay data — a description (v24) or a
+  /// presence mark (v26) — is written or cleared.
   ///
-  /// Editing one day's text changes neither the event list nor which days an
-  /// event occurs on, so without this the state would compare equal to its
-  /// predecessor and bloc would drop the emit — and the agenda's identity-based
-  /// row memo would keep serving rows built from the old text. Threaded down to
-  /// `AgendaListView` as part of its cache key.
+  /// Editing one day's text or marking it missed changes neither the event list
+  /// nor which days an event occurs on, so without this the state would compare
+  /// equal to its predecessor and bloc would drop the emit — and the agenda's
+  /// identity-based row memo would keep serving rows built from the old
+  /// overlay. Threaded down to `AgendaListView` as part of its cache key.
   final int occurrenceRevision;
 
   const CalendarPageLoaded({

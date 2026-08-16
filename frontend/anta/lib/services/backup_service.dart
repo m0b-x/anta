@@ -9,6 +9,7 @@ import '../constants/json_keys.dart';
 import '../constants/settings_keys.dart';
 import 'calendar_event_service.dart';
 import 'event_occurrence_service.dart';
+import 'event_presence_service.dart';
 import 'category_service.dart';
 import 'counter_service.dart';
 import 'markdown_bar_service.dart';
@@ -86,6 +87,7 @@ class BackupService {
     final publicHolidays = await GetIt.I<PublicHolidayService>().exportData();
     final eventOccurrences = await GetIt.I<EventOccurrenceService>()
         .exportData();
+    final eventAbsences = await GetIt.I<EventPresenceService>().exportData();
 
     return {
       // v7: event priorities are stored inverted (1 = highest). Older
@@ -109,6 +111,11 @@ class BackupService {
       // installs had. No version bump — 7 was needed only because an existing
       // field changed meaning.
       'eventOccurrences': eventOccurrences,
+      // Purely additive (v26), same reasoning: an absent key on an older
+      // backup is a database where nothing was ever marked missed. Live marks
+      // only — tombstones and CRDT identity stay out, exactly as they do for
+      // notes and folders, because a backup is not a sync channel.
+      'eventAbsences': eventAbsences,
     };
   }
 
@@ -369,6 +376,14 @@ class BackupService {
         await GetIt.I<EventOccurrenceService>().importData(eventOccurrences);
       } else if (calendarEvents != null) {
         await GetIt.I<EventOccurrenceService>().clearAllForImport();
+      }
+      // Presence marks (v26+ backups). Same strand rule as the overrides
+      // above, for the same reason.
+      final eventAbsences = data['eventAbsences'] as List?;
+      if (eventAbsences != null) {
+        await GetIt.I<EventPresenceService>().importData(eventAbsences);
+      } else if (calendarEvents != null) {
+        await GetIt.I<EventPresenceService>().clearAllForImport();
       }
       final publicHolidays = data['publicHolidays'] as List?;
       if (publicHolidays != null) {

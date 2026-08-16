@@ -91,6 +91,58 @@ void main() {
     expect(byName['event_id']!.read<int>('pk'), 1);
     expect(byName['day']!.read<int>('pk'), 2);
   });
+
+  test('the absence table matches its frozen migration DDL', () async {
+    // Frozen at v26 for the same reason as the occurrence table, but this one
+    // also carries the five CRDT columns — the first frozen-DDL table in the
+    // codebase to do so (notes/folders are v1 `createAll`-only). Their exact
+    // shape is what cloud-sync phase-02 wires transport to, so a drift here is
+    // a schema retrofit later.
+    final columns = await db
+        .customSelect('PRAGMA table_info(calendar_event_absences)')
+        .get();
+    final byName = {
+      for (final row in columns) row.read<String>('name'): row,
+    };
+
+    expect(byName.keys.toSet(), {
+      'event_id',
+      'day',
+      'created_at',
+      'updated_at',
+      'hlc_timestamp',
+      'device_id',
+      'version',
+      'is_deleted',
+      'deleted_at',
+    });
+    for (final name in byName.keys) {
+      // `deleted_at` is the single nullable column — the one place the
+      // blanket loop above does not apply. `ContentChunks` skips it entirely,
+      // which is exactly the variant this table must not become.
+      expect(
+        byName[name]!.read<int>('notnull'),
+        name == 'deleted_at' ? 0 : 1,
+        reason: name == 'deleted_at'
+            ? 'deleted_at must stay nullable'
+            : '$name should be NOT NULL',
+      );
+    }
+    expect(byName['event_id']!.read<String>('type'), 'TEXT');
+    expect(byName['day']!.read<String>('type'), 'INTEGER');
+    expect(byName['hlc_timestamp']!.read<String>('type'), 'TEXT');
+    expect(byName['device_id']!.read<String>('type'), 'TEXT');
+    // No DEFAULT on the identity columns on purpose: every insert must stamp
+    // them or fail, which is what keeps CRDT stamping out of the service.
+    expect(byName['hlc_timestamp']!.readNullable<String>('dflt_value'), isNull);
+    expect(byName['device_id']!.readNullable<String>('dflt_value'), isNull);
+    expect(byName['version']!.read<String>('dflt_value'), '1');
+    expect(byName['is_deleted']!.read<String>('dflt_value'), '0');
+    // Composite primary key, in order — the automatic index it gives SQLite is
+    // why this table declares none of its own.
+    expect(byName['event_id']!.read<int>('pk'), 1);
+    expect(byName['day']!.read<int>('pk'), 2);
+  });
 }
 
 /// All capture-group-1 matches of [pattern] across `lib/database/**.dart`,

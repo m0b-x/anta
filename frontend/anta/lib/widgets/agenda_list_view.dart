@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../constants/calendar_colors.dart';
 import '../constants/event_priorities.dart';
 import '../l10n/app_localizations.dart';
+import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../models/day_summary_entry.dart';
 import '../utils/markdown_color_syntax.dart';
@@ -48,11 +50,15 @@ class AgendaListView extends StatefulWidget {
   /// [EventSummaryProvider] so agenda and day-panel rows always agree.
   final bool showRecurrenceLabels;
 
-  /// Bumped when a per-occurrence description changes. Part of the row-memo
-  /// key below: the rows embed resolved description text, but editing one
-  /// day's text leaves the occurrence list identical, so nothing else here
-  /// would ever notice.
+  /// Bumped when a per-occurrence description or a presence mark changes.
+  /// Part of the row-memo key below: the rows embed resolved description text
+  /// and the missed flag, but neither changes the occurrence list, so nothing
+  /// else here would ever notice.
   final int occurrenceRevision;
+
+  /// Whether occurrences marked as missed are dimmed or dropped. Dropping
+  /// happens while the rows are built, so a hidden occurrence costs no row.
+  final CalendarMissedDisplay missedDisplay;
 
   const AgendaListView({
     super.key,
@@ -67,6 +73,7 @@ class AgendaListView extends StatefulWidget {
     this.colorPalette = MarkdownColorPalette.presets,
     this.showRecurrenceLabels = true,
     this.occurrenceRevision = 0,
+    this.missedDisplay = CalendarMissedDisplay.faded,
   });
 
   /// Qualitative priority word appended to a row subtitle. The neutral
@@ -100,13 +107,15 @@ class _AgendaListViewState extends State<AgendaListView> {
   String? _rowsForLocale;
   bool? _rowsForShowRecurrence;
   int? _rowsForOccurrenceRevision;
+  CalendarMissedDisplay? _rowsForMissedDisplay;
 
   List<_AgendaRow> _rowsFor(AppLocalizations l10n) {
     if (identical(_rowsForOccurrences, widget.occurrences) &&
         identical(_rowsForHolidays, widget.holidayDays) &&
         _rowsForLocale == l10n.localeName &&
         _rowsForShowRecurrence == widget.showRecurrenceLabels &&
-        _rowsForOccurrenceRevision == widget.occurrenceRevision) {
+        _rowsForOccurrenceRevision == widget.occurrenceRevision &&
+        _rowsForMissedDisplay == widget.missedDisplay) {
       return _rows;
     }
     _rowsForOccurrences = widget.occurrences;
@@ -114,6 +123,7 @@ class _AgendaListViewState extends State<AgendaListView> {
     _rowsForLocale = l10n.localeName;
     _rowsForShowRecurrence = widget.showRecurrenceLabels;
     _rowsForOccurrenceRevision = widget.occurrenceRevision;
+    _rowsForMissedDisplay = widget.missedDisplay;
     return _rows = _buildRows(l10n);
   }
 
@@ -124,9 +134,14 @@ class _AgendaListViewState extends State<AgendaListView> {
   /// only a holiday still gets a header and a row. Within a day, events come
   /// first and the holiday last — matching the day summary panel, where the
   /// holiday entry's higher `priority` value sinks it below the events.
+  ///
+  /// Missed occurrences are dropped here in hidden mode, before the day's
+  /// header is emitted — so a day left with nothing produces no header either,
+  /// and the per-day entry count stays honest.
   List<_AgendaRow> _buildRows(AppLocalizations l10n) {
     final occurrences = widget.occurrences;
     final holidayDays = widget.holidayDays;
+    final hideMissed = widget.missedDisplay == CalendarMissedDisplay.hidden;
     final eventProvider = EventSummaryProvider(
       l10n,
       showRecurrence: widget.showRecurrenceLabels,
@@ -158,9 +173,11 @@ class _AgendaListViewState extends State<AgendaListView> {
       if (isHoliday) holidayIndex++;
 
       final entries = <DaySummaryEntry>[
-        ...eventProvider.summaryFor(day, dayEvents),
+        for (final entry in eventProvider.summaryFor(day, dayEvents))
+          if (!hideMissed || !entry.missed) entry,
         if (isHoliday) ...holidayProvider.summaryFor(day, dayEvents),
       ];
+      if (entries.isEmpty) continue;
       rows.add(_AgendaHeaderRow(day: day, count: entries.length));
       for (final entry in entries) {
         rows.add(_AgendaEntryRow(day: day, entry: entry));
@@ -215,6 +232,7 @@ class _AgendaListViewState extends State<AgendaListView> {
             padding: const EdgeInsets.only(bottom: 8),
             child: _AgendaCard(
               entry: entry,
+              missed: entry.missed,
               priorityBadge: AgendaListView.priorityBadge(
                 l10n,
                 entry.event?.priority ?? kDefaultEventPriority,
@@ -264,6 +282,10 @@ class _AgendaCard extends StatelessWidget {
   final VoidCallback? onOpenNote;
   final MarkdownColorPalette colorPalette;
 
+  /// Dims the whole card. Only reached in faded mode — hidden mode drops the
+  /// row while the list is built.
+  final bool missed;
+
   const _AgendaCard({
     required this.entry,
     required this.priorityBadge,
@@ -271,6 +293,7 @@ class _AgendaCard extends StatelessWidget {
     required this.colorPalette,
     this.onEdit,
     this.onOpenNote,
+    this.missed = false,
   });
 
   @override
@@ -284,81 +307,87 @@ class _AgendaCard extends StatelessWidget {
       margin: EdgeInsets.zero,
       clipBehavior: Clip.antiAlias,
       child: IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Container(width: 4, color: entry.color),
-            Expanded(
-              child: ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: entry.color.withValues(alpha: 0.16),
-                  foregroundColor: entry.color,
-                  child: Icon(entry.icon),
-                ),
-                title: Row(
-                  children: [
-                    Flexible(
-                      child: Text(entry.title, overflow: TextOverflow.ellipsis),
-                    ),
-                    if (description != null) ...[
-                      const SizedBox(width: 6),
-                      Tooltip(
-                        message: l10n.eventHasDescription,
-                        child: Icon(
-                          Icons.notes_rounded,
-                          size: 14,
-                          color: theme.colorScheme.onSurfaceVariant,
+        child: Opacity(
+          opacity: missed ? CalendarColors.missedEventAlpha : 1.0,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(width: 4, color: entry.color),
+              Expanded(
+                child: ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: entry.color.withValues(alpha: 0.16),
+                    foregroundColor: entry.color,
+                    child: Icon(entry.icon),
+                  ),
+                  title: Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          entry.title,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
+                      if (description != null) ...[
+                        const SizedBox(width: 6),
+                        Tooltip(
+                          message: l10n.eventHasDescription,
+                          child: Icon(
+                            Icons.notes_rounded,
+                            size: 14,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
-                ),
-                subtitle: (subtitle.isEmpty && description == null)
-                    ? null
-                    : Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (subtitle.isNotEmpty) Text(subtitle),
-                          if (description != null)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 2),
-                              child: MarkdownInlineText(
-                                data: description,
-                                colorPalette: colorPalette,
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                  subtitle: (subtitle.isEmpty && description == null)
+                      ? null
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (subtitle.isNotEmpty) Text(subtitle),
+                            if (description != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: MarkdownInlineText(
+                                  data: description,
+                                  colorPalette: colorPalette,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
                                 ),
                               ),
-                            ),
-                        ],
-                      ),
-                isThreeLine: description != null,
-                // Holiday rows carry no event, so they get no trailing
-                // actions at all rather than an empty action strip.
-                trailing: onOpenNote == null && onEdit == null
-                    ? null
-                    : Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (onOpenNote != null)
-                            IconButton(
-                              tooltip: l10n.eventOpenLinkedNote,
-                              icon: const Icon(Icons.sticky_note_2_outlined),
-                              onPressed: onOpenNote,
-                            ),
-                          if (onEdit != null)
-                            IconButton(
-                              tooltip: l10n.upcomingEditEvent,
-                              icon: const Icon(Icons.edit_outlined),
-                              onPressed: onEdit,
-                            ),
-                        ],
-                      ),
-                onTap: onTap,
+                          ],
+                        ),
+                  isThreeLine: description != null,
+                  // Holiday rows carry no event, so they get no trailing
+                  // actions at all rather than an empty action strip.
+                  trailing: onOpenNote == null && onEdit == null
+                      ? null
+                      : Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (onOpenNote != null)
+                              IconButton(
+                                tooltip: l10n.eventOpenLinkedNote,
+                                icon: const Icon(Icons.sticky_note_2_outlined),
+                                onPressed: onOpenNote,
+                              ),
+                            if (onEdit != null)
+                              IconButton(
+                                tooltip: l10n.upcomingEditEvent,
+                                icon: const Icon(Icons.edit_outlined),
+                                onPressed: onEdit,
+                              ),
+                          ],
+                        ),
+                  onTap: onTap,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

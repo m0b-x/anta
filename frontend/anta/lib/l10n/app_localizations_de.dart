@@ -584,6 +584,25 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String get eventTrackPresence => 'Anwesenheit erfassen';
+
+  @override
+  String get eventTrackPresenceDesc =>
+      'Markiere ausgelassene Tage. Die Beschreibung gilt für jeden Tag.';
+
+  @override
+  String get eventPresencePresent => 'Anwesend';
+
+  @override
+  String get eventPresenceMissed => 'Verpasst';
+
+  @override
+  String get eventMarkMissed => 'Als verpasst markieren';
+
+  @override
+  String get eventMarkPresent => 'Als anwesend markieren';
+
+  @override
   String get eventCountOccurrences => 'Wiederholungen zählen';
 
   @override
@@ -2263,6 +2282,19 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get calendarShowRecurrenceLabelsDesc =>
       'Wiederholungsmuster (Täglich, Wöchentlich…) in Ereigniszeilen anzeigen';
+
+  @override
+  String get calendarMissedDisplayTitle => 'Verpasste Tage';
+
+  @override
+  String get calendarMissedDisplayDesc =>
+      'Wie verpasste Tage eines erfassten Termins im Kalender erscheinen';
+
+  @override
+  String get calendarMissedDisplayFaded => 'Abgeblendet';
+
+  @override
+  String get calendarMissedDisplayHidden => 'Ausgeblendet';
 
   @override
   String get calendarWeekStartTitle => 'Woche beginnt am';
