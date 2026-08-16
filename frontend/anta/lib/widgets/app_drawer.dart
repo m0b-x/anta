@@ -13,6 +13,7 @@ import '../services/app_navigator.dart';
 import '../services/auth_service.dart';
 import '../services/dev_options_service.dart';
 import '../utils/custom_snackbar.dart';
+import 'user_avatar.dart';
 
 /// Global navigation drawer for app-wide settings
 class AppDrawer extends StatefulWidget {
@@ -305,95 +306,120 @@ class _AppDrawerState extends State<AppDrawer> {
                 ],
         ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // Gym icon with tap (5x) or swipe-to-unlock developer mode
-          GestureDetector(
-            onTap: () => _handleIconTap(context),
-            onHorizontalDragEnd: (details) async {
-              // Swipe left-to-right with sufficient velocity
-              if (details.primaryVelocity != null &&
-                  details.primaryVelocity! > 200) {
-                final devOptions = DevOptions.instance;
-                if (!devOptions.developerModeUnlocked) {
-                  devOptions.developerModeUnlocked = true;
-                  final service = await DevOptionsService.getInstance();
-                  await service.saveOptions();
-                  HapticFeedback.mediumImpact();
-                  if (context.mounted) {
-                    AppNavigator.pop(context);
-                    await Future.delayed(const Duration(milliseconds: 100));
-                    if (context.mounted) {
-                      CustomSnackbar.showSuccess(
-                        context,
-                        l10n.developerModeUnlocked,
-                      );
+          // Gym icon with tap (5x) or swipe-to-unlock developer mode. The
+          // signed-in account rides as a corner badge on the icon itself —
+          // one identity mark, not a second row at a mismatched scale.
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              GestureDetector(
+                onTap: () => _handleIconTap(context),
+                onHorizontalDragEnd: (details) async {
+                  // Swipe left-to-right with sufficient velocity
+                  if (details.primaryVelocity != null &&
+                      details.primaryVelocity! > 200) {
+                    final devOptions = DevOptions.instance;
+                    if (!devOptions.developerModeUnlocked) {
+                      devOptions.developerModeUnlocked = true;
+                      final service = await DevOptionsService.getInstance();
+                      await service.saveOptions();
+                      HapticFeedback.mediumImpact();
+                      if (context.mounted) {
+                        AppNavigator.pop(context);
+                        await Future.delayed(const Duration(milliseconds: 100));
+                        if (context.mounted) {
+                          CustomSnackbar.showSuccess(
+                            context,
+                            l10n.developerModeUnlocked,
+                          );
+                        }
+                      }
                     }
                   }
-                }
-              }
-            },
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: colorScheme.surface,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: isDark
-                    ? null
-                    : [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.1),
-                          blurRadius: 8,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: colorScheme.surface,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: isDark
+                        ? null
+                        : [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.1),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                  ),
+                  child: Icon(
+                    Icons.fitness_center_rounded,
+                    size: 37,
+                    color: colorScheme.primary,
+                  ),
+                ),
               ),
-              child: Icon(
-                Icons.fitness_center_rounded,
-                size: 32,
-                color: colorScheme.primary,
+              Positioned(
+                right: -10,
+                bottom: -4,
+                child: _buildAvatarBadge(context, colorScheme, isDark),
               ),
+            ],
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  AppLocalizations.of(context)!.appTitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: isDark
+                        ? colorScheme.onSurface
+                        : colorScheme.onPrimaryContainer,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  AppLocalizations.of(context)!.settings,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: isDark
+                        ? colorScheme.onSurfaceVariant
+                        : colorScheme.onPrimaryContainer.withValues(alpha: 0.7),
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 16),
-          Text(
-            AppLocalizations.of(context)!.appTitle,
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: isDark
-                  ? colorScheme.onSurface
-                  : colorScheme.onPrimaryContainer,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            AppLocalizations.of(context)!.settings,
-            style: TextStyle(
-              fontSize: 14,
-              color: isDark
-                  ? colorScheme.onSurfaceVariant
-                  : colorScheme.onPrimaryContainer.withValues(alpha: 0.7),
-            ),
-          ),
-          _buildAccountLine(context, colorScheme, isDark),
         ],
       ),
     );
   }
 
-  /// Signed-in identity under the header subtitle. Renders nothing when
-  /// signed out, so the offline experience keeps today's exact header.
-  Widget _buildAccountLine(
+  /// Signed-in account's avatar, worn as a badge on the app icon's corner.
+  /// The ring matches the header background (not the icon's), so the badge
+  /// reads as cut into the icon rather than pasted on top of it. Renders
+  /// nothing when signed out, so the icon looks exactly as it always has.
+  Widget _buildAvatarBadge(
     BuildContext context,
     ColorScheme colorScheme,
     bool isDark,
   ) {
     final authService = getIt<AuthService>();
-    final subtle = isDark
-        ? colorScheme.onSurfaceVariant
-        : colorScheme.onPrimaryContainer.withValues(alpha: 0.7);
+    final ringColor = isDark
+        ? colorScheme.surfaceContainerHigh
+        : colorScheme.primaryContainer;
 
     return StreamBuilder<AppUser?>(
       stream: authService.authStateChanges,
@@ -401,33 +427,27 @@ class _AppDrawerState extends State<AppDrawer> {
       builder: (context, snapshot) {
         final user = snapshot.data;
         if (user == null) return const SizedBox.shrink();
-        final label = user.displayName ?? user.email ?? user.uid;
-        return Padding(
-          padding: const EdgeInsets.only(top: 10),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(8),
-            onTap: () {
-              AppNavigator.pop(context);
-              AppNavigator.toSyncSettings(context).then((result) {
-                if (result == SettingsResult.openDrawer && context.mounted) {
-                  Scaffold.of(context).openDrawer();
-                }
-              });
-            },
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.cloud_done_rounded, size: 16, color: subtle),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 12, color: subtle),
-                  ),
-                ),
-              ],
+        return GestureDetector(
+          onTap: () {
+            AppNavigator.pop(context);
+            AppNavigator.toSyncSettings(context).then((result) {
+              if (result == SettingsResult.openDrawer && context.mounted) {
+                Scaffold.of(context).openDrawer();
+              }
+            });
+          },
+          child: Container(
+            padding: const EdgeInsets.all(2),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: ringColor,
+              border: Border.all(color: colorScheme.surface, width: 1.5),
+            ),
+            child: UserAvatar(
+              user: user,
+              radius: 11,
+              backgroundColor: colorScheme.surface,
+              foregroundColor: colorScheme.primary,
             ),
           ),
         );

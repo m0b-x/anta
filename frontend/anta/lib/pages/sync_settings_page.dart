@@ -10,6 +10,7 @@ import '../widgets/app_drawer.dart';
 import '../widgets/settings_search_field.dart';
 import '../widgets/settings_section_list.dart';
 import '../widgets/unified_app_bars.dart';
+import '../widgets/user_avatar.dart';
 
 /// Cloud account settings. Phase 00 of cloud sync: signing in establishes the
 /// identity later phases key sharing off. Nothing syncs yet.
@@ -163,16 +164,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
 
       case SyncSignedIn(:final user):
         return ListTile(
-          leading: CircleAvatar(
-            backgroundColor: colorScheme.primaryContainer,
-            foregroundImage: user.photoUrl == null
-                ? null
-                : NetworkImage(user.photoUrl!),
-            // Offline-first app: a failed avatar fetch must degrade to the
-            // icon child silently, not surface an unhandled image error.
-            onForegroundImageError: user.photoUrl == null ? null : (_, _) {},
-            child: Icon(Icons.person_rounded, color: colorScheme.primary),
-          ),
+          leading: UserAvatar(user: user),
           title: title,
           subtitle: description == null
               ? null
