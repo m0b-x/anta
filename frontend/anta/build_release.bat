@@ -46,4 +46,6 @@ if %ERRORLEVEL% neq 0 (
 
 echo.
 echo Build successful! APK is at: build\app\outputs\flutter-apk\app-release.apk
-explorer build\app\outputs\flutter-apk
+rem explorer.exe returns exit code 1 even on success, so force a success code.
+start "" explorer build\app\outputs\flutter-apk
+exit /b 0
