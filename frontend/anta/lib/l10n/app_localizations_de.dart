@@ -325,7 +325,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get eventPerOccurrenceDescriptionsDesc =>
-      'Wiederkehrende Ereignisse behalten für jeden Tag eine eigene Beschreibung. Die Beschreibung des Ereignisses wird zur Vorlage, mit der jeder Tag beginnt.';
+      'Dieses Ereignis behält für jeden Tag eine eigene Beschreibung. Die Beschreibung des Ereignisses wird zur Vorlage, mit der jeder Tag beginnt.';
 
   @override
   String get eventDescriptionScopeAllDays => 'Alle Tage';
@@ -587,8 +587,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get eventTrackPresence => 'Anwesenheit erfassen';
 
   @override
-  String get eventTrackPresenceDesc =>
-      'Markiere ausgelassene Tage. Die Beschreibung gilt für jeden Tag.';
+  String get eventTrackPresenceDesc => 'Markiere ausgelassene Tage.';
 
   @override
   String get eventPresencePresent => 'Anwesend';
@@ -1016,6 +1015,11 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get eventDetailsNoDescription => 'Keine Notizen für diesen Termin';
+
+  @override
+  String eventDetailsSeriesStart(String date) {
+    return 'Wiederholt sich seit $date';
+  }
 
   @override
   String get eventColor => 'Farbe';

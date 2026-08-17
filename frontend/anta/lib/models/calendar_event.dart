@@ -178,6 +178,19 @@ class CalendarEvent extends Equatable {
   /// `rule is! OneTimeRecurrence`.
   final bool tracksPresence;
 
+  /// Opt-in for per-day description scope: [description] becomes a template
+  /// and `calendar_event_occurrences` holds only the days that differ. Off (the
+  /// default) means one shared description that edits everywhere at once.
+  ///
+  /// Replaces the single global setting descriptions shipped behind in v24, so
+  /// one event can keep a different note per day while another keeps one. Like
+  /// [tracksPresence] it is meaningless for a rule with a single occurrence:
+  /// the gate every surface uses is `OccurrenceDescriptions.appliesTo`, i.e.
+  /// this flag **and** `rule is! OneTimeRecurrence`. Turning it off never
+  /// deletes a day's row — the rows are the user's data and return with the
+  /// flag.
+  final bool perOccurrenceDescriptions;
+
   /// Optional free-form description / notes for the event (e.g., "focus on
   /// hamstrings, drop sets on the third exercise"). `null` or empty means
   /// no description. Stored verbatim as markdown source — rendering happens
@@ -224,6 +237,7 @@ class CalendarEvent extends Equatable {
     this.countOccurrences = false,
     this.countStyle = OccurrenceCountStyle.numbered,
     this.tracksPresence = false,
+    this.perOccurrenceDescriptions = false,
     this.time,
     this.description,
     this.noteId,
@@ -249,6 +263,7 @@ class CalendarEvent extends Equatable {
     bool? countOccurrences,
     OccurrenceCountStyle? countStyle,
     bool? tracksPresence,
+    bool? perOccurrenceDescriptions,
     EventTime? time,
     String? description,
     String? noteId,
@@ -274,6 +289,8 @@ class CalendarEvent extends Equatable {
       countOccurrences: countOccurrences ?? this.countOccurrences,
       countStyle: countStyle ?? this.countStyle,
       tracksPresence: tracksPresence ?? this.tracksPresence,
+      perOccurrenceDescriptions:
+          perOccurrenceDescriptions ?? this.perOccurrenceDescriptions,
       time: clearTime ? null : (time ?? this.time),
       description: clearDescription ? null : (description ?? this.description),
       noteId: clearNoteId ? null : (noteId ?? this.noteId),
@@ -315,6 +332,7 @@ class CalendarEvent extends Equatable {
     countOccurrences,
     countStyle,
     tracksPresence,
+    perOccurrenceDescriptions,
     time,
     description,
     noteId,

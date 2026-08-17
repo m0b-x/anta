@@ -255,6 +255,16 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   /// [_ruleHasManyOccurrences] describes, so specific-dates participates.
   bool _tracksPresence = false;
 
+  /// Whether the event keeps one description per occurrence instead of one
+  /// shared by every day, with its own description as the template each day
+  /// starts from. Gated by [_ruleHasManyOccurrences] like [_tracksPresence] —
+  /// an event that fires once has nothing to separate.
+  ///
+  /// Draft state, not the saved row: the scope control below reads it through
+  /// [_scopeGateOpen], so flipping the switch reveals or hides that control
+  /// immediately instead of only after Save.
+  bool _perOccurrenceDescriptions = false;
+
   /// Label shape for counted occurrences: numbered ("Day 1", start day is
   /// the first) or elapsed ("30 years", the birthday/anniversary style).
   OccurrenceCountStyle _countStyle = OccurrenceCountStyle.numbered;
@@ -436,6 +446,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     _retroactive = initial?.retroactive ?? false;
     _countOccurrences = initial?.countOccurrences ?? false;
     _tracksPresence = initial?.tracksPresence ?? false;
+    _perOccurrenceDescriptions = initial?.perOccurrenceDescriptions ?? false;
     _initRecurrenceFrom(initial?.rule ?? const OneTimeRecurrence());
     // Only a saved event that was actually counting carries a style the user
     // can be said to have chosen; otherwise the persisted value is just the
@@ -445,12 +456,10 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
         ? initial!.countStyle
         : _defaultCountStyleFor(_kind);
     // Adopt the day scope only now: it needs the recurrence rule, which
-    // `_initRecurrenceFrom` has just decoded. Gated on the same condition as
-    // the control itself, so a *dormant* row (setting off) can never leave the
-    // field showing one day's text with nothing on screen to explain it.
-    // `OccurrenceDescriptions.enabled` is safe to read synchronously here —
-    // the service publishes it at DI time, unlike the settings resolved in
-    // `_loadSheetSettings` below.
+    // `_initRecurrenceFrom` has just decoded, and the event's own flag, seeded
+    // just above. Gated on the same condition as the control itself, so a
+    // *dormant* row (flag off) can never leave the field showing one day's
+    // text with nothing on screen to explain it.
     if (_dayMaterialized && _scopeControlVisible) {
       _scope = _DescriptionScope.thisDay;
       _descriptionController.text = _dayBuffer;
@@ -723,17 +732,21 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   bool get _ruleHasManyOccurrences =>
       _mode == _RepeatMode.recurring || _additionalDates.isNotEmpty;
 
+  /// Whether the form currently describes an event whose days are separable:
+  /// a rule with more than one occurrence, opted into per-occurrence
+  /// descriptions. Read from the draft flag rather than the saved row, so the
+  /// switch takes effect the moment it is flipped.
+  bool get _scopeGateOpen =>
+      _ruleHasManyOccurrences && _perOccurrenceDescriptions;
+
   /// Whether to offer the "this day / all days" control.
   ///
   /// Requires a saved event (a new one has no id until `_onSave`), an
-  /// occurrence to scope to (the FAB path has none), the global setting, and a
-  /// rule that actually repeats. Flipping the form to one-time mid-edit hides
-  /// it — see [_syncScopeToRule].
+  /// occurrence to scope to (the FAB path has none), and an open scope gate.
+  /// Flipping the form to one-time — or the switch off — mid-edit hides it,
+  /// see [_syncScopeToRule].
   bool get _scopeControlVisible =>
-      _isEditing &&
-      widget.occurrenceDay != null &&
-      OccurrenceDescriptions.enabled &&
-      _ruleHasManyOccurrences;
+      _isEditing && widget.occurrenceDay != null && _scopeGateOpen;
 
   /// Moves the field between the template and this day's text.
   ///
@@ -772,13 +785,14 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     });
   }
 
-  /// Drops back to the template scope when the form stops describing a
-  /// repeating rule, so the field can never show a day's text while the
-  /// control that explains it is hidden. The day buffer is kept in memory and
-  /// simply not written — flipping to one-time must not silently merge one
-  /// occurrence's text into the template.
+  /// Drops back to the template scope when the form stops describing separable
+  /// days — the rule is no longer repeating, or the per-day switch went off —
+  /// so the field can never show a day's text while the control that explains
+  /// it is hidden. The day buffer is kept in memory and simply not written:
+  /// closing the gate must not silently merge one occurrence's text into the
+  /// template.
   void _syncScopeToRule() {
-    if (_ruleHasManyOccurrences || _scope == _DescriptionScope.allDays) return;
+    if (_scopeGateOpen || _scope == _DescriptionScope.allDays) return;
     _dayBuffer = _descriptionController.text;
     _scope = _DescriptionScope.allDays;
     _descriptionController.text = _templateBuffer;
@@ -1101,6 +1115,12 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     // the opt-in, exactly as the two flags above do. The absence rows survive
     // untouched, so re-ticking the switch restores every mark.
     final effectiveTracksPresence = _ruleHasManyOccurrences && _tracksPresence;
+    // Same shape for the per-day descriptions opt-in, and the same guarantee:
+    // editing the event down to a single day clears the flag while the
+    // occurrence rows survive, so re-ticking the switch brings every day's
+    // text back.
+    final effectivePerOccurrenceDescriptions =
+        _ruleHasManyOccurrences && _perOccurrenceDescriptions;
     final effectiveTime = _isAllDay
         ? null
         : EventTime(
@@ -1128,6 +1148,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             countOccurrences: effectiveCountOccurrences,
             countStyle: _countStyle,
             tracksPresence: effectiveTracksPresence,
+            perOccurrenceDescriptions: effectivePerOccurrenceDescriptions,
             time: effectiveTime,
             description: effectiveDescription,
             noteId: _noteId,
@@ -1146,6 +1167,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             countOccurrences: effectiveCountOccurrences,
             countStyle: _countStyle,
             tracksPresence: effectiveTracksPresence,
+            perOccurrenceDescriptions: effectivePerOccurrenceDescriptions,
             time: effectiveTime,
             description: effectiveDescription,
             noteId: _noteId,
@@ -1180,14 +1202,12 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   /// so a sparse table stays sparse. A day that already had a row keeps it
   /// even when its text matches again — only the explicit reset removes one.
   ///
-  /// Returns nothing at all once the form no longer describes a repeating
-  /// rule: flipping to one-time must not merge an occurrence's text anywhere.
+  /// Returns nothing at all once the scope gate is closed — a rule that no
+  /// longer repeats, or the per-day switch turned off: closing it must not
+  /// merge an occurrence's text anywhere.
   (DateTime?, String?) _resolveOccurrenceOutcome(String template) {
     final day = widget.occurrenceDay;
-    if (day == null || !_isEditing) return (null, null);
-    if (!OccurrenceDescriptions.enabled || !_ruleHasManyOccurrences) {
-      return (null, null);
-    }
+    if (day == null || !_isEditing || !_scopeGateOpen) return (null, null);
     final dayText = _dayText.trim();
     // The reset survives a scope switch (which is why it isn't cleared there)
     // and survives editing the template afterwards — the day should follow the
@@ -1869,6 +1889,27 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                   ],
                   _GroupHeader(text: l10n.eventSectionDetails),
                   const SizedBox(height: 8),
+                  // Above the description it governs, and gated on the same
+                  // occurrence count as presence: a switch whose effect lands
+                  // further up the form reads as if the tap did nothing.
+                  if (_ruleHasManyOccurrences) ...[
+                    Card(
+                      margin: EdgeInsets.zero,
+                      child: SwitchListTile(
+                        value: _perOccurrenceDescriptions,
+                        onChanged: (v) => setState(() {
+                          _perOccurrenceDescriptions = v;
+                          if (!v) _syncScopeToRule();
+                        }),
+                        secondary: const CircleAvatar(
+                          child: Icon(Icons.event_note_outlined),
+                        ),
+                        title: Text(l10n.eventPerOccurrenceDescriptions),
+                        subtitle: Text(l10n.eventPerOccurrenceDescriptionsDesc),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   _buildDescriptionField(context, l10n, theme),
                   _SectionLabel(text: l10n.iconLabel),
                   _PickerTile(

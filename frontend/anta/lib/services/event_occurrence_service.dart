@@ -2,7 +2,6 @@ import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 
 import '../constants/occurrence_descriptions.dart';
-import '../constants/settings_keys.dart';
 import '../database/daos/event_occurrence_dao.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
@@ -11,32 +10,49 @@ import '../database/database_lifecycle.dart';
 /// and publishes them to the synchronous [OccurrenceDescriptions] facade.
 ///
 /// The table holds **only user deltas**, exactly like `public_holidays` since
-/// v22: a row exists for a `(eventId, day)` pair only once that day has been
+/// v22: a row exists for an `(eventId, day)` pair only once that day has been
 /// written on or ticked. Every other day resolves to the event's own
 /// `description`, which acts as a template. That is what keeps the table
-/// sparse and makes the whole feature reversible — turning the setting off
-/// leaves the rows dormant rather than deleting them.
+/// sparse and makes the whole feature reversible — turning an event's flag off
+/// leaves its rows dormant rather than deleting them.
 ///
-/// The enabled flag is read here at [getInstance] and published *with* the
-/// data, following [PublicHolidayService] rather than `FastingCalendar`: the
-/// latter is configured from `CalendarPage._loadSettings` after the first
-/// frame, which on a cold start into the calendar would render templates for
-/// one frame and then flip every row.
+/// Scope is opted into **per event** via
+/// `CalendarEvent.perOccurrenceDescriptions` (v28), the way presence is; the
+/// single global switch v24 shipped is gone, and with it the flag machinery
+/// this service used to carry. What survives from it is the
+/// [PublicHolidayService] shape: the data is loaded at [getInstance] and
+/// published with it, never configured from a page after the first frame.
+///
+/// All CRDT stamping lives in [EventOccurrenceDao]; this layer never touches
+/// `hlcTimestamp` / `deviceId` / `version` / `isDeleted`, and its cache holds
+/// live overrides only.
 class EventOccurrenceService {
   static EventOccurrenceService? _instance;
 
-  late AppDatabase _db;
   late EventOccurrenceDao _dao;
-  bool _enabled = SettingsKeys.defaultEventPerOccurrenceDescriptions;
 
   EventOccurrenceService._();
 
   static Future<EventOccurrenceService> getInstance() async {
     if (_instance != null) return _instance!;
+    return _create(await AppDatabase.getInstance());
+  }
+
+  /// Binds the singleton to an arbitrary [AppDatabase], bypassing
+  /// [AppDatabase.getInstance]'s `path_provider` lookup and device-id file.
+  ///
+  /// Exists so tests can exercise the real DAO, the real CRDT stamping and the
+  /// real facade against `NativeDatabase.memory()`. Never use it in app code —
+  /// the singleton is what the [DatabaseLifecycle] reset contract is built on.
+  @visibleForTesting
+  static Future<EventOccurrenceService> forTesting(AppDatabase db) async {
+    if (_instance != null) return _instance!;
+    return _create(db);
+  }
+
+  static Future<EventOccurrenceService> _create(AppDatabase db) async {
     final service = EventOccurrenceService._();
-    service._db = await AppDatabase.getInstance();
-    service._dao = service._db.eventOccurrenceDao;
-    service._enabled = await service._readEnabled();
+    service._dao = db.eventOccurrenceDao;
     await service._load();
     _instance = service;
     DatabaseLifecycle.registerResetHandler(reset);
@@ -51,31 +67,6 @@ class EventOccurrenceService {
     OccurrenceDescriptions.resetCache();
   }
 
-  bool get enabled => _enabled;
-
-  /// Turns per-occurrence descriptions on or off. Writes the setting and
-  /// republishes in one step — the only supported way to change the flag, so
-  /// the facade can never disagree with `user_settings`. Rows are never
-  /// touched: switching off makes them dormant, switching back on restores
-  /// exactly what was there.
-  Future<void> setEnabled(bool value) async {
-    if (value == _enabled) return;
-    await _db.userSettingsDao.setValue(
-      SettingsKeys.eventPerOccurrenceDescriptions,
-      value.toString(),
-    );
-    _enabled = value;
-    await _load();
-  }
-
-  Future<bool> _readEnabled() async {
-    final raw = await _db.userSettingsDao.getValue(
-      SettingsKeys.eventPerOccurrenceDescriptions,
-    );
-    if (raw == null) return SettingsKeys.defaultEventPerOccurrenceDescriptions;
-    return raw == 'true';
-  }
-
   Future<void> reload() => _load();
 
   /// Mutable working copy behind the published facade. Single-row mutations
@@ -87,7 +78,7 @@ class EventOccurrenceService {
   Future<void> _load() async {
     _byEvent.clear();
     try {
-      final rows = await _dao.getAll();
+      final rows = await _dao.getActive();
       for (final row in rows) {
         (_byEvent[row.eventId] ??= {})[_dateOnlyUtc(row.day)] = row.description;
       }
@@ -102,7 +93,6 @@ class EventOccurrenceService {
   /// in-place patch can never mutate what render paths are already reading.
   void _publish() {
     OccurrenceDescriptions.updateCache(
-      enabled: _enabled,
       byEvent: {
         for (final entry in _byEvent.entries)
           entry.key: Map.unmodifiable(Map<DateTime, String>.of(entry.value)),
@@ -135,11 +125,13 @@ class EventOccurrenceService {
     _publish();
   }
 
-  /// Deletes one day's override, returning that day to the template. Distinct
-  /// from writing `''`, which is a deliberately blank day.
+  /// Returns one day to the template. The row survives as a tombstone — it is
+  /// the ordered record of the reset — but drops out of the cache and the
+  /// facade immediately. Distinct from writing `''`, which is a deliberately
+  /// blank day.
   Future<void> clearDescription(String eventId, DateTime day) async {
     final key = _dateOnlyUtc(day);
-    await _dao.deleteFor(eventId, key);
+    await _dao.tombstone(eventId, key);
     final forEvent = _byEvent[eventId];
     if (forEvent != null) {
       forEvent.remove(key);
@@ -159,8 +151,11 @@ class EventOccurrenceService {
 
   // ── Backup export / import ───────────────────────────────────────────
 
+  /// Live overrides only, without CRDT identity. Backups are not a sync
+  /// channel: `BackupService` already excludes tombstones and identity for
+  /// notes/folders, and identity is regenerated on restore.
   Future<List<Map<String, dynamic>>> exportData() async {
-    final rows = await _dao.getAll();
+    final rows = await _dao.getActive();
     return [
       for (final row in rows)
         {
@@ -173,10 +168,9 @@ class EventOccurrenceService {
     ];
   }
 
-  /// Wipe-then-reinsert, mirroring [CalendarEventService.importData]. Also
-  /// re-reads the enabled flag: `BackupService.importFromJson` replays the
-  /// backup's `settings` map straight into `user_settings` and republishes
-  /// nothing, so without this the facade would keep the pre-import flag.
+  /// Wipe-then-reinsert, mirroring [CalendarEventService.importData]. Audit
+  /// timestamps are preserved from the backup; identity is stamped fresh by the
+  /// DAO, so a tombstone never round-trips a restore.
   Future<void> importData(List<dynamic> data) async {
     await _dao.deleteAll();
     for (final raw in data) {
@@ -192,7 +186,7 @@ class EventOccurrenceService {
         final createdAtMs = map['createdAtMs'];
         final updatedAtMs = map['updatedAtMs'];
         final now = DateTime.now();
-        await _dao.upsert(
+        await _dao.importOccurrence(
           EventOccurrenceDescriptionsCompanion(
             eventId: Value(eventId),
             day: Value(
@@ -217,17 +211,15 @@ class EventOccurrenceService {
         debugPrint('[EventOccurrenceService] Import row error: $e');
       }
     }
-    _enabled = await _readEnabled();
     await _load();
   }
 
-  /// Clears every override without touching the setting. Used when restoring
-  /// a backup that carried events but no occurrence key: the event import
-  /// wipes and reinserts, so keeping the previous database's overrides would
-  /// strand them against unrelated event ids.
+  /// Clears every override. Used when restoring a backup that carried events
+  /// but no occurrence key: the event import wipes and reinserts, so keeping
+  /// the previous database's overrides would strand them against unrelated
+  /// event ids.
   Future<void> clearAllForImport() async {
     await _dao.deleteAll();
-    _enabled = await _readEnabled();
     await _load();
   }
 

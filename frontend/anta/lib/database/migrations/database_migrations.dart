@@ -136,6 +136,16 @@ class DatabaseMigrations {
       toVersion: DatabaseSchema.v26EventPresence,
       migrate: _migrateV25ToV26,
     ),
+    Migration(
+      fromVersion: DatabaseSchema.v26EventPresence,
+      toVersion: DatabaseSchema.v27CalendarEventsCrdt,
+      migrate: _migrateV26ToV27,
+    ),
+    Migration(
+      fromVersion: DatabaseSchema.v27CalendarEventsCrdt,
+      toVersion: DatabaseSchema.v28DescriptionScope,
+      migrate: _migrateV27ToV28,
+    ),
   ];
 
   Future<void> runMigrations(Migrator m, int from, int to) async {
@@ -837,6 +847,194 @@ class DatabaseMigrations {
       '  deleted_at INTEGER, '
       '  PRIMARY KEY (event_id, day)'
       ')',
+    );
+  }
+
+  /// v26→v27: `calendar_events` becomes CRDT-shaped.
+  ///
+  /// Adds the five-column Notes/Folders block (`hlc_timestamp`, `device_id`,
+  /// `version`, `is_deleted`, `deleted_at`) so a deleted event can leave an
+  /// ordered tombstone instead of destroying merge history no later migration
+  /// could reconstruct. No transport ships here — this is the schema debt that
+  /// accrues interest with every ordinary delete, so it is paid before any
+  /// cloud phase touches the calendar.
+  ///
+  /// The identity columns carry `DEFAULT ''` because SQLite's
+  /// `ALTER TABLE … ADD COLUMN NOT NULL` demands a default on a populated
+  /// table — the one deviation from the `calendar_event_absences` declaration,
+  /// mirrored in the Drift table so the created and migrated shapes agree.
+  /// `''` is transitional, never valid: the backfill stamps real identity on
+  /// every pre-existing row in one statement, and `CalendarEventDao` stamps
+  /// every write afterwards. That statement shares a single migration-moment
+  /// HLC across the whole table, because every existing row was last modified
+  /// locally at an order this device can no longer distinguish. `version 1` /
+  /// `is_deleted 0` make each one a live, never-merged row — which is exactly
+  /// what it was.
+  ///
+  /// The `start_date` index is **replaced**, not extended: `getAll()` now
+  /// filters `is_deleted = 0`, so the index becomes partial on the same
+  /// predicate under the same name. The `DROP` is mandatory — `IF NOT EXISTS`
+  /// alone would leave upgraders on the full index while fresh installs get the
+  /// partial one, a create-vs-migrate divergence the name-only parity scrape
+  /// cannot see.
+  ///
+  /// Idempotent throughout: `PRAGMA table_info` guards the ALTERs, the backfill
+  /// is scoped to `hlc_timestamp = ''`, and the index swap is drop-then-create.
+  Future<void> _migrateV26ToV27(Migrator m, GeneratedDatabase db) async {
+    final existing = <String>{
+      for (final row
+          in await _db.customSelect('PRAGMA table_info(calendar_events)').get())
+        row.read<String>('name'),
+    };
+    if (!existing.contains('hlc_timestamp')) {
+      await _db.customStatement(
+        "ALTER TABLE calendar_events "
+        "ADD COLUMN hlc_timestamp TEXT NOT NULL DEFAULT ''",
+      );
+    }
+    if (!existing.contains('device_id')) {
+      await _db.customStatement(
+        "ALTER TABLE calendar_events ADD COLUMN device_id TEXT NOT NULL DEFAULT ''",
+      );
+    }
+    if (!existing.contains('version')) {
+      await _db.customStatement(
+        'ALTER TABLE calendar_events ADD COLUMN version INTEGER NOT NULL DEFAULT 1',
+      );
+    }
+    if (!existing.contains('is_deleted')) {
+      await _db.customStatement(
+        'ALTER TABLE calendar_events ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+    if (!existing.contains('deleted_at')) {
+      await _db.customStatement(
+        'ALTER TABLE calendar_events ADD COLUMN deleted_at INTEGER',
+      );
+    }
+
+    await _db.customStatement(
+      "UPDATE calendar_events SET hlc_timestamp = ?, device_id = ? "
+      "WHERE hlc_timestamp = ''",
+      [_db.generateHlc(), _db.deviceId],
+    );
+
+    await _db.customStatement(
+      'DROP INDEX IF EXISTS idx_calendar_events_start_date',
+    );
+    await DatabaseIndexes(_db).createCalendarIndexes();
+  }
+
+  /// v27→v28: Description scope moves onto the event, and
+  /// `calendar_event_occurrences` becomes CRDT-shaped.
+  ///
+  /// Two independent blocks. The first adds `per_occurrence_descriptions` to
+  /// `calendar_events`, the `tracks_presence` twin: the single global switch
+  /// v24 shipped retires and each event carries its own scope choice, so one
+  /// gym log can keep a different note per day while the weekly standup keeps
+  /// one shared description. `NOT NULL DEFAULT 0` means every event lands on
+  /// "one shared description", which is exactly what a global-off install
+  /// already rendered.
+  ///
+  /// The backfill is settings-driven because a global-ON user had the scope
+  /// control on *every* repeating event: reading `user_settings` for
+  /// `'event_per_occurrence_descriptions'` (the [_migrateV17ToV18] precedent —
+  /// booleans are stored as the literal `'true'`/`'false'`) and flipping every
+  /// live non-one-time event preserves both the observable behaviour and the
+  /// capability surface, and they can now turn individual events off. Off or
+  /// absent flips nothing; rows written under it stay dormant exactly as they
+  /// render today. The key is a frozen literal here so the `SettingsKeys`
+  /// constant can retire without reaching back into a shipped migration.
+  ///
+  /// The second block gives `calendar_event_occurrences` the five-column
+  /// Notes/Folders block, reversing cloud-sync phase-02's "occurrences stay
+  /// device-local" decision: per-day text is user data on par with absence
+  /// marks, and "reset this day" becomes a tombstone that survives a merge
+  /// instead of being pushed back by the partner. This is the second populated
+  /// table to convert, so it is the v27 shape and not v26's: `DEFAULT ''` on
+  /// the identity columns because SQLite's `ALTER TABLE … ADD COLUMN NOT NULL`
+  /// demands a default, mirrored in the Drift declaration so the created and
+  /// migrated shapes agree. `''` is transitional, never valid — the backfill
+  /// stamps real identity on every pre-existing row in one statement sharing a
+  /// single migration-moment HLC, because every existing row was last modified
+  /// locally at an order this device can no longer distinguish, and
+  /// `EventOccurrenceDao` stamps every write afterwards. `version 1` /
+  /// `is_deleted 0` make each one a live, never-merged row, which is what it
+  /// was.
+  ///
+  /// No index: the composite `PRIMARY KEY (event_id, day)` already covers the
+  /// point lookup and the per-event cascade, and the table is loaded once.
+  ///
+  /// Idempotent throughout: `PRAGMA table_info` guards both blocks and the
+  /// identity backfill is scoped to `hlc_timestamp = ''`.
+  Future<void> _migrateV27ToV28(Migrator m, GeneratedDatabase db) async {
+    final eventColumns = <String>{
+      for (final row
+          in await _db.customSelect('PRAGMA table_info(calendar_events)').get())
+        row.read<String>('name'),
+    };
+    if (!eventColumns.contains('per_occurrence_descriptions')) {
+      await _db.customStatement(
+        'ALTER TABLE calendar_events '
+        'ADD COLUMN per_occurrence_descriptions INTEGER NOT NULL DEFAULT 0',
+      );
+      final settingRows = await _db
+          .customSelect(
+            "SELECT value FROM user_settings "
+            "WHERE key = 'event_per_occurrence_descriptions'",
+          )
+          .get();
+      final globalWasOn =
+          settingRows.isNotEmpty &&
+          settingRows.first.read<String?>('value') == 'true';
+      if (globalWasOn) {
+        await _db.customStatement(
+          'UPDATE calendar_events SET per_occurrence_descriptions = 1 '
+          "WHERE rule_kind != 'oneTime' AND is_deleted = 0",
+        );
+      }
+    }
+
+    final occurrenceColumns = <String>{
+      for (final row in await _db
+          .customSelect('PRAGMA table_info(calendar_event_occurrences)')
+          .get())
+        row.read<String>('name'),
+    };
+    if (!occurrenceColumns.contains('hlc_timestamp')) {
+      await _db.customStatement(
+        "ALTER TABLE calendar_event_occurrences "
+        "ADD COLUMN hlc_timestamp TEXT NOT NULL DEFAULT ''",
+      );
+    }
+    if (!occurrenceColumns.contains('device_id')) {
+      await _db.customStatement(
+        "ALTER TABLE calendar_event_occurrences "
+        "ADD COLUMN device_id TEXT NOT NULL DEFAULT ''",
+      );
+    }
+    if (!occurrenceColumns.contains('version')) {
+      await _db.customStatement(
+        'ALTER TABLE calendar_event_occurrences '
+        'ADD COLUMN version INTEGER NOT NULL DEFAULT 1',
+      );
+    }
+    if (!occurrenceColumns.contains('is_deleted')) {
+      await _db.customStatement(
+        'ALTER TABLE calendar_event_occurrences '
+        'ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+    if (!occurrenceColumns.contains('deleted_at')) {
+      await _db.customStatement(
+        'ALTER TABLE calendar_event_occurrences ADD COLUMN deleted_at INTEGER',
+      );
+    }
+
+    await _db.customStatement(
+      "UPDATE calendar_event_occurrences SET hlc_timestamp = ?, device_id = ? "
+      "WHERE hlc_timestamp = ''",
+      [_db.generateHlc(), _db.deviceId],
     );
   }
 }

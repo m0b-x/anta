@@ -1030,10 +1030,10 @@ Nothing pre-rendered is persisted or cached in the database.
   grandfather** (`_initialTemplateLength` / `_initialDayLength`), and
   `_canSave` checks both — reading only the live controller would let
   over-limit day text through while the template view is on screen.
-- **Descriptions can be per-occurrence (v24), behind one global setting.**
-  `SettingsKeys.eventPerOccurrenceDescriptions` (default **off** = the exact
-  pre-v24 behaviour; Calendar Settings → Events; in reset-to-defaults) turns
-  the event's `description` into a **template**: a day with no row of its own
+- **Descriptions can be per-occurrence (v24; opted into per event since
+  v28).** `CalendarEvent.perOccurrenceDescriptions` — an editor switch above
+  the description field; the v24 global setting is gone (see the v28
+  addendum) — turns the event's `description` into a **template**: a day with no row of its own
   renders the template, and the first edit or tick on a day materialises a row
   in `calendar_event_occurrences` seeded from it (copy-on-write). The table
   holds **only user deltas**, exactly like `public_holidays` since v22, so a
@@ -1042,22 +1042,24 @@ Nothing pre-rendered is persisted or cached in the database.
     (`lib/constants/occurrence_descriptions.dart`). Never resolve a description
     for a day any other way, or the template fallback drifts between the day
     panel, the agenda, the detail sheet and search.
-  - **The gate is `rule is OneTimeRecurrence`, and nothing else.** An event
+  - **The gate is the event's flag plus `rule is OneTimeRecurrence`, and
+    nothing else.** An event
     firing on one day has nothing to separate; a `SpecificDatesRecurrence` is a
     list of distinct occasions and *does* participate. Never gate on the
     editor's `_RepeatMode`, which files specific-dates under `oneTime`.
   - **A row that exists always wins, including when empty.** `overrideFor`
     returns non-null (possibly `''`) for a present row and `null` only for a
     missing one — that is what keeps a deliberately blanked day blank instead
-    of falling back. "Reset this day" **deletes** the row; it never writes `''`.
-    This also makes the notes-icon badge per-day-correct for free.
+    of falling back. "Reset this day" **tombstones** the row (since v28); it
+    never writes `''`. This also makes the notes-icon badge per-day-correct
+    for free.
   - **Reversible in both directions.** Turning the setting on moves nothing;
     turning it off leaves rows dormant rather than deleting them. Rules that
     change so a day no longer occurs keep their row — a stored delta is the
     only durable record of a deliberate act. Deleting an event cascades
     (one transaction in `CalendarEventService.deleteById`/`deleteAll`).
   - **Static facade published by the service, not a page.** `EventOccurrenceService`
-    reads the flag at `getInstance()` and publishes it *with* the data — the
+    publishes the cache at `getInstance()` — the
     `PublicHolidayService` shape, deliberately not `FastingCalendar`'s, whose
     post-first-frame `configure` would render templates for one frame and then
     flip every row on a cold start into the calendar. `reset()` must clear the
@@ -1393,8 +1395,8 @@ the rule has many occurrences, save mirror `recurring && flag` like
 `EventAbsenceDao` (`db.generateHlc()`, `db.deviceId`, read-then-write
 `version + 1`). Un-marking **tombstones** the row; re-marking resurrects it
 with `created_at` intact — a last-writer-wins element set, cloud-ready from
-birth (cloud-sync phase-02, renumbered **v27**, wires transport; absences
-**sync**, unlike per-occurrence descriptions, which stay device-local).
+birth (cloud-sync phase-02 — now **v29** — wires transport; absences
+**sync**, and since v28 per-occurrence descriptions do too).
 
 - **One read entry point**: `EventPresence`
   (`lib/constants/event_presence.dart`) — `appliesTo(event)` is
@@ -1425,6 +1427,100 @@ birth (cloud-sync phase-02, renumbered **v27**, wires transport; absences
   (backups are not a sync channel; `importAbsence` regenerates identity
   while preserving `createdAt`/`updatedAt`), no version bump, and the same
   absent-key-with-present-`calendarEvents` clear rule as occurrences.
-- Event deletes hard-cascade absences — tombstones included — in the same
-  transaction (flips to tombstoning when phase-02 soft-deletes events).
+- Since v27, a single-event delete tombstones the event and bulk-tombstones
+  its absences in one transaction; occurrence descriptions are still
+  hard-deleted (device-local), and bulk wipes stay hard.
 - Design record: `docs/presence-tracking-roadmap.md`.
+
+## Addendum (schema v27): `calendar_events` CRDT + agenda/detail fixes
+
+`calendar_events` carries the five CRDT columns since v27 — with
+`DEFAULT ''` on `hlc_timestamp`/`device_id` (an `ALTER TABLE` on a populated
+table demands a default; the migration backfills real identity in one
+`UPDATE` bound to `generateHlc()`/`deviceId`, and every write path stamps,
+so `''` never survives a write). Layering is unchanged: the domain
+`CalendarEvent` has no CRDT field; everything lives in `CalendarEventDao`.
+
+- `upsert` — read-then-write: miss → `version 1`; hit → fresh HLC/device,
+  `version + 1`, `createdAt` masked, and **explicit `isDeleted: false` +
+  `deletedAt: null`** — an id-reusing restore over a tombstone must
+  resurrect, never update an invisible row. `importData`'s hard wipe stays
+  hard forever as the second belt.
+- Single-event delete = `softDeleteById` (the `softDeleteNote` shape) +
+  `EventAbsenceDao.tombstoneForEvent` (bulk, one shared HLC) + the
+  occurrence cascade (hard here; tombstoning since v28), in one transaction.
+  `deleteAll` and import wipes stay hard — "Delete all events" promises
+  permanence; cloud-sync phase-02 (now **v29**) owns the synced-wipe
+  decision and needs only `owner_id` + transport.
+- `reassignCategory` — one `customUpdate`: `version = version + 1`, one
+  shared HLC, `Variable<DateTime>` binds, `AND is_deleted = 0`.
+- `getAll()` filters `is_deleted = 0` behind the now-**partial**
+  `idx_calendar_events_start_date`; the migration `DROP`s the full index
+  first (`IF NOT EXISTS` would strand upgraders on the full one). One
+  filtered read path → grid, panels, agenda, timeline, backup export and
+  `.ics` agree for free. A real v26→v27 migration test pins the backfill,
+  the index swap and idempotence.
+
+Agenda: rows are built once by the pure top-level `buildAgendaRows`
+(`agenda_list_view.dart`; pure *given* the `EventPresence` /
+`OccurrenceDescriptions` facades — memos over it must key
+`occurrenceRevision`). `UpcomingAgendaView` owns the six-key memo and
+derives the panel header count from the `AgendaEntryRow`s it renders —
+exact in hidden mode, counting visible entries (holiday entries
+individually). `AgendaListView` is a stateless renderer of `rows`. The day
+summary panel's count is deliberately unchanged — it always shows missed
+rows, so its count already matches its screen.
+
+Detail sheet: the date row shows the opened occurrence day (`widget.day`;
+the presence toggle directly beneath marks that date), and a label-less
+`Icons.event_repeat_rounded` row — `eventDetailsSeriesStart`, "Repeats
+since {date}" — follows the recurrence-pattern row for recurring events
+whose series anchor differs.
+
+Design record: `docs/calendar-cloud-readiness-roadmap.md`.
+
+## Addendum (schema v28): per-event description scope + occurrence CRDT
+
+The v24 global per-occurrence-descriptions setting is gone. Each recurring
+event carries `per_occurrence_descriptions` (default 0, the
+`tracks_presence` twin): on, the event keeps a separate description per day
+with its own description as the template; off, one shared description
+updates everywhere. The v28 migration converted intent settings-driven —
+exactly when the stored value of the frozen literal
+`'event_per_occurrence_descriptions'` was `'true'`, every live repeating
+event was flagged on (`WHERE rule_kind != 'oneTime' AND is_deleted = 0`),
+so a global-ON user saw zero change; the `SettingsKeys` constants and the
+service's whole flag half (`enabled`/`setEnabled`/`_readEnabled` and the
+post-import re-reads) are deleted, and the settings-page entry is gone.
+
+- **The gate lives in the facade**: `OccurrenceDescriptions.appliesTo` =
+  `event.perOccurrenceDescriptions && rule is! OneTimeRecurrence`. Because
+  `descriptionFor` calls it, the detail sheet, day-panel badge, agenda
+  narrowing and both row surfaces followed the flag with no widget edits.
+- **The editor reads its draft, never the saved row**: `_scopeGateOpen`
+  (= rule-has-many-occurrences && the sheet's `_perOccurrenceDescriptions`
+  state) gates `_scopeControlVisible`, `_resolveOccurrenceOutcome` and
+  `_syncScopeToRule`'s early-out. The switch sits in Details directly above
+  the description field; flipping it off mid-edit parks the day text
+  exactly like flipping to one-time, and Save mirrors `recurring && flag`.
+- **`calendar_event_occurrences` carries the five CRDT columns** (the
+  second populated-table conversion: `DEFAULT ''` identity + one-statement
+  backfill). `EventOccurrenceDao` is the `EventAbsenceDao` shape plus
+  `description`: `getActive`, read-then-write `upsert` (explicit
+  `isDeleted: false` + `deletedAt: null` on the update branch — re-writing
+  a reset day resurrects its row, `created_at` intact), `tombstone`
+  (= "reset this day"), `tombstoneForEvent`, `importOccurrence` (fresh
+  identity, audit timestamps preserved); the hard variants serve
+  wipes/import only.
+- **A single event delete tombstones all three tables** — event, absences,
+  occurrences — in one transaction, one statement each.
+- **Backups**: the flag rides the event map additively; version stays 7.
+  Pre-v28 backups restore with every flag off and rows dormant — the flag
+  was never in the settings allowlist, and an archive that never carried
+  intent is not mined for it; enabling an event restores its imported day
+  texts.
+- Phase-02 (renumbered **v29**) syncs occurrences —
+  `keyLastEventOccurrenceHlc = 'last_event_occurrence_hlc'`, delta feeds in
+  the notes shape.
+
+Design record: `docs/description-scope-roadmap.md`.

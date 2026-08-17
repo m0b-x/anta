@@ -324,7 +324,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get eventPerOccurrenceDescriptionsDesc =>
-      'Repeating events keep their own description for each day. The event\'s description becomes the template every day starts from.';
+      'This event keeps its own description for each day. The event\'s description becomes the template every day starts from.';
 
   @override
   String get eventDescriptionScopeAllDays => 'All days';
@@ -586,8 +586,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get eventTrackPresence => 'Track presence';
 
   @override
-  String get eventTrackPresenceDesc =>
-      'Mark the days you skip. The event keeps one description for every day.';
+  String get eventTrackPresenceDesc => 'Mark the days you skip.';
 
   @override
   String get eventPresencePresent => 'Present';
@@ -1014,6 +1013,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get eventDetailsNoDescription => 'No notes for this event';
+
+  @override
+  String eventDetailsSeriesStart(String date) {
+    return 'Repeats since $date';
+  }
 
   @override
   String get eventColor => 'Color';

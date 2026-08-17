@@ -275,7 +275,19 @@ void main() {
   });
 
   group('event delete cascade', () {
-    test('hard-deletes every row of that event, tombstones included', () async {
+    /// The shape `CalendarEventService.deleteById` runs in one transaction
+    /// since v28: the event tombstones, and both per-day tables — marks and
+    /// descriptions — tombstone with it.
+    Future<void> deleteEvent(String eventId) async {
+      await db.transaction(() async {
+        await db.calendarEventDao.softDeleteById(eventId);
+        await db.eventAbsenceDao.tombstoneForEvent(eventId);
+        await db.eventOccurrenceDao.tombstoneForEvent(eventId);
+      });
+      await service.refreshAfterEventRemoval();
+    }
+
+    setUp(() async {
       await db.calendarEventDao.upsert(
         CalendarEventsCompanion.insert(
           id: 'e1',
@@ -287,18 +299,76 @@ void main() {
           updatedAt: DateTime.now(),
         ),
       );
+    });
+
+    test('tombstones every live mark and leaves the facade clean', () async {
       await service.markMissed('e1', day);
       await service.markMissed('e1', otherDay);
       await service.unmark('e1', otherDay);
       await service.markMissed('e2', day);
 
-      await db.eventAbsenceDao.deleteForEvent('e1');
-      await service.refreshAfterEventRemoval();
+      await deleteEvent('e1');
 
+      // The parent is a tombstone now, so its children are too: delete and
+      // marks merge as one act instead of the marks outliving the event.
       final rows = await allRows();
-      expect(rows.map((r) => r.eventId), ['e2']);
+      expect(rows, hasLength(3));
+      for (final row in rows.where((r) => r.eventId == 'e1')) {
+        expect(row.isDeleted, isTrue);
+        expect(row.deletedAt, isNotNull);
+      }
+      expect(await db.eventAbsenceDao.getActive(), hasLength(1));
       expect(EventPresence.isMissed('e1', day), isFalse);
       expect(EventPresence.isMissed('e2', day), isTrue);
+    });
+
+    test('bumps live marks once and leaves existing tombstones alone', () async {
+      await service.markMissed('e1', day);
+      await service.markMissed('e1', otherDay);
+      await service.unmark('e1', otherDay);
+      final alreadyDead = await rowFor('e1', otherDay);
+
+      await deleteEvent('e1');
+
+      expect((await rowFor('e1', day)).version, 2);
+      // Rewriting a row that was already tombstoned would invent an ordering
+      // event out of nothing.
+      final untouched = await rowFor('e1', otherDay);
+      expect(untouched.version, alreadyDead.version);
+      expect(untouched.hlcTimestamp, alreadyDead.hlcTimestamp);
+    });
+
+    test('per-day descriptions tombstone alongside the marks', () async {
+      await db.eventOccurrenceDao.upsert(
+        EventOccurrenceDescriptionsCompanion.insert(
+          eventId: 'e1',
+          day: day,
+          description: 'skipped, sore knee',
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        ),
+      );
+
+      await deleteEvent('e1');
+
+      // Since v28 they carry the CRDT block too, so all three tables die
+      // together with one merge order instead of one of them vanishing.
+      expect(await db.eventOccurrenceDao.getActive(), isEmpty);
+      expect(await db.select(db.eventOccurrenceDescriptions).get(), hasLength(1));
+    });
+
+    test('the bulk wipe still hard-deletes everything', () async {
+      await service.markMissed('e1', day);
+      await service.unmark('e1', otherDay);
+
+      await db.eventAbsenceDao.deleteAll();
+      await service.refreshAfterEventRemoval();
+
+      // "Delete all events" promises the removal is permanent, and the backup
+      // import re-inserts backed-up ids over the wipe — tombstoning either
+      // would leave dead rows for no one to merge with.
+      expect(await allRows(), isEmpty);
+      expect(EventPresence.isMissed('e1', day), isFalse);
     });
   });
 }

@@ -12,23 +12,87 @@ import 'markdown_inline_text.dart';
 import '../services/day_summary_resolver.dart';
 import '../utils/event_agenda.dart';
 
+/// Flattens an occurrence list into alternating day headers and entry rows so
+/// a single `ListView.builder` can render the grouped agenda.
+///
+/// Holiday days are merged into the same ascending walk, so a day that is
+/// only a holiday still gets a header and a row. Within a day, events come
+/// first and the holiday last — matching the day summary panel, where the
+/// holiday entry's higher `priority` value sinks it below the events.
+///
+/// Missed occurrences are dropped here in hidden mode, before the day's
+/// header is emitted — so a day left with nothing produces no header either,
+/// and the per-day entry count stays honest. That is also why the count the
+/// panel header shows must be derived from these rows rather than from the
+/// scan: only here is it known what survives.
+///
+/// Pure *given the `EventPresence` / `OccurrenceDescriptions` facades* — both
+/// are static caches read while the rows are built, so any memo over this
+/// function must key `occurrenceRevision` as well as its arguments.
+List<AgendaRow> buildAgendaRows({
+  required List<EventOccurrence> occurrences,
+  required List<DateTime> holidayDays,
+  required AppLocalizations l10n,
+  required bool showRecurrenceLabels,
+  required CalendarMissedDisplay missedDisplay,
+}) {
+  final hideMissed = missedDisplay == CalendarMissedDisplay.hidden;
+  final eventProvider = EventSummaryProvider(
+    l10n,
+    showRecurrence: showRecurrenceLabels,
+  );
+  final holidayProvider = PublicHolidaySummaryProvider(l10n);
+  final rows = <AgendaRow>[];
+  var index = 0;
+  var holidayIndex = 0;
+
+  while (index < occurrences.length || holidayIndex < holidayDays.length) {
+    final nextEventDay = index < occurrences.length
+        ? occurrences[index].day
+        : null;
+    final nextHolidayDay = holidayIndex < holidayDays.length
+        ? holidayDays[holidayIndex]
+        : null;
+    final day = nextEventDay == null
+        ? nextHolidayDay!
+        : (nextHolidayDay == null || nextEventDay.isBefore(nextHolidayDay)
+              ? nextEventDay
+              : nextHolidayDay);
+
+    final dayEvents = <CalendarEvent>[];
+    while (index < occurrences.length && occurrences[index].day == day) {
+      dayEvents.add(occurrences[index].event);
+      index++;
+    }
+    final isHoliday = nextHolidayDay == day;
+    if (isHoliday) holidayIndex++;
+
+    final entries = <DaySummaryEntry>[
+      for (final entry in eventProvider.summaryFor(day, dayEvents))
+        if (!hideMissed || !entry.missed) entry,
+      if (isHoliday) ...holidayProvider.summaryFor(day, dayEvents),
+    ];
+    if (entries.isEmpty) continue;
+    rows.add(AgendaDayHeaderRow(day: day, count: entries.length));
+    for (final entry in entries) {
+      rows.add(AgendaEntryRow(day: day, entry: entry));
+    }
+  }
+  return rows;
+}
+
 /// Grouped agenda list: a day header followed by one card per occurrence.
+///
+/// A pure renderer over rows built by [buildAgendaRows]: the owner holds the
+/// memo, so the count it prints above this list and the rows drawn in it come
+/// from one computation and can never disagree.
 ///
 /// Rows are rendered from [EventSummaryProvider] entries rather than from the
 /// events directly, so the agenda inherits the day summary panel's icon,
 /// tint and subtitle resolution and the two surfaces cannot drift apart.
-///
-/// Stateful only to memoize the flattened row list: the inputs change by
-/// identity (the agenda view rebuilds its lists on every filter change), so
-/// unrelated rebuilds — keyboard animation, theme — reuse the cached rows
-/// instead of re-deriving O(occurrences) entries.
-class AgendaListView extends StatefulWidget {
-  /// Occurrences in display order, as produced by [EventAgenda].
-  final List<EventOccurrence> occurrences;
-
-  /// Public-holiday days to interleave, ascending. Empty when the user has
-  /// not opted in. A day listed here appears even with no events on it.
-  final List<DateTime> holidayDays;
+class AgendaListView extends StatelessWidget {
+  /// The flattened rows to draw, in order.
+  final List<AgendaRow> rows;
 
   /// Called when a row is tapped — typically to focus the calendar on the
   /// occurrence's day.
@@ -46,24 +110,9 @@ class AgendaListView extends StatefulWidget {
   /// day summary panel so both surfaces render a description identically.
   final MarkdownColorPalette colorPalette;
 
-  /// Whether row subtitles mention the repeat pattern; forwarded to
-  /// [EventSummaryProvider] so agenda and day-panel rows always agree.
-  final bool showRecurrenceLabels;
-
-  /// Bumped when a per-occurrence description or a presence mark changes.
-  /// Part of the row-memo key below: the rows embed resolved description text
-  /// and the missed flag, but neither changes the occurrence list, so nothing
-  /// else here would ever notice.
-  final int occurrenceRevision;
-
-  /// Whether occurrences marked as missed are dimmed or dropped. Dropping
-  /// happens while the rows are built, so a hidden occurrence costs no row.
-  final CalendarMissedDisplay missedDisplay;
-
   const AgendaListView({
     super.key,
-    required this.occurrences,
-    this.holidayDays = const [],
+    required this.rows,
     required this.onDaySelected,
     required this.onEditEvent,
     required this.onOpenNote,
@@ -71,9 +120,6 @@ class AgendaListView extends StatefulWidget {
     required this.emptyHint,
     this.padding = const EdgeInsets.fromLTRB(16, 12, 16, 16),
     this.colorPalette = MarkdownColorPalette.presets,
-    this.showRecurrenceLabels = true,
-    this.occurrenceRevision = 0,
-    this.missedDisplay = CalendarMissedDisplay.faded,
   });
 
   /// Qualitative priority word appended to a row subtitle. The neutral
@@ -92,123 +138,30 @@ class AgendaListView extends StatefulWidget {
   }
 
   @override
-  State<AgendaListView> createState() => _AgendaListViewState();
-}
-
-class _AgendaListViewState extends State<AgendaListView> {
-  /// Cached flattened rows plus the inputs they were derived from. The
-  /// entries embed localized strings, so the locale is part of the key; the
-  /// Today/Tomorrow header labels are NOT — they are resolved in the item
-  /// builder, so a panel left open across midnight relabels on its next
-  /// rebuild without invalidating this cache.
-  List<_AgendaRow> _rows = const [];
-  List<EventOccurrence>? _rowsForOccurrences;
-  List<DateTime>? _rowsForHolidays;
-  String? _rowsForLocale;
-  bool? _rowsForShowRecurrence;
-  int? _rowsForOccurrenceRevision;
-  CalendarMissedDisplay? _rowsForMissedDisplay;
-
-  List<_AgendaRow> _rowsFor(AppLocalizations l10n) {
-    if (identical(_rowsForOccurrences, widget.occurrences) &&
-        identical(_rowsForHolidays, widget.holidayDays) &&
-        _rowsForLocale == l10n.localeName &&
-        _rowsForShowRecurrence == widget.showRecurrenceLabels &&
-        _rowsForOccurrenceRevision == widget.occurrenceRevision &&
-        _rowsForMissedDisplay == widget.missedDisplay) {
-      return _rows;
-    }
-    _rowsForOccurrences = widget.occurrences;
-    _rowsForHolidays = widget.holidayDays;
-    _rowsForLocale = l10n.localeName;
-    _rowsForShowRecurrence = widget.showRecurrenceLabels;
-    _rowsForOccurrenceRevision = widget.occurrenceRevision;
-    _rowsForMissedDisplay = widget.missedDisplay;
-    return _rows = _buildRows(l10n);
-  }
-
-  /// Flattens the occurrence list into alternating day headers and entry
-  /// rows so a single `ListView.builder` can render the grouped agenda.
-  ///
-  /// Holiday days are merged into the same ascending walk, so a day that is
-  /// only a holiday still gets a header and a row. Within a day, events come
-  /// first and the holiday last — matching the day summary panel, where the
-  /// holiday entry's higher `priority` value sinks it below the events.
-  ///
-  /// Missed occurrences are dropped here in hidden mode, before the day's
-  /// header is emitted — so a day left with nothing produces no header either,
-  /// and the per-day entry count stays honest.
-  List<_AgendaRow> _buildRows(AppLocalizations l10n) {
-    final occurrences = widget.occurrences;
-    final holidayDays = widget.holidayDays;
-    final hideMissed = widget.missedDisplay == CalendarMissedDisplay.hidden;
-    final eventProvider = EventSummaryProvider(
-      l10n,
-      showRecurrence: widget.showRecurrenceLabels,
-    );
-    final holidayProvider = PublicHolidaySummaryProvider(l10n);
-    final rows = <_AgendaRow>[];
-    var index = 0;
-    var holidayIndex = 0;
-
-    while (index < occurrences.length || holidayIndex < holidayDays.length) {
-      final nextEventDay = index < occurrences.length
-          ? occurrences[index].day
-          : null;
-      final nextHolidayDay = holidayIndex < holidayDays.length
-          ? holidayDays[holidayIndex]
-          : null;
-      final day = nextEventDay == null
-          ? nextHolidayDay!
-          : (nextHolidayDay == null || nextEventDay.isBefore(nextHolidayDay)
-                ? nextEventDay
-                : nextHolidayDay);
-
-      final dayEvents = <CalendarEvent>[];
-      while (index < occurrences.length && occurrences[index].day == day) {
-        dayEvents.add(occurrences[index].event);
-        index++;
-      }
-      final isHoliday = nextHolidayDay == day;
-      if (isHoliday) holidayIndex++;
-
-      final entries = <DaySummaryEntry>[
-        for (final entry in eventProvider.summaryFor(day, dayEvents))
-          if (!hideMissed || !entry.missed) entry,
-        if (isHoliday) ...holidayProvider.summaryFor(day, dayEvents),
-      ];
-      if (entries.isEmpty) continue;
-      rows.add(_AgendaHeaderRow(day: day, count: entries.length));
-      for (final entry in entries) {
-        rows.add(_AgendaEntryRow(day: day, entry: entry));
-      }
-    }
-    return rows;
-  }
-
-  @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final rows = _rowsFor(l10n);
 
     if (rows.isEmpty) {
-      return AgendaEmptyState(title: widget.emptyTitle, hint: widget.emptyHint);
+      return AgendaEmptyState(title: emptyTitle, hint: emptyHint);
     }
 
     return ListView.builder(
-      padding: widget.padding,
+      padding: padding,
       itemCount: rows.length,
       itemBuilder: (context, index) {
         final row = rows[index];
         return switch (row) {
-          _AgendaHeaderRow(:final day, :final count) => Padding(
+          AgendaDayHeaderRow(:final day, :final count) => Padding(
             padding: EdgeInsets.only(top: index == 0 ? 0 : 16, bottom: 8),
             child: Row(
               children: [
                 Expanded(
                   child: Text(
+                    // Resolved here rather than while the rows are built, so a
+                    // panel left open across midnight relabels on its next
+                    // rebuild instead of invalidating the owner's memo.
                     AgendaListView.dayHeaderLabel(l10n, day),
                     style: theme.textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.w600,
@@ -228,7 +181,7 @@ class _AgendaListViewState extends State<AgendaListView> {
               ],
             ),
           ),
-          _AgendaEntryRow(:final day, :final entry) => Padding(
+          AgendaEntryRow(:final day, :final entry) => Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: _AgendaCard(
               entry: entry,
@@ -237,14 +190,14 @@ class _AgendaListViewState extends State<AgendaListView> {
                 l10n,
                 entry.event?.priority ?? kDefaultEventPriority,
               ),
-              onTap: () => widget.onDaySelected(day),
-              colorPalette: widget.colorPalette,
+              onTap: () => onDaySelected(day),
+              colorPalette: colorPalette,
               onEdit: entry.event == null
                   ? null
-                  : () => widget.onEditEvent(entry.event!, day),
+                  : () => onEditEvent(entry.event!, day),
               onOpenNote: entry.event?.noteId == null
                   ? null
-                  : () => widget.onOpenNote(entry.event!),
+                  : () => onOpenNote(entry.event!),
             ),
           ),
         };
@@ -254,22 +207,22 @@ class _AgendaListViewState extends State<AgendaListView> {
 }
 
 /// A row in the flattened agenda: either a day header or an event card.
-sealed class _AgendaRow {
-  const _AgendaRow();
+sealed class AgendaRow {
+  const AgendaRow();
 }
 
-class _AgendaHeaderRow extends _AgendaRow {
+class AgendaDayHeaderRow extends AgendaRow {
   final DateTime day;
   final int count;
 
-  const _AgendaHeaderRow({required this.day, required this.count});
+  const AgendaDayHeaderRow({required this.day, required this.count});
 }
 
-class _AgendaEntryRow extends _AgendaRow {
+class AgendaEntryRow extends AgendaRow {
   final DateTime day;
   final DaySummaryEntry entry;
 
-  const _AgendaEntryRow({required this.day, required this.entry});
+  const AgendaEntryRow({required this.day, required this.entry});
 }
 
 /// Event card mirroring the day summary panel's accent-stripe layout so the

@@ -95,13 +95,20 @@ class DatabaseIndexes {
     );
   }
 
-  /// Indexes for the calendar feature. Public because the v10 migration
-  /// calls this directly so existing installs get the index without
+  /// Indexes for the calendar feature. Public because the v10 and v27
+  /// migrations call this directly so existing installs get the index without
   /// re-running the full `createAllIndexes` path.
+  ///
+  /// Partial since v27: `CalendarEventDao.getAll` is the single read path and
+  /// it filters tombstones, so the index only has to cover live rows.
+  /// `getAll`'s predicate must restate `is_deleted = 0` exactly or SQLite
+  /// silently drops to a scan plus a temp B-tree for the ordering — the v27
+  /// migration drops the full index by name first so upgraders and fresh
+  /// installs cannot end up on different definitions.
   Future<void> createCalendarIndexes() async {
     await _db.customStatement(
       'CREATE INDEX IF NOT EXISTS idx_calendar_events_start_date '
-      'ON calendar_events(start_date)',
+      'ON calendar_events(start_date) WHERE is_deleted = 0',
     );
   }
 

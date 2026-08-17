@@ -76,15 +76,22 @@ class CalendarEventService {
   /// Composed here rather than in the bloc, mirroring
   /// `CategoryService.deleteCategory`.
   ///
-  /// Deleting an event is the **only** thing that removes absence rows in
-  /// bulk: turning presence tracking off or changing the rule leaves them
-  /// dormant, because the stored delta is the durable record of a deliberate
-  /// act and flipping the toggle back on must restore every mark.
+  /// Since v28 all three tables **tombstone together**: the event (v27), its
+  /// absence marks (v27) and its per-day descriptions (v28), one statement
+  /// each, so the delete carries a single merge order instead of the children
+  /// outliving the parent or vanishing without one. Nothing above this method
+  /// can tell a tombstone from a delete — the cache patch, the two facade
+  /// refreshes and the bloc's own cache removal are unchanged.
+  ///
+  /// Deleting an event is the **only** thing that removes absence or
+  /// description rows in bulk: turning either flag off or changing the rule
+  /// leaves them dormant, because the stored delta is the durable record of a
+  /// deliberate act and flipping the toggle back on must restore every one.
   Future<void> deleteById(String id) async {
     await _db.transaction(() async {
-      await _dao.deleteById(id);
-      await _db.eventOccurrenceDao.deleteForEvent(id);
-      await _db.eventAbsenceDao.deleteForEvent(id);
+      await _dao.softDeleteById(id);
+      await _db.eventAbsenceDao.tombstoneForEvent(id);
+      await _db.eventOccurrenceDao.tombstoneForEvent(id);
     });
     _cache = List.unmodifiable(_cache.where((e) => e.id != id));
     await _refreshOccurrences();
@@ -157,6 +164,7 @@ class CalendarEventService {
           'countOccurrences': row.countOccurrences,
           'countStyle': row.countStyle,
           'tracksPresence': row.tracksPresence,
+          'perOccurrenceDescriptions': row.perOccurrenceDescriptions,
           'createdAtMs': row.createdAt.millisecondsSinceEpoch,
           'updatedAtMs': row.updatedAt.millisecondsSinceEpoch,
         },
@@ -249,6 +257,15 @@ class CalendarEventService {
             tracksPresence: map['tracksPresence'] is bool
                 ? Value(map['tracksPresence'] as bool)
                 : const Value.absent(),
+            // Absent in pre-v28 backups: no archive ever carried the intent,
+            // because the global setting it replaced was never in
+            // `BackupService._exportSettings`'s allowlist. Default false means
+            // those events restore with one shared description and their
+            // imported day rows dormant — enabling an event brings them back.
+            perOccurrenceDescriptions:
+                map['perOccurrenceDescriptions'] is bool
+                ? Value(map['perOccurrenceDescriptions'] as bool)
+                : const Value.absent(),
             createdAt: Value(
               DateTime.fromMillisecondsSinceEpoch(createdMs, isUtc: true),
             ),
@@ -284,6 +301,7 @@ class CalendarEventService {
       countOccurrences: row.countOccurrences,
       countStyle: OccurrenceCountStyle.fromName(row.countStyle),
       tracksPresence: row.tracksPresence,
+      perOccurrenceDescriptions: row.perOccurrenceDescriptions,
       rule: _decodeRule(row.ruleKind, row.rulePayload),
     );
   }
@@ -345,6 +363,7 @@ class CalendarEventService {
       countOccurrences: Value(event.countOccurrences),
       countStyle: Value(event.countStyle.name),
       tracksPresence: Value(event.tracksPresence),
+      perOccurrenceDescriptions: Value(event.perOccurrenceDescriptions),
       createdAt: Value(updatedAt),
       updatedAt: Value(updatedAt),
     );

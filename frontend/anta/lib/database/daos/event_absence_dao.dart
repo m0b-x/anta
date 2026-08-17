@@ -108,9 +108,38 @@ class EventAbsenceDao extends DatabaseAccessor<AppDatabase>
     );
   }
 
-  /// Cascade for a deleted event — a **hard** delete, tombstones included.
-  /// The parent event's own delete is hard today, and tombstoned children of a
-  /// hard-deleted parent would strand orphans in every export.
+  /// Cascade for a deleted event, matching the parent: since v27 deleting one
+  /// event **tombstones** it, so its marks tombstone too and the pair merges as
+  /// one act.
+  ///
+  /// One statement for an unbounded row count — `version + 1` in SQL, one
+  /// shared HLC for the batch, the [FolderDao.softDeleteFolderWithDescendants]
+  /// idiom. Already-tombstoned rows are skipped, so a repeat cannot churn
+  /// versions. `updated_at` / `deleted_at` bind as `Variable<DateTime>`
+  /// because Drift stores unix seconds.
+  Future<void> tombstoneForEvent(String eventId) async {
+    final now = DateTime.now();
+    await customUpdate(
+      'UPDATE calendar_event_absences SET is_deleted = 1, deleted_at = ?, '
+      'updated_at = ?, hlc_timestamp = ?, device_id = ?, '
+      'version = version + 1 '
+      'WHERE event_id = ? AND is_deleted = 0',
+      variables: [
+        Variable<DateTime>(now),
+        Variable<DateTime>(now),
+        Variable<String>(db.generateHlc()),
+        Variable<String>(db.deviceId),
+        Variable<String>(eventId),
+      ],
+      updates: {eventAbsences},
+    );
+  }
+
+  /// The **hard** cascade, tombstones included — kept for the wipe paths, where
+  /// no parent survives to merge against and a tombstoned child would strand an
+  /// orphan in every export. Deleting a single event goes through
+  /// [tombstoneForEvent] instead, so this is currently caller-less, exactly as
+  /// [CalendarEventDao.deleteById] is.
   Future<void> deleteForEvent(String eventId) {
     return (delete(
       eventAbsences,

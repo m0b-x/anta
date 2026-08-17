@@ -138,16 +138,62 @@ void main() {
       // A full read is correct here — the service caches every event in
       // memory. What matters is that the order arrives from the index rather
       // than from a sort.
+      //
+      // Since v27 the index is **partial** (`WHERE is_deleted = 0`) and
+      // `getAll` restates that predicate. This is the canary for the two
+      // drifting apart: SQLite will not use a partial index it cannot prove
+      // the query implies, and the fallback — a scan plus a temp B-tree for
+      // the ordering — is silent until a calendar gets big.
       expect(plan, usesIndex('idx_calendar_events_start_date'));
       expect(plan, isNot(sortsInMemory));
     });
 
-    test('an occurrence override is a primary-key lookup', () async {
+    test('tombstoning a single event is a primary-key update', () async {
+      await db.calendarEventDao.upsert(_event('e1'));
       final plan = await planOf(
-        () => db.eventOccurrenceDao.deleteFor('e1', DateTime.utc(2026, 8, 10)),
+        () => db.calendarEventDao.softDeleteById('e1'),
+        containing: 'UPDATE',
       );
-      // The composite PK {event_id, day} is the index; declaring a separate
-      // one would be redundant. Guards that decision.
+      // Deleting an event now *finds* a row and rewrites it rather than
+      // dropping it, so the delete path has a plan worth guarding.
+      expect(plan, contains(contains('SEARCH calendar_events')));
+      expect(plan, isNot(contains(contains('SCAN'))));
+    });
+
+    test('the absence tombstone cascade is a prefix search', () async {
+      await db.eventAbsenceDao.markMissed('e1', DateTime.utc(2026, 8, 10));
+      final plan = await planOf(
+        () => db.eventAbsenceDao.tombstoneForEvent('e1'),
+      );
+      // Same shape as the hard cascade it replaced: `event_id` is leftmost in
+      // the PK, so the bulk tombstone rides the automatic index instead of
+      // scanning every mark in the table.
+      expect(plan, contains(contains('SEARCH calendar_event_absences')));
+      expect(plan, isNot(contains(contains('SCAN'))));
+    });
+
+    test('resetting one day to the template is a primary-key update', () async {
+      await db.eventOccurrenceDao.upsert(_occurrence('e1'));
+      final plan = await planOf(
+        () => db.eventOccurrenceDao.tombstone('e1', DateTime.utc(2026, 8, 10)),
+        containing: 'UPDATE',
+      );
+      // Since v28 "reset this day" tombstones rather than deletes, so this is
+      // the one write on the hot path that has to *find* a row. The composite
+      // PK {event_id, day} is the index; declaring a separate one would be
+      // redundant. Guards that decision.
+      expect(plan, contains(contains('SEARCH calendar_event_occurrences')));
+      expect(plan, isNot(contains(contains('SCAN'))));
+    });
+
+    test('the occurrence tombstone cascade is a prefix search', () async {
+      await db.eventOccurrenceDao.upsert(_occurrence('e1'));
+      final plan = await planOf(
+        () => db.eventOccurrenceDao.tombstoneForEvent('e1'),
+      );
+      // `event_id` is leftmost in the PK, so the bulk tombstone rides the
+      // automatic index instead of scanning every materialized day in the
+      // table — the same shape as the hard cascade it replaced.
       expect(plan, contains(contains('SEARCH calendar_event_occurrences')));
       expect(plan, isNot(contains(contains('SCAN'))));
     });
@@ -176,4 +222,26 @@ void main() {
       expect(plan, isNot(contains(contains('SCAN'))));
     });
   });
+}
+
+CalendarEventsCompanion _event(String id) {
+  return CalendarEventsCompanion.insert(
+    id: id,
+    title: 'Leg day',
+    category: 'gym',
+    startDate: DateTime.utc(2026, 8, 1),
+    ruleKind: 'daily',
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
+}
+
+EventOccurrenceDescriptionsCompanion _occurrence(String eventId) {
+  return EventOccurrenceDescriptionsCompanion.insert(
+    eventId: eventId,
+    day: DateTime.utc(2026, 8, 10),
+    description: 'squats felt heavy',
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
 }

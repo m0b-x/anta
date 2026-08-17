@@ -327,7 +327,7 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get eventPerOccurrenceDescriptionsDesc =>
-      'Evenimentele recurente păstrează câte o descriere pentru fiecare zi. Descrierea evenimentului devine șablonul de la care pornește fiecare zi.';
+      'Acest eveniment păstrează câte o descriere pentru fiecare zi. Descrierea evenimentului devine șablonul de la care pornește fiecare zi.';
 
   @override
   String get eventDescriptionScopeAllDays => 'Toate zilele';
@@ -598,8 +598,7 @@ class AppLocalizationsRo extends AppLocalizations {
   String get eventTrackPresence => 'Urmărește prezența';
 
   @override
-  String get eventTrackPresenceDesc =>
-      'Marchează zilele sărite. Descrierea rămâne aceeași pentru fiecare zi.';
+  String get eventTrackPresenceDesc => 'Marchează zilele sărite.';
 
   @override
   String get eventPresencePresent => 'Prezent';
@@ -1032,6 +1031,11 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get eventDetailsNoDescription => 'Fără notițe pentru acest eveniment';
+
+  @override
+  String eventDetailsSeriesStart(String date) {
+    return 'Se repetă din $date';
+  }
 
   @override
   String get eventColor => 'Culoare';

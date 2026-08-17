@@ -49,14 +49,15 @@ class UpcomingAgendaView extends StatefulWidget {
   final bool showRecurrenceLabels;
 
   /// Bumped when a per-occurrence description or a presence mark changes.
-  /// Forwarded to [AgendaListView]'s row memo and **deliberately excluded**
-  /// from this widget's rescan test: neither changes which days an event
-  /// occurs on, so re-running a 366-day scan for one would be pure waste.
+  /// Part of the row-memo key below and **deliberately excluded** from this
+  /// widget's rescan test: neither changes which days an event occurs on, so
+  /// re-running a 366-day scan for one would be pure waste.
   final int occurrenceRevision;
 
-  /// Forwarded to the agenda rows: whether missed occurrences are dimmed or
-  /// dropped. Excluded from the rescan test for the same reason — hiding is a
-  /// render-time filter, never a membership one.
+  /// Whether missed occurrences are dimmed or dropped. Dropping happens while
+  /// the rows are built, so a hidden occurrence costs no row — and no entry in
+  /// the header count. Excluded from the rescan test for the same reason as
+  /// the revision: hiding is a render-time filter, never a membership one.
   final CalendarMissedDisplay missedDisplay;
 
   const UpcomingAgendaView({
@@ -86,6 +87,47 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
 
   List<EventOccurrence> _occurrences = const [];
   List<DateTime> _holidayDays = const [];
+
+  /// Cached flattened rows plus the inputs they were derived from, so
+  /// unrelated rebuilds — keyboard animation, theme, chip expansion — reuse
+  /// them instead of re-deriving O(occurrences) entries.
+  ///
+  /// Owned here rather than inside [AgendaListView] because the header count
+  /// above the list is derived from these same rows: one computation, so the
+  /// number and the rows can never disagree. The entries embed localized
+  /// strings, hence the locale key; the Today/Tomorrow header labels are NOT
+  /// part of it — the list resolves those per item.
+  List<AgendaRow> _rows = const [];
+  List<EventOccurrence>? _rowsForOccurrences;
+  List<DateTime>? _rowsForHolidays;
+  String? _rowsForLocale;
+  bool? _rowsForShowRecurrence;
+  int? _rowsForOccurrenceRevision;
+  CalendarMissedDisplay? _rowsForMissedDisplay;
+
+  List<AgendaRow> _rowsFor(AppLocalizations l10n) {
+    if (identical(_rowsForOccurrences, _occurrences) &&
+        identical(_rowsForHolidays, _holidayDays) &&
+        _rowsForLocale == l10n.localeName &&
+        _rowsForShowRecurrence == widget.showRecurrenceLabels &&
+        _rowsForOccurrenceRevision == widget.occurrenceRevision &&
+        _rowsForMissedDisplay == widget.missedDisplay) {
+      return _rows;
+    }
+    _rowsForOccurrences = _occurrences;
+    _rowsForHolidays = _holidayDays;
+    _rowsForLocale = l10n.localeName;
+    _rowsForShowRecurrence = widget.showRecurrenceLabels;
+    _rowsForOccurrenceRevision = widget.occurrenceRevision;
+    _rowsForMissedDisplay = widget.missedDisplay;
+    return _rows = buildAgendaRows(
+      occurrences: _occurrences,
+      holidayDays: _holidayDays,
+      l10n: l10n,
+      showRecurrenceLabels: widget.showRecurrenceLabels,
+      missedDisplay: widget.missedDisplay,
+    );
+  }
 
   @override
   void initState() {
@@ -269,6 +311,8 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
     final (shownStart, shownEnd) = _resolvedRange;
     final rangeLabel =
         '${dateFormat.format(shownStart)} – ${dateFormat.format(shownEnd)}';
+    final rows = _rowsFor(l10n);
+    final entryCount = rows.whereType<AgendaEntryRow>().length;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -421,10 +465,13 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
           child: Text(
-            // "Entries", not "events": holidays count too when shown, and
-            // the day panel's key already says exactly that in every locale.
-            '${l10n.daySummaryEntryCount(_occurrences.length + _holidayDays.length)}'
-            ' · $rangeLabel',
+            // Counted from the rows actually built, not from the scan: hidden
+            // mode drops missed occurrences while the rows are flattened, and
+            // a count taken before that would promise entries the list never
+            // shows. "Entries", not "events": holidays count too when shown,
+            // and the day panel's key already says exactly that in every
+            // locale.
+            '${l10n.daySummaryEntryCount(entryCount)} · $rangeLabel',
             style: theme.textTheme.labelMedium?.copyWith(
               color: colorScheme.onSurfaceVariant,
             ),
@@ -432,8 +479,7 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
         ),
         Expanded(
           child: AgendaListView(
-            occurrences: _occurrences,
-            holidayDays: _holidayDays,
+            rows: rows,
             onDaySelected: widget.onDaySelected,
             onEditEvent: widget.onEditEvent,
             onOpenNote: widget.onOpenNote,
@@ -441,9 +487,6 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
             emptyHint: l10n.upcomingNoEventsHint,
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
             colorPalette: widget.colorPalette,
-            showRecurrenceLabels: widget.showRecurrenceLabels,
-            occurrenceRevision: widget.occurrenceRevision,
-            missedDisplay: widget.missedDisplay,
           ),
         ),
       ],

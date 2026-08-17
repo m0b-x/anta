@@ -20,9 +20,9 @@ class EventPresence {
   static int _revision = 0;
 
   /// Bumped on every republish. Surfaces that memoize rows by identity
-  /// (`AgendaListView`) fold this into their cache key — marking a day changes
-  /// neither the event list nor which days it occurs on, so nothing else would
-  /// tell them to rebuild.
+  /// (`UpcomingAgendaView`'s memo over `buildAgendaRows`) fold this into their
+  /// cache key — marking a day changes neither the event list nor which days
+  /// it occurs on, so nothing else would tell them to rebuild.
   static int get revision => _revision;
 
   /// Replaces the cache wholesale. [byEvent]'s entries must already be

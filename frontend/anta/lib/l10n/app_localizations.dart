@@ -709,7 +709,7 @@ abstract class AppLocalizations {
   /// Subtitle explaining per-occurrence event descriptions
   ///
   /// In en, this message translates to:
-  /// **'Repeating events keep their own description for each day. The event\'s description becomes the template every day starts from.'**
+  /// **'This event keeps its own description for each day. The event\'s description becomes the template every day starts from.'**
   String get eventPerOccurrenceDescriptionsDesc;
 
   /// Segment label: edit the shared template description
@@ -1069,7 +1069,7 @@ abstract class AppLocalizations {
   /// Explanation under the track-presence switch
   ///
   /// In en, this message translates to:
-  /// **'Mark the days you skip. The event keeps one description for every day.'**
+  /// **'Mark the days you skip.'**
   String get eventTrackPresenceDesc;
 
   /// Presence toggle option in the event detail sheet: this occurrence was attended
@@ -1773,6 +1773,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No notes for this event'**
   String get eventDetailsNoDescription;
+
+  /// Detail sheet row naming the date a recurring series starts, shown when the viewed occurrence is not the first
+  ///
+  /// In en, this message translates to:
+  /// **'Repeats since {date}'**
+  String eventDetailsSeriesStart(String date);
 
   /// Section label for the per-event color picker
   ///

@@ -350,9 +350,13 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
                 ],
               ),
               const SizedBox(height: 16),
+              // The occurrence the sheet was opened for, not the series
+              // start — it is the day the presence toggle directly beneath
+              // marks and the day whose description renders below. A one-time
+              // event's occurrence *is* its start date.
               _InfoRow(
                 icon: Icons.event_rounded,
-                text: DateFormat.yMMMMEEEEd(localeName).format(event.startDate),
+                text: DateFormat.yMMMMEEEEd(localeName).format(widget.day),
               ),
               if (_presenceVisible)
                 Padding(
@@ -404,6 +408,18 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
                     l10n,
                     localeName,
                     retroactive: event.retroactive,
+                  ),
+                ),
+              // The anchor the pattern above is measured from, shown only
+              // when it is not the day already at the top of the sheet. Both
+              // dates are date-only UTC, so plain equality is exact. Compact
+              // `yMMMd` because it sits inside a sentence, unlike the bare
+              // long-form date rows.
+              if (isRecurring && widget.day != event.startDate)
+                _InfoRow(
+                  icon: Icons.event_repeat_rounded,
+                  text: l10n.eventDetailsSeriesStart(
+                    DateFormat.yMMMd(localeName).format(event.startDate),
                   ),
                 ),
               if (isRecurring && event.endDate != null)

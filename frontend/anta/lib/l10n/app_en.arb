@@ -432,7 +432,7 @@
   "@eventPerOccurrenceDescriptions": {
     "description": "Title of the switch enabling per-occurrence event descriptions"
   },
-  "eventPerOccurrenceDescriptionsDesc": "Repeating events keep their own description for each day. The event's description becomes the template every day starts from.",
+  "eventPerOccurrenceDescriptionsDesc": "This event keeps its own description for each day. The event's description becomes the template every day starts from.",
   "@eventPerOccurrenceDescriptionsDesc": {
     "description": "Subtitle explaining per-occurrence event descriptions"
   },
@@ -709,7 +709,7 @@
   "@eventTrackPresence": {
     "description": "Switch in the event editor: the event records which days were missed"
   },
-  "eventTrackPresenceDesc": "Mark the days you skip. The event keeps one description for every day.",
+  "eventTrackPresenceDesc": "Mark the days you skip.",
   "@eventTrackPresenceDesc": {
     "description": "Explanation under the track-presence switch"
   },
@@ -1223,6 +1223,16 @@
   "eventDetailsNoDescription": "No notes for this event",
   "@eventDetailsNoDescription": {
     "description": "Shown in the detail sheet when the event carries no description"
+  },
+  "eventDetailsSeriesStart": "Repeats since {date}",
+  "@eventDetailsSeriesStart": {
+    "description": "Detail sheet row naming the date a recurring series starts, shown when the viewed occurrence is not the first",
+    "placeholders": {
+      "date": {
+        "type": "String",
+        "example": "Aug 1, 2026"
+      }
+    }
   },
   "eventColor": "Color",
   "@eventColor": {

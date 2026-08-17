@@ -112,17 +112,7 @@ void main() {
   });
 
   test('deleting an event cascades in one statement per table', () async {
-    await db.calendarEventDao.upsert(
-      CalendarEventsCompanion.insert(
-        id: 'e1',
-        title: 'Leg day',
-        category: 'gym',
-        startDate: DateTime.utc(2026, 1, 1),
-        ruleKind: 'daily',
-        createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-      ),
-    );
+    await db.calendarEventDao.upsert(_event('e1'));
     for (var i = 0; i < 20; i++) {
       await db.eventOccurrenceDao.upsert(
         EventOccurrenceDescriptionsCompanion.insert(
@@ -138,14 +128,33 @@ void main() {
     for (var i = 0; i < 20; i++) {
       await db.eventAbsenceDao.markMissed('e1', DateTime.utc(2026, 1, i + 1));
     }
-    // Tombstones must ride the same cascade as live marks, or a hard-deleted
-    // parent strands them in every export.
+    // An already-tombstoned child must not be rewritten by the cascade, or a
+    // repeated delete churns versions the merge reads as ordering events.
     await db.eventAbsenceDao.unmark('e1', DateTime.utc(2026, 1, 1));
+    await db.eventOccurrenceDao.tombstone('e1', DateTime.utc(2026, 1, 1));
 
     counter.reset();
-    await db.eventOccurrenceDao.deleteForEvent('e1');
-    await db.eventAbsenceDao.deleteForEvent('e1');
-    // One DELETE per table covering every row, not one per materialized day.
+    await db.calendarEventDao.softDeleteById('e1');
+    await db.eventAbsenceDao.tombstoneForEvent('e1');
+    await db.eventOccurrenceDao.tombstoneForEvent('e1');
+
+    // The parent is read-then-write (it needs `version + 1` for exactly one
+    // row); everything below it is a single set-based statement covering every
+    // row, not one per materialized day. Since v28 both children tombstone,
+    // so "one statement per table" is now an UPDATE on each.
+    expect(
+      counter.matching('calendar_events'),
+      hasLength(2),
+      reason: 'issued:\n${counter.statements.join('\n')}',
+    );
+    expect(
+      [for (final s in counter.selects) if (s.sql.contains('calendar_events')) s],
+      hasLength(1),
+      reason:
+          'the single SELECT is the intended read; a second one means the '
+          'cascade started reading rows it could have updated in SQL. '
+          'Issued:\n${counter.statements.join('\n')}',
+    );
     expect(
       counter.matching('calendar_event_occurrences'),
       hasLength(1),
@@ -157,6 +166,95 @@ void main() {
       reason: 'issued:\n${counter.statements.join('\n')}',
     );
   });
+
+  test('reassigning a category is one statement whatever the row count', () async {
+    for (var i = 0; i < 20; i++) {
+      await db.calendarEventDao.upsert(_event('e$i'));
+    }
+
+    counter.reset();
+    final moved = await db.calendarEventDao.reassignCategory('gym', 'other');
+
+    expect(moved, 20);
+    // Deleting a category can touch an unbounded number of events, so this one
+    // cannot read-then-write: the version bump has to happen in SQL. Forgetting
+    // the stamping entirely would break nothing visible today and corrupt merge
+    // ordering the moment transport exists — that is what this pins.
+    expect(
+      counter.count,
+      1,
+      reason: 'issued:\n${counter.statements.join('\n')}',
+    );
+  });
+
+  test('an upsert reads the row it overwrites exactly once', () async {
+    counter.reset();
+    await db.calendarEventDao.upsert(_event('e1'));
+    // SELECT (miss) + INSERT. The extra read is the price of `version 1` vs
+    // `version + 1`, paid on a table that writes at human speed.
+    expect(
+      counter.count,
+      2,
+      reason: 'issued:\n${counter.statements.join('\n')}',
+    );
+
+    counter.reset();
+    await db.calendarEventDao.upsert(_event('e1'));
+    // SELECT (hit) + UPDATE — never a blind UPDATE-then-INSERT, which would be
+    // two writes and could not compute the version bump.
+    expect(
+      counter.count,
+      2,
+      reason: 'issued:\n${counter.statements.join('\n')}',
+    );
+    expect(counter.selects, hasLength(1));
+  });
+
+  test('an occurrence upsert reads the row it overwrites exactly once', () async {
+    counter.reset();
+    await db.eventOccurrenceDao.upsert(_occurrence(1));
+    // SELECT (miss) + INSERT. The extra read is the price of `version 1` vs
+    // `version + 1` and of keeping `created_at` when a reset day is
+    // re-described, paid on a table that writes at human speed.
+    expect(
+      counter.count,
+      2,
+      reason: 'issued:\n${counter.statements.join('\n')}',
+    );
+
+    counter.reset();
+    await db.eventOccurrenceDao.upsert(_occurrence(1));
+    // SELECT (hit) + UPDATE — never a blind UPDATE-then-INSERT, which could not
+    // compute the version bump.
+    expect(
+      counter.count,
+      2,
+      reason: 'issued:\n${counter.statements.join('\n')}',
+    );
+    expect(counter.selects, hasLength(1));
+  });
+}
+
+EventOccurrenceDescriptionsCompanion _occurrence(int day) {
+  return EventOccurrenceDescriptionsCompanion.insert(
+    eventId: 'e1',
+    day: DateTime.utc(2026, 1, day),
+    description: 'day $day',
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
+}
+
+CalendarEventsCompanion _event(String id) {
+  return CalendarEventsCompanion.insert(
+    id: id,
+    title: 'Leg day',
+    category: 'gym',
+    startDate: DateTime.utc(2026, 1, 1),
+    ruleKind: 'daily',
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
 }
 
 const _folderId = 'f1';
