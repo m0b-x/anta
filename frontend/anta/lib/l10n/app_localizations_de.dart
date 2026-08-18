@@ -2313,6 +2313,121 @@ class AppLocalizationsDe extends AppLocalizations {
   String get calendarMissedDisplayHidden => 'Ausgeblendet';
 
   @override
+  String get eventSkipOccurrence => 'Diesen Tag auslassen';
+
+  @override
+  String get eventOccurrenceSkipped => 'Termin ausgelassen';
+
+  @override
+  String get eventSkippedDays => 'Ausgelassene Tage';
+
+  @override
+  String eventSkippedDaysCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Tage ausgelassen',
+      one: '1 Tag ausgelassen',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get eventNoSkippedDays => 'Keine';
+
+  @override
+  String get eventTemplates => 'Terminvorlagen';
+
+  @override
+  String get eventTemplatesDesc =>
+      'Wiederverwendbare Vorlagen — Kategorie, Zeitplan, Farbe und Details vorausgefüllt';
+
+  @override
+  String get createTemplate => 'Neue Vorlage';
+
+  @override
+  String get editTemplate => 'Vorlage bearbeiten';
+
+  @override
+  String get templateName => 'Vorlagenname';
+
+  @override
+  String get templateNameHint => 'Push-Tag';
+
+  @override
+  String get saveAsTemplate => 'Als Vorlage speichern';
+
+  @override
+  String get templateSaved => 'Vorlage gespeichert';
+
+  @override
+  String get deleteTemplate => 'Vorlage löschen';
+
+  @override
+  String deleteTemplateConfirm(String name) {
+    return '„$name\" löschen? Bereits erstellte Termine bleiben erhalten.';
+  }
+
+  @override
+  String get templateDeleted => 'Vorlage gelöscht';
+
+  @override
+  String get addFromTemplate => 'Aus Vorlage hinzufügen';
+
+  @override
+  String get templateBlankEvent => 'Leerer Termin';
+
+  @override
+  String eventCreatedFromTemplate(String title) {
+    return 'Hinzugefügt: $title';
+  }
+
+  @override
+  String eventCreatedFromTemplateOn(String title, String date) {
+    return 'Hinzugefügt: $title — zuerst am $date';
+  }
+
+  @override
+  String get noEventTemplates => 'Noch keine Vorlagen';
+
+  @override
+  String get noEventTemplatesDesc =>
+      'Speichere einen Termin als Vorlage, um seine Angaben später wiederzuverwenden.';
+
+  @override
+  String eventAdherenceSummary(int attended, int total, int days) {
+    return '$attended/$total wahrgenommen · letzte $days Tage';
+  }
+
+  @override
+  String eventAdherenceStreak(int count, int best) {
+    return 'Serie $count · Bestwert $best';
+  }
+
+  @override
+  String get calendarEventTintTitle => 'Tage nach Terminfarbe einfärben';
+
+  @override
+  String get calendarEventTintDesc =>
+      'Färbt jeden Tag in der Farbe seines wichtigsten Termins. Kräftiger heißt höhere Priorität.';
+
+  @override
+  String get calendarTintConflictTitle => 'An Fastentagen';
+
+  @override
+  String get calendarTintConflictDesc =>
+      'Welche Farbe gewinnt, wenn ein Tag Termin und Fastentag ist';
+
+  @override
+  String get calendarTintConflictEvent => 'Termin';
+
+  @override
+  String get calendarTintConflictFasting => 'Fasten';
+
+  @override
+  String get calendarTintConflictBoth => 'Beide';
+
+  @override
   String get calendarWeekStartTitle => 'Woche beginnt am';
 
   @override

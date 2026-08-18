@@ -1,3 +1,4 @@
+import '../constants/event_skips.dart';
 import '../constants/public_holidays.dart';
 import '../models/calendar_event.dart';
 import '../models/recurrence_rule.dart';
@@ -115,15 +116,29 @@ abstract final class IcsSerializer {
   /// way to express occurrences before `DTSTART`, so a retroactive event
   /// exports forward-only from its start date rather than emitting something
   /// no consumer could represent.
+  ///
+  /// Cancelled occurrences (**v30**) are skipped explicitly here. Querying
+  /// `event.rule` rather than `event.occursOn` is what drops `retroactive`,
+  /// and it drops the skip filter with it — so a `DTSTART` on a cancelled day
+  /// would otherwise be the one place a skip leaks into the export.
   static DateTime? _firstOccurrenceOf(CalendarEvent event, DateTime anchor) {
     final end = event.endDate == null ? null : _dateOnly(event.endDate!);
+    final skippable = EventSkips.appliesTo(event);
     for (var i = 0; i < _firstOccurrenceSearchDays; i++) {
       final day = anchor.add(Duration(days: i));
       if (end != null && day.isAfter(end)) return null;
+      if (skippable && EventSkips.isSkipped(event.id, day)) continue;
       if (event.rule.occursOn(day, anchor)) return day;
     }
     return null;
   }
+
+  /// Whether [rule] is emitted as an `RRULE` at all. The complement of the
+  /// `null` cases in [_ruleToRrule]; kept beside it so the two cannot drift.
+  static bool _hasRrule(RecurrenceRule rule) =>
+      rule is! OneTimeRecurrence &&
+      rule is! SpecificDatesRecurrence &&
+      rule is! PublicHolidaysOnlyRecurrence;
 
   /// `RRULE` for the rules RFC 5545 expresses directly. Returns `null` for
   /// one-time events, explicit date sets, and holidays-only rules — those
@@ -181,30 +196,56 @@ abstract final class IcsSerializer {
 
   /// Days the emitted `RRULE` produces but the app's rule does not.
   ///
-  /// Only workdays needs this: its `BYDAY=MO..FR` approximation fires on
-  /// public holidays the real rule skips.
+  /// Two sources, unioned. Workdays needs it structurally: its
+  /// `BYDAY=MO..FR` approximation fires on public holidays the real rule
+  /// skips. Any recurring event may additionally have occurrences the user
+  /// cancelled (**v30**) — those are real data, so they export as the absence
+  /// RFC 5545 has for exactly this.
   static List<DateTime> _exceptionDates(CalendarEvent event, DateTime first) {
-    if (event.rule is! WorkdaysRecurrence) return const [];
-    final dates = <DateTime>[];
+    final isWorkdays = event.rule is WorkdaysRecurrence;
+    // Only meaningful against an emitted `RRULE`. The rules carried as
+    // `RDATE`s have their cancelled days removed from that list instead, and
+    // an RDATE that is also an EXDATE would be pure noise.
+    final skippable = EventSkips.appliesTo(event) && _hasRrule(event.rule);
+    if (!isWorkdays && !skippable) return const [];
+    final dates = <DateTime>{};
     final last = _expansionEnd(event, first);
     for (
       var day = first;
       !day.isAfter(last);
       day = day.add(const Duration(days: 1))
     ) {
+      if (skippable && EventSkips.isSkipped(event.id, day)) {
+        // Only a day the RRULE actually produces belongs in EXDATE; a skip on
+        // a day the rule never fires is a no-op, not an exception.
+        if (event.rule.occursOn(day, first)) dates.add(day);
+        continue;
+      }
+      if (!isWorkdays) continue;
       if (day.weekday > DateTime.friday) continue;
       if (PublicHolidays.isHoliday(day)) dates.add(day);
     }
-    return dates;
+    return dates.toList()..sort();
   }
 
   /// Occurrences carried as explicit `RDATE`s because no `RRULE` describes
   /// them: an author-picked date set, or "every public holiday".
+  ///
+  /// These are emitted, not excluded, so a cancelled occurrence is filtered
+  /// out here rather than carried into `EXDATE` — an `RDATE` that is also an
+  /// `EXDATE` is just noise.
   static List<DateTime> _additionalDates(CalendarEvent event, DateTime first) {
     final rule = event.rule;
+    final skippable = EventSkips.appliesTo(event);
+    bool kept(DateTime day) =>
+        !skippable || !EventSkips.isSkipped(event.id, day);
     if (rule is SpecificDatesRecurrence) {
-      final dates = rule.dates.map(_dateOnly).where((d) => d != first).toList()
-        ..sort();
+      final dates =
+          rule.dates
+              .map(_dateOnly)
+              .where((d) => d != first && kept(d))
+              .toList()
+            ..sort();
       return dates;
     }
     if (rule is PublicHolidaysOnlyRecurrence) {
@@ -215,7 +256,7 @@ abstract final class IcsSerializer {
         !day.isAfter(last);
         day = day.add(const Duration(days: 1))
       ) {
-        if (PublicHolidays.isHoliday(day)) dates.add(day);
+        if (PublicHolidays.isHoliday(day) && kept(day)) dates.add(day);
       }
       return dates;
     }

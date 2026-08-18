@@ -2330,6 +2330,122 @@ class AppLocalizationsRo extends AppLocalizations {
   String get calendarMissedDisplayHidden => 'Ascuns';
 
   @override
+  String get eventSkipOccurrence => 'Sari peste ziua asta';
+
+  @override
+  String get eventOccurrenceSkipped => 'Apariție anulată';
+
+  @override
+  String get eventSkippedDays => 'Zile sărite';
+
+  @override
+  String eventSkippedDaysCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de zile sărite',
+      few: '$count zile sărite',
+      one: 'o zi sărită',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get eventNoSkippedDays => 'Niciuna';
+
+  @override
+  String get eventTemplates => 'Șabloane de evenimente';
+
+  @override
+  String get eventTemplatesDesc =>
+      'Șabloane reutilizabile — categorie, program, culoare și detalii precompletate';
+
+  @override
+  String get createTemplate => 'Șablon nou';
+
+  @override
+  String get editTemplate => 'Editează șablonul';
+
+  @override
+  String get templateName => 'Numele șablonului';
+
+  @override
+  String get templateNameHint => 'Zi de împins';
+
+  @override
+  String get saveAsTemplate => 'Salvează ca șablon';
+
+  @override
+  String get templateSaved => 'Șablon salvat';
+
+  @override
+  String get deleteTemplate => 'Șterge șablonul';
+
+  @override
+  String deleteTemplateConfirm(String name) {
+    return 'Ștergi „$name\"? Evenimentele deja create rămân neschimbate.';
+  }
+
+  @override
+  String get templateDeleted => 'Șablon șters';
+
+  @override
+  String get addFromTemplate => 'Adaugă din șablon';
+
+  @override
+  String get templateBlankEvent => 'Eveniment gol';
+
+  @override
+  String eventCreatedFromTemplate(String title) {
+    return 'Adăugat: $title';
+  }
+
+  @override
+  String eventCreatedFromTemplateOn(String title, String date) {
+    return 'Adăugat: $title — prima dată pe $date';
+  }
+
+  @override
+  String get noEventTemplates => 'Niciun șablon încă';
+
+  @override
+  String get noEventTemplatesDesc =>
+      'Salvează un eveniment ca șablon ca să-i refolosești detaliile mai târziu.';
+
+  @override
+  String eventAdherenceSummary(int attended, int total, int days) {
+    return '$attended/$total prezențe · ultimele $days zile';
+  }
+
+  @override
+  String eventAdherenceStreak(int count, int best) {
+    return 'Serie $count · record $best';
+  }
+
+  @override
+  String get calendarEventTintTitle => 'Colorează zilele după eveniment';
+
+  @override
+  String get calendarEventTintDesc =>
+      'Colorează fiecare zi cu culoarea evenimentului principal. Mai intens înseamnă prioritate mai mare.';
+
+  @override
+  String get calendarTintConflictTitle => 'În zilele de post';
+
+  @override
+  String get calendarTintConflictDesc =>
+      'Ce culoare câștigă când o zi are și eveniment, și post';
+
+  @override
+  String get calendarTintConflictEvent => 'Eveniment';
+
+  @override
+  String get calendarTintConflictFasting => 'Post';
+
+  @override
+  String get calendarTintConflictBoth => 'Ambele';
+
+  @override
   String get calendarWeekStartTitle => 'Săptămâna începe';
 
   @override

@@ -238,6 +238,7 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
           colorPalette: widget.colorPalette,
           showRecurrenceLabels: widget.showRecurrenceLabels,
           occurrenceRevision: loaded.occurrenceRevision,
+          membershipRevision: loaded.membershipRevision,
           missedDisplay: widget.missedDisplay,
         );
     }

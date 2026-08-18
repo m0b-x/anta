@@ -10,6 +10,7 @@ import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../models/day_bar.dart';
 import '../models/fasting_appearance.dart';
+import '../utils/event_agenda.dart';
 import 'note_money_ledger_service.dart';
 
 /// Contract for anything that contributes bars to a calendar day cell.
@@ -119,8 +120,13 @@ class EventDayBarProvider implements DayBarProvider {
   @override
   Iterable<DayBar> barsFor(DateTime day, List<CalendarEvent> events) {
     if (events.isEmpty) return const [];
+    // Same-day order comes from the one shared comparator, exactly as the
+    // day summary does — otherwise equal-priority stripes fall back to the
+    // resolver's key tie-break (`event:<uuid>`) and the grid disagrees with
+    // the panel about which event is on top.
+    final ordered = [...events]..sort(EventAgenda.compareWithinDay);
     final bars = <DayBar>[];
-    for (final event in events) {
+    for (final event in ordered) {
       final missed =
           EventPresence.appliesTo(event) &&
           EventPresence.isMissed(event.id, day);
@@ -186,7 +192,9 @@ class MoneyDayBarProvider implements DayBarProvider {
     return [
       DayBar(
         key: 'money',
-        color: sum > 0 ? const Color(0xFF2E7D32) : const Color(0xFFC62828),
+        color: sum > 0
+            ? CalendarColors.moneyPositive
+            : CalendarColors.moneyNegative,
         priority: 90,
         semanticLabel: l10n.moneyDaySummaryTitle(service.formatNetSigned(sum)),
       ),
@@ -232,11 +240,17 @@ class DayBarsResolver {
         byKey.putIfAbsent(bar.key, () => bar);
       }
     }
-    final sorted = byKey.values.toList()
+    // Stable sort by priority, mirroring `DaySummaryResolver.resolve`:
+    // `List.sort` is unstable, so ties break by insertion index instead of
+    // by key — providers control the order of their own equal-priority
+    // bars (events arrive pre-sorted by `EventAgenda.compareWithinDay`,
+    // which a key sort on `event:<uuid>` used to scramble into id order).
+    final bars = byKey.values.toList();
+    final order = [for (var i = 0; i < bars.length; i++) (i, bars[i])]
       ..sort((a, b) {
-        final byPriority = a.priority.compareTo(b.priority);
-        return byPriority != 0 ? byPriority : a.key.compareTo(b.key);
+        final byPriority = a.$2.priority.compareTo(b.$2.priority);
+        return byPriority != 0 ? byPriority : a.$1.compareTo(b.$1);
       });
-    return sorted;
+    return [for (final (_, bar) in order) bar];
   }
 }

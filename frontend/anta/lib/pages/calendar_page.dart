@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get_it/get_it.dart';
 import 'package:intl/intl.dart';
+import 'package:uuid/uuid.dart';
 import 'package:table_calendar/table_calendar.dart';
 
 import '../bloc/calendar/calendar_bloc.dart';
@@ -11,6 +12,9 @@ import '../bloc/import_export/import_export_state.dart';
 import '../constants/app_icon_sizes.dart';
 import '../constants/app_spacing.dart';
 import '../constants/calendar_bounds.dart';
+import '../constants/calendar_colors.dart';
+import '../constants/calendar_templates.dart';
+import '../constants/event_skips.dart';
 import '../constants/fasting_calendar.dart';
 import '../constants/public_holidays.dart';
 import '../l10n/app_localizations.dart';
@@ -18,11 +22,13 @@ import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../repositories/note_repository.dart';
 import '../services/app_navigator.dart';
+import '../services/cell_tint_resolver.dart';
 import '../services/day_bars_resolver.dart';
 import '../services/note_money_ledger_service.dart';
 import '../services/public_holiday_service.dart';
 import '../services/settings_service.dart';
 import '../utils/custom_snackbar.dart';
+import '../utils/event_agenda.dart';
 import '../utils/markdown_color_syntax.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/calendar_bottom_panel.dart';
@@ -31,6 +37,7 @@ import '../widgets/calendar_day_cell.dart';
 import '../widgets/calendar_filter_sheet.dart';
 import '../widgets/event_detail_sheet.dart';
 import '../widgets/event_editor_sheet.dart';
+import '../widgets/event_template_picker_sheet.dart';
 import '../widgets/month_year_picker_sheet.dart';
 
 /// Overflow-menu actions on the calendar app bar.
@@ -63,6 +70,37 @@ class _CalendarViewState extends State<_CalendarView> {
   /// on purpose: restoring a hidden calendar across app opens would read as
   /// "the calendar disappeared", so every visit starts with the grid shown.
   bool _panelExpanded = false;
+
+  /// Memoized day-bar resolver. Its providers are stateless and depend only
+  /// on the localization and the missed-display setting, both of which change
+  /// far less often than the grid rebuilds.
+  DayBarsResolver? _barsResolver;
+  AppLocalizations? _barsL10n;
+  CalendarMissedDisplay? _barsMissedDisplay;
+
+  DayBarsResolver _resolverFor(AppLocalizations l10n) {
+    final missed = _appearance.missedDisplay;
+    if (_barsResolver == null ||
+        _barsL10n != l10n ||
+        _barsMissedDisplay != missed) {
+      _barsResolver = DayBarsResolver.defaults(l10n, missedDisplay: missed);
+      _barsL10n = l10n;
+      _barsMissedDisplay = missed;
+    }
+    return _barsResolver!;
+  }
+
+  /// Memoized cell-wash resolver, rebuilt only when the appearance changes.
+  CellTintResolver? _tintResolver;
+  CalendarAppearance? _tintAppearance;
+
+  CellTintResolver get _cellTintResolver {
+    if (_tintResolver == null || _tintAppearance != _appearance) {
+      _tintResolver = CellTintResolver.defaults(_appearance);
+      _tintAppearance = _appearance;
+    }
+    return _tintResolver!;
+  }
 
   @override
   void initState() {
@@ -147,7 +185,29 @@ class _CalendarViewState extends State<_CalendarView> {
         );
       case EventDetailAction.openNote:
         await _openLinkedNote(context, current);
+      case EventDetailAction.skipOccurrence:
+        _skipOccurrence(context, bloc, current.id, day);
     }
+  }
+
+  /// Cancels one occurrence, with an undo. Routed through the page rather
+  /// than written from the sheet so every skip — this one and the editor's
+  /// bulk picker — lands on the same path.
+  void _skipOccurrence(
+    BuildContext context,
+    CalendarBloc bloc,
+    String eventId,
+    DateTime day,
+  ) {
+    final l10n = AppLocalizations.of(context)!;
+    bloc.add(SetOccurrenceSkipped(eventId: eventId, day: day));
+    CustomSnackbar.showWithAction(
+      context,
+      message: l10n.eventOccurrenceSkipped,
+      actionLabel: l10n.undo,
+      onAction: () =>
+          bloc.add(ClearOccurrenceSkipped(eventId: eventId, day: day)),
+    );
   }
 
   @override
@@ -228,7 +288,14 @@ class _CalendarViewState extends State<_CalendarView> {
                 alignment: Alignment.topCenter,
                 child: _panelExpanded
                     ? const SizedBox(width: double.infinity)
-                    : _CalendarTable(state: loaded, appearance: _appearance),
+                    : _CalendarTable(
+                        state: loaded,
+                        appearance: _appearance,
+                        barsResolver: _resolverFor(l10n),
+                        tintResolver: _cellTintResolver,
+                        onDayLongPressed: (day) =>
+                            _quickAddFromTemplate(context, day),
+                      ),
               ),
               const Divider(height: 1),
               Expanded(
@@ -317,6 +384,72 @@ class _CalendarViewState extends State<_CalendarView> {
   /// only set when editing an existing event from a dated surface, which is
   /// what lets the sheet offer "this day" vs "all days". The FAB path leaves
   /// it null: a brand-new event has no occurrence yet.
+  /// Long-press quick-add: pick a template, stamp it onto [day] immediately.
+  ///
+  /// Immediate creation is right *here specifically* because the two things
+  /// that normally need confirming are already decided — the title is the
+  /// template's name and the date is the day under the finger — so the whole
+  /// interaction is press, tap, done. An undo action covers the mistake.
+  ///
+  /// With no templates yet, this falls through to the normal editor rather
+  /// than showing an empty sheet: a long-press that appears to do nothing is
+  /// worse than one that does the obvious thing.
+  Future<void> _quickAddFromTemplate(
+    BuildContext context,
+    DateTime day,
+  ) async {
+    final normalized = DateTime.utc(day.year, day.month, day.day);
+    if (CalendarTemplates.isEmpty) {
+      await _openEditorSheet(context, day: normalized);
+      return;
+    }
+
+    final choice = await EventTemplatePickerSheet.show(context);
+    if (choice == null || !context.mounted) return;
+    switch (choice) {
+      case EventTemplateBlank():
+        await _openEditorSheet(context, day: normalized);
+      case EventTemplatePicked(:final template):
+        final l10n = AppLocalizations.of(context)!;
+        final bloc = context.read<CalendarBloc>();
+        final event = template.buildEvent(
+          id: const Uuid().v4(),
+          startDate: normalized,
+        );
+        bloc.add(CreateCalendarEvent(event: event));
+        // A rule can legitimately skip its own anchor (a weekly template whose
+        // weekday set excludes the pressed day), so the confirmation names the
+        // day it will actually land on rather than letting it look like
+        // nothing happened.
+        final firstDay = _firstOccurrenceOf(event, from: normalized);
+        CustomSnackbar.showWithAction(
+          context,
+          message: firstDay == null || firstDay == normalized
+              ? l10n.eventCreatedFromTemplate(event.title)
+              : l10n.eventCreatedFromTemplateOn(
+                  event.title,
+                  DateFormat.MMMEd(l10n.localeName).format(firstDay),
+                ),
+          actionLabel: l10n.undo,
+          onAction: () => bloc.add(DeleteCalendarEvent(eventId: event.id)),
+        );
+    }
+  }
+
+  /// First day at or after [from] that [event] occurs on, or `null` if it does
+  /// not fire within the agenda's usual range. Bounded so a rule that never
+  /// matches cannot spin.
+  static DateTime? _firstOccurrenceOf(
+    CalendarEvent event, {
+    required DateTime from,
+  }) {
+    for (var i = 0; i < EventAgenda.maxRangeDays; i++) {
+      final day = from.add(Duration(days: i));
+      if (event.occursOn(day)) return day;
+    }
+    return null;
+  }
+
   Future<void> _openEditorSheet(
     BuildContext context, {
     CalendarEvent? initialEvent,
@@ -379,6 +512,7 @@ class _CalendarViewState extends State<_CalendarView> {
     String eventId,
     EventEditorSaved result,
   ) {
+    _dispatchSkipResult(bloc, eventId, result);
     final occurrenceDay = result.occurrenceDay;
     if (occurrenceDay == null) return;
     final description = result.occurrenceDescription;
@@ -394,6 +528,26 @@ class _CalendarViewState extends State<_CalendarView> {
           description: description,
         ),
       );
+    }
+  }
+
+  /// Applies the editor's cancelled-days set as a diff against what is
+  /// persisted, so an unchanged day costs no write and no version bump.
+  ///
+  /// A null set means the picker was never opened — leave the table alone.
+  void _dispatchSkipResult(
+    CalendarBloc bloc,
+    String eventId,
+    EventEditorSaved result,
+  ) {
+    final next = result.skippedDays;
+    if (next == null) return;
+    final current = EventSkips.daysFor(eventId);
+    for (final day in next.difference(current)) {
+      bloc.add(SetOccurrenceSkipped(eventId: eventId, day: day));
+    }
+    for (final day in current.difference(next)) {
+      bloc.add(ClearOccurrenceSkipped(eventId: eventId, day: day));
     }
   }
 
@@ -515,7 +669,27 @@ class _CalendarTable extends StatelessWidget {
   final CalendarPageLoaded state;
   final CalendarAppearance appearance;
 
-  const _CalendarTable({required this.state, required this.appearance});
+  /// Built once by [_CalendarViewState] and rebuilt only when its inputs
+  /// change — the providers are stateless, and the grid rebuilds far more
+  /// often than the localization or the missed-display setting does.
+  final DayBarsResolver barsResolver;
+
+  /// Same deal for the cell wash: its providers depend only on the
+  /// appearance, which the page already reloads when settings change.
+  final CellTintResolver tintResolver;
+
+  /// Long-press quick-add. The grid only reports the day; deciding what to do
+  /// with it (pick a template, create, undo) belongs to the page, which owns
+  /// the sheets and the bloc.
+  final ValueChanged<DateTime> onDayLongPressed;
+
+  const _CalendarTable({
+    required this.state,
+    required this.appearance,
+    required this.barsResolver,
+    required this.tintResolver,
+    required this.onDayLongPressed,
+  });
 
   StartingDayOfWeek get _startingDayOfWeek {
     return switch (appearance.weekStart) {
@@ -561,64 +735,33 @@ class _CalendarTable extends StatelessWidget {
     );
   }
 
+  /// Builds one day cell. [now] and [accent] are resolved once per grid
+  /// build and threaded in: a month shows ~42 cells, and re-deriving either
+  /// per cell allocated a `Color` and read the clock 42 times a frame.
   Widget _buildDayCell(
-    BuildContext context,
     DateTime day, {
     required bool isOutside,
+    required DateTime now,
+    required Color accent,
+    required CalendarBloc bloc,
   }) {
-    // Memoized inside the engine, so this is an O(1) map hit per cell.
+    // Both lookups are O(1): the fasting style is memoized inside the engine
+    // and the day's events come from the bloc's day cache — the same
+    // memoized call `eventLoader` makes for this cell.
     final fasting = FastingCalendar.cellStyleFor(day);
     return CalendarDayCell(
       day: day,
-      isToday: isSameDay(day, DateTime.now()),
+      isToday: isSameDay(day, now),
       isSelected: isSameDay(day, state.selectedDay),
       isOutside: isOutside,
       isWeekend:
           day.weekday == DateTime.saturday || day.weekday == DateTime.sunday,
       todayStyle: appearance.todayStyle,
       highlightWeekends: appearance.highlightWeekends,
-      accent: appearance.accentOr(Theme.of(context).colorScheme.primary),
-      fastingTint: fasting.tint,
+      accent: accent,
+      tint: tintResolver.resolve(day, bloc.eventsForDay(day)),
       fastingNumberColor: fasting.numberColor,
     );
-  }
-
-  /// Net money change for the focused [month]: the exact sum of what the
-  /// visible day cells display. Mirrors the day bar/summary providers on
-  /// both axes the two surfaces could diverge on: hidden categories are
-  /// excluded (cells only ever see category-filtered events), and dedupe
-  /// is per (start day, note) — a note linked from events on two
-  /// different days shows on both cells, so it counts twice here too,
-  /// while a recurring event still never multiplies its note.
-  int _monthNet(NoteMoneyLedgerService ledger, DateTime month) {
-    var sum = 0;
-    Set<String>? seen;
-    for (final event in state.allEvents) {
-      final noteId = event.noteId;
-      if (noteId == null) continue;
-      if (state.hiddenCategoryIds.contains(event.categoryId)) continue;
-      final startUtc = DateTime.fromMillisecondsSinceEpoch(
-        event.startDate.millisecondsSinceEpoch,
-        isUtc: true,
-      );
-      if (startUtc.year != month.year || startUtc.month != month.month) {
-        continue;
-      }
-      // Cells attribute money on the start day only when the event actually
-      // occurs there; a rule that skips its own anchor (weekly with the
-      // anchor's weekday deselected) shows on no cell, so it must not count.
-      if (!event.occursOn(
-        DateTime.utc(startUtc.year, startUtc.month, startUtc.day),
-      )) {
-        continue;
-      }
-      seen ??= <String>{};
-      if (!seen.add('${startUtc.day}:$noteId')) continue;
-      final entry = ledger.ledgerFor(noteId);
-      if (entry == null) continue;
-      sum += entry.net;
-    }
-    return sum;
   }
 
   @override
@@ -627,10 +770,8 @@ class _CalendarTable extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     final l10n = AppLocalizations.of(context)!;
     final calendarBloc = context.read<CalendarBloc>();
-    final barsResolver = DayBarsResolver.defaults(
-      l10n,
-      missedDisplay: appearance.missedDisplay,
-    );
+    final now = DateTime.now();
+    final accent = appearance.accentOr(colorScheme.primary);
     final dowStyle = theme.textTheme.labelMedium!.copyWith(
       fontWeight: FontWeight.w600,
       color: colorScheme.onSurfaceVariant,
@@ -696,18 +837,38 @@ class _CalendarTable extends StatelessWidget {
         markersMaxCount: 0,
       ),
       calendarBuilders: CalendarBuilders<CalendarEvent>(
-        defaultBuilder: (context, day, focusedDay) =>
-            _buildDayCell(context, day, isOutside: false),
-        todayBuilder: (context, day, focusedDay) =>
-            _buildDayCell(context, day, isOutside: false),
-        selectedBuilder: (context, day, focusedDay) =>
-            _buildDayCell(context, day, isOutside: false),
-        outsideBuilder: (context, day, focusedDay) =>
-            _buildDayCell(context, day, isOutside: true),
+        defaultBuilder: (context, day, focusedDay) => _buildDayCell(
+          day,
+          isOutside: false,
+          now: now,
+          accent: accent,
+          bloc: calendarBloc,
+        ),
+        todayBuilder: (context, day, focusedDay) => _buildDayCell(
+          day,
+          isOutside: false,
+          now: now,
+          accent: accent,
+          bloc: calendarBloc,
+        ),
+        selectedBuilder: (context, day, focusedDay) => _buildDayCell(
+          day,
+          isOutside: false,
+          now: now,
+          accent: accent,
+          bloc: calendarBloc,
+        ),
+        outsideBuilder: (context, day, focusedDay) => _buildDayCell(
+          day,
+          isOutside: true,
+          now: now,
+          accent: accent,
+          bloc: calendarBloc,
+        ),
         headerTitleBuilder: (context, day) {
           final title = DateFormat.yMMMM(l10n.localeName).format(day);
           final ledger = NoteMoneyLedgerService.instanceOrNull;
-          final monthNet = ledger == null ? 0 : _monthNet(ledger, day);
+          final monthNet = calendarBloc.monthNetFor(day);
           // Today sits to the left of the title, and the whole cluster
           // (button, title, net) centers as a block via mainAxisAlignment —
           // matching the original layout's feel rather than pinning the
@@ -765,8 +926,8 @@ class _CalendarTable extends StatelessWidget {
                   style: theme.textTheme.bodySmall?.copyWith(
                     fontWeight: FontWeight.w600,
                     color: monthNet > 0
-                        ? const Color(0xFF2E7D32)
-                        : const Color(0xFFC62828),
+                        ? CalendarColors.moneyPositive
+                        : CalendarColors.moneyNegative,
                   ),
                 ),
               ],
@@ -802,6 +963,8 @@ class _CalendarTable extends StatelessWidget {
           SelectCalendarDay(day: selectedDay, focusedDay: focusedDay),
         );
       },
+      onDayLongPressed: (selectedDay, focusedDay) =>
+          onDayLongPressed(selectedDay),
       onPageChanged: (focusedDay) {
         context.read<CalendarBloc>().add(
           ChangeFocusedDay(focusedDay: focusedDay),

@@ -1395,7 +1395,7 @@ the rule has many occurrences, save mirror `recurring && flag` like
 `EventAbsenceDao` (`db.generateHlc()`, `db.deviceId`, read-then-write
 `version + 1`). Un-marking **tombstones** the row; re-marking resurrects it
 with `created_at` intact — a last-writer-wins element set, cloud-ready from
-birth (cloud-sync phase-02 — now **v29** — wires transport; absences
+birth (cloud-sync phase-02 — now **v31** — wires transport; absences
 **sync**, and since v28 per-occurrence descriptions do too).
 
 - **One read entry point**: `EventPresence`
@@ -1450,7 +1450,7 @@ so `''` never survives a write). Layering is unchanged: the domain
   `EventAbsenceDao.tombstoneForEvent` (bulk, one shared HLC) + the
   occurrence cascade (hard here; tombstoning since v28), in one transaction.
   `deleteAll` and import wipes stay hard — "Delete all events" promises
-  permanence; cloud-sync phase-02 (now **v29**) owns the synced-wipe
+  permanence; cloud-sync phase-02 (now **v31**) owns the synced-wipe
   decision and needs only `owner_id` + transport.
 - `reassignCategory` — one `customUpdate`: `version = version + 1`, one
   shared HLC, `Variable<DateTime>` binds, `AND is_deleted = 0`.
@@ -1519,8 +1519,184 @@ post-import re-reads) are deleted, and the settings-page entry is gone.
   was never in the settings allowlist, and an archive that never carried
   intent is not mined for it; enabling an event restores its imported day
   texts.
-- Phase-02 (renumbered **v29**) syncs occurrences —
+- Phase-02 (renumbered **v31**) syncs occurrences —
   `keyLastEventOccurrenceHlc = 'last_event_occurrence_hlc'`, delta feeds in
   the notes shape.
 
 Design record: `docs/description-scope-roadmap.md`.
+
+---
+
+## Addendum (schema v29): event templates
+
+Reusable presets: everything an event needs **except a date**. Applying one to
+a day stamps out a `CalendarEvent` anchored there.
+
+- **A separate entity from categories, deliberately.** A category is a
+  taxonomy — one row per kind of thing — while a user wants several presets
+  inside one ("Push day" and "Leg day" both under Gym). Folding defaults into
+  `calendar_categories` would cap that at one preset per category forever.
+- **`calendar_event_templates`** (PK `id`) carries category, `rule_kind` /
+  `rule_payload`, `start_minute` / `duration_minutes`, description, icon,
+  colour, `tint_icon`, priority, `retroactive`, `count_occurrences` /
+  `count_style`, `tracks_presence`, `per_occurrence_descriptions`,
+  `sort_order`, audit timestamps and the five CRDT columns **from birth** (the
+  v27 retrofit priced the alternative: five ALTERs plus a backfill; a table
+  that starts empty gets the shape for free, with no `DEFAULT ''` deviation).
+- **`name` doubles as the stamped title** — no `title` column. Categories set
+  the one-label precedent; a separate column is additive later.
+- **No `note_id`**: a linked note is per-instance, and stamping one note onto
+  many events would break the money ledger's per-(day, note) attribution.
+- **Nullable means "defer to the default at apply time"**, and only where
+  `null` already means that on the event: `icon_key`, `color_value`,
+  `start_minute` / `duration_minutes` (null time = all-day, which is why there
+  is **no `all_day` column**), `description`, `rule_payload`.
+- **`SpecificDatesRecurrence` collapses to one-time on capture** — absolute
+  dates are meaningless in a template.
+- **`EventTemplate.buildEvent` clears the repeat-only flags for a one-time
+  rule** (`retroactive`, `countOccurrences`, `tracksPresence`,
+  `perOccurrenceDescriptions`), matching the editor's own save guards.
+- **No index**: the read path is one `getAll()` into memory at startup over a
+  table of dozens of rows (the v24 occurrences precedent).
+- **`RecurrenceCodec`** (`lib/models/recurrence_rule_codec.dart`) is now the
+  one encoding of a rule into `rule_kind` / `rule_payload`;
+  `CalendarEventService` delegates to it. Two hand-written copies would drift
+  the first time a rule kind is added, and a template that encodes `weekly`
+  differently from an event is a rule that silently changes meaning when
+  applied.
+- **Two entry points, and only two.** Primary: **long-press a day cell** →
+  `EventTemplatePickerSheet` → **immediate create** plus an Undo snackbar,
+  because the two things that normally need confirming — title and date — are
+  already decided. When the rule does not fire on the pressed day (a weekly
+  template whose weekday set excludes it) the snackbar names the day it will
+  actually land on instead of letting it look like nothing happened. Secondary:
+  **"Save as template"** at the bottom of the event editor's scroll body, above
+  Delete — the inline header stays `close | title | Save`.
+- **Backups**: additive key `eventTemplates`, version stays 7. Strand rule
+  keyed to **categories**, not events: an absent key alongside a present
+  `calendarCategories` clears the table, because the category import just wiped
+  the id space templates point into. Imported after categories.
+- `ImportExportService.archiveVersion` stays **1** — the notes `.zip` carries
+  no calendar data.
+
+## Addendum (schema v30): skip this occurrence
+
+Cancelling a single occurrence of a recurring event. **Not** the same thing as
+marking one missed, and the difference is the whole design:
+
+| | missed (v26) | skipped (v30) |
+| --- | --- | --- |
+| gate | `tracksPresence` opt-in | any recurring event |
+| layer | rendering | **membership** |
+| `occursOn` | still true | **false** |
+| day cache | must **not** invalidate | **must** invalidate |
+| revision | `occurrenceRevision` | **`membershipRevision`** |
+| `.ics` | exports as an occurrence | exports as an `EXDATE` |
+
+- **A new table, not a `status` column on `calendar_event_absences`.** A
+  discriminator would make "a live row means missed" — the invariant three
+  surfaces and the backup strand rule are built on — conditional on every
+  reader remembering to filter it. The roadmap's floated `status` column
+  remains available *within* the absence table for partial/late.
+- **The filter lives in `CalendarEvent.occursOn`, and only there.** That is the
+  one choke point the day cache, `EventAgenda`, `monthNetFor`, the detail
+  sheet's upcoming chips and the date pickers already go through, so a skip
+  reaches all of them without any of them knowing skips exist. Reading a static
+  facade from the model layer follows the precedent `RecurrenceRule.occursOn`
+  already set with `PublicHolidays`.
+- **This is the deliberate inverse of the hidden-category filter**, which is
+  render-time only, forever: hiding a category changes what you are looking at,
+  cancelling an occurrence changes what is there. Both rules must stay stated
+  side by side.
+- **The `OneTimeRecurrence` gate** keeps a stale row from ever hiding a
+  one-time event — cancelling its only occurrence is a delete, offered
+  separately.
+- **`membershipRevision` cannot ride `occurrenceRevision`.** That revision
+  contractually means "the overlay changed, do **not** rescan";
+  `UpcomingAgendaView` forwards it into its row memo but never re-runs its
+  scan on it. A skip must rescan. It is also load-bearing for the emit itself:
+  after a skip `allEvents` is value-equal, so without a bump `Equatable` drops
+  the state and the grid keeps drawing an occurrence that no longer exists.
+- **Counts are unaffected**, and correctly so: `RecurrenceFormatter.countLabel`
+  is elapsed-*period* arithmetic from `startDate`, so a cancelled Week 3 leaves
+  Week 4 as Week 4. This mirrors decision 3 of the presence roadmap.
+- **`markSkipped` also clears any absence mark on the day** — an occurrence
+  that does not exist cannot have been missed, and leaving the mark would
+  resurface it the moment the skip is undone.
+- **`.ics` needs explicit handling.** `IcsSerializer` queries `event.rule`
+  directly so it can drop `retroactive`, which drops the skip filter with it.
+  Three sites: `_firstOccurrenceOf` skips cancelled days so `DTSTART` is always
+  real; `_exceptionDates` emits an `EXDATE` per cancelled day **only for rules
+  that actually emit an `RRULE`** (`_hasRrule`); `_additionalDates` filters
+  cancelled days out of the `RDATE` list, since an RDATE that is also an EXDATE
+  is noise.
+- **UI, two entry points, both routed through the page** so persistence stays
+  on one path: "Skip this day" in the detail sheet (returns
+  `EventDetailAction.skipOccurrence`, page dispatches with Undo — the sheet
+  cannot write, because the occurrence it describes is about to stop existing),
+  and a **"Skipped days"** `_PickerTile` in the editor's When zone (editing +
+  recurring only) opening `CalendarDatePickerSheet.pickMulti`. The sheet stays
+  write-free: `EventEditorSaved.skippedDays` (null = untouched) is diffed
+  against the facade by `calendar_page.dart`.
+- **`pickMulti` gained `allowEmpty`** (default false, preserving its contract).
+  Skips are the first caller where an empty set is legitimate — clearing it is
+  how the user restores every occurrence.
+- **Backups**: additive key `eventSkips`, version stays 7, standard event-keyed
+  strand rule. Getting this wrong is worst of the three: a stale skip does not
+  render a wrong colour, it **hides** occurrences of whatever event later takes
+  the id. Same reason `EventSkips.resetCache()` in the reset contract matters
+  more here than for presence.
+
+## Addendum: day-cell tint layers
+
+The day cell's background is now a general, settings-driven **tint layer**
+system rather than a single hardcoded fasting wash.
+
+- `CellTintProvider` / `CellTintResolver`
+  (`lib/services/cell_tint_resolver.dart`) mirror `DayBarProvider` /
+  `DayBarsResolver`, including the purity contract: `tintFor` runs for every
+  visible cell on every rebuild, so static facade probes only — no I/O, no
+  BLoC, no recurrence expansion.
+- The cell paints at most one **wash** plus one **edge stripe**, both arriving
+  with alpha already applied. `CalendarDayCell` stays a dumb painter and never
+  learns which source won.
+- **Event tint**: exactly one event contributes — the top one by
+  `EventAgenda.compareWithinDay`, the same event the panel lists first.
+  Averaging a day's colours yields a hue no event on it actually has. Colour
+  follows the day-bar rule (`colorValue ?? category.color`) and ignores
+  `tintIcon`, like every other grid surface. **Alpha encodes priority**
+  (`CalendarColors.eventTintAlphaByPriority`, P1 strongest) — that is the whole
+  point of the feature, so the ramp must stay monotonic.
+- A missed occurrence keeps the wash it won but fades by `missedEventAlpha`; a
+  hidden one cannot claim it at all.
+- **Conflict is a user setting**, `CalendarTintConflict { eventWins,
+  fastingWins, both }`. Under `both` the winner paints the wash and the
+  runner-up a 3px left stripe at `CalendarColors.cellEdgeAlpha` — two stacked
+  washes blend into a third colour belonging to neither source. A non-uniform
+  `Border` cannot carry a `borderRadius`, hence the `Stack`.
+- **Off by default** (`calendar_event_tint`): it repaints most cells on a busy
+  calendar and competes with the marker strip the user already reads.
+- Adding a source (holiday, money, training block) is implementing
+  `CellTintProvider` and picking a band in `CellTintResolver.defaults` — no
+  call site changes.
+
+## Addendum: presence adherence, and calendar perf
+
+- **Adherence stats** ship as a pure util, `PresenceAdherence.compute` — see
+  the addendum in `docs/presence-tracking-roadmap.md`.
+- **`monthNetFor` moved into `CalendarBloc`** and is memoized per month, paired
+  with `NoteMoneyLedgerService.revision`. It used to be an un-memoized O(all
+  events) scan running from `headerTitleBuilder` on every grid rebuild. The
+  revision pairing is load-bearing: the ledger's per-note change stream
+  rewrites entries **outside** every handler that invalidates the day cache.
+- **`EventDayBarProvider` now sorts by `EventAgenda.compareWithinDay`** and
+  `DayBarsResolver.resolve` uses the stable insertion-index sort
+  `DaySummaryResolver` already had. Equal-priority stripes previously fell back
+  to the resolver's `event:<uuid>` tie-break, so the grid and the day panel
+  disagreed about which event was on top. **Visible change**, intended.
+- `_buildDayCell` no longer calls `DateTime.now()` and `accentOr` per cell (42×
+  a frame); both are hoisted into the grid build. The bar and tint resolvers
+  are memoized on `_CalendarViewState`.
+- `CalendarColors.moneyPositive` / `moneyNegative` replace the literals
+  duplicated across three money surfaces, and `category_editor_sheet.dart` now
+  reads `CalendarColors.swatchPalette` instead of its own copy.

@@ -25,6 +25,8 @@ class NoteMoneyLedgerService {
   final Map<String, ({int balance, int net, String title})> _ledgers = {};
   StreamSubscription<NoteChange>? _changeSub;
 
+  int _revision = 0;
+
   String _symbol = '';
   bool _suffix = false;
   int _startCents = 0;
@@ -72,6 +74,7 @@ class NoteMoneyLedgerService {
     // Master toggle off: the calendar shows no money surfaces at all.
     if (!config.enabled) {
       _ledgers.clear();
+      _revision++;
       return;
     }
 
@@ -80,6 +83,7 @@ class NoteMoneyLedgerService {
         if (event.noteId != null) event.noteId!,
     };
     _ledgers.removeWhere((noteId, _) => !linked.contains(noteId));
+    _revision++;
     if (linked.isEmpty) return;
 
     final repository = GetIt.I<NoteRepository>();
@@ -103,12 +107,20 @@ class NoteMoneyLedgerService {
         }
       }),
     );
+    _revision++;
   }
 
   /// Ledger summary for [noteId], or `null` when the note is not cached.
   /// Pure map read — safe to call per cell per rebuild.
   ({int balance, int net, String title})? ledgerFor(String noteId) =>
       _ledgers[noteId];
+
+  /// Bumped on every mutation of [_ledgers]. Callers that memoize a
+  /// derived sum (the calendar header's month net) store this alongside
+  /// their entry and recompute on mismatch: the per-note change stream
+  /// rewrites entries outside any BLoC handler, so cache invalidation
+  /// driven by event-set changes alone would serve stale money.
+  int get revision => _revision;
 
   /// Formats [cents] with an explicit sign using the stored display
   /// config (`+€12.50`, `-8.00 lei`).
@@ -166,6 +178,7 @@ class NoteMoneyLedgerService {
     if (!_ledgers.containsKey(change.noteId)) return;
     if (change.type == NoteChangeType.deleted) {
       _ledgers.remove(change.noteId);
+      _revision++;
       return;
     }
     // Recompute in place rather than evict-and-forget: nothing re-runs
@@ -183,6 +196,7 @@ class NoteMoneyLedgerService {
       final notes = await repository.getNotesByIds([noteId]);
       if (notes.isEmpty) {
         _ledgers.remove(noteId);
+        _revision++;
         return;
       }
       final content = await repository.loadContent(noteId);
@@ -192,6 +206,7 @@ class NoteMoneyLedgerService {
         net: folded.net,
         title: notes.first.title,
       );
+      _revision++;
     } catch (e) {
       debugPrint('[NoteMoneyLedgerService] Recompute error for $noteId: $e');
     }

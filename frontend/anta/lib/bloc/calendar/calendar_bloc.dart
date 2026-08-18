@@ -5,6 +5,7 @@ import '../../models/calendar_event.dart';
 import '../../services/calendar_event_service.dart';
 import '../../services/event_occurrence_service.dart';
 import '../../services/event_presence_service.dart';
+import '../../services/event_skip_service.dart';
 import '../../services/note_money_ledger_service.dart';
 import 'calendar_event.dart';
 import 'calendar_state.dart';
@@ -24,6 +25,15 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   final Map<DateTime, List<CalendarEvent>> _dayCache = {};
   static const int _maxDayCacheEntries = 512;
 
+  /// Memoizes the header's net money change per month. The scan is O(N) over
+  /// the whole event list and the header rebuilds on every day tap, so it
+  /// cannot run inline. Keyed by the month's first UTC day and paired with
+  /// [NoteMoneyLedgerService.revision]: the ledger's per-note change stream
+  /// rewrites entries outside every handler that calls [_invalidateDayCache],
+  /// so the event set alone is not enough to keep a cached sum honest.
+  final Map<DateTime, ({int revision, int net})> _monthNetCache = {};
+  static const int _maxMonthNetEntries = 36;
+
   CalendarBloc({required CalendarEventService service})
     : _service = service,
       super(const CalendarPageInitial()) {
@@ -39,6 +49,8 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     on<ClearOccurrenceDescription>(_onClearOccurrenceDescription);
     on<SetOccurrenceMissed>(_onSetOccurrenceMissed);
     on<ClearOccurrenceMissed>(_onClearOccurrenceMissed);
+    on<SetOccurrenceSkipped>(_onSetOccurrenceSkipped);
+    on<ClearOccurrenceSkipped>(_onClearOccurrenceSkipped);
   }
 
   /// Amortized O(1) lookup over the in-memory cache populated by
@@ -63,11 +75,64 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     return result;
   }
 
+  /// Net money change for [month]: the exact sum of what the visible day
+  /// cells display. Mirrors the day bar/summary providers on both axes the
+  /// two surfaces could diverge on: hidden categories are excluded (cells
+  /// only ever see category-filtered events), and dedupe is per (start day,
+  /// note) — a note linked from events on two different days shows on both
+  /// cells, so it counts twice here too, while a recurring event still never
+  /// multiplies its note.
+  ///
+  /// Memoized in [_monthNetCache]; safe to call from `headerTitleBuilder`.
+  int monthNetFor(DateTime month) {
+    final current = state;
+    if (current is! CalendarPageLoaded) return 0;
+    final ledger = NoteMoneyLedgerService.instanceOrNull;
+    if (ledger == null) return 0;
+    final key = DateTime.utc(month.year, month.month, 1);
+    final revision = ledger.revision;
+    final cached = _monthNetCache[key];
+    if (cached != null && cached.revision == revision) return cached.net;
+
+    var sum = 0;
+    Set<String>? seen;
+    for (final event in current.allEvents) {
+      final noteId = event.noteId;
+      if (noteId == null) continue;
+      if (current.hiddenCategoryIds.contains(event.categoryId)) continue;
+      final startUtc = DateTime.fromMillisecondsSinceEpoch(
+        event.startDate.millisecondsSinceEpoch,
+        isUtc: true,
+      );
+      if (startUtc.year != month.year || startUtc.month != month.month) {
+        continue;
+      }
+      // Cells attribute money on the start day only when the event actually
+      // occurs there; a rule that skips its own anchor (weekly with the
+      // anchor's weekday deselected) shows on no cell, so it must not count.
+      if (!event.occursOn(
+        DateTime.utc(startUtc.year, startUtc.month, startUtc.day),
+      )) {
+        continue;
+      }
+      seen ??= <String>{};
+      if (!seen.add('${startUtc.day}:$noteId')) continue;
+      final entry = ledger.ledgerFor(noteId);
+      if (entry == null) continue;
+      sum += entry.net;
+    }
+
+    if (_monthNetCache.length >= _maxMonthNetEntries) _monthNetCache.clear();
+    _monthNetCache[key] = (revision: revision, net: sum);
+    return sum;
+  }
+
   /// Drops every memoized day so the next [eventsForDay] recomputes against
   /// the current event set / category filter. Called from the handlers that
   /// actually change those inputs — never from day/focus/format changes.
   void _invalidateDayCache() {
     if (_dayCache.isNotEmpty) _dayCache.clear();
+    if (_monthNetCache.isNotEmpty) _monthNetCache.clear();
   }
 
   Future<void> _onLoad(
@@ -315,6 +380,57 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     );
   }
 
+
+  /// Cancels one occurrence.
+  ///
+  /// The **inverse** of [_onSetOccurrenceMissed] on the one axis that matters:
+  /// a skip changes membership, so it *must* invalidate the day cache. Leaving
+  /// it warm would keep serving an occurrence `occursOn` now denies, and the
+  /// two would disagree for up to 512 memoized days.
+  ///
+  /// It bumps [CalendarPageLoaded.membershipRevision] rather than
+  /// `occurrenceRevision`, because the agenda has to rescan rather than
+  /// repaint — see the field's own note.
+  Future<void> _onSetOccurrenceSkipped(
+    SetOccurrenceSkipped event,
+    Emitter<CalendarPageState> emit,
+  ) async {
+    final current = state;
+    if (current is! CalendarPageLoaded) return;
+    try {
+      final service = await EventSkipService.getInstance();
+      await service.markSkipped(event.eventId, event.day);
+    } catch (e) {
+      debugPrint('[CalendarBloc] Skip write error: $e');
+      return;
+    }
+    _invalidateDayCache();
+    emit(
+      current.copyWith(membershipRevision: current.membershipRevision + 1),
+    );
+  }
+
+  /// Restores one cancelled occurrence. Same cache reasoning as
+  /// [_onSetOccurrenceSkipped], in the other direction: the occurrence comes
+  /// back, so the memoized days that omit it are just as wrong.
+  Future<void> _onClearOccurrenceSkipped(
+    ClearOccurrenceSkipped event,
+    Emitter<CalendarPageState> emit,
+  ) async {
+    final current = state;
+    if (current is! CalendarPageLoaded) return;
+    try {
+      final service = await EventSkipService.getInstance();
+      await service.unskip(event.eventId, event.day);
+    } catch (e) {
+      debugPrint('[CalendarBloc] Skip clear error: $e');
+      return;
+    }
+    _invalidateDayCache();
+    emit(
+      current.copyWith(membershipRevision: current.membershipRevision + 1),
+    );
+  }
   static DateTime _dateOnly(DateTime date) {
     return DateTime.utc(date.year, date.month, date.day);
   }

@@ -8,7 +8,9 @@ import '../constants/settings_keys.dart';
 import '../l10n/app_localizations.dart';
 import '../constants/calendar_icons.dart';
 import '../models/calendar_appearance.dart';
+import '../models/calendar_event.dart';
 import '../models/day_bar.dart';
+import '../models/day_cell_tint.dart';
 import '../models/fasting_appearance.dart';
 import '../models/fasting_schedule.dart';
 import '../widgets/fasting_schedule_sheet.dart';
@@ -569,6 +571,79 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
           ),
         ),
         SettingsEntry(
+          title: l10n.calendarEventTintTitle,
+          description: l10n.calendarEventTintDesc,
+          // "Priority" never appears in the visible copy, but it is what the
+          // tint encodes and what the user would search for.
+          keywords: [l10n.eventPriority],
+          builder: (context, title, description) => SwitchListTile(
+            value: _appearance.eventTint,
+            secondary: Icon(
+              Icons.format_color_fill_rounded,
+              color: colorScheme.primary,
+            ),
+            title: title,
+            subtitle: description,
+            onChanged: (value) async {
+              _onHapticFeedback();
+              setState(
+                () => _appearance = _appearance.copyWith(eventTint: value),
+              );
+              await _settings?.setCalendarEventTint(value);
+            },
+          ),
+        ),
+        // Only reachable with the tint on: with it off there is exactly one
+        // wash source, so there is nothing to resolve.
+        if (_appearance.eventTint)
+          SettingsEntry(
+            title: l10n.calendarTintConflictTitle,
+            description: l10n.calendarTintConflictDesc,
+            keywords: [l10n.fastingSectionTitle],
+            builder: (context, title, description) => Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 8,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  title,
+                  const SizedBox(height: 4),
+                  ?description,
+                  const SizedBox(height: 8),
+                  SegmentedButton<CalendarTintConflict>(
+                    segments: [
+                      ButtonSegment(
+                        value: CalendarTintConflict.eventWins,
+                        label: Text(l10n.calendarTintConflictEvent),
+                      ),
+                      ButtonSegment(
+                        value: CalendarTintConflict.fastingWins,
+                        label: Text(l10n.calendarTintConflictFasting),
+                      ),
+                      ButtonSegment(
+                        value: CalendarTintConflict.both,
+                        label: Text(l10n.calendarTintConflictBoth),
+                      ),
+                    ],
+                    selected: {_appearance.tintConflict},
+                    showSelectedIcon: false,
+                    onSelectionChanged: (sel) async {
+                      _onHapticFeedback();
+                      setState(
+                        () => _appearance = _appearance.copyWith(
+                          tintConflict: sel.first,
+                        ),
+                      );
+                      await _settings?.setCalendarTintConflict(sel.first);
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        SettingsEntry(
           title: l10n.calendarShowWeekNumbers,
           description: l10n.calendarShowWeekNumbersDesc,
           builder: (context, title, description) => SwitchListTile(
@@ -627,6 +702,24 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
             subtitle: description,
             trailing: const Icon(Icons.chevron_right_rounded),
             onTap: () => AppNavigator.toCalendarCategories(context),
+          ),
+        ),
+        SettingsEntry(
+          title: l10n.eventTemplates,
+          description: l10n.eventTemplatesDesc,
+          // The page is reached from here, but the feature is used by
+          // long-pressing a day — declare that word so settings search finds
+          // it either way.
+          keywords: [l10n.addFromTemplate],
+          builder: (context, title, description) => ListTile(
+            leading: Icon(
+              Icons.bookmark_border_rounded,
+              color: colorScheme.primary,
+            ),
+            title: title,
+            subtitle: description,
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => AppNavigator.toEventTemplates(context),
           ),
         ),
       ],
@@ -933,6 +1026,8 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
       defaults.showRecurrenceLabels,
     );
     await _settings?.setCalendarMissedDisplay(defaults.missedDisplay);
+    await _settings?.setCalendarEventTint(defaults.eventTint);
+    await _settings?.setCalendarTintConflict(defaults.tintConflict);
     await _settings?.setEventDescriptionLimit(
       SettingsKeys.defaultEventDescriptionLimit,
     );
@@ -997,12 +1092,46 @@ class _AppearancePreview extends StatelessWidget {
         ) +
         6;
 
+    // Samples the real alpha ramp rather than picked-by-eye values, so the
+    // preview cannot drift from the grid. `priority` is 1-based like the
+    // event field; a null one means the day carries no event.
+    DayCellTint previewTint(Color color, {int? priority}) {
+      if (!appearance.eventTint) {
+        return priority == null
+            ? DayCellTint.empty
+            // With the tint off, a fasting day is the only wash there is.
+            : DayCellTint(
+                wash: CalendarColors.fasting.withValues(
+                  alpha: CalendarColors.fastingTintAlpha,
+                ),
+              );
+      }
+      if (priority == null) return DayCellTint.empty;
+      final eventWash = color.withValues(
+        alpha: CalendarColors.eventTintAlphaByPriority[priority - 1],
+      );
+      final fastingWash = CalendarColors.fasting.withValues(
+        alpha: CalendarColors.fastingTintAlpha,
+      );
+      return switch (appearance.tintConflict) {
+        CalendarTintConflict.eventWins => DayCellTint(wash: eventWash),
+        CalendarTintConflict.fastingWins => DayCellTint(wash: fastingWash),
+        CalendarTintConflict.both => DayCellTint(
+          wash: eventWash,
+          edge: CalendarColors.fasting.withValues(
+            alpha: CalendarColors.cellEdgeAlpha,
+          ),
+        ),
+      };
+    }
+
     Widget cell(
       DateTime day, {
       bool isToday = false,
       bool isSelected = false,
       bool isWeekend = false,
       List<DayBar> bars = const [],
+      DayCellTint tint = DayCellTint.empty,
     }) {
       return Expanded(
         child: SizedBox(
@@ -1019,6 +1148,7 @@ class _AppearancePreview extends StatelessWidget {
                   todayStyle: appearance.todayStyle,
                   highlightWeekends: appearance.highlightWeekends,
                   accent: accent,
+                  tint: tint,
                 ),
               ),
               if (bars.isNotEmpty)
@@ -1054,11 +1184,19 @@ class _AppearancePreview extends StatelessWidget {
             bars: [_previewBar('weekend', CalendarColors.weekend)],
           ),
           cell(today.subtract(const Duration(days: 1))),
-          cell(today, isToday: true, bars: [_previewBar('a', palette[0])]),
+          // The two tinted samples sit at opposite ends of the priority ramp
+          // so the "stronger means higher priority" claim is visible.
+          cell(
+            today,
+            isToday: true,
+            bars: [_previewBar('a', palette[0])],
+            tint: previewTint(palette[0], priority: kMinEventPriority),
+          ),
           cell(
             today.add(const Duration(days: 1)),
             isSelected: true,
             bars: [_previewBar('b', palette[3]), _previewBar('c', palette[7])],
+            tint: previewTint(palette[3], priority: kMaxEventPriority),
           ),
           cell(today.add(const Duration(days: 2)), bars: overflowBars),
         ],

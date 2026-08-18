@@ -263,7 +263,9 @@ class MoneyDaySummaryProvider implements DaySummaryProvider {
       DaySummaryEntry(
         key: 'money',
         icon: Icons.payments_outlined,
-        color: sum > 0 ? const Color(0xFF2E7D32) : const Color(0xFFC62828),
+        color: sum > 0
+            ? CalendarColors.moneyPositive
+            : CalendarColors.moneyNegative,
         title: l10n.moneyDaySummaryTitle(service.formatNetSigned(sum)),
         subtitle: titles.isEmpty ? null : titles.join(', '),
         priority: 90,

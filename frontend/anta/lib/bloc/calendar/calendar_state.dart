@@ -40,6 +40,20 @@ final class CalendarPageLoaded extends CalendarPageState {
   /// overlay. Threaded down to `AgendaListView` as part of its cache key.
   final int occurrenceRevision;
 
+  /// Bumped whenever an occurrence is cancelled or restored (**v30**).
+  ///
+  /// Deliberately **not** [occurrenceRevision]. That revision contractually
+  /// means "the overlay changed, do not rescan" — `UpcomingAgendaView` forwards
+  /// it into its row memo but never re-runs its agenda scan on it. A skip is
+  /// the opposite: the set of occurrences itself changed, so every scan must
+  /// re-run. Routing both through one counter would either make every checkbox
+  /// tick rescan the agenda or leave a cancelled day listed in it.
+  ///
+  /// Also load-bearing for the emit itself: after a skip `allEvents` is
+  /// value-equal, so without a bump `Equatable` drops the state and the grid
+  /// keeps drawing an occurrence that no longer exists.
+  final int membershipRevision;
+
   const CalendarPageLoaded({
     required this.allEvents,
     required this.focusedDay,
@@ -47,6 +61,7 @@ final class CalendarPageLoaded extends CalendarPageState {
     this.format = CalendarFormat.month,
     this.hiddenCategoryIds = const {},
     this.occurrenceRevision = 0,
+    this.membershipRevision = 0,
   });
 
   CalendarPageLoaded copyWith({
@@ -56,6 +71,7 @@ final class CalendarPageLoaded extends CalendarPageState {
     CalendarFormat? format,
     Set<String>? hiddenCategoryIds,
     int? occurrenceRevision,
+    int? membershipRevision,
   }) {
     return CalendarPageLoaded(
       allEvents: allEvents ?? this.allEvents,
@@ -64,6 +80,7 @@ final class CalendarPageLoaded extends CalendarPageState {
       format: format ?? this.format,
       hiddenCategoryIds: hiddenCategoryIds ?? this.hiddenCategoryIds,
       occurrenceRevision: occurrenceRevision ?? this.occurrenceRevision,
+      membershipRevision: membershipRevision ?? this.membershipRevision,
     );
   }
 
@@ -75,6 +92,7 @@ final class CalendarPageLoaded extends CalendarPageState {
     format,
     hiddenCategoryIds,
     occurrenceRevision,
+    membershipRevision,
   ];
 }
 

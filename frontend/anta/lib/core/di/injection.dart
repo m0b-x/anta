@@ -12,6 +12,8 @@ import '../../services/counter_service.dart';
 import '../../services/calendar_event_service.dart';
 import '../../services/event_occurrence_service.dart';
 import '../../services/event_presence_service.dart';
+import '../../services/event_skip_service.dart';
+import '../../services/event_template_service.dart';
 import '../../services/category_service.dart';
 import '../../services/public_holiday_service.dart';
 import '../../services/mixed_reorder_service.dart';
@@ -93,6 +95,12 @@ Future<void> _registerServices() async {
 
   final eventPresenceService = await EventPresenceService.getInstance();
   getIt.registerSingleton<EventPresenceService>(eventPresenceService);
+
+  final eventSkipService = await EventSkipService.getInstance();
+  getIt.registerSingleton<EventSkipService>(eventSkipService);
+
+  final eventTemplateService = await EventTemplateService.getInstance();
+  getIt.registerSingleton<EventTemplateService>(eventTemplateService);
 
   getIt.registerSingleton<MoveHistoryService>(
     MoveHistoryService(store: InMemoryMoveHistoryStore()),

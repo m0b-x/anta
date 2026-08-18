@@ -8,6 +8,7 @@ import 'package:uuid/uuid.dart';
 
 import '../bloc/markdown_bar/markdown_bar_bloc.dart';
 import '../constants/calendar_bounds.dart';
+import '../constants/event_skips.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_colors.dart';
 import '../constants/calendar_icons.dart';
@@ -20,6 +21,7 @@ import '../controllers/shortcut_applier.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
+import '../models/event_template.dart';
 import '../models/custom_markdown_shortcut.dart';
 import '../models/recurrence_rule.dart';
 import '../models/utility_button_config.dart';
@@ -27,12 +29,14 @@ import '../repositories/note_repository.dart';
 import '../services/event_time_formatter.dart';
 import '../services/recurrence_formatter.dart';
 import '../services/settings_service.dart';
+import '../utils/custom_snackbar.dart';
 import '../utils/list_aware_paste.dart';
 import '../utils/markdown_color_syntax.dart';
 import '../utils/markdown_editor_span_builder.dart';
 import '../utils/re_editor_search_controller.dart';
 import 'calendar_date_picker_sheet.dart';
 import 'category_picker_sheet.dart';
+import 'event_template_editor_sheet.dart';
 import 'color_wheel_picker.dart';
 import 'icon_picker_sheet.dart';
 import 'markdown_bar.dart';
@@ -61,10 +65,19 @@ class EventEditorSaved extends EventEditorResult {
   /// the page dispatches it, so writes stay on one path.
   final String? occurrenceDescription;
 
+  /// The full set of cancelled days the user left the picker with (**v30**),
+  /// or `null` when they never opened it.
+  ///
+  /// A whole set rather than a diff because the picker is a set editor: the
+  /// page diffs it against the facade and dispatches the adds and removes, so
+  /// the sheet stays write-free exactly as it is for descriptions.
+  final Set<DateTime>? skippedDays;
+
   const EventEditorSaved(
     this.event, {
     this.occurrenceDay,
     this.occurrenceDescription,
+    this.skippedDays,
   });
 }
 
@@ -254,6 +267,15 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   /// fires once has no attendance to keep — which is exactly the set
   /// [_ruleHasManyOccurrences] describes, so specific-dates participates.
   bool _tracksPresence = false;
+
+  /// The cancelled days the user is editing (**v30**), or `null` while they
+  /// have not opened the picker.
+  ///
+  /// Draft state: nothing is written until Save, and `null` is what tells the
+  /// page to leave the skip table alone entirely. Seeded from the facade on
+  /// first open rather than in `initState`, so an event with no skips costs
+  /// nothing.
+  Set<DateTime>? _skippedDays;
 
   /// Whether the event keeps one description per occurrence instead of one
   /// shared by every day, with its own description as the template each day
@@ -858,6 +880,30 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     });
   }
 
+  /// The cancelled days currently in play: the draft once the picker has been
+  /// opened, otherwise whatever is persisted.
+  Set<DateTime> get _effectiveSkippedDays =>
+      _skippedDays ?? EventSkips.daysFor(widget.initialEvent?.id ?? '');
+
+  /// Reviews and edits the cancelled days as a set.
+  ///
+  /// `pickMulti` is exactly the right control here and needs no new UI: it is
+  /// semantics-free, it already shows which days are busy, and un-skipping is
+  /// just deselecting. Nothing is written until Save.
+  Future<void> _pickSkippedDays() async {
+    final picked = await CalendarDatePickerSheet.pickMulti(
+      context,
+      initialSelection: _effectiveSkippedDays,
+      firstDate: CalendarBounds.earliest,
+      lastDate: CalendarBounds.latest,
+      dayLoad: widget.dayLoad,
+      appearance: widget.appearance,
+      allowEmpty: true,
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _skippedDays = {for (final d in picked) _normalize(d)});
+  }
+
   Future<void> _pickEndDate() async {
     final initial = _endDate ?? _date;
     final picked = await CalendarDatePickerSheet.pickSingle(
@@ -1092,6 +1138,62 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     });
   }
 
+  /// Captures the current form as a reusable template.
+  ///
+  /// Opens the template editor pre-filled rather than saving silently: the
+  /// template needs a name of its own (the event's title is only a default),
+  /// and seeing the captured fields before they are stored is what makes the
+  /// action trustworthy. The event form is left untouched and the sheet stays
+  /// open — this is a side action, not a save.
+  ///
+  /// Persisting goes straight through `EventTemplateService`, the same
+  /// service-direct pattern `CategoryPickerSheet`'s inline create already uses
+  /// from inside this sheet, so no result-type plumbing is involved.
+  Future<void> _onSaveAsTemplate() async {
+    final title = _titleController.text.trim();
+    if (title.isEmpty) return;
+    final description = _templateText.trim();
+    // A template carries no dates, so a multi-date one-time event collapses
+    // to a plain one-time rule; the same repeat-only guards as `_onSave`
+    // otherwise apply, and the template editor re-applies them on its save.
+    final rule = _mode == _RepeatMode.recurring
+        ? _buildRule()
+        : const OneTimeRecurrence();
+    final draft = EventTemplate(
+      id: '',
+      name: title,
+      categoryId: _categoryId,
+      rule: rule,
+      time: _isAllDay
+          ? null
+          : EventTime(
+              startMinute: _startMinute,
+              durationMinutes: _durationMinutes,
+            ),
+      description: description.isEmpty ? null : description,
+      iconKey: _iconKey,
+      colorValue: _colorValue,
+      tintIcon: _tintIcon,
+      priority: _priority,
+      retroactive: _mode == _RepeatMode.recurring && _retroactive,
+      countOccurrences:
+          _mode == _RepeatMode.recurring &&
+          _kindSupportsInterval(_kind) &&
+          _countOccurrences,
+      countStyle: _countStyle,
+      tracksPresence: _ruleHasManyOccurrences && _tracksPresence,
+      perOccurrenceDescriptions:
+          _ruleHasManyOccurrences && _perOccurrenceDescriptions,
+    );
+
+    final saved = await EventTemplateEditorSheet.show(context, draft: draft);
+    if (saved == null || !mounted) return;
+    CustomSnackbar.showSuccess(
+      context,
+      AppLocalizations.of(context)!.templateSaved,
+    );
+  }
+
   void _onSave() {
     if (!_canSave) return;
     final title = _titleController.text.trim();
@@ -1190,6 +1292,14 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
         event,
         occurrenceDay: occurrenceDay,
         occurrenceDescription: occurrenceDescription,
+        // Only when the picker was actually opened, and only while the saved
+        // rule can still carry skips — editing an event down to a single day
+        // must not dispatch skips against a rule that has no occurrences to
+        // cancel. The rows survive untouched either way, exactly like the
+        // absence and description rows.
+        skippedDays: _skippedDays != null && event.rule is! OneTimeRecurrence
+            ? _skippedDays
+            : null,
       ),
     );
   }
@@ -1833,6 +1943,26 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                       ),
                     ),
                   ],
+                  // Management only: a day is normally cancelled from the
+                  // detail sheet, one occurrence at a time. This is where they
+                  // are reviewed and restored, so it appears for an existing
+                  // recurring event and never for a brand-new one, which has
+                  // no occurrences yet to have cancelled.
+                  if (_isEditing && _ruleHasManyOccurrences) ...[
+                    _SectionLabel(text: l10n.eventSkippedDays),
+                    _PickerTile(
+                      leading: const CircleAvatar(
+                        child: Icon(Icons.event_busy_outlined),
+                      ),
+                      title: _effectiveSkippedDays.isEmpty
+                          ? l10n.eventNoSkippedDays
+                          : l10n.eventSkippedDaysCount(
+                              _effectiveSkippedDays.length,
+                            ),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: _pickSkippedDays,
+                    ),
+                  ],
                   _SectionLabel(text: l10n.eventTimeSection),
                   Card(
                     margin: EdgeInsets.zero,
@@ -2050,6 +2180,21 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                             onPressed: _clearNote,
                           ),
                     onTap: _pickNote,
+                  ),
+                  // Secondary whole-form action, placed like Delete: the
+                  // inline header stays `close | title | Save`, so anything
+                  // that acts on the whole form and is not Save lives at the
+                  // bottom of the scroll body.
+                  const SizedBox(height: 24),
+                  OutlinedButton.icon(
+                    onPressed: _titleController.text.trim().isEmpty
+                        ? null
+                        : _onSaveAsTemplate,
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(48),
+                    ),
+                    icon: const Icon(Icons.bookmark_add_outlined),
+                    label: Text(l10n.saveAsTemplate),
                   ),
                   if (_isEditing) ...[
                     const SizedBox(height: 24),

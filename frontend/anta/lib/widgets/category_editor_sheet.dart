@@ -1,34 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../constants/calendar_categories.dart';
+import '../constants/calendar_colors.dart';
 import '../constants/calendar_icons.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_category.dart';
 import '../services/category_service.dart';
 import 'icon_picker_sheet.dart';
-
-/// Curated swatch palette for categories. Stored as 32-bit ARGB ints so they
-/// round-trip through SQLite and backup without a `Color` dependency.
-const List<int> _categorySwatches = [
-  0xFF1E88E5, // blue
-  0xFF00ACC1, // cyan
-  0xFF00897B, // teal
-  0xFF43A047, // green
-  0xFF7CB342, // light green
-  0xFFC0CA33, // lime
-  0xFFFDD835, // yellow
-  0xFFFB8C00, // orange
-  0xFFF4511E, // deep orange
-  0xFFE53935, // red
-  0xFFD81B60, // pink
-  0xFFEC407A, // rose
-  0xFF8E24AA, // purple
-  0xFF5E35B1, // deep purple
-  0xFF3949AB, // indigo
-  0xFF6D4C41, // brown
-  0xFF546E7A, // blue grey
-  0xFF757575, // grey
-];
 
 const int _defaultCategoryColor = 0xFFFB8C00;
 const String _defaultCategoryIconKey = 'event';
@@ -235,7 +213,7 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
                     spacing: 12,
                     runSpacing: 12,
                     children: [
-                      for (final swatch in _categorySwatches)
+                      for (final swatch in CalendarColors.swatchPalette)
                         _ColorSwatch(
                           color: Color(swatch),
                           selected: swatch == _colorValue,

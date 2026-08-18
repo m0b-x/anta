@@ -2300,6 +2300,122 @@ class AppLocalizationsEn extends AppLocalizations {
   String get calendarMissedDisplayHidden => 'Hidden';
 
   @override
+  String get eventSkipOccurrence => 'Skip this day';
+
+  @override
+  String get eventOccurrenceSkipped => 'Occurrence skipped';
+
+  @override
+  String get eventSkippedDays => 'Skipped days';
+
+  @override
+  String eventSkippedDaysCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count days skipped',
+      few: '$count days skipped',
+      one: '1 day skipped',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get eventNoSkippedDays => 'None';
+
+  @override
+  String get eventTemplates => 'Event templates';
+
+  @override
+  String get eventTemplatesDesc =>
+      'Reusable presets — category, schedule, color and details prefilled';
+
+  @override
+  String get createTemplate => 'New template';
+
+  @override
+  String get editTemplate => 'Edit template';
+
+  @override
+  String get templateName => 'Template name';
+
+  @override
+  String get templateNameHint => 'Push day';
+
+  @override
+  String get saveAsTemplate => 'Save as template';
+
+  @override
+  String get templateSaved => 'Template saved';
+
+  @override
+  String get deleteTemplate => 'Delete template';
+
+  @override
+  String deleteTemplateConfirm(String name) {
+    return 'Delete \"$name\"? Events already created from it are not affected.';
+  }
+
+  @override
+  String get templateDeleted => 'Template deleted';
+
+  @override
+  String get addFromTemplate => 'Add from template';
+
+  @override
+  String get templateBlankEvent => 'Blank event';
+
+  @override
+  String eventCreatedFromTemplate(String title) {
+    return 'Added: $title';
+  }
+
+  @override
+  String eventCreatedFromTemplateOn(String title, String date) {
+    return 'Added: $title — first on $date';
+  }
+
+  @override
+  String get noEventTemplates => 'No templates yet';
+
+  @override
+  String get noEventTemplatesDesc =>
+      'Save an event as a template to reuse its details later.';
+
+  @override
+  String eventAdherenceSummary(int attended, int total, int days) {
+    return '$attended/$total attended · last $days days';
+  }
+
+  @override
+  String eventAdherenceStreak(int count, int best) {
+    return 'Streak $count · best $best';
+  }
+
+  @override
+  String get calendarEventTintTitle => 'Tint days by event color';
+
+  @override
+  String get calendarEventTintDesc =>
+      'Wash each day with its top event\'s color. Stronger color means higher priority.';
+
+  @override
+  String get calendarTintConflictTitle => 'On fasting days';
+
+  @override
+  String get calendarTintConflictDesc =>
+      'Which color wins when a day has both an event and a fast';
+
+  @override
+  String get calendarTintConflictEvent => 'Event';
+
+  @override
+  String get calendarTintConflictFasting => 'Fasting';
+
+  @override
+  String get calendarTintConflictBoth => 'Both';
+
+  @override
   String get calendarWeekStartTitle => 'Week starts on';
 
   @override

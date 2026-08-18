@@ -50,6 +50,11 @@ class CalendarDatePickerSheet extends StatefulWidget {
   /// The calendar page already holds a current copy.
   final CalendarAppearance appearance;
 
+  /// Whether confirming with nothing selected is allowed. False for callers
+  /// that need at least one date to stay valid (the one-time date set); true
+  /// for a set that is legitimately emptied, like the cancelled-days editor.
+  final bool allowEmpty;
+
   const CalendarDatePickerSheet({
     super.key,
     required this.mode,
@@ -58,6 +63,7 @@ class CalendarDatePickerSheet extends StatefulWidget {
     required this.lastDate,
     required this.appearance,
     this.dayLoad,
+    this.allowEmpty = false,
   });
 
   /// Picks a single date. Returns null when dismissed.
@@ -82,10 +88,13 @@ class CalendarDatePickerSheet extends StatefulWidget {
     return picked.first;
   }
 
-  /// Edits a whole set of dates in one pass. Returns null when dismissed and
-  /// never returns an empty set — clearing everything then confirming keeps
-  /// the caller's original selection, since every caller needs at least one
-  /// date to stay valid.
+  /// Edits a whole set of dates in one pass. Returns null when dismissed.
+  ///
+  /// By default it also never returns an empty set — clearing everything then
+  /// confirming keeps the caller's original selection, because the one-time
+  /// date set needs at least one date to stay valid. Pass [allowEmpty] for a
+  /// set that can legitimately end up empty, such as the cancelled-days
+  /// editor, where clearing it is how the user restores every occurrence.
   static Future<Set<DateTime>?> pickMulti(
     BuildContext context, {
     required Set<DateTime> initialSelection,
@@ -93,6 +102,7 @@ class CalendarDatePickerSheet extends StatefulWidget {
     required DateTime lastDate,
     required CalendarAppearance appearance,
     PickerDayLoad? dayLoad,
+    bool allowEmpty = false,
   }) async {
     final picked = await _show(
       context,
@@ -102,8 +112,10 @@ class CalendarDatePickerSheet extends StatefulWidget {
       lastDate: lastDate,
       appearance: appearance,
       dayLoad: dayLoad,
+      allowEmpty: allowEmpty,
     );
-    if (picked == null || picked.isEmpty) return null;
+    if (picked == null) return null;
+    if (picked.isEmpty && !allowEmpty) return null;
     return picked;
   }
 
@@ -115,6 +127,7 @@ class CalendarDatePickerSheet extends StatefulWidget {
     required DateTime lastDate,
     required CalendarAppearance appearance,
     PickerDayLoad? dayLoad,
+    bool allowEmpty = false,
   }) {
     return showModalBottomSheet<Set<DateTime>>(
       context: context,
@@ -128,6 +141,7 @@ class CalendarDatePickerSheet extends StatefulWidget {
         lastDate: lastDate,
         appearance: appearance,
         dayLoad: dayLoad,
+        allowEmpty: allowEmpty,
       ),
     );
   }
@@ -263,7 +277,7 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
                   Padding(
                     padding: const EdgeInsets.only(left: 4),
                     child: FilledButton(
-                      onPressed: _selection.isEmpty
+                      onPressed: _selection.isEmpty && !widget.allowEmpty
                           ? null
                           : () => Navigator.of(context).pop({..._selection}),
                       child: Text(l10n.save),

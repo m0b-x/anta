@@ -566,10 +566,7 @@ restore a pre-feature backup → no marks, no errors.
 
 Recorded so they are not re-derived:
 
-- **Adherence stats** ("went 22/26 this month", streaks). Cheap on top of
-  this schema: expand `occursOn` over a month, subtract `isMissed`, count
-  only days ≤ today. Natural homes: a chip in the detail sheet's upcoming
-  section or a day-panel header line. Worth its own small design pass.
+- ~~**Adherence stats**~~ — **shipped**, see the addendum below.
 - **Attendance-based count labels** (a missed visit not advancing the
   `countOccurrences` number). Deliberately out (decision 3) — it would make
   labels depend on presence data and re-number history on every toggle.
@@ -585,3 +582,51 @@ Recorded so they are not re-derived:
 - **Delta feeds** (`getAbsencesSince` / `mergeAbsence`) and the sync
   watermark. Pure additions to a schema already shaped for them; they belong
   to phase-02's gateway work, not here.
+
+---
+
+## Addendum — adherence stats (shipped)
+
+No schema change: absences are already persisted, so adherence is derived
+arithmetic with nothing to migrate, cache or keep in sync.
+
+`PresenceAdherence.compute(event, today:)` in `lib/utils/presence_stats.dart`
+walks backwards at most `lookbackDays` (366, matching `EventAgenda.maxRangeDays`)
+from a date-only-UTC today. Each day costs one `occursOn` call plus one
+`EventPresence.isMissed` probe. It returns `null` when `EventPresence.appliesTo`
+is false or the event has no occurrence in the lookback — the same gate every
+other presence surface uses, never a second one.
+
+Four numbers, in one `PresenceStats`:
+
+- `attended` / `total` over the trailing **`windowDays` = 30**, not
+  month-to-date: "1/1" on the first of the month is noise, while a trailing
+  window always says something. The window is inclusive at both ends.
+- `currentStreak` — consecutive attended occurrences ending at the most recent
+  occurrence ≤ today.
+- `longestStreak` — the best run inside the lookback. Bounded on purpose; it is
+  computed data, not a lifetime claim.
+
+Rules that must not drift:
+
+- **Occurrences after today never count**, for either number. Marking a future
+  date is supported (see above), so counting it would report a miss that has
+  not happened.
+- **A day the event does not fire on cannot break a streak** — `occursOn` is
+  the only membership authority here, exactly as everywhere else.
+- **`retroactive` and `startDate` clamping need no special casing**;
+  `CalendarEvent.occursOn` already owns both.
+- `overrideDay` / `overrideMissed` exist for one caller: the detail sheet
+  updates its toggle optimistically, and numbers that lagged it by a frame
+  would read as the toggle having done nothing. Never use them to bypass the
+  facade for anything else.
+
+Renders in `event_detail_sheet.dart` only, directly under the presence
+`SegmentedButton` and only when `_presenceVisible`. Held in state (`_stats`)
+and recomputed inside `_setMissed`, for the same reason as `_upcoming`: the
+body is a `ListView`, so a 366-day walk in `build` would run on every scroll
+frame. **Not** in the day panel — its trailing strip is already full, and
+adherence is a property of the event, not of a day.
+
+Decision 3 still stands: count labels remain elapsed-period math and must
+never depend on presence.

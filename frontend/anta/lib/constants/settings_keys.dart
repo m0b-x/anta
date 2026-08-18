@@ -141,6 +141,15 @@ class SettingsKeys {
   /// with a forward-compatible fallback by `CalendarMissedDisplay.fromName`.
   static const String calendarMissedDisplay = 'calendar_missed_display';
 
+  /// Wash each day cell with its top event's colour, at a strength set by
+  /// that event's priority.
+  static const String calendarEventTint = 'calendar_event_tint';
+
+  /// Which tint source wins a day that carries more than one (`eventWins` /
+  /// `fastingWins` / `both`). Parsed with a forward-compatible fallback by
+  /// `CalendarTintConflict.fromName`.
+  static const String calendarTintConflict = 'calendar_tint_conflict';
+
   /// CSV of enabled [FastingTradition] names ('' or absent = fasting off).
   /// Unknown names are dropped on read for forward compatibility.
   static const String calendarFastingTraditions = 'calendar_fasting_traditions';
@@ -284,6 +293,11 @@ class SettingsKeys {
   /// Missed occurrences stay visible by default: a mark the user just made
   /// should visibly do something, and hiding by default reads as a delete.
   static const String defaultCalendarMissedDisplay = 'faded';
+
+  /// Event tinting is opt-in: it repaints most cells on a busy calendar and
+  /// competes with the marker strip the user already reads.
+  static const bool defaultCalendarEventTint = false;
+  static const String defaultCalendarTintConflict = 'eventWins';
 
   /// Default look-ahead window of the upcoming events sheet, in days.
   static const int defaultCalendarUpcomingRangeDays = 30;

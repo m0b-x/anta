@@ -2933,6 +2933,152 @@
   "@calendarMissedDisplayHidden": {
     "description": "Missed-days display option: not drawn at all"
   },
+  "eventSkipOccurrence": "Skip this day",
+  "@eventSkipOccurrence": {
+    "description": "Action that cancels a single occurrence of a recurring event"
+  },
+  "eventOccurrenceSkipped": "Occurrence skipped",
+  "@eventOccurrenceSkipped": {
+    "description": "Confirmation after cancelling a single occurrence"
+  },
+  "eventSkippedDays": "Skipped days",
+  "@eventSkippedDays": {
+    "description": "Editor row listing the occurrences the user cancelled"
+  },
+  "eventSkippedDaysCount": "{count, plural, one{1 day skipped} few{{count} days skipped} other{{count} days skipped}}",
+  "@eventSkippedDaysCount": {
+    "description": "How many occurrences of this event are cancelled",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "eventNoSkippedDays": "None",
+  "@eventNoSkippedDays": {
+    "description": "Subtitle of the skipped-days row when nothing is cancelled"
+  },
+  "eventTemplates": "Event templates",
+  "@eventTemplates": {
+    "description": "Title of the event templates management page"
+  },
+  "eventTemplatesDesc": "Reusable presets — category, schedule, color and details prefilled",
+  "@eventTemplatesDesc": {
+    "description": "Settings row subtitle for the event templates page"
+  },
+  "createTemplate": "New template",
+  "@createTemplate": {
+    "description": "Button that opens the template editor for a new template"
+  },
+  "editTemplate": "Edit template",
+  "@editTemplate": {
+    "description": "Title of the template editor when editing"
+  },
+  "templateName": "Template name",
+  "@templateName": {
+    "description": "Label of the template name field; doubles as the created event's title"
+  },
+  "templateNameHint": "Push day",
+  "@templateNameHint": {
+    "description": "Placeholder example for the template name field"
+  },
+  "saveAsTemplate": "Save as template",
+  "@saveAsTemplate": {
+    "description": "Button in the event editor that stores the current form as a reusable template"
+  },
+  "templateSaved": "Template saved",
+  "@templateSaved": {
+    "description": "Confirmation after storing a template"
+  },
+  "deleteTemplate": "Delete template",
+  "@deleteTemplate": {
+    "description": "Delete action for a template"
+  },
+  "deleteTemplateConfirm": "Delete \"{name}\"? Events already created from it are not affected.",
+  "@deleteTemplateConfirm": {
+    "description": "Confirmation dialog body when deleting a template",
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "templateDeleted": "Template deleted",
+  "@templateDeleted": {
+    "description": "Confirmation after deleting a template"
+  },
+  "addFromTemplate": "Add from template",
+  "@addFromTemplate": {
+    "description": "Title of the sheet that picks a template to create an event from"
+  },
+  "templateBlankEvent": "Blank event",
+  "@templateBlankEvent": {
+    "description": "Row in the template picker that opens the normal empty event editor"
+  },
+  "eventCreatedFromTemplate": "Added: {title}",
+  "@eventCreatedFromTemplate": {
+    "description": "Snackbar after a template created an event on the long-pressed day",
+    "placeholders": {
+      "title": { "type": "String" }
+    }
+  },
+  "eventCreatedFromTemplateOn": "Added: {title} — first on {date}",
+  "@eventCreatedFromTemplateOn": {
+    "description": "Snackbar when the template's rule does not fire on the long-pressed day, naming the first day it does",
+    "placeholders": {
+      "title": { "type": "String" },
+      "date": { "type": "String", "example": "Thu, Aug 20" }
+    }
+  },
+  "noEventTemplates": "No templates yet",
+  "@noEventTemplates": {
+    "description": "Empty state on the templates page"
+  },
+  "noEventTemplatesDesc": "Save an event as a template to reuse its details later.",
+  "@noEventTemplatesDesc": {
+    "description": "Empty state body on the templates page"
+  },
+  "eventAdherenceSummary": "{attended}/{total} attended · last {days} days",
+  "@eventAdherenceSummary": {
+    "description": "Attendance ratio for a presence-tracked event over the trailing window",
+    "placeholders": {
+      "attended": { "type": "int" },
+      "total": { "type": "int" },
+      "days": { "type": "int" }
+    }
+  },
+  "eventAdherenceStreak": "Streak {count} · best {best}",
+  "@eventAdherenceStreak": {
+    "description": "Current and longest attendance streak for a presence-tracked event",
+    "placeholders": {
+      "count": { "type": "int" },
+      "best": { "type": "int" }
+    }
+  },
+  "calendarEventTintTitle": "Tint days by event color",
+  "@calendarEventTintTitle": {
+    "description": "Setting title for washing day cells with their top event's color"
+  },
+  "calendarEventTintDesc": "Wash each day with its top event's color. Stronger color means higher priority.",
+  "@calendarEventTintDesc": {
+    "description": "Setting subtitle explaining that the tint strength encodes event priority"
+  },
+  "calendarTintConflictTitle": "On fasting days",
+  "@calendarTintConflictTitle": {
+    "description": "Setting title for which tint wins when a day is both an event day and a fasting day"
+  },
+  "calendarTintConflictDesc": "Which color wins when a day has both an event and a fast",
+  "@calendarTintConflictDesc": {
+    "description": "Setting subtitle for the tint conflict option"
+  },
+  "calendarTintConflictEvent": "Event",
+  "@calendarTintConflictEvent": {
+    "description": "Tint conflict option: the event color wins the cell"
+  },
+  "calendarTintConflictFasting": "Fasting",
+  "@calendarTintConflictFasting": {
+    "description": "Tint conflict option: the fasting color wins the cell"
+  },
+  "calendarTintConflictBoth": "Both",
+  "@calendarTintConflictBoth": {
+    "description": "Tint conflict option: winner fills the cell, runner-up shows as an edge stripe"
+  },
   "calendarWeekStartTitle": "Week starts on",
   "@calendarWeekStartTitle": {
     "description": "Label for the first-day-of-week dropdown"

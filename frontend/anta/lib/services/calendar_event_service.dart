@@ -1,4 +1,3 @@
-import 'dart:convert';
 
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
@@ -8,8 +7,10 @@ import '../database/database_lifecycle.dart';
 import '../database/daos/calendar_event_dao.dart';
 import '../models/calendar_event.dart';
 import '../models/recurrence_rule.dart';
+import '../models/recurrence_rule_codec.dart';
 import 'event_occurrence_service.dart';
 import 'event_presence_service.dart';
+import 'event_skip_service.dart';
 
 /// Persists custom calendar events via Drift and exposes a synchronous
 /// in-memory cache so `CalendarBloc.eventsForDay` stays O(N) over a
@@ -92,10 +93,12 @@ class CalendarEventService {
       await _dao.softDeleteById(id);
       await _db.eventAbsenceDao.tombstoneForEvent(id);
       await _db.eventOccurrenceDao.tombstoneForEvent(id);
+      await _db.eventSkipDao.tombstoneForEvent(id);
     });
     _cache = List.unmodifiable(_cache.where((e) => e.id != id));
     await _refreshOccurrences();
     await _refreshPresence();
+    await _refreshSkips();
   }
 
   /// Removes every custom calendar event, cascading to their occurrence
@@ -106,10 +109,12 @@ class CalendarEventService {
       await _dao.deleteAll();
       await _db.eventOccurrenceDao.deleteAll();
       await _db.eventAbsenceDao.deleteAll();
+      await _db.eventSkipDao.deleteAll();
     });
     _cache = const [];
     await _refreshOccurrences();
     await _refreshPresence();
+    await _refreshSkips();
   }
 
   /// Republishes the occurrence facade after a cascade. Tolerates the service
@@ -131,6 +136,17 @@ class CalendarEventService {
       await service.refreshAfterEventRemoval();
     } catch (e) {
       debugPrint('[CalendarEventService] Presence refresh error: $e');
+    }
+  }
+
+  /// The skip twin, and the one with teeth: a stale skip does not just render
+  /// wrong, it **hides** occurrences of whatever event later takes the id.
+  Future<void> _refreshSkips() async {
+    try {
+      final service = await EventSkipService.getInstance();
+      await service.refreshAfterEventRemoval();
+    } catch (e) {
+      debugPrint('[CalendarEventService] Skip refresh error: $e');
     }
   }
 
@@ -370,135 +386,15 @@ class CalendarEventService {
   }
 
   // ── Recurrence serialization ──────────────────────────────────────────
+  //
+  // Delegated to `RecurrenceCodec` so event templates, which persist the same
+  // `rule_kind` / `rule_payload` pair, cannot encode a rule differently from
+  // the events they stamp out.
 
-  static const String _kOneTime = 'oneTime';
-  static const String _kSpecificDates = 'specificDates';
-  static const String _kDaily = 'daily';
-  static const String _kWeekly = 'weekly';
-  static const String _kMonthly = 'monthly';
-  static const String _kYearly = 'yearly';
-  static const String _kWorkdays = 'workdays';
-  static const String _kWeekends = 'weekends';
-  static const String _kHolidaysOnly = 'holidaysOnly';
+  String _ruleKind(RecurrenceRule rule) => RecurrenceCodec.kindOf(rule);
 
-  String _ruleKind(RecurrenceRule rule) {
-    return switch (rule) {
-      OneTimeRecurrence() => _kOneTime,
-      SpecificDatesRecurrence() => _kSpecificDates,
-      DailyRecurrence() => _kDaily,
-      WeeklyRecurrence() => _kWeekly,
-      MonthlyRecurrence() => _kMonthly,
-      YearlyRecurrence() => _kYearly,
-      WorkdaysRecurrence() => _kWorkdays,
-      WeekendsRecurrence() => _kWeekends,
-      PublicHolidaysOnlyRecurrence() => _kHolidaysOnly,
-    };
-  }
+  String? _rulePayload(RecurrenceRule rule) => RecurrenceCodec.payloadOf(rule);
 
-  String? _rulePayload(RecurrenceRule rule) {
-    final map = <String, Object>{};
-    if (rule is WeeklyRecurrence) {
-      final days = rule.weekdays.toList()..sort();
-      map['weekdays'] = days;
-    }
-    if (rule is SpecificDatesRecurrence) {
-      final ms = rule.dates.map((d) => d.millisecondsSinceEpoch).toList()
-        ..sort();
-      map['dates'] = ms;
-    }
-    final interval = _intervalOf(rule);
-    if (interval > 1) map['interval'] = interval;
-    return map.isEmpty ? null : jsonEncode(map);
-  }
-
-  int _intervalOf(RecurrenceRule rule) => switch (rule) {
-    DailyRecurrence(:final interval) => interval,
-    WeeklyRecurrence(:final interval) => interval,
-    MonthlyRecurrence(:final interval) => interval,
-    YearlyRecurrence(:final interval) => interval,
-    _ => 1,
-  };
-
-  /// Reads the optional `interval` from a rule payload, defaulting to 1 for
-  /// legacy payloads (which never carried it) or any malformed value.
-  int _decodeInterval(String? payload) {
-    if (payload == null || payload.isEmpty) return 1;
-    try {
-      final decoded = jsonDecode(payload);
-      if (decoded is Map && decoded['interval'] is int) {
-        final value = decoded['interval'] as int;
-        if (value >= 1) return value;
-      }
-    } catch (e) {
-      debugPrint('[CalendarEventService] Bad interval payload: $e');
-    }
-    return 1;
-  }
-
-  RecurrenceRule _decodeRule(String kind, String? payload) {
-    switch (kind) {
-      case _kSpecificDates:
-        final dates = _decodeDates(payload);
-        if (dates.isEmpty) return const OneTimeRecurrence();
-        return SpecificDatesRecurrence(dates: dates);
-      case _kDaily:
-        return DailyRecurrence(interval: _decodeInterval(payload));
-      case _kWeekly:
-        final days = <int>{};
-        if (payload != null && payload.isNotEmpty) {
-          try {
-            final decoded = jsonDecode(payload);
-            if (decoded is Map && decoded['weekdays'] is List) {
-              for (final raw in decoded['weekdays'] as List) {
-                if (raw is int && raw >= 1 && raw <= 7) days.add(raw);
-              }
-            }
-          } catch (e) {
-            debugPrint('[CalendarEventService] Bad weekly payload: $e');
-          }
-        }
-        return WeeklyRecurrence(
-          weekdays: days,
-          interval: _decodeInterval(payload),
-        );
-      case _kMonthly:
-        return MonthlyRecurrence(interval: _decodeInterval(payload));
-      case _kYearly:
-        return YearlyRecurrence(interval: _decodeInterval(payload));
-      case _kWorkdays:
-        return const WorkdaysRecurrence();
-      case _kWeekends:
-        return const WeekendsRecurrence();
-      case _kHolidaysOnly:
-        return const PublicHolidaysOnlyRecurrence();
-      case _kOneTime:
-      default:
-        return const OneTimeRecurrence();
-    }
-  }
-
-  /// Parses the explicit one-off date set from a `specificDates` payload,
-  /// normalizing each entry to date-only UTC. Malformed/missing entries are
-  /// skipped; an empty result lets [_decodeRule] fall back to one-time.
-  Set<DateTime> _decodeDates(String? payload) {
-    final dates = <DateTime>{};
-    if (payload == null || payload.isEmpty) return dates;
-    try {
-      final decoded = jsonDecode(payload);
-      if (decoded is Map && decoded['dates'] is List) {
-        for (final raw in decoded['dates'] as List) {
-          if (raw is int) {
-            dates.add(
-              _dateOnlyUtc(
-                DateTime.fromMillisecondsSinceEpoch(raw, isUtc: true),
-              ),
-            );
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint('[CalendarEventService] Bad specificDates payload: $e');
-    }
-    return dates;
-  }
+  RecurrenceRule _decodeRule(String kind, String? payload) =>
+      RecurrenceCodec.decode(kind, payload);
 }

@@ -10,6 +10,8 @@ import '../constants/settings_keys.dart';
 import 'calendar_event_service.dart';
 import 'event_occurrence_service.dart';
 import 'event_presence_service.dart';
+import 'event_skip_service.dart';
+import 'event_template_service.dart';
 import 'category_service.dart';
 import 'counter_service.dart';
 import 'markdown_bar_service.dart';
@@ -88,6 +90,8 @@ class BackupService {
     final eventOccurrences = await GetIt.I<EventOccurrenceService>()
         .exportData();
     final eventAbsences = await GetIt.I<EventPresenceService>().exportData();
+    final eventSkips = await GetIt.I<EventSkipService>().exportData();
+    final eventTemplates = await GetIt.I<EventTemplateService>().exportData();
 
     return {
       // v7: event priorities are stored inverted (1 = highest). Older
@@ -116,6 +120,13 @@ class BackupService {
       // only — tombstones and CRDT identity stay out, exactly as they do for
       // notes and folders, because a backup is not a sync channel.
       'eventAbsences': eventAbsences,
+      // Purely additive (v30), same reasoning again — but this key carries
+      // membership, not rendering: an absent key is a database where every
+      // occurrence still exists.
+      'eventSkips': eventSkips,
+      // Purely additive (v29): an absent key on an older backup is a database
+      // with no templates, which is what those installs had.
+      'eventTemplates': eventTemplates,
     };
   }
 
@@ -345,6 +356,16 @@ class BackupService {
       if (calendarCategories != null) {
         await GetIt.I<CategoryService>().importData(calendarCategories);
       }
+      // Event templates (v29+ backups). The strand rule applies, but keyed to
+      // **categories** rather than events — a template's only foreign
+      // reference is its category id, and the category import above just
+      // wiped and replaced that id space.
+      final eventTemplates = data['eventTemplates'] as List?;
+      if (eventTemplates != null) {
+        await GetIt.I<EventTemplateService>().importData(eventTemplates);
+      } else if (calendarCategories != null) {
+        await GetIt.I<EventTemplateService>().clearAllForImport();
+      }
       final calendarEvents = data['calendarEvents'] as List?;
       if (calendarEvents != null) {
         // Backups older than v7 store priorities on the retired
@@ -384,6 +405,15 @@ class BackupService {
         await GetIt.I<EventPresenceService>().importData(eventAbsences);
       } else if (calendarEvents != null) {
         await GetIt.I<EventPresenceService>().clearAllForImport();
+      }
+      // Cancelled occurrences (v30+ backups). Same strand rule, and the one
+      // where getting it wrong is worst: a stale skip does not render a wrong
+      // colour, it hides occurrences of whatever event later takes that id.
+      final eventSkips = data['eventSkips'] as List?;
+      if (eventSkips != null) {
+        await GetIt.I<EventSkipService>().importData(eventSkips);
+      } else if (calendarEvents != null) {
+        await GetIt.I<EventSkipService>().clearAllForImport();
       }
       final publicHolidays = data['publicHolidays'] as List?;
       if (publicHolidays != null) {

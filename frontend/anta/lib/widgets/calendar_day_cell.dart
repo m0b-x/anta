@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/calendar_appearance.dart';
+import '../models/day_cell_tint.dart';
 
 /// Day-number cell for the calendar grid.
 ///
@@ -28,13 +29,15 @@ class CalendarDayCell extends StatelessWidget {
   /// Effective highlight accent (theme primary or the user's custom color).
   final Color accent;
 
-  /// Religious-fasting decoration, already resolved by
-  /// `FastingCalendar.cellStyleFor` — the cell stays a dumb painter and
-  /// never learns about traditions or display styles. [fastingTint] washes
-  /// the cell background; [fastingNumberColor] recolours and bolds the day
-  /// number. Both null when the day carries no fasting decoration (the bar
-  /// style is the marker strip's job, not the cell's).
-  final Color? fastingTint;
+  /// Background decoration, already resolved by `CellTintResolver` — the cell
+  /// stays a dumb painter and never learns which source won, what a fasting
+  /// tradition is, or how priority maps to strength. Both colours arrive with
+  /// their alpha applied.
+  final DayCellTint tint;
+
+  /// Recolours and bolds the day number for a fasting tradition using the
+  /// "strong" display style. Not a tint layer — the number is the cell's own
+  /// job — so it stays a separate parameter.
   final Color? fastingNumberColor;
 
   const CalendarDayCell({
@@ -47,7 +50,7 @@ class CalendarDayCell extends StatelessWidget {
     required this.todayStyle,
     required this.highlightWeekends,
     required this.accent,
-    this.fastingTint,
+    this.tint = DayCellTint.empty,
     this.fastingNumberColor,
   });
 
@@ -139,15 +142,36 @@ class CalendarDayCell extends StatelessWidget {
       alignment: Alignment.topCenter,
       child: Padding(padding: const EdgeInsets.only(top: 4), child: chip),
     );
-    final tint = fastingTint;
-    if (tint != null) {
+    final wash = tint.wash;
+    final edge = tint.edge;
+    if (wash != null || edge != null) {
       cell = Container(
         margin: const EdgeInsets.all(1.5),
         decoration: BoxDecoration(
-          color: tint.withValues(alpha: 0.10),
+          color: wash,
           borderRadius: BorderRadius.circular(10),
         ),
-        child: cell,
+        // A non-uniform `Border` cannot carry a `borderRadius`, so the
+        // runner-up's stripe is stacked rather than drawn as a side.
+        child: edge == null
+            ? cell
+            : Stack(
+                children: [
+                  cell,
+                  Positioned(
+                    left: 0,
+                    top: 4,
+                    bottom: 4,
+                    width: 3,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: edge,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
       );
     }
     if (isOutside) {

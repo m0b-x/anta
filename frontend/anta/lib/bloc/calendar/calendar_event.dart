@@ -136,3 +136,31 @@ final class ClearOccurrenceMissed extends CalendarPageEvent {
   @override
   List<Object?> get props => [eventId, day];
 }
+
+/// Cancels one occurrence of a recurring event (**v30**).
+///
+/// Unlike [SetOccurrenceMissed], this changes **membership**: the occurrence
+/// stops existing on every surface, including `.ics` export. A one-time event
+/// cannot be skipped — deleting it is the equivalent — and cancelling an
+/// already-cancelled day is a no-op.
+final class SetOccurrenceSkipped extends CalendarPageEvent {
+  final String eventId;
+  final DateTime day;
+
+  const SetOccurrenceSkipped({required this.eventId, required this.day});
+
+  @override
+  List<Object?> get props => [eventId, day];
+}
+
+/// Restores one cancelled occurrence, tombstoning its skip row. Restoring a
+/// day that was never cancelled is a no-op.
+final class ClearOccurrenceSkipped extends CalendarPageEvent {
+  final String eventId;
+  final DateTime day;
+
+  const ClearOccurrenceSkipped({required this.eventId, required this.day});
+
+  @override
+  List<Object?> get props => [eventId, day];
+}

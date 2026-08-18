@@ -60,6 +60,12 @@ class UpcomingAgendaView extends StatefulWidget {
   /// the revision: hiding is a render-time filter, never a membership one.
   final CalendarMissedDisplay missedDisplay;
 
+  /// Bumped when an occurrence is cancelled or restored. **Included** in the
+  /// rescan test below, unlike [occurrenceRevision]: a skip changes which days
+  /// an event occurs on, so the 366-day scan must actually re-run or the
+  /// agenda keeps listing a day that no longer exists.
+  final int membershipRevision;
+
   const UpcomingAgendaView({
     super.key,
     required this.events,
@@ -72,6 +78,7 @@ class UpcomingAgendaView extends StatefulWidget {
     this.colorPalette = MarkdownColorPalette.presets,
     this.showRecurrenceLabels = true,
     this.occurrenceRevision = 0,
+    this.membershipRevision = 0,
     this.missedDisplay = CalendarMissedDisplay.faded,
   });
 
@@ -103,6 +110,7 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
   String? _rowsForLocale;
   bool? _rowsForShowRecurrence;
   int? _rowsForOccurrenceRevision;
+  int? _rowsForMembershipRevision;
   CalendarMissedDisplay? _rowsForMissedDisplay;
 
   List<AgendaRow> _rowsFor(AppLocalizations l10n) {
@@ -111,6 +119,7 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
         _rowsForLocale == l10n.localeName &&
         _rowsForShowRecurrence == widget.showRecurrenceLabels &&
         _rowsForOccurrenceRevision == widget.occurrenceRevision &&
+        _rowsForMembershipRevision == widget.membershipRevision &&
         _rowsForMissedDisplay == widget.missedDisplay) {
       return _rows;
     }
@@ -119,6 +128,7 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
     _rowsForLocale = l10n.localeName;
     _rowsForShowRecurrence = widget.showRecurrenceLabels;
     _rowsForOccurrenceRevision = widget.occurrenceRevision;
+    _rowsForMembershipRevision = widget.membershipRevision;
     _rowsForMissedDisplay = widget.missedDisplay;
     return _rows = buildAgendaRows(
       occurrences: _occurrences,
@@ -163,7 +173,10 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
         !setEquals(o.priorities, n.priorities) ||
         o.customStart != n.customStart ||
         o.customEnd != n.customEnd ||
-        o.query != n.query;
+        o.query != n.query ||
+        // The one revision that belongs here: cancelling an occurrence changes
+        // what the scan would find, so the scan has to run again.
+        oldWidget.membershipRevision != widget.membershipRevision;
     if (scanChanged) _recompute();
     if (scanChanged || o.showHolidays != n.showHolidays) {
       _recomputeHolidays();

@@ -4138,6 +4138,192 @@ abstract class AppLocalizations {
   /// **'Hidden'**
   String get calendarMissedDisplayHidden;
 
+  /// Action that cancels a single occurrence of a recurring event
+  ///
+  /// In en, this message translates to:
+  /// **'Skip this day'**
+  String get eventSkipOccurrence;
+
+  /// Confirmation after cancelling a single occurrence
+  ///
+  /// In en, this message translates to:
+  /// **'Occurrence skipped'**
+  String get eventOccurrenceSkipped;
+
+  /// Editor row listing the occurrences the user cancelled
+  ///
+  /// In en, this message translates to:
+  /// **'Skipped days'**
+  String get eventSkippedDays;
+
+  /// How many occurrences of this event are cancelled
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{1 day skipped} few{{count} days skipped} other{{count} days skipped}}'**
+  String eventSkippedDaysCount(int count);
+
+  /// Subtitle of the skipped-days row when nothing is cancelled
+  ///
+  /// In en, this message translates to:
+  /// **'None'**
+  String get eventNoSkippedDays;
+
+  /// Title of the event templates management page
+  ///
+  /// In en, this message translates to:
+  /// **'Event templates'**
+  String get eventTemplates;
+
+  /// Settings row subtitle for the event templates page
+  ///
+  /// In en, this message translates to:
+  /// **'Reusable presets — category, schedule, color and details prefilled'**
+  String get eventTemplatesDesc;
+
+  /// Button that opens the template editor for a new template
+  ///
+  /// In en, this message translates to:
+  /// **'New template'**
+  String get createTemplate;
+
+  /// Title of the template editor when editing
+  ///
+  /// In en, this message translates to:
+  /// **'Edit template'**
+  String get editTemplate;
+
+  /// Label of the template name field; doubles as the created event's title
+  ///
+  /// In en, this message translates to:
+  /// **'Template name'**
+  String get templateName;
+
+  /// Placeholder example for the template name field
+  ///
+  /// In en, this message translates to:
+  /// **'Push day'**
+  String get templateNameHint;
+
+  /// Button in the event editor that stores the current form as a reusable template
+  ///
+  /// In en, this message translates to:
+  /// **'Save as template'**
+  String get saveAsTemplate;
+
+  /// Confirmation after storing a template
+  ///
+  /// In en, this message translates to:
+  /// **'Template saved'**
+  String get templateSaved;
+
+  /// Delete action for a template
+  ///
+  /// In en, this message translates to:
+  /// **'Delete template'**
+  String get deleteTemplate;
+
+  /// Confirmation dialog body when deleting a template
+  ///
+  /// In en, this message translates to:
+  /// **'Delete \"{name}\"? Events already created from it are not affected.'**
+  String deleteTemplateConfirm(String name);
+
+  /// Confirmation after deleting a template
+  ///
+  /// In en, this message translates to:
+  /// **'Template deleted'**
+  String get templateDeleted;
+
+  /// Title of the sheet that picks a template to create an event from
+  ///
+  /// In en, this message translates to:
+  /// **'Add from template'**
+  String get addFromTemplate;
+
+  /// Row in the template picker that opens the normal empty event editor
+  ///
+  /// In en, this message translates to:
+  /// **'Blank event'**
+  String get templateBlankEvent;
+
+  /// Snackbar after a template created an event on the long-pressed day
+  ///
+  /// In en, this message translates to:
+  /// **'Added: {title}'**
+  String eventCreatedFromTemplate(String title);
+
+  /// Snackbar when the template's rule does not fire on the long-pressed day, naming the first day it does
+  ///
+  /// In en, this message translates to:
+  /// **'Added: {title} — first on {date}'**
+  String eventCreatedFromTemplateOn(String title, String date);
+
+  /// Empty state on the templates page
+  ///
+  /// In en, this message translates to:
+  /// **'No templates yet'**
+  String get noEventTemplates;
+
+  /// Empty state body on the templates page
+  ///
+  /// In en, this message translates to:
+  /// **'Save an event as a template to reuse its details later.'**
+  String get noEventTemplatesDesc;
+
+  /// Attendance ratio for a presence-tracked event over the trailing window
+  ///
+  /// In en, this message translates to:
+  /// **'{attended}/{total} attended · last {days} days'**
+  String eventAdherenceSummary(int attended, int total, int days);
+
+  /// Current and longest attendance streak for a presence-tracked event
+  ///
+  /// In en, this message translates to:
+  /// **'Streak {count} · best {best}'**
+  String eventAdherenceStreak(int count, int best);
+
+  /// Setting title for washing day cells with their top event's color
+  ///
+  /// In en, this message translates to:
+  /// **'Tint days by event color'**
+  String get calendarEventTintTitle;
+
+  /// Setting subtitle explaining that the tint strength encodes event priority
+  ///
+  /// In en, this message translates to:
+  /// **'Wash each day with its top event\'s color. Stronger color means higher priority.'**
+  String get calendarEventTintDesc;
+
+  /// Setting title for which tint wins when a day is both an event day and a fasting day
+  ///
+  /// In en, this message translates to:
+  /// **'On fasting days'**
+  String get calendarTintConflictTitle;
+
+  /// Setting subtitle for the tint conflict option
+  ///
+  /// In en, this message translates to:
+  /// **'Which color wins when a day has both an event and a fast'**
+  String get calendarTintConflictDesc;
+
+  /// Tint conflict option: the event color wins the cell
+  ///
+  /// In en, this message translates to:
+  /// **'Event'**
+  String get calendarTintConflictEvent;
+
+  /// Tint conflict option: the fasting color wins the cell
+  ///
+  /// In en, this message translates to:
+  /// **'Fasting'**
+  String get calendarTintConflictFasting;
+
+  /// Tint conflict option: winner fills the cell, runner-up shows as an edge stripe
+  ///
+  /// In en, this message translates to:
+  /// **'Both'**
+  String get calendarTintConflictBoth;
+
   /// Label for the first-day-of-week dropdown
   ///
   /// In en, this message translates to:

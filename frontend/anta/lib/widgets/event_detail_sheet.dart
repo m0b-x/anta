@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 
 import '../constants/calendar_categories.dart';
 import '../constants/event_presence.dart';
+import '../constants/event_skips.dart';
 import '../constants/event_priorities.dart';
 import '../constants/occurrence_descriptions.dart';
 import '../l10n/app_localizations.dart';
@@ -15,10 +16,11 @@ import '../services/event_time_formatter.dart';
 import '../services/recurrence_formatter.dart';
 import '../utils/markdown_color_syntax.dart';
 import '../utils/money_display_config.dart';
+import '../utils/presence_stats.dart';
 import 'simple_markdown_preview.dart';
 
 /// What the user chose to do from the detail sheet.
-enum EventDetailAction { edit, openNote }
+enum EventDetailAction { edit, openNote, skipOccurrence }
 
 /// Read-only view of a single [CalendarEvent].
 ///
@@ -152,17 +154,37 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
   /// the segmented button reflects the tap before the write lands.
   late bool _missed = EventPresence.isMissed(widget.event.id, widget.day);
 
+  /// Adherence over the trailing window. Held in state rather than derived in
+  /// `build` for the same reason as [_upcoming]: the walk covers up to 366
+  /// days and the body is a `ListView`. Recomputed by [_setMissed] so the
+  /// numbers move with the toggle instead of waiting for a reopen.
+  late PresenceStats? _stats = _computeStats();
+
   /// Whether the present/missed control is offered at all: the event opts in,
   /// the rule repeats, and the caller wired persistence.
   bool get _presenceVisible =>
       widget.onPresenceChanged != null && EventPresence.appliesTo(widget.event);
+
+  PresenceStats? _computeStats() {
+    return PresenceAdherence.compute(
+      widget.event,
+      today: DateTime.now(),
+      // The facade may not have the write yet, so this day's answer comes
+      // from the local copy the toggle already reflects.
+      overrideDay: widget.day,
+      overrideMissed: _missed,
+    );
+  }
 
   /// A discrete two-state toggle has nothing to coalesce, so unlike a burst of
   /// checkbox taps this writes through immediately.
   void _setMissed(bool missed) {
     if (missed == _missed) return;
     HapticFeedback.lightImpact();
-    setState(() => _missed = missed);
+    setState(() {
+      _missed = missed;
+      _stats = _computeStats();
+    });
     widget.onPresenceChanged!(widget.day, missed);
   }
 
@@ -394,6 +416,37 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
                     ],
                   ),
                 ),
+              // Sits directly under the control that produces it, indented to
+              // the same column as the rows above so it reads as a caption on
+              // the toggle rather than as another field.
+              if (_presenceVisible && _stats != null)
+                Padding(
+                  padding: const EdgeInsets.only(left: 28, bottom: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        l10n.eventAdherenceSummary(
+                          _stats!.attended,
+                          _stats!.total,
+                          PresenceAdherence.windowDays,
+                        ),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      Text(
+                        l10n.eventAdherenceStreak(
+                          _stats!.currentStreak,
+                          _stats!.longestStreak,
+                        ),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               _InfoRow(
                 icon: Icons.schedule_rounded,
                 text: time == null
@@ -441,6 +494,20 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
                     onPressed: () => _close(EventDetailAction.openNote),
                     icon: const Icon(Icons.sticky_note_2_outlined, size: 18),
                     label: Text(l10n.eventOpenLinkedNote),
+                  ),
+                ),
+              // Cancelling closes the sheet with an action rather than writing
+              // here: the occurrence stops existing, so the day panel behind
+              // this sheet — and the sheet itself — would be describing
+              // something that is gone.
+              if (EventSkips.appliesTo(event) &&
+                  !EventSkips.isSkipped(event.id, widget.day))
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: TextButton.icon(
+                    onPressed: () => _close(EventDetailAction.skipOccurrence),
+                    icon: const Icon(Icons.event_busy_outlined, size: 18),
+                    label: Text(l10n.eventSkipOccurrence),
                   ),
                 ),
               const SizedBox(height: 16),

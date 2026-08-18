@@ -170,6 +170,144 @@ void main() {
     expect(byName['day']!.read<int>('pk'), 2);
   });
 
+  test('the skip table matches its frozen migration DDL', () async {
+    // Frozen at v30, and byte-for-byte the v26 absence shape — same composite
+    // key, same CRDT block, no DEFAULT on the identity columns. The two tables
+    // being structurally identical is the point: they differ in *meaning*, not
+    // in storage, and a divergence here would be the first sign someone had
+    // started treating them as one thing.
+    final columns = await db
+        .customSelect('PRAGMA table_info(calendar_event_skips)')
+        .get();
+    final byName = {
+      for (final row in columns) row.read<String>('name'): row,
+    };
+
+    expect(byName.keys.toSet(), {
+      'event_id',
+      'day',
+      'created_at',
+      'updated_at',
+      'hlc_timestamp',
+      'device_id',
+      'version',
+      'is_deleted',
+      'deleted_at',
+    });
+    for (final name in byName.keys) {
+      expect(
+        byName[name]!.read<int>('notnull'),
+        name == 'deleted_at' ? 0 : 1,
+        reason: name == 'deleted_at'
+            ? 'deleted_at must stay nullable'
+            : '$name should be NOT NULL',
+      );
+    }
+    expect(byName['event_id']!.read<String>('type'), 'TEXT');
+    expect(byName['day']!.read<String>('type'), 'INTEGER');
+    expect(byName['hlc_timestamp']!.read<String>('type'), 'TEXT');
+    expect(byName['device_id']!.read<String>('type'), 'TEXT');
+    // Born with the CRDT block rather than growing it by ALTER, so no
+    // transitional `''` default — every insert must stamp identity or fail.
+    expect(byName['hlc_timestamp']!.readNullable<String>('dflt_value'), isNull);
+    expect(byName['device_id']!.readNullable<String>('dflt_value'), isNull);
+    expect(byName['version']!.read<String>('dflt_value'), '1');
+    expect(byName['is_deleted']!.read<String>('dflt_value'), '0');
+    expect(byName['event_id']!.read<int>('pk'), 1);
+    expect(byName['day']!.read<int>('pk'), 2);
+  });
+
+  test('the template table matches its frozen migration DDL', () async {
+    // Frozen at v29. Unlike the two tables above this one was born with the
+    // CRDT block rather than growing it by ALTER, so its identity columns must
+    // carry **no** DEFAULT — the v26 absence shape, not the v27/v28 one. That
+    // distinction is the whole point of the assertion: a `DEFAULT ''` sneaking
+    // in here would mean an insert could silently store an unidentified row.
+    final columns = await db
+        .customSelect('PRAGMA table_info(calendar_event_templates)')
+        .get();
+    final byName = {
+      for (final row in columns) row.read<String>('name'): row,
+    };
+
+    expect(byName.keys.toSet(), {
+      'id',
+      'name',
+      'category',
+      'sort_order',
+      'rule_kind',
+      'rule_payload',
+      'start_minute',
+      'duration_minutes',
+      'description',
+      'icon_key',
+      'color_value',
+      'tint_icon',
+      'priority',
+      'retroactive',
+      'count_occurrences',
+      'count_style',
+      'tracks_presence',
+      'per_occurrence_descriptions',
+      'created_at',
+      'updated_at',
+      'hlc_timestamp',
+      'device_id',
+      'version',
+      'is_deleted',
+      'deleted_at',
+    });
+
+    // Nullable exactly where `null` carries meaning: fall back to the
+    // category, be all-day, have no description, carry no rule data.
+    const nullable = {
+      'rule_payload',
+      'start_minute',
+      'duration_minutes',
+      'description',
+      'icon_key',
+      'color_value',
+      'deleted_at',
+    };
+    for (final name in byName.keys) {
+      expect(
+        byName[name]!.read<int>('notnull'),
+        nullable.contains(name) ? 0 : 1,
+        reason: nullable.contains(name)
+            ? '$name must stay nullable'
+            : '$name should be NOT NULL',
+      );
+    }
+
+    expect(byName['id']!.read<String>('type'), 'TEXT');
+    expect(byName['name']!.read<String>('type'), 'TEXT');
+    expect(byName['category']!.read<String>('type'), 'TEXT');
+    expect(byName['hlc_timestamp']!.read<String>('type'), 'TEXT');
+    expect(byName['device_id']!.read<String>('type'), 'TEXT');
+
+    // Every default that decides what an un-set column means at apply time.
+    expect(byName['sort_order']!.read<String>('dflt_value'), '0');
+    expect(byName['rule_kind']!.read<String>('dflt_value'), "'oneTime'");
+    expect(byName['tint_icon']!.read<String>('dflt_value'), '1');
+    expect(byName['priority']!.read<String>('dflt_value'), '3');
+    expect(byName['retroactive']!.read<String>('dflt_value'), '0');
+    expect(byName['count_occurrences']!.read<String>('dflt_value'), '0');
+    expect(byName['count_style']!.read<String>('dflt_value'), "'numbered'");
+    expect(byName['tracks_presence']!.read<String>('dflt_value'), '0');
+    expect(
+      byName['per_occurrence_descriptions']!.read<String>('dflt_value'),
+      '0',
+    );
+    expect(byName['version']!.read<String>('dflt_value'), '1');
+    expect(byName['is_deleted']!.read<String>('dflt_value'), '0');
+    // No DEFAULT on the identity columns: every insert must stamp them or
+    // fail, which is what keeps CRDT stamping out of the service.
+    expect(byName['hlc_timestamp']!.readNullable<String>('dflt_value'), isNull);
+    expect(byName['device_id']!.readNullable<String>('dflt_value'), isNull);
+
+    expect(byName['id']!.read<int>('pk'), 1);
+  });
+
   test('the event table carries the v27 CRDT block', () async {
     // `calendar_events` is the one CRDT table whose identity columns have a
     // DEFAULT: v27 added them to a *populated* table, and SQLite's

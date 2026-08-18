@@ -146,6 +146,16 @@ class DatabaseMigrations {
       toVersion: DatabaseSchema.v28DescriptionScope,
       migrate: _migrateV27ToV28,
     ),
+    Migration(
+      fromVersion: DatabaseSchema.v28DescriptionScope,
+      toVersion: DatabaseSchema.v29EventTemplates,
+      migrate: _migrateV28ToV29,
+    ),
+    Migration(
+      fromVersion: DatabaseSchema.v29EventTemplates,
+      toVersion: DatabaseSchema.v30EventSkips,
+      migrate: _migrateV29ToV30,
+    ),
   ];
 
   Future<void> runMigrations(Migrator m, int from, int to) async {
@@ -1036,5 +1046,83 @@ class DatabaseMigrations {
       "WHERE hlc_timestamp = ''",
       [_db.generateHlc(), _db.deviceId],
     );
+  }
+
+  /// v28 → v29: adds `calendar_event_templates`, the reusable event presets.
+  ///
+  /// A brand-new table, so unlike v27/v28 there is no populated shape to
+  /// satisfy: the five CRDT columns are the plain Notes/Folders block with no
+  /// `DEFAULT ''` deviation on the identity columns, and no backfill is
+  /// needed. Every row is stamped by `EventTemplateDao` from the moment the
+  /// table exists.
+  ///
+  /// No index: the read path is a single `getAll()` into memory at startup
+  /// over a table holding dozens of rows at most — the same reasoning as
+  /// `calendar_event_occurrences` in v24. `PRIMARY KEY (id)` already covers
+  /// the point lookup.
+  ///
+  /// The DDL is frozen at this version and must never be re-derived from the
+  /// live Drift declaration. Idempotent by `CREATE TABLE IF NOT EXISTS`.
+  Future<void> _migrateV28ToV29(Migrator m, GeneratedDatabase db) async {
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS calendar_event_templates (
+        id TEXT NOT NULL PRIMARY KEY,
+        name TEXT NOT NULL,
+        category TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        rule_kind TEXT NOT NULL DEFAULT 'oneTime',
+        rule_payload TEXT NULL,
+        start_minute INTEGER NULL,
+        duration_minutes INTEGER NULL,
+        description TEXT NULL,
+        icon_key TEXT NULL,
+        color_value INTEGER NULL,
+        tint_icon INTEGER NOT NULL DEFAULT 1,
+        priority INTEGER NOT NULL DEFAULT 3,
+        retroactive INTEGER NOT NULL DEFAULT 0,
+        count_occurrences INTEGER NOT NULL DEFAULT 0,
+        count_style TEXT NOT NULL DEFAULT 'numbered',
+        tracks_presence INTEGER NOT NULL DEFAULT 0,
+        per_occurrence_descriptions INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        hlc_timestamp TEXT NOT NULL,
+        device_id TEXT NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        deleted_at INTEGER NULL
+      )
+    ''');
+  }
+
+  /// v29 → v30: adds `calendar_event_skips`, the cancelled occurrences.
+  ///
+  /// Another brand-new table, so the same shape as v29: the five CRDT columns
+  /// with no `DEFAULT ''` deviation on the identity columns, and no backfill.
+  /// Every existing install upgrades to "nothing is cancelled", which is
+  /// exactly what was true before the feature existed.
+  ///
+  /// No index: the composite `PRIMARY KEY (event_id, day)` already covers the
+  /// point lookup and the per-event cascade, and the table is loaded once into
+  /// the `EventSkips` facade — the same reasoning as
+  /// `calendar_event_absences` in v26.
+  ///
+  /// The DDL is frozen at this version and must never be re-derived from the
+  /// live Drift declaration. Idempotent by `CREATE TABLE IF NOT EXISTS`.
+  Future<void> _migrateV29ToV30(Migrator m, GeneratedDatabase db) async {
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS calendar_event_skips (
+        event_id TEXT NOT NULL,
+        day INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        hlc_timestamp TEXT NOT NULL,
+        device_id TEXT NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        deleted_at INTEGER NULL,
+        PRIMARY KEY (event_id, day)
+      )
+    ''');
   }
 }

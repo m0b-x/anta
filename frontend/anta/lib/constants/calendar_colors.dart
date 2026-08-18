@@ -24,10 +24,42 @@ abstract final class CalendarColors {
   /// "still there, just not the point" rather than as an error.
   static const double missedEventAlpha = 0.35;
 
+  /// Sign colors for the money surfaces (day bar, day summary, month header
+  /// net). One definition so the three surfaces cannot drift apart.
+  static const Color moneyPositive = Color(0xFF2E7D32); // green 800
+  static const Color moneyNegative = Color(0xFFC62828); // red 800
+
+  /// Strength of the day-cell wash per event priority, indexed by
+  /// `priority - kMinEventPriority` (P1 first, P5 last). Priority is what the
+  /// wash *encodes* — a stronger colour is a more important day — so the
+  /// ramp has to stay monotonic and the P1 end has to read as emphasis
+  /// without swallowing the day number.
+  ///
+  /// One table for both themes, like the flat fasting wash and the tonal
+  /// today chip: at these alphas the wash never approaches the contrast floor
+  /// of the (unchanged) `onSurface` day number. If a specific swatch ever
+  /// proves illegible, resolve it once and cache — never per cell.
+  static const List<double> eventTintAlphaByPriority = [
+    0.28,
+    0.22,
+    0.16,
+    0.12,
+    0.08,
+  ];
+
+  /// Strength of the fasting wash. Lives here rather than inline in the day
+  /// cell so every tint source is resolved before it reaches the painter.
+  static const double fastingTintAlpha = 0.10;
+
+  /// Strength of the runner-up source's edge stripe when the user asked to
+  /// see both. Far above the wash alphas on purpose — a 3px stripe at wash
+  /// strength is invisible, which would make "show both" read as "off".
+  static const double cellEdgeAlpha = 0.55;
+
   /// Curated swatch palette offered when a user picks an explicit per-event
-  /// color override. Stored as 32-bit ARGB ints so they round-trip through
-  /// SQLite and backup without any platform `Color` dependency. Mirrors the
-  /// category editor's palette for a consistent picking experience.
+  /// color override, and by the category editor. Stored as 32-bit ARGB ints
+  /// so they round-trip through SQLite and backup without any platform
+  /// `Color` dependency. One list, so the two pickers cannot drift apart.
   static const List<int> swatchPalette = [
     0xFF1E88E5, // blue
     0xFF00ACC1, // cyan

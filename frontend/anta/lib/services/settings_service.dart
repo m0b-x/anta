@@ -578,6 +578,35 @@ class SettingsService {
     );
   }
 
+  // Calendar appearance - wash day cells with their top event's color.
+  Future<bool> getCalendarEventTint() async {
+    return _getBool(
+      SettingsKeys.calendarEventTint,
+      SettingsKeys.defaultCalendarEventTint,
+    );
+  }
+
+  Future<void> setCalendarEventTint(bool value) async {
+    await _setBool(SettingsKeys.calendarEventTint, value);
+  }
+
+  // Calendar appearance - which tint source wins a contested day.
+  Future<CalendarTintConflict> getCalendarTintConflict() async {
+    final raw = await _db.userSettingsDao.getValue(
+      SettingsKeys.calendarTintConflict,
+    );
+    return CalendarTintConflict.fromName(
+      raw ?? SettingsKeys.defaultCalendarTintConflict,
+    );
+  }
+
+  Future<void> setCalendarTintConflict(CalendarTintConflict conflict) async {
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.calendarTintConflict,
+      conflict.name,
+    );
+  }
+
   /// Loads every upcoming-agenda filter in one call.
   Future<UpcomingAgendaFilters> getUpcomingAgendaFilters() async {
     final rangeDays = await _getInt(
@@ -757,6 +786,8 @@ class SettingsService {
       maxDayBars: await getCalendarMaxDayBars(),
       showRecurrenceLabels: await getCalendarShowRecurrenceLabels(),
       missedDisplay: await getCalendarMissedDisplay(),
+      eventTint: await getCalendarEventTint(),
+      tintConflict: await getCalendarTintConflict(),
     );
   }
 

@@ -43,4 +43,52 @@ void main() {
       expect(hidden.copyWith(), hidden);
     });
   });
+
+  group('CalendarTintConflict.fromName', () {
+    test('round-trips every value', () {
+      for (final conflict in CalendarTintConflict.values) {
+        expect(CalendarTintConflict.fromName(conflict.name), conflict);
+      }
+    });
+
+    test('falls back to eventWins on null or an unknown name', () {
+      expect(
+        CalendarTintConflict.fromName(null),
+        CalendarTintConflict.eventWins,
+      );
+      expect(CalendarTintConflict.fromName(''), CalendarTintConflict.eventWins);
+      expect(
+        CalendarTintConflict.fromName('event'),
+        CalendarTintConflict.eventWins,
+      );
+      expect(
+        CalendarTintConflict.fromName('EventWins'),
+        CalendarTintConflict.eventWins,
+      );
+    });
+  });
+
+  group('CalendarAppearance tint fields', () {
+    test('event tinting is off by default and defers to the event', () {
+      const appearance = CalendarAppearance();
+      expect(appearance.eventTint, isFalse);
+      expect(appearance.tintConflict, CalendarTintConflict.eventWins);
+    });
+
+    test('copyWith carries eventTint and it is an equality input', () {
+      const base = CalendarAppearance();
+      final tinted = base.copyWith(eventTint: true);
+      expect(tinted.eventTint, isTrue);
+      expect(tinted, isNot(base));
+      expect(tinted.copyWith(), tinted);
+    });
+
+    test('copyWith carries tintConflict and it is an equality input', () {
+      const base = CalendarAppearance(eventTint: true);
+      final both = base.copyWith(tintConflict: CalendarTintConflict.both);
+      expect(both.tintConflict, CalendarTintConflict.both);
+      expect(both, isNot(base));
+      expect(both.copyWith(), both);
+    });
+  });
 }

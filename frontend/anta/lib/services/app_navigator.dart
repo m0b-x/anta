@@ -11,6 +11,7 @@ import '../pages/controls_settings_page.dart';
 import '../pages/calendar_page.dart';
 import '../pages/calendar_settings_page.dart';
 import '../pages/calendar_categories_page.dart';
+import '../pages/event_templates_page.dart';
 import '../pages/counter_management_page.dart';
 import '../pages/counter_per_note_page.dart';
 import '../pages/database_settings_page.dart';
@@ -188,6 +189,10 @@ abstract final class AppNavigator {
 
   static Future<void> toCalendarCategories(BuildContext context) {
     return push(context, const CalendarCategoriesPage());
+  }
+
+  static Future<void> toEventTemplates(BuildContext context) {
+    return push(context, const EventTemplatesPage());
   }
 
   static Future<void> toCounterPerNote(

@@ -7233,6 +7233,1970 @@ class EventAbsencesCompanion extends UpdateCompanion<EventAbsenceRow> {
   }
 }
 
+class $EventTemplatesTable extends EventTemplates
+    with TableInfo<$EventTemplatesTable, EventTemplateRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $EventTemplatesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _categoryMeta = const VerificationMeta(
+    'category',
+  );
+  @override
+  late final GeneratedColumn<String> category = GeneratedColumn<String>(
+    'category',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sortOrderMeta = const VerificationMeta(
+    'sortOrder',
+  );
+  @override
+  late final GeneratedColumn<int> sortOrder = GeneratedColumn<int>(
+    'sort_order',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _ruleKindMeta = const VerificationMeta(
+    'ruleKind',
+  );
+  @override
+  late final GeneratedColumn<String> ruleKind = GeneratedColumn<String>(
+    'rule_kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('oneTime'),
+  );
+  static const VerificationMeta _rulePayloadMeta = const VerificationMeta(
+    'rulePayload',
+  );
+  @override
+  late final GeneratedColumn<String> rulePayload = GeneratedColumn<String>(
+    'rule_payload',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _startMinuteMeta = const VerificationMeta(
+    'startMinute',
+  );
+  @override
+  late final GeneratedColumn<int> startMinute = GeneratedColumn<int>(
+    'start_minute',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _durationMinutesMeta = const VerificationMeta(
+    'durationMinutes',
+  );
+  @override
+  late final GeneratedColumn<int> durationMinutes = GeneratedColumn<int>(
+    'duration_minutes',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _descriptionMeta = const VerificationMeta(
+    'description',
+  );
+  @override
+  late final GeneratedColumn<String> description = GeneratedColumn<String>(
+    'description',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _iconKeyMeta = const VerificationMeta(
+    'iconKey',
+  );
+  @override
+  late final GeneratedColumn<String> iconKey = GeneratedColumn<String>(
+    'icon_key',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _colorValueMeta = const VerificationMeta(
+    'colorValue',
+  );
+  @override
+  late final GeneratedColumn<int> colorValue = GeneratedColumn<int>(
+    'color_value',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _tintIconMeta = const VerificationMeta(
+    'tintIcon',
+  );
+  @override
+  late final GeneratedColumn<bool> tintIcon = GeneratedColumn<bool>(
+    'tint_icon',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("tint_icon" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  static const VerificationMeta _priorityMeta = const VerificationMeta(
+    'priority',
+  );
+  @override
+  late final GeneratedColumn<int> priority = GeneratedColumn<int>(
+    'priority',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(3),
+  );
+  static const VerificationMeta _retroactiveMeta = const VerificationMeta(
+    'retroactive',
+  );
+  @override
+  late final GeneratedColumn<bool> retroactive = GeneratedColumn<bool>(
+    'retroactive',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("retroactive" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _countOccurrencesMeta = const VerificationMeta(
+    'countOccurrences',
+  );
+  @override
+  late final GeneratedColumn<bool> countOccurrences = GeneratedColumn<bool>(
+    'count_occurrences',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("count_occurrences" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _countStyleMeta = const VerificationMeta(
+    'countStyle',
+  );
+  @override
+  late final GeneratedColumn<String> countStyle = GeneratedColumn<String>(
+    'count_style',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('numbered'),
+  );
+  static const VerificationMeta _tracksPresenceMeta = const VerificationMeta(
+    'tracksPresence',
+  );
+  @override
+  late final GeneratedColumn<bool> tracksPresence = GeneratedColumn<bool>(
+    'tracks_presence',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("tracks_presence" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _perOccurrenceDescriptionsMeta =
+      const VerificationMeta('perOccurrenceDescriptions');
+  @override
+  late final GeneratedColumn<bool> perOccurrenceDescriptions =
+      GeneratedColumn<bool>(
+        'per_occurrence_descriptions',
+        aliasedName,
+        false,
+        type: DriftSqlType.bool,
+        requiredDuringInsert: false,
+        defaultConstraints: GeneratedColumn.constraintIsAlways(
+          'CHECK ("per_occurrence_descriptions" IN (0, 1))',
+        ),
+        defaultValue: const Constant(false),
+      );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _hlcTimestampMeta = const VerificationMeta(
+    'hlcTimestamp',
+  );
+  @override
+  late final GeneratedColumn<String> hlcTimestamp = GeneratedColumn<String>(
+    'hlc_timestamp',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _deviceIdMeta = const VerificationMeta(
+    'deviceId',
+  );
+  @override
+  late final GeneratedColumn<String> deviceId = GeneratedColumn<String>(
+    'device_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _versionMeta = const VerificationMeta(
+    'version',
+  );
+  @override
+  late final GeneratedColumn<int> version = GeneratedColumn<int>(
+    'version',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(1),
+  );
+  static const VerificationMeta _isDeletedMeta = const VerificationMeta(
+    'isDeleted',
+  );
+  @override
+  late final GeneratedColumn<bool> isDeleted = GeneratedColumn<bool>(
+    'is_deleted',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_deleted" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _deletedAtMeta = const VerificationMeta(
+    'deletedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> deletedAt = GeneratedColumn<DateTime>(
+    'deleted_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    name,
+    category,
+    sortOrder,
+    ruleKind,
+    rulePayload,
+    startMinute,
+    durationMinutes,
+    description,
+    iconKey,
+    colorValue,
+    tintIcon,
+    priority,
+    retroactive,
+    countOccurrences,
+    countStyle,
+    tracksPresence,
+    perOccurrenceDescriptions,
+    createdAt,
+    updatedAt,
+    hlcTimestamp,
+    deviceId,
+    version,
+    isDeleted,
+    deletedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'calendar_event_templates';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<EventTemplateRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('category')) {
+      context.handle(
+        _categoryMeta,
+        category.isAcceptableOrUnknown(data['category']!, _categoryMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_categoryMeta);
+    }
+    if (data.containsKey('sort_order')) {
+      context.handle(
+        _sortOrderMeta,
+        sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta),
+      );
+    }
+    if (data.containsKey('rule_kind')) {
+      context.handle(
+        _ruleKindMeta,
+        ruleKind.isAcceptableOrUnknown(data['rule_kind']!, _ruleKindMeta),
+      );
+    }
+    if (data.containsKey('rule_payload')) {
+      context.handle(
+        _rulePayloadMeta,
+        rulePayload.isAcceptableOrUnknown(
+          data['rule_payload']!,
+          _rulePayloadMeta,
+        ),
+      );
+    }
+    if (data.containsKey('start_minute')) {
+      context.handle(
+        _startMinuteMeta,
+        startMinute.isAcceptableOrUnknown(
+          data['start_minute']!,
+          _startMinuteMeta,
+        ),
+      );
+    }
+    if (data.containsKey('duration_minutes')) {
+      context.handle(
+        _durationMinutesMeta,
+        durationMinutes.isAcceptableOrUnknown(
+          data['duration_minutes']!,
+          _durationMinutesMeta,
+        ),
+      );
+    }
+    if (data.containsKey('description')) {
+      context.handle(
+        _descriptionMeta,
+        description.isAcceptableOrUnknown(
+          data['description']!,
+          _descriptionMeta,
+        ),
+      );
+    }
+    if (data.containsKey('icon_key')) {
+      context.handle(
+        _iconKeyMeta,
+        iconKey.isAcceptableOrUnknown(data['icon_key']!, _iconKeyMeta),
+      );
+    }
+    if (data.containsKey('color_value')) {
+      context.handle(
+        _colorValueMeta,
+        colorValue.isAcceptableOrUnknown(data['color_value']!, _colorValueMeta),
+      );
+    }
+    if (data.containsKey('tint_icon')) {
+      context.handle(
+        _tintIconMeta,
+        tintIcon.isAcceptableOrUnknown(data['tint_icon']!, _tintIconMeta),
+      );
+    }
+    if (data.containsKey('priority')) {
+      context.handle(
+        _priorityMeta,
+        priority.isAcceptableOrUnknown(data['priority']!, _priorityMeta),
+      );
+    }
+    if (data.containsKey('retroactive')) {
+      context.handle(
+        _retroactiveMeta,
+        retroactive.isAcceptableOrUnknown(
+          data['retroactive']!,
+          _retroactiveMeta,
+        ),
+      );
+    }
+    if (data.containsKey('count_occurrences')) {
+      context.handle(
+        _countOccurrencesMeta,
+        countOccurrences.isAcceptableOrUnknown(
+          data['count_occurrences']!,
+          _countOccurrencesMeta,
+        ),
+      );
+    }
+    if (data.containsKey('count_style')) {
+      context.handle(
+        _countStyleMeta,
+        countStyle.isAcceptableOrUnknown(data['count_style']!, _countStyleMeta),
+      );
+    }
+    if (data.containsKey('tracks_presence')) {
+      context.handle(
+        _tracksPresenceMeta,
+        tracksPresence.isAcceptableOrUnknown(
+          data['tracks_presence']!,
+          _tracksPresenceMeta,
+        ),
+      );
+    }
+    if (data.containsKey('per_occurrence_descriptions')) {
+      context.handle(
+        _perOccurrenceDescriptionsMeta,
+        perOccurrenceDescriptions.isAcceptableOrUnknown(
+          data['per_occurrence_descriptions']!,
+          _perOccurrenceDescriptionsMeta,
+        ),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    if (data.containsKey('hlc_timestamp')) {
+      context.handle(
+        _hlcTimestampMeta,
+        hlcTimestamp.isAcceptableOrUnknown(
+          data['hlc_timestamp']!,
+          _hlcTimestampMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_hlcTimestampMeta);
+    }
+    if (data.containsKey('device_id')) {
+      context.handle(
+        _deviceIdMeta,
+        deviceId.isAcceptableOrUnknown(data['device_id']!, _deviceIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_deviceIdMeta);
+    }
+    if (data.containsKey('version')) {
+      context.handle(
+        _versionMeta,
+        version.isAcceptableOrUnknown(data['version']!, _versionMeta),
+      );
+    }
+    if (data.containsKey('is_deleted')) {
+      context.handle(
+        _isDeletedMeta,
+        isDeleted.isAcceptableOrUnknown(data['is_deleted']!, _isDeletedMeta),
+      );
+    }
+    if (data.containsKey('deleted_at')) {
+      context.handle(
+        _deletedAtMeta,
+        deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  EventTemplateRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return EventTemplateRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      category: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}category'],
+      )!,
+      sortOrder: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sort_order'],
+      )!,
+      ruleKind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}rule_kind'],
+      )!,
+      rulePayload: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}rule_payload'],
+      ),
+      startMinute: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}start_minute'],
+      ),
+      durationMinutes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}duration_minutes'],
+      ),
+      description: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}description'],
+      ),
+      iconKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}icon_key'],
+      ),
+      colorValue: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}color_value'],
+      ),
+      tintIcon: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}tint_icon'],
+      )!,
+      priority: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}priority'],
+      )!,
+      retroactive: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}retroactive'],
+      )!,
+      countOccurrences: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}count_occurrences'],
+      )!,
+      countStyle: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}count_style'],
+      )!,
+      tracksPresence: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}tracks_presence'],
+      )!,
+      perOccurrenceDescriptions: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}per_occurrence_descriptions'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+      hlcTimestamp: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}hlc_timestamp'],
+      )!,
+      deviceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}device_id'],
+      )!,
+      version: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}version'],
+      )!,
+      isDeleted: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_deleted'],
+      )!,
+      deletedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}deleted_at'],
+      ),
+    );
+  }
+
+  @override
+  $EventTemplatesTable createAlias(String alias) {
+    return $EventTemplatesTable(attachedDatabase, alias);
+  }
+}
+
+class EventTemplateRow extends DataClass
+    implements Insertable<EventTemplateRow> {
+  final String id;
+  final String name;
+
+  /// Category id, matching `calendar_events.category`.
+  final String category;
+  final int sortOrder;
+  final String ruleKind;
+  final String? rulePayload;
+  final int? startMinute;
+  final int? durationMinutes;
+  final String? description;
+  final String? iconKey;
+  final int? colorValue;
+  final bool tintIcon;
+  final int priority;
+  final bool retroactive;
+  final bool countOccurrences;
+  final String countStyle;
+  final bool tracksPresence;
+  final bool perOccurrenceDescriptions;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  final String hlcTimestamp;
+  final String deviceId;
+  final int version;
+  final bool isDeleted;
+  final DateTime? deletedAt;
+  const EventTemplateRow({
+    required this.id,
+    required this.name,
+    required this.category,
+    required this.sortOrder,
+    required this.ruleKind,
+    this.rulePayload,
+    this.startMinute,
+    this.durationMinutes,
+    this.description,
+    this.iconKey,
+    this.colorValue,
+    required this.tintIcon,
+    required this.priority,
+    required this.retroactive,
+    required this.countOccurrences,
+    required this.countStyle,
+    required this.tracksPresence,
+    required this.perOccurrenceDescriptions,
+    required this.createdAt,
+    required this.updatedAt,
+    required this.hlcTimestamp,
+    required this.deviceId,
+    required this.version,
+    required this.isDeleted,
+    this.deletedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['name'] = Variable<String>(name);
+    map['category'] = Variable<String>(category);
+    map['sort_order'] = Variable<int>(sortOrder);
+    map['rule_kind'] = Variable<String>(ruleKind);
+    if (!nullToAbsent || rulePayload != null) {
+      map['rule_payload'] = Variable<String>(rulePayload);
+    }
+    if (!nullToAbsent || startMinute != null) {
+      map['start_minute'] = Variable<int>(startMinute);
+    }
+    if (!nullToAbsent || durationMinutes != null) {
+      map['duration_minutes'] = Variable<int>(durationMinutes);
+    }
+    if (!nullToAbsent || description != null) {
+      map['description'] = Variable<String>(description);
+    }
+    if (!nullToAbsent || iconKey != null) {
+      map['icon_key'] = Variable<String>(iconKey);
+    }
+    if (!nullToAbsent || colorValue != null) {
+      map['color_value'] = Variable<int>(colorValue);
+    }
+    map['tint_icon'] = Variable<bool>(tintIcon);
+    map['priority'] = Variable<int>(priority);
+    map['retroactive'] = Variable<bool>(retroactive);
+    map['count_occurrences'] = Variable<bool>(countOccurrences);
+    map['count_style'] = Variable<String>(countStyle);
+    map['tracks_presence'] = Variable<bool>(tracksPresence);
+    map['per_occurrence_descriptions'] = Variable<bool>(
+      perOccurrenceDescriptions,
+    );
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    map['hlc_timestamp'] = Variable<String>(hlcTimestamp);
+    map['device_id'] = Variable<String>(deviceId);
+    map['version'] = Variable<int>(version);
+    map['is_deleted'] = Variable<bool>(isDeleted);
+    if (!nullToAbsent || deletedAt != null) {
+      map['deleted_at'] = Variable<DateTime>(deletedAt);
+    }
+    return map;
+  }
+
+  EventTemplatesCompanion toCompanion(bool nullToAbsent) {
+    return EventTemplatesCompanion(
+      id: Value(id),
+      name: Value(name),
+      category: Value(category),
+      sortOrder: Value(sortOrder),
+      ruleKind: Value(ruleKind),
+      rulePayload: rulePayload == null && nullToAbsent
+          ? const Value.absent()
+          : Value(rulePayload),
+      startMinute: startMinute == null && nullToAbsent
+          ? const Value.absent()
+          : Value(startMinute),
+      durationMinutes: durationMinutes == null && nullToAbsent
+          ? const Value.absent()
+          : Value(durationMinutes),
+      description: description == null && nullToAbsent
+          ? const Value.absent()
+          : Value(description),
+      iconKey: iconKey == null && nullToAbsent
+          ? const Value.absent()
+          : Value(iconKey),
+      colorValue: colorValue == null && nullToAbsent
+          ? const Value.absent()
+          : Value(colorValue),
+      tintIcon: Value(tintIcon),
+      priority: Value(priority),
+      retroactive: Value(retroactive),
+      countOccurrences: Value(countOccurrences),
+      countStyle: Value(countStyle),
+      tracksPresence: Value(tracksPresence),
+      perOccurrenceDescriptions: Value(perOccurrenceDescriptions),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+      hlcTimestamp: Value(hlcTimestamp),
+      deviceId: Value(deviceId),
+      version: Value(version),
+      isDeleted: Value(isDeleted),
+      deletedAt: deletedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(deletedAt),
+    );
+  }
+
+  factory EventTemplateRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return EventTemplateRow(
+      id: serializer.fromJson<String>(json['id']),
+      name: serializer.fromJson<String>(json['name']),
+      category: serializer.fromJson<String>(json['category']),
+      sortOrder: serializer.fromJson<int>(json['sortOrder']),
+      ruleKind: serializer.fromJson<String>(json['ruleKind']),
+      rulePayload: serializer.fromJson<String?>(json['rulePayload']),
+      startMinute: serializer.fromJson<int?>(json['startMinute']),
+      durationMinutes: serializer.fromJson<int?>(json['durationMinutes']),
+      description: serializer.fromJson<String?>(json['description']),
+      iconKey: serializer.fromJson<String?>(json['iconKey']),
+      colorValue: serializer.fromJson<int?>(json['colorValue']),
+      tintIcon: serializer.fromJson<bool>(json['tintIcon']),
+      priority: serializer.fromJson<int>(json['priority']),
+      retroactive: serializer.fromJson<bool>(json['retroactive']),
+      countOccurrences: serializer.fromJson<bool>(json['countOccurrences']),
+      countStyle: serializer.fromJson<String>(json['countStyle']),
+      tracksPresence: serializer.fromJson<bool>(json['tracksPresence']),
+      perOccurrenceDescriptions: serializer.fromJson<bool>(
+        json['perOccurrenceDescriptions'],
+      ),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+      hlcTimestamp: serializer.fromJson<String>(json['hlcTimestamp']),
+      deviceId: serializer.fromJson<String>(json['deviceId']),
+      version: serializer.fromJson<int>(json['version']),
+      isDeleted: serializer.fromJson<bool>(json['isDeleted']),
+      deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'name': serializer.toJson<String>(name),
+      'category': serializer.toJson<String>(category),
+      'sortOrder': serializer.toJson<int>(sortOrder),
+      'ruleKind': serializer.toJson<String>(ruleKind),
+      'rulePayload': serializer.toJson<String?>(rulePayload),
+      'startMinute': serializer.toJson<int?>(startMinute),
+      'durationMinutes': serializer.toJson<int?>(durationMinutes),
+      'description': serializer.toJson<String?>(description),
+      'iconKey': serializer.toJson<String?>(iconKey),
+      'colorValue': serializer.toJson<int?>(colorValue),
+      'tintIcon': serializer.toJson<bool>(tintIcon),
+      'priority': serializer.toJson<int>(priority),
+      'retroactive': serializer.toJson<bool>(retroactive),
+      'countOccurrences': serializer.toJson<bool>(countOccurrences),
+      'countStyle': serializer.toJson<String>(countStyle),
+      'tracksPresence': serializer.toJson<bool>(tracksPresence),
+      'perOccurrenceDescriptions': serializer.toJson<bool>(
+        perOccurrenceDescriptions,
+      ),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+      'hlcTimestamp': serializer.toJson<String>(hlcTimestamp),
+      'deviceId': serializer.toJson<String>(deviceId),
+      'version': serializer.toJson<int>(version),
+      'isDeleted': serializer.toJson<bool>(isDeleted),
+      'deletedAt': serializer.toJson<DateTime?>(deletedAt),
+    };
+  }
+
+  EventTemplateRow copyWith({
+    String? id,
+    String? name,
+    String? category,
+    int? sortOrder,
+    String? ruleKind,
+    Value<String?> rulePayload = const Value.absent(),
+    Value<int?> startMinute = const Value.absent(),
+    Value<int?> durationMinutes = const Value.absent(),
+    Value<String?> description = const Value.absent(),
+    Value<String?> iconKey = const Value.absent(),
+    Value<int?> colorValue = const Value.absent(),
+    bool? tintIcon,
+    int? priority,
+    bool? retroactive,
+    bool? countOccurrences,
+    String? countStyle,
+    bool? tracksPresence,
+    bool? perOccurrenceDescriptions,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    String? hlcTimestamp,
+    String? deviceId,
+    int? version,
+    bool? isDeleted,
+    Value<DateTime?> deletedAt = const Value.absent(),
+  }) => EventTemplateRow(
+    id: id ?? this.id,
+    name: name ?? this.name,
+    category: category ?? this.category,
+    sortOrder: sortOrder ?? this.sortOrder,
+    ruleKind: ruleKind ?? this.ruleKind,
+    rulePayload: rulePayload.present ? rulePayload.value : this.rulePayload,
+    startMinute: startMinute.present ? startMinute.value : this.startMinute,
+    durationMinutes: durationMinutes.present
+        ? durationMinutes.value
+        : this.durationMinutes,
+    description: description.present ? description.value : this.description,
+    iconKey: iconKey.present ? iconKey.value : this.iconKey,
+    colorValue: colorValue.present ? colorValue.value : this.colorValue,
+    tintIcon: tintIcon ?? this.tintIcon,
+    priority: priority ?? this.priority,
+    retroactive: retroactive ?? this.retroactive,
+    countOccurrences: countOccurrences ?? this.countOccurrences,
+    countStyle: countStyle ?? this.countStyle,
+    tracksPresence: tracksPresence ?? this.tracksPresence,
+    perOccurrenceDescriptions:
+        perOccurrenceDescriptions ?? this.perOccurrenceDescriptions,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+    hlcTimestamp: hlcTimestamp ?? this.hlcTimestamp,
+    deviceId: deviceId ?? this.deviceId,
+    version: version ?? this.version,
+    isDeleted: isDeleted ?? this.isDeleted,
+    deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+  );
+  EventTemplateRow copyWithCompanion(EventTemplatesCompanion data) {
+    return EventTemplateRow(
+      id: data.id.present ? data.id.value : this.id,
+      name: data.name.present ? data.name.value : this.name,
+      category: data.category.present ? data.category.value : this.category,
+      sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
+      ruleKind: data.ruleKind.present ? data.ruleKind.value : this.ruleKind,
+      rulePayload: data.rulePayload.present
+          ? data.rulePayload.value
+          : this.rulePayload,
+      startMinute: data.startMinute.present
+          ? data.startMinute.value
+          : this.startMinute,
+      durationMinutes: data.durationMinutes.present
+          ? data.durationMinutes.value
+          : this.durationMinutes,
+      description: data.description.present
+          ? data.description.value
+          : this.description,
+      iconKey: data.iconKey.present ? data.iconKey.value : this.iconKey,
+      colorValue: data.colorValue.present
+          ? data.colorValue.value
+          : this.colorValue,
+      tintIcon: data.tintIcon.present ? data.tintIcon.value : this.tintIcon,
+      priority: data.priority.present ? data.priority.value : this.priority,
+      retroactive: data.retroactive.present
+          ? data.retroactive.value
+          : this.retroactive,
+      countOccurrences: data.countOccurrences.present
+          ? data.countOccurrences.value
+          : this.countOccurrences,
+      countStyle: data.countStyle.present
+          ? data.countStyle.value
+          : this.countStyle,
+      tracksPresence: data.tracksPresence.present
+          ? data.tracksPresence.value
+          : this.tracksPresence,
+      perOccurrenceDescriptions: data.perOccurrenceDescriptions.present
+          ? data.perOccurrenceDescriptions.value
+          : this.perOccurrenceDescriptions,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      hlcTimestamp: data.hlcTimestamp.present
+          ? data.hlcTimestamp.value
+          : this.hlcTimestamp,
+      deviceId: data.deviceId.present ? data.deviceId.value : this.deviceId,
+      version: data.version.present ? data.version.value : this.version,
+      isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
+      deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('EventTemplateRow(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('category: $category, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('ruleKind: $ruleKind, ')
+          ..write('rulePayload: $rulePayload, ')
+          ..write('startMinute: $startMinute, ')
+          ..write('durationMinutes: $durationMinutes, ')
+          ..write('description: $description, ')
+          ..write('iconKey: $iconKey, ')
+          ..write('colorValue: $colorValue, ')
+          ..write('tintIcon: $tintIcon, ')
+          ..write('priority: $priority, ')
+          ..write('retroactive: $retroactive, ')
+          ..write('countOccurrences: $countOccurrences, ')
+          ..write('countStyle: $countStyle, ')
+          ..write('tracksPresence: $tracksPresence, ')
+          ..write('perOccurrenceDescriptions: $perOccurrenceDescriptions, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('hlcTimestamp: $hlcTimestamp, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('version: $version, ')
+          ..write('isDeleted: $isDeleted, ')
+          ..write('deletedAt: $deletedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hashAll([
+    id,
+    name,
+    category,
+    sortOrder,
+    ruleKind,
+    rulePayload,
+    startMinute,
+    durationMinutes,
+    description,
+    iconKey,
+    colorValue,
+    tintIcon,
+    priority,
+    retroactive,
+    countOccurrences,
+    countStyle,
+    tracksPresence,
+    perOccurrenceDescriptions,
+    createdAt,
+    updatedAt,
+    hlcTimestamp,
+    deviceId,
+    version,
+    isDeleted,
+    deletedAt,
+  ]);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is EventTemplateRow &&
+          other.id == this.id &&
+          other.name == this.name &&
+          other.category == this.category &&
+          other.sortOrder == this.sortOrder &&
+          other.ruleKind == this.ruleKind &&
+          other.rulePayload == this.rulePayload &&
+          other.startMinute == this.startMinute &&
+          other.durationMinutes == this.durationMinutes &&
+          other.description == this.description &&
+          other.iconKey == this.iconKey &&
+          other.colorValue == this.colorValue &&
+          other.tintIcon == this.tintIcon &&
+          other.priority == this.priority &&
+          other.retroactive == this.retroactive &&
+          other.countOccurrences == this.countOccurrences &&
+          other.countStyle == this.countStyle &&
+          other.tracksPresence == this.tracksPresence &&
+          other.perOccurrenceDescriptions == this.perOccurrenceDescriptions &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt &&
+          other.hlcTimestamp == this.hlcTimestamp &&
+          other.deviceId == this.deviceId &&
+          other.version == this.version &&
+          other.isDeleted == this.isDeleted &&
+          other.deletedAt == this.deletedAt);
+}
+
+class EventTemplatesCompanion extends UpdateCompanion<EventTemplateRow> {
+  final Value<String> id;
+  final Value<String> name;
+  final Value<String> category;
+  final Value<int> sortOrder;
+  final Value<String> ruleKind;
+  final Value<String?> rulePayload;
+  final Value<int?> startMinute;
+  final Value<int?> durationMinutes;
+  final Value<String?> description;
+  final Value<String?> iconKey;
+  final Value<int?> colorValue;
+  final Value<bool> tintIcon;
+  final Value<int> priority;
+  final Value<bool> retroactive;
+  final Value<bool> countOccurrences;
+  final Value<String> countStyle;
+  final Value<bool> tracksPresence;
+  final Value<bool> perOccurrenceDescriptions;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+  final Value<String> hlcTimestamp;
+  final Value<String> deviceId;
+  final Value<int> version;
+  final Value<bool> isDeleted;
+  final Value<DateTime?> deletedAt;
+  final Value<int> rowid;
+  const EventTemplatesCompanion({
+    this.id = const Value.absent(),
+    this.name = const Value.absent(),
+    this.category = const Value.absent(),
+    this.sortOrder = const Value.absent(),
+    this.ruleKind = const Value.absent(),
+    this.rulePayload = const Value.absent(),
+    this.startMinute = const Value.absent(),
+    this.durationMinutes = const Value.absent(),
+    this.description = const Value.absent(),
+    this.iconKey = const Value.absent(),
+    this.colorValue = const Value.absent(),
+    this.tintIcon = const Value.absent(),
+    this.priority = const Value.absent(),
+    this.retroactive = const Value.absent(),
+    this.countOccurrences = const Value.absent(),
+    this.countStyle = const Value.absent(),
+    this.tracksPresence = const Value.absent(),
+    this.perOccurrenceDescriptions = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.hlcTimestamp = const Value.absent(),
+    this.deviceId = const Value.absent(),
+    this.version = const Value.absent(),
+    this.isDeleted = const Value.absent(),
+    this.deletedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  EventTemplatesCompanion.insert({
+    required String id,
+    required String name,
+    required String category,
+    this.sortOrder = const Value.absent(),
+    this.ruleKind = const Value.absent(),
+    this.rulePayload = const Value.absent(),
+    this.startMinute = const Value.absent(),
+    this.durationMinutes = const Value.absent(),
+    this.description = const Value.absent(),
+    this.iconKey = const Value.absent(),
+    this.colorValue = const Value.absent(),
+    this.tintIcon = const Value.absent(),
+    this.priority = const Value.absent(),
+    this.retroactive = const Value.absent(),
+    this.countOccurrences = const Value.absent(),
+    this.countStyle = const Value.absent(),
+    this.tracksPresence = const Value.absent(),
+    this.perOccurrenceDescriptions = const Value.absent(),
+    required DateTime createdAt,
+    required DateTime updatedAt,
+    required String hlcTimestamp,
+    required String deviceId,
+    this.version = const Value.absent(),
+    this.isDeleted = const Value.absent(),
+    this.deletedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       name = Value(name),
+       category = Value(category),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt),
+       hlcTimestamp = Value(hlcTimestamp),
+       deviceId = Value(deviceId);
+  static Insertable<EventTemplateRow> custom({
+    Expression<String>? id,
+    Expression<String>? name,
+    Expression<String>? category,
+    Expression<int>? sortOrder,
+    Expression<String>? ruleKind,
+    Expression<String>? rulePayload,
+    Expression<int>? startMinute,
+    Expression<int>? durationMinutes,
+    Expression<String>? description,
+    Expression<String>? iconKey,
+    Expression<int>? colorValue,
+    Expression<bool>? tintIcon,
+    Expression<int>? priority,
+    Expression<bool>? retroactive,
+    Expression<bool>? countOccurrences,
+    Expression<String>? countStyle,
+    Expression<bool>? tracksPresence,
+    Expression<bool>? perOccurrenceDescriptions,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
+    Expression<String>? hlcTimestamp,
+    Expression<String>? deviceId,
+    Expression<int>? version,
+    Expression<bool>? isDeleted,
+    Expression<DateTime>? deletedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (name != null) 'name': name,
+      if (category != null) 'category': category,
+      if (sortOrder != null) 'sort_order': sortOrder,
+      if (ruleKind != null) 'rule_kind': ruleKind,
+      if (rulePayload != null) 'rule_payload': rulePayload,
+      if (startMinute != null) 'start_minute': startMinute,
+      if (durationMinutes != null) 'duration_minutes': durationMinutes,
+      if (description != null) 'description': description,
+      if (iconKey != null) 'icon_key': iconKey,
+      if (colorValue != null) 'color_value': colorValue,
+      if (tintIcon != null) 'tint_icon': tintIcon,
+      if (priority != null) 'priority': priority,
+      if (retroactive != null) 'retroactive': retroactive,
+      if (countOccurrences != null) 'count_occurrences': countOccurrences,
+      if (countStyle != null) 'count_style': countStyle,
+      if (tracksPresence != null) 'tracks_presence': tracksPresence,
+      if (perOccurrenceDescriptions != null)
+        'per_occurrence_descriptions': perOccurrenceDescriptions,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (hlcTimestamp != null) 'hlc_timestamp': hlcTimestamp,
+      if (deviceId != null) 'device_id': deviceId,
+      if (version != null) 'version': version,
+      if (isDeleted != null) 'is_deleted': isDeleted,
+      if (deletedAt != null) 'deleted_at': deletedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  EventTemplatesCompanion copyWith({
+    Value<String>? id,
+    Value<String>? name,
+    Value<String>? category,
+    Value<int>? sortOrder,
+    Value<String>? ruleKind,
+    Value<String?>? rulePayload,
+    Value<int?>? startMinute,
+    Value<int?>? durationMinutes,
+    Value<String?>? description,
+    Value<String?>? iconKey,
+    Value<int?>? colorValue,
+    Value<bool>? tintIcon,
+    Value<int>? priority,
+    Value<bool>? retroactive,
+    Value<bool>? countOccurrences,
+    Value<String>? countStyle,
+    Value<bool>? tracksPresence,
+    Value<bool>? perOccurrenceDescriptions,
+    Value<DateTime>? createdAt,
+    Value<DateTime>? updatedAt,
+    Value<String>? hlcTimestamp,
+    Value<String>? deviceId,
+    Value<int>? version,
+    Value<bool>? isDeleted,
+    Value<DateTime?>? deletedAt,
+    Value<int>? rowid,
+  }) {
+    return EventTemplatesCompanion(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      category: category ?? this.category,
+      sortOrder: sortOrder ?? this.sortOrder,
+      ruleKind: ruleKind ?? this.ruleKind,
+      rulePayload: rulePayload ?? this.rulePayload,
+      startMinute: startMinute ?? this.startMinute,
+      durationMinutes: durationMinutes ?? this.durationMinutes,
+      description: description ?? this.description,
+      iconKey: iconKey ?? this.iconKey,
+      colorValue: colorValue ?? this.colorValue,
+      tintIcon: tintIcon ?? this.tintIcon,
+      priority: priority ?? this.priority,
+      retroactive: retroactive ?? this.retroactive,
+      countOccurrences: countOccurrences ?? this.countOccurrences,
+      countStyle: countStyle ?? this.countStyle,
+      tracksPresence: tracksPresence ?? this.tracksPresence,
+      perOccurrenceDescriptions:
+          perOccurrenceDescriptions ?? this.perOccurrenceDescriptions,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      hlcTimestamp: hlcTimestamp ?? this.hlcTimestamp,
+      deviceId: deviceId ?? this.deviceId,
+      version: version ?? this.version,
+      isDeleted: isDeleted ?? this.isDeleted,
+      deletedAt: deletedAt ?? this.deletedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (category.present) {
+      map['category'] = Variable<String>(category.value);
+    }
+    if (sortOrder.present) {
+      map['sort_order'] = Variable<int>(sortOrder.value);
+    }
+    if (ruleKind.present) {
+      map['rule_kind'] = Variable<String>(ruleKind.value);
+    }
+    if (rulePayload.present) {
+      map['rule_payload'] = Variable<String>(rulePayload.value);
+    }
+    if (startMinute.present) {
+      map['start_minute'] = Variable<int>(startMinute.value);
+    }
+    if (durationMinutes.present) {
+      map['duration_minutes'] = Variable<int>(durationMinutes.value);
+    }
+    if (description.present) {
+      map['description'] = Variable<String>(description.value);
+    }
+    if (iconKey.present) {
+      map['icon_key'] = Variable<String>(iconKey.value);
+    }
+    if (colorValue.present) {
+      map['color_value'] = Variable<int>(colorValue.value);
+    }
+    if (tintIcon.present) {
+      map['tint_icon'] = Variable<bool>(tintIcon.value);
+    }
+    if (priority.present) {
+      map['priority'] = Variable<int>(priority.value);
+    }
+    if (retroactive.present) {
+      map['retroactive'] = Variable<bool>(retroactive.value);
+    }
+    if (countOccurrences.present) {
+      map['count_occurrences'] = Variable<bool>(countOccurrences.value);
+    }
+    if (countStyle.present) {
+      map['count_style'] = Variable<String>(countStyle.value);
+    }
+    if (tracksPresence.present) {
+      map['tracks_presence'] = Variable<bool>(tracksPresence.value);
+    }
+    if (perOccurrenceDescriptions.present) {
+      map['per_occurrence_descriptions'] = Variable<bool>(
+        perOccurrenceDescriptions.value,
+      );
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (hlcTimestamp.present) {
+      map['hlc_timestamp'] = Variable<String>(hlcTimestamp.value);
+    }
+    if (deviceId.present) {
+      map['device_id'] = Variable<String>(deviceId.value);
+    }
+    if (version.present) {
+      map['version'] = Variable<int>(version.value);
+    }
+    if (isDeleted.present) {
+      map['is_deleted'] = Variable<bool>(isDeleted.value);
+    }
+    if (deletedAt.present) {
+      map['deleted_at'] = Variable<DateTime>(deletedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('EventTemplatesCompanion(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('category: $category, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('ruleKind: $ruleKind, ')
+          ..write('rulePayload: $rulePayload, ')
+          ..write('startMinute: $startMinute, ')
+          ..write('durationMinutes: $durationMinutes, ')
+          ..write('description: $description, ')
+          ..write('iconKey: $iconKey, ')
+          ..write('colorValue: $colorValue, ')
+          ..write('tintIcon: $tintIcon, ')
+          ..write('priority: $priority, ')
+          ..write('retroactive: $retroactive, ')
+          ..write('countOccurrences: $countOccurrences, ')
+          ..write('countStyle: $countStyle, ')
+          ..write('tracksPresence: $tracksPresence, ')
+          ..write('perOccurrenceDescriptions: $perOccurrenceDescriptions, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('hlcTimestamp: $hlcTimestamp, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('version: $version, ')
+          ..write('isDeleted: $isDeleted, ')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $EventSkipsTable extends EventSkips
+    with TableInfo<$EventSkipsTable, EventSkipRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $EventSkipsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _eventIdMeta = const VerificationMeta(
+    'eventId',
+  );
+  @override
+  late final GeneratedColumn<String> eventId = GeneratedColumn<String>(
+    'event_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _dayMeta = const VerificationMeta('day');
+  @override
+  late final GeneratedColumn<DateTime> day = GeneratedColumn<DateTime>(
+    'day',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _hlcTimestampMeta = const VerificationMeta(
+    'hlcTimestamp',
+  );
+  @override
+  late final GeneratedColumn<String> hlcTimestamp = GeneratedColumn<String>(
+    'hlc_timestamp',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _deviceIdMeta = const VerificationMeta(
+    'deviceId',
+  );
+  @override
+  late final GeneratedColumn<String> deviceId = GeneratedColumn<String>(
+    'device_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _versionMeta = const VerificationMeta(
+    'version',
+  );
+  @override
+  late final GeneratedColumn<int> version = GeneratedColumn<int>(
+    'version',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(1),
+  );
+  static const VerificationMeta _isDeletedMeta = const VerificationMeta(
+    'isDeleted',
+  );
+  @override
+  late final GeneratedColumn<bool> isDeleted = GeneratedColumn<bool>(
+    'is_deleted',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_deleted" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _deletedAtMeta = const VerificationMeta(
+    'deletedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> deletedAt = GeneratedColumn<DateTime>(
+    'deleted_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    eventId,
+    day,
+    createdAt,
+    updatedAt,
+    hlcTimestamp,
+    deviceId,
+    version,
+    isDeleted,
+    deletedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'calendar_event_skips';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<EventSkipRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('event_id')) {
+      context.handle(
+        _eventIdMeta,
+        eventId.isAcceptableOrUnknown(data['event_id']!, _eventIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_eventIdMeta);
+    }
+    if (data.containsKey('day')) {
+      context.handle(
+        _dayMeta,
+        day.isAcceptableOrUnknown(data['day']!, _dayMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_dayMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    if (data.containsKey('hlc_timestamp')) {
+      context.handle(
+        _hlcTimestampMeta,
+        hlcTimestamp.isAcceptableOrUnknown(
+          data['hlc_timestamp']!,
+          _hlcTimestampMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_hlcTimestampMeta);
+    }
+    if (data.containsKey('device_id')) {
+      context.handle(
+        _deviceIdMeta,
+        deviceId.isAcceptableOrUnknown(data['device_id']!, _deviceIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_deviceIdMeta);
+    }
+    if (data.containsKey('version')) {
+      context.handle(
+        _versionMeta,
+        version.isAcceptableOrUnknown(data['version']!, _versionMeta),
+      );
+    }
+    if (data.containsKey('is_deleted')) {
+      context.handle(
+        _isDeletedMeta,
+        isDeleted.isAcceptableOrUnknown(data['is_deleted']!, _isDeletedMeta),
+      );
+    }
+    if (data.containsKey('deleted_at')) {
+      context.handle(
+        _deletedAtMeta,
+        deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {eventId, day};
+  @override
+  EventSkipRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return EventSkipRow(
+      eventId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}event_id'],
+      )!,
+      day: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}day'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+      hlcTimestamp: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}hlc_timestamp'],
+      )!,
+      deviceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}device_id'],
+      )!,
+      version: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}version'],
+      )!,
+      isDeleted: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_deleted'],
+      )!,
+      deletedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}deleted_at'],
+      ),
+    );
+  }
+
+  @override
+  $EventSkipsTable createAlias(String alias) {
+    return $EventSkipsTable(attachedDatabase, alias);
+  }
+}
+
+class EventSkipRow extends DataClass implements Insertable<EventSkipRow> {
+  final String eventId;
+
+  /// UTC date-only (year, month, day).
+  final DateTime day;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  final String hlcTimestamp;
+  final String deviceId;
+  final int version;
+  final bool isDeleted;
+  final DateTime? deletedAt;
+  const EventSkipRow({
+    required this.eventId,
+    required this.day,
+    required this.createdAt,
+    required this.updatedAt,
+    required this.hlcTimestamp,
+    required this.deviceId,
+    required this.version,
+    required this.isDeleted,
+    this.deletedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['event_id'] = Variable<String>(eventId);
+    map['day'] = Variable<DateTime>(day);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    map['hlc_timestamp'] = Variable<String>(hlcTimestamp);
+    map['device_id'] = Variable<String>(deviceId);
+    map['version'] = Variable<int>(version);
+    map['is_deleted'] = Variable<bool>(isDeleted);
+    if (!nullToAbsent || deletedAt != null) {
+      map['deleted_at'] = Variable<DateTime>(deletedAt);
+    }
+    return map;
+  }
+
+  EventSkipsCompanion toCompanion(bool nullToAbsent) {
+    return EventSkipsCompanion(
+      eventId: Value(eventId),
+      day: Value(day),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+      hlcTimestamp: Value(hlcTimestamp),
+      deviceId: Value(deviceId),
+      version: Value(version),
+      isDeleted: Value(isDeleted),
+      deletedAt: deletedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(deletedAt),
+    );
+  }
+
+  factory EventSkipRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return EventSkipRow(
+      eventId: serializer.fromJson<String>(json['eventId']),
+      day: serializer.fromJson<DateTime>(json['day']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+      hlcTimestamp: serializer.fromJson<String>(json['hlcTimestamp']),
+      deviceId: serializer.fromJson<String>(json['deviceId']),
+      version: serializer.fromJson<int>(json['version']),
+      isDeleted: serializer.fromJson<bool>(json['isDeleted']),
+      deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'eventId': serializer.toJson<String>(eventId),
+      'day': serializer.toJson<DateTime>(day),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+      'hlcTimestamp': serializer.toJson<String>(hlcTimestamp),
+      'deviceId': serializer.toJson<String>(deviceId),
+      'version': serializer.toJson<int>(version),
+      'isDeleted': serializer.toJson<bool>(isDeleted),
+      'deletedAt': serializer.toJson<DateTime?>(deletedAt),
+    };
+  }
+
+  EventSkipRow copyWith({
+    String? eventId,
+    DateTime? day,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    String? hlcTimestamp,
+    String? deviceId,
+    int? version,
+    bool? isDeleted,
+    Value<DateTime?> deletedAt = const Value.absent(),
+  }) => EventSkipRow(
+    eventId: eventId ?? this.eventId,
+    day: day ?? this.day,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+    hlcTimestamp: hlcTimestamp ?? this.hlcTimestamp,
+    deviceId: deviceId ?? this.deviceId,
+    version: version ?? this.version,
+    isDeleted: isDeleted ?? this.isDeleted,
+    deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+  );
+  EventSkipRow copyWithCompanion(EventSkipsCompanion data) {
+    return EventSkipRow(
+      eventId: data.eventId.present ? data.eventId.value : this.eventId,
+      day: data.day.present ? data.day.value : this.day,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      hlcTimestamp: data.hlcTimestamp.present
+          ? data.hlcTimestamp.value
+          : this.hlcTimestamp,
+      deviceId: data.deviceId.present ? data.deviceId.value : this.deviceId,
+      version: data.version.present ? data.version.value : this.version,
+      isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
+      deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('EventSkipRow(')
+          ..write('eventId: $eventId, ')
+          ..write('day: $day, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('hlcTimestamp: $hlcTimestamp, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('version: $version, ')
+          ..write('isDeleted: $isDeleted, ')
+          ..write('deletedAt: $deletedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    eventId,
+    day,
+    createdAt,
+    updatedAt,
+    hlcTimestamp,
+    deviceId,
+    version,
+    isDeleted,
+    deletedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is EventSkipRow &&
+          other.eventId == this.eventId &&
+          other.day == this.day &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt &&
+          other.hlcTimestamp == this.hlcTimestamp &&
+          other.deviceId == this.deviceId &&
+          other.version == this.version &&
+          other.isDeleted == this.isDeleted &&
+          other.deletedAt == this.deletedAt);
+}
+
+class EventSkipsCompanion extends UpdateCompanion<EventSkipRow> {
+  final Value<String> eventId;
+  final Value<DateTime> day;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+  final Value<String> hlcTimestamp;
+  final Value<String> deviceId;
+  final Value<int> version;
+  final Value<bool> isDeleted;
+  final Value<DateTime?> deletedAt;
+  final Value<int> rowid;
+  const EventSkipsCompanion({
+    this.eventId = const Value.absent(),
+    this.day = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.hlcTimestamp = const Value.absent(),
+    this.deviceId = const Value.absent(),
+    this.version = const Value.absent(),
+    this.isDeleted = const Value.absent(),
+    this.deletedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  EventSkipsCompanion.insert({
+    required String eventId,
+    required DateTime day,
+    required DateTime createdAt,
+    required DateTime updatedAt,
+    required String hlcTimestamp,
+    required String deviceId,
+    this.version = const Value.absent(),
+    this.isDeleted = const Value.absent(),
+    this.deletedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : eventId = Value(eventId),
+       day = Value(day),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt),
+       hlcTimestamp = Value(hlcTimestamp),
+       deviceId = Value(deviceId);
+  static Insertable<EventSkipRow> custom({
+    Expression<String>? eventId,
+    Expression<DateTime>? day,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
+    Expression<String>? hlcTimestamp,
+    Expression<String>? deviceId,
+    Expression<int>? version,
+    Expression<bool>? isDeleted,
+    Expression<DateTime>? deletedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (eventId != null) 'event_id': eventId,
+      if (day != null) 'day': day,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (hlcTimestamp != null) 'hlc_timestamp': hlcTimestamp,
+      if (deviceId != null) 'device_id': deviceId,
+      if (version != null) 'version': version,
+      if (isDeleted != null) 'is_deleted': isDeleted,
+      if (deletedAt != null) 'deleted_at': deletedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  EventSkipsCompanion copyWith({
+    Value<String>? eventId,
+    Value<DateTime>? day,
+    Value<DateTime>? createdAt,
+    Value<DateTime>? updatedAt,
+    Value<String>? hlcTimestamp,
+    Value<String>? deviceId,
+    Value<int>? version,
+    Value<bool>? isDeleted,
+    Value<DateTime?>? deletedAt,
+    Value<int>? rowid,
+  }) {
+    return EventSkipsCompanion(
+      eventId: eventId ?? this.eventId,
+      day: day ?? this.day,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      hlcTimestamp: hlcTimestamp ?? this.hlcTimestamp,
+      deviceId: deviceId ?? this.deviceId,
+      version: version ?? this.version,
+      isDeleted: isDeleted ?? this.isDeleted,
+      deletedAt: deletedAt ?? this.deletedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (eventId.present) {
+      map['event_id'] = Variable<String>(eventId.value);
+    }
+    if (day.present) {
+      map['day'] = Variable<DateTime>(day.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (hlcTimestamp.present) {
+      map['hlc_timestamp'] = Variable<String>(hlcTimestamp.value);
+    }
+    if (deviceId.present) {
+      map['device_id'] = Variable<String>(deviceId.value);
+    }
+    if (version.present) {
+      map['version'] = Variable<int>(version.value);
+    }
+    if (isDeleted.present) {
+      map['is_deleted'] = Variable<bool>(isDeleted.value);
+    }
+    if (deletedAt.present) {
+      map['deleted_at'] = Variable<DateTime>(deletedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('EventSkipsCompanion(')
+          ..write('eventId: $eventId, ')
+          ..write('day: $day, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('hlcTimestamp: $hlcTimestamp, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('version: $version, ')
+          ..write('isDeleted: $isDeleted, ')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -7251,6 +9215,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $EventOccurrenceDescriptionsTable eventOccurrenceDescriptions =
       $EventOccurrenceDescriptionsTable(this);
   late final $EventAbsencesTable eventAbsences = $EventAbsencesTable(this);
+  late final $EventTemplatesTable eventTemplates = $EventTemplatesTable(this);
+  late final $EventSkipsTable eventSkips = $EventSkipsTable(this);
   late final FolderDao folderDao = FolderDao(this as AppDatabase);
   late final NoteDao noteDao = NoteDao(this as AppDatabase);
   late final ContentChunkDao contentChunkDao = ContentChunkDao(
@@ -7276,6 +9242,10 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final EventAbsenceDao eventAbsenceDao = EventAbsenceDao(
     this as AppDatabase,
   );
+  late final EventTemplateDao eventTemplateDao = EventTemplateDao(
+    this as AppDatabase,
+  );
+  late final EventSkipDao eventSkipDao = EventSkipDao(this as AppDatabase);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -7293,6 +9263,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     calendarCategories,
     eventOccurrenceDescriptions,
     eventAbsences,
+    eventTemplates,
+    eventSkips,
   ];
 }
 
@@ -10854,6 +12826,892 @@ typedef $$EventAbsencesTableProcessedTableManager =
       EventAbsenceRow,
       PrefetchHooks Function()
     >;
+typedef $$EventTemplatesTableCreateCompanionBuilder =
+    EventTemplatesCompanion Function({
+      required String id,
+      required String name,
+      required String category,
+      Value<int> sortOrder,
+      Value<String> ruleKind,
+      Value<String?> rulePayload,
+      Value<int?> startMinute,
+      Value<int?> durationMinutes,
+      Value<String?> description,
+      Value<String?> iconKey,
+      Value<int?> colorValue,
+      Value<bool> tintIcon,
+      Value<int> priority,
+      Value<bool> retroactive,
+      Value<bool> countOccurrences,
+      Value<String> countStyle,
+      Value<bool> tracksPresence,
+      Value<bool> perOccurrenceDescriptions,
+      required DateTime createdAt,
+      required DateTime updatedAt,
+      required String hlcTimestamp,
+      required String deviceId,
+      Value<int> version,
+      Value<bool> isDeleted,
+      Value<DateTime?> deletedAt,
+      Value<int> rowid,
+    });
+typedef $$EventTemplatesTableUpdateCompanionBuilder =
+    EventTemplatesCompanion Function({
+      Value<String> id,
+      Value<String> name,
+      Value<String> category,
+      Value<int> sortOrder,
+      Value<String> ruleKind,
+      Value<String?> rulePayload,
+      Value<int?> startMinute,
+      Value<int?> durationMinutes,
+      Value<String?> description,
+      Value<String?> iconKey,
+      Value<int?> colorValue,
+      Value<bool> tintIcon,
+      Value<int> priority,
+      Value<bool> retroactive,
+      Value<bool> countOccurrences,
+      Value<String> countStyle,
+      Value<bool> tracksPresence,
+      Value<bool> perOccurrenceDescriptions,
+      Value<DateTime> createdAt,
+      Value<DateTime> updatedAt,
+      Value<String> hlcTimestamp,
+      Value<String> deviceId,
+      Value<int> version,
+      Value<bool> isDeleted,
+      Value<DateTime?> deletedAt,
+      Value<int> rowid,
+    });
+
+class $$EventTemplatesTableFilterComposer
+    extends Composer<_$AppDatabase, $EventTemplatesTable> {
+  $$EventTemplatesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get category => $composableBuilder(
+    column: $table.category,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ruleKind => $composableBuilder(
+    column: $table.ruleKind,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get rulePayload => $composableBuilder(
+    column: $table.rulePayload,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get startMinute => $composableBuilder(
+    column: $table.startMinute,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get durationMinutes => $composableBuilder(
+    column: $table.durationMinutes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get description => $composableBuilder(
+    column: $table.description,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get iconKey => $composableBuilder(
+    column: $table.iconKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get colorValue => $composableBuilder(
+    column: $table.colorValue,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get tintIcon => $composableBuilder(
+    column: $table.tintIcon,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get priority => $composableBuilder(
+    column: $table.priority,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get retroactive => $composableBuilder(
+    column: $table.retroactive,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get countOccurrences => $composableBuilder(
+    column: $table.countOccurrences,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get countStyle => $composableBuilder(
+    column: $table.countStyle,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get tracksPresence => $composableBuilder(
+    column: $table.tracksPresence,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get perOccurrenceDescriptions => $composableBuilder(
+    column: $table.perOccurrenceDescriptions,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get hlcTimestamp => $composableBuilder(
+    column: $table.hlcTimestamp,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get version => $composableBuilder(
+    column: $table.version,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isDeleted => $composableBuilder(
+    column: $table.isDeleted,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$EventTemplatesTableOrderingComposer
+    extends Composer<_$AppDatabase, $EventTemplatesTable> {
+  $$EventTemplatesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get category => $composableBuilder(
+    column: $table.category,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get ruleKind => $composableBuilder(
+    column: $table.ruleKind,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get rulePayload => $composableBuilder(
+    column: $table.rulePayload,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get startMinute => $composableBuilder(
+    column: $table.startMinute,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get durationMinutes => $composableBuilder(
+    column: $table.durationMinutes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get description => $composableBuilder(
+    column: $table.description,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get iconKey => $composableBuilder(
+    column: $table.iconKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get colorValue => $composableBuilder(
+    column: $table.colorValue,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get tintIcon => $composableBuilder(
+    column: $table.tintIcon,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get priority => $composableBuilder(
+    column: $table.priority,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get retroactive => $composableBuilder(
+    column: $table.retroactive,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get countOccurrences => $composableBuilder(
+    column: $table.countOccurrences,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get countStyle => $composableBuilder(
+    column: $table.countStyle,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get tracksPresence => $composableBuilder(
+    column: $table.tracksPresence,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get perOccurrenceDescriptions => $composableBuilder(
+    column: $table.perOccurrenceDescriptions,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get hlcTimestamp => $composableBuilder(
+    column: $table.hlcTimestamp,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get version => $composableBuilder(
+    column: $table.version,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get isDeleted => $composableBuilder(
+    column: $table.isDeleted,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$EventTemplatesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $EventTemplatesTable> {
+  $$EventTemplatesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get category =>
+      $composableBuilder(column: $table.category, builder: (column) => column);
+
+  GeneratedColumn<int> get sortOrder =>
+      $composableBuilder(column: $table.sortOrder, builder: (column) => column);
+
+  GeneratedColumn<String> get ruleKind =>
+      $composableBuilder(column: $table.ruleKind, builder: (column) => column);
+
+  GeneratedColumn<String> get rulePayload => $composableBuilder(
+    column: $table.rulePayload,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get startMinute => $composableBuilder(
+    column: $table.startMinute,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get durationMinutes => $composableBuilder(
+    column: $table.durationMinutes,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get description => $composableBuilder(
+    column: $table.description,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get iconKey =>
+      $composableBuilder(column: $table.iconKey, builder: (column) => column);
+
+  GeneratedColumn<int> get colorValue => $composableBuilder(
+    column: $table.colorValue,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get tintIcon =>
+      $composableBuilder(column: $table.tintIcon, builder: (column) => column);
+
+  GeneratedColumn<int> get priority =>
+      $composableBuilder(column: $table.priority, builder: (column) => column);
+
+  GeneratedColumn<bool> get retroactive => $composableBuilder(
+    column: $table.retroactive,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get countOccurrences => $composableBuilder(
+    column: $table.countOccurrences,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get countStyle => $composableBuilder(
+    column: $table.countStyle,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get tracksPresence => $composableBuilder(
+    column: $table.tracksPresence,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get perOccurrenceDescriptions => $composableBuilder(
+    column: $table.perOccurrenceDescriptions,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get hlcTimestamp => $composableBuilder(
+    column: $table.hlcTimestamp,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get deviceId =>
+      $composableBuilder(column: $table.deviceId, builder: (column) => column);
+
+  GeneratedColumn<int> get version =>
+      $composableBuilder(column: $table.version, builder: (column) => column);
+
+  GeneratedColumn<bool> get isDeleted =>
+      $composableBuilder(column: $table.isDeleted, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get deletedAt =>
+      $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+}
+
+class $$EventTemplatesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $EventTemplatesTable,
+          EventTemplateRow,
+          $$EventTemplatesTableFilterComposer,
+          $$EventTemplatesTableOrderingComposer,
+          $$EventTemplatesTableAnnotationComposer,
+          $$EventTemplatesTableCreateCompanionBuilder,
+          $$EventTemplatesTableUpdateCompanionBuilder,
+          (
+            EventTemplateRow,
+            BaseReferences<
+              _$AppDatabase,
+              $EventTemplatesTable,
+              EventTemplateRow
+            >,
+          ),
+          EventTemplateRow,
+          PrefetchHooks Function()
+        > {
+  $$EventTemplatesTableTableManager(
+    _$AppDatabase db,
+    $EventTemplatesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$EventTemplatesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$EventTemplatesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$EventTemplatesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<String> category = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
+                Value<String> ruleKind = const Value.absent(),
+                Value<String?> rulePayload = const Value.absent(),
+                Value<int?> startMinute = const Value.absent(),
+                Value<int?> durationMinutes = const Value.absent(),
+                Value<String?> description = const Value.absent(),
+                Value<String?> iconKey = const Value.absent(),
+                Value<int?> colorValue = const Value.absent(),
+                Value<bool> tintIcon = const Value.absent(),
+                Value<int> priority = const Value.absent(),
+                Value<bool> retroactive = const Value.absent(),
+                Value<bool> countOccurrences = const Value.absent(),
+                Value<String> countStyle = const Value.absent(),
+                Value<bool> tracksPresence = const Value.absent(),
+                Value<bool> perOccurrenceDescriptions = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<String> hlcTimestamp = const Value.absent(),
+                Value<String> deviceId = const Value.absent(),
+                Value<int> version = const Value.absent(),
+                Value<bool> isDeleted = const Value.absent(),
+                Value<DateTime?> deletedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => EventTemplatesCompanion(
+                id: id,
+                name: name,
+                category: category,
+                sortOrder: sortOrder,
+                ruleKind: ruleKind,
+                rulePayload: rulePayload,
+                startMinute: startMinute,
+                durationMinutes: durationMinutes,
+                description: description,
+                iconKey: iconKey,
+                colorValue: colorValue,
+                tintIcon: tintIcon,
+                priority: priority,
+                retroactive: retroactive,
+                countOccurrences: countOccurrences,
+                countStyle: countStyle,
+                tracksPresence: tracksPresence,
+                perOccurrenceDescriptions: perOccurrenceDescriptions,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                hlcTimestamp: hlcTimestamp,
+                deviceId: deviceId,
+                version: version,
+                isDeleted: isDeleted,
+                deletedAt: deletedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String name,
+                required String category,
+                Value<int> sortOrder = const Value.absent(),
+                Value<String> ruleKind = const Value.absent(),
+                Value<String?> rulePayload = const Value.absent(),
+                Value<int?> startMinute = const Value.absent(),
+                Value<int?> durationMinutes = const Value.absent(),
+                Value<String?> description = const Value.absent(),
+                Value<String?> iconKey = const Value.absent(),
+                Value<int?> colorValue = const Value.absent(),
+                Value<bool> tintIcon = const Value.absent(),
+                Value<int> priority = const Value.absent(),
+                Value<bool> retroactive = const Value.absent(),
+                Value<bool> countOccurrences = const Value.absent(),
+                Value<String> countStyle = const Value.absent(),
+                Value<bool> tracksPresence = const Value.absent(),
+                Value<bool> perOccurrenceDescriptions = const Value.absent(),
+                required DateTime createdAt,
+                required DateTime updatedAt,
+                required String hlcTimestamp,
+                required String deviceId,
+                Value<int> version = const Value.absent(),
+                Value<bool> isDeleted = const Value.absent(),
+                Value<DateTime?> deletedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => EventTemplatesCompanion.insert(
+                id: id,
+                name: name,
+                category: category,
+                sortOrder: sortOrder,
+                ruleKind: ruleKind,
+                rulePayload: rulePayload,
+                startMinute: startMinute,
+                durationMinutes: durationMinutes,
+                description: description,
+                iconKey: iconKey,
+                colorValue: colorValue,
+                tintIcon: tintIcon,
+                priority: priority,
+                retroactive: retroactive,
+                countOccurrences: countOccurrences,
+                countStyle: countStyle,
+                tracksPresence: tracksPresence,
+                perOccurrenceDescriptions: perOccurrenceDescriptions,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                hlcTimestamp: hlcTimestamp,
+                deviceId: deviceId,
+                version: version,
+                isDeleted: isDeleted,
+                deletedAt: deletedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$EventTemplatesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $EventTemplatesTable,
+      EventTemplateRow,
+      $$EventTemplatesTableFilterComposer,
+      $$EventTemplatesTableOrderingComposer,
+      $$EventTemplatesTableAnnotationComposer,
+      $$EventTemplatesTableCreateCompanionBuilder,
+      $$EventTemplatesTableUpdateCompanionBuilder,
+      (
+        EventTemplateRow,
+        BaseReferences<_$AppDatabase, $EventTemplatesTable, EventTemplateRow>,
+      ),
+      EventTemplateRow,
+      PrefetchHooks Function()
+    >;
+typedef $$EventSkipsTableCreateCompanionBuilder =
+    EventSkipsCompanion Function({
+      required String eventId,
+      required DateTime day,
+      required DateTime createdAt,
+      required DateTime updatedAt,
+      required String hlcTimestamp,
+      required String deviceId,
+      Value<int> version,
+      Value<bool> isDeleted,
+      Value<DateTime?> deletedAt,
+      Value<int> rowid,
+    });
+typedef $$EventSkipsTableUpdateCompanionBuilder =
+    EventSkipsCompanion Function({
+      Value<String> eventId,
+      Value<DateTime> day,
+      Value<DateTime> createdAt,
+      Value<DateTime> updatedAt,
+      Value<String> hlcTimestamp,
+      Value<String> deviceId,
+      Value<int> version,
+      Value<bool> isDeleted,
+      Value<DateTime?> deletedAt,
+      Value<int> rowid,
+    });
+
+class $$EventSkipsTableFilterComposer
+    extends Composer<_$AppDatabase, $EventSkipsTable> {
+  $$EventSkipsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get eventId => $composableBuilder(
+    column: $table.eventId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get day => $composableBuilder(
+    column: $table.day,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get hlcTimestamp => $composableBuilder(
+    column: $table.hlcTimestamp,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get version => $composableBuilder(
+    column: $table.version,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isDeleted => $composableBuilder(
+    column: $table.isDeleted,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$EventSkipsTableOrderingComposer
+    extends Composer<_$AppDatabase, $EventSkipsTable> {
+  $$EventSkipsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get eventId => $composableBuilder(
+    column: $table.eventId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get day => $composableBuilder(
+    column: $table.day,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get hlcTimestamp => $composableBuilder(
+    column: $table.hlcTimestamp,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get version => $composableBuilder(
+    column: $table.version,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get isDeleted => $composableBuilder(
+    column: $table.isDeleted,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$EventSkipsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $EventSkipsTable> {
+  $$EventSkipsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get eventId =>
+      $composableBuilder(column: $table.eventId, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get day =>
+      $composableBuilder(column: $table.day, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get hlcTimestamp => $composableBuilder(
+    column: $table.hlcTimestamp,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get deviceId =>
+      $composableBuilder(column: $table.deviceId, builder: (column) => column);
+
+  GeneratedColumn<int> get version =>
+      $composableBuilder(column: $table.version, builder: (column) => column);
+
+  GeneratedColumn<bool> get isDeleted =>
+      $composableBuilder(column: $table.isDeleted, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get deletedAt =>
+      $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+}
+
+class $$EventSkipsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $EventSkipsTable,
+          EventSkipRow,
+          $$EventSkipsTableFilterComposer,
+          $$EventSkipsTableOrderingComposer,
+          $$EventSkipsTableAnnotationComposer,
+          $$EventSkipsTableCreateCompanionBuilder,
+          $$EventSkipsTableUpdateCompanionBuilder,
+          (
+            EventSkipRow,
+            BaseReferences<_$AppDatabase, $EventSkipsTable, EventSkipRow>,
+          ),
+          EventSkipRow,
+          PrefetchHooks Function()
+        > {
+  $$EventSkipsTableTableManager(_$AppDatabase db, $EventSkipsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$EventSkipsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$EventSkipsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$EventSkipsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> eventId = const Value.absent(),
+                Value<DateTime> day = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<String> hlcTimestamp = const Value.absent(),
+                Value<String> deviceId = const Value.absent(),
+                Value<int> version = const Value.absent(),
+                Value<bool> isDeleted = const Value.absent(),
+                Value<DateTime?> deletedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => EventSkipsCompanion(
+                eventId: eventId,
+                day: day,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                hlcTimestamp: hlcTimestamp,
+                deviceId: deviceId,
+                version: version,
+                isDeleted: isDeleted,
+                deletedAt: deletedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String eventId,
+                required DateTime day,
+                required DateTime createdAt,
+                required DateTime updatedAt,
+                required String hlcTimestamp,
+                required String deviceId,
+                Value<int> version = const Value.absent(),
+                Value<bool> isDeleted = const Value.absent(),
+                Value<DateTime?> deletedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => EventSkipsCompanion.insert(
+                eventId: eventId,
+                day: day,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                hlcTimestamp: hlcTimestamp,
+                deviceId: deviceId,
+                version: version,
+                isDeleted: isDeleted,
+                deletedAt: deletedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$EventSkipsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $EventSkipsTable,
+      EventSkipRow,
+      $$EventSkipsTableFilterComposer,
+      $$EventSkipsTableOrderingComposer,
+      $$EventSkipsTableAnnotationComposer,
+      $$EventSkipsTableCreateCompanionBuilder,
+      $$EventSkipsTableUpdateCompanionBuilder,
+      (
+        EventSkipRow,
+        BaseReferences<_$AppDatabase, $EventSkipsTable, EventSkipRow>,
+      ),
+      EventSkipRow,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -10886,4 +13744,8 @@ class $AppDatabaseManager {
       );
   $$EventAbsencesTableTableManager get eventAbsences =>
       $$EventAbsencesTableTableManager(_db, _db.eventAbsences);
+  $$EventTemplatesTableTableManager get eventTemplates =>
+      $$EventTemplatesTableTableManager(_db, _db.eventTemplates);
+  $$EventSkipsTableTableManager get eventSkips =>
+      $$EventSkipsTableTableManager(_db, _db.eventSkips);
 }

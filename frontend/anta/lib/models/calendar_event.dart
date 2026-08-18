@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 
+import '../constants/event_skips.dart';
 import 'recurrence_rule.dart';
 
 enum CalendarEventCategory {
@@ -309,6 +310,21 @@ class CalendarEvent extends Equatable {
   /// applied at this layer because it is orthogonal to the rule shape — and
   /// it applies to [retroactive] events too, which are unbounded only
   /// backwards.
+  ///
+  /// Cancelled occurrences (**v30**) are subtracted here, and only here. This
+  /// is the one choke point every surface already goes through — the day
+  /// cache, the agenda scans, the month net, the detail sheet's upcoming
+  /// chips, the date pickers — so a skip reaches all of them without any of
+  /// them knowing skips exist. Reading a static facade from the model layer
+  /// follows the precedent already set by [RecurrenceRule.occursOn], which
+  /// consults `PublicHolidays` for the workdays and holidays-only rules.
+  ///
+  /// Note the deliberate contrast with the hidden-category filter, which is
+  /// render-time only, forever: hiding a category changes what you are looking
+  /// at, while cancelling an occurrence changes what is there. The
+  /// [OneTimeRecurrence] gate keeps a stale row from ever hiding a one-time
+  /// event — cancelling its only occurrence is a delete, which the UI offers
+  /// separately.
   bool occursOn(DateTime day) {
     final start = DateTime.utc(startDate.year, startDate.month, startDate.day);
     final target = DateTime.utc(day.year, day.month, day.day);
@@ -316,6 +332,9 @@ class CalendarEvent extends Equatable {
     if (end != null) {
       final endUtc = DateTime.utc(end.year, end.month, end.day);
       if (target.isAfter(endUtc)) return false;
+    }
+    if (rule is! OneTimeRecurrence && EventSkips.isSkipped(id, target)) {
+      return false;
     }
     return rule.occursOn(target, start, retroactive: retroactive);
   }

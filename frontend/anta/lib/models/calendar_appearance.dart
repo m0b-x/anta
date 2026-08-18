@@ -63,6 +63,33 @@ enum CalendarMissedDisplay {
   }
 }
 
+/// Which tint source paints a day cell when more than one applies.
+///
+/// The cell has exactly one wash slot plus one thin edge stripe, so a day
+/// that is both an event day and a fasting day has to resolve. Alpha-stacking
+/// two washes was rejected: the blend is a third colour that belongs to
+/// neither source, so the user can no longer attribute what they are seeing.
+enum CalendarTintConflict {
+  /// The event wins the wash; fasting contributes nothing (default). A dated
+  /// event is more specific than a season-long fast.
+  eventWins,
+
+  /// The fasting wash wins; the event contributes nothing.
+  fastingWins,
+
+  /// The winner paints the wash, the runner-up paints the edge stripe — both
+  /// signals stay identifiable.
+  both;
+
+  /// Forward-compatible parsing: unknown/null values fall back to [eventWins].
+  static CalendarTintConflict fromName(String? name) {
+    for (final conflict in values) {
+      if (conflict.name == name) return conflict;
+    }
+    return eventWins;
+  }
+}
+
 /// First day of the calendar week.
 enum CalendarWeekStart {
   monday(DateTime.monday),
@@ -118,6 +145,16 @@ class CalendarAppearance extends Equatable {
   /// How occurrences marked as missed on a presence-tracking event are drawn.
   final CalendarMissedDisplay missedDisplay;
 
+  /// Wash each day cell with its top event's colour, at a strength set by
+  /// that event's priority. Off by default — it repaints most cells for
+  /// anyone with a busy calendar and competes with the marker strip users
+  /// already read, so it is opt-in like [highlightWeekends].
+  final bool eventTint;
+
+  /// Which tint source wins when a day carries more than one. Only reachable
+  /// when [eventTint] is on.
+  final CalendarTintConflict tintConflict;
+
   const CalendarAppearance({
     this.todayStyle = CalendarTodayStyle.tonal,
     this.markerStyle = CalendarMarkerStyle.bars,
@@ -128,6 +165,8 @@ class CalendarAppearance extends Equatable {
     this.maxDayBars = 3,
     this.showRecurrenceLabels = true,
     this.missedDisplay = CalendarMissedDisplay.faded,
+    this.eventTint = false,
+    this.tintConflict = CalendarTintConflict.eventWins,
   });
 
   /// The effective highlight accent: the user's custom color when set,
@@ -148,6 +187,8 @@ class CalendarAppearance extends Equatable {
     int? maxDayBars,
     bool? showRecurrenceLabels,
     CalendarMissedDisplay? missedDisplay,
+    bool? eventTint,
+    CalendarTintConflict? tintConflict,
   }) {
     return CalendarAppearance(
       todayStyle: todayStyle ?? this.todayStyle,
@@ -161,6 +202,8 @@ class CalendarAppearance extends Equatable {
       maxDayBars: maxDayBars ?? this.maxDayBars,
       showRecurrenceLabels: showRecurrenceLabels ?? this.showRecurrenceLabels,
       missedDisplay: missedDisplay ?? this.missedDisplay,
+      eventTint: eventTint ?? this.eventTint,
+      tintConflict: tintConflict ?? this.tintConflict,
     );
   }
 
@@ -175,5 +218,7 @@ class CalendarAppearance extends Equatable {
     maxDayBars,
     showRecurrenceLabels,
     missedDisplay,
+    eventTint,
+    tintConflict,
   ];
 }
