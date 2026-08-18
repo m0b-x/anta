@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 import '../models/app_user.dart';
+import '../utils/auth_error.dart';
 import 'auth_service.dart';
 
 /// Google Sign-In on top of Firebase Auth.
@@ -50,11 +51,11 @@ class FirebaseAuthService implements AuthService {
   AppUser? get currentUser => _toAppUser(_auth.currentUser);
 
   @override
-  Future<AppUser?> signInWithGoogle() async {
+  Future<AppUser?> signInWithGoogle() => _guard(() async {
     await _ensureInitialized();
 
     if (!GoogleSignIn.instance.supportsAuthenticate()) {
-      throw UnsupportedError('Google Sign-In is not available here.');
+      throw const AuthException(AuthError.notSupported);
     }
 
     final GoogleSignInAccount account;
@@ -73,7 +74,7 @@ class FirebaseAuthService implements AuthService {
     final credential = GoogleAuthProvider.credential(idToken: idToken);
     final result = await _auth.signInWithCredential(credential);
     return _toAppUser(result.user);
-  }
+  });
 
   @override
   Future<void> signOut() async {
@@ -90,6 +91,31 @@ class FirebaseAuthService implements AuthService {
 
   @override
   Future<void> dispose() async {}
+
+  /// Maps every remote failure onto an [AuthError], the same way
+  /// `FirestorePairingGateway._guard` shields the layers above from
+  /// `FirebaseException` codes.
+  Future<T> _guard<T>(Future<T> Function() action) async {
+    try {
+      return await action();
+    } on AuthException {
+      rethrow;
+    } on FirebaseAuthException catch (e) {
+      throw AuthException(
+        _networkCode(e.code) ? AuthError.offline : AuthError.unknown,
+      );
+    } on GoogleSignInException catch (e) {
+      throw AuthException(
+        _networkCode(e.code.name) ? AuthError.offline : AuthError.unknown,
+      );
+    } on UnsupportedError {
+      throw const AuthException(AuthError.notSupported);
+    } catch (_) {
+      throw const AuthException(AuthError.unknown);
+    }
+  }
+
+  bool _networkCode(String code) => code.toLowerCase().contains('network');
 
   AppUser? _toAppUser(User? user) {
     if (user == null) return null;

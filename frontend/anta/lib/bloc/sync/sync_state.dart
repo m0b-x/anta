@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import '../../models/app_user.dart';
+import '../../utils/auth_error.dart';
 
 sealed class SyncState extends Equatable {
   const SyncState();
@@ -37,10 +38,10 @@ final class SyncSignedIn extends SyncState {
 }
 
 final class SyncFailure extends SyncState {
-  final String message;
+  final AuthError error;
 
-  const SyncFailure(this.message);
+  const SyncFailure(this.error);
 
   @override
-  List<Object?> get props => [message];
+  List<Object?> get props => [error];
 }

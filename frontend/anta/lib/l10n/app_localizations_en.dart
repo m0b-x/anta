@@ -3340,13 +3340,148 @@ class AppLocalizationsEn extends AppLocalizations {
   String get signInFailed => 'Sign-in failed';
 
   @override
+  String get authErrorOffline =>
+      'No connection. Check your network and try again.';
+
+  @override
+  String get authErrorUnavailable => 'Sign-in is not available here';
+
+  @override
+  String get authErrorNotSupported =>
+      'Google Sign-In is not available on this device';
+
+  @override
+  String get authErrorUnknown => 'Sign-in failed. Try again.';
+
+  @override
   String get retry => 'Retry';
 
   @override
   String get sharingKeywords =>
-      'cloud, sync, account, google, login, share, partner';
+      'cloud, sync, account, google, login, share, partner, pairing, code, invite, unpair';
 
   @override
   String get aboutDescription =>
       'An offline-first personal tracker: folders, markdown notes, a money ledger, counters, and a calendar.';
+
+  @override
+  String get pairingSection => 'Pairing';
+
+  @override
+  String get pairingNotPaired => 'Not paired';
+
+  @override
+  String get pairingNotPairedDesc => 'Share with someone';
+
+  @override
+  String get pairingSignInFirst => 'Sign in to share';
+
+  @override
+  String get pairingWaiting => 'Waiting for your partner';
+
+  @override
+  String pairingPairedWith(String name) {
+    return 'Paired with $name';
+  }
+
+  @override
+  String get pairingPairedDesc => 'Linked. Nothing is shared yet.';
+
+  @override
+  String get pairingPartnerUnknown => 'Paired';
+
+  @override
+  String get pairingTitle => 'Pair with someone';
+
+  @override
+  String get pairingGenerateCode => 'Create a code';
+
+  @override
+  String get pairingCodeIntro =>
+      'Read this code to the other person. It works once.';
+
+  @override
+  String pairingCodeExpiresIn(String time) {
+    return 'Expires in $time';
+  }
+
+  @override
+  String get pairingCodeExpired => 'This code expired';
+
+  @override
+  String get copy => 'Copy';
+
+  @override
+  String get share => 'Share';
+
+  @override
+  String get pairingCodeCopied => 'Code copied';
+
+  @override
+  String pairingShareMessage(String code) {
+    return 'Pair with me in ANTA using this code: $code';
+  }
+
+  @override
+  String get pairingEnterCode => 'Enter their code';
+
+  @override
+  String get pairingCodeHint => 'XXXX-XXXX';
+
+  @override
+  String get pairingConnect => 'Connect';
+
+  @override
+  String get pairingOr => 'or';
+
+  @override
+  String get unpair => 'Unpair';
+
+  @override
+  String pairingUnpairConfirm(String name) {
+    return 'Stop sharing with $name? Your notes and events stay on this device. Nothing new will be shared.';
+  }
+
+  @override
+  String get pairingEndedTitle => 'Sharing ended';
+
+  @override
+  String pairingEndedBy(String name) {
+    return '$name ended sharing. Your notes and events stay on this device.';
+  }
+
+  @override
+  String get pairingEndedByPartner =>
+      'Your partner ended sharing. Your notes and events stay on this device.';
+
+  @override
+  String pairingSignOutConfirm(String name) {
+    return 'Sign out? Sharing with $name stops until you sign in again.';
+  }
+
+  @override
+  String get pairingErrorOffline =>
+      'No connection. Pairing needs to be online.';
+
+  @override
+  String get pairingErrorNotSignedIn => 'Sign in first';
+
+  @override
+  String get pairingErrorUnavailable => 'Pairing is not available here';
+
+  @override
+  String get pairingErrorCodeInvalid =>
+      'That code is not valid any more. Ask for a new one.';
+
+  @override
+  String get pairingErrorOwnCode => 'That is your own code';
+
+  @override
+  String get pairingErrorAlreadyPaired => 'You are already paired';
+
+  @override
+  String get pairingErrorPermissionDenied => 'Not allowed';
+
+  @override
+  String get pairingErrorUnknown => 'Pairing failed';
 }

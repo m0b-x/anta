@@ -7,3 +7,14 @@ tags:
   #   flutter test --tags benchmark --run-skipped
   benchmark:
     skip: "timing-only; run with: flutter test --tags benchmark --run-skipped"
+
+  # Firestore security rules, exercised against the real rules engine in the
+  # emulator. Excluded from the default run because it is the one suite with an
+  # external dependency — everything else runs against NativeDatabase.memory()
+  # and needs no setup. Run it whenever `firestore.rules` changes:
+  #
+  #   firebase emulators:start --only firestore --project demo-anta \
+  #     --config firebase.firestore.json
+  #   flutter test --tags firestore-rules --run-skipped
+  firestore-rules:
+    skip: "needs the Firestore emulator; see dart_test.yaml for the command"

@@ -10,6 +10,13 @@
 - Unpair → re-pair (fresh `pairId`, no data resurrection).
 - Delete-then-reshare a folder.
 
+Phase 01 already discharges the pairing half of two of these: unpair
+tombstones the pair rather than deleting it, re-pairing always mints a fresh
+`pairId`, and reconciliation on sign-in/resume converges a uid that ended up
+in two active pairs. What is left for this phase is what happens to the
+**data** across those transitions — that content under an ended pair stops
+flowing, and that a re-pair does not resurrect it.
+
 ## Known integration hazards
 
 - **Backup restore versus sync.** Restoring a backup over synced data
@@ -18,8 +25,9 @@
   suspend/resume seam.
 - **Database switching mid-sync.** Tear down snapshot listeners in the
   `DatabaseLifecycle.notifyDatabaseSwitching()` sweep; rebind on the next
-  `getInstance()`. Pairing state is already per-database (Phase 01); the
-  listeners must follow it.
+  `getInstance()`. Pairing state is already per-database and already on the
+  reset contract (Phase 01), and reconciliation re-runs after a switch; the
+  *data* listeners must follow the same path.
 - **Silent failure is the worst outcome for a trust feature.** A sync status
   indicator (last synced / pending / error) on the Sharing page, and real
   error surfacing through the existing snackbar pattern — never swallowed

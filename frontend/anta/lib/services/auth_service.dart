@@ -1,4 +1,5 @@
 import '../models/app_user.dart';
+import '../utils/auth_error.dart';
 
 /// Cloud identity, kept behind an interface so `injection.dart` can bind a
 /// no-op implementation on platforms where [SyncAvailability] is false and
@@ -40,7 +41,7 @@ class NoOpAuthService implements AuthService {
 
   @override
   Future<AppUser?> signInWithGoogle() async {
-    throw UnsupportedError('Cloud sync is not available on this platform.');
+    throw const AuthException(AuthError.unavailable);
   }
 
   @override

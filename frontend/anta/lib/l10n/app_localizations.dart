@@ -6016,6 +6016,30 @@ abstract class AppLocalizations {
   /// **'Sign-in failed'**
   String get signInFailed;
 
+  /// Sign-in error: the device could not reach the server
+  ///
+  /// In en, this message translates to:
+  /// **'No connection. Check your network and try again.'**
+  String get authErrorOffline;
+
+  /// Sign-in error: the bound auth service cannot sign in at all
+  ///
+  /// In en, this message translates to:
+  /// **'Sign-in is not available here'**
+  String get authErrorUnavailable;
+
+  /// Sign-in error: the platform does not support the interactive flow
+  ///
+  /// In en, this message translates to:
+  /// **'Google Sign-In is not available on this device'**
+  String get authErrorNotSupported;
+
+  /// Sign-in error: no more specific reason is known
+  ///
+  /// In en, this message translates to:
+  /// **'Sign-in failed. Try again.'**
+  String get authErrorUnknown;
+
   /// Button re-running a failed action
   ///
   /// In en, this message translates to:
@@ -6025,7 +6049,7 @@ abstract class AppLocalizations {
   /// Comma-separated hidden search synonyms for the sharing settings
   ///
   /// In en, this message translates to:
-  /// **'cloud, sync, account, google, login, share, partner'**
+  /// **'cloud, sync, account, google, login, share, partner, pairing, code, invite, unpair'**
   String get sharingKeywords;
 
   /// One-sentence app description in the About dialog
@@ -6033,6 +6057,216 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'An offline-first personal tracker: folders, markdown notes, a money ledger, counters, and a calendar.'**
   String get aboutDescription;
+
+  /// Sharing page section that links two accounts
+  ///
+  /// In en, this message translates to:
+  /// **'Pairing'**
+  String get pairingSection;
+
+  /// Pairing row title when no partner is linked
+  ///
+  /// In en, this message translates to:
+  /// **'Not paired'**
+  String get pairingNotPaired;
+
+  /// Pairing row subtitle when no partner is linked
+  ///
+  /// In en, this message translates to:
+  /// **'Share with someone'**
+  String get pairingNotPairedDesc;
+
+  /// Pairing row title when the user is signed out
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in to share'**
+  String get pairingSignInFirst;
+
+  /// Pairing row title while a generated code is unused
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for your partner'**
+  String get pairingWaiting;
+
+  /// Pairing row title naming the linked partner
+  ///
+  /// In en, this message translates to:
+  /// **'Paired with {name}'**
+  String pairingPairedWith(String name);
+
+  /// Pairing row subtitle when paired: the link exists but no content syncs yet
+  ///
+  /// In en, this message translates to:
+  /// **'Linked. Nothing is shared yet.'**
+  String get pairingPairedDesc;
+
+  /// Pairing row title before the partner has published a name
+  ///
+  /// In en, this message translates to:
+  /// **'Paired'**
+  String get pairingPartnerUnknown;
+
+  /// Title of the pairing sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Pair with someone'**
+  String get pairingTitle;
+
+  /// Button minting an invite code
+  ///
+  /// In en, this message translates to:
+  /// **'Create a code'**
+  String get pairingGenerateCode;
+
+  /// Explains what to do with a freshly generated code
+  ///
+  /// In en, this message translates to:
+  /// **'Read this code to the other person. It works once.'**
+  String get pairingCodeIntro;
+
+  /// Countdown under a generated pairing code
+  ///
+  /// In en, this message translates to:
+  /// **'Expires in {time}'**
+  String pairingCodeExpiresIn(String time);
+
+  /// Shown when a generated code ran out before it was used
+  ///
+  /// In en, this message translates to:
+  /// **'This code expired'**
+  String get pairingCodeExpired;
+
+  /// Generic button copying a value to the clipboard
+  ///
+  /// In en, this message translates to:
+  /// **'Copy'**
+  String get copy;
+
+  /// Generic button opening the system share sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Share'**
+  String get share;
+
+  /// Confirmation after copying the pairing code
+  ///
+  /// In en, this message translates to:
+  /// **'Code copied'**
+  String get pairingCodeCopied;
+
+  /// Text shared from the pairing sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Pair with me in ANTA using this code: {code}'**
+  String pairingShareMessage(String code);
+
+  /// Label of the code entry field
+  ///
+  /// In en, this message translates to:
+  /// **'Enter their code'**
+  String get pairingEnterCode;
+
+  /// Placeholder showing the shape of a pairing code
+  ///
+  /// In en, this message translates to:
+  /// **'XXXX-XXXX'**
+  String get pairingCodeHint;
+
+  /// Button redeeming an entered code
+  ///
+  /// In en, this message translates to:
+  /// **'Connect'**
+  String get pairingConnect;
+
+  /// Separator between generating a code and entering one
+  ///
+  /// In en, this message translates to:
+  /// **'or'**
+  String get pairingOr;
+
+  /// Button ending the link with a partner
+  ///
+  /// In en, this message translates to:
+  /// **'Unpair'**
+  String get unpair;
+
+  /// Body of the unpair confirmation dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Stop sharing with {name}? Your notes and events stay on this device. Nothing new will be shared.'**
+  String pairingUnpairConfirm(String name);
+
+  /// Title of the dialog shown when the partner unpaired
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing ended'**
+  String get pairingEndedTitle;
+
+  /// Body of the dialog shown when a named partner unpaired
+  ///
+  /// In en, this message translates to:
+  /// **'{name} ended sharing. Your notes and events stay on this device.'**
+  String pairingEndedBy(String name);
+
+  /// Body shown when the partner unpaired and never published a name
+  ///
+  /// In en, this message translates to:
+  /// **'Your partner ended sharing. Your notes and events stay on this device.'**
+  String get pairingEndedByPartner;
+
+  /// Body of the sign-out confirmation shown while paired
+  ///
+  /// In en, this message translates to:
+  /// **'Sign out? Sharing with {name} stops until you sign in again.'**
+  String pairingSignOutConfirm(String name);
+
+  /// Pairing error: the device could not reach the server
+  ///
+  /// In en, this message translates to:
+  /// **'No connection. Pairing needs to be online.'**
+  String get pairingErrorOffline;
+
+  /// Pairing error: no account is signed in
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in first'**
+  String get pairingErrorNotSignedIn;
+
+  /// Pairing error: unsupported platform or failed Firebase init
+  ///
+  /// In en, this message translates to:
+  /// **'Pairing is not available here'**
+  String get pairingErrorUnavailable;
+
+  /// Pairing error: the code was mistyped, expired, or already used
+  ///
+  /// In en, this message translates to:
+  /// **'That code is not valid any more. Ask for a new one.'**
+  String get pairingErrorCodeInvalid;
+
+  /// Pairing error: the user entered the code their device generated
+  ///
+  /// In en, this message translates to:
+  /// **'That is your own code'**
+  String get pairingErrorOwnCode;
+
+  /// Pairing error: a pair already exists on this database
+  ///
+  /// In en, this message translates to:
+  /// **'You are already paired'**
+  String get pairingErrorAlreadyPaired;
+
+  /// Pairing error: the server rejected the request
+  ///
+  /// In en, this message translates to:
+  /// **'Not allowed'**
+  String get pairingErrorPermissionDenied;
+
+  /// Pairing error: fallback for an unrecognised failure
+  ///
+  /// In en, this message translates to:
+  /// **'Pairing failed'**
+  String get pairingErrorUnknown;
 }
 
 class _AppLocalizationsDelegate

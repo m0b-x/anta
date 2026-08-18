@@ -183,6 +183,34 @@ class SettingsKeys {
   // Note position (prefix for per-note storage)
   static const String notePositionPrefix = 'note_position_';
 
+  // Cloud sync pairing (Phase 01). These live in `user_settings`, so pairing
+  // is per-database by construction — and they are deliberately absent from
+  // `BackupService._exportSettings`: restoring a backup onto a third device
+  // must not clone a pair membership.
+  static const String pairingPairId = 'pairing_pair_id';
+
+  /// The account the stored pairing belongs to. Signing in as a different
+  /// Google account must clear the pairing rather than leave a `pairId` that
+  /// answers `permission-denied` to every read.
+  static const String pairingAccountUid = 'pairing_account_uid';
+
+  static const String pairingPartnerUid = 'pairing_partner_uid';
+
+  /// Cached so the paired row can name the partner while offline; the live
+  /// value comes from the pair document's `profiles` map.
+  static const String pairingPartnerName = 'pairing_partner_name';
+
+  /// The invite this device generated. Persisted because a restart between
+  /// generating and redeeming would otherwise strand the creator: the code is
+  /// the only handle it has on the pair the other side is about to create.
+  static const String pairingPendingCode = 'pairing_pending_code';
+  static const String pairingPendingExpiresAt = 'pairing_pending_expires_at';
+
+  /// Set when the partner ended the link, cleared when the user acknowledges
+  /// it. The app has no push notifications, so next foreground is the only
+  /// moment available to tell them.
+  static const String pairingEndedNotice = 'pairing_ended_notice_pending';
+
   // Default values for control settings
   static const bool defaultFolderSwipeEnabled = true;
   static const bool defaultNoteSwipeEnabled = true;

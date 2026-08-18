@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../models/app_user.dart';
 import '../../services/auth_service.dart';
+import '../../utils/auth_error.dart';
 import 'sync_event.dart';
 import 'sync_state.dart';
 
@@ -55,8 +56,10 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
       // A null user means the flow was dismissed, which the stream never
       // reports — fall back to the account we already had.
       emit(_stateFor(user ?? _authService.currentUser));
-    } catch (e) {
-      emit(SyncFailure(e.toString()));
+    } on AuthException catch (e) {
+      emit(SyncFailure(e.error));
+    } catch (_) {
+      emit(const SyncFailure(AuthError.unknown));
     }
   }
 
@@ -67,8 +70,10 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     try {
       await _authService.signOut();
       emit(const SyncSignedOut());
-    } catch (e) {
-      emit(SyncFailure(e.toString()));
+    } on AuthException catch (e) {
+      emit(SyncFailure(e.error));
+    } catch (_) {
+      emit(const SyncFailure(AuthError.unknown));
     }
   }
 

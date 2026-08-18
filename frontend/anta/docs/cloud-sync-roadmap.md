@@ -1,6 +1,7 @@
 # Cloud Sync Roadmap
 
-**Status: Phase 00 shipped 2026-08-16. Phases 01–04 planned.** Master document
+**Status: Phase 00 shipped 2026-08-16, Phase 01 shipped 2026-08-17. Phases
+02–04 planned.** Master document
 for the cloud migration; per-phase implementation docs live alongside this
 file (`cloud-sync-phase-01-pairing.md` … `cloud-sync-phase-04-hardening.md`).
 
@@ -29,10 +30,15 @@ is the backend; Google Sign-In is the identity.
   (`lib/models/app_user.dart`) is the boundary; blocs and pages never see
   `firebase_auth`'s `User`. Phase 02 extends the same principle with a
   `SyncGateway` interface so Firestore never leaks into services.
-- **Dates cross the wire as epoch-ms integers**, exactly like the backup
-  format. `CalendarEventService._dateOnlyUtc` exists because Drift returns
-  local `DateTime`s that shift days in non-UTC zones; Firestore `Timestamp`s
-  would reintroduce that bug across the network.
+- **User-data dates cross the wire as epoch-ms integers**, exactly like the
+  backup format. `CalendarEventService._dateOnlyUtc` exists because Drift
+  returns local `DateTime`s that shift days in non-UTC zones; Firestore
+  `Timestamp`s would reintroduce that bug across the network.
+  **Control-plane instants are the carve-out**: `createdAt` / `expiresAt` /
+  `endedAt` on `pairs` and `invites` are Firestore `Timestamp`s, because
+  security rules compare them against `request.time` and an int cannot be
+  checked that way without trusting the client's clock — the exact thing those
+  rules exist to prevent. The day-shift bug does not apply to instants.
 - **Reuse `exportData()` maps as the Firestore document shape.** The backup
   serializers are a proven, JSON-safe wire format — do not design a second
   one.
@@ -42,7 +48,7 @@ is the backend; Google Sign-In is the identity.
 | Phase | Scope | Schema | Status |
 | --- | --- | --- | --- |
 | 00 | Firebase foundations, platform gate, Google Sign-In, Sharing page | none | **Shipped 2026-08-16** |
-| 01 | Pairing two accounts (`invites/{code}` → `pairs/{pairId}`) | none | Planned |
+| 01 | Pairing two accounts (`invites/{code}` → `pairs/{pairId}`) | none | **Shipped 2026-08-17** |
 | 02 | Calendar sync + ownership + consent | v26 | Planned |
 | 03 | Shared folders (folder → note → chunks) | v27 | Planned |
 | 04 | Hardening (restore-vs-sync, DB switching, status UI, tests) | none | Planned |
@@ -73,8 +79,11 @@ is the backend; Google Sign-In is the identity.
 ## Remote shape (target)
 
 ```
-pairs/{pairId}
-  members: [uidA, uidB]
+pairs/{pairId}                        // random id; never deleted, never reused
+  members: [uidA, uidB]               // never shrinks
+  status: 'active' | 'ended'
+  createdAt, endedBy, endedAt
+  profiles: { uidA: { displayName, photoUrl }, uidB: { … } }
   permissions: { uidA: { allowPartnerEdit: bool }, uidB: { … } }
 
 pairs/{pairId}/events/{eventId}      // mirrors exportData() + sync columns
@@ -82,9 +91,23 @@ pairs/{pairId}/folders/{folderId}
 pairs/{pairId}/notes/{noteId}
 pairs/{pairId}/notes/{noteId}/chunks/{index}   // keyed by index, never local id
 
-invites/{code}                        // short-lived, single-use
-  creatorUid, expiresAt
+invites/{code}                        // short-lived, single-use, create-only
+  creatorUid, createdAt, expiresAt
+  pairId, redeemedBy                  // written by the redeemer, read by the creator
 ```
+
+**Unpairing tombstones the pair, never deletes it** (`status: 'ended'`,
+`members` unchanged): both sides keep read access so the passive partner
+learns who ended it and when, and the doc survives to anchor the
+subcollections above — Firestore has no recursive delete without Cloud
+Functions, which Spark does not include.
+
+**The locally stored `pairId` is a cache, not the truth.** The server answers
+"which active pair contains my uid", reconciled on sign-in and resume. That
+inversion is what stops a second device, a second local database, or a
+both-sides-redeem race from silently forking into two pairs. When a uid does
+end up in two active pairs, the earliest `createdAt` wins and the rest are
+tombstoned — both devices reach that answer independently.
 
 Consent rule sketch: read for any member of the pair; write when
 `ownerId == uid()` or the owner's `allowPartnerEdit` is true. A standing

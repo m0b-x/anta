@@ -1,0 +1,171 @@
+rules_version = '2';
+
+// Cloud sync Phase 01 — pairing only. Phase 02 extends `pairs` with the
+// per-owner `allowPartnerEdit` consent clause and adds the subcollections.
+//
+// Deploy with: firebase deploy --only firestore:rules,firestore:indexes
+// `invites.expiresAt` should also carry a console-configured TTL policy —
+// Spark has no Cloud Functions, so nothing else reaps abandoned invites.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function uid() {
+      return request.auth.uid;
+    }
+
+    match /pairs/{pairId} {
+      function isMember() {
+        return signedIn() && uid() in resource.data.members;
+      }
+
+      function changed() {
+        return request.resource.data.diff(resource.data).affectedKeys();
+      }
+
+      // A pair is only legitimate if the other member handed out a live,
+      // unclaimed invite. Without this, uid is the only thing needed to force
+      // a pair on someone — and this app prints the signed-in uid on screen,
+      // so it is not a secret. The invite already exists when the pair is
+      // created, so unlike the reverse direction a `get()` can see it.
+      function authorisedByInvite() {
+        let code = request.resource.data.inviteCode;
+        let invite = get(/databases/$(database)/documents/invites/$(code)).data;
+        return code is string
+            && invite.expiresAt > request.time
+            && !('pairId' in invite)
+            && invite.creatorUid != uid()
+            && invite.creatorUid in request.resource.data.members;
+      }
+
+      function validProfile(entry) {
+        return entry.keys().hasOnly(['displayName', 'photoUrl'])
+            && (entry.displayName == null
+                || (entry.displayName is string
+                    && entry.displayName.size() <= 200))
+            && (entry.photoUrl == null
+                || (entry.photoUrl is string && entry.photoUrl.size() <= 2000));
+      }
+
+      function validProfiles(profiles, members) {
+        return profiles.keys().hasOnly(members)
+            && validProfile(profiles[members[0]])
+            && validProfile(profiles[members[1]]);
+      }
+
+      // Seeded closed for both members and only ever widened by the owner of
+      // the entry. Phase 02 gates partner writes on this flag, so letting the
+      // redeemer choose both entries would hand it permanent write access to
+      // the other person's data with no way to revoke.
+      function closedPermissions(permissions, members) {
+        return permissions.keys().hasOnly(members)
+            && permissions[members[0]].keys().hasOnly(['allowPartnerEdit'])
+            && permissions[members[0]].allowPartnerEdit == false
+            && permissions[members[1]].keys().hasOnly(['allowPartnerEdit'])
+            && permissions[members[1]].allowPartnerEdit == false;
+      }
+
+      // Ending a pair is a tombstone, never a delete: the partner keeps read
+      // access so they can still learn who ended it and when, and from Phase
+      // 02 the doc anchors subcollections that have no recursive delete.
+      function tombstones() {
+        return resource.data.status == 'active'
+            && request.resource.data.status == 'ended'
+            && request.resource.data.endedBy == uid()
+            && request.resource.data.endedAt == request.time
+            && changed().hasOnly(['status', 'endedBy', 'endedAt']);
+      }
+
+      function rewritesOwnProfile() {
+        return changed().hasOnly(['profiles'])
+            && request.resource.data.profiles
+                 .diff(resource.data.profiles).affectedKeys().hasOnly([uid()])
+            && validProfile(request.resource.data.profiles[uid()]);
+      }
+
+      // Consent is the owner's to give: you may only ever rewrite your own
+      // entry, which is what Phase 02's toggle drives.
+      function rewritesOwnConsent() {
+        return changed().hasOnly(['permissions'])
+            && request.resource.data.permissions
+                 .diff(resource.data.permissions).affectedKeys().hasOnly([uid()])
+            && request.resource.data.permissions[uid()]
+                 .keys().hasOnly(['allowPartnerEdit'])
+            && request.resource.data.permissions[uid()].allowPartnerEdit is bool;
+      }
+
+      allow get, list: if isMember();
+
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly([
+             'members', 'status', 'createdAt', 'profiles', 'permissions',
+             'inviteCode'
+           ])
+        && request.resource.data.members is list
+        && request.resource.data.members.size() == 2
+        && uid() in request.resource.data.members
+        && request.resource.data.status == 'active'
+        && request.resource.data.createdAt == request.time
+        && validProfiles(
+             request.resource.data.profiles, request.resource.data.members)
+        && closedPermissions(
+             request.resource.data.permissions, request.resource.data.members)
+        && authorisedByInvite();
+
+      // Membership never changes, so `members` stays a stable ACL and an
+      // ended pair can never be revived into a live one.
+      allow update: if isMember()
+        && request.resource.data.members == resource.data.members
+        && request.resource.data.createdAt == resource.data.createdAt
+        && (tombstones() || rewritesOwnProfile() || rewritesOwnConsent());
+
+      allow delete: if false;
+    }
+
+    match /invites/{code} {
+      // Redemption is a stranger reading someone else's invite, so `get` is
+      // open to any signed-in account — but only for a live code, and `list`
+      // is closed so the collection cannot be enumerated in bulk.
+      //
+      // `resource == null` is allowed on purpose. Without it a code that does
+      // not exist errors on `resource.data` and denies, so the single most
+      // common failure — a typo — would surface as "permission denied"
+      // instead of "that code is not valid".
+      allow get: if signedIn()
+        && (resource == null || resource.data.expiresAt > request.time);
+      allow list: if false;
+
+      // `expiresAt` is written from the device clock, so it is bounded here
+      // rather than trusted: a skewed device would otherwise mint an invite
+      // valid for a year. The window is wide enough to absorb the clock skew
+      // a phone with a hand-set time realistically carries.
+      allow create: if signedIn()
+        && request.resource.data.keys()
+             .hasOnly(['creatorUid', 'createdAt', 'expiresAt'])
+        && request.resource.data.creatorUid == uid()
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.expiresAt > request.time
+        && request.resource.data.expiresAt < request.time + duration.value(30, 'm');
+
+      // The redemption write and nothing else: a non-creator stamps the pair
+      // it just created onto a live, unclaimed invite. The pair id is not
+      // verified here — a `get()` would not see a pair created in the same
+      // batch anyway. The creator verifies instead, by reading the pair and
+      // checking it really contains both accounts.
+      allow update: if signedIn()
+        && resource.data.expiresAt > request.time
+        && resource.data.creatorUid != uid()
+        && !('pairId' in resource.data)
+        && request.resource.data.diff(resource.data)
+             .affectedKeys().hasOnly(['pairId', 'redeemedBy'])
+        && request.resource.data.pairId is string
+        && request.resource.data.pairId.size() > 0
+        && request.resource.data.redeemedBy == uid();
+
+      allow delete: if signedIn() && resource.data.creatorUid == uid();
+    }
+  }
+}

@@ -3366,13 +3366,148 @@ class AppLocalizationsDe extends AppLocalizations {
   String get signInFailed => 'Anmeldung fehlgeschlagen';
 
   @override
+  String get authErrorOffline =>
+      'Keine Verbindung. Prüf dein Netzwerk und versuch es erneut.';
+
+  @override
+  String get authErrorUnavailable => 'Anmeldung ist hier nicht verfügbar';
+
+  @override
+  String get authErrorNotSupported =>
+      'Google-Anmeldung ist auf diesem Gerät nicht verfügbar';
+
+  @override
+  String get authErrorUnknown => 'Anmeldung fehlgeschlagen. Versuch es erneut.';
+
+  @override
   String get retry => 'Erneut versuchen';
 
   @override
   String get sharingKeywords =>
-      'Cloud, Synchronisierung, Konto, Google, Anmeldung, Teilen, Partner';
+      'Cloud, Synchronisierung, Konto, Google, Anmeldung, Teilen, Partner, Kopplung, Code, Einladung, Trennen';
 
   @override
   String get aboutDescription =>
       'Ein Offline-First-Tracker für den Alltag: Ordner, Markdown-Notizen, ein Geldbuch, Zähler und ein Kalender.';
+
+  @override
+  String get pairingSection => 'Kopplung';
+
+  @override
+  String get pairingNotPaired => 'Nicht gekoppelt';
+
+  @override
+  String get pairingNotPairedDesc => 'Mit jemandem teilen';
+
+  @override
+  String get pairingSignInFirst => 'Zum Teilen anmelden';
+
+  @override
+  String get pairingWaiting => 'Warten auf deinen Partner';
+
+  @override
+  String pairingPairedWith(String name) {
+    return 'Gekoppelt mit $name';
+  }
+
+  @override
+  String get pairingPairedDesc => 'Verbunden. Es wird noch nichts geteilt.';
+
+  @override
+  String get pairingPartnerUnknown => 'Gekoppelt';
+
+  @override
+  String get pairingTitle => 'Mit jemandem koppeln';
+
+  @override
+  String get pairingGenerateCode => 'Code erstellen';
+
+  @override
+  String get pairingCodeIntro =>
+      'Lies der anderen Person diesen Code vor. Er funktioniert einmal.';
+
+  @override
+  String pairingCodeExpiresIn(String time) {
+    return 'Läuft ab in $time';
+  }
+
+  @override
+  String get pairingCodeExpired => 'Dieser Code ist abgelaufen';
+
+  @override
+  String get copy => 'Kopieren';
+
+  @override
+  String get share => 'Teilen';
+
+  @override
+  String get pairingCodeCopied => 'Code kopiert';
+
+  @override
+  String pairingShareMessage(String code) {
+    return 'Kopple dich mit mir in ANTA – Code: $code';
+  }
+
+  @override
+  String get pairingEnterCode => 'Code eingeben';
+
+  @override
+  String get pairingCodeHint => 'XXXX-XXXX';
+
+  @override
+  String get pairingConnect => 'Verbinden';
+
+  @override
+  String get pairingOr => 'oder';
+
+  @override
+  String get unpair => 'Trennen';
+
+  @override
+  String pairingUnpairConfirm(String name) {
+    return 'Teilen mit $name beenden? Deine Notizen und Termine bleiben auf diesem Gerät. Es wird nichts Neues mehr geteilt.';
+  }
+
+  @override
+  String get pairingEndedTitle => 'Teilen beendet';
+
+  @override
+  String pairingEndedBy(String name) {
+    return '$name hat das Teilen beendet. Deine Notizen und Termine bleiben auf diesem Gerät.';
+  }
+
+  @override
+  String get pairingEndedByPartner =>
+      'Dein Partner hat das Teilen beendet. Deine Notizen und Termine bleiben auf diesem Gerät.';
+
+  @override
+  String pairingSignOutConfirm(String name) {
+    return 'Abmelden? Das Teilen mit $name pausiert, bis du dich wieder anmeldest.';
+  }
+
+  @override
+  String get pairingErrorOffline =>
+      'Keine Verbindung. Die Kopplung braucht Internet.';
+
+  @override
+  String get pairingErrorNotSignedIn => 'Zuerst anmelden';
+
+  @override
+  String get pairingErrorUnavailable => 'Kopplung ist hier nicht verfügbar';
+
+  @override
+  String get pairingErrorCodeInvalid =>
+      'Dieser Code gilt nicht mehr. Frag nach einem neuen.';
+
+  @override
+  String get pairingErrorOwnCode => 'Das ist dein eigener Code';
+
+  @override
+  String get pairingErrorAlreadyPaired => 'Du bist bereits gekoppelt';
+
+  @override
+  String get pairingErrorPermissionDenied => 'Nicht erlaubt';
+
+  @override
+  String get pairingErrorUnknown => 'Kopplung fehlgeschlagen';
 }

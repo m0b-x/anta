@@ -1,3 +1,5 @@
+import 'package:equatable/equatable.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
 import '../constants/fasting_calendar.dart';
@@ -26,6 +28,21 @@ class SettingsService {
       DatabaseLifecycle.registerResetHandler(reset);
     }
     return _instance!;
+  }
+
+  /// Binds the singleton to an arbitrary [AppDatabase], bypassing
+  /// [AppDatabase.getInstance]'s `path_provider` lookup. Exists so tests can
+  /// exercise the real DAO against `NativeDatabase.memory()`; never use it in
+  /// app code — the singleton is what the [DatabaseLifecycle] reset contract
+  /// is built on.
+  @visibleForTesting
+  static SettingsService forTesting(AppDatabase db) {
+    if (_instance != null) return _instance!;
+    final service = SettingsService._();
+    service._db = db;
+    _instance = service;
+    DatabaseLifecycle.registerResetHandler(reset);
+    return service;
   }
 
   /// Drops the cached singleton so the next [getInstance] rebinds to the
@@ -872,4 +889,140 @@ class SettingsService {
   Future<void> setOnboardingCompleted(bool value) async {
     await _setBool(SettingsKeys.onboardingCompleted, value);
   }
+
+  /// The cached pairing state for this database. A cache, not the truth: the
+  /// server answers which active pair contains the signed-in uid, and
+  /// `PairingService` reconciles this against it on sign-in and resume.
+  Future<PairingSettings> getPairingSettings() async {
+    final expiresAt = await _db.userSettingsDao.getValue(
+      SettingsKeys.pairingPendingExpiresAt,
+    );
+    return PairingSettings(
+      pairId: _nonEmpty(
+        await _db.userSettingsDao.getValue(SettingsKeys.pairingPairId),
+      ),
+      accountUid: _nonEmpty(
+        await _db.userSettingsDao.getValue(SettingsKeys.pairingAccountUid),
+      ),
+      partnerUid: _nonEmpty(
+        await _db.userSettingsDao.getValue(SettingsKeys.pairingPartnerUid),
+      ),
+      partnerName: _nonEmpty(
+        await _db.userSettingsDao.getValue(SettingsKeys.pairingPartnerName),
+      ),
+      pendingCode: _nonEmpty(
+        await _db.userSettingsDao.getValue(SettingsKeys.pairingPendingCode),
+      ),
+      pendingExpiresAt: expiresAt == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(
+              int.tryParse(expiresAt) ?? 0,
+              isUtc: true,
+            ),
+      endedNoticePending: await _getBool(SettingsKeys.pairingEndedNotice, false),
+    );
+  }
+
+  /// Transactional on purpose: these seven rows are one value. A partial write
+  /// (a `pairId` without the account it belongs to) is exactly the state
+  /// [PairingSettings] exists to make unrepresentable.
+  Future<void> setPairingSettings(PairingSettings settings) {
+    return _db.transaction(() async {
+      await _write(SettingsKeys.pairingPairId, settings.pairId);
+      await _write(SettingsKeys.pairingAccountUid, settings.accountUid);
+      await _write(SettingsKeys.pairingPartnerUid, settings.partnerUid);
+      await _write(SettingsKeys.pairingPartnerName, settings.partnerName);
+      await _write(SettingsKeys.pairingPendingCode, settings.pendingCode);
+      await _write(
+        SettingsKeys.pairingPendingExpiresAt,
+        settings.pendingExpiresAt?.toUtc().millisecondsSinceEpoch.toString(),
+      );
+      await _setBool(
+        SettingsKeys.pairingEndedNotice,
+        settings.endedNoticePending,
+      );
+    });
+  }
+
+  /// Writes a value, or removes the row entirely when it is null — "absent"
+  /// and "empty string" must not be the same state for pairing.
+  Future<void> _write(String key, String? value) async {
+    if (value == null || value.isEmpty) {
+      await _db.userSettingsDao.deleteValue(key);
+    } else {
+      await _db.userSettingsDao.setValue(key, value);
+    }
+  }
+
+  String? _nonEmpty(String? value) =>
+      (value == null || value.isEmpty) ? null : value;
+}
+
+/// The pairing rows of `user_settings`, read and written as one value so a
+/// half-updated pairing (a `pairId` without the account it belongs to) is not
+/// representable.
+class PairingSettings extends Equatable {
+  final String? pairId;
+  final String? accountUid;
+  final String? partnerUid;
+  final String? partnerName;
+  final String? pendingCode;
+  final DateTime? pendingExpiresAt;
+  final bool endedNoticePending;
+
+  const PairingSettings({
+    this.pairId,
+    this.accountUid,
+    this.partnerUid,
+    this.partnerName,
+    this.pendingCode,
+    this.pendingExpiresAt,
+    this.endedNoticePending = false,
+  });
+
+  static const PairingSettings empty = PairingSettings();
+
+  bool get isPaired => pairId != null;
+
+  bool get hasPendingInvite => pendingCode != null;
+
+  /// Non-clearing by design: every field that needs to become null is cleared
+  /// by building a fresh instance instead, so no call site can drop a field by
+  /// forgetting to pass it.
+  PairingSettings copyWith({
+    String? pairId,
+    String? accountUid,
+    String? partnerUid,
+    String? partnerName,
+    String? pendingCode,
+    DateTime? pendingExpiresAt,
+    bool? endedNoticePending,
+  }) => PairingSettings(
+    pairId: pairId ?? this.pairId,
+    accountUid: accountUid ?? this.accountUid,
+    partnerUid: partnerUid ?? this.partnerUid,
+    partnerName: partnerName ?? this.partnerName,
+    pendingCode: pendingCode ?? this.pendingCode,
+    pendingExpiresAt: pendingExpiresAt ?? this.pendingExpiresAt,
+    endedNoticePending: endedNoticePending ?? this.endedNoticePending,
+  );
+
+  PairingSettings clearPendingInvite() => PairingSettings(
+    pairId: pairId,
+    accountUid: accountUid,
+    partnerUid: partnerUid,
+    partnerName: partnerName,
+    endedNoticePending: endedNoticePending,
+  );
+
+  @override
+  List<Object?> get props => [
+    pairId,
+    accountUid,
+    partnerUid,
+    partnerName,
+    pendingCode,
+    pendingExpiresAt,
+    endedNoticePending,
+  ];
 }

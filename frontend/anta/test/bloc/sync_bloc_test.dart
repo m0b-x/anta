@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:anta/bloc/sync/sync_bloc.dart';
 import 'package:anta/models/app_user.dart';
 import 'package:anta/services/auth_service.dart';
+import 'package:anta/utils/auth_error.dart';
 
 const _user = AppUser(uid: 'uid-1', displayName: 'Alex', email: 'a@b.c');
 const _partner = AppUser(uid: 'uid-2', email: 'p@b.c');
@@ -144,10 +145,19 @@ void main() {
 
     test('failure surfaces as SyncFailure', () async {
       final (bloc, fake, states) = await _pumpBloc();
-      fake.signInError = Exception('network down');
+      fake.signInError = const AuthException(AuthError.unknown);
       bloc.add(const SignInRequested());
       await pumpEventQueue();
-      expect(states.last, isA<SyncFailure>());
+      expect(states.last, const SyncFailure(AuthError.unknown));
+      await bloc.close();
+    });
+
+    test('a network failure surfaces as AuthError.offline', () async {
+      final (bloc, fake, states) = await _pumpBloc();
+      fake.signInError = const AuthException(AuthError.offline);
+      bloc.add(const SignInRequested());
+      await pumpEventQueue();
+      expect(states.last, const SyncFailure(AuthError.offline));
       await bloc.close();
     });
 
@@ -199,10 +209,10 @@ void main() {
 
     test('failure surfaces as SyncFailure', () async {
       final (bloc, fake, states) = await _pumpBloc(user: _user);
-      fake.signOutError = Exception('boom');
+      fake.signOutError = const AuthException(AuthError.unknown);
       bloc.add(const SignOutRequested());
       await pumpEventQueue();
-      expect(states.last, isA<SyncFailure>());
+      expect(states.last, const SyncFailure(AuthError.unknown));
       await bloc.close();
     });
   });

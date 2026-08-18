@@ -21,6 +21,7 @@ import '../../services/recent_destinations_service.dart';
 import '../../services/folder_name_index.dart';
 import '../../services/auth_service.dart';
 import '../../services/firebase_auth_service.dart';
+import '../../services/pairing_gateway.dart';
 import '../../services/sync_availability.dart';
 import '../../bloc/optimized_folder/optimized_folder_bloc.dart';
 import '../../bloc/optimized_note/optimized_note_bloc.dart';
@@ -28,6 +29,7 @@ import '../../bloc/import_export/import_export_bloc.dart';
 import '../../bloc/markdown_bar/markdown_bar_bloc.dart';
 import '../../bloc/counter/counter_bloc.dart';
 import '../../bloc/calendar/calendar_bloc.dart';
+import '../../bloc/pairing/pairing_bloc.dart';
 import '../../bloc/sync/sync_bloc.dart';
 
 final getIt = GetIt.instance;
@@ -131,6 +133,12 @@ Future<void> _registerServices() async {
     canSync ? FirebaseAuthService() : NoOpAuthService(),
     dispose: (s) => s.dispose(),
   );
+
+  // The gateway is stateless and global like the identity; the per-database
+  // pairing state lives in `PairingService`, which is on the reset contract.
+  getIt.registerSingleton<PairingGateway>(
+    canSync ? FirestorePairingGateway() : const NoOpPairingGateway(),
+  );
 }
 
 void _registerBlocs() {
@@ -163,6 +171,13 @@ void _registerBlocs() {
 
   getIt.registerFactory<SyncBloc>(
     () => SyncBloc(authService: getIt<AuthService>()),
+  );
+
+  getIt.registerFactory<PairingBloc>(
+    () => PairingBloc(
+      authService: getIt<AuthService>(),
+      gateway: getIt<PairingGateway>(),
+    ),
   );
 }
 

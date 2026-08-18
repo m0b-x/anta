@@ -4304,16 +4304,204 @@
   "@signInFailed": {
     "description": "Error title when the sign-in flow throws"
   },
+  "authErrorOffline": "No connection. Check your network and try again.",
+  "@authErrorOffline": {
+    "description": "Sign-in error: the device could not reach the server"
+  },
+  "authErrorUnavailable": "Sign-in is not available here",
+  "@authErrorUnavailable": {
+    "description": "Sign-in error: the bound auth service cannot sign in at all"
+  },
+  "authErrorNotSupported": "Google Sign-In is not available on this device",
+  "@authErrorNotSupported": {
+    "description": "Sign-in error: the platform does not support the interactive flow"
+  },
+  "authErrorUnknown": "Sign-in failed. Try again.",
+  "@authErrorUnknown": {
+    "description": "Sign-in error: no more specific reason is known"
+  },
   "retry": "Retry",
   "@retry": {
     "description": "Button re-running a failed action"
   },
-  "sharingKeywords": "cloud, sync, account, google, login, share, partner",
+  "sharingKeywords": "cloud, sync, account, google, login, share, partner, pairing, code, invite, unpair",
   "@sharingKeywords": {
     "description": "Comma-separated hidden search synonyms for the sharing settings"
   },
   "aboutDescription": "An offline-first personal tracker: folders, markdown notes, a money ledger, counters, and a calendar.",
   "@aboutDescription": {
     "description": "One-sentence app description in the About dialog"
+  },
+  "pairingSection": "Pairing",
+  "@pairingSection": {
+    "description": "Sharing page section that links two accounts"
+  },
+  "pairingNotPaired": "Not paired",
+  "@pairingNotPaired": {
+    "description": "Pairing row title when no partner is linked"
+  },
+  "pairingNotPairedDesc": "Share with someone",
+  "@pairingNotPairedDesc": {
+    "description": "Pairing row subtitle when no partner is linked"
+  },
+  "pairingSignInFirst": "Sign in to share",
+  "@pairingSignInFirst": {
+    "description": "Pairing row title when the user is signed out"
+  },
+  "pairingWaiting": "Waiting for your partner",
+  "@pairingWaiting": {
+    "description": "Pairing row title while a generated code is unused"
+  },
+  "pairingPairedWith": "Paired with {name}",
+  "@pairingPairedWith": {
+    "description": "Pairing row title naming the linked partner",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pairingPairedDesc": "Linked. Nothing is shared yet.",
+  "@pairingPairedDesc": {
+    "description": "Pairing row subtitle when paired: the link exists but no content syncs yet"
+  },
+  "pairingPartnerUnknown": "Paired",
+  "@pairingPartnerUnknown": {
+    "description": "Pairing row title before the partner has published a name"
+  },
+  "pairingTitle": "Pair with someone",
+  "@pairingTitle": {
+    "description": "Title of the pairing sheet"
+  },
+  "pairingGenerateCode": "Create a code",
+  "@pairingGenerateCode": {
+    "description": "Button minting an invite code"
+  },
+  "pairingCodeIntro": "Read this code to the other person. It works once.",
+  "@pairingCodeIntro": {
+    "description": "Explains what to do with a freshly generated code"
+  },
+  "pairingCodeExpiresIn": "Expires in {time}",
+  "@pairingCodeExpiresIn": {
+    "description": "Countdown under a generated pairing code",
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "9:41"
+      }
+    }
+  },
+  "pairingCodeExpired": "This code expired",
+  "@pairingCodeExpired": {
+    "description": "Shown when a generated code ran out before it was used"
+  },
+  "copy": "Copy",
+  "@copy": {
+    "description": "Generic button copying a value to the clipboard"
+  },
+  "share": "Share",
+  "@share": {
+    "description": "Generic button opening the system share sheet"
+  },
+  "pairingCodeCopied": "Code copied",
+  "@pairingCodeCopied": {
+    "description": "Confirmation after copying the pairing code"
+  },
+  "pairingShareMessage": "Pair with me in ANTA using this code: {code}",
+  "@pairingShareMessage": {
+    "description": "Text shared from the pairing sheet",
+    "placeholders": {
+      "code": {
+        "type": "String",
+        "example": "K7M2-P4XQ"
+      }
+    }
+  },
+  "pairingEnterCode": "Enter their code",
+  "@pairingEnterCode": {
+    "description": "Label of the code entry field"
+  },
+  "pairingCodeHint": "XXXX-XXXX",
+  "@pairingCodeHint": {
+    "description": "Placeholder showing the shape of a pairing code"
+  },
+  "pairingConnect": "Connect",
+  "@pairingConnect": {
+    "description": "Button redeeming an entered code"
+  },
+  "pairingOr": "or",
+  "@pairingOr": {
+    "description": "Separator between generating a code and entering one"
+  },
+  "unpair": "Unpair",
+  "@unpair": {
+    "description": "Button ending the link with a partner"
+  },
+  "pairingUnpairConfirm": "Stop sharing with {name}? Your notes and events stay on this device. Nothing new will be shared.",
+  "@pairingUnpairConfirm": {
+    "description": "Body of the unpair confirmation dialog",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pairingEndedTitle": "Sharing ended",
+  "@pairingEndedTitle": {
+    "description": "Title of the dialog shown when the partner unpaired"
+  },
+  "pairingEndedBy": "{name} ended sharing. Your notes and events stay on this device.",
+  "@pairingEndedBy": {
+    "description": "Body of the dialog shown when a named partner unpaired",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pairingEndedByPartner": "Your partner ended sharing. Your notes and events stay on this device.",
+  "@pairingEndedByPartner": {
+    "description": "Body shown when the partner unpaired and never published a name"
+  },
+  "pairingSignOutConfirm": "Sign out? Sharing with {name} stops until you sign in again.",
+  "@pairingSignOutConfirm": {
+    "description": "Body of the sign-out confirmation shown while paired",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pairingErrorOffline": "No connection. Pairing needs to be online.",
+  "@pairingErrorOffline": {
+    "description": "Pairing error: the device could not reach the server"
+  },
+  "pairingErrorNotSignedIn": "Sign in first",
+  "@pairingErrorNotSignedIn": {
+    "description": "Pairing error: no account is signed in"
+  },
+  "pairingErrorUnavailable": "Pairing is not available here",
+  "@pairingErrorUnavailable": {
+    "description": "Pairing error: unsupported platform or failed Firebase init"
+  },
+  "pairingErrorCodeInvalid": "That code is not valid any more. Ask for a new one.",
+  "@pairingErrorCodeInvalid": {
+    "description": "Pairing error: the code was mistyped, expired, or already used"
+  },
+  "pairingErrorOwnCode": "That is your own code",
+  "@pairingErrorOwnCode": {
+    "description": "Pairing error: the user entered the code their device generated"
+  },
+  "pairingErrorAlreadyPaired": "You are already paired",
+  "@pairingErrorAlreadyPaired": {
+    "description": "Pairing error: a pair already exists on this database"
+  },
+  "pairingErrorPermissionDenied": "Not allowed",
+  "@pairingErrorPermissionDenied": {
+    "description": "Pairing error: the server rejected the request"
+  },
+  "pairingErrorUnknown": "Pairing failed",
+  "@pairingErrorUnknown": {
+    "description": "Pairing error: fallback for an unrecognised failure"
   }
 }

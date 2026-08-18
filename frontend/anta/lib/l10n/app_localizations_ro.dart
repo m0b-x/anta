@@ -3384,13 +3384,148 @@ class AppLocalizationsRo extends AppLocalizations {
   String get signInFailed => 'Conectare eșuată';
 
   @override
+  String get authErrorOffline =>
+      'Fără conexiune. Verifică rețeaua și încearcă din nou.';
+
+  @override
+  String get authErrorUnavailable => 'Conectarea nu este disponibilă aici';
+
+  @override
+  String get authErrorNotSupported =>
+      'Conectarea cu Google nu este disponibilă pe acest dispozitiv';
+
+  @override
+  String get authErrorUnknown => 'Conectare eșuată. Încearcă din nou.';
+
+  @override
   String get retry => 'Reîncearcă';
 
   @override
   String get sharingKeywords =>
-      'cloud, sincronizare, cont, google, autentificare, partajare, partener';
+      'cloud, sincronizare, cont, google, autentificare, partajare, partener, împerechere, cod, invitație, deconectare';
 
   @override
   String get aboutDescription =>
       'Un tracker personal offline-first: foldere, notițe markdown, un registru de bani, contoare și calendar.';
+
+  @override
+  String get pairingSection => 'Împerechere';
+
+  @override
+  String get pairingNotPaired => 'Neîmperecheat';
+
+  @override
+  String get pairingNotPairedDesc => 'Partajează cu cineva';
+
+  @override
+  String get pairingSignInFirst => 'Conectează-te pentru a partaja';
+
+  @override
+  String get pairingWaiting => 'Se așteaptă partenerul tău';
+
+  @override
+  String pairingPairedWith(String name) {
+    return 'Împerecheat cu $name';
+  }
+
+  @override
+  String get pairingPairedDesc => 'Conectat. Încă nu se partajează nimic.';
+
+  @override
+  String get pairingPartnerUnknown => 'Împerecheat';
+
+  @override
+  String get pairingTitle => 'Împerechează-te cu cineva';
+
+  @override
+  String get pairingGenerateCode => 'Creează un cod';
+
+  @override
+  String get pairingCodeIntro =>
+      'Citește-i celuilalt acest cod. Funcționează o singură dată.';
+
+  @override
+  String pairingCodeExpiresIn(String time) {
+    return 'Expiră în $time';
+  }
+
+  @override
+  String get pairingCodeExpired => 'Acest cod a expirat';
+
+  @override
+  String get copy => 'Copiază';
+
+  @override
+  String get share => 'Partajează';
+
+  @override
+  String get pairingCodeCopied => 'Cod copiat';
+
+  @override
+  String pairingShareMessage(String code) {
+    return 'Împerechează-te cu mine în ANTA folosind acest cod: $code';
+  }
+
+  @override
+  String get pairingEnterCode => 'Introdu codul lor';
+
+  @override
+  String get pairingCodeHint => 'XXXX-XXXX';
+
+  @override
+  String get pairingConnect => 'Conectează';
+
+  @override
+  String get pairingOr => 'sau';
+
+  @override
+  String get unpair => 'Desparte';
+
+  @override
+  String pairingUnpairConfirm(String name) {
+    return 'Oprești partajarea cu $name? Notițele și evenimentele tale rămân pe acest dispozitiv. Nimic nou nu va mai fi partajat.';
+  }
+
+  @override
+  String get pairingEndedTitle => 'Partajarea s-a încheiat';
+
+  @override
+  String pairingEndedBy(String name) {
+    return '$name a încheiat partajarea. Notițele și evenimentele tale rămân pe acest dispozitiv.';
+  }
+
+  @override
+  String get pairingEndedByPartner =>
+      'Partenerul tău a încheiat partajarea. Notițele și evenimentele tale rămân pe acest dispozitiv.';
+
+  @override
+  String pairingSignOutConfirm(String name) {
+    return 'Te deconectezi? Partajarea cu $name se oprește până te conectezi din nou.';
+  }
+
+  @override
+  String get pairingErrorOffline =>
+      'Fără conexiune. Împerecherea necesită internet.';
+
+  @override
+  String get pairingErrorNotSignedIn => 'Conectează-te mai întâi';
+
+  @override
+  String get pairingErrorUnavailable => 'Împerecherea nu este disponibilă aici';
+
+  @override
+  String get pairingErrorCodeInvalid =>
+      'Codul nu mai este valabil. Cere unul nou.';
+
+  @override
+  String get pairingErrorOwnCode => 'Acesta este propriul tău cod';
+
+  @override
+  String get pairingErrorAlreadyPaired => 'Ești deja împerecheat';
+
+  @override
+  String get pairingErrorPermissionDenied => 'Nu este permis';
+
+  @override
+  String get pairingErrorUnknown => 'Împerecherea a eșuat';
 }
