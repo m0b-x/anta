@@ -2,6 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:anta/database/daos/folder_dao.dart';
 import 'package:anta/database/daos/note_dao.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/database/migrations/database_migrations.dart';
+import 'package:anta/database/migrations/database_schema.dart';
 
 import 'support/db_test_support.dart';
 
@@ -41,7 +43,10 @@ void main() {
     await operation();
     final statements = containing == null
         ? counter.captured
-        : [for (final c in counter.captured) if (c.sql.contains(containing)) c];
+        : [
+            for (final c in counter.captured)
+              if (c.sql.contains(containing)) c,
+          ];
     expect(
       statements,
       hasLength(1),
@@ -51,7 +56,24 @@ void main() {
   }
 
   Matcher usesIndex(String name) => contains(contains('USING INDEX $name'));
+
+  /// A *covering* index is a different plan line — SQLite writes
+  /// `USING COVERING INDEX`, which [usesIndex] deliberately does not match.
+  /// The distinction is the whole point where it is asserted: a non-covering
+  /// index still costs one rowid lookup per row returned.
+  Matcher usesCoveringIndex(String name) =>
+      contains(contains('USING COVERING INDEX $name'));
+
   final sortsInMemory = contains(contains('USE TEMP B-TREE FOR ORDER BY'));
+
+  /// The single statement [operation] issued, for assertions about the SQL
+  /// text itself rather than the plan SQLite picked for it.
+  Future<String> sqlOf(Future<void> Function() operation) async {
+    counter.reset();
+    await operation();
+    expect(counter.captured, hasLength(1));
+    return counter.captured.single.sql;
+  }
 
   group('folder browse', () {
     test('notes in a folder ordered by position walk the index', () async {
@@ -125,7 +147,9 @@ void main() {
 
   group('note content', () {
     test('chunks for a note are indexed by (note_id, chunk_index)', () async {
-      final plan = await planOf(() => db.contentChunkDao.getChunksForNote('n1'));
+      final plan = await planOf(
+        () => db.contentChunkDao.getChunksForNote('n1'),
+      );
       expect(plan, usesIndex('idx_chunks_note_index'));
       // Ordering comes from the index, so opening a long note never sorts.
       expect(plan, isNot(sortsInMemory));
@@ -213,14 +237,99 @@ void main() {
     });
 
     test('the absence cascade for an event is a prefix search', () async {
-      final plan = await planOf(
-        () => db.eventAbsenceDao.deleteForEvent('e1'),
-      );
+      final plan = await planOf(() => db.eventAbsenceDao.deleteForEvent('e1'));
       // `event_id` is leftmost in the PK, which is what lets the per-event
       // cascade ride the same automatic index as the point lookup.
       expect(plan, contains(contains('SEARCH calendar_event_absences')));
       expect(plan, isNot(contains(contains('SCAN'))));
     });
+  });
+
+  // Both delta tables keep tombstones forever — that is the correct CRDT
+  // policy, and it means a multi-year user's live rows sit among thousands of
+  // dead ones. Each service re-reads every live row at startup and after every
+  // event delete, so these two loads are the only place the tombstone pile has
+  // a running cost. v31's answer is a partial index on exactly the columns the
+  // load consumes, which is why `getActiveKeys` exists next to `getActive`.
+  group('calendar delta loads', () {
+    test('the skip load is answered entirely from its index', () async {
+      final plan = await planOf(() => db.eventSkipDao.getActiveKeys());
+      // COVERING is not a nicety here — it is the entire justification for
+      // narrowing the projection. A plain index would still pay one rowid
+      // lookup per live row, which is what made the same idea a *loss* on
+      // `calendar_event_occurrences`, whose load also reads `description`.
+      //
+      // Note there is no `isNot(SCAN)` companion here, unlike the write-path
+      // tests above: an index-only read of every live row is still reported as
+      // a SCAN — of the index. Covering is the property that matters.
+      expect(plan, usesCoveringIndex('idx_calendar_event_skips_active'));
+    });
+
+    test('the absence load is answered entirely from its index', () async {
+      final plan = await planOf(() => db.eventAbsenceDao.getActiveKeys());
+      expect(plan, usesCoveringIndex('idx_calendar_event_absences_active'));
+    });
+
+    // The plan assertions above describe *this host's* SQLite. These two do
+    // not, and they are what actually guards the shipped Android build.
+    //
+    // Drift's `.equals(false)` emits `is_deleted = ?` with a bound `0`.
+    // Whether SQLite can prove that implies a partial index's
+    // `WHERE is_deleted = 0` is version-dependent: 3.53 uses the index, 3.50
+    // drops to a scan. `sqlite3_flutter_libs` decides which version ships, and
+    // it is not the one `flutter test` runs against — so the plan tests would
+    // stay green while every phone fell back to a scan. Asserting the literal
+    // is in the SQL is host-independent: no version has to *infer* anything.
+    test('the skip load spells the predicate as a literal', () async {
+      final sql = await sqlOf(() => db.eventSkipDao.getActiveKeys());
+      expect(sql, contains('is_deleted = 0'));
+      expect(sql, isNot(contains('?')));
+    });
+
+    test('the absence load spells the predicate as a literal', () async {
+      final sql = await sqlOf(() => db.eventAbsenceDao.getActiveKeys());
+      expect(sql, contains('is_deleted = 0'));
+      expect(sql, isNot(contains('?')));
+    });
+
+    // v31 adds no table and no column — an index-only migration, the v10
+    // shape. That makes a v30 database structurally identical to a v31 one
+    // minus these two indexes, so dropping them from a fresh database
+    // reproduces v30 exactly and the step can be run for real against it.
+    test(
+      'v30 → v31 creates both delta indexes on an existing install',
+      () async {
+        // The fresh-install half: `createAllIndexes` must already produce them,
+        // or upgraders end up faster than new users — the `idx_folders_position`
+        // failure that v25 existed to repair.
+        expect(
+          await indexNames(db),
+          allOf(
+            contains('idx_calendar_event_skips_active'),
+            contains('idx_calendar_event_absences_active'),
+          ),
+        );
+
+        await db.customStatement('DROP INDEX idx_calendar_event_skips_active');
+        await db.customStatement(
+          'DROP INDEX idx_calendar_event_absences_active',
+        );
+
+        await DatabaseMigrations(db).runMigrations(
+          db.createMigrator(),
+          DatabaseSchema.v30EventSkips,
+          DatabaseSchema.v31CalendarDeltaIndexes,
+        );
+
+        expect(
+          await indexNames(db),
+          allOf(
+            contains('idx_calendar_event_skips_active'),
+            contains('idx_calendar_event_absences_active'),
+          ),
+        );
+      },
+    );
   });
 }
 

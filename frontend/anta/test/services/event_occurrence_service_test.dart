@@ -42,9 +42,8 @@ void main() {
       db.select(db.eventOccurrenceDescriptions).get();
 
   Future<EventOccurrenceRow> rowFor(String eventId, DateTime value) {
-    return (db.select(db.eventOccurrenceDescriptions)..where(
-          (o) => o.eventId.equals(eventId) & o.day.equals(value),
-        ))
+    return (db.select(db.eventOccurrenceDescriptions)
+          ..where((o) => o.eventId.equals(eventId) & o.day.equals(value)))
         .getSingle();
   }
 
@@ -67,7 +66,10 @@ void main() {
   group('facade', () {
     test('a written day publishes, a reset day does not', () async {
       await service.setDescription('e1', day, 'squats felt heavy');
-      expect(OccurrenceDescriptions.overrideFor('e1', day), 'squats felt heavy');
+      expect(
+        OccurrenceDescriptions.overrideFor('e1', day),
+        'squats felt heavy',
+      );
 
       await service.clearDescription('e1', day);
       // The row is still there — the cache is built from live rows only, which
@@ -105,7 +107,10 @@ void main() {
       // A fresh instance over the same database republishes what is stored.
       final rebound = await EventOccurrenceService.forTesting(db);
       expect(identical(rebound, service), isFalse);
-      expect(OccurrenceDescriptions.overrideFor('e1', day), 'squats felt heavy');
+      expect(
+        OccurrenceDescriptions.overrideFor('e1', day),
+        'squats felt heavy',
+      );
     });
 
     test('appliesTo follows the event flag, one-time excluded', () {
@@ -136,36 +141,42 @@ void main() {
       );
     });
 
-    test('descriptionFor falls back to the template once a day is reset', () async {
-      await service.setDescription('e1', day, 'squats felt heavy');
-      expect(
-        OccurrenceDescriptions.descriptionFor(event(), day),
-        'squats felt heavy',
-      );
+    test(
+      'descriptionFor falls back to the template once a day is reset',
+      () async {
+        await service.setDescription('e1', day, 'squats felt heavy');
+        expect(
+          OccurrenceDescriptions.descriptionFor(event(), day),
+          'squats felt heavy',
+        );
 
-      await service.clearDescription('e1', day);
-      // The badge-driving read: a reset day is back to the shared text, which
-      // is the whole observable meaning of "reset this day".
-      expect(
-        OccurrenceDescriptions.descriptionFor(event(), day),
-        'shared template',
-      );
-    });
+        await service.clearDescription('e1', day);
+        // The badge-driving read: a reset day is back to the shared text, which
+        // is the whole observable meaning of "reset this day".
+        expect(
+          OccurrenceDescriptions.descriptionFor(event(), day),
+          'shared template',
+        );
+      },
+    );
 
-    test('an event with the flag off reads the template on every day', () async {
-      await service.setDescription('e1', day, 'squats felt heavy');
+    test(
+      'an event with the flag off reads the template on every day',
+      () async {
+        await service.setDescription('e1', day, 'squats felt heavy');
 
-      // v24's reversibility rule, kept verbatim: the rows are the user's data
-      // and stay dormant rather than being cleaned up.
-      expect(
-        OccurrenceDescriptions.descriptionFor(
-          event(perOccurrenceDescriptions: false),
-          day,
-        ),
-        'shared template',
-      );
-      expect(await allRows(), hasLength(1));
-    });
+        // v24's reversibility rule, kept verbatim: the rows are the user's data
+        // and stay dormant rather than being cleaned up.
+        expect(
+          OccurrenceDescriptions.descriptionFor(
+            event(perOccurrenceDescriptions: false),
+            day,
+          ),
+          'shared template',
+        );
+        expect(await allRows(), hasLength(1));
+      },
+    );
   });
 
   group('backup', () {

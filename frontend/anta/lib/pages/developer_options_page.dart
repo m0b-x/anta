@@ -78,9 +78,8 @@ class _DeveloperOptionsPageState extends State<DeveloperOptionsPage> {
                       child: SettingsSearchField(
                         controller: _searchController,
                         hint: l10n.searchSettings,
-                        onChanged: (value) => setState(
-                          () => _query = SettingsQuery.parse(value),
-                        ),
+                        onChanged: (value) =>
+                            setState(() => _query = SettingsQuery.parse(value)),
                       ),
                     ),
                     Expanded(

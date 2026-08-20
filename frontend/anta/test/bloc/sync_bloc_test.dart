@@ -80,11 +80,14 @@ Future<(SyncBloc, _FakeAuthService, List<SyncState>)> _pumpBloc({
 
 void main() {
   group('availability', () {
-    test('no-op binding reads as unavailable, not as a sign-in button', () async {
-      final (bloc, _, states) = await _pumpBloc(available: false);
-      expect(states, [const SyncUnavailable()]);
-      await bloc.close();
-    });
+    test(
+      'no-op binding reads as unavailable, not as a sign-in button',
+      () async {
+        final (bloc, _, states) = await _pumpBloc(available: false);
+        expect(states, [const SyncUnavailable()]);
+        await bloc.close();
+      },
+    );
 
     test('sign-in on an unavailable binding stays unavailable', () async {
       final (bloc, _, states) = await _pumpBloc(available: false);
@@ -161,24 +164,27 @@ void main() {
       await bloc.close();
     });
 
-    test('a null stream emission mid-flow does not clear the spinner', () async {
-      final (bloc, fake, states) = await _pumpBloc();
-      final gate = Completer<AppUser?>();
-      fake.signInGate = gate;
-      bloc.add(const SignInRequested());
-      await pumpEventQueue();
-      fake.emitAuth(null);
-      await pumpEventQueue();
-      expect(states.last, const SyncSigningIn());
-      gate.complete(_user);
-      await pumpEventQueue();
-      expect(states, [
-        const SyncSignedOut(),
-        const SyncSigningIn(),
-        const SyncSignedIn(_user),
-      ]);
-      await bloc.close();
-    });
+    test(
+      'a null stream emission mid-flow does not clear the spinner',
+      () async {
+        final (bloc, fake, states) = await _pumpBloc();
+        final gate = Completer<AppUser?>();
+        fake.signInGate = gate;
+        bloc.add(const SignInRequested());
+        await pumpEventQueue();
+        fake.emitAuth(null);
+        await pumpEventQueue();
+        expect(states.last, const SyncSigningIn());
+        gate.complete(_user);
+        await pumpEventQueue();
+        expect(states, [
+          const SyncSignedOut(),
+          const SyncSigningIn(),
+          const SyncSignedIn(_user),
+        ]);
+        await bloc.close();
+      },
+    );
   });
 
   group('auth stream', () {

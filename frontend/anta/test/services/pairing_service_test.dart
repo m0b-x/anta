@@ -221,95 +221,107 @@ void main() {
   });
 
   group('generateInvite', () {
-    test('a code collision is retried rather than surfaced to the caller', () async {
-      final gateway = FakePairingGateway()..rejectNextInvites = 4;
-      addTearDown(gateway.dispose);
-      final device = await _boot(
-        gateway: gateway,
-        auth: FakeAuthService(user: userA),
-      );
+    test(
+      'a code collision is retried rather than surfaced to the caller',
+      () async {
+        final gateway = FakePairingGateway()..rejectNextInvites = 4;
+        addTearDown(gateway.dispose);
+        final device = await _boot(
+          gateway: gateway,
+          auth: FakeAuthService(user: userA),
+        );
 
-      final status = await device.service.generateInvite();
+        final status = await device.service.generateInvite();
 
-      expect(status.pendingCode, isNotNull);
-      expect(status.pendingCode!.length, PairingService.codeLength);
-    });
+        expect(status.pendingCode, isNotNull);
+        expect(status.pendingCode!.length, PairingService.codeLength);
+      },
+    );
   });
 
   group('gateway invariants', () {
-    test('createPair refuses a pair with no matching live invite from the partner', () async {
-      final gateway = FakePairingGateway();
-      addTearDown(gateway.dispose);
+    test(
+      'createPair refuses a pair with no matching live invite from the partner',
+      () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
 
-      // Mirrors the security rule that stops anyone who knows your uid from
-      // forcing a pair on you: without a live, unclaimed invite the creator
-      // handed out, the write must be denied.
-      await expectLater(
-        gateway.createPair(
-          self: PairProfile.fromUser(userA),
-          partner: PairProfile.fromUser(userB),
-          inviteCode: 'no-such-code',
-        ),
-        throwsA(
-          isA<PairingException>().having(
-            (e) => e.error,
-            'error',
-            PairingError.permissionDenied,
+        // Mirrors the security rule that stops anyone who knows your uid from
+        // forcing a pair on you: without a live, unclaimed invite the creator
+        // handed out, the write must be denied.
+        await expectLater(
+          gateway.createPair(
+            self: PairProfile.fromUser(userA),
+            partner: PairProfile.fromUser(userB),
+            inviteCode: 'no-such-code',
           ),
-        ),
-      );
-    });
+          throwsA(
+            isA<PairingException>().having(
+              (e) => e.error,
+              'error',
+              PairingError.permissionDenied,
+            ),
+          ),
+        );
+      },
+    );
   });
 
   group('reconciliation', () {
-    test('a second database on the same account adopts the existing pair', () async {
-      final gateway = FakePairingGateway();
-      addTearDown(gateway.dispose);
-      final creator = await _boot(
-        gateway: gateway,
-        auth: FakeAuthService(user: userA),
-      );
-      final code = (await creator.service.generateInvite()).pendingCode!;
-      final redeemer = await _boot(
-        gateway: gateway,
-        auth: FakeAuthService(user: userB),
-      );
-      await redeemer.service.redeem(code);
-      final pairsBefore = gateway.createPairCalls;
+    test(
+      'a second database on the same account adopts the existing pair',
+      () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final creator = await _boot(
+          gateway: gateway,
+          auth: FakeAuthService(user: userA),
+        );
+        final code = (await creator.service.generateInvite()).pendingCode!;
+        final redeemer = await _boot(
+          gateway: gateway,
+          auth: FakeAuthService(user: userB),
+        );
+        await redeemer.service.redeem(code);
+        final pairsBefore = gateway.createPairCalls;
 
-      // A different local database for the same signed-in account: pairing
-      // settings do not travel, so this starts with nothing cached.
-      final second = await _boot(
-        gateway: gateway,
-        auth: FakeAuthService(user: userB),
-      );
-      final status = await second.service.load();
+        // A different local database for the same signed-in account: pairing
+        // settings do not travel, so this starts with nothing cached.
+        final second = await _boot(
+          gateway: gateway,
+          auth: FakeAuthService(user: userB),
+        );
+        final status = await second.service.load();
 
-      expect(status.isPaired, isTrue);
-      expect(status.partner?.uid, userA.uid);
-      expect(
-        gateway.createPairCalls,
-        pairsBefore,
-        reason: 'adopting must not fork a second pair',
-      );
-    });
+        expect(status.isPaired, isTrue);
+        expect(status.partner?.uid, userA.uid);
+        expect(
+          gateway.createPairCalls,
+          pairsBefore,
+          reason: 'adopting must not fork a second pair',
+        );
+      },
+    );
 
-    test('two active pairs converge on the earliest, tombstoning the rest', () async {
-      final gateway = FakePairingGateway();
-      addTearDown(gateway.dispose);
-      final first = gateway.seedPair(['uid-a', 'uid-b']);
-      final second = gateway.seedPair(['uid-b', 'uid-a']);
-      expect(first.createdAt.isBefore(second.createdAt), isTrue);
+    test(
+      'two active pairs converge on the earliest, tombstoning the rest',
+      () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final first = gateway.seedPair(['uid-a', 'uid-b']);
+        final second = gateway.seedPair(['uid-b', 'uid-a']);
+        expect(first.createdAt.isBefore(second.createdAt), isTrue);
 
-      final device = await _boot(
-        gateway: gateway,
-        auth: FakeAuthService(user: userA),
-      );
-      final status = await device.service.load();
+        final device = await _boot(
+          gateway: gateway,
+          auth: FakeAuthService(user: userA),
+        );
+        final status = await device.service.load();
 
-      expect(status.pairId, first.pairId);
-      expect(gateway.pairs[second.pairId]!.isActive, isFalse);
-    });
+        expect(status.pairId, first.pairId);
+        expect(gateway.pairs[second.pairId]!.isActive, isFalse);
+      },
+    );
 
     test('a pair tombstoned while offline raises the ended notice', () async {
       final gateway = FakePairingGateway();
@@ -352,70 +364,76 @@ void main() {
       expect(status.endedNoticePending, isFalse);
     });
 
-    test('signing in as a different account clears the stored pairing', () async {
-      final gateway = FakePairingGateway();
-      addTearDown(gateway.dispose);
-      final creator = await _boot(
-        gateway: gateway,
-        auth: FakeAuthService(user: userA),
-      );
-      final code = (await creator.service.generateInvite()).pendingCode!;
+    test(
+      'signing in as a different account clears the stored pairing',
+      () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final creator = await _boot(
+          gateway: gateway,
+          auth: FakeAuthService(user: userA),
+        );
+        final code = (await creator.service.generateInvite()).pendingCode!;
 
-      final auth = FakeAuthService(user: userB);
-      final device = await _boot(gateway: gateway, auth: auth);
-      await device.service.redeem(code);
-      expect(device.service.status.isPaired, isTrue);
+        final auth = FakeAuthService(user: userB);
+        final device = await _boot(gateway: gateway, auth: auth);
+        await device.service.redeem(code);
+        expect(device.service.status.isPaired, isTrue);
 
-      // Same database, different Google account: the stored pairId now
-      // belongs to nobody signed in here.
-      final readCallsBeforeSwitch = gateway.readPairCalls;
-      auth.emitAuth(const AppUser(uid: 'uid-c'));
-      final status = await device.service.load();
+        // Same database, different Google account: the stored pairId now
+        // belongs to nobody signed in here.
+        final readCallsBeforeSwitch = gateway.readPairCalls;
+        auth.emitAuth(const AppUser(uid: 'uid-c'));
+        final status = await device.service.load();
 
-      expect(status.isPaired, isFalse);
-      expect(status.endedNoticePending, isFalse);
-      expect(
-        gateway.readPairCalls,
-        readCallsBeforeSwitch,
-        reason:
-            'a different account must be rejected by the mismatch check '
-            'itself, not by falling through to the vanished-pair path that '
-            'reads the old pair',
-      );
-    });
+        expect(status.isPaired, isFalse);
+        expect(status.endedNoticePending, isFalse);
+        expect(
+          gateway.readPairCalls,
+          readCallsBeforeSwitch,
+          reason:
+              'a different account must be rejected by the mismatch check '
+              'itself, not by falling through to the vanished-pair path that '
+              'reads the old pair',
+        );
+      },
+    );
 
-    test('a pending invite survives a restart and still adopts its pair', () async {
-      final gateway = FakePairingGateway();
-      addTearDown(gateway.dispose);
-      final db = await openTestDatabase();
-      final creator = await _boot(
-        gateway: gateway,
-        auth: FakeAuthService(user: userA),
-        database: db,
-      );
-      final code = (await creator.service.generateInvite()).pendingCode!;
+    test(
+      'a pending invite survives a restart and still adopts its pair',
+      () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final db = await openTestDatabase();
+        final creator = await _boot(
+          gateway: gateway,
+          auth: FakeAuthService(user: userA),
+          database: db,
+        );
+        final code = (await creator.service.generateInvite()).pendingCode!;
 
-      final redeemer = await _boot(
-        gateway: gateway,
-        auth: FakeAuthService(user: userB),
-      );
-      await redeemer.service.redeem(code);
+        final redeemer = await _boot(
+          gateway: gateway,
+          auth: FakeAuthService(user: userB),
+        );
+        await redeemer.service.redeem(code);
 
-      // The creator's app restarts: same database, brand new service.
-      final restarted = await _boot(
-        gateway: gateway,
-        auth: FakeAuthService(user: userA),
-        database: db,
-      );
-      final status = await restarted.service.load();
+        // The creator's app restarts: same database, brand new service.
+        final restarted = await _boot(
+          gateway: gateway,
+          auth: FakeAuthService(user: userA),
+          database: db,
+        );
+        final status = await restarted.service.load();
 
-      expect(
-        status.isPaired,
-        isTrue,
-        reason: 'the persisted code is what stops the creator being stranded',
-      );
-      expect(status.partner?.uid, userB.uid);
-    });
+        expect(
+          status.isPaired,
+          isTrue,
+          reason: 'the persisted code is what stops the creator being stranded',
+        );
+        expect(status.partner?.uid, userB.uid);
+      },
+    );
 
     test(
       'both sides generating and redeeming converge on the earliest pair without a false ended notice',
@@ -526,49 +544,56 @@ void main() {
   });
 
   group('offline', () {
-    test('a failed reconcile keeps the cached pairing instead of clearing it', () async {
-      final gateway = FakePairingGateway();
-      addTearDown(gateway.dispose);
-      final creator = await _boot(
-        gateway: gateway,
-        auth: FakeAuthService(user: userA),
-      );
-      final code = (await creator.service.generateInvite()).pendingCode!;
-      final auth = FakeAuthService(user: userB);
-      final db = await openTestDatabase();
-      final redeemer = await _boot(
-        gateway: gateway,
-        auth: auth,
-        database: db,
-      );
-      await redeemer.service.redeem(code);
+    test(
+      'a failed reconcile keeps the cached pairing instead of clearing it',
+      () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final creator = await _boot(
+          gateway: gateway,
+          auth: FakeAuthService(user: userA),
+        );
+        final code = (await creator.service.generateInvite()).pendingCode!;
+        final auth = FakeAuthService(user: userB);
+        final db = await openTestDatabase();
+        final redeemer = await _boot(
+          gateway: gateway,
+          auth: auth,
+          database: db,
+        );
+        await redeemer.service.redeem(code);
 
-      gateway.failAlways = PairingError.offline;
-      final restarted = await _boot(gateway: gateway, auth: auth, database: db);
+        gateway.failAlways = PairingError.offline;
+        final restarted = await _boot(
+          gateway: gateway,
+          auth: auth,
+          database: db,
+        );
 
-      await expectLater(
-        restarted.service.load(),
-        throwsA(
-          isA<PairingException>().having(
-            (e) => e.error,
-            'error',
-            PairingError.offline,
+        await expectLater(
+          restarted.service.load(),
+          throwsA(
+            isA<PairingException>().having(
+              (e) => e.error,
+              'error',
+              PairingError.offline,
+            ),
           ),
-        ),
-      );
-      expect(
-        restarted.service.status.isPaired,
-        isTrue,
-        reason: 'opening Sharing on a train must not read as "not paired"',
-      );
-      expect(
-        gateway.hasPairListener(restarted.service.status.pairId!),
-        isTrue,
-        reason:
-            'load() must attach listeners even when reconcile throws, or the '
-            'device goes permanently deaf after one offline page open',
-      );
-    });
+        );
+        expect(
+          restarted.service.status.isPaired,
+          isTrue,
+          reason: 'opening Sharing on a train must not read as "not paired"',
+        );
+        expect(
+          gateway.hasPairListener(restarted.service.status.pairId!),
+          isTrue,
+          reason:
+              'load() must attach listeners even when reconcile throws, or the '
+              'device goes permanently deaf after one offline page open',
+        );
+      },
+    );
 
     test('generating a code offline surfaces the offline error', () async {
       final gateway = FakePairingGateway()..failAlways = PairingError.offline;
@@ -590,26 +615,26 @@ void main() {
       );
     });
 
-    test('pairing while signed out fails before touching the network', () async {
-      final gateway = FakePairingGateway();
-      addTearDown(gateway.dispose);
-      final device = await _boot(
-        gateway: gateway,
-        auth: FakeAuthService(),
-      );
+    test(
+      'pairing while signed out fails before touching the network',
+      () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final device = await _boot(gateway: gateway, auth: FakeAuthService());
 
-      await expectLater(
-        device.service.generateInvite(),
-        throwsA(
-          isA<PairingException>().having(
-            (e) => e.error,
-            'error',
-            PairingError.notSignedIn,
+        await expectLater(
+          device.service.generateInvite(),
+          throwsA(
+            isA<PairingException>().having(
+              (e) => e.error,
+              'error',
+              PairingError.notSignedIn,
+            ),
           ),
-        ),
-      );
-      expect(gateway.invites, isEmpty);
-    });
+        );
+        expect(gateway.invites, isEmpty);
+      },
+    );
 
     test('an unavailable binding refuses rather than half-working', () async {
       final gateway = FakePairingGateway(available: false);

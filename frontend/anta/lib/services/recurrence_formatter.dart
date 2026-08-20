@@ -55,24 +55,26 @@ abstract final class RecurrenceFormatter {
     final elapsed = rule.elapsedPeriods(day, event.startDate);
     if (elapsed == null) return null;
     return switch (event.countStyle) {
-      OccurrenceCountStyle.numbered => elapsed < 0
-          ? null
-          : switch (rule) {
-              DailyRecurrence() => l10n.eventNumberedDays(elapsed + 1),
-              WeeklyRecurrence() => l10n.eventNumberedWeeks(elapsed + 1),
-              MonthlyRecurrence() => l10n.eventNumberedMonths(elapsed + 1),
-              YearlyRecurrence() => l10n.eventNumberedYears(elapsed + 1),
-              _ => null,
-            },
-      OccurrenceCountStyle.elapsed => elapsed < 0
-          ? null
-          : switch (rule) {
-              DailyRecurrence() => l10n.eventElapsedDays(elapsed),
-              WeeklyRecurrence() => l10n.eventElapsedWeeks(elapsed),
-              MonthlyRecurrence() => l10n.eventElapsedMonths(elapsed),
-              YearlyRecurrence() => l10n.eventElapsedYears(elapsed),
-              _ => null,
-            },
+      OccurrenceCountStyle.numbered =>
+        elapsed < 0
+            ? null
+            : switch (rule) {
+                DailyRecurrence() => l10n.eventNumberedDays(elapsed + 1),
+                WeeklyRecurrence() => l10n.eventNumberedWeeks(elapsed + 1),
+                MonthlyRecurrence() => l10n.eventNumberedMonths(elapsed + 1),
+                YearlyRecurrence() => l10n.eventNumberedYears(elapsed + 1),
+                _ => null,
+              },
+      OccurrenceCountStyle.elapsed =>
+        elapsed < 0
+            ? null
+            : switch (rule) {
+                DailyRecurrence() => l10n.eventElapsedDays(elapsed),
+                WeeklyRecurrence() => l10n.eventElapsedWeeks(elapsed),
+                MonthlyRecurrence() => l10n.eventElapsedMonths(elapsed),
+                YearlyRecurrence() => l10n.eventElapsedYears(elapsed),
+                _ => null,
+              },
     };
   }
 

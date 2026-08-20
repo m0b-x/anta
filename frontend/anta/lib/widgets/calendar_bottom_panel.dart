@@ -182,9 +182,7 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
         // SafeArea keeps the panel's content above the device's system
         // navigation bar (gesture pill / 3-button bar) — without it the
         // last rows render underneath and can't be tapped.
-        Expanded(
-          child: SafeArea(top: false, child: _buildPanel(context)),
-        ),
+        Expanded(child: SafeArea(top: false, child: _buildPanel(context))),
       ],
     );
   }
@@ -207,8 +205,7 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
           entries: entries,
           // The panel renders exactly one day, so the occurrence is known
           // here — DaySummaryPanel itself stays day-less.
-          onEventTap: (event) =>
-              widget.onShowEvent(event, loaded.selectedDay),
+          onEventTap: (event) => widget.onShowEvent(event, loaded.selectedDay),
           onOpenNote: widget.onOpenNote,
           onSuppressHoliday: () => widget.onSuppressHoliday(loaded.selectedDay),
           onToggleMissed: (event, missed) =>
@@ -221,8 +218,7 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
           events: bloc.eventsForDay(loaded.selectedDay),
           // Same tap semantics as the day panel: show first, edit from
           // there. Both render the same day's events, so they must agree.
-          onEventTap: (event) =>
-              widget.onShowEvent(event, loaded.selectedDay),
+          onEventTap: (event) => widget.onShowEvent(event, loaded.selectedDay),
           missedDisplay: widget.missedDisplay,
         );
       case CalendarPanelMode.upcoming:

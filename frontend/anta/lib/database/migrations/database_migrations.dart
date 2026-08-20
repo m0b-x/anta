@@ -156,6 +156,11 @@ class DatabaseMigrations {
       toVersion: DatabaseSchema.v30EventSkips,
       migrate: _migrateV29ToV30,
     ),
+    Migration(
+      fromVersion: DatabaseSchema.v30EventSkips,
+      toVersion: DatabaseSchema.v31CalendarDeltaIndexes,
+      migrate: _migrateV30ToV31,
+    ),
   ];
 
   Future<void> runMigrations(Migrator m, int from, int to) async {
@@ -1006,9 +1011,10 @@ class DatabaseMigrations {
     }
 
     final occurrenceColumns = <String>{
-      for (final row in await _db
-          .customSelect('PRAGMA table_info(calendar_event_occurrences)')
-          .get())
+      for (final row
+          in await _db
+              .customSelect('PRAGMA table_info(calendar_event_occurrences)')
+              .get())
         row.read<String>('name'),
     };
     if (!occurrenceColumns.contains('hlc_timestamp')) {
@@ -1124,5 +1130,23 @@ class DatabaseMigrations {
         PRIMARY KEY (event_id, day)
       )
     ''');
+  }
+
+  /// v30 → v31: indexes only, no schema change — the v10 shape, which also
+  /// exists purely to hand an existing install a new index.
+  ///
+  /// `calendar_event_skips` and `calendar_event_absences` accumulate
+  /// tombstones forever by design, and both services read every live row at
+  /// startup and after every event delete. The two covering `(event_id, day)
+  /// WHERE is_deleted = 0` indexes turn those scans into index-only reads; see
+  /// [DatabaseIndexes.createCalendarDeltaIndexes] for why the occurrence table
+  /// deliberately gets none.
+  ///
+  /// No `DROP INDEX` first, unlike v27: these are new names, not a
+  /// redefinition of an existing index. Fresh installs already have them
+  /// because `createAllIndexes` calls the same method, and
+  /// `CREATE INDEX IF NOT EXISTS` makes the step idempotent either way.
+  Future<void> _migrateV30ToV31(Migrator m, GeneratedDatabase db) async {
+    await DatabaseIndexes(_db).createCalendarDeltaIndexes();
   }
 }

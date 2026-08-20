@@ -124,10 +124,7 @@ class CellTintResolver {
   final List<CellTintProvider> providers;
   final bool layerRunnerUp;
 
-  const CellTintResolver({
-    required this.providers,
-    this.layerRunnerUp = false,
-  });
+  const CellTintResolver({required this.providers, this.layerRunnerUp = false});
 
   /// Empty resolver — no provider, so [resolve] always returns
   /// [DayCellTint.empty]. Used by surfaces that render a [CalendarDayCell]

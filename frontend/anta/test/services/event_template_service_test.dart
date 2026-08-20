@@ -72,16 +72,17 @@ void main() {
       expect(CalendarTemplates.all, hasLength(1));
     });
 
-    test('ignores the draft id so a form model cannot overwrite a row', () async {
-      final first = await service.create(draft(name: 'Push day'));
+    test(
+      'ignores the draft id so a form model cannot overwrite a row',
+      () async {
+        final first = await service.create(draft(name: 'Push day'));
 
-      final second = await service.create(
-        first.copyWith(name: 'Leg day'),
-      );
+        final second = await service.create(first.copyWith(name: 'Leg day'));
 
-      expect(second.id, isNot(first.id));
-      expect(CalendarTemplates.all, hasLength(2));
-    });
+        expect(second.id, isNot(first.id));
+        expect(CalendarTemplates.all, hasLength(2));
+      },
+    );
 
     test('appends to the end of the display order', () async {
       final first = await service.create(draft(name: 'First'));

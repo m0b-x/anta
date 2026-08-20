@@ -57,11 +57,21 @@ class SettingsService {
     FastingCalendar.resetConfiguration();
   }
 
+  /// Decoders take the raw stored string so a value can be resolved either
+  /// from a single-row read or from a bulk snapshot without a second copy of
+  /// the parsing rules. `UserSettings.value` is non-nullable, so a `null` raw
+  /// means "no row" from both sources alike — which is the distinction
+  /// [_decodeFastingSchedule] and [_decodeFastingAppearance] depend on.
+  static bool _decodeBool(String? raw, bool defaultValue) =>
+      raw == null ? defaultValue : raw == 'true';
+
+  static int _decodeInt(String? raw, int defaultValue) =>
+      raw == null ? defaultValue : (int.tryParse(raw) ?? defaultValue);
+
   // Helper methods for type conversion
   Future<bool> _getBool(String key, bool defaultValue) async {
     final value = await _db.userSettingsDao.getValue(key);
-    if (value == null) return defaultValue;
-    return value == 'true';
+    return _decodeBool(value, defaultValue);
   }
 
   Future<void> _setBool(String key, bool value) async {
@@ -180,13 +190,17 @@ class SettingsService {
   /// The effective markdown colour palette: the built-in presets
   /// overlaid with the user's custom colours. Resolved by the editor
   /// page on note open and after returning from settings.
-  Future<MarkdownColorPalette> getColorPalette() async {
-    final source =
-        await _db.userSettingsDao.getValue(SettingsKeys.markdownCustomColors) ??
-        SettingsKeys.defaultMarkdownCustomColors;
+  MarkdownColorPalette _decodeColorPalette(String? raw) {
+    final source = raw ?? SettingsKeys.defaultMarkdownCustomColors;
     final cached = _colorPalette;
     if (cached != null && cached.source == source) return cached;
     return _colorPalette = MarkdownColorPalette.decode(source);
+  }
+
+  Future<MarkdownColorPalette> getColorPalette() async {
+    return _decodeColorPalette(
+      await _db.userSettingsDao.getValue(SettingsKeys.markdownCustomColors),
+    );
   }
 
   /// Persists the custom colours (name -> colour). Names must already be
@@ -202,8 +216,7 @@ class SettingsService {
 
   Future<int> _getInt(String key, int defaultValue) async {
     final value = await _db.userSettingsDao.getValue(key);
-    if (value == null) return defaultValue;
-    return int.tryParse(value) ?? defaultValue;
+    return _decodeInt(value, defaultValue);
   }
 
   Future<void> _setInt(String key, int value) async {
@@ -460,12 +473,14 @@ class SettingsService {
   }
 
   // Calendar appearance - today highlight style.
+  static CalendarTodayStyle _decodeCalendarTodayStyle(String? raw) =>
+      CalendarTodayStyle.fromName(
+        raw ?? SettingsKeys.defaultCalendarTodayStyle,
+      );
+
   Future<CalendarTodayStyle> getCalendarTodayStyle() async {
-    final raw = await _db.userSettingsDao.getValue(
-      SettingsKeys.calendarTodayStyle,
-    );
-    return CalendarTodayStyle.fromName(
-      raw ?? SettingsKeys.defaultCalendarTodayStyle,
+    return _decodeCalendarTodayStyle(
+      await _db.userSettingsDao.getValue(SettingsKeys.calendarTodayStyle),
     );
   }
 
@@ -477,12 +492,14 @@ class SettingsService {
   }
 
   // Calendar appearance - event marker style (bars / dots).
+  static CalendarMarkerStyle _decodeCalendarMarkerStyle(String? raw) =>
+      CalendarMarkerStyle.fromName(
+        raw ?? SettingsKeys.defaultCalendarMarkerStyle,
+      );
+
   Future<CalendarMarkerStyle> getCalendarMarkerStyle() async {
-    final raw = await _db.userSettingsDao.getValue(
-      SettingsKeys.calendarMarkerStyle,
-    );
-    return CalendarMarkerStyle.fromName(
-      raw ?? SettingsKeys.defaultCalendarMarkerStyle,
+    return _decodeCalendarMarkerStyle(
+      await _db.userSettingsDao.getValue(SettingsKeys.calendarMarkerStyle),
     );
   }
 
@@ -494,12 +511,12 @@ class SettingsService {
   }
 
   // Calendar appearance - first day of the week.
+  static CalendarWeekStart _decodeCalendarWeekStart(String? raw) =>
+      CalendarWeekStart.fromName(raw ?? SettingsKeys.defaultCalendarWeekStart);
+
   Future<CalendarWeekStart> getCalendarWeekStart() async {
-    final raw = await _db.userSettingsDao.getValue(
-      SettingsKeys.calendarWeekStart,
-    );
-    return CalendarWeekStart.fromName(
-      raw ?? SettingsKeys.defaultCalendarWeekStart,
+    return _decodeCalendarWeekStart(
+      await _db.userSettingsDao.getValue(SettingsKeys.calendarWeekStart),
     );
   }
 
@@ -511,12 +528,13 @@ class SettingsService {
   }
 
   // Calendar appearance - custom highlight accent (null = theme primary).
+  static int? _decodeCalendarAccentColor(String? raw) =>
+      (raw == null || raw.isEmpty) ? null : int.tryParse(raw);
+
   Future<int?> getCalendarAccentColor() async {
-    final raw = await _db.userSettingsDao.getValue(
-      SettingsKeys.calendarAccentColor,
+    return _decodeCalendarAccentColor(
+      await _db.userSettingsDao.getValue(SettingsKeys.calendarAccentColor),
     );
-    if (raw == null || raw.isEmpty) return null;
-    return int.tryParse(raw);
   }
 
   Future<void> setCalendarAccentColor(int? color) async {
@@ -562,12 +580,14 @@ class SettingsService {
   }
 
   // Calendar appearance - how missed occurrences render (faded / hidden).
+  static CalendarMissedDisplay _decodeCalendarMissedDisplay(String? raw) =>
+      CalendarMissedDisplay.fromName(
+        raw ?? SettingsKeys.defaultCalendarMissedDisplay,
+      );
+
   Future<CalendarMissedDisplay> getCalendarMissedDisplay() async {
-    final raw = await _db.userSettingsDao.getValue(
-      SettingsKeys.calendarMissedDisplay,
-    );
-    return CalendarMissedDisplay.fromName(
-      raw ?? SettingsKeys.defaultCalendarMissedDisplay,
+    return _decodeCalendarMissedDisplay(
+      await _db.userSettingsDao.getValue(SettingsKeys.calendarMissedDisplay),
     );
   }
 
@@ -591,12 +611,14 @@ class SettingsService {
   }
 
   // Calendar appearance - which tint source wins a contested day.
+  static CalendarTintConflict _decodeCalendarTintConflict(String? raw) =>
+      CalendarTintConflict.fromName(
+        raw ?? SettingsKeys.defaultCalendarTintConflict,
+      );
+
   Future<CalendarTintConflict> getCalendarTintConflict() async {
-    final raw = await _db.userSettingsDao.getValue(
-      SettingsKeys.calendarTintConflict,
-    );
-    return CalendarTintConflict.fromName(
-      raw ?? SettingsKeys.defaultCalendarTintConflict,
+    return _decodeCalendarTintConflict(
+      await _db.userSettingsDao.getValue(SettingsKeys.calendarTintConflict),
     );
   }
 
@@ -695,10 +717,7 @@ class SettingsService {
   }
 
   // Calendar - Enabled religious-fasting traditions (empty set = off).
-  Future<Set<FastingTradition>> getFastingTraditions() async {
-    final raw = await _db.userSettingsDao.getValue(
-      SettingsKeys.calendarFastingTraditions,
-    );
+  static Set<FastingTradition> _decodeFastingTraditions(String? raw) {
     if (raw == null || raw.isEmpty) return const {};
     final traditions = <FastingTradition>{};
     for (final part in raw.split(',')) {
@@ -706,6 +725,14 @@ class SettingsService {
       if (tradition != null) traditions.add(tradition);
     }
     return traditions;
+  }
+
+  Future<Set<FastingTradition>> getFastingTraditions() async {
+    return _decodeFastingTraditions(
+      await _db.userSettingsDao.getValue(
+        SettingsKeys.calendarFastingTraditions,
+      ),
+    );
   }
 
   Future<void> setFastingTraditions(Set<FastingTradition> traditions) async {
@@ -718,21 +745,34 @@ class SettingsService {
   /// Per-tradition fasting look & feel. When the appearance key is absent,
   /// the retired global style key seeds every tradition, so upgrading never
   /// silently resets someone's chosen look.
+  static FastingAppearance _decodeFastingAppearance(
+    String? raw,
+    String? legacyStyle,
+  ) {
+    if (raw != null && raw.isNotEmpty) {
+      return FastingAppearance.decode(raw);
+    }
+    return FastingAppearance.decode(
+      null,
+      fallbackStyle: legacyStyle == null
+          ? null
+          : FastingDisplayStyle.fromName(legacyStyle),
+    );
+  }
+
   Future<FastingAppearance> getFastingAppearance() async {
     final raw = await _db.userSettingsDao.getValue(
       SettingsKeys.calendarFastingAppearance,
     );
-    if (raw != null && raw.isNotEmpty) {
-      return FastingAppearance.decode(raw);
-    }
-    final legacy = await _db.userSettingsDao.getValue(
-      SettingsKeys.calendarFastingStyle,
-    );
-    return FastingAppearance.decode(
-      null,
-      fallbackStyle: legacy == null
+    return _decodeFastingAppearance(
+      raw,
+      // Only reached when the primary key is absent, so the retired key is
+      // not read on the common path.
+      (raw != null && raw.isNotEmpty)
           ? null
-          : FastingDisplayStyle.fromName(legacy),
+          : await _db.userSettingsDao.getValue(
+              SettingsKeys.calendarFastingStyle,
+            ),
     );
   }
 
@@ -756,15 +796,28 @@ class SettingsService {
   /// practice — including the deliberate "no weekly fast" empty string. That
   /// is why the absent-vs-empty distinction is resolved here rather than
   /// inside the decoder: a null row means the weekdays were never chosen.
+  /// [legacyWeekdayCsv] must stay nullable all the way down: `null` means the
+  /// weekdays were never chosen, `''` means a deliberate "no weekly fast".
+  static FastingSchedule _decodeFastingSchedule(
+    String? raw,
+    String? legacyWeekdayCsv,
+  ) {
+    if (raw != null && raw.isNotEmpty) return FastingSchedule.decode(raw);
+    return FastingSchedule.decode(null, legacyWeekdayCsv: legacyWeekdayCsv);
+  }
+
   Future<FastingSchedule> getFastingSchedule() async {
     final raw = await _db.userSettingsDao.getValue(
       SettingsKeys.calendarFastingSchedule,
     );
-    if (raw != null && raw.isNotEmpty) return FastingSchedule.decode(raw);
-    final legacy = await _db.userSettingsDao.getValue(
-      SettingsKeys.calendarFastingWeekdays,
+    return _decodeFastingSchedule(
+      raw,
+      (raw != null && raw.isNotEmpty)
+          ? null
+          : await _db.userSettingsDao.getValue(
+              SettingsKeys.calendarFastingWeekdays,
+            ),
     );
-    return FastingSchedule.decode(null, legacyWeekdayCsv: legacy);
   }
 
   Future<void> setFastingSchedule(FastingSchedule schedule) async {
@@ -774,20 +827,127 @@ class SettingsService {
     );
   }
 
-  /// Loads every calendar look & feel option in one call.
-  Future<CalendarAppearance> getCalendarAppearance() async {
+  /// Keys [_decodeCalendarAppearance] reads. Listed explicitly so the bulk
+  /// read stays O(keys): `user_settings` also holds a `note_position_<id>` row
+  /// per note, so a full-table read would scale with the note count on the
+  /// pre-first-paint path this is meant to speed up.
+  static const List<String> _calendarAppearanceKeys = [
+    SettingsKeys.calendarTodayStyle,
+    SettingsKeys.calendarMarkerStyle,
+    SettingsKeys.calendarWeekStart,
+    SettingsKeys.calendarAccentColor,
+    SettingsKeys.calendarHighlightWeekends,
+    SettingsKeys.calendarShowWeekNumbers,
+    SettingsKeys.calendarMaxDayBars,
+    SettingsKeys.calendarShowRecurrenceLabels,
+    SettingsKeys.calendarMissedDisplay,
+    SettingsKeys.calendarEventTint,
+    SettingsKeys.calendarTintConflict,
+  ];
+
+  static const List<String> _calendarPageKeys = [
+    ..._calendarAppearanceKeys,
+    SettingsKeys.markdownCustomColors,
+    SettingsKeys.calendarFastingTraditions,
+    SettingsKeys.calendarFastingAppearance,
+    SettingsKeys.calendarFastingStyle,
+    SettingsKeys.calendarFastingOrthodoxGreatFasts,
+    SettingsKeys.calendarFastingSchedule,
+    SettingsKeys.calendarFastingWeekdays,
+  ];
+
+  static CalendarAppearance _decodeCalendarAppearance(
+    Map<String, String> values,
+  ) {
     return CalendarAppearance(
-      todayStyle: await getCalendarTodayStyle(),
-      markerStyle: await getCalendarMarkerStyle(),
-      weekStart: await getCalendarWeekStart(),
-      accentColorValue: await getCalendarAccentColor(),
-      highlightWeekends: await getCalendarHighlightWeekends(),
-      showWeekNumbers: await getCalendarShowWeekNumbers(),
-      maxDayBars: await getCalendarMaxDayBars(),
-      showRecurrenceLabels: await getCalendarShowRecurrenceLabels(),
-      missedDisplay: await getCalendarMissedDisplay(),
-      eventTint: await getCalendarEventTint(),
-      tintConflict: await getCalendarTintConflict(),
+      todayStyle: _decodeCalendarTodayStyle(
+        values[SettingsKeys.calendarTodayStyle],
+      ),
+      markerStyle: _decodeCalendarMarkerStyle(
+        values[SettingsKeys.calendarMarkerStyle],
+      ),
+      weekStart: _decodeCalendarWeekStart(
+        values[SettingsKeys.calendarWeekStart],
+      ),
+      accentColorValue: _decodeCalendarAccentColor(
+        values[SettingsKeys.calendarAccentColor],
+      ),
+      highlightWeekends: _decodeBool(
+        values[SettingsKeys.calendarHighlightWeekends],
+        SettingsKeys.defaultCalendarHighlightWeekends,
+      ),
+      showWeekNumbers: _decodeBool(
+        values[SettingsKeys.calendarShowWeekNumbers],
+        SettingsKeys.defaultCalendarShowWeekNumbers,
+      ),
+      maxDayBars: _decodeInt(
+        values[SettingsKeys.calendarMaxDayBars],
+        SettingsKeys.defaultCalendarMaxDayBars,
+      ),
+      showRecurrenceLabels: _decodeBool(
+        values[SettingsKeys.calendarShowRecurrenceLabels],
+        SettingsKeys.defaultCalendarShowRecurrenceLabels,
+      ),
+      missedDisplay: _decodeCalendarMissedDisplay(
+        values[SettingsKeys.calendarMissedDisplay],
+      ),
+      eventTint: _decodeBool(
+        values[SettingsKeys.calendarEventTint],
+        SettingsKeys.defaultCalendarEventTint,
+      ),
+      tintConflict: _decodeCalendarTintConflict(
+        values[SettingsKeys.calendarTintConflict],
+      ),
+    );
+  }
+
+  /// Loads every calendar look & feel option in one call.
+  ///
+  /// One statement rather than eleven: resolving this after the first frame
+  /// visibly re-lays-out the grid, and eleven sequential single-row awaits are
+  /// eleven round trips to the drift isolate whose latencies add rather than
+  /// overlap.
+  Future<CalendarAppearance> getCalendarAppearance() async {
+    return _decodeCalendarAppearance(
+      await _db.userSettingsDao.getValuesFor(_calendarAppearanceKeys),
+    );
+  }
+
+  /// Every setting `CalendarPage` needs before it can paint, in one statement.
+  ///
+  /// `initState` previously issued 16-18 sequential single-row SELECTs here.
+  /// The decoders are the same ones the individual getters use, so the bulk
+  /// path cannot drift from them.
+  Future<
+    ({
+      CalendarAppearance appearance,
+      MarkdownColorPalette palette,
+      Set<FastingTradition> fastingTraditions,
+      FastingAppearance fastingAppearance,
+      bool fastingGreatFasts,
+      FastingSchedule fastingSchedule,
+    })
+  >
+  getCalendarPageSettings() async {
+    final values = await _db.userSettingsDao.getValuesFor(_calendarPageKeys);
+    return (
+      appearance: _decodeCalendarAppearance(values),
+      palette: _decodeColorPalette(values[SettingsKeys.markdownCustomColors]),
+      fastingTraditions: _decodeFastingTraditions(
+        values[SettingsKeys.calendarFastingTraditions],
+      ),
+      fastingAppearance: _decodeFastingAppearance(
+        values[SettingsKeys.calendarFastingAppearance],
+        values[SettingsKeys.calendarFastingStyle],
+      ),
+      fastingGreatFasts: _decodeBool(
+        values[SettingsKeys.calendarFastingOrthodoxGreatFasts],
+        true,
+      ),
+      fastingSchedule: _decodeFastingSchedule(
+        values[SettingsKeys.calendarFastingSchedule],
+        values[SettingsKeys.calendarFastingWeekdays],
+      ),
     );
   }
 
@@ -950,7 +1110,10 @@ class SettingsService {
               int.tryParse(expiresAt) ?? 0,
               isUtc: true,
             ),
-      endedNoticePending: await _getBool(SettingsKeys.pairingEndedNotice, false),
+      endedNoticePending: await _getBool(
+        SettingsKeys.pairingEndedNotice,
+        false,
+      ),
     );
   }
 

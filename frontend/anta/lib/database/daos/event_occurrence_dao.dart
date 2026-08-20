@@ -53,19 +53,18 @@ class EventOccurrenceDao extends DatabaseAccessor<AppDatabase>
         return;
       }
 
-      await (update(eventOccurrenceDescriptions)..where(
-            (o) => o.eventId.equals(eventId) & o.day.equals(day),
-          ))
-          .write(
-            entry.copyWith(
-              createdAt: const Value.absent(),
-              hlcTimestamp: Value(hlc),
-              deviceId: Value(db.deviceId),
-              version: Value(existing.version + 1),
-              isDeleted: const Value(false),
-              deletedAt: const Value(null),
-            ),
-          );
+      await (update(
+        eventOccurrenceDescriptions,
+      )..where((o) => o.eventId.equals(eventId) & o.day.equals(day))).write(
+        entry.copyWith(
+          createdAt: const Value.absent(),
+          hlcTimestamp: Value(hlc),
+          deviceId: Value(db.deviceId),
+          version: Value(existing.version + 1),
+          isDeleted: const Value(false),
+          deletedAt: const Value(null),
+        ),
+      );
     });
   }
 
@@ -82,19 +81,18 @@ class EventOccurrenceDao extends DatabaseAccessor<AppDatabase>
       if (existing == null || existing.isDeleted) return;
 
       final now = DateTime.now();
-      await (update(eventOccurrenceDescriptions)..where(
-            (o) => o.eventId.equals(eventId) & o.day.equals(day),
-          ))
-          .write(
-            EventOccurrenceDescriptionsCompanion(
-              isDeleted: const Value(true),
-              deletedAt: Value(now),
-              updatedAt: Value(now),
-              hlcTimestamp: Value(db.generateHlc()),
-              deviceId: Value(db.deviceId),
-              version: Value(existing.version + 1),
-            ),
-          );
+      await (update(
+        eventOccurrenceDescriptions,
+      )..where((o) => o.eventId.equals(eventId) & o.day.equals(day))).write(
+        EventOccurrenceDescriptionsCompanion(
+          isDeleted: const Value(true),
+          deletedAt: Value(now),
+          updatedAt: Value(now),
+          hlcTimestamp: Value(db.generateHlc()),
+          deviceId: Value(db.deviceId),
+          version: Value(existing.version + 1),
+        ),
+      );
     });
   }
 
@@ -145,10 +143,9 @@ class EventOccurrenceDao extends DatabaseAccessor<AppDatabase>
   /// day", which is the act that has to carry an order into a merge, so this is
   /// currently caller-less — exactly as [CalendarEventDao.deleteById] is.
   Future<void> deleteFor(String eventId, DateTime day) {
-    return (delete(eventOccurrenceDescriptions)..where(
-          (o) => o.eventId.equals(eventId) & o.day.equals(day),
-        ))
-        .go();
+    return (delete(
+      eventOccurrenceDescriptions,
+    )..where((o) => o.eventId.equals(eventId) & o.day.equals(day))).go();
   }
 
   /// The **hard** cascade, tombstones included — kept for the wipe paths, where
@@ -168,9 +165,8 @@ class EventOccurrenceDao extends DatabaseAccessor<AppDatabase>
   /// Deliberately unfiltered: [upsert] has to see a tombstone to resurrect it,
   /// and [tombstone] has to see one to stay a no-op.
   Future<EventOccurrenceRow?> _byKey(String eventId, DateTime day) {
-    return (select(eventOccurrenceDescriptions)..where(
-          (o) => o.eventId.equals(eventId) & o.day.equals(day),
-        ))
+    return (select(eventOccurrenceDescriptions)
+          ..where((o) => o.eventId.equals(eventId) & o.day.equals(day)))
         .getSingleOrNull();
   }
 }

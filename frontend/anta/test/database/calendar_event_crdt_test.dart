@@ -28,7 +28,8 @@ void main() {
     )..where((e) => e.id.equals(id))).getSingle();
   }
 
-  Future<List<CalendarEventRow>> allRows() => db.select(db.calendarEvents).get();
+  Future<List<CalendarEventRow>> allRows() =>
+      db.select(db.calendarEvents).get();
 
   group('stamping', () {
     test('an insert is a live version-1 row stamped with this device', () async {
@@ -44,24 +45,27 @@ void main() {
       expect(row.deviceId, 'test-device');
     });
 
-    test('an edit bumps the version, keeps createdAt and moves the HLC', () async {
-      await db.calendarEventDao.upsert(_event('e1'));
-      final before = await rowFor('e1');
+    test(
+      'an edit bumps the version, keeps createdAt and moves the HLC',
+      () async {
+        await db.calendarEventDao.upsert(_event('e1'));
+        final before = await rowFor('e1');
 
-      await db.calendarEventDao.upsert(
-        _event('e1', title: 'Push day', createdAt: DateTime.utc(2030, 1, 1)),
-      );
-      final after = await rowFor('e1');
+        await db.calendarEventDao.upsert(
+          _event('e1', title: 'Push day', createdAt: DateTime.utc(2030, 1, 1)),
+        );
+        final after = await rowFor('e1');
 
-      expect(after.title, 'Push day');
-      expect(after.version, before.version + 1);
-      // The whole reason this is not `insertOnConflictUpdate`: the caller's
-      // companion always carries a `createdAt`, and it is always wrong.
-      expect(after.createdAt, before.createdAt);
-      // A version bump with a stale HLC would order two edits arbitrarily.
-      expect(after.hlcTimestamp, isNot(before.hlcTimestamp));
-      expect(after.deviceId, 'test-device');
-    });
+        expect(after.title, 'Push day');
+        expect(after.version, before.version + 1);
+        // The whole reason this is not `insertOnConflictUpdate`: the caller's
+        // companion always carries a `createdAt`, and it is always wrong.
+        expect(after.createdAt, before.createdAt);
+        // A version bump with a stale HLC would order two edits arbitrarily.
+        expect(after.hlcTimestamp, isNot(before.hlcTimestamp));
+        expect(after.deviceId, 'test-device');
+      },
+    );
   });
 
   group('tombstoning', () {
@@ -169,7 +173,9 @@ void main() {
         '  tracks_presence INTEGER NOT NULL DEFAULT 0'
         ')',
       );
-      await db.customStatement('DROP INDEX IF EXISTS idx_calendar_events_start_date');
+      await db.customStatement(
+        'DROP INDEX IF EXISTS idx_calendar_events_start_date',
+      );
       await db.customStatement(
         'CREATE INDEX idx_calendar_events_start_date '
         'ON calendar_events(start_date)',

@@ -28,9 +28,7 @@ void main() {
   }
 
   void skip(Iterable<DateTime> days, {String id = 'e1'}) {
-    EventSkips.updateCache(byEvent: {
-      id: days.toSet(),
-    });
+    EventSkips.updateCache(byEvent: {id: days.toSet()});
   }
 
   String export(CalendarEvent e) =>

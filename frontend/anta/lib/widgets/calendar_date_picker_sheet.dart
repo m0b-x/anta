@@ -44,10 +44,10 @@ class CalendarDatePickerSheet extends StatefulWidget {
   /// Optional busy-day lookup used to render markers while picking.
   final PickerDayLoad? dayLoad;
 
-  /// Look & feel, passed in rather than re-read. `getCalendarAppearance()` is
-  /// seven sequential settings reads, and resolving it after the first frame
-  /// would visibly re-lay-out the grid (week start and row height both move).
-  /// The calendar page already holds a current copy.
+  /// Look & feel, passed in rather than re-read. Resolving
+  /// `getCalendarAppearance()` after the first frame would visibly re-lay-out
+  /// the grid (week start and row height both move), and the calendar page
+  /// already holds a current copy.
   final CalendarAppearance appearance;
 
   /// Whether confirming with nothing selected is allowed. False for callers
@@ -242,6 +242,7 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
     final theme = Theme.of(context);
     final isMulti = widget.mode == CalendarDatePickerMode.multi;
     final accent = _appearance.accentOr(theme.colorScheme.primary);
+    final now = DateTime.now();
 
     return FractionallySizedBox(
       heightFactor: 0.86,
@@ -319,9 +320,7 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
                 ),
                 calendarBuilders: CalendarBuilders<void>(
                   headerTitleBuilder: (context, day) {
-                    final title = DateFormat.yMMMM(
-                      l10n.localeName,
-                    ).format(day);
+                    final title = DateFormat.yMMMM(l10n.localeName).format(day);
                     return Center(
                       child: Tooltip(
                         message: l10n.monthYearPickerTitle,
@@ -340,9 +339,7 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
                                   child: Text(
                                     title,
                                     style: theme.textTheme.titleMedium
-                                        ?.copyWith(
-                                          fontWeight: FontWeight.w600,
-                                        ),
+                                        ?.copyWith(fontWeight: FontWeight.w600),
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
@@ -359,14 +356,18 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
                     );
                   },
                   defaultBuilder: (context, day, _) =>
-                      _cell(day, accent, isOutside: false),
+                      _cell(day, accent, isOutside: false, now: now),
                   todayBuilder: (context, day, _) =>
-                      _cell(day, accent, isOutside: false),
+                      _cell(day, accent, isOutside: false, now: now),
                   selectedBuilder: (context, day, _) =>
-                      _cell(day, accent, isOutside: false),
+                      _cell(day, accent, isOutside: false, now: now),
                   outsideBuilder: (context, day, _) =>
-                      _cell(day, accent, isOutside: true),
-                  markerBuilder: (context, day, _) => _marker(context, day),
+                      _cell(day, accent, isOutside: true, now: now),
+                  markerBuilder: (context, day, _) => _marker(
+                    day,
+                    l10n: l10n,
+                    busyColor: theme.colorScheme.onSurfaceVariant,
+                  ),
                 ),
                 onDaySelected: _onDaySelected,
                 onPageChanged: (focusedDay) =>
@@ -401,10 +402,18 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
     );
   }
 
-  Widget _cell(DateTime day, Color accent, {required bool isOutside}) {
+  /// Builds one day cell. [now] and [accent] are resolved once per grid
+  /// build and threaded in: a month shows ~42 cells, and re-deriving either
+  /// per cell allocated a `Color` and read the clock 42 times a frame.
+  Widget _cell(
+    DateTime day,
+    Color accent, {
+    required bool isOutside,
+    required DateTime now,
+  }) {
     return CalendarDayCell(
       day: day,
-      isToday: isSameDay(day, DateTime.now()),
+      isToday: isSameDay(day, now),
       isSelected: _isSelected(day),
       isOutside: isOutside,
       isWeekend:
@@ -418,12 +427,15 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
   /// A single neutral bar marking a day that already carries events, so the
   /// user can see a day is busy before scheduling onto it. Deliberately not
   /// category-coloured: this is a "taken" signal, not a second calendar.
-  Widget _marker(BuildContext context, DateTime day) {
+  Widget _marker(
+    DateTime day, {
+    required AppLocalizations l10n,
+    required Color busyColor,
+  }) {
     final load = widget.dayLoad;
     if (load == null) return const SizedBox.shrink();
     final count = load(CalendarDatePickerSheet._dateOnly(day));
     if (count <= 0) return const SizedBox.shrink();
-    final l10n = AppLocalizations.of(context)!;
     return Align(
       alignment: Alignment.bottomCenter,
       child: Padding(
@@ -434,7 +446,7 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
             width: 16,
             height: 3,
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              color: busyColor,
               borderRadius: BorderRadius.circular(3),
             ),
           ),

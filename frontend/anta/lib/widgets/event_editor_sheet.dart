@@ -717,8 +717,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     // buffer is still about to be saved, so checking only the live controller
     // would let an over-limit day override through from the template view.
     if (!_withinLimit(_templateText, _initialTemplateLength)) return false;
-    if (_scopeControlVisible &&
-        !_withinLimit(_dayText, _initialDayLength)) {
+    if (_scopeControlVisible && !_withinLimit(_dayText, _initialDayLength)) {
       return false;
     }
     return true;
@@ -1654,7 +1653,10 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                   // controller directly instead of forcing keystroke-wide
                   // setStates.
                   child: ListenableBuilder(
-                    listenable: _descriptionRevision,
+                    listenable: Listenable.merge([
+                      _descriptionRevision,
+                      _titleController,
+                    ]),
                     builder: (context, _) => FilledButton(
                       onPressed: _canSave ? _onSave : null,
                       child: Text(l10n.save),
@@ -1700,7 +1702,6 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                       labelText: l10n.eventTitle,
                       border: const OutlineInputBorder(),
                     ),
-                    onChanged: (_) => setState(() {}),
                   ),
                   // Mode-first inside the When zone: the toggle decides what
                   // the rest of the zone renders (date chips vs start date +
@@ -1724,13 +1725,12 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                         ),
                       ],
                       selected: {_mode},
-                      onSelectionChanged: (s) =>
-                          setState(() {
-                            _mode = s.first;
-                            // Switching to one-time hides the scope control,
-                            // so the field must stop showing a day's text.
-                            _syncScopeToRule();
-                          }),
+                      onSelectionChanged: (s) => setState(() {
+                        _mode = s.first;
+                        // Switching to one-time hides the scope control,
+                        // so the field must stop showing a day's text.
+                        _syncScopeToRule();
+                      }),
                     ),
                   ),
                   if (_mode == _RepeatMode.oneTime) ...[
@@ -2186,15 +2186,18 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                   // that acts on the whole form and is not Save lives at the
                   // bottom of the scroll body.
                   const SizedBox(height: 24),
-                  OutlinedButton.icon(
-                    onPressed: _titleController.text.trim().isEmpty
-                        ? null
-                        : _onSaveAsTemplate,
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(48),
+                  ListenableBuilder(
+                    listenable: _titleController,
+                    builder: (context, _) => OutlinedButton.icon(
+                      onPressed: _titleController.text.trim().isEmpty
+                          ? null
+                          : _onSaveAsTemplate,
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(48),
+                      ),
+                      icon: const Icon(Icons.bookmark_add_outlined),
+                      label: Text(l10n.saveAsTemplate),
                     ),
-                    icon: const Icon(Icons.bookmark_add_outlined),
-                    label: Text(l10n.saveAsTemplate),
                   ),
                   if (_isEditing) ...[
                     const SizedBox(height: 24),

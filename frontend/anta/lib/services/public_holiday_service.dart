@@ -273,4 +273,3 @@ class SuppressedHoliday {
   final PublicHoliday holiday;
   const SuppressedHoliday({required this.date, required this.holiday});
 }
-

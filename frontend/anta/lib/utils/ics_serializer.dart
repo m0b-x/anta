@@ -241,10 +241,7 @@ abstract final class IcsSerializer {
         !skippable || !EventSkips.isSkipped(event.id, day);
     if (rule is SpecificDatesRecurrence) {
       final dates =
-          rule.dates
-              .map(_dateOnly)
-              .where((d) => d != first && kept(d))
-              .toList()
+          rule.dates.map(_dateOnly).where((d) => d != first && kept(d)).toList()
             ..sort();
       return dates;
     }

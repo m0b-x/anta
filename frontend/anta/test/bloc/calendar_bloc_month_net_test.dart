@@ -105,7 +105,9 @@ void main() {
         ),
       ),
     );
-    await ledger.refresh([...(await CalendarEventService.getInstance()).events]);
+    await ledger.refresh([
+      ...(await CalendarEventService.getInstance()).events,
+    ]);
   });
 
   tearDown(() async {
@@ -144,7 +146,9 @@ void main() {
     // Rewrites the note's amounts without touching the calendar at all —
     // the exact path that bypasses every cache-invalidating handler.
     await repository.updateNote(id: noteId, content: r'$+ 25.00 protein');
-    await ledger.refresh([...(await CalendarEventService.getInstance()).events]);
+    await ledger.refresh([
+      ...(await CalendarEventService.getInstance()).events,
+    ]);
 
     expect(bloc.monthNetFor(month), 2500);
   });

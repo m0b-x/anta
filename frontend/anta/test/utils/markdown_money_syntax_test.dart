@@ -79,8 +79,18 @@ void main() {
 
   group('overflow-safe arithmetic', () {
     const balances = [
-      0, 1, -1, 99, 12345, 999999, 123456789012, 9999999999999,
-      50000000000000, 99999999999999, -99999999999999, -12345678901234,
+      0,
+      1,
+      -1,
+      99,
+      12345,
+      999999,
+      123456789012,
+      9999999999999,
+      50000000000000,
+      99999999999999,
+      -99999999999999,
+      -12345678901234,
     ];
     const factors = [1, 3, 5000, 9999, 10000, 11900, 19900, 33333, 99999999];
 
@@ -94,7 +104,10 @@ void main() {
           expect(
             MarkdownMoneySyntax.apply(b, m),
             bigClamp(
-              bigRoundedDiv(BigInt.from(b) * BigInt.from(f), BigInt.from(10000)),
+              bigRoundedDiv(
+                BigInt.from(b) * BigInt.from(f),
+                BigInt.from(10000),
+              ),
             ),
             reason: 'mul b=$b f=$f',
           );
@@ -111,7 +124,10 @@ void main() {
           expect(
             MarkdownMoneySyntax.apply(b, m),
             bigClamp(
-              bigRoundedDiv(BigInt.from(b) * BigInt.from(10000), BigInt.from(f)),
+              bigRoundedDiv(
+                BigInt.from(b) * BigInt.from(10000),
+                BigInt.from(f),
+              ),
             ),
             reason: 'div b=$b f=$f',
           );
@@ -373,15 +389,27 @@ void main() {
     test('currency lands in its configured position', () {
       const v = 500000;
       expect(
-        MarkdownMoneySyntax.formatCentsWithSymbol(v, symbol: 'lei', suffix: true),
+        MarkdownMoneySyntax.formatCentsWithSymbol(
+          v,
+          symbol: 'lei',
+          suffix: true,
+        ),
         '5000.00 lei',
       );
       expect(
-        MarkdownMoneySyntax.formatCentsWithSymbol(v, symbol: r'$', suffix: false),
+        MarkdownMoneySyntax.formatCentsWithSymbol(
+          v,
+          symbol: r'$',
+          suffix: false,
+        ),
         r'$5000.00',
       );
       expect(
-        MarkdownMoneySyntax.formatCentsWithSymbol(-v, symbol: r'$', suffix: false),
+        MarkdownMoneySyntax.formatCentsWithSymbol(
+          -v,
+          symbol: r'$',
+          suffix: false,
+        ),
         r'-$5000.00',
       );
       expect(
@@ -397,11 +425,7 @@ void main() {
 
     String labelOf(String line, String symbol) {
       final m = p(line)!;
-      final from = MarkdownMoneySyntax.labelStartAfterCurrency(
-        line,
-        m,
-        symbol,
-      );
+      final from = MarkdownMoneySyntax.labelStartAfterCurrency(line, m, symbol);
       final to = m.labelStart < m.amountStart ? m.labelEnd - 1 : m.labelEnd;
       return from < to ? line.substring(from, to) : '';
     }
@@ -443,7 +467,10 @@ void main() {
       expect(m.amountFixed, p(r'$= Net worth: 500')!.amountFixed);
       // The word trails the amount, outside the label, so the label
       // start is untouched while the word itself is recognised.
-      expect(MarkdownMoneySyntax.inlineCurrencyEnd(line, m, 'lei'), line.length);
+      expect(
+        MarkdownMoneySyntax.inlineCurrencyEnd(line, m, 'lei'),
+        line.length,
+      );
       expect(labelOf(line, 'lei'), 'Net worth');
       expect(curEnd(r'$= Net worth: 500', 'lei'), -1);
     });
@@ -459,7 +486,10 @@ void main() {
       expect(line.substring(m.accentStart, m.accentEnd), 'teal');
       expect(line.substring(m.amountStart, m.amountEnd), '70897');
       expect(labelOf(line, 'lei'), 'Initia Balance(lei)');
-      expect(MarkdownMoneySyntax.inlineCurrencyEnd(line, m, 'lei'), line.length);
+      expect(
+        MarkdownMoneySyntax.inlineCurrencyEnd(line, m, 'lei'),
+        line.length,
+      );
       // Same ledger value as the spelling that already worked.
       expect(
         valueAt(fold([line]), 0),
@@ -573,7 +603,10 @@ void main() {
         line.indexOf('lei') + 3,
       );
       expect(MarkdownMoneySyntax.inlineCurrencyEnd(line, m, '€'), -1);
-      expect(valueAt(fold([line]), 0), valueAt(fold([r'$= Net worth: 500']), 0));
+      expect(
+        valueAt(fold([line]), 0),
+        valueAt(fold([r'$= Net worth: 500']), 0),
+      );
     });
 
     test('the reported heading line extends with trailing text', () {
@@ -688,8 +721,11 @@ void main() {
         expect(m.listMarkerStart, 0, reason: line);
         expect(m.headerStart, 2, reason: line);
         expect(m.headerLevel, 2, reason: line);
-        expect(line.substring(m.accentStart, m.accentEnd), 'teal',
-            reason: line);
+        expect(
+          line.substring(m.accentStart, m.accentEnd),
+          'teal',
+          reason: line,
+        );
       });
       // Ordered + nested + no-space hash variants of the same stack.
       final o = p(r'1. ###$$ blue: Sum: $ so far')!;
@@ -760,8 +796,10 @@ void main() {
       expect(m.emphasisCloseStart, line.length - 1);
       expect(m.windowCount, 2);
       expect(m.valueSlot, line.indexOf(r'$ *'));
-      expect(line.substring(m.labelStart, m.valueSlot).trim(),
-          'Change from prev. day:');
+      expect(
+        line.substring(m.labelStart, m.valueSlot).trim(),
+        'Change from prev. day:',
+      );
     });
 
     test('marker runs map to italic / bold / both, `_` family too', () {
@@ -826,11 +864,7 @@ void main() {
 
     test('wrapped rows fold identically to bare ones', () {
       final bare = fold([r'$= 100', r'$+ 50', r'$?']);
-      final wrapped = fold([
-        r'*$= 100*',
-        r'* **$+ 50**',
-        r'- _$?_',
-      ]);
+      final wrapped = fold([r'*$= 100*', r'* **$+ 50**', r'- _$?_']);
       for (var i = 0; i < bare.entries.length; i++) {
         expect(wrapped.entries[i].valueAfter, bare.entries[i].valueAfter);
       }
@@ -846,8 +880,11 @@ void main() {
       ];
       for (final line in lines) {
         if (MarkdownMoneySyntax.parse(line) != null) {
-          expect(MarkdownMoneySyntax.leadsWithMoney(line), isTrue,
-              reason: line);
+          expect(
+            MarkdownMoneySyntax.leadsWithMoney(line),
+            isTrue,
+            reason: line,
+          );
         }
       }
     });
@@ -906,8 +943,10 @@ void main() {
       expect(l4.listMarkerStart, 0);
       expect(l4.emphasisItalic, isTrue);
       expect(l4.amountFixed, 59000000);
-      expect(MarkdownMoneySyntax.displayLabel(doc[4], l4, 'lei'),
-          'End of day Balance');
+      expect(
+        MarkdownMoneySyntax.displayLabel(doc[4], l4, 'lei'),
+        'End of day Balance',
+      );
 
       final l5 = p(doc[5])!;
       expect(l5.kind, MoneyLineKind.span);
@@ -935,14 +974,39 @@ void main() {
       // the probe would silently vanish from the ledger. Battery over
       // every shape in this file plus hostile near-misses.
       const battery = [
-        r'$= 500', r'$+ 50 lei coffee', r'$$', r'$~ 2 teal: x',
-        r'## $$', r'##$$ x', r'###### $~ 2 teal: Change: $ dollars',
-        r'- $= 500', r'* $* 1.19', r'+ $+ 5', r'• $$', r'  - $- 5',
-        r'1. $+ 50', r'12) $$', r'- ## $= teal: 500', r'1. ###$$ blue: $',
-        r'  - # $? red:', r'- ##$$ x', r'- $100 coffee', r'1. $5 x',
-        r'- ####### $$', r'#######$$', r'-$= 5', r'1.$= 5', r'- [ ] $= 5',
-        r'$= Net worth: 5000 as of today', r'# $= teal: Initia Balance(lei):70897 lei',
-        r'2024 was great', r'- plain', r'$5 coffee', r'$', r'- ', r'1. ',
+        r'$= 500',
+        r'$+ 50 lei coffee',
+        r'$$',
+        r'$~ 2 teal: x',
+        r'## $$',
+        r'##$$ x',
+        r'###### $~ 2 teal: Change: $ dollars',
+        r'- $= 500',
+        r'* $* 1.19',
+        r'+ $+ 5',
+        r'• $$',
+        r'  - $- 5',
+        r'1. $+ 50',
+        r'12) $$',
+        r'- ## $= teal: 500',
+        r'1. ###$$ blue: $',
+        r'  - # $? red:',
+        r'- ##$$ x',
+        r'- $100 coffee',
+        r'1. $5 x',
+        r'- ####### $$',
+        r'#######$$',
+        r'-$= 5',
+        r'1.$= 5',
+        r'- [ ] $= 5',
+        r'$= Net worth: 5000 as of today',
+        r'# $= teal: Initia Balance(lei):70897 lei',
+        r'2024 was great',
+        r'- plain',
+        r'$5 coffee',
+        r'$',
+        r'- ',
+        r'1. ',
       ];
       for (final line in battery) {
         if (MarkdownMoneySyntax.parse(line) != null) {
@@ -1020,7 +1084,11 @@ void main() {
         MoneyLineKind.multiply,
         MoneyLineKind.divide,
       ]) {
-        expect(MarkdownMoneySyntax.isSignedKind(kind), isFalse, reason: '$kind');
+        expect(
+          MarkdownMoneySyntax.isSignedKind(kind),
+          isFalse,
+          reason: '$kind',
+        );
       }
       expect(MarkdownMoneySyntax.formatCentsSigned(5000), '+50.00');
       expect(MarkdownMoneySyntax.formatCentsSigned(-3000), '-30.00');
@@ -1042,7 +1110,10 @@ void main() {
       String label(String line, [String symbol = 'lei']) =>
           MarkdownMoneySyntax.displayLabel(line, p(line)!, symbol);
       expect(label(r'$+ 50 lei coffee'), 'coffee');
-      expect(label(r'$= Net worth: 500 lei as of today'), 'Net worth as of today');
+      expect(
+        label(r'$= Net worth: 500 lei as of today'),
+        'Net worth as of today',
+      );
       expect(label(r'$= Net worth: 500'), 'Net worth');
       expect(label(r'$= 500 lei'), '');
       expect(label(r'$= 500 EUR'), 'EUR');
@@ -1086,10 +1157,7 @@ void main() {
       }
       const labelled = r'$! how am I doing';
       final m = p(labelled)!;
-      expect(
-        labelled.substring(m.labelStart, m.labelEnd),
-        'how am I doing',
-      );
+      expect(labelled.substring(m.labelStart, m.labelEnd), 'how am I doing');
     });
 
     test('a colon tail is label text, not a missing amount', () {
@@ -1111,16 +1179,15 @@ void main() {
       expect(p(r'$!x'), isNull);
       expect(p(r'$!important note'), isNull);
       // No space + colon tail keeps the old error row.
-      expect(
-        p(r'$!Remaining:')!.error,
-        MoneyLineError.labelFirstMissingAmount,
-      );
+      expect(p(r'$!Remaining:')!.error, MoneyLineError.labelFirstMissingAmount);
     });
 
     test('declarations are untouched, and a leading number is an amount', () {
       expect(p(r'$! 100')!.kind, MoneyLineKind.target);
-      expect(p(r'$! Vacation fund: 500 by December')!.kind,
-          MoneyLineKind.target);
+      expect(
+        p(r'$! Vacation fund: 500 by December')!.kind,
+        MoneyLineKind.target,
+      );
       // Unlike `$^`/`$~`, `$!` takes no window count — any leading
       // number declares that target.
       final m = p(r'$! 2024 savings')!;
@@ -1151,8 +1218,11 @@ void main() {
         final m = p(line)!;
         expect(m.kind, MoneyLineKind.remaining, reason: line);
         expect(m.error, isNull, reason: line);
-        expect(MarkdownLineShape.isLineLedConstruct(line), isTrue,
-            reason: line);
+        expect(
+          MarkdownLineShape.isLineLedConstruct(line),
+          isTrue,
+          reason: line,
+        );
       }
       expect(p(r'## $!')!.headerLevel, 2);
       expect(p(r'- $! status')!.listMarkerStart, 0);
@@ -1160,14 +1230,14 @@ void main() {
     });
 
     test('remaining is a display kind and needs the balance', () {
-      expect(MarkdownMoneySyntax.isDisplayKind(MoneyLineKind.remaining),
-          isTrue);
-      expect(MarkdownMoneySyntax.isEntryKind(MoneyLineKind.remaining),
-          isFalse);
+      expect(
+        MarkdownMoneySyntax.isDisplayKind(MoneyLineKind.remaining),
+        isTrue,
+      );
+      expect(MarkdownMoneySyntax.isEntryKind(MoneyLineKind.remaining), isFalse);
       expect(MarkdownMoneySyntax.needsBalance(p(r'$!')!), isTrue);
       // A declaration stays amount-led with no pill, like `$=`.
-      expect(MarkdownMoneySyntax.isDisplayKind(MoneyLineKind.target),
-          isFalse);
+      expect(MarkdownMoneySyntax.isDisplayKind(MoneyLineKind.target), isFalse);
       expect(MarkdownMoneySyntax.needsBalance(p(r'$! 100')!), isFalse);
       final l = MoneyRowLayout.of(r'$!', p(r'$!')!, 'lei');
       expect(l.isDisplay, isTrue);
@@ -1179,21 +1249,17 @@ void main() {
       expect(valueAt(c, 2), 10000);
     });
 
-    test(r'the $=-updated scenario: remaining measures from the declaration',
-        () {
-      // The motivating ledger: balances recorded with `$=` set-rows, a
-      // target declared under the day heading, and a bare `$!` reading
-      // the remaining budget — 100 − (500 − 450) = 50, green.
-      final c = fold([
-        r'$= 500',
-        r'$! 100',
-        r'$= 450',
-        r'$~ 2',
-        r'$!',
-      ]);
-      expect(valueAt(c, 3), -5000);
-      expect(valueAt(c, 4), 5000);
-    });
+    test(
+      r'the $=-updated scenario: remaining measures from the declaration',
+      () {
+        // The motivating ledger: balances recorded with `$=` set-rows, a
+        // target declared under the day heading, and a bare `$!` reading
+        // the remaining budget — 100 − (500 − 450) = 50, green.
+        final c = fold([r'$= 500', r'$! 100', r'$= 450', r'$~ 2', r'$!']);
+        expect(valueAt(c, 3), -5000);
+        expect(valueAt(c, 4), 5000);
+      },
+    );
 
     test('op spending, overspend goes negative', () {
       final c = fold([
@@ -1244,13 +1310,7 @@ void main() {
     });
 
     test('targetWindowEntries lists declaration through tapped row', () {
-      final lines = [
-        r'$= 500',
-        r'$! 100',
-        r'$- 30 coffee',
-        r'$= 450',
-        r'$!',
-      ];
+      final lines = [r'$= 500', r'$! 100', r'$- 30 coffee', r'$= 450', r'$!'];
       final c = fold(lines);
       final window = MarkdownMoneySyntax.targetWindowEntries(c, 4);
       expect(window.map((e) => e.lineIndex).toList(), [1, 2, 3, 4]);
@@ -1266,11 +1326,19 @@ void main() {
 
     test('displayLabel reads the status label as typed', () {
       expect(
-        MarkdownMoneySyntax.displayLabel(r'$! blue: status', p(r'$! blue: status')!, 'lei'),
+        MarkdownMoneySyntax.displayLabel(
+          r'$! blue: status',
+          p(r'$! blue: status')!,
+          'lei',
+        ),
         'status',
       );
       expect(
-        MarkdownMoneySyntax.displayLabel(r'$! Remaining:', p(r'$! Remaining:')!, 'lei'),
+        MarkdownMoneySyntax.displayLabel(
+          r'$! Remaining:',
+          p(r'$! Remaining:')!,
+          'lei',
+        ),
         'Remaining:',
       );
     });

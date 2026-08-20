@@ -88,7 +88,11 @@ class EventTemplateService {
   Future<EventTemplate> create(EventTemplate draft) async {
     final id = _uuid.v4();
     await _dao.upsertTemplate(
-      _toCompanion(draft, idOverride: id, sortOrder: await _dao.nextSortOrder()),
+      _toCompanion(
+        draft,
+        idOverride: id,
+        sortOrder: await _dao.nextSortOrder(),
+      ),
     );
     await _load();
     return CalendarTemplates.byId(id) ?? draft;
@@ -173,10 +177,10 @@ class EventTemplateService {
             colorValue: Value(map['colorValue'] as int?),
             tintIcon: Value(_boolOr(map['tintIcon'], true)),
             priority: Value(
-              _intOr(map['priority'], kDefaultEventPriority).clamp(
-                kMinEventPriority,
-                kMaxEventPriority,
-              ),
+              _intOr(
+                map['priority'],
+                kDefaultEventPriority,
+              ).clamp(kMinEventPriority, kMaxEventPriority),
             ),
             retroactive: Value(_boolOr(map['retroactive'], false)),
             countOccurrences: Value(_boolOr(map['countOccurrences'], false)),

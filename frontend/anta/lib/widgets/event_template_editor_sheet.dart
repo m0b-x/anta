@@ -15,7 +15,15 @@ import 'icon_picker_sheet.dart';
 /// Repeat shape a template can capture. `SpecificDatesRecurrence` is
 /// deliberately absent: a template carries no dates, so a set of explicit ones
 /// is meaningless and collapses to [_TemplateRepeat.once] on capture.
-enum _TemplateRepeat { once, daily, weekly, monthly, yearly, workdays, weekends }
+enum _TemplateRepeat {
+  once,
+  daily,
+  weekly,
+  monthly,
+  yearly,
+  workdays,
+  weekends,
+}
 
 /// Bottom-sheet form for creating or editing an [EventTemplate].
 ///
@@ -204,10 +212,7 @@ class _EventTemplateEditorSheetState extends State<EventTemplateEditorSheet> {
         : (_startMinute + (_durationMinutes ?? _defaultDurationMinutes));
     final picked = await showTimePicker(
       context: context,
-      initialTime: TimeOfDay(
-        hour: (base ~/ 60) % 24,
-        minute: base % 60,
-      ),
+      initialTime: TimeOfDay(hour: (base ~/ 60) % 24, minute: base % 60),
     );
     if (picked == null || !mounted) return;
     final minutes = picked.hour * 60 + picked.minute;
@@ -409,7 +414,9 @@ class _EventTemplateEditorSheetState extends State<EventTemplateEditorSheet> {
                           ListTile(
                             leading: const Icon(Icons.schedule_rounded),
                             title: Text(l10n.eventStartTime),
-                            subtitle: Text(_formatMinutes(context, _startMinute)),
+                            subtitle: Text(
+                              _formatMinutes(context, _startMinute),
+                            ),
                             onTap: () => _pickTime(start: true),
                           ),
                           ListTile(
@@ -429,9 +436,8 @@ class _EventTemplateEditorSheetState extends State<EventTemplateEditorSheet> {
                                 : IconButton(
                                     tooltip: l10n.eventEndTimeNone,
                                     icon: const Icon(Icons.clear_rounded),
-                                    onPressed: () => setState(
-                                      () => _durationMinutes = null,
-                                    ),
+                                    onPressed: () =>
+                                        setState(() => _durationMinutes = null),
                                   ),
                             onTap: () => _pickTime(start: false),
                           ),

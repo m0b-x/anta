@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../constants/event_skips.dart';
 import 'recurrence_rule.dart';
@@ -302,6 +303,14 @@ class CalendarEvent extends Equatable {
     );
   }
 
+  /// Counts [occursOn] invocations. Incremented inside an `assert`, so both
+  /// the statement and its closure are stripped from profile and release
+  /// builds and cost nothing there. Recurrence expansion is the calendar's
+  /// hot loop and the model has no injection seam, so this is what lets a
+  /// test assert a work budget the way `StatementCounter` does for SQL.
+  @visibleForTesting
+  static int debugOccursOnCalls = 0;
+
   /// Returns true if this event has an occurrence on [day].
   ///
   /// All edge cases (Feb 29 yearly, day 31 monthly, pre-start dates, public
@@ -326,6 +335,10 @@ class CalendarEvent extends Equatable {
   /// event — cancelling its only occurrence is a delete, which the UI offers
   /// separately.
   bool occursOn(DateTime day) {
+    assert(() {
+      debugOccursOnCalls++;
+      return true;
+    }());
     final start = DateTime.utc(startDate.year, startDate.month, startDate.day);
     final target = DateTime.utc(day.year, day.month, day.day);
     final end = endDate;

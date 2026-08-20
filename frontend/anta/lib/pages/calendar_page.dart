@@ -110,24 +110,23 @@ class _CalendarViewState extends State<_CalendarView> {
 
   Future<void> _loadSettings() async {
     final settings = await SettingsService.getInstance();
-    final appearance = await settings.getCalendarAppearance();
-    final palette = await settings.getColorPalette();
-    final fastingTraditions = await settings.getFastingTraditions();
-    final fastingAppearance = await settings.getFastingAppearance();
-    final fastingGreatFasts = await settings.getFastingOrthodoxGreatFasts();
-    final fastingSchedule = await settings.getFastingSchedule();
+    // One statement, not sixteen sequential single-row reads: every await here
+    // is a separate round trip to the drift isolate, so their latencies add,
+    // and resolving appearance after the first frame visibly re-lays-out the
+    // grid.
+    final loaded = await settings.getCalendarPageSettings();
     if (!mounted) return;
     // Static sync facade, mirroring PublicHolidays: configure() is a no-op
     // when unchanged, so the reload-on-settings-return path stays cheap.
     FastingCalendar.configure(
-      traditions: fastingTraditions,
-      appearance: fastingAppearance,
-      orthodoxGreatFasts: fastingGreatFasts,
-      schedule: fastingSchedule,
+      traditions: loaded.fastingTraditions,
+      appearance: loaded.fastingAppearance,
+      orthodoxGreatFasts: loaded.fastingGreatFasts,
+      schedule: loaded.fastingSchedule,
     );
     setState(() {
-      _appearance = appearance;
-      _colorPalette = palette;
+      _appearance = loaded.appearance;
+      _colorPalette = loaded.palette;
     });
   }
 
@@ -210,6 +209,23 @@ class _CalendarViewState extends State<_CalendarView> {
     );
   }
 
+  /// Narrow projections of the bloc state, one per app-bar/FAB `buildWhen`.
+  ///
+  /// Each of those builders renders a single icon or button that depends on
+  /// one bit of the state; without a `buildWhen` they all rebuilt on every
+  /// emission, including the occurrence and presence ticks that only concern
+  /// the day panel.
+  static bool _isLoaded(CalendarPageState state) => state is CalendarPageLoaded;
+
+  static bool _hasHiddenCategories(CalendarPageState state) =>
+      state is CalendarPageLoaded && state.hiddenCategoryIds.isNotEmpty;
+
+  static bool _hasEvents(CalendarPageState state) =>
+      state is CalendarPageLoaded && state.allEvents.isNotEmpty;
+
+  static DateTime? _selectedDayOf(CalendarPageState state) =>
+      state is CalendarPageLoaded ? state.selectedDay : null;
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -219,20 +235,28 @@ class _CalendarViewState extends State<_CalendarView> {
         title: Text(l10n.calendar),
         actions: [
           BlocBuilder<CalendarBloc, CalendarPageState>(
+            buildWhen: (previous, current) =>
+                _isLoaded(previous) != _isLoaded(current) ||
+                _hasHiddenCategories(previous) != _hasHiddenCategories(current),
             builder: (context, state) {
-              final loaded = state is CalendarPageLoaded ? state : null;
-              final hasFilter =
-                  loaded != null && loaded.hiddenCategoryIds.isNotEmpty;
+              final isLoaded = _isLoaded(state);
               return IconButton(
                 tooltip: l10n.filterCalendar,
                 icon: Icon(
-                  hasFilter
+                  _hasHiddenCategories(state)
                       ? Icons.filter_alt_rounded
                       : Icons.filter_alt_outlined,
                 ),
-                onPressed: loaded == null
+                onPressed: !isLoaded
                     ? null
-                    : () => _openFilterSheet(context, loaded),
+                    : () {
+                        // Read at press time, not from the builder's state:
+                        // this buildWhen ignores `format`, which the sheet
+                        // needs, so a captured state could be stale.
+                        final current = context.read<CalendarBloc>().state;
+                        if (current is! CalendarPageLoaded) return;
+                        _openFilterSheet(context, current);
+                      },
               );
             },
           ),
@@ -242,15 +266,21 @@ class _CalendarViewState extends State<_CalendarView> {
             onPressed: () => _openSettings(context),
           ),
           BlocBuilder<CalendarBloc, CalendarPageState>(
+            buildWhen: (previous, current) =>
+                _hasEvents(previous) != _hasEvents(current),
             builder: (context, state) {
-              final loaded = state is CalendarPageLoaded ? state : null;
-              final hasEvents = loaded != null && loaded.allEvents.isNotEmpty;
+              final hasEvents = _hasEvents(state);
               return PopupMenuButton<_CalendarMenuAction>(
-                onSelected: (action) => switch (action) {
-                  _CalendarMenuAction.exportIcs => _exportCalendar(
-                    context,
-                    loaded!,
-                  ),
+                onSelected: (action) {
+                  // Read at selection time: this buildWhen only tracks
+                  // whether the list is empty, so a captured state could
+                  // carry a stale event list.
+                  final current = context.read<CalendarBloc>().state;
+                  if (current is! CalendarPageLoaded) return;
+                  switch (action) {
+                    case _CalendarMenuAction.exportIcs:
+                      _exportCalendar(context, current);
+                  }
                 },
                 itemBuilder: (context) => [
                   PopupMenuItem<_CalendarMenuAction>(
@@ -268,7 +298,19 @@ class _CalendarViewState extends State<_CalendarView> {
           ),
         ],
       ),
+      // Three nested builders rather than one. The outer switches between
+      // loading/error/loaded and so only rebuilds when that changes; the grid
+      // and the panel then subscribe separately, because the panel needs
+      // every emission while the grid needs none of the occurrence-description
+      // ticks the panel generates. Each half sits under its own
+      // RepaintBoundary so a panel repaint cannot dirty the 42-cell grid's
+      // layer.
       body: BlocBuilder<CalendarBloc, CalendarPageState>(
+        buildWhen: (previous, current) =>
+            previous.runtimeType != current.runtimeType ||
+            (previous is CalendarPageError &&
+                current is CalendarPageError &&
+                previous.message != current.message),
         builder: (context, state) {
           if (state is CalendarPageLoading || state is CalendarPageInitial) {
             return const Center(child: CircularProgressIndicator());
@@ -276,7 +318,6 @@ class _CalendarViewState extends State<_CalendarView> {
           if (state is CalendarPageError) {
             return Center(child: Text(state.message));
           }
-          final loaded = state as CalendarPageLoaded;
           return Column(
             children: [
               // AnimatedSize collapses the grid to zero height when the
@@ -288,39 +329,63 @@ class _CalendarViewState extends State<_CalendarView> {
                 alignment: Alignment.topCenter,
                 child: _panelExpanded
                     ? const SizedBox(width: double.infinity)
-                    : _CalendarTable(
-                        state: loaded,
-                        appearance: _appearance,
-                        barsResolver: _resolverFor(l10n),
-                        tintResolver: _cellTintResolver,
-                        onDayLongPressed: (day) =>
-                            _quickAddFromTemplate(context, day),
+                    : RepaintBoundary(
+                        child: BlocBuilder<CalendarBloc, CalendarPageState>(
+                          buildWhen: (previous, current) =>
+                              previous is! CalendarPageLoaded ||
+                              current is! CalendarPageLoaded ||
+                              !previous.sameGridInputs(current),
+                          builder: (context, state) {
+                            if (state is! CalendarPageLoaded) {
+                              return const SizedBox(width: double.infinity);
+                            }
+                            return _CalendarTable(
+                              state: state,
+                              appearance: _appearance,
+                              barsResolver: _resolverFor(l10n),
+                              tintResolver: _cellTintResolver,
+                              onDayLongPressed: (day) =>
+                                  _quickAddFromTemplate(context, day),
+                            );
+                          },
+                        ),
                       ),
               ),
               const Divider(height: 1),
               Expanded(
-                child: CalendarBottomPanel(
-                  loaded: loaded,
-                  expanded: _panelExpanded,
-                  onToggleExpanded: () =>
-                      setState(() => _panelExpanded = !_panelExpanded),
-                  onEditEvent: (event, day) => _openEditorSheet(
-                    context,
-                    initialEvent: event,
-                    occurrenceDay: day,
-                  ),
-                  onShowEvent: (event, day) =>
-                      _openDetailSheet(context, event, day),
-                  onOpenNote: (event) => _openLinkedNote(context, event),
-                  colorPalette: _colorPalette,
-                  showRecurrenceLabels: _appearance.showRecurrenceLabels,
-                  missedDisplay: _appearance.missedDisplay,
-                  onSuppressHoliday: (day) => _removeHoliday(context, day),
-                  onToggleMissed: (event, day, missed) => _setOccurrenceMissed(
-                    context.read<CalendarBloc>(),
-                    event.id,
-                    day,
-                    missed,
+                child: RepaintBoundary(
+                  child: BlocBuilder<CalendarBloc, CalendarPageState>(
+                    builder: (context, state) {
+                      if (state is! CalendarPageLoaded) {
+                        return const SizedBox.shrink();
+                      }
+                      return CalendarBottomPanel(
+                        loaded: state,
+                        expanded: _panelExpanded,
+                        onToggleExpanded: () =>
+                            setState(() => _panelExpanded = !_panelExpanded),
+                        onEditEvent: (event, day) => _openEditorSheet(
+                          context,
+                          initialEvent: event,
+                          occurrenceDay: day,
+                        ),
+                        onShowEvent: (event, day) =>
+                            _openDetailSheet(context, event, day),
+                        onOpenNote: (event) => _openLinkedNote(context, event),
+                        colorPalette: _colorPalette,
+                        showRecurrenceLabels: _appearance.showRecurrenceLabels,
+                        missedDisplay: _appearance.missedDisplay,
+                        onSuppressHoliday: (day) =>
+                            _removeHoliday(context, day),
+                        onToggleMissed: (event, day, missed) =>
+                            _setOccurrenceMissed(
+                              context.read<CalendarBloc>(),
+                              event.id,
+                              day,
+                              missed,
+                            ),
+                      );
+                    },
                   ),
                 ),
               ),
@@ -329,13 +394,14 @@ class _CalendarViewState extends State<_CalendarView> {
         },
       ),
       floatingActionButton: BlocBuilder<CalendarBloc, CalendarPageState>(
+        buildWhen: (previous, current) =>
+            _selectedDayOf(previous) != _selectedDayOf(current),
         builder: (context, state) {
-          final selectedDay = state is CalendarPageLoaded
-              ? state.selectedDay
-              : DateTime.now();
+          final selectedDay = _selectedDayOf(state);
           return FloatingActionButton(
             tooltip: l10n.addEvent,
-            onPressed: () => _openEditorSheet(context, day: selectedDay),
+            onPressed: () =>
+                _openEditorSheet(context, day: selectedDay ?? DateTime.now()),
             child: const Icon(Icons.add_rounded),
           );
         },
@@ -394,10 +460,7 @@ class _CalendarViewState extends State<_CalendarView> {
   /// With no templates yet, this falls through to the normal editor rather
   /// than showing an empty sheet: a long-press that appears to do nothing is
   /// worse than one that does the obvious thing.
-  Future<void> _quickAddFromTemplate(
-    BuildContext context,
-    DateTime day,
-  ) async {
+  Future<void> _quickAddFromTemplate(BuildContext context, DateTime day) async {
     final normalized = DateTime.utc(day.year, day.month, day.day);
     if (CalendarTemplates.isEmpty) {
       await _openEditorSheet(context, day: normalized);
@@ -943,7 +1006,7 @@ class _CalendarTable extends StatelessWidget {
               state.format == CalendarFormat.month &&
               (day.month != state.focusedDay.month ||
                   day.year != state.focusedDay.year);
-          Widget child = Align(
+          return Align(
             alignment: Alignment.bottomCenter,
             child: Padding(
               padding: const EdgeInsets.only(bottom: 4),
@@ -951,11 +1014,10 @@ class _CalendarTable extends StatelessWidget {
                 bars: bars,
                 maxBars: appearance.maxDayBars,
                 style: appearance.markerStyle,
+                opacity: isOutside ? CalendarDayCell.outsideAlpha : 1.0,
               ),
             ),
           );
-          if (isOutside) child = Opacity(opacity: 0.35, child: child);
-          return child;
         },
       ),
       onDaySelected: (selectedDay, focusedDay) {

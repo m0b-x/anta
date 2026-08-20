@@ -596,8 +596,6 @@ class PairingService {
     pendingCode: settings.pendingCode,
     pendingExpiresAt: settings.pendingExpiresAt,
     endedNoticePending: settings.endedNoticePending,
-    endedPartnerName: settings.endedNoticePending
-        ? settings.partnerName
-        : null,
+    endedPartnerName: settings.endedNoticePending ? settings.partnerName : null,
   );
 }

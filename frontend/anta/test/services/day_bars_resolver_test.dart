@@ -132,10 +132,9 @@ void main() {
         providers: [EventDayBarProvider()],
       );
 
-      expect(
-        barIds(resolver.resolve(day, events)),
-        [for (final e in expected) e.id],
-      );
+      expect(barIds(resolver.resolve(day, events)), [
+        for (final e in expected) e.id,
+      ]);
     });
   });
 
@@ -166,12 +165,16 @@ void main() {
           .toList(growable: false);
 
       expect(bars, hasLength(1));
-      expect(bars.single.color.a, closeTo(CalendarColors.missedEventAlpha, 0.01));
+      expect(
+        bars.single.color.a,
+        closeTo(CalendarColors.missedEventAlpha, 0.01),
+      );
     });
 
     test('an untracked event on a marked day is never faded', () {
       final bars = const EventDayBarProvider()
-          .barsFor(day, [event('missed')]).toList(growable: false);
+          .barsFor(day, [event('missed')])
+          .toList(growable: false);
 
       expect(bars.single.color.a, closeTo(1.0, 0.01));
     });
@@ -182,9 +185,8 @@ void main() {
       const override = 0xFF123456;
 
       final bars = const EventDayBarProvider()
-          .barsFor(day, [event('e', colorValue: override)]).toList(
-            growable: false,
-          );
+          .barsFor(day, [event('e', colorValue: override)])
+          .toList(growable: false);
 
       expect(bars.single.color, const Color(override));
     });

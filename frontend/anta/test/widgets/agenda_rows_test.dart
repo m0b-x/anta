@@ -88,10 +88,10 @@ void main() {
     );
 
     expect(rows.whereType<AgendaDayHeaderRow>().map((r) => r.day), [day1]);
-    expect(
-      rows.whereType<AgendaEntryRow>().map((r) => r.entry.title),
-      ['Leg day', 'Mobility'],
-    );
+    expect(rows.whereType<AgendaEntryRow>().map((r) => r.entry.title), [
+      'Leg day',
+      'Mobility',
+    ]);
   });
 
   test('faded mode keeps the missed entry and its day', () {

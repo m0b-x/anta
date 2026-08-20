@@ -163,8 +163,7 @@ class SettingsKeys {
   /// JSON object keyed by tradition name (the retired
   /// `tradition:style|argb|iconKey|placement;…` form is still readable).
   /// Unknown traditions and malformed fields degrade to defaults on read.
-  static const String calendarFastingAppearance =
-      'calendar_fasting_appearance';
+  static const String calendarFastingAppearance = 'calendar_fasting_appearance';
 
   /// Whether the Orthodox multi-day fasts (plus strict single days and
   /// Cheesefare) are computed, or only the weekly fast days.

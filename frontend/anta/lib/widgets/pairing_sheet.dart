@@ -269,9 +269,9 @@ class _PairingSheetState extends State<_PairingSheet> {
       child: Text(
         PairingErrorMessages.of(l10n).resolve(error),
         textAlign: TextAlign.center,
-        style: Theme.of(
-          context,
-        ).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.error),
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: Theme.of(context).colorScheme.error,
+        ),
       ),
     );
   }
@@ -299,7 +299,6 @@ class _PairingSheetState extends State<_PairingSheet> {
     PairingPaired(:final busy) => busy,
     _ => false,
   };
-
 }
 
 /// Owns its own ticker so the per-second rebuild is scoped to this one line of
@@ -345,8 +344,7 @@ class _CountdownState extends State<_Countdown> {
     });
   }
 
-  Duration _remaining() =>
-      widget.expiresAt.difference(DateTime.now().toUtc());
+  Duration _remaining() => widget.expiresAt.difference(DateTime.now().toUtc());
 
   @override
   Widget build(BuildContext context) {

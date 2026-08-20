@@ -33,9 +33,7 @@ void main() {
   }
 
   void skip(Iterable<DateTime> days, {String id = 'e1'}) {
-    EventSkips.updateCache(byEvent: {
-      id: days.toSet(),
-    });
+    EventSkips.updateCache(byEvent: {id: days.toSet()});
   }
 
   setUp(EventSkips.resetCache);
@@ -53,10 +51,7 @@ void main() {
     test('neighbouring days are untouched', () {
       skip([day]);
 
-      expect(
-        event().occursOn(day.subtract(const Duration(days: 1))),
-        isTrue,
-      );
+      expect(event().occursOn(day.subtract(const Duration(days: 1))), isTrue);
       expect(event().occursOn(day.add(const Duration(days: 1))), isTrue);
     });
 

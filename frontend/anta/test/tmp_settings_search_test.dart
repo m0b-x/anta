@@ -36,15 +36,18 @@ void main() {
       expect(source.substring(range.start, range.end), 'schließen');
     });
 
-    test('a span landing inside a multi-unit fold covers the whole source char', () {
-      const source = 'Fußzeile';
-      final folded = FoldedText.of(source);
-      expect(folded.value, 'fusszeile');
+    test(
+      'a span landing inside a multi-unit fold covers the whole source char',
+      () {
+        const source = 'Fußzeile';
+        final folded = FoldedText.of(source);
+        expect(folded.value, 'fusszeile');
 
-      // Match only the first 's' of the 'ss' pair.
-      final range = folded.toSourceRange(2, 3);
-      expect(source.substring(range.start, range.end), 'ß');
-    });
+        // Match only the first 's' of the 'ss' pair.
+        final range = folded.toSourceRange(2, 3);
+        expect(source.substring(range.start, range.end), 'ß');
+      },
+    );
   });
 
   group('matchSettingsEntry', () {

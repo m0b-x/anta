@@ -14,9 +14,11 @@ List<FastingPeriod> _periodsOn(DateTime day) =>
 /// Every day of [year], so a test can assert about a whole year rather than
 /// about dates it had to look up by hand.
 Iterable<DateTime> _daysOf(int year) sync* {
-  for (var day = _d(year, 1, 1);
-      day.year == year;
-      day = day.add(const Duration(days: 1))) {
+  for (
+    var day = _d(year, 1, 1);
+    day.year == year;
+    day = day.add(const Duration(days: 1))
+  ) {
     yield day;
   }
 }
@@ -119,11 +121,10 @@ void main() {
   });
 
   group('months, allFasts scope', () {
-    FastingSchedule withoutDecember() =>
-        const FastingSchedule().copyWith(
-          months: FastingSchedule.allMonths.where((m) => m != 12).toSet(),
-          monthScope: FastingMonthScope.allFasts,
-        );
+    FastingSchedule withoutDecember() => const FastingSchedule().copyWith(
+      months: FastingSchedule.allMonths.where((m) => m != 12).toSet(),
+      monthScope: FastingMonthScope.allFasts,
+    );
 
     test('a disabled month drops every fast, great fasts included', () {
       _configureOrthodox(greatFasts: true, schedule: withoutDecember());
@@ -183,10 +184,9 @@ void main() {
       final ashWednesday = easter2026.subtract(const Duration(days: 46));
       expect(_periodsOn(goodFriday), [FastingPeriod.goodFriday]);
       expect(_periodsOn(ashWednesday), [FastingPeriod.ashWednesday]);
-      expect(
-        _periodsOn(ashWednesday.add(const Duration(days: 1))),
-        [FastingPeriod.lent],
-      );
+      expect(_periodsOn(ashWednesday.add(const Duration(days: 1))), [
+        FastingPeriod.lent,
+      ]);
     });
   });
 
@@ -195,15 +195,12 @@ void main() {
       final lentWednesday = pascha2026.subtract(const Duration(days: 46));
       _configureOrthodox(
         greatFasts: true,
-        schedule: const FastingSchedule().copyWith(
-          skipDates: {lentWednesday},
-        ),
+        schedule: const FastingSchedule().copyWith(skipDates: {lentWednesday}),
       );
       expect(FastingCalendar.on(lentWednesday), isEmpty);
-      expect(
-        _periodsOn(lentWednesday.add(const Duration(days: 1))),
-        [FastingPeriod.greatLent],
-      );
+      expect(_periodsOn(lentWednesday.add(const Duration(days: 1))), [
+        FastingPeriod.greatLent,
+      ]);
     });
 
     test('a skip on an unmarked day is a no-op', () {

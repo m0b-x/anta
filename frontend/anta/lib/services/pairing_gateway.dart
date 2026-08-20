@@ -378,8 +378,9 @@ class FirestorePairingGateway implements PairingGateway {
       rethrow;
     } on FirebaseException catch (e) {
       throw PairingException(switch (e.code) {
-        'unavailable' || 'deadline-exceeded' || 'aborted' =>
-          PairingError.offline,
+        'unavailable' ||
+        'deadline-exceeded' ||
+        'aborted' => PairingError.offline,
         'permission-denied' => PairingError.permissionDenied,
         // A missing composite index. Nothing the user can do, but reporting it
         // as "unavailable" beats "something went wrong" on every page open.

@@ -50,16 +50,19 @@ void main() {
   });
 
   group('availability', () {
-    test('a no-op gateway reads as unavailable, not as a pairing button', () async {
-      final auth = FakeAuthService(user: userA);
-      final gateway = FakePairingGateway(available: false);
-      addTearDown(gateway.dispose);
-      await _bootService(auth, gateway);
+    test(
+      'a no-op gateway reads as unavailable, not as a pairing button',
+      () async {
+        final auth = FakeAuthService(user: userA);
+        final gateway = FakePairingGateway(available: false);
+        addTearDown(gateway.dispose);
+        await _bootService(auth, gateway);
 
-      final (bloc, states) = await _pumpBloc(auth, gateway);
-      expect(states, [const PairingUnavailable()]);
-      await bloc.close();
-    });
+        final (bloc, states) = await _pumpBloc(auth, gateway);
+        expect(states, [const PairingUnavailable()]);
+        await bloc.close();
+      },
+    );
 
     test('signed out reports signed out rather than unpaired', () async {
       final auth = FakeAuthService();
@@ -102,7 +105,10 @@ void main() {
 
       final inviting = states.last;
       expect(inviting, isA<PairingInviting>());
-      expect((inviting as PairingInviting).code.length, PairingService.codeLength);
+      expect(
+        (inviting as PairingInviting).code.length,
+        PairingService.codeLength,
+      );
       expect(gateway.invites, hasLength(1));
       await bloc.close();
     });
@@ -128,27 +134,30 @@ void main() {
       await bloc.close();
     });
 
-    test('generating offline keeps the state and attaches the reason', () async {
-      final auth = FakeAuthService(user: userA);
-      final gateway = FakePairingGateway();
-      addTearDown(gateway.dispose);
-      await _bootService(auth, gateway);
-      final (bloc, states) = await _pumpBloc(auth, gateway);
+    test(
+      'generating offline keeps the state and attaches the reason',
+      () async {
+        final auth = FakeAuthService(user: userA);
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        await _bootService(auth, gateway);
+        final (bloc, states) = await _pumpBloc(auth, gateway);
 
-      gateway.failNext = PairingError.offline;
-      bloc.add(const GenerateInviteRequested());
-      await pumpEventQueue();
+        gateway.failNext = PairingError.offline;
+        bloc.add(const GenerateInviteRequested());
+        await pumpEventQueue();
 
-      final failed = states.last;
-      expect(failed, isA<PairingUnpaired>());
-      expect(
-        (failed as PairingUnpaired).failure,
-        const PairingFailure(PairingError.offline, PairingAction.generate),
-        reason: 'a failed "create a code" must not accuse the code field',
-      );
-      expect(failed.busy, isFalse);
-      await bloc.close();
-    });
+        final failed = states.last;
+        expect(failed, isA<PairingUnpaired>());
+        expect(
+          (failed as PairingUnpaired).failure,
+          const PairingFailure(PairingError.offline, PairingAction.generate),
+          reason: 'a failed "create a code" must not accuse the code field',
+        );
+        expect(failed.busy, isFalse);
+        await bloc.close();
+      },
+    );
 
     test('a failed cancel keeps the code the user is reading aloud', () async {
       final auth = FakeAuthService(user: userA);
@@ -177,51 +186,58 @@ void main() {
   });
 
   group('redeem', () {
-    test('an invalid code surfaces its own message, not a generic failure', () async {
-      final auth = FakeAuthService(user: userA);
-      final gateway = FakePairingGateway();
-      addTearDown(gateway.dispose);
-      await _bootService(auth, gateway);
-      final (bloc, states) = await _pumpBloc(auth, gateway);
+    test(
+      'an invalid code surfaces its own message, not a generic failure',
+      () async {
+        final auth = FakeAuthService(user: userA);
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        await _bootService(auth, gateway);
+        final (bloc, states) = await _pumpBloc(auth, gateway);
 
-      bloc.add(const RedeemCodeRequested('K7M2P4XQ'));
-      await pumpEventQueue();
+        bloc.add(const RedeemCodeRequested('K7M2P4XQ'));
+        await pumpEventQueue();
 
-      final failed = states.last;
-      expect(failed, isA<PairingUnpaired>());
-      final failure = (failed as PairingUnpaired).failure!;
-      expect(failure.error, PairingError.codeInvalid);
-      expect(
-        failure.belongsToCodeField,
-        isTrue,
-        reason: 'a redemption failure belongs under the field they typed into',
-      );
-      await bloc.close();
-    });
+        final failed = states.last;
+        expect(failed, isA<PairingUnpaired>());
+        final failure = (failed as PairingUnpaired).failure!;
+        expect(failure.error, PairingError.codeInvalid);
+        expect(
+          failure.belongsToCodeField,
+          isTrue,
+          reason:
+              'a redemption failure belongs under the field they typed into',
+        );
+        await bloc.close();
+      },
+    );
 
-    test('redeeming your own code is rejected before any pair exists', () async {
-      final auth = FakeAuthService(user: userA);
-      final gateway = FakePairingGateway();
-      addTearDown(gateway.dispose);
-      await _bootService(auth, gateway);
-      final (bloc, states) = await _pumpBloc(auth, gateway);
+    test(
+      'redeeming your own code is rejected before any pair exists',
+      () async {
+        final auth = FakeAuthService(user: userA);
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        await _bootService(auth, gateway);
+        final (bloc, states) = await _pumpBloc(auth, gateway);
 
-      bloc.add(const GenerateInviteRequested());
-      await pumpEventQueue();
-      final code = (states.last as PairingInviting).code;
+        bloc.add(const GenerateInviteRequested());
+        await pumpEventQueue();
+        final code = (states.last as PairingInviting).code;
 
-      bloc.add(RedeemCodeRequested(code));
-      await pumpEventQueue();
+        bloc.add(RedeemCodeRequested(code));
+        await pumpEventQueue();
 
-      final failed = states.last;
-      expect(failed, isA<PairingInviting>());
-      expect(
-        (failed as PairingInviting).failure,
-        const PairingFailure(PairingError.ownCode, PairingAction.redeem),
-      );
-      expect(gateway.createPairCalls, 0);
-      await bloc.close();
-    });
+        final failed = states.last;
+        expect(failed, isA<PairingInviting>());
+        expect(
+          (failed as PairingInviting).failure,
+          const PairingFailure(PairingError.ownCode, PairingAction.redeem),
+        );
+        expect(gateway.createPairCalls, 0);
+        await bloc.close();
+      },
+    );
 
     test('a completed redemption reports the partner', () async {
       final gateway = FakePairingGateway();
@@ -292,24 +308,27 @@ void main() {
       await bloc.close();
     });
 
-    test('unpairing yourself goes straight to unpaired, with no notice', () async {
-      final gateway = FakePairingGateway();
-      addTearDown(gateway.dispose);
-      final creatorAuth = FakeAuthService(user: userA);
-      final creator = await _bootService(creatorAuth, gateway);
-      final code = (await creator.generateInvite()).pendingCode!;
+    test(
+      'unpairing yourself goes straight to unpaired, with no notice',
+      () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final creatorAuth = FakeAuthService(user: userA);
+        final creator = await _bootService(creatorAuth, gateway);
+        final code = (await creator.generateInvite()).pendingCode!;
 
-      final auth = FakeAuthService(user: userB);
-      await _bootService(auth, gateway);
-      final (bloc, states) = await _pumpBloc(auth, gateway);
-      bloc.add(RedeemCodeRequested(code));
-      await pumpEventQueue();
+        final auth = FakeAuthService(user: userB);
+        await _bootService(auth, gateway);
+        final (bloc, states) = await _pumpBloc(auth, gateway);
+        bloc.add(RedeemCodeRequested(code));
+        await pumpEventQueue();
 
-      bloc.add(const UnpairRequested());
-      await pumpEventQueue();
+        bloc.add(const UnpairRequested());
+        await pumpEventQueue();
 
-      expect(states.last, isA<PairingUnpaired>());
-      await bloc.close();
-    });
+        expect(states.last, isA<PairingUnpaired>());
+        await bloc.close();
+      },
+    );
   });
 }

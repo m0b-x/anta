@@ -54,12 +54,30 @@ class CalendarDayCell extends StatelessWidget {
     this.fastingNumberColor,
   });
 
+  /// Alpha multiplier for a day belonging to an adjacent month. Shared with
+  /// the marker strip so the cell and its bars fade by the same amount.
+  static const double outsideAlpha = 0.35;
+
   /// Text color that stays legible on top of [accent], whatever the user
   /// picked (the accent is customizable, so `onPrimary` is not enough).
+  ///
+  /// Reads the **un-faded** [accent] on purpose: this is a brightness
+  /// estimate, and fading first pushes a mid-tone accent across the threshold
+  /// and inverts an outside day's number from white to black87.
   Color get _onAccent =>
       ThemeData.estimateBrightnessForColor(accent) == Brightness.dark
       ? Colors.white
       : Colors.black87;
+
+  /// Applies the outside-month fade to one colour.
+  ///
+  /// Replaces an `Opacity` wrapper around the whole cell. `Opacity` allocates
+  /// an offscreen compositing layer per outside day — 22-26 of them per page
+  /// paint across the grid and the marker strip — for what is only ever a
+  /// colour change. Multiplies rather than sets, because [tint]'s colours
+  /// already arrive with their own alpha applied.
+  Color _fade(Color color) =>
+      isOutside ? color.withValues(alpha: color.a * outsideAlpha) : color;
 
   @override
   Widget build(BuildContext context) {
@@ -81,6 +99,17 @@ class CalendarDayCell extends StatelessWidget {
     } else {
       numberColor = colorScheme.onSurface;
     }
+    // The number sits *on top of* the chip, so fading the two independently
+    // destroys the contrast between them — the digit washes out against its
+    // own background. That only happens where the chip is opaque; everywhere
+    // else the chip paints on transparency, where per-colour alpha and
+    // `Opacity` are exactly equivalent. So this one branch keeps the composite
+    // fade, at a cost of at most two layers per grid (an outside day can be
+    // today or selected, not twenty-six of them).
+    final onOpaqueChip = isSelected || filledToday;
+    final fadeComposite = isOutside && onOpaqueChip;
+    if (!onOpaqueChip) numberColor = _fade(numberColor);
+    final chipAccent = fadeComposite ? accent : _fade(accent);
 
     final numberStyle = theme.textTheme.bodyMedium!.copyWith(
       color: numberColor,
@@ -99,33 +128,33 @@ class CalendarDayCell extends StatelessWidget {
         height: chipSize,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          border: Border.all(color: accent, width: 1.6),
+          border: Border.all(color: chipAccent, width: 1.6),
         ),
         alignment: Alignment.center,
         child: Container(
           width: chipSize - 7,
           height: chipSize - 7,
-          decoration: BoxDecoration(shape: BoxShape.circle, color: accent),
+          decoration: BoxDecoration(shape: BoxShape.circle, color: chipAccent),
           alignment: Alignment.center,
           child: Text('${day.day}', style: numberStyle),
         ),
       );
     } else {
       final decoration = isSelected
-          ? BoxDecoration(shape: BoxShape.circle, color: accent)
+          ? BoxDecoration(shape: BoxShape.circle, color: chipAccent)
           : isToday
           ? switch (todayStyle) {
               CalendarTodayStyle.tonal => BoxDecoration(
                 shape: BoxShape.circle,
-                color: accent.withValues(alpha: 0.16),
+                color: _fade(accent.withValues(alpha: 0.16)),
               ),
               CalendarTodayStyle.ring => BoxDecoration(
                 shape: BoxShape.circle,
-                border: Border.all(color: accent, width: 1.6),
+                border: Border.all(color: chipAccent, width: 1.6),
               ),
               CalendarTodayStyle.filled => BoxDecoration(
                 shape: BoxShape.circle,
-                color: accent,
+                color: chipAccent,
               ),
             }
           : null;
@@ -138,12 +167,18 @@ class CalendarDayCell extends StatelessWidget {
       );
     }
 
+    if (fadeComposite) {
+      chip = Opacity(opacity: outsideAlpha, child: chip);
+    }
+
     Widget cell = Align(
       alignment: Alignment.topCenter,
       child: Padding(padding: const EdgeInsets.only(top: 4), child: chip),
     );
-    final wash = tint.wash;
-    final edge = tint.edge;
+    final rawWash = tint.wash;
+    final rawEdge = tint.edge;
+    final wash = rawWash == null ? null : _fade(rawWash);
+    final edge = rawEdge == null ? null : _fade(rawEdge);
     if (wash != null || edge != null) {
       cell = Container(
         margin: const EdgeInsets.all(1.5),
@@ -173,9 +208,6 @@ class CalendarDayCell extends StatelessWidget {
                 ],
               ),
       );
-    }
-    if (isOutside) {
-      cell = Opacity(opacity: 0.35, child: cell);
     }
     return cell;
   }

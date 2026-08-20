@@ -44,9 +44,7 @@ class EventTemplateDao extends DatabaseAccessor<AppDatabase>
       if (existing == null) {
         await into(eventTemplates).insert(
           entry.copyWith(
-            createdAt: entry.createdAt.present
-                ? entry.createdAt
-                : Value(now),
+            createdAt: entry.createdAt.present ? entry.createdAt : Value(now),
             updatedAt: Value(now),
             hlcTimestamp: Value(hlc),
             deviceId: Value(db.deviceId),
@@ -97,12 +95,11 @@ class EventTemplateDao extends DatabaseAccessor<AppDatabase>
   /// Next free display position. Tombstones count: reusing a dead template's
   /// slot would reorder the list if that template is ever resurrected.
   Future<int> nextSortOrder() async {
-    final row =
-        await customSelect(
-          'SELECT COALESCE(MAX(sort_order), -1) AS max_order '
-          'FROM calendar_event_templates',
-          readsFrom: {eventTemplates},
-        ).getSingle();
+    final row = await customSelect(
+      'SELECT COALESCE(MAX(sort_order), -1) AS max_order '
+      'FROM calendar_event_templates',
+      readsFrom: {eventTemplates},
+    ).getSingle();
     return row.read<int>('max_order') + 1;
   }
 

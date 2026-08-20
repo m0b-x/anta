@@ -148,7 +148,10 @@ void main() {
       reason: 'issued:\n${counter.statements.join('\n')}',
     );
     expect(
-      [for (final s in counter.selects) if (s.sql.contains('calendar_events')) s],
+      [
+        for (final s in counter.selects)
+          if (s.sql.contains('calendar_events')) s,
+      ],
       hasLength(1),
       reason:
           'the single SELECT is the intended read; a second one means the '

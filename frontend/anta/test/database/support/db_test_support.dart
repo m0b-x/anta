@@ -104,12 +104,16 @@ class StatementCounter extends QueryInterceptor {
 
   List<String> get statements => [for (final c in captured) c.sql];
 
-  List<CapturedStatement> get selects =>
-      [for (final c in captured) if (c.isSelect) c];
+  List<CapturedStatement> get selects => [
+    for (final c in captured)
+      if (c.isSelect) c,
+  ];
 
   /// Statements containing [fragment], for asserting *which* query repeated.
-  List<String> matching(String fragment) =>
-      [for (final c in captured) if (c.sql.contains(fragment)) c.sql];
+  List<String> matching(String fragment) => [
+    for (final c in captured)
+      if (c.sql.contains(fragment)) c.sql,
+  ];
 
   @override
   Future<List<Map<String, Object?>>> runSelect(

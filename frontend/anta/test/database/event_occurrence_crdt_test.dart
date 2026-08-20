@@ -28,9 +28,8 @@ void main() {
   tearDown(() async => db.close());
 
   Future<EventOccurrenceRow> rowFor(String eventId, DateTime value) {
-    return (db.select(db.eventOccurrenceDescriptions)..where(
-          (o) => o.eventId.equals(eventId) & o.day.equals(value),
-        ))
+    return (db.select(db.eventOccurrenceDescriptions)
+          ..where((o) => o.eventId.equals(eventId) & o.day.equals(value)))
         .getSingle();
   }
 
@@ -38,38 +37,44 @@ void main() {
       db.select(db.eventOccurrenceDescriptions).get();
 
   group('stamping', () {
-    test('a first write is a live version-1 row stamped with this device', () async {
-      await db.eventOccurrenceDao.upsert(_entry(day, 'squats felt heavy'));
+    test(
+      'a first write is a live version-1 row stamped with this device',
+      () async {
+        await db.eventOccurrenceDao.upsert(_entry(day, 'squats felt heavy'));
 
-      final row = await rowFor('e1', day);
-      expect(row.description, 'squats felt heavy');
-      expect(row.version, 1);
-      expect(row.isDeleted, isFalse);
-      expect(row.deletedAt, isNull);
-      // `''` exists only between the v28 ALTER and its backfill. Seeing it come
-      // out of a write path means something wrote around the DAO.
-      expect(row.hlcTimestamp, isNotEmpty);
-      expect(row.deviceId, 'test-device');
-    });
+        final row = await rowFor('e1', day);
+        expect(row.description, 'squats felt heavy');
+        expect(row.version, 1);
+        expect(row.isDeleted, isFalse);
+        expect(row.deletedAt, isNull);
+        // `''` exists only between the v28 ALTER and its backfill. Seeing it come
+        // out of a write path means something wrote around the DAO.
+        expect(row.hlcTimestamp, isNotEmpty);
+        expect(row.deviceId, 'test-device');
+      },
+    );
 
-    test('an edit bumps the version, keeps createdAt and moves the HLC', () async {
-      await db.eventOccurrenceDao.upsert(_entry(day, 'squats felt heavy'));
-      final before = await rowFor('e1', day);
+    test(
+      'an edit bumps the version, keeps createdAt and moves the HLC',
+      () async {
+        await db.eventOccurrenceDao.upsert(_entry(day, 'squats felt heavy'));
+        final before = await rowFor('e1', day);
 
-      await db.eventOccurrenceDao.upsert(
-        _entry(day, 'deload next week', createdAt: DateTime.utc(2030, 1, 1)),
-      );
-      final after = await rowFor('e1', day);
+        await db.eventOccurrenceDao.upsert(
+          _entry(day, 'deload next week', createdAt: DateTime.utc(2030, 1, 1)),
+        );
+        final after = await rowFor('e1', day);
 
-      expect(after.description, 'deload next week');
-      expect(after.version, before.version + 1);
-      // The whole reason this is not `insertOnConflictUpdate`: the caller's
-      // companion always carries a `createdAt`, and it is always wrong.
-      expect(after.createdAt, before.createdAt);
-      // A version bump with a stale HLC would order two edits arbitrarily.
-      expect(after.hlcTimestamp, isNot(before.hlcTimestamp));
-      expect(after.deviceId, 'test-device');
-    });
+        expect(after.description, 'deload next week');
+        expect(after.version, before.version + 1);
+        // The whole reason this is not `insertOnConflictUpdate`: the caller's
+        // companion always carries a `createdAt`, and it is always wrong.
+        expect(after.createdAt, before.createdAt);
+        // A version bump with a stale HLC would order two edits arbitrarily.
+        expect(after.hlcTimestamp, isNot(before.hlcTimestamp));
+        expect(after.deviceId, 'test-device');
+      },
+    );
 
     test('an empty description is a row, not an absence of one', () async {
       await db.eventOccurrenceDao.upsert(_entry(day, ''));
@@ -168,10 +173,7 @@ void main() {
       // One user action, one point in the merge order — the days died together
       // and must not sort against each other.
       expect(
-        rows
-            .where((r) => r.eventId == 'e1')
-            .map((r) => r.hlcTimestamp)
-            .toSet(),
+        rows.where((r) => r.eventId == 'e1').map((r) => r.hlcTimestamp).toSet(),
         hasLength(1),
       );
       final survivor = await rowFor('e2', day);
@@ -210,12 +212,7 @@ void main() {
       final createdAt = DateTime(2024, 3, 1, 9, 30);
       final updatedAt = DateTime(2024, 3, 2, 18, 5);
       await db.eventOccurrenceDao.importOccurrence(
-        _entry(
-          day,
-          'restored',
-          createdAt: createdAt,
-          updatedAt: updatedAt,
-        ),
+        _entry(day, 'restored', createdAt: createdAt, updatedAt: updatedAt),
       );
 
       final row = await rowFor('e1', day);

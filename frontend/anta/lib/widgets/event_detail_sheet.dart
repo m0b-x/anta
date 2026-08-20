@@ -141,10 +141,7 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
   /// Resolved for [widget.day], so a per-occurrence event shows its override
   /// and every other event shows the shared description.
   late String _description =
-      OccurrenceDescriptions.descriptionFor(
-        widget.event,
-        widget.day,
-      )?.trim() ??
+      OccurrenceDescriptions.descriptionFor(widget.event, widget.day)?.trim() ??
       '';
 
   Timer? _writeTimer;

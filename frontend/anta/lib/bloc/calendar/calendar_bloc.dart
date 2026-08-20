@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../constants/public_holidays.dart';
 import '../../models/calendar_event.dart';
 import '../../services/calendar_event_service.dart';
 import '../../services/event_occurrence_service.dart';
@@ -24,6 +25,17 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   /// month-paging session cannot grow it without limit.
   final Map<DateTime, List<CalendarEvent>> _dayCache = {};
   static const int _maxDayCacheEntries = 512;
+
+  /// Generation of [PublicHolidays] the memoized days were expanded against.
+  ///
+  /// `WorkdaysRecurrence` and `PublicHolidaysOnlyRecurrence` consult
+  /// `PublicHolidays.isHoliday` from inside `occursOn`, so a profile switch or
+  /// a suppression changes which days those events occur on without touching a
+  /// single event row — no handler here can see it. Held as one generation
+  /// rather than per entry (the shape [_monthNetCache] uses) because a holiday
+  /// change invalidates every day at once, and because folding it into the key
+  /// instead would grow the cache rather than clear it.
+  int _dayCacheHolidayRevision = -1;
 
   /// Memoizes the header's net money change per month. The scan is O(N) over
   /// the whole event list and the header rebuilds on every day tap, so it
@@ -61,6 +73,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   List<CalendarEvent> eventsForDay(DateTime day) {
     final current = state;
     if (current is! CalendarPageLoaded) return const [];
+    _syncHolidayGeneration();
     final key = DateTime.utc(day.year, day.month, day.day);
     final cached = _dayCache[key];
     if (cached != null) return cached;
@@ -89,6 +102,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     if (current is! CalendarPageLoaded) return 0;
     final ledger = NoteMoneyLedgerService.instanceOrNull;
     if (ledger == null) return 0;
+    _syncHolidayGeneration();
     final key = DateTime.utc(month.year, month.month, 1);
     final revision = ledger.revision;
     final cached = _monthNetCache[key];
@@ -125,6 +139,18 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     if (_monthNetCache.length >= _maxMonthNetEntries) _monthNetCache.clear();
     _monthNetCache[key] = (revision: revision, net: sum);
     return sum;
+  }
+
+  /// Drops both memos when the holiday set has been republished since they
+  /// were built. Called from the two read paths rather than from a handler
+  /// because nothing dispatches on a holiday change — `PublicHolidayService`
+  /// publishes straight into the static facade, and backup restore and a
+  /// database switch reach it with no event in between.
+  void _syncHolidayGeneration() {
+    final revision = PublicHolidays.revision;
+    if (_dayCacheHolidayRevision == revision) return;
+    _dayCacheHolidayRevision = revision;
+    _invalidateDayCache();
   }
 
   /// Drops every memoized day so the next [eventsForDay] recomputes against
@@ -308,9 +334,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       debugPrint('[CalendarBloc] Occurrence write error: $e');
       return;
     }
-    emit(
-      current.copyWith(occurrenceRevision: current.occurrenceRevision + 1),
-    );
+    emit(current.copyWith(occurrenceRevision: current.occurrenceRevision + 1));
   }
 
   /// Deletes one occurrence's override, returning that day to the event's
@@ -328,9 +352,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       debugPrint('[CalendarBloc] Occurrence clear error: $e');
       return;
     }
-    emit(
-      current.copyWith(occurrenceRevision: current.occurrenceRevision + 1),
-    );
+    emit(current.copyWith(occurrenceRevision: current.occurrenceRevision + 1));
   }
 
   /// Marks one occurrence missed.
@@ -356,7 +378,10 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       return;
     }
     emit(
-      current.copyWith(occurrenceRevision: current.occurrenceRevision + 1),
+      current.copyWith(
+        occurrenceRevision: current.occurrenceRevision + 1,
+        presenceRevision: current.presenceRevision + 1,
+      ),
     );
   }
 
@@ -376,10 +401,12 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       return;
     }
     emit(
-      current.copyWith(occurrenceRevision: current.occurrenceRevision + 1),
+      current.copyWith(
+        occurrenceRevision: current.occurrenceRevision + 1,
+        presenceRevision: current.presenceRevision + 1,
+      ),
     );
   }
-
 
   /// Cancels one occurrence.
   ///
@@ -405,9 +432,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       return;
     }
     _invalidateDayCache();
-    emit(
-      current.copyWith(membershipRevision: current.membershipRevision + 1),
-    );
+    emit(current.copyWith(membershipRevision: current.membershipRevision + 1));
   }
 
   /// Restores one cancelled occurrence. Same cache reasoning as
@@ -427,10 +452,9 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       return;
     }
     _invalidateDayCache();
-    emit(
-      current.copyWith(membershipRevision: current.membershipRevision + 1),
-    );
+    emit(current.copyWith(membershipRevision: current.membershipRevision + 1));
   }
+
   static DateTime _dateOnly(DateTime date) {
     return DateTime.utc(date.year, date.month, date.day);
   }

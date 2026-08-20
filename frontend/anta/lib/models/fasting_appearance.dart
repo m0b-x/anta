@@ -230,9 +230,7 @@ class FastingAppearance extends Equatable {
     FastingTradition tradition,
     FastingTraditionStyle style,
   ) {
-    return FastingAppearance(
-      byTradition: {...byTradition, tradition: style},
-    );
+    return FastingAppearance(byTradition: {...byTradition, tradition: style});
   }
 
   /// JSON object keyed by [FastingTradition.name].

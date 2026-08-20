@@ -22,6 +22,15 @@ class CalendarDayBars extends StatelessWidget {
   final double spacing;
   final double horizontalInset;
 
+  /// Alpha multiplier applied to every painted colour, used by the grid to
+  /// fade the markers of days belonging to an adjacent month.
+  ///
+  /// A parameter rather than an `Opacity` wrapper at the call site: `Opacity`
+  /// allocates an offscreen compositing layer per outside day, and this is
+  /// only ever a colour change. Multiplies rather than sets, so a marker
+  /// colour that already carries alpha keeps its relative weight.
+  final double opacity;
+
   const CalendarDayBars({
     super.key,
     required this.bars,
@@ -30,6 +39,7 @@ class CalendarDayBars extends StatelessWidget {
     this.barHeight = 3,
     this.spacing = 1.5,
     this.horizontalInset = 6,
+    this.opacity = 1.0,
   });
 
   /// Diameter of a single dot in [CalendarMarkerStyle.dots] mode.
@@ -51,6 +61,9 @@ class CalendarDayBars extends StatelessWidget {
   /// hairline outline so pale / low-contrast colors stay visible.
   static const double _lowContrastThreshold = 0.22;
 
+  Color _fade(Color color) =>
+      opacity == 1.0 ? color : color.withValues(alpha: color.a * opacity);
+
   @override
   Widget build(BuildContext context) {
     if (bars.isEmpty || maxBars <= 0) return const SizedBox.shrink();
@@ -63,7 +76,9 @@ class CalendarDayBars extends StatelessWidget {
     // Reference luminance of the calendar cell background, used to outline
     // markers whose color is too close to it (e.g. a pale custom color).
     final surfaceLum = theme.colorScheme.surface.computeLuminance();
-    final outlineColor = theme.colorScheme.onSurface.withValues(alpha: 0.4);
+    final outlineColor = _fade(
+      theme.colorScheme.onSurface.withValues(alpha: 0.4),
+    );
 
     Border? outlineFor(Color color) {
       return (color.computeLuminance() - surfaceLum).abs() <
@@ -86,7 +101,7 @@ class CalendarDayBars extends StatelessWidget {
                 width: dotSize,
                 height: dotSize,
                 decoration: BoxDecoration(
-                  color: bars[i].color,
+                  color: _fade(bars[i].color),
                   shape: BoxShape.circle,
                   border: outlineFor(bars[i].color),
                 ),
@@ -97,7 +112,7 @@ class CalendarDayBars extends StatelessWidget {
             if (visibleCount > 0) const SizedBox(width: 3),
             _OverflowChip(
               count: hiddenCount,
-              color: theme.colorScheme.onSurfaceVariant,
+              color: _fade(theme.colorScheme.onSurfaceVariant),
             ),
           ],
         ],
@@ -117,7 +132,7 @@ class CalendarDayBars extends StatelessWidget {
               child: Container(
                 height: barHeight,
                 decoration: BoxDecoration(
-                  color: bars[i].color,
+                  color: _fade(bars[i].color),
                   borderRadius: BorderRadius.circular(barHeight),
                   border: outlineFor(bars[i].color),
                 ),
@@ -128,7 +143,7 @@ class CalendarDayBars extends StatelessWidget {
             if (visibleCount > 0) SizedBox(height: spacing),
             _OverflowChip(
               count: hiddenCount,
-              color: theme.colorScheme.onSurfaceVariant,
+              color: _fade(theme.colorScheme.onSurfaceVariant),
             ),
           ],
         ],

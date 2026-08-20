@@ -54,6 +54,21 @@ final class CalendarPageLoaded extends CalendarPageState {
   /// keeps drawing an occurrence that no longer exists.
   final int membershipRevision;
 
+  /// Bumped whenever a presence mark is written or cleared (**v26**), in
+  /// addition to [occurrenceRevision].
+  ///
+  /// Presence is the one overlay the **grid** reads: `DayBarsResolver` and
+  /// `CellTintResolver` both consult `EventPresence.isMissed`, so a missed
+  /// mark changes what a day cell paints. Descriptions do not — no grid
+  /// surface reads `OccurrenceDescriptions`. Splitting presence out is what
+  /// lets the grid skip a rebuild on a description tick while still
+  /// repainting on a presence tick; without it the grid would either rebuild
+  /// on every keystroke in the day panel or draw a stale missed marker.
+  ///
+  /// Additive on purpose: `occurrenceRevision` still bumps for presence too,
+  /// so every existing consumer keeps its current semantics.
+  final int presenceRevision;
+
   const CalendarPageLoaded({
     required this.allEvents,
     required this.focusedDay,
@@ -62,7 +77,25 @@ final class CalendarPageLoaded extends CalendarPageState {
     this.hiddenCategoryIds = const {},
     this.occurrenceRevision = 0,
     this.membershipRevision = 0,
+    this.presenceRevision = 0,
   });
+
+  /// True when nothing the calendar grid renders from has changed.
+  ///
+  /// Drives the grid's `buildWhen`. Deliberately every prop **except**
+  /// [occurrenceRevision] — see [presenceRevision] for why presence cannot be
+  /// lumped in with it. Compares the two collections by identity rather than
+  /// by value: every handler that changes either builds a fresh instance, so
+  /// this can over-rebuild but never under-rebuild, and a day tap does not
+  /// deep-compare N events.
+  bool sameGridInputs(CalendarPageLoaded other) =>
+      identical(allEvents, other.allEvents) &&
+      focusedDay == other.focusedDay &&
+      selectedDay == other.selectedDay &&
+      format == other.format &&
+      identical(hiddenCategoryIds, other.hiddenCategoryIds) &&
+      membershipRevision == other.membershipRevision &&
+      presenceRevision == other.presenceRevision;
 
   CalendarPageLoaded copyWith({
     List<CalendarEvent>? allEvents,
@@ -72,6 +105,7 @@ final class CalendarPageLoaded extends CalendarPageState {
     Set<String>? hiddenCategoryIds,
     int? occurrenceRevision,
     int? membershipRevision,
+    int? presenceRevision,
   }) {
     return CalendarPageLoaded(
       allEvents: allEvents ?? this.allEvents,
@@ -81,6 +115,7 @@ final class CalendarPageLoaded extends CalendarPageState {
       hiddenCategoryIds: hiddenCategoryIds ?? this.hiddenCategoryIds,
       occurrenceRevision: occurrenceRevision ?? this.occurrenceRevision,
       membershipRevision: membershipRevision ?? this.membershipRevision,
+      presenceRevision: presenceRevision ?? this.presenceRevision,
     );
   }
 
@@ -93,6 +128,7 @@ final class CalendarPageLoaded extends CalendarPageState {
     hiddenCategoryIds,
     occurrenceRevision,
     membershipRevision,
+    presenceRevision,
   ];
 }
 

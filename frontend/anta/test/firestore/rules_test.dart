@@ -221,7 +221,11 @@ Future<void> _seedPair(
       'update': {
         'name': '$_docRoot/pairs/$id',
         'fields': {
-          ..._pairFields(members: members, status: status, permissions: permissions),
+          ..._pairFields(
+            members: members,
+            status: status,
+            permissions: permissions,
+          ),
           'createdAt': _ts(DateTime.now().toUtc()),
         },
       },
@@ -258,10 +262,16 @@ void main() {
       );
     });
 
-    test('a pair citing an invite the caller minted themselves is refused', () async {
-      await _seedInvite(code, creatorUid: uidA);
-      expect(await _commit([_createPair('p1', _pairFields())], uid: uidA), 403);
-    });
+    test(
+      'a pair citing an invite the caller minted themselves is refused',
+      () async {
+        await _seedInvite(code, creatorUid: uidA);
+        expect(
+          await _commit([_createPair('p1', _pairFields())], uid: uidA),
+          403,
+        );
+      },
+    );
 
     test('a pair citing an expired invite is refused', () async {
       await _seedInvite(
@@ -397,7 +407,10 @@ void main() {
           _createPair(
             'p1',
             _pairFields(
-              profiles: {uidA: _profile(name: 'x' * 300), uidB: _profile()},
+              profiles: {
+                uidA: _profile(name: 'x' * 300),
+                uidB: _profile(),
+              },
             ),
           ),
         ], uid: uidA),
@@ -420,48 +433,51 @@ void main() {
       expect(await _get('pairs/p1'), 403);
     });
 
-    test('the reconciliation query returns only the caller own pairs', () async {
-      await _seedPair('mine', members: const [uidA, uidB]);
-      await _seedPair('theirs', members: const [uidB, uidC]);
+    test(
+      'the reconciliation query returns only the caller own pairs',
+      () async {
+        await _seedPair('mine', members: const [uidA, uidB]);
+        await _seedPair('theirs', members: const [uidB, uidC]);
 
-      final result = await _call(
-        'POST',
-        '$_base:runQuery',
-        uid: uidA,
-        body: {
-          'structuredQuery': {
-            'from': [
-              {'collectionId': 'pairs'},
-            ],
-            'where': {
-              'compositeFilter': {
-                'op': 'AND',
-                'filters': [
-                  {
-                    'fieldFilter': {
-                      'field': {'fieldPath': 'members'},
-                      'op': 'ARRAY_CONTAINS',
-                      'value': _s(uidA),
+        final result = await _call(
+          'POST',
+          '$_base:runQuery',
+          uid: uidA,
+          body: {
+            'structuredQuery': {
+              'from': [
+                {'collectionId': 'pairs'},
+              ],
+              'where': {
+                'compositeFilter': {
+                  'op': 'AND',
+                  'filters': [
+                    {
+                      'fieldFilter': {
+                        'field': {'fieldPath': 'members'},
+                        'op': 'ARRAY_CONTAINS',
+                        'value': _s(uidA),
+                      },
                     },
-                  },
-                  {
-                    'fieldFilter': {
-                      'field': {'fieldPath': 'status'},
-                      'op': 'EQUAL',
-                      'value': _s('active'),
+                    {
+                      'fieldFilter': {
+                        'field': {'fieldPath': 'status'},
+                        'op': 'EQUAL',
+                        'value': _s('active'),
+                      },
                     },
-                  },
-                ],
+                  ],
+                },
               },
             },
           },
-        },
-      );
+        );
 
-      expect(result.status, 200);
-      expect(result.body, contains('pairs/mine'));
-      expect(result.body, isNot(contains('pairs/theirs')));
-    });
+        expect(result.status, 200);
+        expect(result.body, contains('pairs/mine'));
+        expect(result.body, isNot(contains('pairs/theirs')));
+      },
+    );
   });
 
   group('pairs update and delete', () {
@@ -497,7 +513,9 @@ void main() {
       await _seedPair('p1');
       expect(
         await _commit([
-          _updatePair('p1', {'members': _arr(const [uidA, uidC])}),
+          _updatePair('p1', {
+            'members': _arr(const [uidA, uidC]),
+          }),
         ], uid: uidA),
         403,
         reason: 'members is the ACL; a mutable one is a privilege escalation',
@@ -519,10 +537,7 @@ void main() {
       expect(
         await _commit([
           _updatePair('p1', {
-            'profiles': _map({
-              uidA: _profile(name: 'Alex'),
-              uidB: _profile(),
-            }),
+            'profiles': _map({uidA: _profile(name: 'Alex'), uidB: _profile()}),
           }),
         ], uid: uidA),
         200,
@@ -584,27 +599,33 @@ void main() {
   });
 
   group('invites', () {
-    test('a code that does not exist reads as absent, not as forbidden', () async {
-      expect(
-        await _get('invites/ZZZZ9999', uid: uidC),
-        404,
-        reason:
-            'a one-character typo is the most common failure in the flow and '
-            'must not be reported as a permission problem',
-      );
-    });
+    test(
+      'a code that does not exist reads as absent, not as forbidden',
+      () async {
+        expect(
+          await _get('invites/ZZZZ9999', uid: uidC),
+          404,
+          reason:
+              'a one-character typo is the most common failure in the flow and '
+              'must not be reported as a permission problem',
+        );
+      },
+    );
 
-    test('a live invite is readable by a stranger, an expired one is not', () async {
-      await _seedInvite(code, creatorUid: uidB);
-      await _seedInvite(
-        'EXPIRED2',
-        creatorUid: uidB,
-        lifetime: const Duration(minutes: -1),
-      );
-      expect(await _get('invites/$code', uid: uidC), 200);
-      expect(await _get('invites/EXPIRED2', uid: uidC), 403);
-      expect(await _get('invites/$code'), 403);
-    });
+    test(
+      'a live invite is readable by a stranger, an expired one is not',
+      () async {
+        await _seedInvite(code, creatorUid: uidB);
+        await _seedInvite(
+          'EXPIRED2',
+          creatorUid: uidB,
+          lifetime: const Duration(minutes: -1),
+        );
+        expect(await _get('invites/$code', uid: uidC), 200);
+        expect(await _get('invites/EXPIRED2', uid: uidC), 403);
+        expect(await _get('invites/$code'), 403);
+      },
+    );
 
     test('the collection cannot be enumerated', () async {
       await _seedInvite(code, creatorUid: uidB);
@@ -623,7 +644,8 @@ void main() {
       expect(
         result.status,
         403,
-        reason: 'enumerable codes would make the whole code space brute-forceable',
+        reason:
+            'enumerable codes would make the whole code space brute-forceable',
       );
     });
 

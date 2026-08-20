@@ -32,35 +32,41 @@ void main() {
   }
 
   group('stamping', () {
-    test('a first write is a live version-1 row stamped with this device', () async {
-      await db.eventTemplateDao.upsertTemplate(_entry('t1', 'Push day'));
+    test(
+      'a first write is a live version-1 row stamped with this device',
+      () async {
+        await db.eventTemplateDao.upsertTemplate(_entry('t1', 'Push day'));
 
-      final row = await rowFor('t1');
-      expect(row.name, 'Push day');
-      expect(row.version, 1);
-      expect(row.isDeleted, isFalse);
-      expect(row.deletedAt, isNull);
-      expect(row.hlcTimestamp, isNotEmpty);
-      expect(row.deviceId, 'test-device');
-    });
+        final row = await rowFor('t1');
+        expect(row.name, 'Push day');
+        expect(row.version, 1);
+        expect(row.isDeleted, isFalse);
+        expect(row.deletedAt, isNull);
+        expect(row.hlcTimestamp, isNotEmpty);
+        expect(row.deviceId, 'test-device');
+      },
+    );
 
-    test('an edit bumps the version, keeps createdAt and moves the HLC', () async {
-      await db.eventTemplateDao.upsertTemplate(_entry('t1', 'Push day'));
-      final before = await rowFor('t1');
+    test(
+      'an edit bumps the version, keeps createdAt and moves the HLC',
+      () async {
+        await db.eventTemplateDao.upsertTemplate(_entry('t1', 'Push day'));
+        final before = await rowFor('t1');
 
-      await db.eventTemplateDao.upsertTemplate(
-        _entry('t1', 'Pull day', createdAt: DateTime.utc(2030, 1, 1)),
-      );
-      final after = await rowFor('t1');
+        await db.eventTemplateDao.upsertTemplate(
+          _entry('t1', 'Pull day', createdAt: DateTime.utc(2030, 1, 1)),
+        );
+        final after = await rowFor('t1');
 
-      expect(after.name, 'Pull day');
-      expect(after.version, before.version + 1);
-      // The caller's companion always carries a `createdAt`, and on an update
-      // it is always wrong — a template keeps the date it was made.
-      expect(after.createdAt, before.createdAt);
-      // A version bump with a stale HLC would order two edits arbitrarily.
-      expect(after.hlcTimestamp, isNot(before.hlcTimestamp));
-    });
+        expect(after.name, 'Pull day');
+        expect(after.version, before.version + 1);
+        // The caller's companion always carries a `createdAt`, and on an update
+        // it is always wrong — a template keeps the date it was made.
+        expect(after.createdAt, before.createdAt);
+        // A version bump with a stale HLC would order two edits arbitrarily.
+        expect(after.hlcTimestamp, isNot(before.hlcTimestamp));
+      },
+    );
 
     test('a delete tombstones rather than removing the row', () async {
       await db.eventTemplateDao.upsertTemplate(_entry('t1', 'Push day'));
@@ -89,45 +95,51 @@ void main() {
       expect(await db.select(db.eventTemplates).get(), isEmpty);
     });
 
-    test('writing a tombstoned id resurrects it instead of colliding', () async {
-      await db.eventTemplateDao.upsertTemplate(_entry('t1', 'Push day'));
-      await db.eventTemplateDao.softDeleteById('t1');
+    test(
+      'writing a tombstoned id resurrects it instead of colliding',
+      () async {
+        await db.eventTemplateDao.upsertTemplate(_entry('t1', 'Push day'));
+        await db.eventTemplateDao.softDeleteById('t1');
 
-      await db.eventTemplateDao.upsertTemplate(_entry('t1', 'Push day v2'));
+        await db.eventTemplateDao.upsertTemplate(_entry('t1', 'Push day v2'));
 
-      final row = await rowFor('t1');
-      expect(row.isDeleted, isFalse);
-      expect(row.deletedAt, isNull);
-      expect(row.name, 'Push day v2');
-      expect(await db.eventTemplateDao.getAll(), hasLength(1));
-    });
+        final row = await rowFor('t1');
+        expect(row.isDeleted, isFalse);
+        expect(row.deletedAt, isNull);
+        expect(row.name, 'Push day v2');
+        expect(await db.eventTemplateDao.getAll(), hasLength(1));
+      },
+    );
 
-    test('an import stamps fresh identity but keeps the audit fields', () async {
-      final created = DateTime.utc(2020, 5, 4);
+    test(
+      'an import stamps fresh identity but keeps the audit fields',
+      () async {
+        final created = DateTime.utc(2020, 5, 4);
 
-      await db.eventTemplateDao.importTemplate(
-        _entry('t1', 'Push day', createdAt: created).copyWith(
-          // A backup is not a sync channel: whatever identity it claims is
-          // ignored and replaced with this device's.
-          hlcTimestamp: const Value('foreign-hlc'),
-          deviceId: const Value('other-device'),
-          version: const Value(9),
-          isDeleted: const Value(true),
-        ),
-      );
+        await db.eventTemplateDao.importTemplate(
+          _entry('t1', 'Push day', createdAt: created).copyWith(
+            // A backup is not a sync channel: whatever identity it claims is
+            // ignored and replaced with this device's.
+            hlcTimestamp: const Value('foreign-hlc'),
+            deviceId: const Value('other-device'),
+            version: const Value(9),
+            isDeleted: const Value(true),
+          ),
+        );
 
-      final row = await rowFor('t1');
-      // Drift stores unix seconds and hands the column back as a *local*
-      // DateTime, so the instant is what round-trips, not the wall clock.
-      expect(
-        row.createdAt.millisecondsSinceEpoch,
-        created.millisecondsSinceEpoch,
-      );
-      expect(row.hlcTimestamp, isNot('foreign-hlc'));
-      expect(row.deviceId, 'test-device');
-      expect(row.version, 1);
-      expect(row.isDeleted, isFalse);
-    });
+        final row = await rowFor('t1');
+        // Drift stores unix seconds and hands the column back as a *local*
+        // DateTime, so the instant is what round-trips, not the wall clock.
+        expect(
+          row.createdAt.millisecondsSinceEpoch,
+          created.millisecondsSinceEpoch,
+        );
+        expect(row.hlcTimestamp, isNot('foreign-hlc'));
+        expect(row.deviceId, 'test-device');
+        expect(row.version, 1);
+        expect(row.isDeleted, isFalse);
+      },
+    );
   });
 
   group('ordering', () {
@@ -142,7 +154,9 @@ void main() {
         _entry('mmm', 'First', sortOrder: -1),
       );
 
-      final ids = [for (final row in await db.eventTemplateDao.getAll()) row.id];
+      final ids = [
+        for (final row in await db.eventTemplateDao.getAll()) row.id,
+      ];
       expect(ids, ['mmm', 'aaa', 'zzz']);
     });
 

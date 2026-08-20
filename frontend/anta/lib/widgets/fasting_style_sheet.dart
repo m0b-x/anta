@@ -190,9 +190,7 @@ class _FastingStyleSheetState extends State<FastingStyleSheet> {
                   children: [
                     for (final style in FastingDisplayStyle.values)
                       ChoiceChip(
-                        label: Text(
-                          FastingCalendar.styleNameOf(style, l10n),
-                        ),
+                        label: Text(FastingCalendar.styleNameOf(style, l10n)),
                         selected: _style.style == style,
                         onSelected: (selected) {
                           if (selected) _apply(_style.copyWith(style: style));
@@ -518,7 +516,9 @@ class _ColorDot extends StatelessWidget {
       ),
       child: icon != null
           ? Icon(icon, size: 20, color: onFill)
-          : (selected ? Icon(Icons.check_rounded, size: 20, color: onFill) : null),
+          : (selected
+                ? Icon(Icons.check_rounded, size: 20, color: onFill)
+                : null),
     );
     if (tooltip != null) dot = Tooltip(message: tooltip!, child: dot);
     return InkWell(

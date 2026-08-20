@@ -60,13 +60,16 @@ void main() {
       expect(schedule.monthScope, FastingMonthScope.weeklyOnly);
     });
 
-    test('an empty CSV is a deliberate "no weekly fast", not a missing row', () {
-      final cleared = FastingSchedule.decode(null, legacyWeekdayCsv: '');
-      expect(cleared.weekdays, isEmpty);
+    test(
+      'an empty CSV is a deliberate "no weekly fast", not a missing row',
+      () {
+        final cleared = FastingSchedule.decode(null, legacyWeekdayCsv: '');
+        expect(cleared.weekdays, isEmpty);
 
-      final absent = FastingSchedule.decode(null);
-      expect(absent.weekdays, FastingSchedule.defaultWeekdays);
-    });
+        final absent = FastingSchedule.decode(null);
+        expect(absent.weekdays, FastingSchedule.defaultWeekdays);
+      },
+    );
 
     test('drops unparseable and out-of-range parts', () {
       final schedule = FastingSchedule.decode(

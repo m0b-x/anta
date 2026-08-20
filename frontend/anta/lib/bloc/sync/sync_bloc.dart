@@ -41,10 +41,7 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     );
   }
 
-  Future<void> _onSignIn(
-    SignInRequested event,
-    Emitter<SyncState> emit,
-  ) async {
+  Future<void> _onSignIn(SignInRequested event, Emitter<SyncState> emit) async {
     if (!_authService.isAvailable) {
       emit(const SyncUnavailable());
       return;

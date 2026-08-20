@@ -110,9 +110,12 @@ void main() {
     expect(identical(bloc.eventsForDay(day), warm), isTrue);
   });
 
-  test('a marked day still occurs — presence never changes membership', () async {
-    await dispatch(SetOccurrenceMissed(eventId: 'e1', day: day));
+  test(
+    'a marked day still occurs — presence never changes membership',
+    () async {
+      await dispatch(SetOccurrenceMissed(eventId: 'e1', day: day));
 
-    expect(bloc.eventsForDay(day).map((e) => e.id), ['e1']);
-  });
+      expect(bloc.eventsForDay(day).map((e) => e.id), ['e1']);
+    },
+  );
 }

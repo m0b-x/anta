@@ -96,10 +96,7 @@ void main() {
   test('other days keep occurring', () async {
     await dispatch(SetOccurrenceSkipped(eventId: 'e1', day: day));
 
-    expect(
-      bloc.eventsForDay(day.add(const Duration(days: 1))),
-      hasLength(1),
-    );
+    expect(bloc.eventsForDay(day.add(const Duration(days: 1))), hasLength(1));
   });
 
   test('restoring brings the occurrence back', () async {

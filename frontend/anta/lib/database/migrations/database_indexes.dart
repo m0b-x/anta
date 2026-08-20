@@ -11,6 +11,7 @@ class DatabaseIndexes {
     await _createChunkIndexes();
     await _createCounterIndexes();
     await createCalendarIndexes();
+    await createCalendarDeltaIndexes();
     await _createFtsTable();
     await createUniqueNameIndexes();
     await createPositionIndexes();
@@ -105,10 +106,50 @@ class DatabaseIndexes {
   /// silently drops to a scan plus a temp B-tree for the ordering — the v27
   /// migration drops the full index by name first so upgraders and fresh
   /// installs cannot end up on different definitions.
+  ///
+  /// Scoped to `calendar_events` on purpose: v10 calls this while that is the
+  /// only calendar table in existence, so anything touching the delta tables
+  /// belongs in [createCalendarDeltaIndexes] instead.
   Future<void> createCalendarIndexes() async {
     await _db.customStatement(
       'CREATE INDEX IF NOT EXISTS idx_calendar_events_start_date '
       'ON calendar_events(start_date) WHERE is_deleted = 0',
+    );
+  }
+
+  /// Covering indexes over the two occurrence-delta tables. Public because the
+  /// v31 migration calls this directly.
+  ///
+  /// They exist because tombstones are never collected: `EventSkipService`
+  /// and `EventPresenceService` each run a `_load` at startup and after every
+  /// event delete, and without an index those reads scan years of dead rows to
+  /// find the live ones. `(event_id, day)` is the *entire* projection both
+  /// loads consume, so the partial index is **covering** — the query answers
+  /// from the index and never touches the table. That is why the DAOs read
+  /// through `getActiveKeys` rather than `getActive`, and why the predicate is
+  /// spelled as the literal `is_deleted = 0`: Drift's `.equals(false)` emits a
+  /// bound `?`, and whether SQLite can prove a bound parameter implies the
+  /// index's `WHERE` is version-dependent — 3.53 uses the index, 3.50 falls
+  /// back to a scan. A literal matches syntactically on every version.
+  ///
+  /// Separate from [createCalendarIndexes] because that one runs inside the
+  /// v10 migration, where neither of these tables exists yet (v26 and v30).
+  ///
+  /// **`calendar_event_occurrences` deliberately has no counterpart here.**
+  /// Its `_load` also reads `description` — up to 10,000 chars — so an index
+  /// could only cover it by duplicating the table, and the non-covering
+  /// version measured *slower* than the scan it replaced, at one rowid lookup
+  /// per live row; an ANALYZE'd planner rejects it outright at a 10% tombstone
+  /// ratio. A `_load` that reads every live row is already best served by a
+  /// scan. Do not "restore" it.
+  Future<void> createCalendarDeltaIndexes() async {
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_calendar_event_skips_active '
+      'ON calendar_event_skips(event_id, day) WHERE is_deleted = 0',
+    );
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_calendar_event_absences_active '
+      'ON calendar_event_absences(event_id, day) WHERE is_deleted = 0',
     );
   }
 

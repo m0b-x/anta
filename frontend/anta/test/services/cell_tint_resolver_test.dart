@@ -61,7 +61,10 @@ void main() {
           provider.tintFor(day, [event('e', priority: p)])!.wash.a,
       ];
 
-      expect(alphas, orderedEquals(List.of(alphas)..sort((a, b) => b.compareTo(a))));
+      expect(
+        alphas,
+        orderedEquals(List.of(alphas)..sort((a, b) => b.compareTo(a))),
+      );
       expect(alphas.first, greaterThan(alphas.last));
       expect(
         alphas.first,
@@ -142,17 +145,20 @@ void main() {
         expect(layer.wash.g, const Color(keptColor).g);
       });
 
-      test('a hidden missed event on an otherwise empty day yields nothing', () {
-        const hidden = EventCellTintProvider(
-          priority: CellTintResolver.winnerPriority,
-          missedDisplay: CalendarMissedDisplay.hidden,
-        );
+      test(
+        'a hidden missed event on an otherwise empty day yields nothing',
+        () {
+          const hidden = EventCellTintProvider(
+            priority: CellTintResolver.winnerPriority,
+            missedDisplay: CalendarMissedDisplay.hidden,
+          );
 
-        expect(
-          hidden.tintFor(day, [event('missed', tracksPresence: true)]),
-          isNull,
-        );
-      });
+          expect(
+            hidden.tintFor(day, [event('missed', tracksPresence: true)]),
+            isNull,
+          );
+        },
+      );
 
       test('a faded missed event keeps the wash but loses strength', () {
         final missed = provider.tintFor(day, [
@@ -188,7 +194,10 @@ void main() {
 
     test('the lowest band takes the wash', () {
       final resolver = CellTintResolver(
-        providers: [_FixedProvider(layer('b', 100)), _FixedProvider(layer('a', 0))],
+        providers: [
+          _FixedProvider(layer('b', 100)),
+          _FixedProvider(layer('a', 0)),
+        ],
       );
 
       expect(resolver.resolve(day, const []).wash, layer('a', 0).wash);
@@ -196,7 +205,10 @@ void main() {
 
     test('the runner-up is dropped unless layering is on', () {
       final resolver = CellTintResolver(
-        providers: [_FixedProvider(layer('a', 0)), _FixedProvider(layer('b', 100))],
+        providers: [
+          _FixedProvider(layer('a', 0)),
+          _FixedProvider(layer('b', 100)),
+        ],
       );
 
       expect(resolver.resolve(day, const []).edge, isNull);

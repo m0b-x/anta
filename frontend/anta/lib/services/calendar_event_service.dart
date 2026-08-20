@@ -1,4 +1,3 @@
-
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 
@@ -278,8 +277,7 @@ class CalendarEventService {
             // `BackupService._exportSettings`'s allowlist. Default false means
             // those events restore with one shared description and their
             // imported day rows dormant — enabling an event brings them back.
-            perOccurrenceDescriptions:
-                map['perOccurrenceDescriptions'] is bool
+            perOccurrenceDescriptions: map['perOccurrenceDescriptions'] is bool
                 ? Value(map['perOccurrenceDescriptions'] as bool)
                 : const Value.absent(),
             createdAt: Value(

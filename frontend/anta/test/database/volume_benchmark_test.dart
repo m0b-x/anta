@@ -5,6 +5,8 @@ import 'package:drift/drift.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:anta/database/daos/note_dao.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/models/recurrence_rule.dart';
+import 'package:anta/models/recurrence_rule_codec.dart';
 
 import 'support/db_test_support.dart';
 
@@ -17,7 +19,7 @@ import 'support/db_test_support.dart';
 /// deliberately when you want the numbers:
 ///
 /// ```powershell
-/// flutter test --tags benchmark
+/// flutter test --tags benchmark --run-skipped
 /// ```
 ///
 /// The assertions here are catastrophe-only — they catch an accidental O(n²),
@@ -104,9 +106,101 @@ void main() {
       });
     });
   }
+
+  for (final eventCount in [200, 2000]) {
+    group('$eventCount calendar events over five years', () {
+      late AppDatabase db;
+
+      setUpAll(() async {
+        db = await openTestDatabase();
+        await _seedCalendar(db, eventCount: eventCount);
+      });
+      tearDownAll(() async => db.close());
+
+      test('calendar reads at volume', () async {
+        // ignore: avoid_print
+        print('\n=== $eventCount calendar events ===');
+
+        final eventsElapsed = await _time(() => db.calendarEventDao.getAll());
+        final events = await db.calendarEventDao.getAll();
+        // ignore: avoid_print
+        print(
+          '  events        ${eventsElapsed.toString().padLeft(5)}us  '
+          '(${events.length} rows)',
+        );
+        expect(eventsElapsed, lessThan(2000000));
+
+        final descriptionBytes = events.fold<int>(
+          0,
+          (sum, row) => sum + (row.description?.length ?? 0),
+        );
+        // ignore: avoid_print
+        print('  description bytes  $descriptionBytes');
+
+        // Both shapes, deliberately. `getActiveKeys()` is what the services'
+        // `_load` actually calls and what the partial indexes cover;
+        // `getActive()` is the wider read backup export still needs. Timing
+        // only the latter would leave a `_load` regression — or a dropped
+        // index — invisible here.
+        final skipKeysElapsed = await _time(
+          () => db.eventSkipDao.getActiveKeys(),
+        );
+        // ignore: avoid_print
+        print('  skip keys     ${skipKeysElapsed.toString().padLeft(5)}us');
+        expect(skipKeysElapsed, lessThan(2000000));
+
+        final skipsElapsed = await _time(() => db.eventSkipDao.getActive());
+        // ignore: avoid_print
+        print('  skips         ${skipsElapsed.toString().padLeft(5)}us');
+        expect(skipsElapsed, lessThan(2000000));
+
+        final absenceKeysElapsed = await _time(
+          () => db.eventAbsenceDao.getActiveKeys(),
+        );
+        // ignore: avoid_print
+        print('  absence keys  ${absenceKeysElapsed.toString().padLeft(5)}us');
+        expect(absenceKeysElapsed, lessThan(2000000));
+
+        final absencesElapsed = await _time(
+          () => db.eventAbsenceDao.getActive(),
+        );
+        // ignore: avoid_print
+        print('  absences      ${absencesElapsed.toString().padLeft(5)}us');
+        expect(absencesElapsed, lessThan(2000000));
+
+        final occurrencesElapsed = await _time(
+          () => db.eventOccurrenceDao.getActive(),
+        );
+        // ignore: avoid_print
+        print('  occurrences   ${occurrencesElapsed.toString().padLeft(5)}us');
+        expect(occurrencesElapsed, lessThan(2000000));
+      });
+    });
+  }
 }
 
 const _folderId = 'bench-folder';
+
+/// One instance of every [RecurrenceRule] kind [RecurrenceCodec] knows,
+/// cycled with `i % _recurrenceRules.length` so the seed exercises every
+/// `rule_kind` / `rule_payload` shape the app can actually produce.
+final _recurrenceRules = <RecurrenceRule>[
+  const OneTimeRecurrence(),
+  SpecificDatesRecurrence(
+    dates: {
+      DateTime.utc(2022, 3, 1),
+      DateTime.utc(2022, 6, 1),
+      DateTime.utc(2022, 9, 1),
+    },
+  ),
+  const DailyRecurrence(),
+  const WeeklyRecurrence(weekdays: {1, 3, 5}),
+  const MonthlyRecurrence(),
+  const YearlyRecurrence(),
+  const WorkdaysRecurrence(),
+  const WeekendsRecurrence(),
+  const PublicHolidaysOnlyRecurrence(),
+];
 
 String _column(NoteSortField field) => switch (field) {
   NoteSortField.title => '"title" ASC',
@@ -158,5 +252,84 @@ Future<void> _seed(AppDatabase db, {required int noteCount}) async {
       );
     }
   });
-  await db.customStatement('ANALYZE');
+}
+
+/// Seeds [eventCount] calendar events spread over five years, each carrying a
+/// mix of skip / absence / occurrence-description deltas — and, deliberately,
+/// the ~10% tombstone ratio a real five-year install accumulates, since this
+/// app never collects them (`isDeleted` rows are filtered, never deleted).
+Future<void> _seedCalendar(AppDatabase db, {required int eventCount}) async {
+  final now = DateTime.now();
+  final eventEpoch = DateTime.utc(now.year - 5, 1, 1);
+  var deltaIndex = 0;
+  await db.batch((batch) {
+    for (var i = 0; i < eventCount; i++) {
+      final eventId = 'bench-event-$i';
+      final rule = _recurrenceRules[i % _recurrenceRules.length];
+      final startDate = eventEpoch.add(Duration(days: i % 1825));
+      batch.insert(
+        db.calendarEvents,
+        CalendarEventsCompanion.insert(
+          id: eventId,
+          title: 'Event $i',
+          category: 'category-${i % 6}',
+          startDate: startDate,
+          ruleKind: RecurrenceCodec.kindOf(rule),
+          rulePayload: Value(RecurrenceCodec.payloadOf(rule)),
+          description: Value('x' * (80 + i % 400)),
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+
+      final deltaCount = 3 + i % 5;
+      for (var j = 0; j < deltaCount; j++) {
+        final day = startDate.add(Duration(days: (j + 1) * 41));
+        final isDeleted = deltaIndex % 10 == 0
+            ? const Value(true)
+            : const Value<bool>.absent();
+        switch (deltaIndex % 3) {
+          case 0:
+            batch.insert(
+              db.eventSkips,
+              EventSkipsCompanion.insert(
+                eventId: eventId,
+                day: day,
+                createdAt: now,
+                updatedAt: now,
+                hlcTimestamp: '0',
+                deviceId: 'bench',
+                isDeleted: isDeleted,
+              ),
+            );
+          case 1:
+            batch.insert(
+              db.eventAbsences,
+              EventAbsencesCompanion.insert(
+                eventId: eventId,
+                day: day,
+                createdAt: now,
+                updatedAt: now,
+                hlcTimestamp: '0',
+                deviceId: 'bench',
+                isDeleted: isDeleted,
+              ),
+            );
+          default:
+            batch.insert(
+              db.eventOccurrenceDescriptions,
+              EventOccurrenceDescriptionsCompanion.insert(
+                eventId: eventId,
+                day: day,
+                description: 'override $j for $eventId',
+                createdAt: now,
+                updatedAt: now,
+                isDeleted: isDeleted,
+              ),
+            );
+        }
+        deltaIndex++;
+      }
+    }
+  });
 }

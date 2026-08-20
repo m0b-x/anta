@@ -161,8 +161,10 @@ class PublicHolidayInfo {
     this.customLabel,
     this.observed = false,
   });
-  const PublicHolidayInfo.builtIn(PublicHoliday holiday, {bool observed = false})
-    : this._(builtIn: holiday, observed: observed);
+  const PublicHolidayInfo.builtIn(
+    PublicHoliday holiday, {
+    bool observed = false,
+  }) : this._(builtIn: holiday, observed: observed);
   const PublicHolidayInfo.custom(String label) : this._(customLabel: label);
 }
 
@@ -200,6 +202,17 @@ abstract final class PublicHolidays {
   static final Map<int, Map<DateTime, HolidayOccurrence>> _years = {};
   static const int _yearCacheCap = 12;
 
+  static int _revision = 0;
+
+  /// Bumped whenever the resolved holiday set changes. Same shape and same
+  /// purpose as `EventSkips.revision`: `WorkdaysRecurrence` and
+  /// `PublicHolidaysOnlyRecurrence` read [isHoliday] from inside `occursOn`,
+  /// so a profile switch or a suppression changes **membership** — which days
+  /// those events occur on — with no event row touched. `CalendarBloc` folds
+  /// this into its day cache as a generation, so a stale month cannot survive
+  /// a holiday change.
+  static int get revision => _revision;
+
   /// Built-in fixed-date fallback used before the service has initialized.
   static const Map<(int, int), PublicHoliday> _fixedFallback = {
     (1, 1): PublicHoliday.newYear,
@@ -225,6 +238,7 @@ abstract final class PublicHolidays {
     _overrides = Map.unmodifiable(overrides);
     _suppressed = Map.unmodifiable(suppressed);
     _years.clear();
+    _revision++;
   }
 
   /// Returns to the uninitialized state (see [_profile]). Invoked by
@@ -235,6 +249,7 @@ abstract final class PublicHolidays {
     _overrides = const {};
     _suppressed = const {};
     _years.clear();
+    _revision++;
   }
 
   /// Computed built-ins for [year], memoized. Clears wholesale at the cap
@@ -529,7 +544,10 @@ abstract final class HolidaySeeds {
     }
     // Added to the legal set in 2018.
     if (year >= 2018) {
-      yield (easter.subtract(const Duration(days: 2)), PublicHoliday.goodFriday);
+      yield (
+        easter.subtract(const Duration(days: 2)),
+        PublicHoliday.goodFriday,
+      );
     }
     yield (easter, PublicHoliday.easterSunday);
     yield (easter.add(const Duration(days: 1)), PublicHoliday.easterMonday);

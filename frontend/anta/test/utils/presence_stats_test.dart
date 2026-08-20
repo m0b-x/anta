@@ -41,10 +41,7 @@ void main() {
   group('gating', () {
     test('an event that does not track presence has no stats', () {
       expect(
-        PresenceAdherence.compute(
-          event(tracksPresence: false),
-          today: today,
-        ),
+        PresenceAdherence.compute(event(tracksPresence: false), today: today),
         isNull,
       );
     });

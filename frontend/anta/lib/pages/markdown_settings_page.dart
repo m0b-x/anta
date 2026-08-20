@@ -81,15 +81,16 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
   void initState() {
     super.initState();
     _shortcuts = List.from(widget.allShortcuts);
-    _shortcutsFoldController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 250),
-      value: _shortcutsExpanded ? 1.0 : 0.0,
-    )..addStatusListener((status) {
-      if (status == AnimationStatus.dismissed && mounted) {
-        setState(() => _shortcutsListMounted = false);
-      }
-    });
+    _shortcutsFoldController =
+        AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 250),
+          value: _shortcutsExpanded ? 1.0 : 0.0,
+        )..addStatusListener((status) {
+          if (status == AnimationStatus.dismissed && mounted) {
+            setState(() => _shortcutsListMounted = false);
+          }
+        });
     _loadToolbarSettings();
     _syncFromBlocState();
   }
@@ -443,9 +444,8 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
     return result;
   }
 
-  bool get _hasUncategorizedShortcuts => _shortcuts.any(
-    (s) => s.category == null || s.category!.isEmpty,
-  );
+  bool get _hasUncategorizedShortcuts =>
+      _shortcuts.any((s) => s.category == null || s.category!.isEmpty);
 
   bool get _isFilteringShortcuts =>
       _shortcutQuery.trim().isNotEmpty ||
@@ -455,8 +455,7 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
   /// Shortcuts matching the current search query and category chips, each
   /// paired with its index into [_shortcuts] so every action keeps operating
   /// on the real position regardless of what is being shown.
-  List<({CustomMarkdownShortcut shortcut, int index})>
-  get _filteredShortcuts {
+  List<({CustomMarkdownShortcut shortcut, int index})> get _filteredShortcuts {
     final query = SettingsQuery.parse(_shortcutQuery);
     final result = <({CustomMarkdownShortcut shortcut, int index})>[];
     for (var i = 0; i < _shortcuts.length; i++) {
@@ -1171,8 +1170,7 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           InkWell(
-            onTap: () =>
-                _toggleSection(() => _moneyExpanded = !_moneyExpanded),
+            onTap: () => _toggleSection(() => _moneyExpanded = !_moneyExpanded),
             borderRadius: BorderRadius.circular(8),
             child: Row(
               children: [
@@ -1514,8 +1512,7 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
                   SettingsSearchField(
                     controller: _utilitySearchController,
                     hint: l10n.searchUtilityButtons,
-                    onChanged: (value) =>
-                        setState(() => _utilityQuery = value),
+                    onChanged: (value) => setState(() => _utilityQuery = value),
                   ),
                   const SizedBox(height: 8),
                   if (_isFilteringUtilities) ...[
@@ -1689,10 +1686,10 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
                               selected: _uncategorizedSelected,
                               onToggle: _toggleUncategorizedFilter,
                             ),
-                          ],
-                        ),
+                        ],
                       ),
                     ),
+                  ),
                   // Always occupies its slot so activating a filter never
                   // shifts the chip row sideways.
                   IgnorePointer(
@@ -2265,15 +2262,16 @@ class _FoldableContentState extends State<_FoldableContent>
   void initState() {
     super.initState();
     _contentMounted = widget.expanded;
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 250),
-      value: widget.expanded ? 1.0 : 0.0,
-    )..addStatusListener((status) {
-      if (status == AnimationStatus.dismissed && mounted) {
-        setState(() => _contentMounted = false);
-      }
-    });
+    _controller =
+        AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 250),
+          value: widget.expanded ? 1.0 : 0.0,
+        )..addStatusListener((status) {
+          if (status == AnimationStatus.dismissed && mounted) {
+            setState(() => _contentMounted = false);
+          }
+        });
     _factor = CurvedAnimation(parent: _controller, curve: Curves.easeInOut);
   }
 
@@ -2397,8 +2395,7 @@ class _CategoryDialogState extends State<_CategoryDialog> {
                       (category) => ActionChip(
                         label: Text(category),
                         visualDensity: VisualDensity.compact,
-                        materialTapTargetSize:
-                            MaterialTapTargetSize.shrinkWrap,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         labelStyle: theme.textTheme.bodySmall,
                         onPressed: () => _applySuggestion(category),
                       ),

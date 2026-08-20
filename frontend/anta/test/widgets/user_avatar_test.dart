@@ -4,8 +4,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:anta/models/app_user.dart';
 import 'package:anta/widgets/user_avatar.dart';
 
-Widget _wrap(AppUser user) =>
-    MaterialApp(home: Scaffold(body: UserAvatar(user: user)));
+Widget _wrap(AppUser user) => MaterialApp(
+  home: Scaffold(body: UserAvatar(user: user)),
+);
 
 void main() {
   testWidgets('falls back to the person icon without a photo', (tester) async {

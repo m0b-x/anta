@@ -285,10 +285,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
         SettingsEntry(
           title: l10n.calendarWeekStartTitle,
           builder: (context, title, description) => ListTile(
-            leading: Icon(
-              Icons.view_week_outlined,
-              color: colorScheme.primary,
-            ),
+            leading: Icon(Icons.view_week_outlined, color: colorScheme.primary),
             title: title,
             trailing: DropdownButton<CalendarWeekStart>(
               value: _appearance.weekStart,
@@ -553,10 +550,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
           description: l10n.calendarHighlightWeekendsDesc,
           builder: (context, title, description) => SwitchListTile(
             value: _appearance.highlightWeekends,
-            secondary: Icon(
-              Icons.weekend_outlined,
-              color: colorScheme.primary,
-            ),
+            secondary: Icon(Icons.weekend_outlined, color: colorScheme.primary),
             title: title,
             subtitle: description,
             onChanged: (value) async {
@@ -601,10 +595,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
             description: l10n.calendarTintConflictDesc,
             keywords: [l10n.fastingSectionTitle],
             builder: (context, title, description) => Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 8,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -654,9 +645,8 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
             onChanged: (value) async {
               _onHapticFeedback();
               setState(
-                () => _appearance = _appearance.copyWith(
-                  showWeekNumbers: value,
-                ),
+                () =>
+                    _appearance = _appearance.copyWith(showWeekNumbers: value),
               );
               await _settings?.setCalendarShowWeekNumbers(value);
             },
@@ -743,9 +733,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
             secondary: Icon(
               _fastingStyleOf(tradition).iconKey == null
                   ? FastingCalendar.defaultIconOf(tradition)
-                  : (CalendarIcons.forKey(
-                          _fastingStyleOf(tradition).iconKey,
-                        ) ??
+                  : (CalendarIcons.forKey(_fastingStyleOf(tradition).iconKey) ??
                         FastingCalendar.defaultIconOf(tradition)),
               color: _fastingTraditions.contains(tradition)
                   ? _fastingStyleOf(tradition).colorOr(CalendarColors.fasting)

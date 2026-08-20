@@ -43,9 +43,8 @@ void main() {
   Future<List<EventSkipRow>> allRows() => db.select(db.eventSkips).get();
 
   Future<EventSkipRow> rowFor(String eventId, DateTime value) {
-    return (db.select(db.eventSkips)..where(
-          (s) => s.eventId.equals(eventId) & s.day.equals(value),
-        ))
+    return (db.select(db.eventSkips)
+          ..where((s) => s.eventId.equals(eventId) & s.day.equals(value)))
         .getSingle();
   }
 

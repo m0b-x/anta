@@ -38,13 +38,11 @@ void main() {
     await db.close();
   });
 
-  Future<List<EventAbsenceRow>> allRows() =>
-      db.select(db.eventAbsences).get();
+  Future<List<EventAbsenceRow>> allRows() => db.select(db.eventAbsences).get();
 
   Future<EventAbsenceRow> rowFor(String eventId, DateTime value) {
-    return (db.select(db.eventAbsences)..where(
-          (a) => a.eventId.equals(eventId) & a.day.equals(value),
-        ))
+    return (db.select(db.eventAbsences)
+          ..where((a) => a.eventId.equals(eventId) & a.day.equals(value)))
         .getSingle();
   }
 
@@ -322,21 +320,24 @@ void main() {
       expect(EventPresence.isMissed('e2', day), isTrue);
     });
 
-    test('bumps live marks once and leaves existing tombstones alone', () async {
-      await service.markMissed('e1', day);
-      await service.markMissed('e1', otherDay);
-      await service.unmark('e1', otherDay);
-      final alreadyDead = await rowFor('e1', otherDay);
+    test(
+      'bumps live marks once and leaves existing tombstones alone',
+      () async {
+        await service.markMissed('e1', day);
+        await service.markMissed('e1', otherDay);
+        await service.unmark('e1', otherDay);
+        final alreadyDead = await rowFor('e1', otherDay);
 
-      await deleteEvent('e1');
+        await deleteEvent('e1');
 
-      expect((await rowFor('e1', day)).version, 2);
-      // Rewriting a row that was already tombstoned would invent an ordering
-      // event out of nothing.
-      final untouched = await rowFor('e1', otherDay);
-      expect(untouched.version, alreadyDead.version);
-      expect(untouched.hlcTimestamp, alreadyDead.hlcTimestamp);
-    });
+        expect((await rowFor('e1', day)).version, 2);
+        // Rewriting a row that was already tombstoned would invent an ordering
+        // event out of nothing.
+        final untouched = await rowFor('e1', otherDay);
+        expect(untouched.version, alreadyDead.version);
+        expect(untouched.hlcTimestamp, alreadyDead.hlcTimestamp);
+      },
+    );
 
     test('per-day descriptions tombstone alongside the marks', () async {
       await db.eventOccurrenceDao.upsert(
@@ -354,7 +355,10 @@ void main() {
       // Since v28 they carry the CRDT block too, so all three tables die
       // together with one merge order instead of one of them vanishing.
       expect(await db.eventOccurrenceDao.getActive(), isEmpty);
-      expect(await db.select(db.eventOccurrenceDescriptions).get(), hasLength(1));
+      expect(
+        await db.select(db.eventOccurrenceDescriptions).get(),
+        hasLength(1),
+      );
     });
 
     test('the bulk wipe still hard-deletes everything', () async {

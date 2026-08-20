@@ -74,9 +74,9 @@ class PublicHolidayDao extends DatabaseAccessor<AppDatabase>
   /// the holiday resolve again — clearing the flag would instead leave a
   /// stored copy of derived data behind.
   Future<void> deleteOn(DateTime date, String nameKey) {
-    return (delete(publicHolidaysTable)
-          ..where((h) => h.date.equals(date) & h.nameKey.equals(nameKey)))
-        .go();
+    return (delete(
+      publicHolidaysTable,
+    )..where((h) => h.date.equals(date) & h.nameKey.equals(nameKey))).go();
   }
 
   /// Deletes every built-in row owned by [profile]. Custom rows

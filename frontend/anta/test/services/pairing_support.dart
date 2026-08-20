@@ -127,10 +127,9 @@ class FakePairingGateway implements PairingGateway {
   }
 
   @override
-  Stream<InviteRecord?> watchInvite(String code) =>
-      _inviteControllers
-          .putIfAbsent(code, () => StreamController<InviteRecord?>.broadcast())
-          .stream;
+  Stream<InviteRecord?> watchInvite(String code) => _inviteControllers
+      .putIfAbsent(code, () => StreamController<InviteRecord?>.broadcast())
+      .stream;
 
   @override
   Future<void> claimInvite({
@@ -180,7 +179,10 @@ class FakePairingGateway implements PairingGateway {
       throw const PairingException(PairingError.permissionDenied);
     }
     createPairCalls++;
-    return seedPair([self.uid, partner.uid], {self.uid: self, partner.uid: partner});
+    return seedPair(
+      [self.uid, partner.uid],
+      {self.uid: self, partner.uid: partner},
+    );
   }
 
   /// Plants a pair directly, bypassing the invite check — for tests that need
@@ -218,10 +220,9 @@ class FakePairingGateway implements PairingGateway {
   }
 
   @override
-  Stream<PairRecord?> watchPair(String pairId) =>
-      _pairControllers
-          .putIfAbsent(pairId, () => StreamController<PairRecord?>.broadcast())
-          .stream;
+  Stream<PairRecord?> watchPair(String pairId) => _pairControllers
+      .putIfAbsent(pairId, () => StreamController<PairRecord?>.broadcast())
+      .stream;
 
   @override
   Future<void> endPair({

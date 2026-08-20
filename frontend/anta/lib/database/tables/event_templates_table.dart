@@ -47,8 +47,7 @@ class EventTemplates extends Table {
 
   IntColumn get sortOrder => integer().withDefault(const Constant(0))();
 
-  TextColumn get ruleKind =>
-      text().withDefault(const Constant('oneTime'))();
+  TextColumn get ruleKind => text().withDefault(const Constant('oneTime'))();
   TextColumn get rulePayload => text().nullable()();
 
   IntColumn get startMinute => integer().nullable()();
@@ -63,8 +62,7 @@ class EventTemplates extends Table {
   BoolColumn get retroactive => boolean().withDefault(const Constant(false))();
   BoolColumn get countOccurrences =>
       boolean().withDefault(const Constant(false))();
-  TextColumn get countStyle =>
-      text().withDefault(const Constant('numbered'))();
+  TextColumn get countStyle => text().withDefault(const Constant('numbered'))();
   BoolColumn get tracksPresence =>
       boolean().withDefault(const Constant(false))();
   BoolColumn get perOccurrenceDescriptions =>

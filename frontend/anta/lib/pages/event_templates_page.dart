@@ -87,10 +87,7 @@ class _EventTemplatesPageState extends State<EventTemplatesPage> {
     final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: SettingsAppBar(
-        title: l10n.eventTemplates,
-        showMenuButton: false,
-      ),
+      appBar: SettingsAppBar(title: l10n.eventTemplates, showMenuButton: false),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _create,
         icon: const Icon(Icons.add_rounded),

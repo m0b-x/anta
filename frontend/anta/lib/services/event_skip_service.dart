@@ -75,7 +75,7 @@ class EventSkipService {
   Future<void> _load() async {
     _byEvent.clear();
     try {
-      final rows = await _dao.getActive();
+      final rows = await _dao.getActiveKeys();
       for (final row in rows) {
         (_byEvent[row.eventId] ??= <DateTime>{}).add(_dateOnlyUtc(row.day));
       }

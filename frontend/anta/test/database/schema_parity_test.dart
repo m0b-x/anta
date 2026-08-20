@@ -24,42 +24,48 @@ void main() {
   setUp(() async => db = await openTestDatabase());
   tearDown(() async => db.close());
 
-  test('every index declared in lib/database is created on a fresh install', () async {
-    final declared = _declaredNames(
-      RegExp(r'CREATE\s+INDEX\s+IF\s+NOT\s+EXISTS\s+([a-z_0-9]+)'),
-    );
-    // Sanity: the scrape itself must not silently match nothing.
-    expect(declared, isNotEmpty, reason: 'index scrape found nothing');
+  test(
+    'every index declared in lib/database is created on a fresh install',
+    () async {
+      final declared = _declaredNames(
+        RegExp(r'CREATE\s+INDEX\s+IF\s+NOT\s+EXISTS\s+([a-z_0-9]+)'),
+      );
+      // Sanity: the scrape itself must not silently match nothing.
+      expect(declared, isNotEmpty, reason: 'index scrape found nothing');
 
-    final actual = await indexNames(db);
-    expect(
-      declared.difference(actual),
-      isEmpty,
-      reason:
-          'These indexes exist somewhere in lib/database but a freshly created '
-          'database does not have them. An index reachable only from a '
-          'migration leaves every fresh install slower than an upgraded one. '
-          'Add it to DatabaseIndexes.createAllIndexes().',
-    );
-  });
+      final actual = await indexNames(db);
+      expect(
+        declared.difference(actual),
+        isEmpty,
+        reason:
+            'These indexes exist somewhere in lib/database but a freshly created '
+            'database does not have them. An index reachable only from a '
+            'migration leaves every fresh install slower than an upgraded one. '
+            'Add it to DatabaseIndexes.createAllIndexes().',
+      );
+    },
+  );
 
-  test('every table declared in lib/database is created on a fresh install', () async {
-    final declared = _declaredNames(
-      RegExp(
-        r'CREATE\s+(?:VIRTUAL\s+)?TABLE\s+IF\s+NOT\s+EXISTS\s+([a-z_0-9]+)',
-      ),
-    );
-    expect(declared, isNotEmpty, reason: 'table scrape found nothing');
+  test(
+    'every table declared in lib/database is created on a fresh install',
+    () async {
+      final declared = _declaredNames(
+        RegExp(
+          r'CREATE\s+(?:VIRTUAL\s+)?TABLE\s+IF\s+NOT\s+EXISTS\s+([a-z_0-9]+)',
+        ),
+      );
+      expect(declared, isNotEmpty, reason: 'table scrape found nothing');
 
-    final actual = await tableNames(db);
-    expect(
-      declared.difference(actual),
-      isEmpty,
-      reason:
-          'A table created by a migration is missing from the fresh-create '
-          'path. Add it to the @DriftDatabase tables list.',
-    );
-  });
+      final actual = await tableNames(db);
+      expect(
+        declared.difference(actual),
+        isEmpty,
+        reason:
+            'A table created by a migration is missing from the fresh-create '
+            'path. Add it to the @DriftDatabase tables list.',
+      );
+    },
+  );
 
   test('the occurrence table matches its frozen migration DDL', () async {
     // The migration writes raw DDL frozen at v24 rather than using
@@ -69,9 +75,7 @@ void main() {
     final columns = await db
         .customSelect('PRAGMA table_info(calendar_event_occurrences)')
         .get();
-    final byName = {
-      for (final row in columns) row.read<String>('name'): row,
-    };
+    final byName = {for (final row in columns) row.read<String>('name'): row};
 
     expect(byName.keys.toSet(), {
       'event_id',
@@ -127,9 +131,7 @@ void main() {
     final columns = await db
         .customSelect('PRAGMA table_info(calendar_event_absences)')
         .get();
-    final byName = {
-      for (final row in columns) row.read<String>('name'): row,
-    };
+    final byName = {for (final row in columns) row.read<String>('name'): row};
 
     expect(byName.keys.toSet(), {
       'event_id',
@@ -179,9 +181,7 @@ void main() {
     final columns = await db
         .customSelect('PRAGMA table_info(calendar_event_skips)')
         .get();
-    final byName = {
-      for (final row in columns) row.read<String>('name'): row,
-    };
+    final byName = {for (final row in columns) row.read<String>('name'): row};
 
     expect(byName.keys.toSet(), {
       'event_id',
@@ -226,9 +226,7 @@ void main() {
     final columns = await db
         .customSelect('PRAGMA table_info(calendar_event_templates)')
         .get();
-    final byName = {
-      for (final row in columns) row.read<String>('name'): row,
-    };
+    final byName = {for (final row in columns) row.read<String>('name'): row};
 
     expect(byName.keys.toSet(), {
       'id',
@@ -320,9 +318,7 @@ void main() {
     final columns = await db
         .customSelect('PRAGMA table_info(calendar_events)')
         .get();
-    final byName = {
-      for (final row in columns) row.read<String>('name'): row,
-    };
+    final byName = {for (final row in columns) row.read<String>('name'): row};
 
     expect(
       byName.keys,
@@ -344,7 +340,12 @@ void main() {
       byName['per_occurrence_descriptions']!.read<String>('dflt_value'),
       '0',
     );
-    for (final name in ['hlc_timestamp', 'device_id', 'version', 'is_deleted']) {
+    for (final name in [
+      'hlc_timestamp',
+      'device_id',
+      'version',
+      'is_deleted',
+    ]) {
       expect(
         byName[name]!.read<int>('notnull'),
         1,

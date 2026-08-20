@@ -20,8 +20,8 @@ class FastingScheduleSheet extends StatefulWidget {
   final FastingSchedule initialSchedule;
 
   /// Look & feel for the exception-date picker, passed down from the calendar
-  /// page rather than re-read: `getCalendarAppearance()` is seven sequential
-  /// settings reads and the settings page already holds a current copy.
+  /// page rather than re-read: the settings page already holds a current copy,
+  /// and a leaf-local load would go stale when appearance changes.
   final CalendarAppearance appearance;
 
   final ValueChanged<FastingSchedule> onChanged;
@@ -163,8 +163,7 @@ class _FastingScheduleSheetState extends State<FastingScheduleSheet> {
                   onAll: () => _apply(
                     _schedule.copyWith(weekdays: {1, 2, 3, 4, 5, 6, 7}),
                   ),
-                  onNone: () =>
-                      _apply(_schedule.copyWith(weekdays: const {})),
+                  onNone: () => _apply(_schedule.copyWith(weekdays: const {})),
                 ),
                 Wrap(
                   spacing: AppSpacing.sm,

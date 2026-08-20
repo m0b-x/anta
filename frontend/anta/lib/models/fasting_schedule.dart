@@ -42,10 +42,7 @@ enum FastingMonthScope {
 /// no-op and leaves the warm per-year maps alone.
 class FastingSchedule extends Equatable {
   /// The traditional Wednesday + Friday.
-  static const Set<int> defaultWeekdays = {
-    DateTime.wednesday,
-    DateTime.friday,
-  };
+  static const Set<int> defaultWeekdays = {DateTime.wednesday, DateTime.friday};
 
   static const Set<int> allMonths = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
 

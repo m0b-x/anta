@@ -65,20 +65,13 @@ class EventTemplate extends Equatable {
   /// cleared for a one-time rule here, matching the editor's own save guards —
   /// a template captured while recurring and later flipped to one-time must
   /// not stamp out an event carrying flags its rule cannot honour.
-  CalendarEvent buildEvent({
-    required String id,
-    required DateTime startDate,
-  }) {
+  CalendarEvent buildEvent({required String id, required DateTime startDate}) {
     final repeats = rule is! OneTimeRecurrence;
     return CalendarEvent(
       id: id,
       title: name,
       categoryId: categoryId,
-      startDate: DateTime.utc(
-        startDate.year,
-        startDate.month,
-        startDate.day,
-      ),
+      startDate: DateTime.utc(startDate.year, startDate.month, startDate.day),
       rule: rule,
       iconKey: iconKey,
       time: time,

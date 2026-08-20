@@ -321,8 +321,7 @@ abstract final class FastingCalendar {
     // the weekly loops instead, so a great fast still shows in a month the
     // weekly fast is not kept in. Filtering here rather than in a pass over
     // the merged map keeps it O(1) per entry already being visited.
-    final filterEveryFast =
-        _schedule.monthScope == FastingMonthScope.allFasts;
+    final filterEveryFast = _schedule.monthScope == FastingMonthScope.allFasts;
     void merge(Map<DateTime, FastingInfo> tradition) {
       tradition.forEach((day, info) {
         if (filterEveryFast && !_schedule.months.contains(day.month)) return;
@@ -353,10 +352,7 @@ abstract final class FastingCalendar {
   /// A forced day no tradition claimed is attributed to the first enabled
   /// tradition in declaration order — the same one whose colour and icon the
   /// grid already uses for a day only one tradition marks.
-  static void _applyExceptions(
-    int year,
-    Map<DateTime, List<FastingInfo>> out,
-  ) {
+  static void _applyExceptions(int year, Map<DateTime, List<FastingInfo>> out) {
     for (final day in _schedule.skipDates) {
       if (day.year == year) out.remove(day);
     }
@@ -467,8 +463,7 @@ abstract final class FastingCalendar {
     }
     // Annunciation: fish when it falls in Lent (wine & oil in Holy Week).
     final annunciation = at(3, 25);
-    if (!annunciation.isBefore(cleanMonday) &&
-        annunciation.isBefore(pascha)) {
+    if (!annunciation.isBefore(cleanMonday) && annunciation.isBefore(pascha)) {
       set(
         annunciation,
         FastingPeriod.greatLent,
@@ -481,9 +476,7 @@ abstract final class FastingCalendar {
     // Apostles' fast: Monday after All Saints (pascha+57) through Jun 28.
     // Variable length; vanishes entirely when Pascha falls very late.
     final apostlesStart = pascha.add(const Duration(days: 57));
-    for (var d = apostlesStart;
-        !d.isAfter(at(6, 28));
-        d = d.add(_oneDay)) {
+    for (var d = apostlesStart; !d.isAfter(at(6, 28)); d = d.add(_oneDay)) {
       var r = _isWeekend(d)
           ? FastingRegime.fish
           : (d.weekday == DateTime.tuesday || d.weekday == DateTime.thursday)
@@ -585,9 +578,7 @@ abstract final class FastingCalendar {
     final advent1 = christmas.subtract(
       Duration(days: christmas.weekday == 7 ? 28 : 21 + christmas.weekday),
     );
-    for (var d = advent1;
-        d.isBefore(christmas);
-        d = d.add(_oneDay)) {
+    for (var d = advent1; d.isBefore(christmas); d = d.add(_oneDay)) {
       if (d.weekday == DateTime.sunday) continue;
       map[d] = FastingInfo(
         t,
@@ -606,9 +597,11 @@ abstract final class FastingCalendar {
     // seasonal rather than weekly and are already in the map above, so they
     // stay either way.
     if (_schedule.weekdays.contains(DateTime.friday)) {
-      for (var d = DateTime.utc(year, 1, 1);
-          d.year == year;
-          d = d.add(_oneDay)) {
+      for (
+        var d = DateTime.utc(year, 1, 1);
+        d.year == year;
+        d = d.add(_oneDay)
+      ) {
         if (d.weekday != DateTime.friday || map.containsKey(d)) continue;
         if (!_schedule.months.contains(d.month)) continue;
         map[d] = const FastingInfo(

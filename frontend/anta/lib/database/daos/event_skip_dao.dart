@@ -18,8 +18,38 @@ class EventSkipDao extends DatabaseAccessor<AppDatabase>
   /// holds only user deltas, so this stays small enough to keep entirely in
   /// memory for O(1) synchronous lookups.
   Future<List<EventSkipRow>> getActive() {
-    return (select(eventSkips)..where((a) => a.isDeleted.equals(false)))
-        .get();
+    return (select(eventSkips)..where((a) => a.isDeleted.equals(false))).get();
+  }
+
+  /// The same live rows as [getActive], narrowed to the key pair — everything
+  /// [EventSkipService] keeps in memory, and nothing else.
+  ///
+  /// Kept separate rather than narrowing [getActive] because `exportData`
+  /// still needs `created_at` / `updated_at`; a backup is not the hot path.
+  ///
+  /// This projection is exactly `idx_calendar_event_skips_active`, so the read
+  /// is answered from the index and never visits the table — which is what
+  /// stops years of uncollected tombstones from being scanned at every
+  /// startup and after every event delete.
+  ///
+  /// The predicate is a raw literal, not `isDeleted.equals(false)`: Drift
+  /// binds that as `is_deleted = ?`, and whether SQLite can prove a bound
+  /// parameter implies the partial index's `WHERE` clause differs by version
+  /// (3.53 can, 3.50 falls back to a scan). `is_deleted = 0` matches the index
+  /// definition syntactically on every version, including the one shipped to
+  /// Android.
+  Future<List<({String eventId, DateTime day})>> getActiveKeys() async {
+    final query = selectOnly(eventSkips)
+      ..addColumns([eventSkips.eventId, eventSkips.day])
+      ..where(const CustomExpression<bool>('is_deleted = 0'));
+    final rows = await query.get();
+    return [
+      for (final row in rows)
+        (
+          eventId: row.read(eventSkips.eventId)!,
+          day: row.read(eventSkips.day)!,
+        ),
+    ];
   }
 
   /// Cancels one occurrence: after this it no longer exists on any surface.
@@ -51,19 +81,18 @@ class EventSkipDao extends DatabaseAccessor<AppDatabase>
         return;
       }
 
-      await (update(eventSkips)..where(
-            (a) => a.eventId.equals(eventId) & a.day.equals(day),
-          ))
-          .write(
-            EventSkipsCompanion(
-              isDeleted: const Value(false),
-              deletedAt: const Value(null),
-              updatedAt: Value(now),
-              hlcTimestamp: Value(hlc),
-              deviceId: Value(db.deviceId),
-              version: Value(existing.version + 1),
-            ),
-          );
+      await (update(
+        eventSkips,
+      )..where((a) => a.eventId.equals(eventId) & a.day.equals(day))).write(
+        EventSkipsCompanion(
+          isDeleted: const Value(false),
+          deletedAt: const Value(null),
+          updatedAt: Value(now),
+          hlcTimestamp: Value(hlc),
+          deviceId: Value(db.deviceId),
+          version: Value(existing.version + 1),
+        ),
+      );
     });
   }
 
@@ -76,19 +105,18 @@ class EventSkipDao extends DatabaseAccessor<AppDatabase>
       if (existing == null || existing.isDeleted) return;
 
       final now = DateTime.now();
-      await (update(eventSkips)..where(
-            (a) => a.eventId.equals(eventId) & a.day.equals(day),
-          ))
-          .write(
-            EventSkipsCompanion(
-              isDeleted: const Value(true),
-              deletedAt: Value(now),
-              updatedAt: Value(now),
-              hlcTimestamp: Value(db.generateHlc()),
-              deviceId: Value(db.deviceId),
-              version: Value(existing.version + 1),
-            ),
-          );
+      await (update(
+        eventSkips,
+      )..where((a) => a.eventId.equals(eventId) & a.day.equals(day))).write(
+        EventSkipsCompanion(
+          isDeleted: const Value(true),
+          deletedAt: Value(now),
+          updatedAt: Value(now),
+          hlcTimestamp: Value(db.generateHlc()),
+          deviceId: Value(db.deviceId),
+          version: Value(existing.version + 1),
+        ),
+      );
     });
   }
 
@@ -141,9 +169,7 @@ class EventSkipDao extends DatabaseAccessor<AppDatabase>
   /// [tombstoneForEvent] instead, so this is currently caller-less, exactly as
   /// [CalendarEventDao.deleteById] is.
   Future<void> deleteForEvent(String eventId) {
-    return (delete(
-      eventSkips,
-    )..where((a) => a.eventId.equals(eventId))).go();
+    return (delete(eventSkips)..where((a) => a.eventId.equals(eventId))).go();
   }
 
   Future<void> deleteAll() {
@@ -151,9 +177,8 @@ class EventSkipDao extends DatabaseAccessor<AppDatabase>
   }
 
   Future<EventSkipRow?> _byKey(String eventId, DateTime day) {
-    return (select(eventSkips)..where(
-          (a) => a.eventId.equals(eventId) & a.day.equals(day),
-        ))
+    return (select(eventSkips)
+          ..where((a) => a.eventId.equals(eventId) & a.day.equals(day)))
         .getSingleOrNull();
   }
 }

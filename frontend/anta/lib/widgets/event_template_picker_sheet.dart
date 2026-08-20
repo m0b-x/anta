@@ -103,9 +103,8 @@ class EventTemplatePickerSheet extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
-                onTap: () => Navigator.of(
-                  context,
-                ).pop(EventTemplatePicked(template)),
+                onTap: () =>
+                    Navigator.of(context).pop(EventTemplatePicked(template)),
               );
             },
           ),

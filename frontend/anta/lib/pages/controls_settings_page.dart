@@ -135,9 +135,8 @@ class _ControlsSettingsPageState extends State<ControlsSettingsPage> {
                     child: SettingsSearchField(
                       controller: _searchController,
                       hint: l10n.searchSettings,
-                      onChanged: (value) => setState(
-                        () => _query = SettingsQuery.parse(value),
-                      ),
+                      onChanged: (value) =>
+                          setState(() => _query = SettingsQuery.parse(value)),
                     ),
                   ),
                   Expanded(
