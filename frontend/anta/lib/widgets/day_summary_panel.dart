@@ -168,6 +168,11 @@ class DaySummaryPanel extends StatelessWidget {
         header,
         Expanded(
           child: ListView.separated(
+            // Keyed on the day: selecting another one must build a fresh
+            // viewport at offset 0 rather than recycle this day's rows and
+            // its scroll position, which left the previous day's cards
+            // showing faintly through the overscroll correction.
+            key: ValueKey(day),
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
             itemCount: entries.length,
             separatorBuilder: (_, _) => const SizedBox(height: 8),
@@ -197,6 +202,10 @@ class DaySummaryPanel extends StatelessWidget {
                     )
                   : const Icon(Icons.chevron_right_rounded);
               return Card(
+                // Entry-keyed so a row — and the opacity layer a missed
+                // occurrence puts inside it — is never reused for a
+                // different entry.
+                key: ValueKey(entry.key),
                 margin: EdgeInsets.zero,
                 clipBehavior: Clip.antiAlias,
                 // IntrinsicHeight bounds the Row to its tallest child's

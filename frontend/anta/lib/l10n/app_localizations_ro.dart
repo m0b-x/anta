@@ -2045,6 +2045,64 @@ class AppLocalizationsRo extends AppLocalizations {
   String get findInNote => 'Găsește în notiță';
 
   @override
+  String get clearSearch => 'Șterge căutarea';
+
+  @override
+  String get jumpToMatch => 'Sari la potrivire';
+
+  @override
+  String get goToMatchNumber => 'Mergi la potrivire';
+
+  @override
+  String get matchNumberHint => 'Nr. potrivire';
+
+  @override
+  String matchNumberRange(int min, int max) {
+    return '$min–$max';
+  }
+
+  @override
+  String enterMatchNumber(int min, int max) {
+    return 'Introdu un număr între $min și $max';
+  }
+
+  @override
+  String get typeMatchNumber => 'Scrie numărul potrivirii';
+
+  @override
+  String matchesForQuery(String query) {
+    return 'Potriviri pentru „$query”';
+  }
+
+  @override
+  String matchPosition(int current, int total) {
+    return 'Potrivirea $current din $total';
+  }
+
+  @override
+  String matchCountLabel(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de potriviri',
+      few: '$count potriviri',
+      one: '1 potrivire',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String matchAtLine(int line) {
+    return 'Linia $line';
+  }
+
+  @override
+  String get wrappedToFirstMatch => 'S-a revenit la prima potrivire';
+
+  @override
+  String get wrappedToLastMatch => 'S-a revenit la ultima potrivire';
+
+  @override
   String get replaceWith => 'Înlocuiește cu';
 
   @override

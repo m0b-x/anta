@@ -2574,6 +2574,97 @@
   "@findInNote": {
     "description": "Placeholder for note search field"
   },
+  "clearSearch": "Clear search",
+  "@clearSearch": {
+    "description": "Tooltip for the button that empties the search field"
+  },
+  "jumpToMatch": "Jump to match",
+  "@jumpToMatch": {
+    "description": "Hint for the counter chip that opens the match list"
+  },
+  "goToMatchNumber": "Go to match",
+  "@goToMatchNumber": {
+    "description": "Label for the field that jumps to a match by number"
+  },
+  "matchNumberHint": "Match #",
+  "@matchNumberHint": {
+    "description": "Placeholder for the jump-to-match-number field"
+  },
+  "matchNumberRange": "{min}–{max}",
+  "@matchNumberRange": {
+    "description": "Valid range shown under the jump-to-match-number field",
+    "placeholders": {
+      "min": {
+        "type": "int"
+      },
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "enterMatchNumber": "Enter a number between {min} and {max}",
+  "@enterMatchNumber": {
+    "description": "Accessibility hint for the jump-to-match-number field",
+    "placeholders": {
+      "min": {
+        "type": "int"
+      },
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "typeMatchNumber": "Type a match number",
+  "@typeMatchNumber": {
+    "description": "Long-press action on the counter chip that opens the match list with the number field focused"
+  },
+  "matchesForQuery": "Matches for “{query}”",
+  "@matchesForQuery": {
+    "description": "Title of the match list sheet",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "matchPosition": "Match {current} of {total}",
+  "@matchPosition": {
+    "description": "Accessibility label for the search match counter",
+    "placeholders": {
+      "current": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "matchCountLabel": "{count, plural, =1{1 match} other{{count} matches}}",
+  "@matchCountLabel": {
+    "description": "Number of search matches shown in the match list sheet",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "matchAtLine": "Line {line}",
+  "@matchAtLine": {
+    "description": "Line number of a search match in the match list",
+    "placeholders": {
+      "line": {
+        "type": "int"
+      }
+    }
+  },
+  "wrappedToFirstMatch": "Wrapped to first match",
+  "@wrappedToFirstMatch": {
+    "description": "Announced when stepping past the last search match"
+  },
+  "wrappedToLastMatch": "Wrapped to last match",
+  "@wrappedToLastMatch": {
+    "description": "Announced when stepping back past the first search match"
+  },
   "replaceWith": "Replace with",
   "@replaceWith": {
     "description": "Placeholder for replace field"

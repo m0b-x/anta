@@ -2017,6 +2017,63 @@ class AppLocalizationsEn extends AppLocalizations {
   String get findInNote => 'Find in note';
 
   @override
+  String get clearSearch => 'Clear search';
+
+  @override
+  String get jumpToMatch => 'Jump to match';
+
+  @override
+  String get goToMatchNumber => 'Go to match';
+
+  @override
+  String get matchNumberHint => 'Match #';
+
+  @override
+  String matchNumberRange(int min, int max) {
+    return '$min–$max';
+  }
+
+  @override
+  String enterMatchNumber(int min, int max) {
+    return 'Enter a number between $min and $max';
+  }
+
+  @override
+  String get typeMatchNumber => 'Type a match number';
+
+  @override
+  String matchesForQuery(String query) {
+    return 'Matches for “$query”';
+  }
+
+  @override
+  String matchPosition(int current, int total) {
+    return 'Match $current of $total';
+  }
+
+  @override
+  String matchCountLabel(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count matches',
+      one: '1 match',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String matchAtLine(int line) {
+    return 'Line $line';
+  }
+
+  @override
+  String get wrappedToFirstMatch => 'Wrapped to first match';
+
+  @override
+  String get wrappedToLastMatch => 'Wrapped to last match';
+
+  @override
   String get replaceWith => 'Replace with';
 
   @override

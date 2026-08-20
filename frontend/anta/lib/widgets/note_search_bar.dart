@@ -1,7 +1,17 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
+
+import '../constants/app_icon_sizes.dart';
+import '../constants/app_spacing.dart';
+import '../constants/font_constants.dart';
+import '../constants/note_search_metrics.dart';
 import '../l10n/app_localizations.dart';
+import '../services/settings_service.dart';
 import '../utils/re_editor_search_controller.dart';
+import 'note_match_list_sheet.dart';
 
 class NoteSearchBar extends StatefulWidget {
   final ReEditorSearchController searchController;
@@ -23,6 +33,18 @@ class NoteSearchBar extends StatefulWidget {
   State<NoteSearchBar> createState() => _NoteSearchBarState();
 }
 
+class _CloseSearchIntent extends Intent {
+  const _CloseSearchIntent();
+}
+
+class _NextMatchIntent extends Intent {
+  const _NextMatchIntent();
+}
+
+class _PreviousMatchIntent extends Intent {
+  const _PreviousMatchIntent();
+}
+
 class _NoteSearchBarState extends State<NoteSearchBar>
     with SingleTickerProviderStateMixin {
   late final TextEditingController _searchController;
@@ -31,7 +53,11 @@ class _NoteSearchBarState extends State<NoteSearchBar>
   late final FocusNode _replaceFocus;
   late final AnimationController _animController;
 
+  Timer? _messageTimer;
+  Timer? _navigateTimer;
   bool _showReplace = false;
+  bool _hapticsEnabled = true;
+  bool _entered = false;
   String? _message;
 
   ReEditorSearchController get _search => widget.searchController;
@@ -44,9 +70,10 @@ class _NoteSearchBarState extends State<NoteSearchBar>
     _searchFocus = FocusNode();
     _replaceFocus = FocusNode();
     _animController = AnimationController(
-      duration: const Duration(milliseconds: 200),
+      duration: NoteSearchMetrics.barAnimation,
       vsync: this,
-    )..forward();
+    );
+    _loadHaptics();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _searchFocus.requestFocus();
@@ -54,8 +81,32 @@ class _NoteSearchBarState extends State<NoteSearchBar>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Entry animation honours the platform's reduce-motion setting, which is
+    // only readable once there is a MediaQuery above us.
+    if (!_entered) {
+      _entered = true;
+      _animController.duration = MediaQuery.disableAnimationsOf(context)
+          ? Duration.zero
+          : NoteSearchMetrics.barAnimation;
+      _animController.forward();
+    }
+  }
+
+  Future<void> _loadHaptics() async {
+    final settings = await SettingsService.getInstance();
+    final enabled = await settings.getHapticFeedback();
+    if (mounted) setState(() => _hapticsEnabled = enabled);
+  }
+
+  @override
   void dispose() {
-    _animController.dispose();
+    _messageTimer?.cancel();
+    _navigateTimer?.cancel();
+    _animController
+      ..stop()
+      ..dispose();
     _searchController.dispose();
     _replaceController.dispose();
     _searchFocus.dispose();
@@ -63,15 +114,20 @@ class _NoteSearchBarState extends State<NoteSearchBar>
     super.dispose();
   }
 
+  void _selectionHaptic() {
+    if (_hapticsEnabled) HapticFeedback.selectionClick();
+  }
+
   void _onSearch(String value) {
     _search.search(value);
     _clearMessage();
-    // Automatically navigate to first match after search completes
-    if (value.isNotEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _navigateToCurrent();
-      });
-    }
+    // Navigating on every keystroke scroll-animates the note once per
+    // character; settle first, then reveal the first match.
+    _navigateTimer?.cancel();
+    if (value.isEmpty) return;
+    _navigateTimer = Timer(NoteSearchMetrics.navigateDebounce, () {
+      if (mounted) _navigateToCurrent();
+    });
   }
 
   void _navigateToCurrent() {
@@ -80,34 +136,90 @@ class _NoteSearchBarState extends State<NoteSearchBar>
   }
 
   void _next() {
+    final before = _search.currentMatchIndex;
     _search.nextMatch();
-    // Schedule navigation after nextMatch() updates the current index
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _navigateToCurrent();
-    });
+    _afterStep(before, forward: true);
   }
 
   void _previous() {
+    final before = _search.currentMatchIndex;
     _search.previousMatch();
-    // Schedule navigation after previousMatch() updates the current index
+    _afterStep(before, forward: false);
+  }
+
+  /// Wrap-around is silent otherwise and reads as a stuck button, so it gets
+  /// its own haptic and its own screen-reader announcement.
+  void _afterStep(int before, {required bool forward}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final after = _search.currentMatchIndex;
+      final wrapped =
+          _search.matchCount > 1 && (forward ? after < before : after > before);
+      if (wrapped) {
+        if (_hapticsEnabled) HapticFeedback.lightImpact();
+        final l10n = AppLocalizations.of(context)!;
+        SemanticsService.sendAnnouncement(
+          View.of(context),
+          forward ? l10n.wrappedToFirstMatch : l10n.wrappedToLastMatch,
+          Directionality.of(context),
+        );
+      } else {
+        _selectionHaptic();
+      }
       _navigateToCurrent();
     });
   }
 
+  Future<void> _openMatchList({bool focusJumpField = false}) async {
+    if (!_search.hasMatches) return;
+    _selectionHaptic();
+    final index = await NoteMatchListSheet.show(
+      context,
+      searchController: _search,
+      hapticsEnabled: _hapticsEnabled,
+      focusJumpField: focusJumpField,
+    );
+    if (!mounted) return;
+    // Keep the field focused: the page's keyboard-inset math is gated on the
+    // search bar owning focus.
+    _searchFocus.requestFocus();
+    if (index == null) return;
+    _search.goToMatch(index);
+    _navigateToCurrent();
+  }
+
   Future<void> _close() async {
+    _messageTimer?.cancel();
+    _navigateTimer?.cancel();
     await _animController.reverse();
+    if (!mounted) return;
     _search.closeSearch();
     widget.onClose?.call();
   }
 
+  /// One trailing button, Android search-view style: it empties a query that
+  /// has one, and closes search once there is nothing left to clear.
+  void _clearOrClose() {
+    if (_searchController.text.isEmpty) {
+      _close();
+      return;
+    }
+    _searchController.clear();
+    _onSearch('');
+    _searchFocus.requestFocus();
+  }
+
   void _clearMessage() {
+    _messageTimer?.cancel();
     if (_message != null) setState(() => _message = null);
   }
 
   void _showMessage(String msg) {
+    _messageTimer?.cancel();
     setState(() => _message = msg);
-    Future.delayed(const Duration(seconds: 2), _clearMessage);
+    _messageTimer = Timer(NoteSearchMetrics.messageDuration, () {
+      if (mounted) setState(() => _message = null);
+    });
   }
 
   void _replaceCurrent() {
@@ -133,7 +245,6 @@ class _NoteSearchBarState extends State<NoteSearchBar>
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return SlideTransition(
       position: Tween<Offset>(begin: const Offset(0, -1), end: Offset.zero)
@@ -143,63 +254,158 @@ class _NoteSearchBarState extends State<NoteSearchBar>
               curve: Curves.easeOutCubic,
             ),
           ),
-      child: ListenableBuilder(
-        listenable: _search,
-        builder: (context, _) => Container(
-          decoration: BoxDecoration(
-            color: isDark ? colors.surfaceContainerHighest : colors.surface,
-            border: Border(
-              bottom: BorderSide(
-                color: colors.outlineVariant.withValues(alpha: 0.5),
-              ),
-            ),
-          ),
-          child: SafeArea(
-            bottom: false,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _SearchRow(
-                  controller: _searchController,
-                  focusNode: _searchFocus,
-                  onChanged: _onSearch,
-                  onNext: _next,
-                  onPrevious: _previous,
-                  onClose: _close,
-                  hasQuery: _searchController.text.isNotEmpty,
-                  hasMatches: _search.hasMatches,
-                  hasMoreMatches: _search.hasMoreMatches,
-                  isSearchPending: _search.isSearchPending,
-                  currentIndex: _search.currentMatchIndex,
-                  matchCount: _search.matchCount,
-                  options: _SearchOptions(
-                    caseSensitive: _search.caseSensitive,
-                    wholeWord: _search.wholeWord,
-                    useRegex: _search.useRegex,
-                    showReplace: _showReplace,
-                    showReplaceOption: widget.showReplaceField,
-                    onToggleCase: _search.toggleCaseSensitive,
-                    onToggleWholeWord: _search.toggleWholeWord,
-                    onToggleRegex: _search.toggleRegex,
-                    onToggleReplace: () =>
-                        setState(() => _showReplace = !_showReplace),
+      child: Container(
+        color: colors.surfaceContainer,
+        child: SafeArea(
+          bottom: false,
+          child: FocusTraversalGroup(
+            child: Shortcuts(
+              shortcuts: const <ShortcutActivator, Intent>{
+                SingleActivator(LogicalKeyboardKey.escape):
+                    _CloseSearchIntent(),
+                SingleActivator(LogicalKeyboardKey.enter): _NextMatchIntent(),
+                SingleActivator(LogicalKeyboardKey.enter, shift: true):
+                    _PreviousMatchIntent(),
+              },
+              child: Actions(
+                actions: <Type, Action<Intent>>{
+                  _CloseSearchIntent: CallbackAction<_CloseSearchIntent>(
+                    onInvoke: (_) {
+                      _close();
+                      return null;
+                    },
+                  ),
+                  _NextMatchIntent: CallbackAction<_NextMatchIntent>(
+                    onInvoke: (_) {
+                      if (_search.hasMatches) _next();
+                      return null;
+                    },
+                  ),
+                  _PreviousMatchIntent: CallbackAction<_PreviousMatchIntent>(
+                    onInvoke: (_) {
+                      if (_search.hasMatches) _previous();
+                      return null;
+                    },
+                  ),
+                },
+                child: ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: _searchController,
+                  builder: (context, value, _) => ListenableBuilder(
+                    listenable: _search,
+                    builder: (context, _) => _buildBar(value.text.isNotEmpty),
                   ),
                 ),
-                if (_showReplace && widget.showReplaceField)
-                  _ReplaceRow(
-                    controller: _replaceController,
-                    focusNode: _replaceFocus,
-                    hasMatches: _search.hasMatches,
-                    onReplaceCurrent: _replaceCurrent,
-                    onReplaceAll: _replaceAll,
-                    onChanged: (_) => _clearMessage(),
-                    message: _message,
-                  ),
-              ],
+              ),
             ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildBar(bool hasQuery) {
+    final l10n = AppLocalizations.of(context)!;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Padding(
+          padding: const EdgeInsetsDirectional.fromSTEB(
+            AppSpacing.xs,
+            AppSpacing.sm,
+            AppSpacing.xs,
+            AppSpacing.sm,
+          ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final compact =
+                  constraints.maxWidth <
+                  NoteSearchMetrics.compactWidthThreshold;
+              final buttonWidth = compact
+                  ? NoteSearchMetrics.iconButtonWidthCompact
+                  : NoteSearchMetrics.touchTarget;
+              return Row(
+                children: [
+                  Expanded(
+                    child: _SearchField(
+                      controller: _searchController,
+                      focusNode: _searchFocus,
+                      hint: l10n.findInNote,
+                      // The magnifier would cost a whole control's width on the
+                      // one row; the hint already names the surface.
+                      icon: null,
+                      compact: compact,
+                      onChanged: _onSearch,
+                      onSubmitted: (_) {
+                        if (_search.hasMatches) _next();
+                      },
+                      suffix: hasQuery
+                          ? _MatchCountChip(
+                              currentIndex: _search.currentMatchIndex,
+                              matchCount: _search.matchCount,
+                              isSearchPending: _search.isSearchPending,
+                              hasMatches: _search.hasMatches,
+                              compact: compact,
+                              onTap: _search.hasMatches ? _openMatchList : null,
+                              onLongPress: _search.hasMatches
+                                  ? () => _openMatchList(focusJumpField: true)
+                                  : null,
+                            )
+                          : null,
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.xs),
+                  // Always mounted, disabled while idle: mounting them with the
+                  // first keystroke would reflow the whole trailing cluster.
+                  _IconBtn(
+                    icon: Icons.keyboard_arrow_up_rounded,
+                    tooltip: l10n.previous,
+                    onPressed: _search.hasMatches ? _previous : null,
+                    width: buttonWidth,
+                  ),
+                  _IconBtn(
+                    icon: Icons.keyboard_arrow_down_rounded,
+                    tooltip: l10n.next,
+                    onPressed: _search.hasMatches ? _next : null,
+                    width: buttonWidth,
+                  ),
+                  _OptionsMenu(
+                    options: _SearchOptions(
+                      caseSensitive: _search.caseSensitive,
+                      wholeWord: _search.wholeWord,
+                      useRegex: _search.useRegex,
+                      showReplace: _showReplace,
+                      showReplaceOption: widget.showReplaceField,
+                      onToggleCase: _search.toggleCaseSensitive,
+                      onToggleWholeWord: _search.toggleWholeWord,
+                      onToggleRegex: _search.toggleRegex,
+                      onToggleReplace: () =>
+                          setState(() => _showReplace = !_showReplace),
+                    ),
+                  ),
+                  _IconBtn(
+                    icon: Icons.close_rounded,
+                    tooltip: hasQuery ? l10n.clearSearch : l10n.close,
+                    onPressed: _clearOrClose,
+                    muted: true,
+                    width: buttonWidth,
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+        if (_showReplace && widget.showReplaceField)
+          _ReplaceRow(
+            controller: _replaceController,
+            focusNode: _replaceFocus,
+            hasMatches: _search.hasMatches,
+            onReplaceCurrent: _replaceCurrent,
+            onReplaceAll: _replaceAll,
+            onChanged: (_) => _clearMessage(),
+            message: _message,
+          ),
+      ],
     );
   }
 }
@@ -234,35 +440,30 @@ class _SearchOptions {
       (showReplace && showReplaceOption);
 }
 
-class _SearchRow extends StatelessWidget {
-  final TextEditingController controller;
-  final FocusNode focusNode;
-  final ValueChanged<String> onChanged;
-  final VoidCallback onNext;
-  final VoidCallback onPrevious;
-  final VoidCallback onClose;
-  final bool hasQuery;
-  final bool hasMatches;
-  final bool hasMoreMatches;
-  final bool isSearchPending;
+/// The match counter, riding inside the field's trailing edge. Numbers only —
+/// `noSearchResults` and `searching` survive as tooltip and semantics label
+/// but are never laid out, since a sentence here is what starves the query.
+///
+/// Tap opens the match list, long-press opens it with the number field
+/// focused; the tint, the caret and the confined ripple are what keep a chip
+/// this small reading as a control rather than as text.
+class _MatchCountChip extends StatelessWidget {
   final int currentIndex;
   final int matchCount;
-  final _SearchOptions options;
+  final bool isSearchPending;
+  final bool hasMatches;
+  final bool compact;
+  final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
 
-  const _SearchRow({
-    required this.controller,
-    required this.focusNode,
-    required this.onChanged,
-    required this.onNext,
-    required this.onPrevious,
-    required this.onClose,
-    required this.hasQuery,
-    required this.hasMatches,
-    required this.hasMoreMatches,
-    required this.isSearchPending,
+  const _MatchCountChip({
     required this.currentIndex,
     required this.matchCount,
-    required this.options,
+    required this.isSearchPending,
+    required this.hasMatches,
+    required this.compact,
+    this.onTap,
+    this.onLongPress,
   });
 
   @override
@@ -270,109 +471,121 @@ class _SearchRow extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-      child: Row(
-        children: [
-          Expanded(child: _buildSearchField(context, colors, l10n)),
-          const SizedBox(width: 8),
-          if (hasQuery) _buildCounter(colors, l10n),
-          _buildActions(colors, l10n),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSearchField(
-    BuildContext context,
-    ColorScheme colors,
-    AppLocalizations l10n,
-  ) {
-    return KeyboardListener(
-      focusNode: FocusNode(),
-      onKeyEvent: (event) {
-        if (event is! KeyDownEvent) return;
-        if (event.logicalKey == LogicalKeyboardKey.escape) {
-          onClose();
-        } else if (event.logicalKey == LogicalKeyboardKey.enter) {
-          HardwareKeyboard.instance.isShiftPressed ? onPrevious() : onNext();
-        }
-      },
-      child: _SearchField(
-        controller: controller,
-        focusNode: focusNode,
-        hint: l10n.findInNote,
-        hasError: hasQuery && !hasMatches,
-        onChanged: onChanged,
-        onSubmitted: (_) => onNext(),
-        onIconTap: hasMatches ? onNext : null,
-      ),
-    );
-  }
-
-  Widget _buildCounter(ColorScheme colors, AppLocalizations l10n) {
-    final isError = !hasMatches && !isSearchPending;
-    final countText = hasMoreMatches ? '$matchCount+' : '$matchCount';
-
-    String displayText;
-    if (isSearchPending) {
-      displayText = l10n.searching;
-    } else if (hasMatches) {
-      displayText = '${currentIndex + 1}/$countText';
+    final Color background;
+    final Color foreground;
+    if (hasMatches) {
+      background = colors.secondaryContainer;
+      foreground = colors.onSecondaryContainer;
+    } else if (isSearchPending) {
+      // Transparent while searching: the chip must not strobe between
+      // keystrokes.
+      background = Colors.transparent;
+      foreground = colors.onSurfaceVariant;
     } else {
-      displayText = l10n.noSearchResults;
+      background = colors.errorContainer;
+      foreground = colors.onErrorContainer;
     }
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color:
-            (isSearchPending
-                    ? colors.secondaryContainer
-                    : isError
-                    ? colors.errorContainer
-                    : colors.primaryContainer)
-                .withValues(alpha: 0.7),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Text(
-        displayText,
-        style: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-          color: isSearchPending
-              ? colors.onSecondaryContainer
-              : isError
-              ? colors.onErrorContainer
-              : colors.onPrimaryContainer,
+    final String semanticsLabel;
+    final String tooltip;
+    if (isSearchPending) {
+      semanticsLabel = l10n.searching;
+      tooltip = l10n.searching;
+    } else if (hasMatches) {
+      semanticsLabel = l10n.matchPosition(currentIndex + 1, matchCount);
+      tooltip = l10n.jumpToMatch;
+    } else {
+      semanticsLabel = l10n.noSearchResults;
+      tooltip = l10n.noSearchResults;
+    }
+
+    return Semantics(
+      button: onTap != null,
+      liveRegion: true,
+      label: semanticsLabel,
+      hint: onTap != null ? l10n.jumpToMatch : null,
+      onTap: onTap,
+      onLongPress: onLongPress,
+      onLongPressHint: onLongPress == null ? null : l10n.typeMatchNumber,
+      excludeSemantics: true,
+      child: Tooltip(
+        message: tooltip,
+        // Manual so long-press belongs to the number field, not the tooltip;
+        // pointer hover still shows it on desktop.
+        triggerMode: TooltipTriggerMode.manual,
+        child: Material(
+          color: background,
+          borderRadius: BorderRadius.circular(
+            NoteSearchMetrics.counterChipRadius,
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            onLongPress: onLongPress,
+            child: Container(
+              height: NoteSearchMetrics.counterChipHeight,
+              constraints: BoxConstraints(
+                minWidth: compact
+                    ? NoteSearchMetrics.counterMinWidthCompact
+                    : NoteSearchMetrics.counterMinWidth,
+              ),
+              // The rounded cap curves in at the trailing edge, so the caret
+              // needs more room there than the digits do at the start.
+              padding: const EdgeInsetsDirectional.only(
+                start: AppSpacing.md,
+                end: AppSpacing.sm,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _buildValue(foreground),
+                  if (onTap != null)
+                    Icon(
+                      Icons.expand_more_rounded,
+                      size: NoteSearchMetrics.counterCaretSize,
+                      color: foreground,
+                    ),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildActions(ColorScheme colors, AppLocalizations l10n) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _IconBtn(
-          icon: Icons.expand_less_rounded,
-          tooltip: l10n.previous,
-          onPressed: hasMatches ? onPrevious : null,
+  Widget _buildValue(Color foreground) {
+    if (isSearchPending) {
+      return SizedBox(
+        width: NoteSearchMetrics.counterCaretSize,
+        height: NoteSearchMetrics.counterCaretSize,
+        child: CircularProgressIndicator(strokeWidth: 2, color: foreground),
+      );
+    }
+
+    final String label;
+    if (hasMatches) {
+      final total = matchCount > NoteSearchMetrics.maxDisplayedMatches
+          ? '${NoteSearchMetrics.maxDisplayedMatches}+'
+          : '$matchCount';
+      // Padded so the chip keeps its width while stepping 9 -> 10.
+      label = '${'${currentIndex + 1}'.padLeft(total.length)}/$total';
+    } else {
+      label = '0';
+    }
+
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: NoteSearchMetrics.maxTextScaleForFixedExtent,
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: FontConstants.caption,
+          fontWeight: FontWeight.w600,
+          color: foreground,
+          fontFeatures: const [FontFeature.tabularFigures()],
         ),
-        _IconBtn(
-          icon: Icons.expand_more_rounded,
-          tooltip: l10n.next,
-          onPressed: hasMatches ? onNext : null,
-        ),
-        _Divider(),
-        _OptionsMenu(options: options),
-        _IconBtn(
-          icon: Icons.close_rounded,
-          tooltip: l10n.close,
-          onPressed: onClose,
-          isClose: true,
-        ),
-      ],
+      ),
     );
   }
 }
@@ -399,9 +612,29 @@ class _ReplaceRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    // Full-size labels: replacing is a deliberate, destructive-ish action and
+    // these read as the primary controls of the row. The trimmed padding is
+    // what keeps the field usable next to them on a small phone.
+    final buttonStyle = ButtonStyle(
+      minimumSize: const WidgetStatePropertyAll(
+        Size(0, NoteSearchMetrics.touchTarget),
+      ),
+      padding: const WidgetStatePropertyAll(
+        EdgeInsets.symmetric(horizontal: AppSpacing.md),
+      ),
+      textStyle: const WidgetStatePropertyAll(
+        TextStyle(fontSize: FontConstants.body, fontWeight: FontWeight.w600),
+      ),
+    );
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      // Starts where the search pill starts, so the two rows line up.
+      padding: const EdgeInsetsDirectional.fromSTEB(
+        AppSpacing.xs,
+        0,
+        AppSpacing.xs,
+        AppSpacing.sm,
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -416,16 +649,27 @@ class _ReplaceRow extends StatelessWidget {
                   onChanged: onChanged,
                 ),
               ),
-              const SizedBox(width: 8),
-              _ActionButton(
-                label: l10n.replaceOne,
+              const SizedBox(width: AppSpacing.sm),
+              // Intrinsic width, not Flexible: three flex children would split
+              // the row in thirds and starve the field.
+              OutlinedButton(
                 onPressed: hasMatches ? onReplaceCurrent : null,
+                style: buttonStyle,
+                child: Text(
+                  l10n.replaceOne,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
-              const SizedBox(width: 4),
-              _ActionButton(
-                label: l10n.replaceAll,
+              const SizedBox(width: AppSpacing.xs),
+              FilledButton(
                 onPressed: hasMatches ? onReplaceAll : null,
-                isPrimary: true,
+                style: buttonStyle,
+                child: Text(
+                  l10n.replaceAll,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
             ],
           ),
@@ -440,82 +684,83 @@ class _SearchField extends StatelessWidget {
   final TextEditingController controller;
   final FocusNode focusNode;
   final String hint;
-  final IconData icon;
-  final bool hasError;
+  final IconData? icon;
+  final bool compact;
   final ValueChanged<String>? onChanged;
   final ValueChanged<String>? onSubmitted;
-  final VoidCallback? onIconTap;
+  final Widget? suffix;
 
   const _SearchField({
     required this.controller,
     required this.focusNode,
     required this.hint,
     this.icon = Icons.search_rounded,
-    this.hasError = false,
+    this.compact = false,
     this.onChanged,
     this.onSubmitted,
-    this.onIconTap,
+    this.suffix,
   });
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final hasText = controller.text.isNotEmpty;
 
     return Container(
-      height: 40,
+      height: NoteSearchMetrics.fieldHeight,
       decoration: BoxDecoration(
-        color: colors.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: hasError
-              ? colors.error.withValues(alpha: 0.5)
-              : colors.outline.withValues(alpha: 0.2),
-        ),
+        color: colors.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(NoteSearchMetrics.fieldRadius),
       ),
       child: TextField(
         controller: controller,
         focusNode: focusNode,
-        style: TextStyle(fontSize: 14, color: colors.onSurface),
+        style: TextStyle(fontSize: FontConstants.body, color: colors.onSurface),
         decoration: InputDecoration(
           hintText: hint,
           hintStyle: TextStyle(
-            color: colors.onSurfaceVariant.withValues(alpha: 0.6),
-            fontSize: 14,
+            color: colors.onSurfaceVariant,
+            fontSize: FontConstants.body,
           ),
-          prefixIcon: Padding(
-            padding: const EdgeInsets.only(left: 12, right: 8),
-            child: GestureDetector(
-              onTap: onIconTap,
-              child: Icon(icon, size: 20, color: colors.onSurfaceVariant),
-            ),
-          ),
-          prefixIconConstraints: const BoxConstraints(
-            minWidth: 40,
-            minHeight: 40,
-          ),
-          suffixIcon: hasText && icon == Icons.search_rounded
-              ? GestureDetector(
-                  onTap: () {
-                    controller.clear();
-                    onChanged?.call('');
-                  },
-                  child: Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: Icon(
-                      Icons.close_rounded,
-                      size: 18,
-                      color: colors.onSurfaceVariant,
-                    ),
+          prefixIcon: icon == null
+              ? null
+              : Padding(
+                  padding: const EdgeInsetsDirectional.only(
+                    start: AppSpacing.md,
+                    end: AppSpacing.sm,
                   ),
-                )
-              : null,
+                  child: Icon(
+                    icon,
+                    size: AppIconSizes.small,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+          prefixIconConstraints: const BoxConstraints(
+            minWidth: NoteSearchMetrics.touchTarget,
+            minHeight: NoteSearchMetrics.fieldHeight,
+          ),
+          // No end padding: the counter is flush with the field's right edge
+          // and shares its radius, so the two read as one pill.
+          suffixIcon: suffix == null
+              ? null
+              : Padding(
+                  padding: const EdgeInsetsDirectional.only(
+                    start: AppSpacing.sm,
+                  ),
+                  child: suffix,
+                ),
+          // The suffix carries its own minimum width; a tight box here would
+          // clip the counter as the total grows.
           suffixIconConstraints: const BoxConstraints(
-            minWidth: 32,
-            minHeight: 32,
+            minWidth: 0,
+            minHeight: NoteSearchMetrics.fieldHeight,
           ),
           border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(vertical: 10),
+          isDense: true,
+          contentPadding: EdgeInsetsDirectional.only(
+            start: icon == null ? (compact ? AppSpacing.md : AppSpacing.lg) : 0,
+            top: AppSpacing.md,
+            bottom: AppSpacing.md,
+          ),
         ),
         onChanged: onChanged,
         onSubmitted: onSubmitted,
@@ -536,54 +781,33 @@ class _IconBtn extends StatelessWidget {
   final IconData icon;
   final String tooltip;
   final VoidCallback? onPressed;
-  final bool isClose;
+  final bool muted;
+  final double width;
 
   const _IconBtn({
     required this.icon,
     required this.tooltip,
     this.onPressed,
-    this.isClose = false,
+    this.muted = false,
+    this.width = NoteSearchMetrics.touchTarget,
   });
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final enabled = onPressed != null;
 
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onPressed,
-          borderRadius: BorderRadius.circular(8),
-          child: SizedBox(
-            width: 36,
-            height: 36,
-            child: Icon(
-              icon,
-              size: 22,
-              color: enabled
-                  ? (isClose ? colors.onSurfaceVariant : colors.primary)
-                  : colors.onSurface.withValues(alpha: 0.3),
-            ),
-          ),
-        ),
+    return IconButton(
+      onPressed: onPressed,
+      tooltip: tooltip,
+      icon: Icon(icon),
+      iconSize: AppIconSizes.medium,
+      color: muted ? colors.onSurfaceVariant : colors.primary,
+      disabledColor: colors.onSurface.withValues(alpha: 0.38),
+      constraints: BoxConstraints.tightFor(
+        width: width,
+        height: NoteSearchMetrics.touchTarget,
       ),
-    );
-  }
-}
-
-class _Divider extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 24,
-      width: 1,
-      margin: const EdgeInsets.symmetric(horizontal: 4),
-      color: Theme.of(
-        context,
-      ).colorScheme.outlineVariant.withValues(alpha: 0.3),
+      padding: EdgeInsets.zero,
     );
   }
 }
@@ -598,21 +822,25 @@ class _OptionsMenu extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
 
+    // No `constraints` here: on PopupMenuButton that sizes the popup, not the
+    // button. Zero padding leaves IconButton's own 48dp minimum.
     return PopupMenuButton<String>(
+      iconSize: AppIconSizes.medium,
+      padding: EdgeInsets.zero,
       icon: Stack(
         children: [
           Icon(
             Icons.tune_rounded,
-            size: 20,
+            size: AppIconSizes.medium,
             color: options.hasActive ? colors.primary : colors.onSurfaceVariant,
           ),
           if (options.hasActive)
-            Positioned(
-              right: 0,
+            PositionedDirectional(
+              end: 0,
               top: 0,
               child: Container(
-                width: 8,
-                height: 8,
+                width: AppSpacing.sm,
+                height: AppSpacing.sm,
                 decoration: BoxDecoration(
                   color: colors.primary,
                   shape: BoxShape.circle,
@@ -622,7 +850,9 @@ class _OptionsMenu extends StatelessWidget {
         ],
       ),
       tooltip: l10n.options,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(NoteSearchMetrics.sheetRadius),
+      ),
       position: PopupMenuPosition.under,
       onSelected: (value) {
         switch (value) {
@@ -683,10 +913,10 @@ class _OptionsMenu extends StatelessWidget {
         children: [
           Icon(
             icon,
-            size: 20,
+            size: AppIconSizes.small,
             color: active ? colors.primary : colors.onSurfaceVariant,
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: AppSpacing.md),
           Expanded(
             child: Text(
               label,
@@ -697,58 +927,12 @@ class _OptionsMenu extends StatelessWidget {
             ),
           ),
           if (active)
-            Icon(Icons.check_rounded, size: 18, color: colors.primary),
-        ],
-      ),
-    );
-  }
-}
-
-class _ActionButton extends StatelessWidget {
-  final String label;
-  final VoidCallback? onPressed;
-  final bool isPrimary;
-
-  const _ActionButton({
-    required this.label,
-    this.onPressed,
-    this.isPrimary = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final enabled = onPressed != null;
-
-    return Material(
-      color: isPrimary && enabled ? colors.primary : Colors.transparent,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: !isPrimary
-                ? Border.all(
-                    color: colors.outline.withValues(
-                      alpha: enabled ? 0.3 : 0.1,
-                    ),
-                  )
-                : null,
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: isPrimary && enabled
-                  ? colors.onPrimary
-                  : colors.onSurface.withValues(alpha: enabled ? 1.0 : 0.4),
+            Icon(
+              Icons.check_rounded,
+              size: AppIconSizes.buttonIcon,
+              color: colors.primary,
             ),
-          ),
-        ),
+        ],
       ),
     );
   }
@@ -764,31 +948,37 @@ class _SuccessMessage extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
 
     return Padding(
-      padding: const EdgeInsets.only(top: 8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: colors.primaryContainer.withValues(alpha: 0.5),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.check_circle_outline_rounded,
-              size: 16,
-              color: colors.primary,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              message,
-              style: TextStyle(
-                fontSize: 12,
+      padding: const EdgeInsets.only(top: AppSpacing.sm),
+      child: Semantics(
+        liveRegion: true,
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.xs,
+          ),
+          decoration: BoxDecoration(
+            color: colors.primaryContainer,
+            borderRadius: BorderRadius.circular(AppSpacing.sm),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.check_circle_outline_rounded,
+                size: AppIconSizes.tiny,
                 color: colors.onPrimaryContainer,
-                fontWeight: FontWeight.w500,
               ),
-            ),
-          ],
+              const SizedBox(width: AppSpacing.xs),
+              Text(
+                message,
+                style: TextStyle(
+                  fontSize: FontConstants.caption,
+                  color: colors.onPrimaryContainer,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -229,6 +229,26 @@ class _CodeFindControllerImpl extends ValueNotifier<CodeFindValue?>
   }
 
   @override
+  void goToMatch(int index) {
+    final CodeFindResult? result = value?.result;
+    if (result == null || result.dirty || result.matches.isEmpty) {
+      return;
+    }
+    final int target = index.clamp(0, result.matches.length - 1);
+    if (target == result.index) {
+      return;
+    }
+    final CodeFindValue newValue =
+        value!.copyWith(result: result.copyWith(index: target));
+    _expandChunkIfNeeded(newValue);
+    value = newValue;
+    final CodeLineSelection? selection = currentMatchSelection;
+    if (selection != null) {
+      _controller.makePositionCenterIfInvisible(selection.start);
+    }
+  }
+
+  @override
   void replaceMatch() {
     final CodeFindResult? result = value?.result;
     if (result == null || result.dirty) {

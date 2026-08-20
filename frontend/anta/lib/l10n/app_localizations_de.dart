@@ -2029,6 +2029,63 @@ class AppLocalizationsDe extends AppLocalizations {
   String get findInNote => 'In Notiz suchen';
 
   @override
+  String get clearSearch => 'Suche löschen';
+
+  @override
+  String get jumpToMatch => 'Zu Treffer springen';
+
+  @override
+  String get goToMatchNumber => 'Zu Treffer gehen';
+
+  @override
+  String get matchNumberHint => 'Treffer-Nr.';
+
+  @override
+  String matchNumberRange(int min, int max) {
+    return '$min–$max';
+  }
+
+  @override
+  String enterMatchNumber(int min, int max) {
+    return 'Gib eine Zahl zwischen $min und $max ein';
+  }
+
+  @override
+  String get typeMatchNumber => 'Treffernummer eingeben';
+
+  @override
+  String matchesForQuery(String query) {
+    return 'Treffer für „$query“';
+  }
+
+  @override
+  String matchPosition(int current, int total) {
+    return 'Treffer $current von $total';
+  }
+
+  @override
+  String matchCountLabel(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Treffer',
+      one: '1 Treffer',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String matchAtLine(int line) {
+    return 'Zeile $line';
+  }
+
+  @override
+  String get wrappedToFirstMatch => 'Zum ersten Treffer gesprungen';
+
+  @override
+  String get wrappedToLastMatch => 'Zum letzten Treffer gesprungen';
+
+  @override
   String get replaceWith => 'Ersetzen durch';
 
   @override

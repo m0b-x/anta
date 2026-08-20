@@ -1492,6 +1492,19 @@
     "description": "Message indicating app restart needed"
   },
   "findInNote": "In Notiz suchen",
+  "clearSearch": "Suche löschen",
+  "jumpToMatch": "Zu Treffer springen",
+  "goToMatchNumber": "Zu Treffer gehen",
+  "matchNumberHint": "Treffer-Nr.",
+  "matchNumberRange": "{min}–{max}",
+  "enterMatchNumber": "Gib eine Zahl zwischen {min} und {max} ein",
+  "typeMatchNumber": "Treffernummer eingeben",
+  "matchesForQuery": "Treffer für „{query}“",
+  "matchPosition": "Treffer {current} von {total}",
+  "matchCountLabel": "{count, plural, =1{1 Treffer} other{{count} Treffer}}",
+  "matchAtLine": "Zeile {line}",
+  "wrappedToFirstMatch": "Zum ersten Treffer gesprungen",
+  "wrappedToLastMatch": "Zum letzten Treffer gesprungen",
   "@findInNote": {
     "description": "Placeholder for note search field"
   },

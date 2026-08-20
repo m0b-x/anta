@@ -3640,6 +3640,84 @@ abstract class AppLocalizations {
   /// **'Find in note'**
   String get findInNote;
 
+  /// Tooltip for the button that empties the search field
+  ///
+  /// In en, this message translates to:
+  /// **'Clear search'**
+  String get clearSearch;
+
+  /// Hint for the counter chip that opens the match list
+  ///
+  /// In en, this message translates to:
+  /// **'Jump to match'**
+  String get jumpToMatch;
+
+  /// Label for the field that jumps to a match by number
+  ///
+  /// In en, this message translates to:
+  /// **'Go to match'**
+  String get goToMatchNumber;
+
+  /// Placeholder for the jump-to-match-number field
+  ///
+  /// In en, this message translates to:
+  /// **'Match #'**
+  String get matchNumberHint;
+
+  /// Valid range shown under the jump-to-match-number field
+  ///
+  /// In en, this message translates to:
+  /// **'{min}–{max}'**
+  String matchNumberRange(int min, int max);
+
+  /// Accessibility hint for the jump-to-match-number field
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a number between {min} and {max}'**
+  String enterMatchNumber(int min, int max);
+
+  /// Long-press action on the counter chip that opens the match list with the number field focused
+  ///
+  /// In en, this message translates to:
+  /// **'Type a match number'**
+  String get typeMatchNumber;
+
+  /// Title of the match list sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Matches for “{query}”'**
+  String matchesForQuery(String query);
+
+  /// Accessibility label for the search match counter
+  ///
+  /// In en, this message translates to:
+  /// **'Match {current} of {total}'**
+  String matchPosition(int current, int total);
+
+  /// Number of search matches shown in the match list sheet
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 match} other{{count} matches}}'**
+  String matchCountLabel(int count);
+
+  /// Line number of a search match in the match list
+  ///
+  /// In en, this message translates to:
+  /// **'Line {line}'**
+  String matchAtLine(int line);
+
+  /// Announced when stepping past the last search match
+  ///
+  /// In en, this message translates to:
+  /// **'Wrapped to first match'**
+  String get wrappedToFirstMatch;
+
+  /// Announced when stepping back past the first search match
+  ///
+  /// In en, this message translates to:
+  /// **'Wrapped to last match'**
+  String get wrappedToLastMatch;
+
   /// Placeholder for replace field
   ///
   /// In en, this message translates to:

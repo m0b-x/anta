@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
@@ -42,6 +43,28 @@ class SearchMatch {
   int get length => end - start;
 }
 
+/// One row of the jump-to-match list: the match's line, a trimmed slice of
+/// that line, and where inside the slice the hit sits so the UI can bold it.
+class SearchMatchPreview {
+  final int index;
+  final int lineNumber;
+  final String snippet;
+  final int highlightStart;
+  final int highlightEnd;
+  final bool trimmedStart;
+  final bool trimmedEnd;
+
+  const SearchMatchPreview({
+    required this.index,
+    required this.lineNumber,
+    required this.snippet,
+    required this.highlightStart,
+    required this.highlightEnd,
+    required this.trimmedStart,
+    required this.trimmedEnd,
+  });
+}
+
 /// A search controller that wraps re_editor's CodeFindController
 /// to leverage native search functionality for better performance.
 ///
@@ -73,6 +96,14 @@ class ReEditorSearchController extends ChangeNotifier {
   // Debounce timer for preview mode search
   Timer? _searchDebounceTimer;
   static const _searchDebounceMs = 300;
+
+  // Cache for the converted match list, keyed on find-result identity
+  CodeFindResult? _cachedMatchesResult;
+  List<SearchMatch>? _cachedMatches;
+
+  // Snippet window used by [previewAt] for long lines
+  static const int _snippetMaxLength = 140;
+  static const int _snippetLeadingContext = 40;
 
   bool get _hasFindController =>
       _findController != null && !_findControllerDisposed;
@@ -117,6 +148,12 @@ class ReEditorSearchController extends ChangeNotifier {
     _findController?.removeListener(_onFindControllerChanged);
     _findController = null;
     _findControllerDisposed = true;
+    _invalidateMatchCache();
+  }
+
+  void _invalidateMatchCache() {
+    _cachedMatchesResult = null;
+    _cachedMatches = null;
   }
 
   /// Initialize with the editing controller (for offset calculations)
@@ -137,26 +174,61 @@ class ReEditorSearchController extends ChangeNotifier {
   /// Replacement text
   String get replacement => _replacement;
 
-  /// List of matches converted to SearchMatch format
+  /// List of matches converted to SearchMatch format.
+  ///
+  /// Converted with one prefix-sum pass over the lines and cached until the
+  /// result carries a different match list or document: this runs on every
+  /// search notification, and the naive form walked all lines per match.
   List<SearchMatch> get matches {
     // Use native CodeFindController if available
     if (_hasFindController) {
-      final value = _findController?.value;
-      if (value?.result == null) return [];
+      final result = _findController?.value?.result;
+      if (result == null) return const [];
 
-      final result = value!.result!;
-      return result.matches.asMap().entries.map((entry) {
-        final match = entry.value;
-        return SearchMatch(
-          start: _selectionToOffset(match.start),
-          end: _selectionToOffset(match.end),
-          lineNumber: match.startIndex,
-        );
-      }).toList();
+      final cached = _cachedMatches;
+      final cachedFor = _cachedMatchesResult;
+      if (cached != null &&
+          cachedFor != null &&
+          identical(cachedFor.matches, result.matches) &&
+          identical(cachedFor.codeLines, result.codeLines)) {
+        return cached;
+      }
+
+      final starts = _lineStartOffsets();
+      final converted = <SearchMatch>[
+        for (final match in result.matches)
+          SearchMatch(
+            start: _offsetAt(starts, match.start),
+            end: _offsetAt(starts, match.end),
+            lineNumber: match.startIndex,
+          ),
+      ];
+      _cachedMatchesResult = result;
+      _cachedMatches = converted;
+      return converted;
     }
 
     // Use preview mode matches
     return _previewMatches;
+  }
+
+  List<int> _lineStartOffsets() {
+    final lines = _editingController?.codeLines;
+    if (lines == null) return const [0];
+    final starts = List<int>.filled(lines.length + 1, 0);
+    var offset = 0;
+    for (var i = 0; i < lines.length; i++) {
+      starts[i] = offset;
+      offset += lines[i].text.length + 1; // +1 for newline
+    }
+    starts[lines.length] = offset;
+    return starts;
+  }
+
+  int _offsetAt(List<int> starts, CodeLinePosition pos) {
+    if (pos.index < 0) return pos.offset;
+    if (pos.index >= starts.length) return starts.last;
+    return starts[pos.index] + pos.offset;
   }
 
   int _selectionToOffset(CodeLinePosition pos) {
@@ -424,6 +496,7 @@ class ReEditorSearchController extends ChangeNotifier {
     _currentQuery = '';
     _previewMatches = [];
     _previewMatchIndex = -1;
+    _invalidateMatchCache();
     if (_hasFindController) {
       _findController?.close();
     }
@@ -455,24 +528,71 @@ class ReEditorSearchController extends ChangeNotifier {
   /// Go to specific match index
   void goToMatch(int index) {
     if (_hasFindController) {
-      // CodeFindController doesn't have direct index navigation,
-      // so we navigate from current position
-      final current = currentMatchIndex;
-      if (index == current) return;
-
-      if (index > current) {
-        for (int i = current; i < index; i++) {
-          _findController?.nextMatch();
-        }
-      } else {
-        for (int i = current; i > index; i--) {
-          _findController?.previousMatch();
-        }
-      }
+      _findController?.goToMatch(index);
     } else if (index >= 0 && index < _previewMatches.length) {
       _previewMatchIndex = index;
       notifyListeners();
     }
+  }
+
+  /// Line slice around the match at [index], built on demand so a jump-to-match
+  /// list can render thousands of hits without materializing every snippet.
+  SearchMatchPreview? previewAt(int index) {
+    if (index < 0 || index >= matchCount) return null;
+
+    final String lineText;
+    final int lineNumber;
+    int startInLine;
+    int endInLine;
+
+    if (_hasFindController) {
+      final result = _findController?.value?.result;
+      if (result == null || index >= result.matches.length) return null;
+      final lines = _editingController?.codeLines;
+      final match = result.matches[index];
+      if (lines == null || match.startIndex >= lines.length) return null;
+      lineNumber = match.startIndex;
+      lineText = lines[match.startIndex].text;
+      startInLine = match.startOffset;
+      endInLine = match.endIndex == match.startIndex
+          ? match.endOffset
+          : lineText.length;
+    } else {
+      final match = _previewMatches[index];
+      final content = _previewContent;
+      if (match.start > content.length) return null;
+      final lineStart = match.start == 0
+          ? 0
+          : content.lastIndexOf('\n', match.start - 1) + 1;
+      final newline = content.indexOf('\n', match.start);
+      final lineEnd = newline == -1 ? content.length : newline;
+      lineNumber = match.lineNumber;
+      lineText = content.substring(lineStart, lineEnd);
+      startInLine = match.start - lineStart;
+      endInLine = match.end - lineStart;
+    }
+
+    startInLine = startInLine.clamp(0, lineText.length);
+    endInLine = endInLine.clamp(startInLine, lineText.length);
+
+    var sliceStart = 0;
+    var sliceEnd = lineText.length;
+    if (lineText.length > _snippetMaxLength) {
+      sliceStart = max(0, startInLine - _snippetLeadingContext);
+      sliceEnd = min(lineText.length, sliceStart + _snippetMaxLength);
+      sliceStart = max(0, min(sliceStart, sliceEnd - _snippetMaxLength));
+    }
+
+    final snippet = lineText.substring(sliceStart, sliceEnd);
+    return SearchMatchPreview(
+      index: index,
+      lineNumber: lineNumber,
+      snippet: snippet,
+      highlightStart: (startInLine - sliceStart).clamp(0, snippet.length),
+      highlightEnd: (endInLine - sliceStart).clamp(0, snippet.length),
+      trimmedStart: sliceStart > 0,
+      trimmedEnd: sliceEnd < lineText.length,
+    );
   }
 
   /// Replace current match

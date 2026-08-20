@@ -209,6 +209,8 @@ abstract class CodeFindController extends ValueNotifier<CodeFindValue?> {
 
   void nextMatch();
 
+  void goToMatch(int index);
+
   void replaceMatch();
 
   void replaceAllMatches();
