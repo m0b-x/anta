@@ -402,9 +402,6 @@ class ImportExportService {
     required String baseName,
   }) async {
     final encoded = ZipEncoder().encode(archive);
-    if (encoded == null) {
-      throw StateError('Failed to encode archive');
-    }
     final tempDir = await getTemporaryDirectory();
     final timestamp = DateTime.now().toIso8601String().replaceAll(':', '-');
     final archiveName = '${baseName}_$timestamp.zip';

@@ -1409,13 +1409,12 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   /// import event. Routing by extension keeps the UI thin: the bloc and
   /// service decide how to actually parse the file.
   Future<void> _pickAndImport() async {
-    final result = await FilePicker.pickFiles(
+    final result = await FilePicker.pickFile(
       type: FileType.custom,
       allowedExtensions: const ['zip', 'json', 'md', 'txt'],
-      withData: false,
     );
-    if (result == null || result.files.isEmpty) return;
-    final path = result.files.single.path;
+    if (result == null) return;
+    final path = result.path;
     if (path == null || !mounted) return;
     final isArchive = path.toLowerCase().endsWith('.zip');
     final bloc = context.read<ImportExportBloc>();

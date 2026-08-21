@@ -93,13 +93,10 @@ class _OnboardingPageState extends State<OnboardingPage> {
     final l10n = AppLocalizations.of(context)!;
 
     try {
-      final result = await FilePicker.pickFiles(
-        type: FileType.any,
-        withData: false,
-      );
+      final result = await FilePicker.pickFile(type: FileType.any);
 
-      if (result == null || result.files.isEmpty) return;
-      final path = result.files.single.path;
+      if (result == null) return;
+      final path = result.path;
       if (path == null) return;
 
       setState(() => _isImporting = true);

@@ -600,12 +600,9 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
   Future<void> _importDatabase(BuildContext context) async {
     final l10n = AppLocalizations.of(context)!;
 
-    final result = await FilePicker.pickFiles(
-      type: FileType.any,
-      withData: false,
-    );
-    if (result == null || result.files.isEmpty) return;
-    final sourcePath = result.files.single.path;
+    final result = await FilePicker.pickFile(type: FileType.any);
+    if (result == null) return;
+    final sourcePath = result.path;
     if (sourcePath == null) return;
 
     final dbManager = await DatabaseManager.getInstance();
