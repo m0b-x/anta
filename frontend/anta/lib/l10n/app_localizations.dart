@@ -5950,6 +5950,18 @@ abstract class AppLocalizations {
   /// **'Clear custom range'**
   String get upcomingClearRange;
 
+  /// Reset action/tooltip for the agenda category filter — clears the allowlist so every category shows
+  ///
+  /// In en, this message translates to:
+  /// **'All categories'**
+  String get upcomingClearCategories;
+
+  /// Agenda filter chip: show each recurring event once (its next occurrence) instead of one row per occurring day
+  ///
+  /// In en, this message translates to:
+  /// **'Collapse recurring'**
+  String get upcomingCollapseRecurring;
+
   /// Look-ahead period preset chip in the upcoming events sheet
   ///
   /// In en, this message translates to:

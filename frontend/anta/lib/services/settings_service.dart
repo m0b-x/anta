@@ -663,11 +663,16 @@ class SettingsService {
         SettingsKeys.calendarUpcomingShowFasting,
         SettingsKeys.defaultCalendarUpcomingShowFasting,
       ),
+      collapseRecurring: await _getBool(
+        SettingsKeys.calendarUpcomingCollapseRecurring,
+        SettingsKeys.defaultCalendarUpcomingCollapseRecurring,
+      ),
       eventType: AgendaEventType.fromName(
         await _db.userSettingsDao.getValue(
           SettingsKeys.calendarUpcomingEventType,
         ),
       ),
+      categoryIds: await _readUpcomingCategoryIds(),
     );
   }
 
@@ -680,6 +685,14 @@ class SettingsService {
     );
     if (raw == null) return const {};
     return UpcomingAgendaFilters.decodePriorities(raw);
+  }
+
+  Future<Set<String>> _readUpcomingCategoryIds() async {
+    final raw = await _db.userSettingsDao.getValue(
+      SettingsKeys.calendarUpcomingCategories,
+    );
+    if (raw == null) return const {};
+    return UpcomingAgendaFilters.decodeCategories(raw);
   }
 
   /// Persists every upcoming-agenda filter. Callers debounce the text query
@@ -710,9 +723,17 @@ class SettingsService {
       SettingsKeys.calendarUpcomingShowFasting,
       filters.showFasting,
     );
+    await _setBool(
+      SettingsKeys.calendarUpcomingCollapseRecurring,
+      filters.collapseRecurring,
+    );
     await _db.userSettingsDao.setValue(
       SettingsKeys.calendarUpcomingEventType,
       filters.eventType.name,
+    );
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.calendarUpcomingCategories,
+      UpcomingAgendaFilters.encodeCategories(filters.categoryIds),
     );
   }
 

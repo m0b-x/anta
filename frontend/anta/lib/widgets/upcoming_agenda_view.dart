@@ -14,6 +14,7 @@ import '../services/folder_search_service.dart' show normalizeForSearch;
 import '../models/upcoming_agenda_filters.dart';
 import '../utils/event_agenda.dart';
 import '../utils/markdown_color_syntax.dart';
+import 'agenda_category_filter_sheet.dart';
 import 'agenda_list_view.dart';
 
 /// Non-modal "Upcoming" mode of the calendar's bottom panel: every event
@@ -230,6 +231,8 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
         o.customStart != n.customStart ||
         o.customEnd != n.customEnd ||
         o.eventType != n.eventType ||
+        !setEquals(o.categoryIds, n.categoryIds) ||
+        o.collapseRecurring != n.collapseRecurring ||
         // Cancelling an occurrence changes what the scan finds, so it must run.
         oldWidget.membershipRevision != widget.membershipRevision ||
         anchorChanged;
@@ -321,6 +324,8 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
       priorities: widget.filters.priorities,
       query: widget.filters.query,
       eventType: widget.filters.eventType,
+      categoryIds: widget.filters.categoryIds,
+      collapseRecurring: widget.filters.collapseRecurring,
     );
   }
 
@@ -469,6 +474,20 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
     widget.onFiltersChanged(widget.filters.copyWith(clearCustomRange: true));
   }
 
+  /// Opens the category allowlist picker; an empty result means "all".
+  Future<void> _pickCategories() async {
+    final result = await AgendaCategoryFilterSheet.show(
+      context,
+      selectedIds: widget.filters.categoryIds,
+    );
+    if (result == null || !mounted) return;
+    widget.onFiltersChanged(widget.filters.copyWith(categoryIds: result));
+  }
+
+  void _clearCategories() {
+    widget.onFiltersChanged(widget.filters.copyWith(categoryIds: const {}));
+  }
+
   void _onQueryChanged(String value) {
     widget.onFiltersChanged(widget.filters.copyWith(query: value));
   }
@@ -594,6 +613,33 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
                           filters.copyWith(showFasting: selected),
                         ),
                       ),
+                    InputChip(
+                      avatar: const Icon(Icons.category_rounded, size: 18),
+                      label: Text(
+                        filters.categoryIds.isEmpty
+                            ? l10n.calendarCategories
+                            : '${l10n.calendarCategories} (${filters.categoryIds.length})',
+                      ),
+                      visualDensity: VisualDensity.compact,
+                      // Avatar + × carry the state; a checkmark would crowd it,
+                      // matching the Custom-range chip above.
+                      showCheckmark: false,
+                      selected: filters.categoryIds.isNotEmpty,
+                      onSelected: (_) => _pickCategories(),
+                      onDeleted: filters.categoryIds.isNotEmpty
+                          ? _clearCategories
+                          : null,
+                      deleteButtonTooltipMessage: l10n.upcomingClearCategories,
+                    ),
+                    FilterChip(
+                      avatar: const Icon(Icons.repeat_rounded, size: 18),
+                      label: Text(l10n.upcomingCollapseRecurring),
+                      visualDensity: VisualDensity.compact,
+                      selected: filters.collapseRecurring,
+                      onSelected: (selected) => widget.onFiltersChanged(
+                        filters.copyWith(collapseRecurring: selected),
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 8),

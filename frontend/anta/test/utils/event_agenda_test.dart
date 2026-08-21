@@ -45,6 +45,19 @@ void main() {
     ).map((o) => o.event.id).toSet();
   }
 
+  Set<String> idsForCategories(
+    Set<String> categoryIds, {
+    Set<String> hiddenCategoryIds = const {},
+  }) {
+    return EventAgenda.occurrencesInRange(
+      events: events,
+      from: windowStart,
+      to: windowEnd,
+      categoryIds: categoryIds,
+      hiddenCategoryIds: hiddenCategoryIds,
+    ).map((o) => o.event.id).toSet();
+  }
+
   test('all admits every event kind', () {
     expect(idsFor(AgendaEventType.all), {'ot', 'd', 'sp'});
   });
@@ -75,5 +88,47 @@ void main() {
       EventAgenda.fastingDaysInRange(from: windowStart, to: windowEnd),
       isEmpty,
     );
+  });
+
+  test('category allowlist keeps only the selected categories', () {
+    expect(idsForCategories({'gym'}), {'d'});
+    expect(idsForCategories({'other'}), {'ot', 'sp'});
+  });
+
+  test('an empty category allowlist shows every category', () {
+    expect(idsForCategories(const {}), {'ot', 'd', 'sp'});
+  });
+
+  test('the category allowlist composes with the hidden set', () {
+    // Both apply: 'other' stays hidden even though it is in the allowlist.
+    expect(idsForCategories({'gym', 'other'}, hiddenCategoryIds: {'other'}), {
+      'd',
+    });
+  });
+
+  test('collapseRecurring shows each recurring event once', () {
+    final occ = EventAgenda.occurrencesInRange(
+      events: events,
+      from: windowStart,
+      to: windowEnd,
+      collapseRecurring: true,
+    );
+    final counts = <String, int>{};
+    for (final o in occ) {
+      counts[o.event.id] = (counts[o.event.id] ?? 0) + 1;
+    }
+    // Daily collapses from 3 rows to 1; one-time and specific stay at 1.
+    expect(counts, {'ot': 1, 'd': 1, 'sp': 1});
+    // The kept row is the recurring event's first in-window occurrence.
+    expect(occ.firstWhere((o) => o.event.id == 'd').day, windowStart);
+  });
+
+  test('without collapseRecurring a daily event shows on every day', () {
+    final occ = EventAgenda.occurrencesInRange(
+      events: events,
+      from: windowStart,
+      to: windowEnd,
+    );
+    expect(occ.where((o) => o.event.id == 'd').length, 3);
   });
 }

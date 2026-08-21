@@ -2082,6 +2082,8 @@
   "upcomingSearchHint": "Ereignisse suchen",
   "upcomingClearSearch": "Suche leeren",
   "upcomingClearRange": "Eigenen Zeitraum löschen",
+  "upcomingClearCategories": "Alle Kategorien",
+  "upcomingCollapseRecurring": "Wiederkehrende bündeln",
   "upcomingPeriodDays": "{count, plural, one {1 Tag} other {{count} Tage}}",
   "@upcomingPeriodDays": {
     "placeholders": {

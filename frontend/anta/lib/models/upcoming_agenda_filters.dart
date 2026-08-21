@@ -54,9 +54,19 @@ class UpcomingAgendaFilters extends Equatable {
   /// default, and inert unless a fasting tradition is configured.
   final bool showFasting;
 
+  /// Whether each recurring event is shown once (its next in-window
+  /// occurrence) instead of one row per occurring day. Off by default; the
+  /// recurrence label already conveys the cadence.
+  final bool collapseRecurring;
+
   /// Which events the list shows — see [AgendaEventType]. [AgendaEventType.all]
   /// (the default) is the filter off.
   final AgendaEventType eventType;
+
+  /// Category ids to include (an allowlist). **Empty means every category** —
+  /// the filter is off, mirroring [priorities]. Composes on top of the
+  /// calendar's inherited hidden-category set.
+  final Set<String> categoryIds;
 
   const UpcomingAgendaFilters({
     this.rangeDays = 30,
@@ -67,7 +77,9 @@ class UpcomingAgendaFilters extends Equatable {
     this.filtersExpanded = false,
     this.showHolidays = false,
     this.showFasting = false,
+    this.collapseRecurring = false,
     this.eventType = AgendaEventType.all,
+    this.categoryIds = const {},
   });
 
   bool get hasCustomRange => customStart != null && customEnd != null;
@@ -81,7 +93,9 @@ class UpcomingAgendaFilters extends Equatable {
     bool? filtersExpanded,
     bool? showHolidays,
     bool? showFasting,
+    bool? collapseRecurring,
     AgendaEventType? eventType,
+    Set<String>? categoryIds,
     bool clearCustomRange = false,
   }) {
     return UpcomingAgendaFilters(
@@ -93,7 +107,9 @@ class UpcomingAgendaFilters extends Equatable {
       filtersExpanded: filtersExpanded ?? this.filtersExpanded,
       showHolidays: showHolidays ?? this.showHolidays,
       showFasting: showFasting ?? this.showFasting,
+      collapseRecurring: collapseRecurring ?? this.collapseRecurring,
       eventType: eventType ?? this.eventType,
+      categoryIds: categoryIds ?? this.categoryIds,
     );
   }
 
@@ -127,6 +143,21 @@ class UpcomingAgendaFilters extends Equatable {
       }
     }
     return values;
+  }
+
+  /// Encodes [categoryIds] as a sorted CSV. Built-in ids are plain names and
+  /// custom ids are UUIDs, so neither contains a comma.
+  static String encodeCategories(Set<String> ids) {
+    final sorted = ids.toList()..sort();
+    return sorted.join(',');
+  }
+
+  static Set<String> decodeCategories(String raw) {
+    if (raw.isEmpty) return const {};
+    return {
+      for (final part in raw.split(','))
+        if (part.trim().isNotEmpty) part.trim(),
+    };
   }
 
   /// Encodes the custom range as `yyyyMMdd|yyyyMMdd`, or an empty string
@@ -176,6 +207,8 @@ class UpcomingAgendaFilters extends Equatable {
     filtersExpanded,
     showHolidays,
     showFasting,
+    collapseRecurring,
     eventType,
+    categoryIds,
   ];
 }

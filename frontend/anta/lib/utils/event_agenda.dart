@@ -50,6 +50,8 @@ abstract final class EventAgenda {
     Set<int> priorities = const {},
     String query = '',
     AgendaEventType eventType = AgendaEventType.all,
+    Set<String> categoryIds = const {},
+    bool collapseRecurring = false,
   }) {
     // The events layer is hidden — no event occurrences, so the scan is skipped
     // entirely and only the annotation rows (holidays/fasting) interleave.
@@ -73,6 +75,9 @@ abstract final class EventAgenda {
         continue;
       }
       if (hiddenCategoryIds.contains(event.categoryId)) continue;
+      if (categoryIds.isNotEmpty && !categoryIds.contains(event.categoryId)) {
+        continue;
+      }
       if (needle.isEmpty) {
         candidates.add(event);
         continue;
@@ -155,7 +160,17 @@ abstract final class EventAgenda {
         result.add(EventOccurrence(event: event, day: day));
       }
     }
-    return List.unmodifiable(result);
+    if (!collapseRecurring) return List.unmodifiable(result);
+
+    // `result` is ascending by day, so the first time a recurring event's id is
+    // seen is its next in-window occurrence — keep that, drop the rest.
+    // One-time events pass through untouched. A post-filter, not a scan
+    // short-circuit, so `occursOn` call counts are unchanged.
+    final seen = <String>{};
+    return List.unmodifiable([
+      for (final occ in result)
+        if (occ.event.rule is OneTimeRecurrence || seen.add(occ.event.id)) occ,
+    ]);
   }
 
   /// Public holidays falling inside the range, in ascending order.

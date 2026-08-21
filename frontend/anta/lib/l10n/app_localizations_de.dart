@@ -3349,6 +3349,12 @@ class AppLocalizationsDe extends AppLocalizations {
   String get upcomingClearRange => 'Eigenen Zeitraum löschen';
 
   @override
+  String get upcomingClearCategories => 'Alle Kategorien';
+
+  @override
+  String get upcomingCollapseRecurring => 'Wiederkehrende bündeln';
+
+  @override
   String upcomingPeriodDays(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

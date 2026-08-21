@@ -3327,6 +3327,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get upcomingClearRange => 'Clear custom range';
 
   @override
+  String get upcomingClearCategories => 'All categories';
+
+  @override
+  String get upcomingCollapseRecurring => 'Collapse recurring';
+
+  @override
   String upcomingPeriodDays(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

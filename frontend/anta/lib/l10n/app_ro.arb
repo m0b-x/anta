@@ -951,6 +951,8 @@
   "upcomingSearchHint": "Caută evenimente",
   "upcomingClearSearch": "Șterge căutarea",
   "upcomingClearRange": "Șterge intervalul personalizat",
+  "upcomingClearCategories": "Toate categoriile",
+  "upcomingCollapseRecurring": "Grupează recurente",
   "upcomingPeriodDays": "{count, plural, one {1 zi} few {{count} zile} other {{count} de zile}}",
   "@upcomingPeriodDays": {
     "placeholders": {

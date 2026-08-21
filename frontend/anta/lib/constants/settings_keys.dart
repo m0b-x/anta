@@ -133,11 +133,21 @@ class SettingsKeys {
   static const String calendarUpcomingShowFasting =
       'calendar_upcoming_show_fasting';
 
+  /// Whether the upcoming agenda collapses each recurring event to a single
+  /// (next) occurrence.
+  static const String calendarUpcomingCollapseRecurring =
+      'calendar_upcoming_collapse_recurring';
+
   /// Which events the upcoming agenda lists (`AgendaEventType` name):
   /// all / recurring / oneTime / none. Parsed with a forward-compatible
   /// fallback to `all`.
   static const String calendarUpcomingEventType =
       'calendar_upcoming_event_type';
+
+  /// Category-id allowlist for the upcoming agenda, as a sorted CSV. Empty =
+  /// every category (the filter off).
+  static const String calendarUpcomingCategories =
+      'calendar_upcoming_categories';
 
   /// Which mode the calendar's bottom panel was left in (day / timeline /
   /// upcoming). Parsed with a forward-compatible fallback.
@@ -326,6 +336,9 @@ class SettingsKeys {
   /// Default agenda fasting visibility: off (and inert until a fasting
   /// tradition is configured).
   static const bool defaultCalendarUpcomingShowFasting = false;
+
+  /// Default: show every occurrence of a recurring event (no collapse).
+  static const bool defaultCalendarUpcomingCollapseRecurring = false;
 
   /// Default bottom-panel mode name (see `CalendarPanelMode`).
   static const String defaultCalendarPanelMode = 'day';

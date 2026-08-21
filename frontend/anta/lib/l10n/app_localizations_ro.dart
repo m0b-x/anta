@@ -3368,6 +3368,12 @@ class AppLocalizationsRo extends AppLocalizations {
   String get upcomingClearRange => 'Șterge intervalul personalizat';
 
   @override
+  String get upcomingClearCategories => 'Toate categoriile';
+
+  @override
+  String get upcomingCollapseRecurring => 'Grupează recurente';
+
+  @override
   String upcomingPeriodDays(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

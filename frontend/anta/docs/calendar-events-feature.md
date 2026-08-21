@@ -1329,11 +1329,20 @@ The area under the grid is now a mode-switched panel owned by
 - Filters are one value object,
   [lib/models/upcoming_agenda_filters.dart](../lib/models/upcoming_agenda_filters.dart)
   (range preset / custom range / priority set / query / holidays + fasting
-  toggles / event-type / chip-row expansion), persisted via
-  `SettingsService.getUpcomingAgendaFilters` / `saveUpcomingAgendaFilters`. The
-  query write is debounced 500 ms and flushed on dispose. **Empty priority set
-  means "all"** — the filter off, never "nothing matches". An elapsed custom
-  range is dropped on load.
+  toggles / event-type / **category allowlist** / chip-row expansion), persisted
+  via `SettingsService.getUpcomingAgendaFilters` / `saveUpcomingAgendaFilters`.
+  The query write is debounced 500 ms and flushed on dispose. **Empty priority
+  set means "all"** — the filter off, never "nothing matches" (the category
+  allowlist `categoryIds` works the same way: empty = every category, sorted-CSV
+  codec). An elapsed custom range is dropped on load.
+- **Category allowlist** ([agenda_category_filter_sheet.dart](../lib/widgets/agenda_category_filter_sheet.dart)):
+  an `InputChip` beside Holidays/Fasting opens a multi-select over
+  `CalendarCategories.all`; its delete "×" resets to all. Applied in the scan's
+  candidate pre-filter (`categoryIds.isNotEmpty && !contains`), **composed on top
+  of** the inherited calendar-global `hiddenCategoryIds` — both apply, so a
+  globally-hidden category stays hidden even if allowlisted. O(events), same tier
+  as the priority/hidden checks; a stale allowlisted id (deleted category) is
+  harmless since no event carries it.
 - **Three independently-suppressible layers.** Events carry a single
   mutually-exclusive `AgendaEventType` axis — **All / Recurring / One-time /
   None** — applied in the scan's candidate pre-filter (`recurring` =
