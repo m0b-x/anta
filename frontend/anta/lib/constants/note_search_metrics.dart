@@ -15,6 +15,14 @@ class NoteSearchMetrics {
   static const double counterCaretSize = 12.0;
   static const int maxDisplayedMatches = 999;
 
+  // In-field clear button. Tune all three values here to resize the X.
+  static const double clearButtonWidth = 36.0;
+  static const double clearButtonHeight = 36.0;
+  static const double clearButtonIconSize = 18.0;
+  // Narrow variant for small phones with the replace row open.
+  static const double clearButtonWidthCompact = 32.0;
+  static const double clearButtonHeightCompact = 32.0;
+
   // Below this width the controls narrow (never shorten) so the query stays
   // readable on a small phone.
   static const double compactWidthThreshold = 340.0;

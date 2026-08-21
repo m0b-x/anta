@@ -197,16 +197,25 @@ class _NoteSearchBarState extends State<NoteSearchBar>
     widget.onClose?.call();
   }
 
+  /// Empties the query and keeps the field focused, so clearing leads back
+  /// into a fresh search rather than out of it. Shared by the in-field clear
+  /// button and the trailing button's clear step.
+  void _clearQuery() {
+    if (_searchController.text.isEmpty) return;
+    _selectionHaptic();
+    _searchController.clear();
+    _onSearch('');
+    _searchFocus.requestFocus();
+  }
+
   /// One trailing button, Android search-view style: it empties a query that
   /// has one, and closes search once there is nothing left to clear.
   void _clearOrClose() {
     if (_searchController.text.isEmpty) {
       _close();
-      return;
+    } else {
+      _clearQuery();
     }
-    _searchController.clear();
-    _onSearch('');
-    _searchFocus.requestFocus();
   }
 
   void _clearMessage() {
@@ -340,16 +349,31 @@ class _NoteSearchBarState extends State<NoteSearchBar>
                         if (_search.hasMatches) _next();
                       },
                       suffix: hasQuery
-                          ? _MatchCountChip(
-                              currentIndex: _search.currentMatchIndex,
-                              matchCount: _search.matchCount,
-                              isSearchPending: _search.isSearchPending,
-                              hasMatches: _search.hasMatches,
-                              compact: compact,
-                              onTap: _search.hasMatches ? _openMatchList : null,
-                              onLongPress: _search.hasMatches
-                                  ? () => _openMatchList(focusJumpField: true)
-                                  : null,
+                          ? Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                // Clear sits left of the counter so the chip
+                                // keeps capping the pill's trailing edge.
+                                _ClearFieldButton(
+                                  tooltip: l10n.clearSearch,
+                                  compact: compact,
+                                  onPressed: _clearQuery,
+                                ),
+                                _MatchCountChip(
+                                  currentIndex: _search.currentMatchIndex,
+                                  matchCount: _search.matchCount,
+                                  isSearchPending: _search.isSearchPending,
+                                  hasMatches: _search.hasMatches,
+                                  compact: compact,
+                                  onTap: _search.hasMatches
+                                      ? _openMatchList
+                                      : null,
+                                  onLongPress: _search.hasMatches
+                                      ? () =>
+                                            _openMatchList(focusJumpField: true)
+                                      : null,
+                                ),
+                              ],
                             )
                           : null,
                     ),
@@ -590,6 +614,47 @@ class _MatchCountChip extends StatelessWidget {
   }
 }
 
+/// The in-field clear affordance: a plain, muted X that empties the query and
+/// sits just left of the counter chip, reading as part of the field.
+class _ClearFieldButton extends StatelessWidget {
+  final String tooltip;
+  final bool compact;
+  final VoidCallback onPressed;
+
+  const _ClearFieldButton({
+    required this.tooltip,
+    required this.onPressed,
+    this.compact = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final w = compact
+        ? NoteSearchMetrics.clearButtonWidthCompact
+        : NoteSearchMetrics.clearButtonWidth;
+    final h = compact
+        ? NoteSearchMetrics.clearButtonHeightCompact
+        : NoteSearchMetrics.clearButtonHeight;
+
+    // shape: CircleBorder() keeps the ripple within the icon's orbit so the X
+    // reads as part of the field, not a standalone button-within-a-pill.
+    return IconButton(
+      onPressed: onPressed,
+      tooltip: tooltip,
+      icon: const Icon(Icons.close_rounded),
+      iconSize: NoteSearchMetrics.clearButtonIconSize,
+      constraints: BoxConstraints.tightFor(width: w, height: h),
+      style: IconButton.styleFrom(
+        foregroundColor: colors.onSurfaceVariant,
+        padding: EdgeInsets.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        shape: const CircleBorder(),
+      ),
+    );
+  }
+}
+
 class _ReplaceRow extends StatelessWidget {
   final TextEditingController controller;
   final FocusNode focusNode;
@@ -638,40 +703,54 @@ class _ReplaceRow extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: _SearchField(
-                  controller: controller,
-                  focusNode: focusNode,
-                  hint: l10n.replaceWith,
-                  icon: Icons.find_replace_rounded,
-                  onChanged: onChanged,
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: controller,
+            builder: (context, value, _) => Row(
+              children: [
+                Expanded(
+                  child: _SearchField(
+                    controller: controller,
+                    focusNode: focusNode,
+                    hint: l10n.replaceWith,
+                    icon: Icons.find_replace_rounded,
+                    compact: true,
+                    onChanged: onChanged,
+                    suffix: value.text.isNotEmpty
+                        ? _ClearFieldButton(
+                            tooltip: l10n.clearSearch,
+                            compact: true,
+                            onPressed: () {
+                              controller.clear();
+                              onChanged('');
+                            },
+                          )
+                        : null,
+                  ),
                 ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              // Intrinsic width, not Flexible: three flex children would split
-              // the row in thirds and starve the field.
-              OutlinedButton(
-                onPressed: hasMatches ? onReplaceCurrent : null,
-                style: buttonStyle,
-                child: Text(
-                  l10n.replaceOne,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                const SizedBox(width: AppSpacing.sm),
+                // Intrinsic width, not Flexible: three flex children would split
+                // the row in thirds and starve the field.
+                OutlinedButton(
+                  onPressed: hasMatches ? onReplaceCurrent : null,
+                  style: buttonStyle,
+                  child: Text(
+                    l10n.replaceOne,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-              ),
-              const SizedBox(width: AppSpacing.xs),
-              FilledButton(
-                onPressed: hasMatches ? onReplaceAll : null,
-                style: buttonStyle,
-                child: Text(
-                  l10n.replaceAll,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                const SizedBox(width: AppSpacing.xs),
+                FilledButton(
+                  onPressed: hasMatches ? onReplaceAll : null,
+                  style: buttonStyle,
+                  child: Text(
+                    l10n.replaceAll,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           if (message != null) _SuccessMessage(message: message!),
         ],
@@ -738,16 +817,9 @@ class _SearchField extends StatelessWidget {
             minWidth: NoteSearchMetrics.touchTarget,
             minHeight: NoteSearchMetrics.fieldHeight,
           ),
-          // No end padding: the counter is flush with the field's right edge
-          // and shares its radius, so the two read as one pill.
-          suffixIcon: suffix == null
-              ? null
-              : Padding(
-                  padding: const EdgeInsetsDirectional.only(
-                    start: AppSpacing.sm,
-                  ),
-                  child: suffix,
-                ),
+          // No wrapping padding: the clear button's own inset already spaces
+          // it evenly from the text and the flush counter chip.
+          suffixIcon: suffix,
           // The suffix carries its own minimum width; a tight box here would
           // clip the counter as the total grows.
           suffixIconConstraints: const BoxConstraints(

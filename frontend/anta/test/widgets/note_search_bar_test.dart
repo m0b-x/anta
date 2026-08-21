@@ -314,14 +314,16 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.close_rounded));
+    // .last targets the trailing button; the in-field clear now shares the
+    // close glyph.
+    await tester.tap(find.byIcon(Icons.close_rounded).last);
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
 
     expect(find.text('squat'), findsNothing);
     expect(closed, isFalse);
 
-    await tester.tap(find.byIcon(Icons.close_rounded));
+    await tester.tap(find.byIcon(Icons.close_rounded).last);
     await tester.pumpAndSettle();
 
     expect(closed, isTrue);
