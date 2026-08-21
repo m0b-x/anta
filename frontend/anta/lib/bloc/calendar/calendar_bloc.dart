@@ -1,13 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../constants/public_holidays.dart';
 import '../../models/calendar_event.dart';
 import '../../services/calendar_event_service.dart';
+import '../../services/category_service.dart';
 import '../../services/event_occurrence_service.dart';
 import '../../services/event_presence_service.dart';
 import '../../services/event_skip_service.dart';
+import '../../services/event_template_service.dart';
 import '../../services/note_money_ledger_service.dart';
+import '../../services/public_holiday_service.dart';
 import 'calendar_event.dart';
 import 'calendar_state.dart';
 
@@ -15,7 +20,33 @@ export 'calendar_event.dart';
 export 'calendar_state.dart';
 
 class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
-  final CalendarEventService _service;
+  /// Seed for the first resolution of [CalendarEventService], not a permanent
+  /// binding.
+  ///
+  /// A `FutureOr` because the two callers need different things: DI hands over
+  /// `getInstance()` unawaited so `registerFactory` can stay synchronous
+  /// (`BlocProvider.create` requires it), while tests pass a
+  /// `forTesting`-built instance directly. Every handler that needs the
+  /// service is already `async`, and the two synchronous, build-time-callable
+  /// methods — [eventsForDay] and [monthNetFor] — read `state`, never the
+  /// service.
+  final FutureOr<CalendarEventService> _seed;
+  CalendarEventService? _service;
+
+  /// Generation of the event store the current state was built from.
+  ///
+  /// Seeded from the current value rather than a sentinel, so [isStale] is
+  /// false at construction and the page's first check cannot double-dispatch
+  /// against DI's own `..add(LoadCalendarEvents())`.
+  int _seenExternalRevision = CalendarEventService.externalRevision;
+
+  /// True when the event store was replaced wholesale — a backup restore or a
+  /// database switch — since this bloc last loaded.
+  ///
+  /// Read by `CalendarPage` when it appears, so a bloc that outlived the
+  /// replacement reloads instead of rendering a store that no longer exists.
+  bool get isStale =>
+      _seenExternalRevision != CalendarEventService.externalRevision;
 
   /// Memoizes recurrence expansion per calendar day. The first lookup for a
   /// day runs the O(N) scan over the event list; the result is cached so
@@ -46,8 +77,8 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   final Map<DateTime, ({int revision, int net})> _monthNetCache = {};
   static const int _maxMonthNetEntries = 36;
 
-  CalendarBloc({required CalendarEventService service})
-    : _service = service,
+  CalendarBloc({required FutureOr<CalendarEventService> service})
+    : _seed = service,
       super(const CalendarPageInitial()) {
     on<LoadCalendarEvents>(_onLoad);
     on<SelectCalendarDay>(_onSelectDay);
@@ -64,6 +95,73 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     on<SetOccurrenceSkipped>(_onSetOccurrenceSkipped);
     on<ClearOccurrenceSkipped>(_onClearOccurrenceSkipped);
   }
+
+  /// Awaits one service's construction, logging rather than rethrowing.
+  ///
+  /// Lets the seven resolve through a single [Future.wait] without its
+  /// fail-fast semantics turning one bad service into an empty calendar.
+  static Future<void> _resolveQuietly(
+    Future<Object?> init,
+    String label,
+  ) async {
+    try {
+      await init;
+    } catch (e) {
+      debugPrint('[CalendarBloc] $label unavailable: $e');
+    }
+  }
+
+  /// Whether the constructor's seed has already been consumed.
+  ///
+  /// Tracked separately from `_service != null` so a seed that **failed** is
+  /// never awaited twice: a rejected future stays rejected, so retrying it
+  /// would strand the bloc forever — every later create/update/delete silently
+  /// no-op, and even a database switch could not recover it.
+  bool _seedConsumed = false;
+
+  /// Resolves [CalendarEventService], reporting whether its cache is known to
+  /// have just been read from the database.
+  ///
+  /// `freshlyLoaded` is what lets [_onLoad] skip its `reload()`: building the
+  /// service runs `_load()` internally, so reloading on top of that reads
+  /// `calendar_events` twice on the pre-first-paint path. Returned per call
+  /// rather than held as a field, so a resolution inside a create/update
+  /// handler cannot make a later load skip a re-read it genuinely needs.
+  ///
+  /// Only the **seed** path claims it. `getInstance()` may hand back an
+  /// instance somebody else built, whose cache predates writes this bloc
+  /// cannot see, so claiming freshness there would trade one redundant read on
+  /// a rare path for silently stale events — the worse bargain by far. The
+  /// database-switch path therefore still pays for a `reload()`.
+  ///
+  /// The seed is used for the first resolution only, and only while the store
+  /// it came from is still current: [isStale] means a database switch left it
+  /// bound to a closed database. After that — and after a seed that threw —
+  /// every resolution goes through `getInstance()`, which is self-healing
+  /// where a cached GetIt reference would not be.
+  Future<({CalendarEventService service, bool freshlyLoaded})>
+  _resolveService() async {
+    final cached = _service;
+    if (cached != null && !isStale) {
+      return (service: cached, freshlyLoaded: false);
+    }
+    if (!_seedConsumed && !isStale) {
+      _seedConsumed = true;
+      try {
+        return (service: _service = await _seed, freshlyLoaded: true);
+      } catch (e) {
+        debugPrint('[CalendarBloc] Seed resolution failed, retrying: $e');
+      }
+    }
+    _seedConsumed = true;
+    return (
+      service: _service = await CalendarEventService.getInstance(),
+      freshlyLoaded: false,
+    );
+  }
+
+  Future<CalendarEventService> _svc() async =>
+      (await _resolveService()).service;
 
   /// Amortized O(1) lookup over the in-memory cache populated by
   /// [CalendarEventService]. The first call for a given day expands the
@@ -161,27 +259,64 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     if (_monthNetCache.isNotEmpty) _monthNetCache.clear();
   }
 
+  /// Resolves every calendar service, then publishes the event set.
+  ///
+  /// This is where the calendar's first load lives now that the services are
+  /// no longer constructed before `runApp`. Two properties it must keep:
+  ///
+  /// The seven `getInstance()` calls run through one [Future.wait] rather than
+  /// sequentially — each is a separate round trip to the Drift isolate, so
+  /// awaiting them in order makes the latencies add rather than overlap. That
+  /// was the roadmap's complaint about the old DI block, and it applies just
+  /// as much here.
+  ///
+  /// And no [CalendarPageLoaded] is ever emitted before all of them resolve.
+  /// The static facades those services publish into are read synchronously
+  /// from render paths and from `occursOn`, and an unconfigured read is silent
+  /// — a skipped occurrence reappears, every category goes grey, and
+  /// `PublicHolidays` falls back to fixed dates, which changes *which days a
+  /// `Workdays` event occurs on*. Until then the page shows its spinner.
   Future<void> _onLoad(
     LoadCalendarEvents event,
     Emitter<CalendarPageState> emit,
   ) async {
     final today = _dateOnly(DateTime.now());
+    CalendarEventService? service;
+    final resolving = _resolveService();
+    // Resolved in parallel but independently. `Future.wait` fails fast, so a
+    // single bad service would otherwise reject the whole batch and blank the
+    // calendar; each of these already degrades to an empty published cache on
+    // its own, which is a far smaller lie than showing no events at all.
+    await Future.wait<void>([
+      _resolveQuietly(resolving, 'events'),
+      _resolveQuietly(PublicHolidayService.getInstance(), 'holidays'),
+      _resolveQuietly(CategoryService.getInstance(), 'categories'),
+      _resolveQuietly(EventOccurrenceService.getInstance(), 'descriptions'),
+      _resolveQuietly(EventPresenceService.getInstance(), 'presence'),
+      _resolveQuietly(EventSkipService.getInstance(), 'skips'),
+      _resolveQuietly(EventTemplateService.getInstance(), 'templates'),
+    ]);
     try {
-      await _service.reload();
+      final resolved = await resolving;
+      service = resolved.service;
+      // Constructing the service loaded the table already — on the first load
+      // and again after a database switch. Reloading on top of that would read
+      // `calendar_events` twice on the pre-first-paint path.
+      if (!resolved.freshlyLoaded) await service.reload();
     } catch (e) {
       debugPrint('[CalendarBloc] Load error: $e');
     }
+    _seenExternalRevision = CalendarEventService.externalRevision;
     _invalidateDayCache();
+    final events = service?.events ?? const <CalendarEvent>[];
     try {
-      await (await NoteMoneyLedgerService.getInstance()).refresh(
-        _service.events,
-      );
+      await (await NoteMoneyLedgerService.getInstance()).refresh(events);
     } catch (e) {
       debugPrint('[CalendarBloc] Money ledger refresh error: $e');
     }
     emit(
       CalendarPageLoaded(
-        allEvents: List.unmodifiable(_service.events),
+        allEvents: List.unmodifiable(events),
         focusedDay: today,
         selectedDay: today,
       ),
@@ -243,8 +378,10 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     final normalized = event.event.copyWith(
       startDate: _dateOnly(event.event.startDate),
     );
+    final CalendarEventService service;
     try {
-      await _service.upsert(normalized);
+      service = await _svc();
+      await service.upsert(normalized);
     } catch (e) {
       debugPrint('[CalendarBloc] Create error: $e');
       return;
@@ -252,14 +389,14 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     _invalidateDayCache();
     try {
       await (await NoteMoneyLedgerService.getInstance()).refresh(
-        _service.events,
+        service.events,
       );
     } catch (e) {
       debugPrint('[CalendarBloc] Money ledger refresh error: $e');
     }
     emit(
       current.copyWith(
-        allEvents: List.unmodifiable(_service.events),
+        allEvents: List.unmodifiable(service.events),
         selectedDay: normalized.startDate,
         focusedDay: normalized.startDate,
       ),
@@ -275,8 +412,10 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     final normalized = event.event.copyWith(
       startDate: _dateOnly(event.event.startDate),
     );
+    final CalendarEventService service;
     try {
-      await _service.upsert(normalized);
+      service = await _svc();
+      await service.upsert(normalized);
     } catch (e) {
       debugPrint('[CalendarBloc] Update error: $e');
       return;
@@ -284,12 +423,12 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     _invalidateDayCache();
     try {
       await (await NoteMoneyLedgerService.getInstance()).refresh(
-        _service.events,
+        service.events,
       );
     } catch (e) {
       debugPrint('[CalendarBloc] Money ledger refresh error: $e');
     }
-    emit(current.copyWith(allEvents: List.unmodifiable(_service.events)));
+    emit(current.copyWith(allEvents: List.unmodifiable(service.events)));
   }
 
   Future<void> _onDeleteEvent(
@@ -300,14 +439,16 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     if (current is! CalendarPageLoaded) return;
     final hasEvent = current.allEvents.any((e) => e.id == event.eventId);
     if (!hasEvent) return;
+    final CalendarEventService service;
     try {
-      await _service.deleteById(event.eventId);
+      service = await _svc();
+      await service.deleteById(event.eventId);
     } catch (e) {
       debugPrint('[CalendarBloc] Delete error: $e');
       return;
     }
     _invalidateDayCache();
-    emit(current.copyWith(allEvents: List.unmodifiable(_service.events)));
+    emit(current.copyWith(allEvents: List.unmodifiable(service.events)));
   }
 
   /// Writes one occurrence's description override.

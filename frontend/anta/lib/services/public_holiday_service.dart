@@ -33,13 +33,37 @@ class PublicHolidayService {
 
   PublicHolidayService._();
 
+  /// Construction never throws, matching the six sibling calendar services.
+  ///
+  /// This runs on the calendar's load path rather than at app start, so a
+  /// throw here would leave [PublicHolidays] uninitialized — and an
+  /// uninitialized read is not a blank calendar but a **wrong** one:
+  /// `WorkdaysRecurrence` and `PublicHolidaysOnlyRecurrence` consult
+  /// `isHoliday` from inside `occursOn`, so the fixed-date fallback changes
+  /// which days an event occurs on. Both failure branches still call
+  /// `configure`, which degrades to "computed built-ins, no user deltas"
+  /// instead of that fallback.
   static Future<PublicHolidayService> getInstance() async {
     if (_instance != null) return _instance!;
     final service = PublicHolidayService._();
     service._db = await AppDatabase.getInstance();
     service._dao = service._db.publicHolidayDao;
-    service._profile = await service._readProfile();
-    await service._load();
+    try {
+      service._profile = await service._readProfile();
+    } catch (e) {
+      debugPrint('[PublicHolidayService] Profile read error: $e');
+      service._profile = HolidayProfile.generic;
+    }
+    try {
+      await service._load();
+    } catch (e) {
+      debugPrint('[PublicHolidayService] Load error: $e');
+      PublicHolidays.configure(
+        profile: service._profile,
+        overrides: const {},
+        suppressed: const {},
+      );
+    }
     _instance = service;
     DatabaseLifecycle.registerResetHandler(reset);
     return service;

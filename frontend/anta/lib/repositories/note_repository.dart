@@ -137,6 +137,39 @@ class NoteRepository {
     return content;
   }
 
+  /// Content for many notes at once, serving whatever the LRU already holds
+  /// and batching the rest into a single chunk read.
+  ///
+  /// Reads **and** writes `_contentCache`, which is behaviour-preserving: the
+  /// N sequential [loadContent] calls this replaces each populated it too.
+  ///
+  /// A note whose content cannot be decoded is **absent** from the result
+  /// rather than present as `''` — the DAO's contract, and the reason a caller
+  /// must not paper over a missing key with `?? ''`. [loadContent] throws for
+  /// such a note, and callers distinguish "unreadable" from "empty".
+  Future<Map<String, String>> loadContentForNotes(List<String> noteIds) async {
+    if (noteIds.isEmpty) return const {};
+
+    final result = <String, String>{};
+    final missing = <String>[];
+    for (final id in noteIds) {
+      final cached = _contentCache.get(id);
+      if (cached != null) {
+        result[id] = cached;
+      } else {
+        missing.add(id);
+      }
+    }
+    if (missing.isEmpty) return result;
+
+    final loaded = await _chunkDao.loadContentForNotes(missing);
+    for (final entry in loaded.entries) {
+      _contentCache.put(entry.key, entry.value);
+      result[entry.key] = entry.value;
+    }
+    return result;
+  }
+
   void preloadContent(List<String> noteIds) {
     for (final noteId in noteIds) {
       if (!_contentCache.containsKey(noteId)) {

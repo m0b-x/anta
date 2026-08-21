@@ -88,25 +88,36 @@ class NoteMoneyLedgerService {
 
     final repository = GetIt.I<NoteRepository>();
     final notes = await repository.getNotesByIds(linked.toList());
-    // Content loads run concurrently — a cold start with many linked
-    // notes must not serialize N chunk reads.
-    await Future.wait(
-      notes.map((note) async {
-        try {
-          final content = await repository.loadContent(note.id);
-          final folded = _fold(content);
-          _ledgers[note.id] = (
-            balance: folded.balance,
-            net: folded.net,
-            title: note.title,
-          );
-        } catch (e) {
-          debugPrint(
-            '[NoteMoneyLedgerService] Refresh error for ${note.id}: $e',
-          );
-        }
-      }),
-    );
+    // Two statements for the whole set, not two per linked note: every
+    // event create and every event edit re-runs this refresh.
+    final contents = await repository.loadContentForNotes([
+      for (final note in notes) note.id,
+    ]);
+    // Iterating the resolved notes, not [linked], is what keeps a
+    // linked-but-deleted note out of the ledger — `getNotesByIds` filters
+    // tombstones and this loop inherits that.
+    for (final note in notes) {
+      // Absent means unreadable, `''` means empty — the batch drops a note
+      // whose chunks fail to decode. Skipping it rather than folding `''`
+      // keeps the pre-batch behaviour, where `loadContent` threw and the
+      // catch below left the note without an entry: a corrupt note shows no
+      // money surfaces, it does not show a balance of zero.
+      final content = contents[note.id];
+      if (content == null) {
+        debugPrint('[NoteMoneyLedgerService] Unreadable content: ${note.id}');
+        continue;
+      }
+      try {
+        final folded = _fold(content);
+        _ledgers[note.id] = (
+          balance: folded.balance,
+          net: folded.net,
+          title: note.title,
+        );
+      } catch (e) {
+        debugPrint('[NoteMoneyLedgerService] Refresh error for ${note.id}: $e');
+      }
+    }
     _revision++;
   }
 

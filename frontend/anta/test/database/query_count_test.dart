@@ -1,7 +1,9 @@
 import 'package:drift/drift.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:anta/database/daos/note_dao.dart';
+import 'package:anta/database/daos/content_chunk_dao.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/repositories/note_repository.dart';
 
 import 'support/db_test_support.dart';
 
@@ -235,6 +237,152 @@ void main() {
       reason: 'issued:\n${counter.statements.join('\n')}',
     );
     expect(counter.selects, hasLength(1));
+  });
+
+  group('note content batching', () {
+    test('loading content for many notes is a single query', () async {
+      await _seedChunks(db, {
+        for (var i = 0; i < 50; i++) 'n$i': ['body $i'],
+      });
+      final ids = [for (var i = 0; i < 50; i++) 'n$i'];
+      counter.reset();
+      final contents = await db.contentChunkDao.loadContentForNotes(ids);
+
+      expect(contents, hasLength(50));
+      expect(contents['n7'], 'body 7');
+      expect(
+        counter.count,
+        1,
+        reason:
+            'loadContentForNotes must stay one `WHERE note_id IN (…)` query. '
+            'The money ledger refreshes on every event create and every event '
+            'edit, and a per-note loop would be invisible in a query plan: 50 '
+            'fast statements still beat one. '
+            'Issued:\n${counter.statements.join('\n')}',
+      );
+    });
+
+    test('an empty id list touches the database not at all', () async {
+      counter.reset();
+      final contents = await db.contentChunkDao.loadContentForNotes(const []);
+      expect(contents, isEmpty);
+      expect(counter.count, 0);
+    });
+
+    test('a note with no chunks still gets an empty entry', () async {
+      await _seedChunks(db, {
+        'n0': ['alpha'],
+        'n2': ['gamma'],
+      });
+
+      final contents = await db.contentChunkDao.loadContentForNotes([
+        'n0',
+        'n1',
+        'n2',
+      ]);
+
+      // The map is pre-seeded before the query for exactly this row: a
+      // chunkless note returns nothing, but `loadContent` answers `''` for it
+      // and the ledger writes an entry. Accumulating only over the returned
+      // rows drops the note from the ledger, and its day bars and month-net
+      // contribution vanish with no error anywhere.
+      expect(contents.keys, hasLength(3));
+      expect(contents['n1'], '');
+      expect(contents['n1'], await db.contentChunkDao.loadContent('n1'));
+    });
+
+    test('a note mixing compressed and plain chunks round-trips', () async {
+      // Chunk size (10000) and the compression threshold (5000) are
+      // independent, so a note longer than one chunk ends with a compressed
+      // head and — here — a short, plain tail. Branching on `isCompressed` per
+      // *note* instead of per *row* corrupts one of the two.
+      final content = 'x' * ContentChunkDao.defaultChunkSize + 'tail';
+      await db.contentChunkDao.saveContent(noteId: 'n0', content: content);
+      final chunks = await db.contentChunkDao.getChunksForNote('n0');
+      expect(chunks.map((c) => c.isCompressed), [true, false]);
+
+      final contents = await db.contentChunkDao.loadContentForNotes(['n0']);
+      expect(contents['n0'], await db.contentChunkDao.loadContent('n0'));
+      expect(contents['n0'], content);
+    });
+
+    test('chunks reassemble in index order, not id order', () async {
+      // Chunk ids are `<noteId>_chunk_<i>`, so a string sort puts `_chunk_10`
+      // between `_chunk_1` and `_chunk_2`. Anything that groups or orders by
+      // id instead of (note_id, chunk_index) silently scrambles long notes.
+      await _seedChunks(db, {
+        'n0': [for (var i = 0; i < 12; i++) '<$i>'],
+      });
+
+      final contents = await db.contentChunkDao.loadContentForNotes(['n0']);
+      expect(contents['n0'], await db.contentChunkDao.loadContent('n0'));
+      expect(contents['n0'], '<0><1><2><3><4><5><6><7><8><9><10><11>');
+    });
+
+    test('soft-deleted chunks are excluded, exactly as loadContent', () async {
+      await _seedChunks(db, {
+        'n0': ['one', 'two', 'three'],
+      });
+      await (db.update(db.contentChunks)
+            ..where((c) => c.id.equals('n0_chunk_1')))
+          .write(const ContentChunksCompanion(isDeleted: Value(true)));
+
+      final contents = await db.contentChunkDao.loadContentForNotes(['n0']);
+      expect(contents['n0'], await db.contentChunkDao.loadContent('n0'));
+      expect(contents['n0'], 'onethree');
+    });
+
+    test('the repository serves a second batch from its LRU', () async {
+      await _seedChunks(db, {
+        for (var i = 0; i < 40; i++) 'n$i': ['body $i'],
+      });
+      final repository = NoteRepository(database: db);
+      final ids = [for (var i = 0; i < 40; i++) 'n$i'];
+
+      counter.reset();
+      final first = await repository.loadContentForNotes(ids);
+      expect(first['n39'], 'body 39');
+      expect(
+        counter.count,
+        1,
+        reason: 'issued:\n${counter.statements.join('\n')}',
+      );
+
+      counter.reset();
+      final second = await repository.loadContentForNotes(ids);
+      // The batch populates the same content LRU the N sequential
+      // `loadContent` calls it replaces did, so a repeated refresh over an
+      // unchanged event set costs nothing.
+      expect(second, first);
+      expect(
+        counter.count,
+        0,
+        reason: 'issued:\n${counter.statements.join('\n')}',
+      );
+    });
+  });
+}
+
+Future<void> _seedChunks(
+  AppDatabase db,
+  Map<String, List<String>> contentsByNote,
+) async {
+  await db.batch((batch) {
+    for (final entry in contentsByNote.entries) {
+      for (var i = 0; i < entry.value.length; i++) {
+        batch.insert(
+          db.contentChunks,
+          ContentChunksCompanion.insert(
+            id: '${entry.key}_chunk_$i',
+            noteId: entry.key,
+            chunkIndex: i,
+            content: entry.value[i],
+            hlcTimestamp: '0',
+            deviceId: 'test',
+          ),
+        );
+      }
+    }
   });
 }
 

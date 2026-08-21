@@ -22,9 +22,14 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
   /// expression exactly. Rewriting the predicate costs the index, and with it
   /// the ordering — SQLite falls back to a scan plus a temp B-tree with no
   /// visible symptom until a user has thousands of events.
+  ///
+  /// It is a **literal**, not `isDeleted.equals(false)`: the latter emits a
+  /// bound parameter, and whether SQLite proves `is_deleted = ?` implies the
+  /// index's own `WHERE is_deleted = 0` varies by SQLite version — newer hosts
+  /// do, the version shipping to Android does not.
   Future<List<CalendarEventRow>> getAll() {
     return (select(calendarEvents)
-          ..where((e) => e.isDeleted.equals(false))
+          ..where((e) => const CustomExpression<bool>('is_deleted = 0'))
           ..orderBy([(e) => OrderingTerm.asc(e.startDate)]))
         .get();
   }

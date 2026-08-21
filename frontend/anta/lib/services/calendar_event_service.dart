@@ -25,17 +25,51 @@ class CalendarEventService {
 
   static Future<CalendarEventService> getInstance() async {
     if (_instance != null) return _instance!;
+    return _create(await AppDatabase.getInstance());
+  }
+
+  /// Binds the singleton to an arbitrary [AppDatabase], bypassing
+  /// [AppDatabase.getInstance]'s `path_provider` lookup and device-id file.
+  ///
+  /// Exists so tests can exercise the real DAO against
+  /// `NativeDatabase.memory()` — including through a `QueryInterceptor`, which
+  /// is the only way to assert how many times the event table is read. Never
+  /// use it in app code: the singleton is what the [DatabaseLifecycle] reset
+  /// contract is built on.
+  @visibleForTesting
+  static Future<CalendarEventService> forTesting(AppDatabase db) async {
+    if (_instance != null) return _instance!;
+    return _create(db);
+  }
+
+  static Future<CalendarEventService> _create(AppDatabase db) async {
     final service = CalendarEventService._();
-    service._db = await AppDatabase.getInstance();
-    service._dao = service._db.calendarEventDao;
+    service._db = db;
+    service._dao = db.calendarEventDao;
     await service._load();
     _instance = service;
     DatabaseLifecycle.registerResetHandler(reset);
     return service;
   }
 
+  /// Counts wholesale replacements of the event store that no dispatch can
+  /// observe — a backup restore and a database switch.
+  ///
+  /// `CalendarBloc` lives above `MaterialApp` and is never disposed, so after
+  /// either of those its `allEvents` and day cache describe a store that no
+  /// longer exists. Neither path can dispatch into a bloc without inverting
+  /// the layering rule, so they publish a generation instead and the page
+  /// re-dispatches when it next appears — the same shape
+  /// `PublicHolidays.revision` uses for holidays.
+  ///
+  /// Deliberately **not** bumped by [upsert], [deleteById], [deleteAll] or
+  /// [reload]: the bloc drives those and already emits. Static so it survives
+  /// [reset] nulling the instance.
+  static int externalRevision = 0;
+
   static void reset() {
     _instance = null;
+    externalRevision++;
   }
 
   List<CalendarEvent> get events => _cache;
@@ -293,6 +327,7 @@ class CalendarEventService {
       }
     }
     await _load();
+    externalRevision++;
   }
 
   // ── Row ↔ Domain mapping ──────────────────────────────────────────────

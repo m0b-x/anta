@@ -59,7 +59,7 @@ class _CalendarView extends StatefulWidget {
   State<_CalendarView> createState() => _CalendarViewState();
 }
 
-class _CalendarViewState extends State<_CalendarView> {
+class _CalendarViewState extends State<_CalendarView> with RouteAware {
   CalendarAppearance _appearance = const CalendarAppearance();
 
   /// Resolved markdown palette, so an event's description renders with the
@@ -106,6 +106,46 @@ class _CalendarViewState extends State<_CalendarView> {
   void initState() {
     super.initState();
     _loadSettings();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute) {
+      AppNavigator.routeObserver.subscribe(this, route);
+    }
+    _reloadIfStale();
+  }
+
+  @override
+  void dispose() {
+    AppNavigator.routeObserver.unsubscribe(this);
+    super.dispose();
+  }
+
+  /// Called when a route pushed above the calendar is popped.
+  ///
+  /// `RouteObserver<PageRoute>` only fires between two page routes, so the
+  /// editor, detail, filter and picker sheets — all `PopupRoute`s — do not
+  /// reach here. Settings, backup and database pages do.
+  @override
+  void didPopNext() {
+    _loadSettings();
+    _reloadIfStale();
+  }
+
+  /// Re-reads the event store when it was replaced underneath the bloc.
+  ///
+  /// `CalendarBloc` lives above `MaterialApp` and is never disposed, so a
+  /// backup restore or a database switch leaves it holding events from a store
+  /// that no longer exists — and because the day cache is dropped by the
+  /// holiday generation check, the result is stale data freshly recomputed
+  /// rather than an obvious blank. Gated on the revision so an ordinary
+  /// drawer-open of the calendar does not pay for a reload.
+  void _reloadIfStale() {
+    final bloc = context.read<CalendarBloc>();
+    if (bloc.isStale) bloc.add(const LoadCalendarEvents());
   }
 
   Future<void> _loadSettings() async {
@@ -400,8 +440,13 @@ class _CalendarViewState extends State<_CalendarView> {
           final selectedDay = _selectedDayOf(state);
           return FloatingActionButton(
             tooltip: l10n.addEvent,
-            onPressed: () =>
-                _openEditorSheet(context, day: selectedDay ?? DateTime.now()),
+            // Inert until the calendar services have resolved. The editor
+            // reads `CalendarCategories`, which stays empty until then, so an
+            // early tap would open a picker showing no categories and default
+            // the event to the `other` fallback.
+            onPressed: selectedDay == null
+                ? null
+                : () => _openEditorSheet(context, day: selectedDay),
             child: const Icon(Icons.add_rounded),
           );
         },
@@ -669,7 +714,7 @@ class _CalendarViewState extends State<_CalendarView> {
     );
     if (!confirmed || !context.mounted) return;
 
-    final holidayService = GetIt.I<PublicHolidayService>();
+    final holidayService = await PublicHolidayService.getInstance();
     await holidayService.removeOn(day);
     if (!context.mounted) return;
     context.read<CalendarBloc>().add(const LoadCalendarEvents());
@@ -713,10 +758,12 @@ class _CalendarViewState extends State<_CalendarView> {
   Future<void> _openSettings(BuildContext context) async {
     final bloc = context.read<CalendarBloc>();
     await AppNavigator.toCalendarSettings(context);
-    // Reload the appearance settings and the events so holiday recurrences
-    // re-render if the holiday profile changed in settings.
-    await _loadSettings();
     if (!mounted) return;
+    // `didPopNext` already re-read the appearance settings. The reload stays
+    // unconditional rather than going through `_reloadIfStale`: Settings ->
+    // Categories can delete a category, which reassigns its events to `other`
+    // in a transaction behind the service's cache — an event-row change that
+    // bumps no revision.
     bloc.add(const LoadCalendarEvents());
   }
 }

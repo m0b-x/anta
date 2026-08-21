@@ -10,12 +10,6 @@ import '../../services/import_export_service.dart';
 import '../../services/markdown_bar_service.dart';
 import '../../services/counter_service.dart';
 import '../../services/calendar_event_service.dart';
-import '../../services/event_occurrence_service.dart';
-import '../../services/event_presence_service.dart';
-import '../../services/event_skip_service.dart';
-import '../../services/event_template_service.dart';
-import '../../services/category_service.dart';
-import '../../services/public_holiday_service.dart';
 import '../../services/mixed_reorder_service.dart';
 import '../../services/move_history_service.dart';
 import '../../services/move_history_store.dart';
@@ -81,26 +75,19 @@ Future<void> _registerServices() async {
   final counterService = await CounterService.getInstance();
   getIt.registerSingleton<CounterService>(counterService);
 
-  final publicHolidayService = await PublicHolidayService.getInstance();
-  getIt.registerSingleton<PublicHolidayService>(publicHolidayService);
-
-  final categoryService = await CategoryService.getInstance();
-  getIt.registerSingleton<CategoryService>(categoryService);
-
-  final calendarEventService = await CalendarEventService.getInstance();
-  getIt.registerSingleton<CalendarEventService>(calendarEventService);
-
-  final eventOccurrenceService = await EventOccurrenceService.getInstance();
-  getIt.registerSingleton<EventOccurrenceService>(eventOccurrenceService);
-
-  final eventPresenceService = await EventPresenceService.getInstance();
-  getIt.registerSingleton<EventPresenceService>(eventPresenceService);
-
-  final eventSkipService = await EventSkipService.getInstance();
-  getIt.registerSingleton<EventSkipService>(eventSkipService);
-
-  final eventTemplateService = await EventTemplateService.getInstance();
-  getIt.registerSingleton<EventTemplateService>(eventTemplateService);
+  // The seven calendar services are deliberately absent here. Each one loaded
+  // a full table before `runApp` — including a nine-statement write
+  // transaction in `CategoryService` — taxing every launch, including the
+  // launches that never open the calendar. They are self-initializing
+  // singletons on the `DatabaseLifecycle` contract, so callers resolve them
+  // with `await X.getInstance()` and the calendar route drives first load;
+  // `FastingCalendar` and `NoteMoneyLedgerService` already worked this way.
+  //
+  // Resolving through `getInstance()` rather than GetIt is also what keeps a
+  // database switch honest: `registerSingleton` holds the object, while
+  // `DatabaseLifecycle` only nulls the service's static `_instance`, so a
+  // GetIt lookup after a switch hands back an instance bound to the closed
+  // database.
 
   getIt.registerSingleton<MoveHistoryService>(
     MoveHistoryService(store: InMemoryMoveHistoryStore()),
@@ -169,8 +156,10 @@ void _registerBlocs() {
     () => CounterBloc(counterService: getIt<CounterService>()),
   );
 
+  // Passes the unawaited future: the factory stays synchronous (BlocProvider
+  // needs it to), and the bloc awaits it once inside its first handler.
   getIt.registerFactory<CalendarBloc>(
-    () => CalendarBloc(service: getIt<CalendarEventService>()),
+    () => CalendarBloc(service: CalendarEventService.getInstance()),
   );
 
   getIt.registerFactory<ImportExportBloc>(

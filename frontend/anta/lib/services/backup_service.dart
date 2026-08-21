@@ -84,14 +84,20 @@ class BackupService {
     final noteMoneyCurrencies = await _exportNoteMoneyCurrencies();
 
     final counterData = await GetIt.I<CounterService>().exportData();
-    final calendarCategories = await GetIt.I<CategoryService>().exportData();
-    final calendarEvents = await GetIt.I<CalendarEventService>().exportData();
-    final publicHolidays = await GetIt.I<PublicHolidayService>().exportData();
-    final eventOccurrences = await GetIt.I<EventOccurrenceService>()
+    final calendarCategories = await (await CategoryService.getInstance())
         .exportData();
-    final eventAbsences = await GetIt.I<EventPresenceService>().exportData();
-    final eventSkips = await GetIt.I<EventSkipService>().exportData();
-    final eventTemplates = await GetIt.I<EventTemplateService>().exportData();
+    final calendarEvents = await (await CalendarEventService.getInstance())
+        .exportData();
+    final publicHolidays = await (await PublicHolidayService.getInstance())
+        .exportData();
+    final eventOccurrences = await (await EventOccurrenceService.getInstance())
+        .exportData();
+    final eventAbsences = await (await EventPresenceService.getInstance())
+        .exportData();
+    final eventSkips = await (await EventSkipService.getInstance())
+        .exportData();
+    final eventTemplates = await (await EventTemplateService.getInstance())
+        .exportData();
 
     return {
       // v7: event priorities are stored inverted (1 = highest). Older
@@ -354,17 +360,22 @@ class BackupService {
       // category id) and rendering resolve against the restored set.
       final calendarCategories = data['calendarCategories'] as List?;
       if (calendarCategories != null) {
-        await GetIt.I<CategoryService>().importData(calendarCategories);
+        await (await CategoryService.getInstance()).importData(
+          calendarCategories,
+        );
       }
       // Event templates (v29+ backups). The strand rule applies, but keyed to
       // **categories** rather than events — a template's only foreign
       // reference is its category id, and the category import above just
       // wiped and replaced that id space.
       final eventTemplates = data['eventTemplates'] as List?;
-      if (eventTemplates != null) {
-        await GetIt.I<EventTemplateService>().importData(eventTemplates);
-      } else if (calendarCategories != null) {
-        await GetIt.I<EventTemplateService>().clearAllForImport();
+      if (eventTemplates != null || calendarCategories != null) {
+        final templates = await EventTemplateService.getInstance();
+        if (eventTemplates != null) {
+          await templates.importData(eventTemplates);
+        } else {
+          await templates.clearAllForImport();
+        }
       }
       final calendarEvents = data['calendarEvents'] as List?;
       if (calendarEvents != null) {
@@ -386,38 +397,49 @@ class BackupService {
                   else
                     event,
               ];
-        await GetIt.I<CalendarEventService>().importData(events);
+        await (await CalendarEventService.getInstance()).importData(events);
       }
       // Per-occurrence description overrides (v24+ backups). Unlike the keys
       // above, an absent key here is NOT a no-op when the backup carried
       // events: the event import wipes and reinserts, so keeping the previous
       // database's overrides would strand them against unrelated event ids.
       final eventOccurrences = data['eventOccurrences'] as List?;
-      if (eventOccurrences != null) {
-        await GetIt.I<EventOccurrenceService>().importData(eventOccurrences);
-      } else if (calendarEvents != null) {
-        await GetIt.I<EventOccurrenceService>().clearAllForImport();
+      if (eventOccurrences != null || calendarEvents != null) {
+        final occurrences = await EventOccurrenceService.getInstance();
+        if (eventOccurrences != null) {
+          await occurrences.importData(eventOccurrences);
+        } else {
+          await occurrences.clearAllForImport();
+        }
       }
       // Presence marks (v26+ backups). Same strand rule as the overrides
       // above, for the same reason.
       final eventAbsences = data['eventAbsences'] as List?;
-      if (eventAbsences != null) {
-        await GetIt.I<EventPresenceService>().importData(eventAbsences);
-      } else if (calendarEvents != null) {
-        await GetIt.I<EventPresenceService>().clearAllForImport();
+      if (eventAbsences != null || calendarEvents != null) {
+        final presence = await EventPresenceService.getInstance();
+        if (eventAbsences != null) {
+          await presence.importData(eventAbsences);
+        } else {
+          await presence.clearAllForImport();
+        }
       }
       // Cancelled occurrences (v30+ backups). Same strand rule, and the one
       // where getting it wrong is worst: a stale skip does not render a wrong
       // colour, it hides occurrences of whatever event later takes that id.
       final eventSkips = data['eventSkips'] as List?;
-      if (eventSkips != null) {
-        await GetIt.I<EventSkipService>().importData(eventSkips);
-      } else if (calendarEvents != null) {
-        await GetIt.I<EventSkipService>().clearAllForImport();
+      if (eventSkips != null || calendarEvents != null) {
+        final skips = await EventSkipService.getInstance();
+        if (eventSkips != null) {
+          await skips.importData(eventSkips);
+        } else {
+          await skips.clearAllForImport();
+        }
       }
       final publicHolidays = data['publicHolidays'] as List?;
       if (publicHolidays != null) {
-        await GetIt.I<PublicHolidayService>().importData(publicHolidays);
+        await (await PublicHolidayService.getInstance()).importData(
+          publicHolidays,
+        );
       }
 
       return ImportResult(

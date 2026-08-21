@@ -154,6 +154,29 @@ void main() {
       // Ordering comes from the index, so opening a long note never sorts.
       expect(plan, isNot(sortsInMemory));
     });
+
+    test('the batched read walks the same index without sorting', () async {
+      final plan = await planOf(
+        () => db.contentChunkDao.loadContentForNotes(['n1', 'n2', 'n3']),
+      );
+      expect(plan, usesIndex('idx_chunks_note_index'));
+      // `note_id` leads the ORDER BY precisely so the index supplies both the
+      // grouping and the per-note chunk order. Drop it and SQLite has to sort
+      // the whole result set in a temp B-tree.
+      expect(plan, isNot(sortsInMemory));
+    });
+
+    test('the batched read restates the partial index predicate', () async {
+      final sql = await sqlOf(
+        () => db.contentChunkDao.loadContentForNotes(['n1', 'n2']),
+      );
+      // The portable half of the guard. `idx_chunks_note_index` is partial, and
+      // whether SQLite proves a bound `is_deleted = ?` implies its
+      // `WHERE is_deleted = 0` depends on the SQLite version — the one on this
+      // host does, the one shipping to Android does not. Asserting the plan
+      // alone would therefore stay green while every phone fell back to a scan.
+      expect(sql, contains('is_deleted = 0'));
+    });
   });
 
   group('calendar', () {
@@ -170,6 +193,13 @@ void main() {
       // the ordering — is silent until a calendar gets big.
       expect(plan, usesIndex('idx_calendar_events_start_date'));
       expect(plan, isNot(sortsInMemory));
+
+      // And the portable half: the predicate is a literal, not a bound
+      // parameter. Newer SQLite proves `is_deleted = ?` implies the partial
+      // index's `WHERE is_deleted = 0`; the version shipping to Android does
+      // not, so the plan check above would pass here and scan on a phone.
+      final sql = await sqlOf(() => db.calendarEventDao.getAll());
+      expect(sql, contains('is_deleted = 0'));
     });
 
     test('tombstoning a single event is a primary-key update', () async {

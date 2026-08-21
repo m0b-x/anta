@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:drift/drift.dart';
 import '../database.dart';
 import '../tables/content_chunks_table.dart';
@@ -59,6 +60,74 @@ class ContentChunkDao extends DatabaseAccessor<AppDatabase>
     }
 
     return buffer.toString();
+  }
+
+  /// Content for many notes in a single statement, keyed by note id.
+  ///
+  /// The calendar's money ledger resolves every linked note at once, and one
+  /// [loadContent] per note turned an event edit into an N-statement fan-out.
+  ///
+  /// Four details are load-bearing:
+  ///
+  ///  - the map is **pre-seeded with `''`** for every requested id. A note with
+  ///    no chunks returns no rows, but [loadContent] answers `''` for it, and a
+  ///    caller that only walks the returned rows would silently drop that note.
+  ///  - `note_id` leads the ORDER BY. With it the plan is a `SEARCH` on
+  ///    `idx_chunks_note_index`; without it SQLite adds a temp B-tree.
+  ///  - the tombstone filter is a literal, restating the partial index's own
+  ///    `WHERE is_deleted = 0`. A bound parameter is only *sometimes* proven to
+  ///    imply it, and which is version-dependent.
+  ///  - compression is decided per chunk, never per note: the compression
+  ///    threshold and the chunk size are independent, so one note legitimately
+  ///    mixes compressed and plain chunks.
+  ///  - a note whose chunks fail to decode is **dropped from the map**, so an
+  ///    absent key means "unreadable" while a `''` value means "no content".
+  ///    Callers need that distinction: [loadContent] throws for a corrupt note,
+  ///    and the money ledger relies on catching that to skip the one bad note
+  ///    rather than zeroing it. Batching without this turned a single
+  ///    undecodable chunk into a total failure of every note in the batch.
+  Future<Map<String, String>> loadContentForNotes(List<String> noteIds) async {
+    final result = <String, String>{for (final id in noteIds) id: ''};
+    if (result.isEmpty) return result;
+
+    final rows =
+        await (select(contentChunks)
+              ..where(
+                (c) =>
+                    c.noteId.isIn(result.keys.toList()) &
+                    const CustomExpression<bool>('is_deleted = 0'),
+              )
+              ..orderBy([
+                (c) => OrderingTerm.asc(c.noteId),
+                (c) => OrderingTerm.asc(c.chunkIndex),
+              ]))
+            .get();
+
+    final buffers = <String, StringBuffer>{};
+    final unreadable = <String>{};
+    for (final chunk in rows) {
+      if (unreadable.contains(chunk.noteId)) continue;
+      try {
+        (buffers[chunk.noteId] ??= StringBuffer()).write(
+          chunk.isCompressed
+              ? CompressionUtils.decompressFromBase64(chunk.content)
+              : chunk.content,
+        );
+      } catch (e) {
+        debugPrint(
+          '[ContentChunkDao] Chunk decode error for ${chunk.noteId}: $e',
+        );
+        unreadable.add(chunk.noteId);
+        buffers.remove(chunk.noteId);
+      }
+    }
+    for (final entry in buffers.entries) {
+      result[entry.key] = entry.value.toString();
+    }
+    for (final noteId in unreadable) {
+      result.remove(noteId);
+    }
+    return result;
   }
 
   Future<void> saveContent({
