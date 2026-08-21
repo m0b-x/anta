@@ -1,6 +1,9 @@
+import '../constants/fasting_calendar.dart';
 import '../constants/occurrence_descriptions.dart';
 import '../constants/public_holidays.dart';
 import '../models/calendar_event.dart';
+import '../models/recurrence_rule.dart';
+import '../models/upcoming_agenda_filters.dart';
 import '../services/folder_search_service.dart' show normalizeForSearch;
 
 /// One dated occurrence of a [CalendarEvent] inside an agenda range.
@@ -46,7 +49,11 @@ abstract final class EventAgenda {
     Set<String> hiddenCategoryIds = const {},
     Set<int> priorities = const {},
     String query = '',
+    AgendaEventType eventType = AgendaEventType.all,
   }) {
+    // The events layer is hidden — no event occurrences, so the scan is skipped
+    // entirely and only the annotation rows (holidays/fasting) interleave.
+    if (eventType == AgendaEventType.none) return const [];
     final range = resolveRange(from, to);
     if (range == null) return const [];
     final (start, end) = range;
@@ -59,6 +66,9 @@ abstract final class EventAgenda {
     final titleMatched = <String>{};
     final candidates = <CalendarEvent>[];
     for (final event in events) {
+      final isOneTime = event.rule is OneTimeRecurrence;
+      if (eventType == AgendaEventType.recurring && isOneTime) continue;
+      if (eventType == AgendaEventType.oneTime && !isOneTime) continue;
       if (priorities.isNotEmpty && !priorities.contains(event.priority)) {
         continue;
       }
@@ -75,21 +85,71 @@ abstract final class EventAgenda {
     }
     if (candidates.isEmpty) return const [];
 
+    // Prune candidates that provably cannot occur inside [start, end] before
+    // the O(days x candidates) scan — a narrow window against a large store
+    // leaves only a small fraction in play. Every survivor is still validated
+    // through `occursOnUtcDay`, so this only ever drops non-occurrences.
+    //
+    // One-time events occur on exactly one day, so they are bucketed by it and
+    // never enter the per-day scan: a one-time event is never skipped and its
+    // rule is a bare `day == start`, so once the (rare) end-date clamp is
+    // honoured its placement on that day is certain.
+    final recurring = <CalendarEvent>[];
+    final oneTimeByDay = <DateTime, List<CalendarEvent>>{};
+    for (final event in candidates) {
+      final endUtc = event.endDateUtc;
+      // endDate clamps every rule at the model layer, so a series that ended
+      // before the window has nothing left inside it.
+      if (endUtc != null && endUtc.isBefore(start)) continue;
+      final rule = event.rule;
+      if (rule is OneTimeRecurrence) {
+        final day = event.startDateUtc;
+        if (day.isBefore(start) || day.isAfter(end)) continue;
+        if (endUtc != null && day.isAfter(endUtc)) continue;
+        (oneTimeByDay[day] ??= <CalendarEvent>[]).add(event);
+        continue;
+      }
+      // Only the start-guarded rules can be pruned by their start.
+      // `SpecificDatesRecurrence` has no pre-start guard — its dates may fall
+      // before `startDate` — so it stays in the scan, where its
+      // allocation-free set lookup is already cheap.
+      if (rule is! SpecificDatesRecurrence &&
+          !event.retroactive &&
+          event.startDateUtc.isAfter(end)) {
+        continue;
+      }
+      recurring.add(event);
+    }
+    if (recurring.isEmpty && oneTimeByDay.isEmpty) return const [];
+
     final result = <EventOccurrence>[];
     for (
       var day = start;
       !day.isAfter(end);
       day = day.add(const Duration(days: 1))
     ) {
-      final onDay = <CalendarEvent>[
-        for (final event in candidates)
-          if (event.occursOn(day) &&
-              (needle.isEmpty ||
-                  titleMatched.contains(event.id) ||
-                  _dayDescriptionMatches(event, day, needle)))
-            event,
-      ];
-      if (onDay.isEmpty) continue;
+      List<CalendarEvent>? onDay;
+      for (final event in recurring) {
+        if (event.occursOnUtcDay(day) &&
+            (needle.isEmpty ||
+                titleMatched.contains(event.id) ||
+                _dayDescriptionMatches(event, day, needle))) {
+          (onDay ??= <CalendarEvent>[]).add(event);
+        }
+      }
+      final oneTimeToday = oneTimeByDay[day];
+      if (oneTimeToday != null) {
+        for (final event in oneTimeToday) {
+          // The occurrence here is certain; only the search query narrows it,
+          // and a one-time event's description never varies by day.
+          if (needle.isEmpty ||
+              titleMatched.contains(event.id) ||
+              _dayDescriptionMatches(event, day, needle)) {
+            (onDay ??= <CalendarEvent>[]).add(event);
+          }
+        }
+      }
+      if (onDay == null) continue;
       onDay.sort(compareWithinDay);
       for (final event in onDay) {
         result.add(EventOccurrence(event: event, day: day));
@@ -117,6 +177,29 @@ abstract final class EventAgenda {
       day = day.add(const Duration(days: 1))
     ) {
       if (PublicHolidays.isHoliday(day)) days.add(day);
+    }
+    return days;
+  }
+
+  /// Fasting days falling inside the range, in ascending order. Empty when no
+  /// fasting tradition is configured ([FastingCalendar.isEnabled] false), so a
+  /// caller that toggles it on pays nothing until the user opts in. Mirrors
+  /// [holidayDaysInRange]; both are properties of the day, not events.
+  static List<DateTime> fastingDaysInRange({
+    required DateTime from,
+    required DateTime to,
+  }) {
+    if (!FastingCalendar.isEnabled) return const [];
+    final range = resolveRange(from, to);
+    if (range == null) return const [];
+    final (start, end) = range;
+    final days = <DateTime>[];
+    for (
+      var day = start;
+      !day.isAfter(end);
+      day = day.add(const Duration(days: 1))
+    ) {
+      if (FastingCalendar.isFastingDay(day)) days.add(day);
     }
     return days;
   }

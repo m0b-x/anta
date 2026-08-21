@@ -2,6 +2,25 @@ import 'package:equatable/equatable.dart';
 
 import 'calendar_event.dart';
 
+/// Which events the upcoming agenda lists — a single mutually-exclusive axis,
+/// so it can never encode the contradictory "neither" state two booleans would
+/// allow. [none] hides the events layer entirely, leaving only the interleaved
+/// holiday/fasting rows ("upcoming holidays without events"). Persisted by
+/// name; [fromName] falls back to [all] for a value written by a newer build.
+enum AgendaEventType {
+  all,
+  recurring,
+  oneTime,
+  none;
+
+  static AgendaEventType fromName(String? name) {
+    for (final type in values) {
+      if (type.name == name) return type;
+    }
+    return all;
+  }
+}
+
 /// Everything the upcoming-agenda panel filters by.
 ///
 /// Lives above the panel widget and is persisted through `SettingsService`,
@@ -31,6 +50,14 @@ class UpcomingAgendaFilters extends Equatable {
   /// the agenda is a training log first.
   final bool showHolidays;
 
+  /// Whether configured fasting days are listed alongside events. Off by
+  /// default, and inert unless a fasting tradition is configured.
+  final bool showFasting;
+
+  /// Which events the list shows — see [AgendaEventType]. [AgendaEventType.all]
+  /// (the default) is the filter off.
+  final AgendaEventType eventType;
+
   const UpcomingAgendaFilters({
     this.rangeDays = 30,
     this.priorities = const {},
@@ -39,6 +66,8 @@ class UpcomingAgendaFilters extends Equatable {
     this.query = '',
     this.filtersExpanded = false,
     this.showHolidays = false,
+    this.showFasting = false,
+    this.eventType = AgendaEventType.all,
   });
 
   bool get hasCustomRange => customStart != null && customEnd != null;
@@ -51,6 +80,8 @@ class UpcomingAgendaFilters extends Equatable {
     String? query,
     bool? filtersExpanded,
     bool? showHolidays,
+    bool? showFasting,
+    AgendaEventType? eventType,
     bool clearCustomRange = false,
   }) {
     return UpcomingAgendaFilters(
@@ -61,6 +92,8 @@ class UpcomingAgendaFilters extends Equatable {
       query: query ?? this.query,
       filtersExpanded: filtersExpanded ?? this.filtersExpanded,
       showHolidays: showHolidays ?? this.showHolidays,
+      showFasting: showFasting ?? this.showFasting,
+      eventType: eventType ?? this.eventType,
     );
   }
 
@@ -142,5 +175,7 @@ class UpcomingAgendaFilters extends Equatable {
     query,
     filtersExpanded,
     showHolidays,
+    showFasting,
+    eventType,
   ];
 }

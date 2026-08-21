@@ -32,6 +32,7 @@ import '../utils/event_agenda.dart';
 List<AgendaRow> buildAgendaRows({
   required List<EventOccurrence> occurrences,
   required List<DateTime> holidayDays,
+  required List<DateTime> fastingDays,
   required AppLocalizations l10n,
   required bool showRecurrenceLabels,
   required CalendarMissedDisplay missedDisplay,
@@ -42,22 +43,36 @@ List<AgendaRow> buildAgendaRows({
     showRecurrence: showRecurrenceLabels,
   );
   final holidayProvider = PublicHolidaySummaryProvider(l10n);
+  final fastingProvider = FastingSummaryProvider(l10n);
   final rows = <AgendaRow>[];
   var index = 0;
   var holidayIndex = 0;
+  var fastingIndex = 0;
 
-  while (index < occurrences.length || holidayIndex < holidayDays.length) {
+  while (index < occurrences.length ||
+      holidayIndex < holidayDays.length ||
+      fastingIndex < fastingDays.length) {
     final nextEventDay = index < occurrences.length
         ? occurrences[index].day
         : null;
     final nextHolidayDay = holidayIndex < holidayDays.length
         ? holidayDays[holidayIndex]
         : null;
-    final day = nextEventDay == null
-        ? nextHolidayDay!
-        : (nextHolidayDay == null || nextEventDay.isBefore(nextHolidayDay)
-              ? nextEventDay
-              : nextHolidayDay);
+    final nextFastingDay = fastingIndex < fastingDays.length
+        ? fastingDays[fastingIndex]
+        : null;
+
+    // Earliest of the (up to) three cursors, without allocating a list.
+    DateTime? earliest = nextEventDay;
+    if (nextHolidayDay != null &&
+        (earliest == null || nextHolidayDay.isBefore(earliest))) {
+      earliest = nextHolidayDay;
+    }
+    if (nextFastingDay != null &&
+        (earliest == null || nextFastingDay.isBefore(earliest))) {
+      earliest = nextFastingDay;
+    }
+    final day = earliest!;
 
     final dayEvents = <CalendarEvent>[];
     while (index < occurrences.length && occurrences[index].day == day) {
@@ -66,11 +81,14 @@ List<AgendaRow> buildAgendaRows({
     }
     final isHoliday = nextHolidayDay == day;
     if (isHoliday) holidayIndex++;
+    final isFasting = nextFastingDay == day;
+    if (isFasting) fastingIndex++;
 
     final entries = <DaySummaryEntry>[
       for (final entry in eventProvider.summaryFor(day, dayEvents))
         if (!hideMissed || !entry.missed) entry,
       if (isHoliday) ...holidayProvider.summaryFor(day, dayEvents),
+      if (isFasting) ...fastingProvider.summaryFor(day, dayEvents),
     ];
     if (entries.isEmpty) continue;
     rows.add(AgendaDayHeaderRow(day: day, count: entries.length));
@@ -110,6 +128,12 @@ class AgendaListView extends StatelessWidget {
   /// day summary panel so both surfaces render a description identically.
   final MarkdownColorPalette colorPalette;
 
+  /// Optional external scroll controller. The owner uses it to reset the list
+  /// to the top when the window's anchor day changes, so the tapped day
+  /// becomes the first row instead of the old offset surviving against a
+  /// now-shorter list.
+  final ScrollController? controller;
+
   const AgendaListView({
     super.key,
     required this.rows,
@@ -120,6 +144,7 @@ class AgendaListView extends StatelessWidget {
     required this.emptyHint,
     this.padding = const EdgeInsets.fromLTRB(16, 12, 16, 16),
     this.colorPalette = MarkdownColorPalette.presets,
+    this.controller,
   });
 
   /// Qualitative priority word appended to a row subtitle. The neutral
@@ -130,11 +155,22 @@ class AgendaListView extends StatelessWidget {
     return EventPriorities.labelOf(priority, l10n);
   }
 
-  static String dayHeaderLabel(AppLocalizations l10n, DateTime day) {
-    final today = EventAgenda.dateOnly(DateTime.now());
+  /// Cached `DateFormat.MMMMEEEEd` per locale — it parses a skeleton on
+  /// construction and every visible day header would otherwise rebuild one.
+  static final Map<String, DateFormat> _dayHeaderFormatCache = {};
+
+  /// [today] is passed in rather than read here so the owner computes it once
+  /// per build instead of once per visible header row.
+  static String dayHeaderLabel(
+    AppLocalizations l10n,
+    DateTime day,
+    DateTime today,
+  ) {
     if (day == today) return l10n.upcomingToday;
     if (day == today.add(const Duration(days: 1))) return l10n.upcomingTomorrow;
-    return DateFormat.MMMMEEEEd(l10n.localeName).format(day);
+    return (_dayHeaderFormatCache[l10n.localeName] ??= DateFormat.MMMMEEEEd(
+      l10n.localeName,
+    )).format(day);
   }
 
   @override
@@ -147,7 +183,12 @@ class AgendaListView extends StatelessWidget {
       return AgendaEmptyState(title: emptyTitle, hint: emptyHint);
     }
 
+    // Computed once here, not per visible header, and handed to
+    // `dayHeaderLabel` for its Today/Tomorrow test.
+    final today = EventAgenda.dateOnly(DateTime.now());
+
     return ListView.builder(
+      controller: controller,
       padding: padding,
       itemCount: rows.length,
       itemBuilder: (context, index) {
@@ -162,7 +203,7 @@ class AgendaListView extends StatelessWidget {
                     // Resolved here rather than while the rows are built, so a
                     // panel left open across midnight relabels on its next
                     // rebuild instead of invalidating the owner's memo.
-                    AgendaListView.dayHeaderLabel(l10n, day),
+                    AgendaListView.dayHeaderLabel(l10n, day, today),
                     style: theme.textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.w600,
                     ),

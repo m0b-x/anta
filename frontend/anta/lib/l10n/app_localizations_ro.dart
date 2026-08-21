@@ -3365,6 +3365,9 @@ class AppLocalizationsRo extends AppLocalizations {
   String get upcomingClearSearch => 'Șterge căutarea';
 
   @override
+  String get upcomingClearRange => 'Șterge intervalul personalizat';
+
+  @override
   String upcomingPeriodDays(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -3403,6 +3406,24 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get upcomingShowHolidays => 'Sărbători';
+
+  @override
+  String get upcomingShowFasting => 'Post';
+
+  @override
+  String get upcomingEventType => 'Evenimente';
+
+  @override
+  String get upcomingEventTypeAll => 'Toate';
+
+  @override
+  String get upcomingEventTypeRecurring => 'Recurente';
+
+  @override
+  String get upcomingEventTypeOneTime => 'Unice';
+
+  @override
+  String get upcomingEventTypeNone => 'Niciuna';
 
   @override
   String get upcomingFilters => 'Filtre';

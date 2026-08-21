@@ -52,10 +52,16 @@ class EventPresence {
 
   /// **The** entry point for "was this occurrence missed". Every surface goes
   /// through it, or the grid, the day panel, the agenda and the timeline drift
-  /// apart about the same day. O(1): two map probes, no allocation.
+  /// apart about the same day. O(1): two map probes, no allocation — [day]
+  /// must already be date-only UTC (the debug assert catches callers that
+  /// forget).
   static bool isMissed(String eventId, DateTime day) {
+    assert(
+      day == DateTime.utc(day.year, day.month, day.day),
+      'isMissed requires a date-only UTC day',
+    );
     final forEvent = _byEvent[eventId];
     if (forEvent == null) return false;
-    return forEvent.contains(DateTime.utc(day.year, day.month, day.day));
+    return forEvent.contains(day);
   }
 }

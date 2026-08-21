@@ -49,12 +49,17 @@ abstract final class EventSkips {
       event.rule is! OneTimeRecurrence;
 
   /// **The** entry point for "was this occurrence cancelled". O(1): two map
-  /// probes, no allocation — it runs inside [CalendarEvent.occursOn], which is
-  /// called for every event on every visible day.
+  /// probes, no allocation — it runs inside [CalendarEvent.occursOnUtcDay],
+  /// called for every event on every visible day, so [day] must already be
+  /// date-only UTC (the debug assert catches callers that forget).
   static bool isSkipped(String eventId, DateTime day) {
+    assert(
+      day == DateTime.utc(day.year, day.month, day.day),
+      'isSkipped requires a date-only UTC day',
+    );
     final forEvent = _byEvent[eventId];
     if (forEvent == null) return false;
-    return forEvent.contains(DateTime.utc(day.year, day.month, day.day));
+    return forEvent.contains(day);
   }
 
   /// Every cancelled day of [eventId], date-only UTC. Used by the editor's

@@ -9,7 +9,9 @@ enum CalendarPanelMode {
   /// The selected day drawn as an hour grid with duration-sized blocks.
   timeline,
 
-  /// A look-ahead agenda across a date range, independent of the selection.
+  /// A look-ahead agenda whose window starts on the selected day (a custom
+  /// range overrides it). The filters are panel-owned and persisted, so a
+  /// mode switch never loses a search.
   upcoming;
 
   static CalendarPanelMode fromName(String? name) {

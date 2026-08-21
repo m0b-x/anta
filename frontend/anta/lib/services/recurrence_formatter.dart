@@ -114,8 +114,19 @@ abstract final class RecurrenceFormatter {
 
   /// 1=Mon..7=Sun → locale-specific short weekday label.
   static String weekdayShort(int weekday, String localeName) {
-    // 2024-01-01 was a Monday; offset by (weekday-1) days to land on it.
-    final anchor = DateTime(2024, 1, 1).add(Duration(days: weekday - 1));
-    return DateFormat.E(localeName).format(anchor);
+    // `DateFormat.E` parses a skeleton per construction, and a weekly rule
+    // with several weekdays would build one per day; resolve the seven labels
+    // once per locale instead.
+    final labels = _weekdayShortCache.putIfAbsent(localeName, () {
+      final format = DateFormat.E(localeName);
+      // 2024-01-01 was a Monday; index 0..6 → Mon..Sun.
+      final base = DateTime(2024, 1, 1);
+      return [
+        for (var i = 0; i < 7; i++) format.format(base.add(Duration(days: i))),
+      ];
+    });
+    return labels[weekday - 1];
   }
+
+  static final Map<String, List<String>> _weekdayShortCache = {};
 }

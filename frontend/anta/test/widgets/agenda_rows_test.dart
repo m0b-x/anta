@@ -50,11 +50,13 @@ void main() {
   List<AgendaRow> build({
     List<EventOccurrence> occurrences = const [],
     List<DateTime> holidayDays = const [],
+    List<DateTime> fastingDays = const [],
     CalendarMissedDisplay missedDisplay = CalendarMissedDisplay.faded,
   }) {
     return buildAgendaRows(
       occurrences: occurrences,
       holidayDays: holidayDays,
+      fastingDays: fastingDays,
       l10n: l10n,
       showRecurrenceLabels: true,
       missedDisplay: missedDisplay,

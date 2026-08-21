@@ -3324,6 +3324,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get upcomingClearSearch => 'Clear search';
 
   @override
+  String get upcomingClearRange => 'Clear custom range';
+
+  @override
   String upcomingPeriodDays(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -3360,6 +3363,24 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get upcomingShowHolidays => 'Holidays';
+
+  @override
+  String get upcomingShowFasting => 'Fasting';
+
+  @override
+  String get upcomingEventType => 'Events';
+
+  @override
+  String get upcomingEventTypeAll => 'All';
+
+  @override
+  String get upcomingEventTypeRecurring => 'Recurring';
+
+  @override
+  String get upcomingEventTypeOneTime => 'One-time';
+
+  @override
+  String get upcomingEventTypeNone => 'None';
 
   @override
   String get upcomingFilters => 'Filters';

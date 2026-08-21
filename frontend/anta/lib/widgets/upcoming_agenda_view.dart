@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../constants/event_priorities.dart';
+import '../constants/fasting_calendar.dart';
 import '../constants/public_holidays.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
@@ -14,17 +17,24 @@ import '../utils/markdown_color_syntax.dart';
 import 'agenda_list_view.dart';
 
 /// Non-modal "Upcoming" mode of the calendar's bottom panel: every event
-/// occurrence in a look-ahead window, filtered by priority and an optional
-/// text query.
+/// occurrence in a look-ahead window that starts on the calendar's selected
+/// day, filtered by priority and an optional text query. A custom date range
+/// overrides the anchor.
 ///
 /// Reads the already-loaded event list rather than the database. The filters
 /// are **controlled** — owned and persisted by the page — because this widget
 /// is disposed every time the user switches panel mode, and a search that
-/// evaporated on a mode switch was the whole problem.
+/// evaporated on a mode switch was the whole problem. The anchor is threaded
+/// down the same way, so tapping a day restarts the window from there.
 class UpcomingAgendaView extends StatefulWidget {
   /// Every known event, unfiltered — the same list `CalendarPageLoaded`
   /// holds. Category filtering is applied here via [hiddenCategoryIds].
   final List<CalendarEvent> events;
+
+  /// The day the look-ahead window starts on when no custom range is set —
+  /// the calendar's selected day, which defaults to today. A custom range
+  /// overrides it. Date-only UTC (already normalized by the bloc).
+  final DateTime anchorDay;
 
   /// The calendar's active category filter, inherited so the agenda and the
   /// grid can never show a different set of categories.
@@ -69,6 +79,7 @@ class UpcomingAgendaView extends StatefulWidget {
   const UpcomingAgendaView({
     super.key,
     required this.events,
+    required this.anchorDay,
     required this.hiddenCategoryIds,
     required this.filters,
     required this.onFiltersChanged,
@@ -91,9 +102,27 @@ class UpcomingAgendaView extends StatefulWidget {
 
 class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
   late final TextEditingController _searchController;
+  final ScrollController _scrollController = ScrollController();
+
+  /// Debounces the range scan on query-only changes so a burst of keystrokes
+  /// folds every title and description once, not per character. Discrete
+  /// changes (anchor, range, priority, category, data) still scan
+  /// synchronously — see [didUpdateWidget].
+  Timer? _scanDebounce;
+  static const Duration _scanDebounceDelay = Duration(milliseconds: 200);
+
+  /// `DateFormat.MMMd` per locale for the header range label — it parses a
+  /// skeleton on construction and `build` runs on every keystroke.
+  static final Map<String, DateFormat> _rangeFormatCache = {};
 
   List<EventOccurrence> _occurrences = const [];
   List<DateTime> _holidayDays = const [];
+  List<DateTime> _fastingDays = const [];
+
+  /// The clamped, normalized look-ahead window, recomputed once per input
+  /// change by [_updateRange] and shared by the event scan, the holiday scan
+  /// and the header label so none of them re-derives it.
+  late (DateTime, DateTime) _resolved;
 
   /// Cached flattened rows plus the inputs they were derived from, so
   /// unrelated rebuilds — keyboard animation, theme, chip expansion — reuse
@@ -105,8 +134,13 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
   /// strings, hence the locale key; the Today/Tomorrow header labels are NOT
   /// part of it — the list resolves those per item.
   List<AgendaRow> _rows = const [];
+
+  /// Entry rows in [_rows], counted while the rows are (re)built rather than
+  /// walked per `build` — the panel header shows it on every keystroke.
+  int _entryCount = 0;
   List<EventOccurrence>? _rowsForOccurrences;
   List<DateTime>? _rowsForHolidays;
+  List<DateTime>? _rowsForFasting;
   String? _rowsForLocale;
   bool? _rowsForShowRecurrence;
   int? _rowsForOccurrenceRevision;
@@ -116,6 +150,7 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
   List<AgendaRow> _rowsFor(AppLocalizations l10n) {
     if (identical(_rowsForOccurrences, _occurrences) &&
         identical(_rowsForHolidays, _holidayDays) &&
+        identical(_rowsForFasting, _fastingDays) &&
         _rowsForLocale == l10n.localeName &&
         _rowsForShowRecurrence == widget.showRecurrenceLabels &&
         _rowsForOccurrenceRevision == widget.occurrenceRevision &&
@@ -125,24 +160,33 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
     }
     _rowsForOccurrences = _occurrences;
     _rowsForHolidays = _holidayDays;
+    _rowsForFasting = _fastingDays;
     _rowsForLocale = l10n.localeName;
     _rowsForShowRecurrence = widget.showRecurrenceLabels;
     _rowsForOccurrenceRevision = widget.occurrenceRevision;
     _rowsForMembershipRevision = widget.membershipRevision;
     _rowsForMissedDisplay = widget.missedDisplay;
-    return _rows = buildAgendaRows(
+    _rows = buildAgendaRows(
       occurrences: _occurrences,
       holidayDays: _holidayDays,
+      fastingDays: _fastingDays,
       l10n: l10n,
       showRecurrenceLabels: widget.showRecurrenceLabels,
       missedDisplay: widget.missedDisplay,
     );
+    var entries = 0;
+    for (final row in _rows) {
+      if (row is AgendaEntryRow) entries++;
+    }
+    _entryCount = entries;
+    return _rows;
   }
 
   @override
   void initState() {
     super.initState();
     _searchController = TextEditingController(text: widget.filters.query);
+    _updateRange();
     _recompute();
   }
 
@@ -150,6 +194,7 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _recomputeHolidays();
+    _recomputeFasting();
   }
 
   @override
@@ -160,65 +205,122 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
     if (widget.filters.query != _searchController.text) {
       _searchController.text = widget.filters.query;
     }
+    // Refresh the shared window before any branch below reads it.
+    _updateRange();
     // The event set, the category filter and the filters all live above this
     // widget, so their changes arrive here. Compare only the fields that
     // change the result: `filtersExpanded` is pure chrome, and rescanning a
     // year of recurrences because the chip row was toggled would be waste.
     final o = oldWidget.filters;
     final n = widget.filters;
-    final scanChanged =
+    // The anchor only drives the window when no custom range overrides it, so
+    // an anchor move under a pinned custom range changes nothing — do not
+    // rescan it. The custom-range transitions themselves are covered by the
+    // customStart/customEnd comparisons below.
+    final anchorChanged =
+        !n.hasCustomRange && oldWidget.anchorDay != widget.anchorDay;
+    // Everything that moves the scan except the text query. A concrete change
+    // like this is worth scanning for at once; only a lone keystroke is worth
+    // debouncing.
+    final nonQueryScanChanged =
         !identical(oldWidget.events, widget.events) ||
         oldWidget.hiddenCategoryIds != widget.hiddenCategoryIds ||
         o.rangeDays != n.rangeDays ||
         !setEquals(o.priorities, n.priorities) ||
         o.customStart != n.customStart ||
         o.customEnd != n.customEnd ||
-        o.query != n.query ||
-        // The one revision that belongs here: cancelling an occurrence changes
-        // what the scan would find, so the scan has to run again.
-        oldWidget.membershipRevision != widget.membershipRevision;
-    if (scanChanged) _recompute();
-    if (scanChanged || o.showHolidays != n.showHolidays) {
+        o.eventType != n.eventType ||
+        // Cancelling an occurrence changes what the scan finds, so it must run.
+        oldWidget.membershipRevision != widget.membershipRevision ||
+        anchorChanged;
+
+    if (nonQueryScanChanged) {
+      // A fresh scan already reflects the current query, so drop any pending
+      // debounced one.
+      _scanDebounce?.cancel();
+      _recompute();
       _recomputeHolidays();
+      _recomputeFasting();
+      // An anchor move restarts the window from the tapped day; put it in view.
+      if (anchorChanged) _scrollToTopSoon();
+    } else if (o.query != n.query) {
+      // Query-only: debounce the expansion so typing does not re-fold every
+      // title and description per character. The field stays live (it is
+      // controlled above); only the results lag by one short window.
+      _scanDebounce?.cancel();
+      _scanDebounce = Timer(_scanDebounceDelay, () {
+        if (!mounted) return;
+        setState(() {
+          _recompute();
+          _recomputeHolidays();
+          _recomputeFasting();
+        });
+      });
+    } else if (o.showHolidays != n.showHolidays) {
+      // Only whether holidays interleave changed — no event rescan needed.
+      _recomputeHolidays();
+    } else if (o.showFasting != n.showFasting) {
+      // Only whether fasting days interleave changed.
+      _recomputeFasting();
     }
   }
 
   @override
   void dispose() {
+    _scanDebounce?.cancel();
     _searchController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
-  DateTime get _rangeStart {
-    final start = widget.filters.customStart;
-    if (widget.filters.hasCustomRange) return EventAgenda.dateOnly(start!);
-    return EventAgenda.dateOnly(DateTime.now());
+  /// Resets the agenda to the top after an anchor-driven rescan, so the newly
+  /// selected day — now the window's first row — is what the user sees rather
+  /// than a retained scroll offset against a shorter list. Post-frame because
+  /// the rebuilt rows must be laid out before offset 0 is meaningful.
+  void _scrollToTopSoon() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _scrollController.hasClients) {
+        _scrollController.jumpTo(0);
+      }
+    });
   }
 
-  DateTime get _rangeEnd {
-    final end = widget.filters.customEnd;
-    if (widget.filters.hasCustomRange) return EventAgenda.dateOnly(end!);
-    return _rangeStart.add(Duration(days: widget.filters.rangeDays - 1));
+  /// Recomputes [_resolved] from the current anchor and filters. Called once
+  /// per input change (init + didUpdateWidget) so the event scan, the holiday
+  /// scan and the header label read one clamped window instead of each
+  /// re-deriving the raw bounds and re-clamping.
+  ///
+  /// The clamp matters for the label: a picked two-year range is scanned for
+  /// its first year only ([EventAgenda.maxRangeDays]), and a label claiming
+  /// otherwise would misreport the results. `resolveRange` only returns null
+  /// for an empty window, which the filters and picker already preclude; the
+  /// fallback keeps a degenerate range self-consistent.
+  void _updateRange() {
+    final filters = widget.filters;
+    final DateTime rawStart;
+    final DateTime rawEnd;
+    if (filters.hasCustomRange) {
+      rawStart = EventAgenda.dateOnly(filters.customStart!);
+      rawEnd = EventAgenda.dateOnly(filters.customEnd!);
+    } else {
+      rawStart = EventAgenda.dateOnly(widget.anchorDay);
+      rawEnd = rawStart.add(Duration(days: filters.rangeDays - 1));
+    }
+    _resolved =
+        EventAgenda.resolveRange(rawStart, rawEnd) ?? (rawStart, rawStart);
   }
-
-  /// The range as the scans actually see it — clamped to
-  /// [EventAgenda.maxRangeDays]. The header label must come from this, not
-  /// from the raw filters: a picked two-year range is scanned for its first
-  /// year only, and a label claiming otherwise would misreport the results.
-  (DateTime, DateTime) get _resolvedRange =>
-      EventAgenda.resolveRange(_rangeStart, _rangeEnd) ??
-      (_rangeStart, _rangeStart);
 
   /// Re-runs the range scan. Called from the lifecycle hooks so `build`
   /// never expands recurrences.
   void _recompute() {
     _occurrences = EventAgenda.occurrencesInRange(
       events: widget.events,
-      from: _rangeStart,
-      to: _rangeEnd,
+      from: _resolved.$1,
+      to: _resolved.$2,
       hiddenCategoryIds: widget.hiddenCategoryIds,
       priorities: widget.filters.priorities,
       query: widget.filters.query,
+      eventType: widget.filters.eventType,
     );
   }
 
@@ -239,8 +341,8 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
       return;
     }
     final days = EventAgenda.holidayDaysInRange(
-      from: _rangeStart,
-      to: _rangeEnd,
+      from: _resolved.$1,
+      to: _resolved.$2,
     );
     // Same case + diacritic fold the event scan and the note search use.
     final needle = normalizeForSearch(widget.filters.query.trim());
@@ -258,6 +360,47 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
   String _holidayLabel(DateTime day, AppLocalizations l10n) {
     final info = PublicHolidays.holidayOn(day);
     return info == null ? '' : PublicHolidays.labelOf(info, l10n);
+  }
+
+  /// Fasting-day interleave, mirroring [_recomputeHolidays]. Inert unless the
+  /// toggle is on **and** a fasting tradition is configured, and — like
+  /// holidays — narrowed by the text query so a search folds the whole agenda,
+  /// not just its event half.
+  void _recomputeFasting() {
+    if (!widget.filters.showFasting || !FastingCalendar.isEnabled) {
+      _fastingDays = const [];
+      return;
+    }
+    final days = EventAgenda.fastingDaysInRange(
+      from: _resolved.$1,
+      to: _resolved.$2,
+    );
+    final needle = normalizeForSearch(widget.filters.query.trim());
+    if (needle.isEmpty) {
+      _fastingDays = days;
+      return;
+    }
+    final l10n = AppLocalizations.of(context)!;
+    _fastingDays = [
+      for (final day in days)
+        if (_fastingMatches(day, l10n, needle)) day,
+    ];
+  }
+
+  /// Whether any of [day]'s fasting entries (across configured traditions)
+  /// matches [needle] — the displayed title (custom override or period name)
+  /// or the regime subtitle. [needle] is already folded through
+  /// [normalizeForSearch].
+  bool _fastingMatches(DateTime day, AppLocalizations l10n, String needle) {
+    for (final info in FastingCalendar.on(day)) {
+      final title =
+          FastingCalendar.styleOf(info.tradition).titleOverride ??
+          FastingCalendar.periodNameOf(info.period, l10n);
+      if (normalizeForSearch(title).contains(needle)) return true;
+      final regime = FastingCalendar.regimeNameOf(info.regime, l10n);
+      if (normalizeForSearch(regime).contains(needle)) return true;
+    }
+    return false;
   }
 
   void _selectRange(int days) {
@@ -280,6 +423,15 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
 
   void _clearPriorities() {
     widget.onFiltersChanged(widget.filters.copyWith(priorities: const {}));
+  }
+
+  String _eventTypeLabel(AppLocalizations l10n, AgendaEventType type) {
+    return switch (type) {
+      AgendaEventType.all => l10n.upcomingEventTypeAll,
+      AgendaEventType.recurring => l10n.upcomingEventTypeRecurring,
+      AgendaEventType.oneTime => l10n.upcomingEventTypeOneTime,
+      AgendaEventType.none => l10n.upcomingEventTypeNone,
+    };
   }
 
   /// Opens a date-range picker. The lower bound reaches into the past on
@@ -310,6 +462,13 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
     );
   }
 
+  /// Clears the custom range, reverting the window to the anchored preset
+  /// (the last `rangeDays` from [UpcomingAgendaView.anchorDay]). Bound to the
+  /// Custom chip's delete "×" only while a range is active.
+  void _clearCustomRange() {
+    widget.onFiltersChanged(widget.filters.copyWith(clearCustomRange: true));
+  }
+
   void _onQueryChanged(String value) {
     widget.onFiltersChanged(widget.filters.copyWith(query: value));
   }
@@ -320,12 +479,14 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final filters = widget.filters;
-    final dateFormat = DateFormat.MMMd(l10n.localeName);
-    final (shownStart, shownEnd) = _resolvedRange;
+    final dateFormat = _rangeFormatCache[l10n.localeName] ??= DateFormat.MMMd(
+      l10n.localeName,
+    );
+    final (shownStart, shownEnd) = _resolved;
     final rangeLabel =
         '${dateFormat.format(shownStart)} – ${dateFormat.format(shownEnd)}';
     final rows = _rowsFor(l10n);
-    final entryCount = rows.whereType<AgendaEntryRow>().length;
+    final entryCount = _entryCount;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -397,12 +558,20 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
                           if (selected) _selectRange(days);
                         },
                       ),
-                    ChoiceChip(
+                    InputChip(
                       avatar: const Icon(Icons.date_range_rounded, size: 18),
                       label: Text(l10n.upcomingPeriodCustom),
                       visualDensity: VisualDensity.compact,
+                      // The date_range avatar is the chip's identity; with a
+                      // range active the delete "×" already signals selection,
+                      // so the checkmark would only crowd the chip.
+                      showCheckmark: false,
                       selected: filters.hasCustomRange,
                       onSelected: (_) => _pickCustomRange(),
+                      onDeleted: filters.hasCustomRange
+                          ? _clearCustomRange
+                          : null,
+                      deleteButtonTooltipMessage: l10n.upcomingClearRange,
                     ),
                     FilterChip(
                       avatar: const Icon(Icons.celebration_rounded, size: 18),
@@ -413,13 +582,25 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
                         filters.copyWith(showHolidays: selected),
                       ),
                     ),
+                    // Fasting is off by default and inert until a tradition
+                    // is configured, so the chip only appears once it can act.
+                    if (FastingCalendar.isEnabled)
+                      FilterChip(
+                        avatar: const Icon(Icons.no_food_rounded, size: 18),
+                        label: Text(l10n.upcomingShowFasting),
+                        visualDensity: VisualDensity.compact,
+                        selected: filters.showFasting,
+                        onSelected: (selected) => widget.onFiltersChanged(
+                          filters.copyWith(showFasting: selected),
+                        ),
+                      ),
                   ],
                 ),
                 const SizedBox(height: 8),
                 Row(
                   children: [
                     Text(
-                      l10n.upcomingPriority,
+                      l10n.upcomingEventType,
                       style: theme.textTheme.labelMedium?.copyWith(
                         color: colorScheme.onSurfaceVariant,
                       ),
@@ -430,40 +611,20 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
                         scrollDirection: Axis.horizontal,
                         child: Row(
                           children: [
-                            Padding(
-                              padding: const EdgeInsets.only(right: 8),
-                              child: ChoiceChip(
-                                label: Text(l10n.upcomingPriorityAny),
-                                visualDensity: VisualDensity.compact,
-                                selected: filters.priorities.isEmpty,
-                                onSelected: (selected) {
-                                  if (selected) _clearPriorities();
-                                },
-                              ),
-                            ),
-                            // Ascending: P1 (highest) leads now that lower
-                            // numbers rank higher.
-                            for (
-                              var priority = kMinEventPriority;
-                              priority <= kMaxEventPriority;
-                              priority++
-                            )
+                            for (final type in AgendaEventType.values)
                               Padding(
                                 padding: const EdgeInsets.only(right: 8),
-                                child: FilterChip(
-                                  avatar: Icon(
-                                    EventPriorities.iconFor(priority),
-                                    size: 18,
-                                  ),
-                                  label: Text(
-                                    EventPriorities.labelOf(priority, l10n),
-                                  ),
+                                child: ChoiceChip(
+                                  label: Text(_eventTypeLabel(l10n, type)),
                                   visualDensity: VisualDensity.compact,
-                                  selected: filters.priorities.contains(
-                                    priority,
-                                  ),
-                                  onSelected: (selected) =>
-                                      _togglePriority(priority, selected),
+                                  selected: filters.eventType == type,
+                                  onSelected: (selected) {
+                                    if (selected) {
+                                      widget.onFiltersChanged(
+                                        filters.copyWith(eventType: type),
+                                      );
+                                    }
+                                  },
                                 ),
                               ),
                           ],
@@ -472,6 +633,67 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
                     ),
                   ],
                 ),
+                // Priority only refines the events layer, so it drops out
+                // when events are hidden.
+                if (filters.eventType != AgendaEventType.none) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Text(
+                        l10n.upcomingPriority,
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: ChoiceChip(
+                                  label: Text(l10n.upcomingPriorityAny),
+                                  visualDensity: VisualDensity.compact,
+                                  selected: filters.priorities.isEmpty,
+                                  onSelected: (selected) {
+                                    if (selected) _clearPriorities();
+                                  },
+                                ),
+                              ),
+                              // Ascending: P1 (highest) leads now that lower
+                              // numbers rank higher.
+                              for (
+                                var priority = kMinEventPriority;
+                                priority <= kMaxEventPriority;
+                                priority++
+                              )
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: FilterChip(
+                                    avatar: Icon(
+                                      EventPriorities.iconFor(priority),
+                                      size: 18,
+                                    ),
+                                    label: Text(
+                                      EventPriorities.labelOf(priority, l10n),
+                                    ),
+                                    visualDensity: VisualDensity.compact,
+                                    selected: filters.priorities.contains(
+                                      priority,
+                                    ),
+                                    onSelected: (selected) =>
+                                        _togglePriority(priority, selected),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),
@@ -493,6 +715,7 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
         Expanded(
           child: AgendaListView(
             rows: rows,
+            controller: _scrollController,
             onDaySelected: widget.onDaySelected,
             onEditEvent: widget.onEditEvent,
             onOpenNote: widget.onOpenNote,

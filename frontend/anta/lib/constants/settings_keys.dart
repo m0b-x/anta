@@ -128,6 +128,17 @@ class SettingsKeys {
   static const String calendarUpcomingShowHolidays =
       'calendar_upcoming_show_holidays';
 
+  /// Whether the upcoming agenda lists configured fasting days alongside
+  /// events.
+  static const String calendarUpcomingShowFasting =
+      'calendar_upcoming_show_fasting';
+
+  /// Which events the upcoming agenda lists (`AgendaEventType` name):
+  /// all / recurring / oneTime / none. Parsed with a forward-compatible
+  /// fallback to `all`.
+  static const String calendarUpcomingEventType =
+      'calendar_upcoming_event_type';
+
   /// Which mode the calendar's bottom panel was left in (day / timeline /
   /// upcoming). Parsed with a forward-compatible fallback.
   static const String calendarPanelMode = 'calendar_panel_mode';
@@ -311,6 +322,10 @@ class SettingsKeys {
   /// Default agenda holiday visibility: off, so the agenda stays a training
   /// log until the user opts in.
   static const bool defaultCalendarUpcomingShowHolidays = false;
+
+  /// Default agenda fasting visibility: off (and inert until a fasting
+  /// tradition is configured).
+  static const bool defaultCalendarUpcomingShowFasting = false;
 
   /// Default bottom-panel mode name (see `CalendarPanelMode`).
   static const String defaultCalendarPanelMode = 'day';

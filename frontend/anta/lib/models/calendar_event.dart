@@ -228,7 +228,7 @@ class CalendarEvent extends Equatable {
   /// limited number of bars.
   final int priority;
 
-  const CalendarEvent({
+  CalendarEvent({
     required this.id,
     required this.title,
     required this.categoryId,
@@ -303,11 +303,27 @@ class CalendarEvent extends Equatable {
     );
   }
 
-  /// Counts [occursOn] invocations. Incremented inside an `assert`, so both
-  /// the statement and its closure are stripped from profile and release
-  /// builds and cost nothing there. Recurrence expansion is the calendar's
-  /// hot loop and the model has no injection seam, so this is what lets a
-  /// test assert a work budget the way `StatementCounter` does for SQL.
+  /// Date-only UTC of [startDate], computed once. Derived, so it is not a
+  /// [props] member and never affects equality — it exists only to spare
+  /// [occursOnUtcDay] a `DateTime.utc` allocation on the calendar's hot loop.
+  late final DateTime startDateUtc = DateTime.utc(
+    startDate.year,
+    startDate.month,
+    startDate.day,
+  );
+
+  /// Date-only UTC of [endDate], or null when unbounded. Derived; not in
+  /// [props].
+  late final DateTime? endDateUtc = endDate == null
+      ? null
+      : DateTime.utc(endDate!.year, endDate!.month, endDate!.day);
+
+  /// Counts [occursOnUtcDay] invocations — every [occursOn] routes through it.
+  /// Incremented inside an `assert`, so both the statement and its closure are
+  /// stripped from profile and release builds and cost nothing there.
+  /// Recurrence expansion is the calendar's hot loop and the model has no
+  /// injection seam, so this is what lets a test assert a work budget the way
+  /// `StatementCounter` does for SQL.
   @visibleForTesting
   static int debugOccursOnCalls = 0;
 
@@ -334,22 +350,33 @@ class CalendarEvent extends Equatable {
   /// [OneTimeRecurrence] gate keeps a stale row from ever hiding a one-time
   /// event — cancelling its only occurrence is a delete, which the UI offers
   /// separately.
-  bool occursOn(DateTime day) {
+  ///
+  /// This normalizes [day] and delegates to [occursOnUtcDay]; a caller that
+  /// already holds a date-only UTC day should call that directly.
+  bool occursOn(DateTime day) =>
+      occursOnUtcDay(DateTime.utc(day.year, day.month, day.day));
+
+  /// [occursOn] for callers that already hold a date-only UTC [day] — the day
+  /// cache and the agenda scan both do. Skips the per-call re-normalization of
+  /// [day] and of [startDate]/[endDate] (both cached in [startDateUtc] /
+  /// [endDateUtc]), which is the calendar hot loop's dominant constant factor.
+  /// [day] **must** be date-only UTC; the debug assert catches callers that
+  /// forget, and [occursOn] is the normalizing entry point for everyone else.
+  bool occursOnUtcDay(DateTime day) {
     assert(() {
       debugOccursOnCalls++;
       return true;
     }());
-    final start = DateTime.utc(startDate.year, startDate.month, startDate.day);
-    final target = DateTime.utc(day.year, day.month, day.day);
-    final end = endDate;
-    if (end != null) {
-      final endUtc = DateTime.utc(end.year, end.month, end.day);
-      if (target.isAfter(endUtc)) return false;
-    }
-    if (rule is! OneTimeRecurrence && EventSkips.isSkipped(id, target)) {
+    assert(
+      day == DateTime.utc(day.year, day.month, day.day),
+      'occursOnUtcDay requires a date-only UTC day; call occursOn to normalize',
+    );
+    final end = endDateUtc;
+    if (end != null && day.isAfter(end)) return false;
+    if (rule is! OneTimeRecurrence && EventSkips.isSkipped(id, day)) {
       return false;
     }
-    return rule.occursOn(target, start, retroactive: retroactive);
+    return rule.occursOn(day, startDateUtc, retroactive: retroactive);
   }
 
   @override

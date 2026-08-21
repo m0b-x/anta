@@ -4299,6 +4299,10 @@
   "@upcomingClearSearch": {
     "description": "Tooltip of the button clearing the upcoming events search field"
   },
+  "upcomingClearRange": "Clear custom range",
+  "@upcomingClearRange": {
+    "description": "Tooltip of the delete button on the Custom period chip that clears the custom date range in the upcoming agenda"
+  },
   "upcomingPeriodDays": "{count, plural, one {1 day} other {{count} days}}",
   "@upcomingPeriodDays": {
     "description": "Look-ahead period preset chip in the upcoming events sheet",
@@ -4343,6 +4347,30 @@
   "upcomingShowHolidays": "Holidays",
   "@upcomingShowHolidays": {
     "description": "Agenda filter chip that lists public holidays alongside events"
+  },
+  "upcomingShowFasting": "Fasting",
+  "@upcomingShowFasting": {
+    "description": "Agenda filter chip that lists configured fasting days alongside events"
+  },
+  "upcomingEventType": "Events",
+  "@upcomingEventType": {
+    "description": "Label of the agenda's event-type filter row (which events to show)"
+  },
+  "upcomingEventTypeAll": "All",
+  "@upcomingEventTypeAll": {
+    "description": "Agenda event-type chip: show every event"
+  },
+  "upcomingEventTypeRecurring": "Recurring",
+  "@upcomingEventTypeRecurring": {
+    "description": "Agenda event-type chip: show only repeating events"
+  },
+  "upcomingEventTypeOneTime": "One-time",
+  "@upcomingEventTypeOneTime": {
+    "description": "Agenda event-type chip: show only single-occurrence events"
+  },
+  "upcomingEventTypeNone": "None",
+  "@upcomingEventTypeNone": {
+    "description": "Agenda event-type chip: hide all events, leaving only holiday/fasting rows"
   },
   "upcomingFilters": "Filters",
   "@upcomingFilters": {

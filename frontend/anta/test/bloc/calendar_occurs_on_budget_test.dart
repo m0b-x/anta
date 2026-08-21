@@ -9,6 +9,7 @@ import 'package:anta/database/database.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/calendar_event_service.dart';
+import 'package:anta/utils/event_agenda.dart';
 
 /// Work budget for recurrence expansion, in the register of
 /// `test/database/query_count_test.dart`: it counts calls, not milliseconds,
@@ -159,5 +160,28 @@ void main() {
     }
 
     expect(CalendarEvent.debugOccursOnCalls, 42 * eventCount);
+  });
+
+  test('an agenda scan prunes one-time events outside its window', () async {
+    final events = (bloc.state as CalendarPageLoaded).allEvents;
+
+    // `ruleFor` files one fifth of the events as one-time; the rest recur.
+    const oneTimeCount = eventCount ~/ 5;
+    const recurringCount = eventCount - oneTimeCount;
+    const windowDays = 30;
+
+    CalendarEvent.debugOccursOnCalls = 0;
+    // August is after every seeded start date (Jan–Jul), so all one-time
+    // events fall outside the window. Candidate pruning buckets them by day
+    // and drops the out-of-range ones, so they cost zero `occursOn`; only the
+    // recurring events are scanned, once per day. Without pruning this would
+    // be `eventCount * windowDays`.
+    EventAgenda.occurrencesInRange(
+      events: events,
+      from: DateTime.utc(2026, 8, 1),
+      to: DateTime.utc(2026, 8, windowDays),
+    );
+
+    expect(CalendarEvent.debugOccursOnCalls, recurringCount * windowDays);
   });
 }

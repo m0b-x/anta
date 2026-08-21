@@ -659,6 +659,15 @@ class SettingsService {
         SettingsKeys.calendarUpcomingShowHolidays,
         SettingsKeys.defaultCalendarUpcomingShowHolidays,
       ),
+      showFasting: await _getBool(
+        SettingsKeys.calendarUpcomingShowFasting,
+        SettingsKeys.defaultCalendarUpcomingShowFasting,
+      ),
+      eventType: AgendaEventType.fromName(
+        await _db.userSettingsDao.getValue(
+          SettingsKeys.calendarUpcomingEventType,
+        ),
+      ),
     );
   }
 
@@ -696,6 +705,14 @@ class SettingsService {
     await _setBool(
       SettingsKeys.calendarUpcomingShowHolidays,
       filters.showHolidays,
+    );
+    await _setBool(
+      SettingsKeys.calendarUpcomingShowFasting,
+      filters.showFasting,
+    );
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.calendarUpcomingEventType,
+      filters.eventType.name,
     );
   }
 

@@ -2081,6 +2081,7 @@
   "upcomingEvents": "Demnächst",
   "upcomingSearchHint": "Ereignisse suchen",
   "upcomingClearSearch": "Suche leeren",
+  "upcomingClearRange": "Eigenen Zeitraum löschen",
   "upcomingPeriodDays": "{count, plural, one {1 Tag} other {{count} Tage}}",
   "@upcomingPeriodDays": {
     "placeholders": {
@@ -2098,6 +2099,12 @@
   "upcomingTomorrow": "Morgen",
   "upcomingEditEvent": "Ereignis bearbeiten",
   "upcomingShowHolidays": "Feiertage",
+  "upcomingShowFasting": "Fasten",
+  "upcomingEventType": "Ereignisse",
+  "upcomingEventTypeAll": "Alle",
+  "upcomingEventTypeRecurring": "Wiederkehrend",
+  "upcomingEventTypeOneTime": "Einmalig",
+  "upcomingEventTypeNone": "Keine",
   "upcomingFilters": "Filter",
   "panelExpand": "Bereich vergrößern",
   "panelShowCalendar": "Kalender anzeigen",

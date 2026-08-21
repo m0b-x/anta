@@ -1313,18 +1313,62 @@ The area under the grid is now a mode-switched panel owned by
 
 - Pure scan module [lib/utils/event_agenda.dart](../lib/utils/event_agenda.dart):
   `occurrencesInRange` expands recurrences over a clamped range
-  (`maxRangeDays = 366`) using the same O(1) `occursOn` as the bloc's day
-  cache; **never runs inside `eventLoader`**. `holidayDaysInRange` walks the
-  same resolved range; `compareWithinDay` is the **single comparator** for
-  same-day event order (also used by `EventSummaryProvider`, with
-  `DaySummaryResolver.resolve` made stable so the order survives).
+  (`maxRangeDays = 366`) using the same `CalendarEvent.occursOnUtcDay` as the
+  bloc's day cache (the allocation-free hot-path variant of `occursOn`, which
+  requires an already date-only UTC day); **never runs inside `eventLoader`**.
+  Before the day loop it **prunes candidates** whose `[startDate, endDate]` span
+  cannot intersect the window and **buckets one-time events by day** (so they
+  cost zero `occursOn`), leaving only real candidates in the O(days ×
+  candidates) scan — `SpecificDatesRecurrence` is the one rule left unpruned
+  because it has no pre-start guard. Every survivor is still validated through
+  `occursOnUtcDay`, so pruning only ever drops non-occurrences.
+  `holidayDaysInRange` walks the same resolved range; `compareWithinDay` is the
+  **single comparator** for same-day event order (also used by
+  `EventSummaryProvider`, with `DaySummaryResolver.resolve` made stable so the
+  order survives).
 - Filters are one value object,
   [lib/models/upcoming_agenda_filters.dart](../lib/models/upcoming_agenda_filters.dart)
-  (range preset / custom range / priority set / query / holidays toggle /
-  chip-row expansion), persisted via `SettingsService.getUpcomingAgendaFilters`
-  / `saveUpcomingAgendaFilters`. The query write is debounced 500 ms and
-  flushed on dispose. **Empty priority set means "all"** — the filter off,
-  never "nothing matches". An elapsed custom range is dropped on load.
+  (range preset / custom range / priority set / query / holidays + fasting
+  toggles / event-type / chip-row expansion), persisted via
+  `SettingsService.getUpcomingAgendaFilters` / `saveUpcomingAgendaFilters`. The
+  query write is debounced 500 ms and flushed on dispose. **Empty priority set
+  means "all"** — the filter off, never "nothing matches". An elapsed custom
+  range is dropped on load.
+- **Three independently-suppressible layers.** Events carry a single
+  mutually-exclusive `AgendaEventType` axis — **All / Recurring / One-time /
+  None** — applied in the scan's candidate pre-filter (`recurring` =
+  `rule is! OneTimeRecurrence`, so specific-dates counts as recurring; `none`
+  short-circuits the event scan to empty, which is how "upcoming holidays
+  without events" is expressed). Holidays and fasting are day annotations
+  toggled independently and interleaved by `buildAgendaRows`' three-cursor
+  ascending merge (`EventAgenda.fastingDaysInRange` mirrors `holidayDaysInRange`
+  and reuses `FastingSummaryProvider`). The **fasting chip is hidden** unless a
+  tradition is configured (`FastingCalendar.isEnabled`), and the priority row
+  hides when the event type is `none`. Both annotation scans respect the text
+  query (matched against their localized labels), as holidays already did.
+- **The window starts on the calendar's selected day**, not on the wall clock:
+  `UpcomingAgendaView.anchorDay` ← `CalendarPageLoaded.selectedDay` (date-only
+  UTC, defaults to today). A custom range still overrides it. Tapping a day —
+  in the grid or on an agenda row — re-anchors the window (walk-forward: rows
+  before the tapped day drop). The rescan is guarded (`anchorChanged =
+  !hasCustomRange && anchor moved`), so an anchor move under a pinned custom
+  range costs nothing. Not persisted: reopening starts from today, matching the
+  grid always opening on today. The three wall-clock reads that must **stay** on
+  `now()` — the picker's initial range, the Today/Tomorrow row headers, and
+  `withoutElapsedRange` — are not anchor material.
+- **The anchor rescan stays cheap and unsurprising** (2026-08 regression fix,
+  [calendar-anchor-perf-regression-2026-08.md](calendar-anchor-perf-regression-2026-08.md)):
+  a query-only change debounces the scan ~200 ms (the field stays live); an
+  anchor-driven rescan is synchronous and scrolls the agenda to the top so the
+  tapped day becomes the first row; and the panel's `BlocBuilder` uses
+  `CalendarPageLoaded.samePanelInputs` (every input **except** `focusedDay` /
+  `format`), so month paging no longer rebuilds the panel or re-runs the scan —
+  paired with `_onChangeFocusedDay`'s no-op guard against the page-settle emit.
+- **The Custom period chip is an `InputChip`** whose delete "×" (tooltip
+  `upcomingClearRange`) clears the range back to the anchored preset window; the
+  "×" shows only while a range is active (`onDeleted` null otherwise, so it
+  reads like the old `ChoiceChip`). `showCheckmark: false` keeps the
+  `date_range` avatar as the chip's identity instead of swapping in a checkmark.
 - Text matching folds case *and* diacritics through the note search's
   `normalizeForSearch`, so "sarbatoare" finds "Sărbătoare" here exactly as in
   note search. Holiday labels match localized.

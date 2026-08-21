@@ -58,11 +58,16 @@ abstract final class EventTimeFormatter {
 
   // ── internals ────────────────────────────────────────────────────────
 
+  /// `DateFormat.Hm` parses its skeleton on construction; agenda rows build
+  /// one per timed event, so the parsed formatter is cached per locale.
+  static final Map<String, DateFormat> _hmCache = {};
+
   static String _format24h(int minute) {
     final hour = minute ~/ 60;
     final min = minute % 60;
     final dt = DateTime(2000, 1, 1, hour, min);
-    return DateFormat.Hm().format(dt);
+    final locale = Intl.getCurrentLocale();
+    return (_hmCache[locale] ??= DateFormat.Hm(locale)).format(dt);
   }
 
   static TimeOfDay _toTod(int minute) {

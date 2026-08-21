@@ -97,6 +97,24 @@ final class CalendarPageLoaded extends CalendarPageState {
       membershipRevision == other.membershipRevision &&
       presenceRevision == other.presenceRevision;
 
+  /// True when nothing the bottom panel renders from has changed.
+  ///
+  /// Drives the panel's `buildWhen`. The panel consumes the selected day, the
+  /// event list, the category filter and **all three** overlay revisions —
+  /// descriptions and presence feed the day/timeline panels, a skip feeds the
+  /// agenda — but **not** [focusedDay] or [format], which only move the grid.
+  /// So month paging and a format toggle no longer rebuild the panel or re-run
+  /// the agenda scan on a day whose selection did not change. Compares the two
+  /// collections by identity for the same reason [sameGridInputs] does: every
+  /// handler that changes either builds a fresh instance.
+  bool samePanelInputs(CalendarPageLoaded other) =>
+      identical(allEvents, other.allEvents) &&
+      selectedDay == other.selectedDay &&
+      identical(hiddenCategoryIds, other.hiddenCategoryIds) &&
+      occurrenceRevision == other.occurrenceRevision &&
+      membershipRevision == other.membershipRevision &&
+      presenceRevision == other.presenceRevision;
+
   CalendarPageLoaded copyWith({
     List<CalendarEvent>? allEvents,
     DateTime? focusedDay,

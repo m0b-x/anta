@@ -178,7 +178,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     final result = List<CalendarEvent>.unmodifiable([
       for (final e in current.allEvents)
         if (!current.hiddenCategoryIds.contains(e.categoryId) &&
-            e.occursOn(key))
+            e.occursOnUtcDay(key))
           e,
     ]);
     if (_dayCache.length >= _maxDayCacheEntries) _dayCache.clear();
@@ -222,7 +222,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       // Cells attribute money on the start day only when the event actually
       // occurs there; a rule that skips its own anchor (weekly with the
       // anchor's weekday deselected) shows on no cell, so it must not count.
-      if (!event.occursOn(
+      if (!event.occursOnUtcDay(
         DateTime.utc(startUtc.year, startUtc.month, startUtc.day),
       )) {
         continue;
@@ -340,7 +340,13 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   ) {
     final current = state;
     if (current is! CalendarPageLoaded) return;
-    emit(current.copyWith(focusedDay: _dateOnly(event.focusedDay)));
+    final focused = _dateOnly(event.focusedDay);
+    // Mirrors `_onChangeFormat`'s no-op guard. A `SelectCalendarDay` already
+    // moved `focusedDay`; the page settle that follows re-reports the same
+    // month, and without this that second, equal-but-for-nothing emit rebuilds
+    // the grid again (the panel is protected separately by `samePanelInputs`).
+    if (focused == current.focusedDay) return;
+    emit(current.copyWith(focusedDay: focused));
   }
 
   void _onChangeFormat(

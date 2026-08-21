@@ -5944,6 +5944,12 @@ abstract class AppLocalizations {
   /// **'Clear search'**
   String get upcomingClearSearch;
 
+  /// Tooltip of the delete button on the Custom period chip that clears the custom date range in the upcoming agenda
+  ///
+  /// In en, this message translates to:
+  /// **'Clear custom range'**
+  String get upcomingClearRange;
+
   /// Look-ahead period preset chip in the upcoming events sheet
   ///
   /// In en, this message translates to:
@@ -6003,6 +6009,42 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Holidays'**
   String get upcomingShowHolidays;
+
+  /// Agenda filter chip that lists configured fasting days alongside events
+  ///
+  /// In en, this message translates to:
+  /// **'Fasting'**
+  String get upcomingShowFasting;
+
+  /// Label of the agenda's event-type filter row (which events to show)
+  ///
+  /// In en, this message translates to:
+  /// **'Events'**
+  String get upcomingEventType;
+
+  /// Agenda event-type chip: show every event
+  ///
+  /// In en, this message translates to:
+  /// **'All'**
+  String get upcomingEventTypeAll;
+
+  /// Agenda event-type chip: show only repeating events
+  ///
+  /// In en, this message translates to:
+  /// **'Recurring'**
+  String get upcomingEventTypeRecurring;
+
+  /// Agenda event-type chip: show only single-occurrence events
+  ///
+  /// In en, this message translates to:
+  /// **'One-time'**
+  String get upcomingEventTypeOneTime;
+
+  /// Agenda event-type chip: hide all events, leaving only holiday/fasting rows
+  ///
+  /// In en, this message translates to:
+  /// **'None'**
+  String get upcomingEventTypeNone;
 
   /// Tooltip of the button expanding the agenda's period and priority filters
   ///

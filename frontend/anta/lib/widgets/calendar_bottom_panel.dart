@@ -224,6 +224,7 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
       case CalendarPanelMode.upcoming:
         return UpcomingAgendaView(
           events: loaded.allEvents,
+          anchorDay: loaded.selectedDay,
           hiddenCategoryIds: loaded.hiddenCategoryIds,
           filters: _filters,
           onFiltersChanged: _onFiltersChanged,

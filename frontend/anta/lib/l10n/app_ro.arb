@@ -950,6 +950,7 @@
   "upcomingEvents": "Urmează",
   "upcomingSearchHint": "Caută evenimente",
   "upcomingClearSearch": "Șterge căutarea",
+  "upcomingClearRange": "Șterge intervalul personalizat",
   "upcomingPeriodDays": "{count, plural, one {1 zi} few {{count} zile} other {{count} de zile}}",
   "@upcomingPeriodDays": {
     "placeholders": {
@@ -967,6 +968,12 @@
   "upcomingTomorrow": "Mâine",
   "upcomingEditEvent": "Editează evenimentul",
   "upcomingShowHolidays": "Sărbători",
+  "upcomingShowFasting": "Post",
+  "upcomingEventType": "Evenimente",
+  "upcomingEventTypeAll": "Toate",
+  "upcomingEventTypeRecurring": "Recurente",
+  "upcomingEventTypeOneTime": "Unice",
+  "upcomingEventTypeNone": "Niciuna",
   "upcomingFilters": "Filtre",
   "panelExpand": "Extinde panoul",
   "panelShowCalendar": "Arată calendarul",

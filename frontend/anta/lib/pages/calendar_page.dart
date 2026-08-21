@@ -395,6 +395,13 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
               Expanded(
                 child: RepaintBoundary(
                   child: BlocBuilder<CalendarBloc, CalendarPageState>(
+                    // The panel ignores focus/format, so month paging and a
+                    // format toggle must not rebuild it — that is what used to
+                    // re-run the agenda scan on every grid page turn.
+                    buildWhen: (previous, current) =>
+                        previous is! CalendarPageLoaded ||
+                        current is! CalendarPageLoaded ||
+                        !previous.samePanelInputs(current),
                     builder: (context, state) {
                       if (state is! CalendarPageLoaded) {
                         return const SizedBox.shrink();
