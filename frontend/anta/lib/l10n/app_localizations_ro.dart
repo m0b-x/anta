@@ -1522,7 +1522,7 @@ class AppLocalizationsRo extends AppLocalizations {
   String get redo => 'Refă';
 
   @override
-  String get paste => 'Paste';
+  String get paste => 'Lipește';
 
   @override
   String get decreaseFontSize => 'Micșorează Fontul';
@@ -2248,33 +2248,35 @@ class AppLocalizationsRo extends AppLocalizations {
       'Evidențiază linia unde este poziționat cursorul';
 
   @override
-  String get autoBreakLongLines => 'Auto-Break Long Lines';
+  String get autoBreakLongLines => 'Împarte automat liniile lungi';
 
   @override
   String get autoBreakLongLinesDesc =>
-      'Automatically break long lines when pasting text. May slightly affect search positioning accuracy in preview mode.';
+      'Împarte automat liniile lungi la lipirea textului. Poate afecta ușor precizia poziționării căutării în modul previzualizare.';
 
   @override
-  String get previewWhenKeyboardHidden => 'Preview When Keyboard Hidden';
+  String get previewWhenKeyboardHidden =>
+      'Previzualizare când tastatura e ascunsă';
 
   @override
   String get previewWhenKeyboardHiddenDesc =>
-      'Show rendered markdown preview when the keyboard is hidden. The editor appears when you tap to type.';
+      'Afișează previzualizarea markdown randată când tastatura este ascunsă. Editorul apare când atingi pentru a scrie.';
 
   @override
-  String get scrollCursorOnKeyboard => 'Scroll Cursor on Keyboard';
+  String get scrollCursorOnKeyboard => 'Derulează cursorul la tastatură';
 
   @override
   String get scrollCursorOnKeyboardDesc =>
-      'Automatically scroll to keep the cursor visible when the keyboard appears.';
+      'Derulează automat pentru a menține cursorul vizibil când apare tastatura.';
 
   @override
   String linesFormatted(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: '$count long lines were formatted',
-      one: '1 long line was formatted',
+      other: '$count de linii lungi au fost formatate',
+      few: '$count linii lungi au fost formatate',
+      one: '1 linie lungă a fost formatată',
     );
     return '$_temp0';
   }
@@ -2581,153 +2583,160 @@ class AppLocalizationsRo extends AppLocalizations {
   String get advancedOptionsDescription => 'Offset dată, repetare și altele';
 
   @override
-  String get repeatWrapperText => 'Wrapper text';
+  String get repeatWrapperText => 'Text de încadrare';
 
   @override
   String get repeatWrapperTextDesc =>
-      'Text inserted before/after all repeated items';
+      'Text inserat înainte/după toate elementele repetate';
 
   @override
-  String get beforeAllRepeats => 'Before all';
+  String get beforeAllRepeats => 'Înainte de toate';
 
   @override
-  String get beforeAllRepeatsHint => 'e.g., ## Week 1\\n';
+  String get beforeAllRepeatsHint => 'ex. ## Săptămâna 1\\n';
 
   @override
-  String get afterAllRepeats => 'After all';
+  String get afterAllRepeats => 'După toate';
 
   @override
-  String get afterAllRepeatsHint => 'e.g., \\n---';
+  String get afterAllRepeatsHint => 'ex. \\n---';
 
   @override
-  String get developerOptions => 'Developer Options';
+  String get developerOptions => 'Opțiuni dezvoltator';
 
   @override
-  String get developerOptionsDesc => 'Debug tools and diagnostics';
+  String get developerOptionsDesc => 'Instrumente de depanare și diagnosticare';
 
   @override
   String get developerOptionsWarning =>
-      'These options are for debugging only. Enabling them may affect app performance.';
+      'Aceste opțiuni sunt doar pentru depanare. Activarea lor poate afecta performanța aplicației.';
 
   @override
-  String get developerOptionsReset => 'Developer options reset to defaults';
+  String get developerOptionsReset =>
+      'Opțiunile de dezvoltator au fost resetate la valorile implicite';
 
   @override
-  String get developerModeUnlocked => 'Developer mode unlocked!';
+  String get developerModeUnlocked => 'Mod dezvoltator deblocat!';
 
   @override
-  String get lockDeveloperMode => 'Lock Developer Mode';
+  String get lockDeveloperMode => 'Blochează modul dezvoltator';
 
   @override
-  String get developerModeLocked => 'Developer mode locked';
+  String get developerModeLocked => 'Mod dezvoltator blocat';
 
   @override
-  String get visualizationDebug => 'Visualization / Debug';
+  String get visualizationDebug => 'Vizualizare / Depanare';
 
   @override
-  String get colorMarkdownBlocks => 'Color Markdown Blocks';
+  String get colorMarkdownBlocks => 'Colorează blocurile Markdown';
 
   @override
   String get colorMarkdownBlocksDesc =>
-      'Show different colors for headers, code, lists, etc.';
+      'Afișează culori diferite pentru titluri, cod, liste etc.';
 
   @override
-  String get showBlockBoundaries => 'Show Block Boundaries';
+  String get showBlockBoundaries => 'Afișează limitele blocurilor';
 
   @override
   String get showBlockBoundariesDesc =>
-      'Draw borders around each parsed element';
+      'Desenează contururi în jurul fiecărui element analizat';
 
   @override
-  String get showWhitespace => 'Show Whitespace';
+  String get showWhitespace => 'Afișează spațiile albe';
 
   @override
-  String get showWhitespaceDesc => 'Visualize spaces, tabs, and newlines';
+  String get showWhitespaceDesc =>
+      'Vizualizează spațiile, taburile și liniile noi';
 
   @override
-  String get showPreviewLineNumbers => 'Preview Line Numbers';
+  String get showPreviewLineNumbers => 'Numere de linie în previzualizare';
 
   @override
   String get showPreviewLineNumbersDesc =>
-      'Show source line numbers in preview mode';
+      'Afișează numerele liniilor sursă în modul previzualizare';
 
   @override
-  String get performanceMonitoring => 'Performance Monitoring';
+  String get performanceMonitoring => 'Monitorizarea performanței';
 
   @override
-  String get showRenderTime => 'Show Render Time';
+  String get showRenderTime => 'Afișează timpul de randare';
 
   @override
-  String get showRenderTimeDesc => 'Display how long preview takes to render';
+  String get showRenderTimeDesc =>
+      'Afișează cât durează randarea previzualizării';
 
   @override
-  String get showFpsCounter => 'Show FPS Counter';
+  String get showFpsCounter => 'Afișează contorul FPS';
 
   @override
-  String get showFpsCounterDesc => 'Monitor scroll and animation performance';
+  String get showFpsCounterDesc =>
+      'Monitorizează performanța derulării și animațiilor';
 
   @override
-  String get showChunkIndicators => 'Show Chunk Indicators';
+  String get showChunkIndicators => 'Afișează indicatorii de fragmente';
 
   @override
   String get showChunkIndicatorsDesc =>
-      'Highlight which chunks are loaded in preview';
+      'Evidențiază ce fragmente sunt încărcate în previzualizare';
 
   @override
-  String get showRepaintRainbow => 'Show Repaint Rainbow';
+  String get showRepaintRainbow => 'Afișează Repaint Rainbow';
 
   @override
   String get showRepaintRainbowDesc =>
-      'Color widgets when they repaint (Flutter debug)';
+      'Colorează widgeturile când se redesenează (depanare Flutter)';
 
   @override
-  String get editorDebug => 'Editor Debug';
+  String get editorDebug => 'Depanare editor';
 
   @override
-  String get showCursorInfo => 'Show Cursor Info';
+  String get showCursorInfo => 'Afișează informații despre cursor';
 
   @override
-  String get showCursorInfoDesc => 'Display line, column, and character offset';
+  String get showCursorInfoDesc =>
+      'Afișează linia, coloana și poziția caracterului';
 
   @override
-  String get showSelectionDetails => 'Show Selection Details';
+  String get showSelectionDetails => 'Afișează detaliile selecției';
 
   @override
   String get showSelectionDetailsDesc =>
-      'Display start, end positions and length';
+      'Afișează pozițiile de început, sfârșit și lungimea';
 
   @override
-  String get logParserEvents => 'Log Parser Events';
+  String get logParserEvents => 'Înregistrează evenimentele parserului';
 
   @override
-  String get logParserEventsDesc => 'Output parsing info to debug console';
+  String get logParserEventsDesc =>
+      'Trimite informațiile de analiză în consola de depanare';
 
   @override
-  String get storageData => 'Storage / Data';
+  String get storageData => 'Stocare / Date';
 
   @override
-  String get showNoteSize => 'Show Note Size';
+  String get showNoteSize => 'Afișează dimensiunea notiței';
 
   @override
-  String get showNoteSizeDesc => 'Display content size in bytes';
+  String get showNoteSizeDesc => 'Afișează dimensiunea conținutului în octeți';
 
   @override
-  String get showDatabaseStats => 'Show Database Stats';
+  String get showDatabaseStats => 'Afișează statisticile bazei de date';
 
   @override
-  String get showDatabaseStatsDesc => 'Query count and cache information';
+  String get showDatabaseStatsDesc =>
+      'Numărul de interogări și informații despre cache';
 
   @override
-  String get saveStatusSaved => 'Saved';
+  String get saveStatusSaved => 'Salvat';
 
   @override
-  String get saveStatusUnsaved => 'Unsaved';
+  String get saveStatusUnsaved => 'Nesalvat';
 
   @override
-  String get saveStatusSaving => 'Saving…';
+  String get saveStatusSaving => 'Se salvează…';
 
   @override
-  String get saveStatusError => 'Save failed';
+  String get saveStatusError => 'Salvare eșuată';
 
   @override
   String get toolbarLayout => 'Aspect bară de instrumente';
@@ -3105,12 +3114,12 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String folderNameAlreadyExists(String name) {
-    return 'A folder named \"$name\" already exists here';
+    return 'Există deja un folder numit \"$name\" aici';
   }
 
   @override
   String noteTitleAlreadyExists(String title) {
-    return 'A note titled \"$title\" already exists here';
+    return 'Există deja o notiță cu titlul \"$title\" aici';
   }
 
   @override
@@ -3119,9 +3128,11 @@ class AppLocalizationsRo extends AppLocalizations {
       count,
       locale: localeName,
       other:
-          '$count items were skipped because the destination already has items with the same name',
+          '$count de elemente au fost omise deoarece destinația are deja elemente cu același nume',
+      few:
+          '$count elemente au fost omise deoarece destinația are deja elemente cu același nume',
       one:
-          '1 item was skipped because the destination already has an item with the same name',
+          'Un element a fost omis deoarece destinația are deja un element cu același nume',
     );
     return '$_temp0';
   }

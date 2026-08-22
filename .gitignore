@@ -1,0 +1,4 @@
+# OS-generated metadata files (macOS, Windows)
+.DS_Store
+Thumbs.db
+desktop.ini
