@@ -1507,7 +1507,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get redo => 'Wiederholen';
 
   @override
-  String get paste => 'Paste';
+  String get paste => 'Einfügen';
 
   @override
   String get decreaseFontSize => 'Schriftgröße verkleinern';
@@ -2231,33 +2231,34 @@ class AppLocalizationsDe extends AppLocalizations {
       'Die Zeile hervorheben, in der sich der Cursor befindet';
 
   @override
-  String get autoBreakLongLines => 'Auto-Break Long Lines';
+  String get autoBreakLongLines => 'Lange Zeilen autom. umbrechen';
 
   @override
   String get autoBreakLongLinesDesc =>
-      'Automatically break long lines when pasting text. May slightly affect search positioning accuracy in preview mode.';
+      'Bricht lange Zeilen beim Einfügen von Text automatisch um. Kann die Genauigkeit der Suchpositionierung in der Vorschau leicht beeinträchtigen.';
 
   @override
-  String get previewWhenKeyboardHidden => 'Preview When Keyboard Hidden';
+  String get previewWhenKeyboardHidden =>
+      'Vorschau bei ausgeblendeter Tastatur';
 
   @override
   String get previewWhenKeyboardHiddenDesc =>
-      'Show rendered markdown preview when the keyboard is hidden. The editor appears when you tap to type.';
+      'Zeigt die gerenderte Markdown-Vorschau, wenn die Tastatur ausgeblendet ist. Der Editor erscheint, wenn du zum Tippen tippst.';
 
   @override
-  String get scrollCursorOnKeyboard => 'Scroll Cursor on Keyboard';
+  String get scrollCursorOnKeyboard => 'Cursor bei Tastatur scrollen';
 
   @override
   String get scrollCursorOnKeyboardDesc =>
-      'Automatically scroll to keep the cursor visible when the keyboard appears.';
+      'Scrollt automatisch, damit der Cursor sichtbar bleibt, wenn die Tastatur erscheint.';
 
   @override
   String linesFormatted(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: '$count long lines were formatted',
-      one: '1 long line was formatted',
+      other: '$count lange Zeilen wurden formatiert',
+      one: '1 lange Zeile wurde formatiert',
     );
     return '$_temp0';
   }
@@ -2561,141 +2562,145 @@ class AppLocalizationsDe extends AppLocalizations {
       'Datumsversatz, Wiederholung und mehr';
 
   @override
-  String get repeatWrapperText => 'Wrapper text';
+  String get repeatWrapperText => 'Umschließender Text';
 
   @override
   String get repeatWrapperTextDesc =>
-      'Text inserted before/after all repeated items';
+      'Text, der vor/nach allen wiederholten Elementen eingefügt wird';
 
   @override
-  String get beforeAllRepeats => 'Before all';
+  String get beforeAllRepeats => 'Vor allen';
 
   @override
-  String get beforeAllRepeatsHint => 'e.g., ## Week 1\\n';
+  String get beforeAllRepeatsHint => 'z.B. ## Woche 1\\n';
 
   @override
-  String get afterAllRepeats => 'After all';
+  String get afterAllRepeats => 'Nach allen';
 
   @override
-  String get afterAllRepeatsHint => 'e.g., \\n---';
+  String get afterAllRepeatsHint => 'z.B. \\n---';
 
   @override
-  String get developerOptions => 'Developer Options';
+  String get developerOptions => 'Entwickleroptionen';
 
   @override
-  String get developerOptionsDesc => 'Debug tools and diagnostics';
+  String get developerOptionsDesc => 'Debug-Tools und Diagnose';
 
   @override
   String get developerOptionsWarning =>
-      'These options are for debugging only. Enabling them may affect app performance.';
+      'Diese Optionen dienen nur zum Debuggen. Ihre Aktivierung kann die App-Leistung beeinträchtigen.';
 
   @override
-  String get developerOptionsReset => 'Developer options reset to defaults';
+  String get developerOptionsReset =>
+      'Entwickleroptionen auf Standard zurückgesetzt';
 
   @override
-  String get developerModeUnlocked => 'Developer mode unlocked!';
+  String get developerModeUnlocked => 'Entwicklermodus freigeschaltet!';
 
   @override
-  String get lockDeveloperMode => 'Lock Developer Mode';
+  String get lockDeveloperMode => 'Entwicklermodus sperren';
 
   @override
-  String get developerModeLocked => 'Developer mode locked';
+  String get developerModeLocked => 'Entwicklermodus gesperrt';
 
   @override
-  String get visualizationDebug => 'Visualization / Debug';
+  String get visualizationDebug => 'Visualisierung / Debug';
 
   @override
-  String get colorMarkdownBlocks => 'Color Markdown Blocks';
+  String get colorMarkdownBlocks => 'Markdown-Blöcke einfärben';
 
   @override
   String get colorMarkdownBlocksDesc =>
-      'Show different colors for headers, code, lists, etc.';
+      'Verschiedene Farben für Überschriften, Code, Listen usw. anzeigen';
 
   @override
-  String get showBlockBoundaries => 'Show Block Boundaries';
+  String get showBlockBoundaries => 'Blockgrenzen anzeigen';
 
   @override
   String get showBlockBoundariesDesc =>
-      'Draw borders around each parsed element';
+      'Rahmen um jedes analysierte Element zeichnen';
 
   @override
-  String get showWhitespace => 'Show Whitespace';
+  String get showWhitespace => 'Leerzeichen anzeigen';
 
   @override
-  String get showWhitespaceDesc => 'Visualize spaces, tabs, and newlines';
+  String get showWhitespaceDesc =>
+      'Leerzeichen, Tabs und Zeilenumbrüche visualisieren';
 
   @override
-  String get showPreviewLineNumbers => 'Preview Line Numbers';
+  String get showPreviewLineNumbers => 'Zeilennummern in Vorschau';
 
   @override
   String get showPreviewLineNumbersDesc =>
-      'Show source line numbers in preview mode';
+      'Quell-Zeilennummern im Vorschaumodus anzeigen';
 
   @override
-  String get performanceMonitoring => 'Performance Monitoring';
+  String get performanceMonitoring => 'Leistungsüberwachung';
 
   @override
-  String get showRenderTime => 'Show Render Time';
+  String get showRenderTime => 'Renderzeit anzeigen';
 
   @override
-  String get showRenderTimeDesc => 'Display how long preview takes to render';
+  String get showRenderTimeDesc =>
+      'Anzeigen, wie lange die Vorschau zum Rendern braucht';
 
   @override
-  String get showFpsCounter => 'Show FPS Counter';
+  String get showFpsCounter => 'FPS-Zähler anzeigen';
 
   @override
-  String get showFpsCounterDesc => 'Monitor scroll and animation performance';
+  String get showFpsCounterDesc => 'Scroll- und Animationsleistung überwachen';
 
   @override
-  String get showChunkIndicators => 'Show Chunk Indicators';
+  String get showChunkIndicators => 'Chunk-Indikatoren anzeigen';
 
   @override
   String get showChunkIndicatorsDesc =>
-      'Highlight which chunks are loaded in preview';
+      'Hervorheben, welche Chunks in der Vorschau geladen sind';
 
   @override
-  String get showRepaintRainbow => 'Show Repaint Rainbow';
+  String get showRepaintRainbow => 'Repaint-Rainbow anzeigen';
 
   @override
   String get showRepaintRainbowDesc =>
-      'Color widgets when they repaint (Flutter debug)';
+      'Widgets einfärben, wenn sie neu gezeichnet werden (Flutter-Debug)';
 
   @override
-  String get editorDebug => 'Editor Debug';
+  String get editorDebug => 'Editor-Debug';
 
   @override
-  String get showCursorInfo => 'Show Cursor Info';
+  String get showCursorInfo => 'Cursor-Info anzeigen';
 
   @override
-  String get showCursorInfoDesc => 'Display line, column, and character offset';
+  String get showCursorInfoDesc => 'Zeile, Spalte und Zeichenoffset anzeigen';
 
   @override
-  String get showSelectionDetails => 'Show Selection Details';
+  String get showSelectionDetails => 'Auswahldetails anzeigen';
 
   @override
   String get showSelectionDetailsDesc =>
-      'Display start, end positions and length';
+      'Start- und Endpositionen sowie Länge anzeigen';
 
   @override
-  String get logParserEvents => 'Log Parser Events';
+  String get logParserEvents => 'Parser-Ereignisse protokollieren';
 
   @override
-  String get logParserEventsDesc => 'Output parsing info to debug console';
+  String get logParserEventsDesc =>
+      'Parsing-Informationen an die Debug-Konsole ausgeben';
 
   @override
-  String get storageData => 'Storage / Data';
+  String get storageData => 'Speicher / Daten';
 
   @override
-  String get showNoteSize => 'Show Note Size';
+  String get showNoteSize => 'Notizgröße anzeigen';
 
   @override
-  String get showNoteSizeDesc => 'Display content size in bytes';
+  String get showNoteSizeDesc => 'Inhaltsgröße in Bytes anzeigen';
 
   @override
-  String get showDatabaseStats => 'Show Database Stats';
+  String get showDatabaseStats => 'Datenbankstatistik anzeigen';
 
   @override
-  String get showDatabaseStatsDesc => 'Query count and cache information';
+  String get showDatabaseStatsDesc => 'Abfrageanzahl und Cache-Informationen';
 
   @override
   String get saveStatusSaved => 'Gespeichert';
@@ -3086,12 +3091,12 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String folderNameAlreadyExists(String name) {
-    return 'A folder named \"$name\" already exists here';
+    return 'Ein Ordner mit dem Namen \"$name\" existiert hier bereits';
   }
 
   @override
   String noteTitleAlreadyExists(String title) {
-    return 'A note titled \"$title\" already exists here';
+    return 'Eine Notiz mit dem Titel \"$title\" existiert hier bereits';
   }
 
   @override
@@ -3100,9 +3105,9 @@ class AppLocalizationsDe extends AppLocalizations {
       count,
       locale: localeName,
       other:
-          '$count items were skipped because the destination already has items with the same name',
+          '$count Elemente wurden übersprungen, da das Ziel bereits Elemente mit demselben Namen enthält',
       one:
-          '1 item was skipped because the destination already has an item with the same name',
+          '1 Element wurde übersprungen, da das Ziel bereits ein Element mit demselben Namen enthält',
     );
     return '$_temp0';
   }
