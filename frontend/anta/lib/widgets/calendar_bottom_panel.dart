@@ -8,9 +8,11 @@ import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../models/calendar_panel_mode.dart';
+import '../models/calendar_selection_source.dart';
 import '../models/upcoming_agenda_filters.dart';
 import '../services/day_summary_resolver.dart';
 import '../services/settings_service.dart';
+import '../utils/event_agenda.dart';
 import '../utils/markdown_color_syntax.dart';
 import 'day_summary_panel.dart';
 import 'day_timeline_view.dart';
@@ -97,6 +99,15 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
   CalendarPanelMode _mode = CalendarPanelMode.day;
   UpcomingAgendaFilters _filters = const UpcomingAgendaFilters();
 
+  /// Where the upcoming agenda's look-ahead window starts.
+  ///
+  /// Owned here rather than read straight off `selectedDay`, because the
+  /// selection and the window are two different things: an agenda row tap must
+  /// move the grid without truncating the list it was tapped in, and with
+  /// `followSelectedDay` off a grid tap must not move the window at all.
+  /// Deliberately not persisted — the panel opens on today, as the grid does.
+  late DateTime _agendaAnchor = EventAgenda.dateOnly(DateTime.now());
+
   /// Debounce for persisting the agenda's search text. Discrete filter
   /// choices write through immediately; only per-keystroke text waits.
   Timer? _queryPersistTimer;
@@ -106,6 +117,48 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void didUpdateWidget(CalendarBottomPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _syncAnchor(previous: oldWidget.loaded);
+  }
+
+  /// Moves [_agendaAnchor] to match the current selection, when it should.
+  ///
+  /// Assigns without `setState`: every caller runs immediately before a build
+  /// (`didUpdateWidget`, or inside one of the setState blocks below), so a
+  /// second frame would be pure waste.
+  ///
+  /// Rules, in order:
+  ///  * with following off the window belongs to today — which also picks up a
+  ///    date rollover on the next rebuild, the same freshness the
+  ///    Today/Tomorrow row headers have;
+  ///  * with no [previous] the caller is resolving from scratch (filters
+  ///    loaded, or the toggle just flipped on), so adopt the selection as it
+  ///    stands;
+  ///  * an [CalendarSelectionSource.agendaRow] selection never re-anchors, so
+  ///    tapping a row cannot drop every row above it;
+  ///  * anything else follows the selection when it actually changed.
+  void _syncAnchor({CalendarPageLoaded? previous}) {
+    if (!_filters.followSelectedDay) {
+      _agendaAnchor = EventAgenda.dateOnly(DateTime.now());
+      return;
+    }
+    final loaded = widget.loaded;
+    if (previous == null) {
+      _agendaAnchor = loaded.selectedDay;
+      return;
+    }
+    if (loaded.selectionSource == CalendarSelectionSource.agendaRow) return;
+    if (previous.selectedDay == loaded.selectedDay) return;
+    _agendaAnchor = loaded.selectedDay;
+  }
+
+  /// Returns the window to today, from the agenda header's anchor chip.
+  void _resetAnchor() {
+    setState(() => _agendaAnchor = EventAgenda.dateOnly(DateTime.now()));
   }
 
   @override
@@ -125,6 +178,9 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
       _filters = filters.withoutElapsedRange(
         DateTime.utc(now.year, now.month, now.day),
       );
+      // The restored filters decide whether the window follows the selection,
+      // so the anchor can only be resolved once they are in.
+      _syncAnchor();
     });
   }
 
@@ -145,7 +201,15 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
     final queryOnly =
         next.copyWith(query: _filters.query) == _filters &&
         next.query != _filters.query;
-    setState(() => _filters = next);
+    final followingChanged =
+        next.followSelectedDay != _filters.followSelectedDay;
+    setState(() {
+      _filters = next;
+      // Turning following off returns the window to today; turning it on
+      // adopts the current selection immediately rather than waiting for the
+      // next tap.
+      if (followingChanged) _syncAnchor();
+    });
     _queryPersistTimer?.cancel();
     if (queryOnly) {
       _queryPersistTimer = Timer(_queryPersistDelay, () => _persist(next));
@@ -224,12 +288,21 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
       case CalendarPanelMode.upcoming:
         return UpcomingAgendaView(
           events: loaded.allEvents,
-          anchorDay: loaded.selectedDay,
+          anchorDay: _agendaAnchor,
+          onResetAnchor: _resetAnchor,
           hiddenCategoryIds: loaded.hiddenCategoryIds,
           filters: _filters,
           onFiltersChanged: _onFiltersChanged,
-          onDaySelected: (day) =>
-              bloc.add(SelectCalendarDay(day: day, focusedDay: day)),
+          // Tagged so the anchor sync can tell this apart from a grid tap: it
+          // moves the selection (the grid and the day panel follow) but never
+          // the agenda's own window.
+          onDaySelected: (day) => bloc.add(
+            SelectCalendarDay(
+              day: day,
+              focusedDay: day,
+              source: CalendarSelectionSource.agendaRow,
+            ),
+          ),
           onEditEvent: widget.onEditEvent,
           onOpenNote: widget.onOpenNote,
           colorPalette: widget.colorPalette,

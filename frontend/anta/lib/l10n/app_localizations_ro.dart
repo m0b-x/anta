@@ -928,6 +928,17 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
+  String get fastingWeekdayScopeTitle => 'Zilele săptămânii se aplică la';
+
+  @override
+  String get fastingWeekdayScopeHintWeekly =>
+      'Posturile de mai multe zile marchează în continuare fiecare zi a lor';
+
+  @override
+  String get fastingWeekdayScopeHintAll =>
+      'O zi debifată nu este niciodată marcată';
+
+  @override
   String get fastingMonthScopeTitle => 'Lunile se aplică la';
 
   @override
@@ -937,7 +948,11 @@ class AppLocalizationsRo extends AppLocalizations {
   String get fastingMonthScopeAll => 'Toate posturile';
 
   @override
-  String get fastingMonthScopeHint =>
+  String get fastingMonthScopeHintWeekly =>
+      'Posturile de mai multe zile apar și într-o lună dezactivată';
+
+  @override
+  String get fastingMonthScopeHintAll =>
       'O lună dezactivată nu e marcată niciodată';
 
   @override
@@ -3385,6 +3400,74 @@ class AppLocalizationsRo extends AppLocalizations {
   String get upcomingCollapseRecurring => 'Grupează recurente';
 
   @override
+  String get upcomingFastingDisplayTitle => 'Rânduri de post';
+
+  @override
+  String get upcomingFastingDisplayEveryDay => 'Fiecare zi';
+
+  @override
+  String get upcomingFastingDisplayPeriods => 'Perioade';
+
+  @override
+  String get upcomingFastingDisplaySummary => 'Un card';
+
+  @override
+  String get upcomingFollowSelectedDay => 'Începe din ziua selectată';
+
+  @override
+  String upcomingCollapsedTimes(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count× în interval',
+      few: '$count× în interval',
+      one: '1× în interval',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String upcomingFastingSpanDays(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de zile',
+      few: '$count zile',
+      one: '1 zi',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String upcomingAnchorFrom(String date) {
+    return 'din $date';
+  }
+
+  @override
+  String get upcomingRemoveFilter => 'Elimină filtrul';
+
+  @override
+  String get upcomingResetAnchor => 'Înapoi la azi';
+
+  @override
+  String get upcomingFiltersReset => 'Resetează';
+
+  @override
+  String get upcomingSectionPeriod => 'Perioadă';
+
+  @override
+  String get upcomingSectionShow => 'Afișează';
+
+  @override
+  String get upcomingSectionDisplay => 'Prezentare';
+
+  @override
+  String get upcomingShowEvents => 'Evenimente';
+
+  @override
+  String get upcomingEventsHidden => 'Fără evenimente';
+
+  @override
   String upcomingPeriodDays(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -3438,9 +3521,6 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get upcomingEventTypeOneTime => 'Unice';
-
-  @override
-  String get upcomingEventTypeNone => 'Niciuna';
 
   @override
   String get upcomingFilters => 'Filtre';

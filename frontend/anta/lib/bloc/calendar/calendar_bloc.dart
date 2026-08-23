@@ -330,6 +330,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       current.copyWith(
         selectedDay: _dateOnly(event.day),
         focusedDay: _dateOnly(event.focusedDay),
+        selectionSource: event.source,
       ),
     );
   }

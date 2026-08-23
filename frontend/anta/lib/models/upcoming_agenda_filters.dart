@@ -21,6 +21,28 @@ enum AgendaEventType {
   }
 }
 
+/// How the upcoming agenda presents fasting days — three mutually exclusive
+/// presentations of one thing, so it can never encode the nonsense a second
+/// boolean stacked on the old collapse switch would allow (collapse *and*
+/// summarize).
+///
+/// [everyDay] lists one row per marked day, [periods] one row per fasting run
+/// (the shipped behaviour, and still the default), and [summary] a single card
+/// per enabled tradition digesting the whole window. Persisted by name;
+/// [fromName] falls back to [periods] for a value written by a newer build.
+enum AgendaFastingDisplay {
+  everyDay,
+  periods,
+  summary;
+
+  static AgendaFastingDisplay fromName(String? name) {
+    for (final display in values) {
+      if (display.name == name) return display;
+    }
+    return periods;
+  }
+}
+
 /// Everything the upcoming-agenda panel filters by.
 ///
 /// Lives above the panel widget and is persisted through `SettingsService`,
@@ -43,9 +65,6 @@ class UpcomingAgendaFilters extends Equatable {
   /// Case-insensitive text matched against event titles and descriptions.
   final String query;
 
-  /// Whether the period/priority chip rows are expanded in the panel.
-  final bool filtersExpanded;
-
   /// Whether public holidays are listed alongside events. Off by default —
   /// the agenda is a training log first.
   final bool showHolidays;
@@ -59,6 +78,17 @@ class UpcomingAgendaFilters extends Equatable {
   /// recurrence label already conveys the cadence.
   final bool collapseRecurring;
 
+  /// How fasting days are presented — see [AgendaFastingDisplay].
+  /// [AgendaFastingDisplay.periods] by default: a Lent is forty consecutive
+  /// days, and listing each one buries everything else.
+  final AgendaFastingDisplay fastingDisplay;
+
+  /// Whether the look-ahead window restarts from the calendar's selected day.
+  /// **Off by default** — the window starts today, and a grid tap only moves
+  /// the grid. Turning it on restores the walk-forward "upcoming from here"
+  /// model; an agenda row tap never re-anchors either way.
+  final bool followSelectedDay;
+
   /// Which events the list shows — see [AgendaEventType]. [AgendaEventType.all]
   /// (the default) is the filter off.
   final AgendaEventType eventType;
@@ -69,20 +99,44 @@ class UpcomingAgendaFilters extends Equatable {
   final Set<String> categoryIds;
 
   const UpcomingAgendaFilters({
-    this.rangeDays = 30,
+    this.rangeDays = defaultRangeDays,
     this.priorities = const {},
     this.customStart,
     this.customEnd,
     this.query = '',
-    this.filtersExpanded = false,
     this.showHolidays = false,
     this.showFasting = false,
     this.collapseRecurring = false,
+    this.fastingDisplay = AgendaFastingDisplay.periods,
+    this.followSelectedDay = false,
     this.eventType = AgendaEventType.all,
     this.categoryIds = const {},
   });
 
+  /// Look-ahead window the panel opens on, and the one [restrictiveFilterCount]
+  /// treats as "no window filter".
+  static const int defaultRangeDays = 30;
+
+  /// Look-ahead windows offered as presets, in days.
+  static const List<int> rangePresets = [7, defaultRangeDays, 90];
+
   bool get hasCustomRange => customStart != null && customEnd != null;
+
+  /// How many filters are currently **narrowing** the results.
+  ///
+  /// Only restrictions count: the layer toggles ([showHolidays],
+  /// [showFasting]) add rows rather than remove them, and the collapse
+  /// toggles condense rows that are all still represented. So this is exactly
+  /// the set of filters that can explain "why is something missing" — which is
+  /// what the panel's badge counts and its summary chips undo one at a time.
+  int get restrictiveFilterCount {
+    var count = 0;
+    if (hasCustomRange || rangeDays != defaultRangeDays) count++;
+    if (eventType != AgendaEventType.all) count++;
+    if (priorities.isNotEmpty) count++;
+    if (categoryIds.isNotEmpty) count++;
+    return count;
+  }
 
   UpcomingAgendaFilters copyWith({
     int? rangeDays,
@@ -90,10 +144,11 @@ class UpcomingAgendaFilters extends Equatable {
     DateTime? customStart,
     DateTime? customEnd,
     String? query,
-    bool? filtersExpanded,
     bool? showHolidays,
     bool? showFasting,
     bool? collapseRecurring,
+    AgendaFastingDisplay? fastingDisplay,
+    bool? followSelectedDay,
     AgendaEventType? eventType,
     Set<String>? categoryIds,
     bool clearCustomRange = false,
@@ -104,10 +159,11 @@ class UpcomingAgendaFilters extends Equatable {
       customStart: clearCustomRange ? null : (customStart ?? this.customStart),
       customEnd: clearCustomRange ? null : (customEnd ?? this.customEnd),
       query: query ?? this.query,
-      filtersExpanded: filtersExpanded ?? this.filtersExpanded,
       showHolidays: showHolidays ?? this.showHolidays,
       showFasting: showFasting ?? this.showFasting,
       collapseRecurring: collapseRecurring ?? this.collapseRecurring,
+      fastingDisplay: fastingDisplay ?? this.fastingDisplay,
+      followSelectedDay: followSelectedDay ?? this.followSelectedDay,
       eventType: eventType ?? this.eventType,
       categoryIds: categoryIds ?? this.categoryIds,
     );
@@ -204,10 +260,11 @@ class UpcomingAgendaFilters extends Equatable {
     customStart,
     customEnd,
     query,
-    filtersExpanded,
     showHolidays,
     showFasting,
     collapseRecurring,
+    fastingDisplay,
+    followSelectedDay,
     eventType,
     categoryIds,
   ];

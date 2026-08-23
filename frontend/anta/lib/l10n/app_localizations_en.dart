@@ -912,6 +912,16 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get fastingWeekdayScopeTitle => 'Weekdays apply to';
+
+  @override
+  String get fastingWeekdayScopeHintWeekly =>
+      'Multi-day fasts still mark every one of their days';
+
+  @override
+  String get fastingWeekdayScopeHintAll => 'A day you turn off is never marked';
+
+  @override
   String get fastingMonthScopeTitle => 'Months apply to';
 
   @override
@@ -921,7 +931,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get fastingMonthScopeAll => 'All fasts';
 
   @override
-  String get fastingMonthScopeHint => 'A month you turn off is never marked';
+  String get fastingMonthScopeHintWeekly =>
+      'Multi-day fasts still show in a month you turn off';
+
+  @override
+  String get fastingMonthScopeHintAll => 'A month you turn off is never marked';
 
   @override
   String get fastingExceptionsSkipTitle => 'Days off';
@@ -3333,6 +3347,72 @@ class AppLocalizationsEn extends AppLocalizations {
   String get upcomingCollapseRecurring => 'Collapse recurring';
 
   @override
+  String get upcomingFastingDisplayTitle => 'Fasting rows';
+
+  @override
+  String get upcomingFastingDisplayEveryDay => 'Every day';
+
+  @override
+  String get upcomingFastingDisplayPeriods => 'Periods';
+
+  @override
+  String get upcomingFastingDisplaySummary => 'One card';
+
+  @override
+  String get upcomingFollowSelectedDay => 'Start from selected day';
+
+  @override
+  String upcomingCollapsedTimes(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count× in window',
+      one: '1× in window',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String upcomingFastingSpanDays(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count days',
+      one: '1 day',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String upcomingAnchorFrom(String date) {
+    return 'from $date';
+  }
+
+  @override
+  String get upcomingRemoveFilter => 'Remove filter';
+
+  @override
+  String get upcomingResetAnchor => 'Back to today';
+
+  @override
+  String get upcomingFiltersReset => 'Reset';
+
+  @override
+  String get upcomingSectionPeriod => 'Period';
+
+  @override
+  String get upcomingSectionShow => 'Show';
+
+  @override
+  String get upcomingSectionDisplay => 'Display';
+
+  @override
+  String get upcomingShowEvents => 'Events';
+
+  @override
+  String get upcomingEventsHidden => 'No events';
+
+  @override
   String upcomingPeriodDays(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -3384,9 +3464,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get upcomingEventTypeOneTime => 'One-time';
-
-  @override
-  String get upcomingEventTypeNone => 'None';
 
   @override
   String get upcomingFilters => 'Filters';

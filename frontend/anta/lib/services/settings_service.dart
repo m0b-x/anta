@@ -651,10 +651,6 @@ class SettingsService {
             SettingsKeys.calendarUpcomingQuery,
           ) ??
           '',
-      filtersExpanded: await _getBool(
-        SettingsKeys.calendarUpcomingFiltersExpanded,
-        SettingsKeys.defaultCalendarUpcomingFiltersExpanded,
-      ),
       showHolidays: await _getBool(
         SettingsKeys.calendarUpcomingShowHolidays,
         SettingsKeys.defaultCalendarUpcomingShowHolidays,
@@ -666,6 +662,11 @@ class SettingsService {
       collapseRecurring: await _getBool(
         SettingsKeys.calendarUpcomingCollapseRecurring,
         SettingsKeys.defaultCalendarUpcomingCollapseRecurring,
+      ),
+      fastingDisplay: await _readUpcomingFastingDisplay(),
+      followSelectedDay: await _getBool(
+        SettingsKeys.calendarUpcomingFollowSelectedDay,
+        SettingsKeys.defaultCalendarUpcomingFollowSelectedDay,
       ),
       eventType: AgendaEventType.fromName(
         await _db.userSettingsDao.getValue(
@@ -685,6 +686,29 @@ class SettingsService {
     );
     if (raw == null) return const {};
     return UpcomingAgendaFilters.decodePriorities(raw);
+  }
+
+  /// Reads the fasting presentation, falling back to the superseded
+  /// `collapse_fasting` boolean when the new key has never been written
+  /// (`true` was one row per period, `false` one row per day). A read-time
+  /// fallback rather than a migration pass, exactly like the schedule's
+  /// legacy weekday CSV  14 so nobody's configuration resets on update.
+  Future<AgendaFastingDisplay> _readUpcomingFastingDisplay() async {
+    final raw = await _db.userSettingsDao.getValue(
+      SettingsKeys.calendarUpcomingFastingDisplay,
+    );
+    if (raw != null) return AgendaFastingDisplay.fromName(raw);
+    final legacy = await _db.userSettingsDao.getValue(
+      SettingsKeys.calendarUpcomingCollapseFasting,
+    );
+    if (legacy == null) {
+      return AgendaFastingDisplay.fromName(
+        SettingsKeys.defaultCalendarUpcomingFastingDisplay,
+      );
+    }
+    return legacy == 'true'
+        ? AgendaFastingDisplay.periods
+        : AgendaFastingDisplay.everyDay;
   }
 
   Future<Set<String>> _readUpcomingCategoryIds() async {
@@ -712,10 +736,6 @@ class SettingsService {
       filters.query,
     );
     await _setBool(
-      SettingsKeys.calendarUpcomingFiltersExpanded,
-      filters.filtersExpanded,
-    );
-    await _setBool(
       SettingsKeys.calendarUpcomingShowHolidays,
       filters.showHolidays,
     );
@@ -726,6 +746,14 @@ class SettingsService {
     await _setBool(
       SettingsKeys.calendarUpcomingCollapseRecurring,
       filters.collapseRecurring,
+    );
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.calendarUpcomingFastingDisplay,
+      filters.fastingDisplay.name,
+    );
+    await _setBool(
+      SettingsKeys.calendarUpcomingFollowSelectedDay,
+      filters.followSelectedDay,
     );
     await _db.userSettingsDao.setValue(
       SettingsKeys.calendarUpcomingEventType,

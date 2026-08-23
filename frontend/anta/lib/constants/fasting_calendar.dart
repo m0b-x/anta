@@ -322,9 +322,19 @@ abstract final class FastingCalendar {
     // weekly fast is not kept in. Filtering here rather than in a pass over
     // the merged map keeps it O(1) per entry already being visited.
     final filterEveryFast = _schedule.monthScope == FastingMonthScope.allFasts;
+    // The weekday twin of the month scope, and subtract-only in the same way:
+    // a weekday the user turned off is never marked in the "all fasts" scope,
+    // so a Wed/Fri practice keeps Great Lent on Wednesdays and Fridays only
+    // instead of every one of its forty days. One probe per produced entry —
+    // never a second pass over the merged map.
+    final filterEveryWeekday =
+        _schedule.weekdayScope == FastingWeekdayScope.allFasts;
     void merge(Map<DateTime, FastingInfo> tradition) {
       tradition.forEach((day, info) {
         if (filterEveryFast && !_schedule.months.contains(day.month)) return;
+        if (filterEveryWeekday && !_schedule.weekdays.contains(day.weekday)) {
+          return;
+        }
         (out[day] ??= []).add(info);
       });
     }

@@ -12,6 +12,34 @@ with a fallback read of the retired weekday CSV; 42 engine and model unit tests
 `test/models/fasting_schedule_test.dart`); and the `FastingCalendar`
 reset hook, wired through `SettingsService.reset`.
 
+## Addendum — weekday scope (2026-08-22)
+
+The weekday set gated **only** the year-round weekly rule, while the month set
+had a scope selector. That asymmetry was never a decision — it is simply what
+shipped, and it made "I keep Wednesdays and Fridays" impossible to express for
+Great Lent, which marked all forty days regardless.
+
+`FastingWeekdayScope` mirrors `FastingMonthScope` exactly: `weeklyOnly` (default,
+today's behaviour) and `allFasts`, which gates every fasting mark. It rides in
+the same `calendar_fasting_schedule` JSON under `weekdayScope`, decoded through
+`fromName`, so a blob written before this addendum reads as `weeklyOnly` and no
+existing practice narrows behind the user's back. The gate is one probe inside
+`_buildYear`'s `merge`, next to the month twin — the new row in the filter table
+above:
+
+```
+| `weekdays` (`allFasts`) | `merge` in `_buildYear` | 1 probe per produced entry |
+```
+
+Still **subtract-only**: the scope can only remove days, never invent one, and
+`forceDates` still wins on an off weekday. In the sheet it is a `ChoiceChip` pair
+under the weekday chips, reusing `fastingMonthScopeWeekly` /
+`fastingMonthScopeAll` for the options (same question, different axis) with new
+`fastingWeekdayScopeTitle` key and a hint pair (see the fix below).
+
+Because it is a `FastingSchedule` field and `configure` compares whole schedules
+through `Equatable`, the warm per-year maps invalidate for free.
+
 **One deviation from the plan as written:** `FastingSchedule` parses exception
 dates with a strict `yyyy-MM-dd` pattern instead of `DateTime.tryParse`, which
 silently rolls `2026-13-99` over into a real (wrong) date. A corrupt row is
@@ -98,6 +126,7 @@ enum FastingMonthScope { weeklyOnly, allFasts;
 | `weekdays` | `Set<int>` 1..7 | `{wednesday, friday}` |
 | `months` | `Set<int>` 1..12 | all twelve |
 | `monthScope` | `FastingMonthScope` | `weeklyOnly` |
+| `weekdayScope` | `FastingWeekdayScope` | `weeklyOnly` |
 | `skipDates` | `Set<DateTime>` UTC midnight | `{}` |
 | `forceDates` | `Set<DateTime>` UTC midnight | `{}` |
 
@@ -201,6 +230,7 @@ in `merge` and the exception dates can reach them).
 | `weekdays` | Orthodox/Catholic weekly loops | 1 probe/day, existing pass |
 | `months` (always) | the same loops | 1 probe/day, existing pass |
 | `months` (`allFasts`) | `merge` in `_buildYear` | 1 probe per produced entry |
+| `weekdays` (`allFasts`) | `merge` in `_buildYear` | 1 probe per produced entry |
 | `skip`/`force` | `_applyExceptions`, after merge | O(≤400) per year build |
 | `on` / `cellStyleFor` | **unchanged** | O(1) |
 
@@ -465,3 +495,42 @@ Ideas considered and left out, recorded so they are not re-derived:
   `FastingCalendar.isFastingDay` exists and is currently unused; note that the
   facade is only configured once `CalendarPage` mounts, so any earlier consumer
   needs configuration moved to app start first.
+
+## Fix — the scope hints described only one branch (2026-08-23)
+
+Reported as "I set Wednesday and Friday, but most of August is tinted". It
+reproduces, and the engine is right: with the default `weeklyOnly` scope,
+August 2026 marks **19 of 31** days for an Orthodox Wed/Fri practice — the
+Dormition Fast owns Aug 1–14 outright, the Beheading of St John takes Aug 29,
+and only the four remaining Wednesdays and Fridays come from the weekly rule.
+Switch the weekday scope to `allFasts` and the same month drops to 8 days.
+Nothing in `FastingCalendar`, `FastingSchedule`, `SettingsService` or the
+page's `configure` call was wrong.
+
+What *was* wrong is what the sheet told the user. Both scope selectors printed
+a single static hint describing only the `allFasts` branch — "A day you turn
+off is never marked" and "A month you turn off is never marked" — under a
+control whose **default** is `weeklyOnly`, where a multi-day fast still marks
+every one of its days. The month hint shipped that way with the per-month
+commit and the weekday one copied it. So the app stated the exact opposite of
+what it does out of the box, and a correctly-configured practice read as a bug.
+
+The hint is now chosen by the selected scope
+(`_weekdayScopeHint` / `_monthScopeHint` in `fasting_schedule_sheet.dart`),
+against four keys in place of two: `fastingWeekdayScopeHintWeekly` /
+`fastingWeekdayScopeHintAll` and `fastingMonthScopeHintWeekly` /
+`fastingMonthScopeHintAll`. `test/widgets/fasting_schedule_sheet_test.dart`
+pins each scope to its hint, in both axes and across a chip tap.
+
+**Left alone, deliberately — two open questions for the user:**
+
+1. **The default is still `weeklyOnly`.** It is the pre-existing behaviour and
+   the documented choice, and flipping it would silently rewrite the calendar
+   of every install that already set weekdays. If "Wednesdays and Fridays,
+   whatever the season" is the practice most people mean when they pick
+   weekdays, `allFasts` is arguably the better default — but that is a product
+   decision with a data-visible blast radius, not a bug fix.
+2. **`_weekdayScopeLabel` still reuses `fastingMonthScopeWeekly` /
+   `fastingMonthScopeAll`** for the option labels. Correct today ("Weekly fast
+   only" / "All fasts" read fine on both axes), but it means rewording the
+   month options silently rewords the weekday ones.

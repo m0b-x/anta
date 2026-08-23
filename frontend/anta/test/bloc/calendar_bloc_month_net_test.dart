@@ -9,6 +9,7 @@ import 'package:anta/bloc/calendar/calendar_bloc.dart';
 import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/calendar_event.dart';
+import 'package:anta/models/calendar_selection_source.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/repositories/note_repository.dart';
 import 'package:anta/services/calendar_event_service.dart';
@@ -127,7 +128,13 @@ void main() {
     // `_onCreateEvent` already selected `startDate`, so pick another day or
     // the emit is value-equal and never arrives.
     final other = DateTime.utc(2026, 8, 20);
-    await dispatch(SelectCalendarDay(day: other, focusedDay: other));
+    await dispatch(
+      SelectCalendarDay(
+        day: other,
+        focusedDay: other,
+        source: CalendarSelectionSource.grid,
+      ),
+    );
 
     expect(bloc.monthNetFor(month), 1000);
   });

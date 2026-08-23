@@ -1103,6 +1103,18 @@
       }
     }
   },
+  "fastingWeekdayScopeTitle": "Weekdays apply to",
+  "@fastingWeekdayScopeTitle": {
+    "description": "Label above the weekday scope chips"
+  },
+  "fastingWeekdayScopeHintWeekly": "Multi-day fasts still mark every one of their days",
+  "@fastingWeekdayScopeHintWeekly": {
+    "description": "Hint under the weekday scope chips while the weekday set gates only the weekly fast"
+  },
+  "fastingWeekdayScopeHintAll": "A day you turn off is never marked",
+  "@fastingWeekdayScopeHintAll": {
+    "description": "Hint under the weekday scope chips while the weekday set gates every fast"
+  },
   "fastingMonthScopeTitle": "Months apply to",
   "@fastingMonthScopeTitle": {
     "description": "Label above the month scope chips"
@@ -1115,9 +1127,13 @@
   "@fastingMonthScopeAll": {
     "description": "Month scope option: the month set gates every fast"
   },
-  "fastingMonthScopeHint": "A month you turn off is never marked",
-  "@fastingMonthScopeHint": {
-    "description": "Hint under the month scope chips"
+  "fastingMonthScopeHintWeekly": "Multi-day fasts still show in a month you turn off",
+  "@fastingMonthScopeHintWeekly": {
+    "description": "Hint under the month scope chips while the month set gates only the weekly fast"
+  },
+  "fastingMonthScopeHintAll": "A month you turn off is never marked",
+  "@fastingMonthScopeHintAll": {
+    "description": "Hint under the month scope chips while the month set gates every fast"
   },
   "fastingExceptionsSkipTitle": "Days off",
   "@fastingExceptionsSkipTitle": {
@@ -4309,7 +4325,86 @@
   },
   "upcomingCollapseRecurring": "Collapse recurring",
   "@upcomingCollapseRecurring": {
-    "description": "Agenda filter chip: show each recurring event once (its next occurrence) instead of one row per occurring day"
+    "description": "Agenda display switch: show each recurring event once (its next occurrence) instead of one row per occurring day"
+  },
+  "upcomingFastingDisplayTitle": "Fasting rows",
+  "@upcomingFastingDisplayTitle": {
+    "description": "Agenda display control label: how fasting days are listed"
+  },
+  "upcomingFastingDisplayEveryDay": "Every day",
+  "@upcomingFastingDisplayEveryDay": {
+    "description": "Agenda fasting display option: one row per fasting day"
+  },
+  "upcomingFastingDisplayPeriods": "Periods",
+  "@upcomingFastingDisplayPeriods": {
+    "description": "Agenda fasting display option: one row per fasting period, spanning it"
+  },
+  "upcomingFastingDisplaySummary": "One card",
+  "@upcomingFastingDisplaySummary": {
+    "description": "Agenda fasting display option: a single summary card per fasting tradition, digesting the whole window"
+  },
+  "upcomingFollowSelectedDay": "Start from selected day",
+  "@upcomingFollowSelectedDay": {
+    "description": "Agenda display switch: the look-ahead window restarts from the day selected in the calendar instead of always starting today"
+  },
+  "upcomingCollapsedTimes": "{count, plural, one {1× in window} other {{count}× in window}}",
+  "@upcomingCollapsedTimes": {
+    "description": "Badge on a collapsed agenda row saying how many occurrences of the recurring event fall inside the window",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "upcomingFastingSpanDays": "{count, plural, one {1 day} other {{count} days}}",
+  "@upcomingFastingSpanDays": {
+    "description": "Length of a collapsed fasting period, shown after its date range",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "upcomingAnchorFrom": "from {date}",
+  "@upcomingAnchorFrom": {
+    "description": "Chip in the agenda header showing which day the look-ahead window starts on, when that is not today",
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "upcomingRemoveFilter": "Remove filter",
+  "@upcomingRemoveFilter": {
+    "description": "Tooltip of the delete button on an active-filter chip in the agenda, which returns that one filter to its default"
+  },
+  "upcomingResetAnchor": "Back to today",
+  "@upcomingResetAnchor": {
+    "description": "Tooltip of the delete button on the agenda's anchor chip, which returns the look-ahead window to today"
+  },
+  "upcomingFiltersReset": "Reset",
+  "@upcomingFiltersReset": {
+    "description": "Button in the agenda filters sheet restoring every filter to its default"
+  },
+  "upcomingSectionPeriod": "Period",
+  "@upcomingSectionPeriod": {
+    "description": "Section heading for the look-ahead window controls in the agenda filters sheet"
+  },
+  "upcomingSectionShow": "Show",
+  "@upcomingSectionShow": {
+    "description": "Section heading for the layer toggles (events, holidays, fasting) in the agenda filters sheet"
+  },
+  "upcomingSectionDisplay": "Display",
+  "@upcomingSectionDisplay": {
+    "description": "Section heading for the agenda's presentation switches in the filters sheet"
+  },
+  "upcomingShowEvents": "Events",
+  "@upcomingShowEvents": {
+    "description": "Agenda layer toggle: whether calendar events are listed at all"
+  },
+  "upcomingEventsHidden": "No events",
+  "@upcomingEventsHidden": {
+    "description": "Summary chip shown when the events layer is switched off, leaving only holiday and fasting rows"
   },
   "upcomingPeriodDays": "{count, plural, one {1 day} other {{count} days}}",
   "@upcomingPeriodDays": {
@@ -4376,13 +4471,9 @@
   "@upcomingEventTypeOneTime": {
     "description": "Agenda event-type chip: show only single-occurrence events"
   },
-  "upcomingEventTypeNone": "None",
-  "@upcomingEventTypeNone": {
-    "description": "Agenda event-type chip: hide all events, leaving only holiday/fasting rows"
-  },
   "upcomingFilters": "Filters",
   "@upcomingFilters": {
-    "description": "Tooltip of the button expanding the agenda's period and priority filters"
+    "description": "Title of the agenda filters sheet, and the tooltip of the button that opens it"
   },
   "panelExpand": "Expand panel",
   "@panelExpand": {

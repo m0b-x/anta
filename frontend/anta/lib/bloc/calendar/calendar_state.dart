@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:table_calendar/table_calendar.dart';
 
 import '../../models/calendar_event.dart';
+import '../../models/calendar_selection_source.dart';
 
 sealed class CalendarPageState extends Equatable {
   const CalendarPageState();
@@ -69,6 +70,17 @@ final class CalendarPageLoaded extends CalendarPageState {
   /// so every existing consumer keeps its current semantics.
   final int presenceRevision;
 
+  /// What last moved [selectedDay]. Read by the bottom panel to decide whether
+  /// the upcoming agenda's window should follow the selection — an
+  /// [CalendarSelectionSource.agendaRow] tap never re-anchors it.
+  ///
+  /// Deliberately absent from both [sameGridInputs] and [samePanelInputs]:
+  /// nothing renders from it, so re-selecting the already-selected day from a
+  /// different surface must not repaint 42 day cells. It reaches the panel
+  /// because a source change that *matters* always rides along with a
+  /// [selectedDay] change, which both tests already catch.
+  final CalendarSelectionSource selectionSource;
+
   const CalendarPageLoaded({
     required this.allEvents,
     required this.focusedDay,
@@ -78,13 +90,16 @@ final class CalendarPageLoaded extends CalendarPageState {
     this.occurrenceRevision = 0,
     this.membershipRevision = 0,
     this.presenceRevision = 0,
+    this.selectionSource = CalendarSelectionSource.navigation,
   });
 
   /// True when nothing the calendar grid renders from has changed.
   ///
   /// Drives the grid's `buildWhen`. Deliberately every prop **except**
-  /// [occurrenceRevision] — see [presenceRevision] for why presence cannot be
-  /// lumped in with it. Compares the two collections by identity rather than
+  /// [occurrenceRevision] and [selectionSource] — see [presenceRevision] for
+  /// why presence cannot be lumped in with the former, and [selectionSource]
+  /// for why the latter paints nothing. Compares the two collections by
+  /// identity rather than
   /// by value: every handler that changes either builds a fresh instance, so
   /// this can over-rebuild but never under-rebuild, and a day tap does not
   /// deep-compare N events.
@@ -124,6 +139,7 @@ final class CalendarPageLoaded extends CalendarPageState {
     int? occurrenceRevision,
     int? membershipRevision,
     int? presenceRevision,
+    CalendarSelectionSource? selectionSource,
   }) {
     return CalendarPageLoaded(
       allEvents: allEvents ?? this.allEvents,
@@ -134,6 +150,7 @@ final class CalendarPageLoaded extends CalendarPageState {
       occurrenceRevision: occurrenceRevision ?? this.occurrenceRevision,
       membershipRevision: membershipRevision ?? this.membershipRevision,
       presenceRevision: presenceRevision ?? this.presenceRevision,
+      selectionSource: selectionSource ?? this.selectionSource,
     );
   }
 
@@ -147,6 +164,7 @@ final class CalendarPageLoaded extends CalendarPageState {
     occurrenceRevision,
     membershipRevision,
     presenceRevision,
+    selectionSource,
   ];
 }
 

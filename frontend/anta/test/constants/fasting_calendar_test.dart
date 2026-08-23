@@ -152,6 +152,82 @@ void main() {
     });
   });
 
+  group('weekday scope', () {
+    // Clean Monday opens Great Lent, so these two are Lenten days of known
+    // weekday without hard-coding a date the computus owns.
+    final lentenWednesday = pascha2026.subtract(const Duration(days: 46));
+    final lentenThursday = pascha2026.subtract(const Duration(days: 45));
+
+    FastingSchedule wedFri({
+      FastingWeekdayScope scope = FastingWeekdayScope.weeklyOnly,
+    }) => const FastingSchedule().copyWith(
+      weekdays: {DateTime.wednesday, DateTime.friday},
+      weekdayScope: scope,
+    );
+
+    test('weeklyOnly leaves a great fast on every one of its days', () {
+      // Pins today's behaviour explicitly: the default scope gates only the
+      // year-round weekly rule, so Lent keeps its Thursdays.
+      _configureOrthodox(greatFasts: true, schedule: wedFri());
+      expect(lentenThursday.weekday, DateTime.thursday);
+      expect(_periodsOn(lentenThursday), [FastingPeriod.greatLent]);
+    });
+
+    test('allFasts drops a great fast day on an off weekday', () {
+      _configureOrthodox(
+        greatFasts: true,
+        schedule: wedFri(scope: FastingWeekdayScope.allFasts),
+      );
+      expect(FastingCalendar.on(lentenThursday), isEmpty);
+    });
+
+    test('allFasts keeps the great fast itself on a kept weekday', () {
+      // Subtract-only: a kept Wednesday still belongs to Lent, and must not
+      // degrade into the generic weekly fast.
+      _configureOrthodox(
+        greatFasts: true,
+        schedule: wedFri(scope: FastingWeekdayScope.allFasts),
+      );
+      expect(lentenWednesday.weekday, DateTime.wednesday);
+      expect(_periodsOn(lentenWednesday), [FastingPeriod.greatLent]);
+    });
+
+    test('allFasts composes with a kept month without inventing days', () {
+      _configureOrthodox(
+        greatFasts: true,
+        schedule: const FastingSchedule().copyWith(
+          weekdays: {DateTime.wednesday, DateTime.friday},
+          weekdayScope: FastingWeekdayScope.allFasts,
+          monthScope: FastingMonthScope.allFasts,
+        ),
+      );
+      // December is kept, so the Nativity Fast survives on its Wednesdays…
+      expect(_d(2026, 12, 2).weekday, DateTime.wednesday);
+      expect(_periodsOn(_d(2026, 12, 2)), [FastingPeriod.nativityFast]);
+      // …and nowhere else. Every marked day of the year is a Wed or a Fri.
+      for (final day in _daysOf(2026)) {
+        if (FastingCalendar.on(day).isEmpty) continue;
+        expect(
+          {DateTime.wednesday, DateTime.friday},
+          contains(day.weekday),
+          reason: '$day',
+        );
+      }
+    });
+
+    test('a forced date still wins on an off weekday', () {
+      _configureOrthodox(
+        greatFasts: true,
+        schedule: const FastingSchedule().copyWith(
+          weekdays: {DateTime.wednesday, DateTime.friday},
+          weekdayScope: FastingWeekdayScope.allFasts,
+          forceDates: {lentenThursday},
+        ),
+      );
+      expect(_periodsOn(lentenThursday), [FastingPeriod.personalFast]);
+    });
+  });
+
   group('catholic weekly rule is subtract-only', () {
     test('keeps Friday abstinence outside Lent and Advent by default', () {
       _configureCatholic();

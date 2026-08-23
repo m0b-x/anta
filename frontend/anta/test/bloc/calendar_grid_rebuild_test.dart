@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/calendar_event.dart';
+import 'package:anta/models/calendar_selection_source.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/calendar_event_service.dart';
 
@@ -123,7 +124,13 @@ void main() {
   test('selecting a day changes the grid inputs', () async {
     final before = loaded();
 
-    final after = await dispatch(SelectCalendarDay(day: day, focusedDay: day));
+    final after = await dispatch(
+      SelectCalendarDay(
+        day: day,
+        focusedDay: day,
+        source: CalendarSelectionSource.grid,
+      ),
+    );
 
     expect(before.sameGridInputs(after), isFalse);
   });
@@ -131,7 +138,13 @@ void main() {
   test('an unchanged event list keeps its identity across a day tap', () async {
     final before = loaded();
 
-    final after = await dispatch(SelectCalendarDay(day: day, focusedDay: day));
+    final after = await dispatch(
+      SelectCalendarDay(
+        day: day,
+        focusedDay: day,
+        source: CalendarSelectionSource.grid,
+      ),
+    );
 
     // sameGridInputs compares the two collections by identity, which is only
     // sound because copyWith passes the same instances through.
@@ -140,5 +153,44 @@ void main() {
       identical(before.hiddenCategoryIds, after.hiddenCategoryIds),
       isTrue,
     );
+  });
+
+  test('a day tap records which surface selected it', () async {
+    final after = await dispatch(
+      SelectCalendarDay(
+        day: day,
+        focusedDay: day,
+        source: CalendarSelectionSource.agendaRow,
+      ),
+    );
+
+    // The bottom panel reads this to decide whether the upcoming agenda's
+    // window should follow the selection; an agenda row tap must be
+    // distinguishable from a grid tap by the time it gets there.
+    expect(after.selectionSource, CalendarSelectionSource.agendaRow);
+  });
+
+  test('re-selecting the same day from another surface repaints nothing', () async {
+    final fromGrid = await dispatch(
+      SelectCalendarDay(
+        day: day,
+        focusedDay: day,
+        source: CalendarSelectionSource.grid,
+      ),
+    );
+    final fromRow = await dispatch(
+      SelectCalendarDay(
+        day: day,
+        focusedDay: day,
+        source: CalendarSelectionSource.agendaRow,
+      ),
+    );
+
+    // The source is state — it has to emit, or the panel could not see it —
+    // but nothing renders from it, so neither subtree may rebuild for a
+    // source-only change. That is why it is absent from both predicates.
+    expect(fromGrid.selectionSource, isNot(fromRow.selectionSource));
+    expect(fromGrid.sameGridInputs(fromRow), isTrue);
+    expect(fromGrid.samePanelInputs(fromRow), isTrue);
   });
 }

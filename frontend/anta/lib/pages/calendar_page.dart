@@ -20,6 +20,7 @@ import '../constants/public_holidays.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
+import '../models/calendar_selection_source.dart';
 import '../repositories/note_repository.dart';
 import '../services/app_navigator.dart';
 import '../services/cell_tint_resolver.dart';
@@ -841,14 +842,24 @@ class _CalendarTable extends StatelessWidget {
       accent: appearance.accentOr(Theme.of(context).colorScheme.primary),
     );
     if (picked == null) return;
-    bloc.add(SelectCalendarDay(day: picked, focusedDay: picked));
+    bloc.add(
+      SelectCalendarDay(
+        day: picked,
+        focusedDay: picked,
+        source: CalendarSelectionSource.navigation,
+      ),
+    );
   }
 
   void _goToToday(BuildContext context) {
     final today = DateTime.now();
     final normalized = DateTime.utc(today.year, today.month, today.day);
     context.read<CalendarBloc>().add(
-      SelectCalendarDay(day: normalized, focusedDay: normalized),
+      SelectCalendarDay(
+        day: normalized,
+        focusedDay: normalized,
+        source: CalendarSelectionSource.navigation,
+      ),
     );
   }
 
@@ -1076,7 +1087,11 @@ class _CalendarTable extends StatelessWidget {
       ),
       onDaySelected: (selectedDay, focusedDay) {
         context.read<CalendarBloc>().add(
-          SelectCalendarDay(day: selectedDay, focusedDay: focusedDay),
+          SelectCalendarDay(
+            day: selectedDay,
+            focusedDay: focusedDay,
+            source: CalendarSelectionSource.grid,
+          ),
         );
       },
       onDayLongPressed: (selectedDay, focusedDay) =>

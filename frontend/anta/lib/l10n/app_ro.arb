@@ -261,10 +261,14 @@
   "fastingScheduleNoMonths": "Nicio lună",
   "fastingMonthsTitle": "Lunile pe care le ții",
   "fastingMonthsCount": "{count, plural, =1{1 lună} few{{count} luni} other{{count} de luni}}",
+  "fastingWeekdayScopeTitle": "Zilele săptămânii se aplică la",
+  "fastingWeekdayScopeHintWeekly": "Posturile de mai multe zile marchează în continuare fiecare zi a lor",
+  "fastingWeekdayScopeHintAll": "O zi debifată nu este niciodată marcată",
   "fastingMonthScopeTitle": "Lunile se aplică la",
   "fastingMonthScopeWeekly": "Doar postul săptămânal",
   "fastingMonthScopeAll": "Toate posturile",
-  "fastingMonthScopeHint": "O lună dezactivată nu e marcată niciodată",
+  "fastingMonthScopeHintWeekly": "Posturile de mai multe zile apar și într-o lună dezactivată",
+  "fastingMonthScopeHintAll": "O lună dezactivată nu e marcată niciodată",
   "fastingExceptionsSkipTitle": "Zile libere",
   "fastingExceptionsSkipHint": "Nemarcate, orice ar spune calendarul",
   "fastingExceptionsForceTitle": "Zile de post în plus",
@@ -953,6 +957,43 @@
   "upcomingClearRange": "Șterge intervalul personalizat",
   "upcomingClearCategories": "Toate categoriile",
   "upcomingCollapseRecurring": "Grupează recurente",
+  "upcomingFastingDisplayTitle": "Rânduri de post",
+  "upcomingFastingDisplayEveryDay": "Fiecare zi",
+  "upcomingFastingDisplayPeriods": "Perioade",
+  "upcomingFastingDisplaySummary": "Un card",
+  "upcomingFollowSelectedDay": "Începe din ziua selectată",
+  "upcomingCollapsedTimes": "{count, plural, one {1× în interval} few {{count}× în interval} other {{count}× în interval}}",
+  "@upcomingCollapsedTimes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "upcomingFastingSpanDays": "{count, plural, one {1 zi} few {{count} zile} other {{count} de zile}}",
+  "@upcomingFastingSpanDays": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "upcomingAnchorFrom": "din {date}",
+  "@upcomingAnchorFrom": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "upcomingRemoveFilter": "Elimină filtrul",
+  "upcomingResetAnchor": "Înapoi la azi",
+  "upcomingFiltersReset": "Resetează",
+  "upcomingSectionPeriod": "Perioadă",
+  "upcomingSectionShow": "Afișează",
+  "upcomingSectionDisplay": "Prezentare",
+  "upcomingShowEvents": "Evenimente",
+  "upcomingEventsHidden": "Fără evenimente",
   "upcomingPeriodDays": "{count, plural, one {1 zi} few {{count} zile} other {{count} de zile}}",
   "@upcomingPeriodDays": {
     "placeholders": {
@@ -975,7 +1016,6 @@
   "upcomingEventTypeAll": "Toate",
   "upcomingEventTypeRecurring": "Recurente",
   "upcomingEventTypeOneTime": "Unice",
-  "upcomingEventTypeNone": "Niciuna",
   "upcomingFilters": "Filtre",
   "panelExpand": "Extinde panoul",
   "panelShowCalendar": "Arată calendarul",

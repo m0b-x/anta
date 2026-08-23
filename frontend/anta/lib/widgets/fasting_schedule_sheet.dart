@@ -183,6 +183,24 @@ class _FastingScheduleSheetState extends State<FastingScheduleSheet> {
                   ],
                 ),
                 _hint(theme, l10n.fastingWeekdayDaysDesc),
+                _label(theme, l10n.fastingWeekdayScopeTitle),
+                Wrap(
+                  spacing: AppSpacing.sm,
+                  runSpacing: AppSpacing.sm,
+                  children: [
+                    for (final scope in FastingWeekdayScope.values)
+                      ChoiceChip(
+                        label: Text(_weekdayScopeLabel(scope, l10n)),
+                        selected: _schedule.weekdayScope == scope,
+                        onSelected: (selected) {
+                          if (selected) {
+                            _apply(_schedule.copyWith(weekdayScope: scope));
+                          }
+                        },
+                      ),
+                  ],
+                ),
+                _hint(theme, _weekdayScopeHint(_schedule.weekdayScope, l10n)),
                 _labelRow(
                   theme,
                   l10n.fastingMonthsTitle,
@@ -221,7 +239,7 @@ class _FastingScheduleSheetState extends State<FastingScheduleSheet> {
                       ),
                   ],
                 ),
-                _hint(theme, l10n.fastingMonthScopeHint),
+                _hint(theme, _monthScopeHint(_schedule.monthScope, l10n)),
                 _ExceptionSection(
                   title: l10n.fastingExceptionsSkipTitle,
                   hint: l10n.fastingExceptionsSkipHint,
@@ -258,6 +276,36 @@ class _FastingScheduleSheetState extends State<FastingScheduleSheet> {
     return switch (scope) {
       FastingMonthScope.weeklyOnly => l10n.fastingMonthScopeWeekly,
       FastingMonthScope.allFasts => l10n.fastingMonthScopeAll,
+    };
+  }
+
+  /// Shares the month scope's option labels: the two scopes answer the same
+  /// question about a different axis, and inventing a second wording for
+  /// "weekly fast only" would read as a different meaning.
+  /// The hint has to describe the **selected** scope, not the section: under
+  /// `weeklyOnly` a multi-day fast still marks every one of its days, so a
+  /// flat "a day you turn off is never marked" told the exact opposite of what
+  /// the default configuration does — which is what made a Wed/Fri practice
+  /// look broken every August, when the Dormition fast covers half the month.
+  String _weekdayScopeHint(FastingWeekdayScope scope, AppLocalizations l10n) {
+    return switch (scope) {
+      FastingWeekdayScope.weeklyOnly => l10n.fastingWeekdayScopeHintWeekly,
+      FastingWeekdayScope.allFasts => l10n.fastingWeekdayScopeHintAll,
+    };
+  }
+
+  /// The month twin of [_weekdayScopeHint], and wrong in the same way before.
+  String _monthScopeHint(FastingMonthScope scope, AppLocalizations l10n) {
+    return switch (scope) {
+      FastingMonthScope.weeklyOnly => l10n.fastingMonthScopeHintWeekly,
+      FastingMonthScope.allFasts => l10n.fastingMonthScopeHintAll,
+    };
+  }
+
+  String _weekdayScopeLabel(FastingWeekdayScope scope, AppLocalizations l10n) {
+    return switch (scope) {
+      FastingWeekdayScope.weeklyOnly => l10n.fastingMonthScopeWeekly,
+      FastingWeekdayScope.allFasts => l10n.fastingMonthScopeAll,
     };
   }
 

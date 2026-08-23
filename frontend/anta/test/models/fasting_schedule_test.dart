@@ -11,6 +11,7 @@ void main() {
       expect(schedule.weekdays, {DateTime.wednesday, DateTime.friday});
       expect(schedule.months, FastingSchedule.allMonths);
       expect(schedule.monthScope, FastingMonthScope.weeklyOnly);
+      expect(schedule.weekdayScope, FastingWeekdayScope.weeklyOnly);
       expect(schedule.skipDates, isEmpty);
       expect(schedule.forceDates, isEmpty);
       expect(schedule.keepsEveryMonth, isTrue);
@@ -22,6 +23,7 @@ void main() {
     test('round-trips every field', () {
       final schedule = const FastingSchedule().copyWith(
         weekdays: {DateTime.monday, DateTime.saturday},
+        weekdayScope: FastingWeekdayScope.allFasts,
         months: {1, 6, 12},
         monthScope: FastingMonthScope.allFasts,
         skipDates: {_utc(2026, 3, 15), _utc(2026, 4, 2)},
@@ -41,6 +43,7 @@ void main() {
     test('omits empty date lists but keeps the structural fields', () {
       final encoded = const FastingSchedule().encode();
       expect(encoded, contains('"weekdays"'));
+      expect(encoded, contains('"weekdayScope"'));
       expect(encoded, contains('"months"'));
       expect(encoded, contains('"monthScope"'));
       expect(encoded, isNot(contains('"skip"')));
@@ -102,6 +105,28 @@ void main() {
       expect(schedule.weekdays, FastingSchedule.defaultWeekdays);
       expect(schedule.months, FastingSchedule.allMonths);
     });
+
+    test('an unknown weekday scope falls back to weeklyOnly', () {
+      final schedule = FastingSchedule.decode(
+        '{"weekdayScope":"someFutureScope"}',
+      );
+      expect(schedule.weekdayScope, FastingWeekdayScope.weeklyOnly);
+      expect(schedule.weekdays, FastingSchedule.defaultWeekdays);
+    });
+
+    test(
+      'a blob written before the weekday scope existed reads as weeklyOnly',
+      () {
+        // Forward compatibility in the other direction: the field must default
+        // to today's behaviour, never silently narrow an existing practice.
+        final schedule = FastingSchedule.decode(
+          '{"weekdays":[3,5],"months":[1,2,3,4,5,6,7,8,9,10,11,12],'
+          '"monthScope":"allFasts"}',
+        );
+        expect(schedule.weekdayScope, FastingWeekdayScope.weeklyOnly);
+        expect(schedule.monthScope, FastingMonthScope.allFasts);
+      },
+    );
 
     test('absent is not the same as empty', () {
       final absent = FastingSchedule.decode('{"monthScope":"weeklyOnly"}');
@@ -172,6 +197,12 @@ void main() {
     expect(
       const FastingSchedule(weekdays: {5, 3}).hashCode,
       const FastingSchedule(weekdays: {3, 5}).hashCode,
+    );
+    // …but the weekday scope is compute-affecting, so it must separate two
+    // otherwise-equal schedules or `configure` would skip the invalidation.
+    expect(
+      const FastingSchedule(weekdayScope: FastingWeekdayScope.allFasts),
+      isNot(const FastingSchedule()),
     );
   });
 }

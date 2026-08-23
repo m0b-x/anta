@@ -264,10 +264,14 @@
   "fastingScheduleNoMonths": "Keine Monate",
   "fastingMonthsTitle": "Monate, die du hältst",
   "fastingMonthsCount": "{count, plural, =1{1 Monat} other{{count} Monate}}",
+  "fastingWeekdayScopeTitle": "Wochentage gelten für",
+  "fastingWeekdayScopeHintWeekly": "Mehrtägige Fastenzeiten markieren weiterhin jeden ihrer Tage",
+  "fastingWeekdayScopeHintAll": "Ein abgewählter Tag wird nie markiert",
   "fastingMonthScopeTitle": "Monate gelten für",
   "fastingMonthScopeWeekly": "Nur wöchentliches Fasten",
   "fastingMonthScopeAll": "Alle Fastenzeiten",
-  "fastingMonthScopeHint": "Ein ausgeschalteter Monat wird nie markiert",
+  "fastingMonthScopeHintWeekly": "Mehrtägige Fastenzeiten erscheinen auch in einem ausgeschalteten Monat",
+  "fastingMonthScopeHintAll": "Ein ausgeschalteter Monat wird nie markiert",
   "fastingExceptionsSkipTitle": "Freie Tage",
   "fastingExceptionsSkipHint": "Nie markiert, egal was der Kalender sagt",
   "fastingExceptionsForceTitle": "Zusätzliche Fastentage",
@@ -2084,6 +2088,43 @@
   "upcomingClearRange": "Eigenen Zeitraum löschen",
   "upcomingClearCategories": "Alle Kategorien",
   "upcomingCollapseRecurring": "Wiederkehrende bündeln",
+  "upcomingFastingDisplayTitle": "Fasten-Zeilen",
+  "upcomingFastingDisplayEveryDay": "Jeder Tag",
+  "upcomingFastingDisplayPeriods": "Zeiträume",
+  "upcomingFastingDisplaySummary": "Eine Karte",
+  "upcomingFollowSelectedDay": "Ab ausgewähltem Tag",
+  "upcomingCollapsedTimes": "{count, plural, one {1× im Zeitraum} other {{count}× im Zeitraum}}",
+  "@upcomingCollapsedTimes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "upcomingFastingSpanDays": "{count, plural, one {1 Tag} other {{count} Tage}}",
+  "@upcomingFastingSpanDays": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "upcomingAnchorFrom": "ab {date}",
+  "@upcomingAnchorFrom": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "upcomingRemoveFilter": "Filter entfernen",
+  "upcomingResetAnchor": "Zurück zu heute",
+  "upcomingFiltersReset": "Zurücksetzen",
+  "upcomingSectionPeriod": "Zeitraum",
+  "upcomingSectionShow": "Anzeigen",
+  "upcomingSectionDisplay": "Darstellung",
+  "upcomingShowEvents": "Ereignisse",
+  "upcomingEventsHidden": "Keine Ereignisse",
   "upcomingPeriodDays": "{count, plural, one {1 Tag} other {{count} Tage}}",
   "@upcomingPeriodDays": {
     "placeholders": {
@@ -2106,7 +2147,6 @@
   "upcomingEventTypeAll": "Alle",
   "upcomingEventTypeRecurring": "Wiederkehrend",
   "upcomingEventTypeOneTime": "Einmalig",
-  "upcomingEventTypeNone": "Keine",
   "upcomingFilters": "Filter",
   "panelExpand": "Bereich vergrößern",
   "panelShowCalendar": "Kalender anzeigen",

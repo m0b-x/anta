@@ -560,6 +560,14 @@ same shape as the agenda search field in `CalendarBottomPanel`.
 - *Weekdays* — default Wednesday+Friday, but any set works (some keep only
   Wednesday, some add Monday) and clearing them all disables the weekly rule.
   The harți (fast-free) weeks still suppress whatever days are chosen.
+- *Weekday scope* (2026-08-22) — the exact mirror of the month scope.
+  `weeklyOnly` (default, and everything that shipped before it) gates only the
+  year-round weekly rule, so Great Lent keeps its Thursdays; `allFasts` gates
+  every mark, so a Wed/Fri practice keeps Great Lent on Wednesdays and Fridays
+  only. Applied in the same `_buildYear` `merge` closure beside the month
+  probe, one set probe per produced entry. Subtract-only like everything else
+  here: it removes days, never invents one, and `forceDates` still wins on a
+  weekday that is turned off.
 - *Months* — which months the practice is kept in, default all twelve.
 - *Month scope* — `weeklyOnly` (default) gates only the weekly rule, so a
   great fast still shows in a month the weekly fast is not kept in;
@@ -1329,42 +1337,139 @@ The area under the grid is now a mode-switched panel owned by
 - Filters are one value object,
   [lib/models/upcoming_agenda_filters.dart](../lib/models/upcoming_agenda_filters.dart)
   (range preset / custom range / priority set / query / holidays + fasting
-  toggles / event-type / **category allowlist** / chip-row expansion), persisted
+  toggles / event-type / **category allowlist** / collapse-recurring /
+  collapse-fasting / follow-selected-day), persisted
   via `SettingsService.getUpcomingAgendaFilters` / `saveUpcomingAgendaFilters`.
   The query write is debounced 500 ms and flushed on dispose. **Empty priority
   set means "all"** — the filter off, never "nothing matches" (the category
   allowlist `categoryIds` works the same way: empty = every category, sorted-CSV
   codec). An elapsed custom range is dropped on load.
-- **Category allowlist** ([agenda_category_filter_sheet.dart](../lib/widgets/agenda_category_filter_sheet.dart)):
-  an `InputChip` beside Holidays/Fasting opens a multi-select over
-  `CalendarCategories.all`; its delete "×" resets to all. Applied in the scan's
+- **Category allowlist**: a chip section inside the filters sheet, multi-select
+  over `CalendarCategories.all` (read on every build so a database switch cannot
+  leave it stale), with an "All categories" reset. Applied in the scan's
   candidate pre-filter (`categoryIds.isNotEmpty && !contains`), **composed on top
   of** the inherited calendar-global `hiddenCategoryIds` — both apply, so a
   globally-hidden category stays hidden even if allowlisted. O(events), same tier
   as the priority/hidden checks; a stale allowlisted id (deleted category) is
   harmless since no event carries it.
-- **Three independently-suppressible layers.** Events carry a single
-  mutually-exclusive `AgendaEventType` axis — **All / Recurring / One-time /
-  None** — applied in the scan's candidate pre-filter (`recurring` =
+- **Collapse recurring** (`collapseRecurring`, off by default): a switch in the
+  filters sheet that, when on, shows each recurring event **once** — its next
+  in-window occurrence — instead of one row per occurring day. Applied as a
+  **post-filter** on the scan's `result` (two passes: tally per recurring id,
+  then keep the first-seen occurrence carrying that tally as
+  `EventOccurrence.occurrenceCountInWindow`; one-time events untouched), so
+  `occursOn` counts are unchanged. The row's recurrence label ("Daily",
+  "Weekly") carries the cadence and a "N× in window" badge says what it stands
+  in for. Being an opt-in toggle, it collapses *all* recurring events
+  (specific-dates included), not just high-frequency ones — the toggle is the
+  escape hatch. See
+  [upcoming-agenda-dense-recurrence-roadmap.md](upcoming-agenda-dense-recurrence-roadmap.md).
+- **Fasting presentation** (`fastingDisplay`, an `AgendaFastingDisplay` of
+  `everyDay` / `periods` / `summary`, **`periods` by default**): a
+  `SegmentedButton` in the filters sheet's Display section, shown only when
+  `FastingCalendar.isEnabled`. It replaced the `collapseFasting` bool on
+  2026-08-23 — three mutually exclusive presentations of one thing, where a
+  second bool stacked on the first would have encoded "collapse *and*
+  summarize". Persisted by name under `calendar_upcoming_fasting_display`;
+  when that key is **absent** the retired `calendar_upcoming_collapse_fasting`
+  boolean is read once as a fallback (`true` → `periods`, `false` →
+  `everyDay`) and never written again, so no configuration resets on update
+  and no migration pass was needed.
+  - **`periods`** is the shipped collapse, structurally different from
+    collapse-recurring — fasting days never enter the event scan, and a Lent is
+    a *run of one period*, not a repeated id. `EventAgenda.fastingRunsInRange`
+    groups the in-window days **per (tradition, period)** — never by the
+    boolean `isFastingDay`, which is wrong in both directions: a period the
+    personal weekday/month scope sparsified would shatter into one-day rows,
+    and two different periods that happen to touch would fuse into one span. A
+    **multi-day** period (`greatLent`, `apostlesFast`, `dormitionFast`,
+    `nativityFast`, `cheesefareWeek`, `lent`, `advent`, `ramadan` — the ones
+    whose days can legitimately be sparse) bridges a gap of up to **7 days**;
+    everything else, the year-round weekly fasts included, keeps strict
+    contiguity, because bridging the weekly rule would fuse a whole window into
+    one meaningless span. Each run's edges are then walked **outward past the
+    window** under the same gap rule (capped at `maxRangeDays` *steps* per
+    direction, via the memoized `FastingCalendar.on` — never `occursOn`), so a
+    clipped period still reports its true extent. `FastingRun.dayCount` counts
+    the days actually **marked**, not the calendar distance between the edges —
+    for a contiguous run they agree, for a sparse one only the count is honest.
+    `buildAgendaRows` emits one row per run on its first in-window day, taking
+    the provider entry matching the run's tradition (entries are keyed
+    `fasting:<tradition>`, and several runs may open on the same day) with its
+    subtitle swapped for "Nov 15 – Dec 24 · 40 days"; a run of one marked day
+    keeps the day's regime instead.
+  - **`summary`** is one card for the whole window, **per enabled tradition**
+    (not per fast — a window holding Lent *and* the weekly rule would otherwise
+    be right back at several cards). `EventAgenda.fastingSummariesInRange`
+    walks the window once, accumulating one `FastingSummary` per tradition:
+    the weekday set actually marked, first/last marked day, the marked-day
+    count, and the distinct span periods present in first-seen order. Every
+    number is **window-scoped** — unlike a run, which reports a period's true
+    extent because it *is* the period, a summary describes "fasting in this
+    window", and claiming days outside it would make the card disagree with the
+    list it summarizes. Traditions with no marked day produce nothing, and the
+    result follows `FastingTradition` declaration order (matching
+    `FastingCalendar.on`). `buildAgendaRows` emits the cards **before the first
+    month/day header** as `AgendaFastingSummaryRow`s — deliberately *not*
+    `AgendaEntryRow`s, so the panel's "N entries" count leaves them out with no
+    extra logic: a card summarizes entries rather than being one. The entry is
+    synthesized in the agenda layer (icon/colour/description/priority from the
+    tradition's `FastingTraditionStyle`, exactly as a run row resolves them),
+    with the title preferring `titleOverride`, then the window's single named
+    fast, then the tradition's name. The subtitle is three fragments joined by
+    `' · '`: the weekday pattern (all 7 → `recurrenceDaily`, Mon–Fri →
+    `recurrenceWorkdays`, Sat–Sun → `recurrenceWeekends`, else abbreviated
+    locale weekday names joined with `', '` — Monday-first, no conjunction,
+    whose placement is locale-dependent), the span (exact `rangeLabel` up to
+    **62 days**, a `monthRangeLabel` beyond it), and `upcomingFastingSpanDays`.
+    Tapping the card focuses its first in-window day.
+  - **`everyDay`** is the uncollapsed listing, one row per marked day.
+  - The query filter is handed to the run walk **and** the summary scan, so
+    neither can claim days the search excluded. `fastingDisplay` stays out of
+    `restrictiveFilterCount` and the summary-chip row for the same reason
+    `collapseRecurring` does: it condenses rows, it never hides content.
+- **Three independently-suppressible layers.** The sheet presents them as three
+  peer toggles — **Events / Holidays / Fasting** — with All / Recurring /
+  One-time as a `SegmentedButton` *under* Events. The model underneath is
+  unchanged: one mutually-exclusive `AgendaEventType` axis where **Events off ⇔
+  `none`**, applied in the scan's candidate pre-filter (`recurring` =
   `rule is! OneTimeRecurrence`, so specific-dates counts as recurring; `none`
   short-circuits the event scan to empty, which is how "upcoming holidays
-  without events" is expressed). Holidays and fasting are day annotations
-  toggled independently and interleaved by `buildAgendaRows`' three-cursor
-  ascending merge (`EventAgenda.fastingDaysInRange` mirrors `holidayDaysInRange`
-  and reuses `FastingSummaryProvider`). The **fasting chip is hidden** unless a
-  tradition is configured (`FastingCalendar.isEnabled`), and the priority row
-  hides when the event type is `none`. Both annotation scans respect the text
-  query (matched against their localized labels), as holidays already did.
-- **The window starts on the calendar's selected day**, not on the wall clock:
-  `UpcomingAgendaView.anchorDay` ← `CalendarPageLoaded.selectedDay` (date-only
-  UTC, defaults to today). A custom range still overrides it. Tapping a day —
-  in the grid or on an agenda row — re-anchors the window (walk-forward: rows
-  before the tapped day drop). The rescan is guarded (`anchorChanged =
-  !hasCustomRange && anchor moved`), so an anchor move under a pinned custom
-  range costs nothing. Not persisted: reopening starts from today, matching the
-  grid always opening on today. The three wall-clock reads that must **stay** on
-  `now()` — the picker's initial range, the Today/Tomorrow row headers, and
-  `withoutElapsedRange` — are not anchor material.
+  without events" is expressed). The `upcomingEventTypeNone` ARB key is gone —
+  the state is now reached by switching Events off, and the *summary* chip for
+  it reads `upcomingEventsHidden` ("No events"). Holidays and fasting are day
+  annotations toggled independently and interleaved by `buildAgendaRows`'
+  three-cursor ascending merge (`EventAgenda.fastingDaysInRange` mirrors
+  `holidayDaysInRange` and reuses `FastingSummaryProvider`). The **fasting chip
+  is hidden** unless a tradition is configured (`FastingCalendar.isEnabled`),
+  and the priority + category sections hide while Events is off. Both annotation
+  scans respect the text query (matched against their localized labels).
+- **The window starts today, unless `followSelectedDay` is on** (default off).
+  The anchor is **panel-owned state** (`_CalendarBottomPanelState._agendaAnchor`
+  → `UpcomingAgendaView.anchorDay`), not `CalendarPageLoaded.selectedDay`,
+  because the selection and the window are two different things. `_syncAnchor`
+  holds every rule: following off ⇒ the anchor is today (which also picks up a
+  date rollover on the next rebuild); no `previous` ⇒ resolve from scratch
+  (filters loaded, or the toggle just flipped on); an
+  `CalendarSelectionSource.agendaRow` selection **never** re-anchors; anything
+  else follows a selection that actually changed. A custom range still overrides
+  the anchor entirely, and the rescan stays guarded (`anchorChanged =
+  !hasCustomRange && anchor moved`), so an anchor move under a pinned range
+  costs nothing. Not persisted: reopening starts from today. The three
+  wall-clock reads that must **stay** on `now()` — the picker's initial range,
+  the Today/Tomorrow row headers, and `withoutElapsedRange` — are not anchor
+  material.
+- **`SelectCalendarDay` carries a `CalendarSelectionSource`**
+  ([lib/models/calendar_selection_source.dart](../lib/models/calendar_selection_source.dart)):
+  `grid` (a day cell), `agendaRow` (a row in the agenda) or `navigation`
+  (initial load, "today", the month/year picker). Required on the event, so a
+  new dispatch site has to decide rather than silently inheriting a default that
+  would make the agenda re-anchor on its own rows again. It rides on
+  `CalendarPageLoaded.selectionSource` and is **excluded from both
+  `sameGridInputs` and `samePanelInputs`** — nothing renders from it, so
+  re-selecting the same day from a different surface must not repaint 42 cells;
+  a source change that matters always arrives with a `selectedDay` change, which
+  both tests already catch.
 - **The anchor rescan stays cheap and unsurprising** (2026-08 regression fix,
   [calendar-anchor-perf-regression-2026-08.md](calendar-anchor-perf-regression-2026-08.md)):
   a query-only change debounces the scan ~200 ms (the field stays live); an
@@ -1373,11 +1478,34 @@ The area under the grid is now a mode-switched panel owned by
   `CalendarPageLoaded.samePanelInputs` (every input **except** `focusedDay` /
   `format`), so month paging no longer rebuilds the panel or re-runs the scan —
   paired with `_onChangeFocusedDay`'s no-op guard against the page-settle emit.
+- **Filter chrome lives in a sheet, not the panel** (2026-08-22 redesign,
+  [upcoming-agenda-redesign-roadmap.md](upcoming-agenda-redesign-roadmap.md)).
+  [agenda_filters_sheet.dart](../lib/widgets/agenda_filters_sheet.dart) holds
+  Period / Show / Priority / Categories / Display, edits a **local draft** and
+  returns it on Apply (never live-applies — that would rescan behind the sheet);
+  its Reset restores every sheet-owned field but **preserves `query`**, which
+  the sheet does not own. Inline the panel keeps only: the search field, a
+  `Badge.count` on the tune button, one horizontally-scrolling row of removable
+  summary chips, and the header line. `filtersExpanded` and its settings key are
+  retired (the orphaned stored value is inert; no migration).
+- **Summary chips show only what is *narrowing* the list** — custom-or-non-default
+  window, event type, priorities, categories. `UpcomingAgendaFilters
+  .restrictiveFilterCount` is the single definition the badge and the chip row
+  share. Layer additions (holidays, fasting) and the collapse switches are
+  deliberately excluded: they add or condense rows, so they can never answer
+  "why is this missing", which is the question the row exists for. Each chip's
+  body opens the sheet and its "×" (tooltip `upcomingRemoveFilter`) resets that
+  one filter.
 - **The Custom period chip is an `InputChip`** whose delete "×" (tooltip
   `upcomingClearRange`) clears the range back to the anchored preset window; the
-  "×" shows only while a range is active (`onDeleted` null otherwise, so it
-  reads like the old `ChoiceChip`). `showCheckmark: false` keeps the
+  "×" shows only while a range is active. `showCheckmark: false` keeps the
   `date_range` avatar as the chip's identity instead of swapping in a checkmark.
+  It now lives in the sheet's Period section, labelled with the active range.
+- **The header line carries the anchor chip.** While the anchor drives the
+  window and sits off today (`!hasCustomRange && anchorDay != today`), an
+  `InputChip` reads `upcomingAnchorFrom` ("from Aug 25") and its "×"
+  (`upcomingResetAnchor`) returns the window to today. With `followSelectedDay`
+  off the anchor is always today, so the chip never appears.
 - Text matching folds case *and* diacritics through the note search's
   `normalizeForSearch`, so "sarbatoare" finds "Sărbătoare" here exactly as in
   note search. Holiday labels match localized.
@@ -1386,7 +1514,22 @@ The area under the grid is now a mode-switched panel owned by
   [lib/widgets/agenda_list_view.dart](../lib/widgets/agenda_list_view.dart)
   (row list memoized on input identity + locale; holiday days interleave so a
   holiday-only day still gets a header; rows reuse `EventSummaryProvider`, so
-  agenda and day panel cannot drift).
+  agenda and day panel cannot drift). `AgendaRow` has **three** variants:
+  `AgendaMonthHeaderRow` (emitted only when the built rows span ≥ 2 months, with
+  `showYear` when the window crosses one), `AgendaDayHeaderRow`, and
+  `AgendaEntryRow` (carrying `occurrenceCount`). **Every entry row is an
+  `_AgendaCard`** — the roomier `Card` + accent-stripe + `ListTile` +
+  `CircleAvatar` layout, holidays and fasting included (those get
+  `trailing: null`, having no event to edit or open). Two restylings were tried
+  on 2026-08-22 and both reverted: a denser card interior, and slim tinted
+  annotation rows for the `entry.event == null` entries. The bigger card is the
+  intended look on every row type — do not restyle without asking. All four
+  `DateFormat` skeletons the agenda uses are cached per locale on
+  `AgendaListView` (`rangeLabel`, `anchorLabel`, `monthLabel`,
+  `dayHeaderLabel`) — never construct one per row. Note `buildAgendaRows` now
+  formats dates for a collapsed fasting span, so a bare unit test of it must
+  `initializeDateFormatting` first; in the app the localization delegates
+  already have.
 
 ### Day timeline
 

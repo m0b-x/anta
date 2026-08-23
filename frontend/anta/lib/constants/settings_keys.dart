@@ -120,10 +120,6 @@ class SettingsKeys {
   /// Last search text typed in the upcoming agenda.
   static const String calendarUpcomingQuery = 'calendar_upcoming_query';
 
-  /// Whether the agenda's period/priority chip rows were left expanded.
-  static const String calendarUpcomingFiltersExpanded =
-      'calendar_upcoming_filters_expanded';
-
   /// Whether the upcoming agenda lists public holidays alongside events.
   static const String calendarUpcomingShowHolidays =
       'calendar_upcoming_show_holidays';
@@ -137,6 +133,24 @@ class SettingsKeys {
   /// (next) occurrence.
   static const String calendarUpcomingCollapseRecurring =
       'calendar_upcoming_collapse_recurring';
+
+  /// How the upcoming agenda presents fasting days (`AgendaFastingDisplay`
+  /// name): everyDay / periods / summary. Parsed with a forward-compatible
+  /// fallback to `periods`.
+  static const String calendarUpcomingFastingDisplay =
+      'calendar_upcoming_fasting_display';
+
+  /// **Legacy, read-only.** Superseded by [calendarUpcomingFastingDisplay];
+  /// read only when that key is absent, mapping `true` to `periods` and
+  /// `false` to `everyDay` so nobody's configuration resets on update. Never
+  /// written again.
+  static const String calendarUpcomingCollapseFasting =
+      'calendar_upcoming_collapse_fasting';
+
+  /// Whether the upcoming agenda's window restarts from the calendar's
+  /// selected day instead of always starting today.
+  static const String calendarUpcomingFollowSelectedDay =
+      'calendar_upcoming_follow_selected_day';
 
   /// Which events the upcoming agenda lists (`AgendaEventType` name):
   /// all / recurring / oneTime / none. Parsed with a forward-compatible
@@ -325,10 +339,6 @@ class SettingsKeys {
   /// Default agenda priority filter: empty CSV = every priority shown.
   static const String defaultCalendarUpcomingPriorities = '';
 
-  /// Default agenda filter-row state: collapsed, so the short bottom panel
-  /// is mostly list rather than chrome.
-  static const bool defaultCalendarUpcomingFiltersExpanded = false;
-
   /// Default agenda holiday visibility: off, so the agenda stays a training
   /// log until the user opts in.
   static const bool defaultCalendarUpcomingShowHolidays = false;
@@ -339,6 +349,14 @@ class SettingsKeys {
 
   /// Default: show every occurrence of a recurring event (no collapse).
   static const bool defaultCalendarUpcomingCollapseRecurring = false;
+
+  /// Default fasting presentation: one row per period. A single Lent would
+  /// otherwise contribute forty consecutive rows.
+  static const String defaultCalendarUpcomingFastingDisplay = 'periods';
+
+  /// Default: the agenda window starts today, and a grid tap only moves the
+  /// grid. Opt in to have the selection re-anchor the window.
+  static const bool defaultCalendarUpcomingFollowSelectedDay = false;
 
   /// Default bottom-panel mode name (see `CalendarPanelMode`).
   static const String defaultCalendarPanelMode = 'day';

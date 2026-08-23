@@ -2,20 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/constants/fasting_calendar.dart';
 import 'package:anta/models/calendar_event.dart';
+import 'package:anta/models/fasting_appearance.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/models/upcoming_agenda_filters.dart';
+import 'package:anta/utils/event_agenda.dart';
 import 'package:anta/widgets/upcoming_agenda_view.dart';
 
-/// The first widget tests for [UpcomingAgendaView]. They pin the three
-/// behaviours the anchored-window change introduces, driven against fakes
-/// with no database — the agenda scan is pure and the row facades
+/// Widget tests for [UpcomingAgendaView], driven against fakes with no
+/// database — the agenda scan is pure and the row facades
 /// (presence/description) resolve through their uninitialized fallbacks.
 ///
-/// The panel header (`N entries · <range>`) is the one deterministic readout:
-/// the day-group headers depend on the wall clock (Today/Tomorrow), but the
-/// range label is derived purely from the anchor and `rangeDays`. It is also
-/// the only Text carrying a middle dot, so it is unambiguous to locate.
+/// Two readouts are deterministic. The panel header (`N entries · <range>`) is
+/// derived purely from the anchor and `rangeDays`, and is the only Text
+/// carrying a middle dot. The summary chips are derived purely from the
+/// filters, and are the only chips left inline now that everything else moved
+/// into the filters sheet.
 void main() {
   /// Occurs every day, so any window is non-empty and its first day is the
   /// window start.
@@ -37,6 +40,7 @@ void main() {
     required DateTime anchorDay,
     required UpcomingAgendaFilters filters,
     ValueChanged<UpcomingAgendaFilters>? onFiltersChanged,
+    VoidCallback? onResetAnchor,
   }) {
     return tester.pumpWidget(
       MaterialApp(
@@ -47,6 +51,7 @@ void main() {
           body: UpcomingAgendaView(
             events: events,
             anchorDay: anchorDay,
+            onResetAnchor: onResetAnchor,
             hiddenCategoryIds: const {},
             filters: filters,
             onFiltersChanged: onFiltersChanged ?? (_) {},
@@ -64,6 +69,11 @@ void main() {
     final texts = tester.widgetList<Text>(find.byType(Text));
     return texts.firstWhere((t) => (t.data ?? '').contains('·')).data!;
   }
+
+  /// Every summary chip's delete button carries the same tooltip, so a test
+  /// that pumps exactly one chip can address it without reaching for whichever
+  /// icon the current Material version draws there.
+  final removeFilter = find.byTooltip('Remove filter');
 
   testWidgets('anchor change with no custom range moves the window', (
     tester,
@@ -117,31 +127,6 @@ void main() {
       filters: filters,
     );
     expect(header(tester), before);
-  });
-
-  testWidgets('deleting the Custom chip clears the range', (tester) async {
-    UpcomingAgendaFilters? captured;
-    final filters = UpcomingAgendaFilters(
-      rangeDays: 30,
-      filtersExpanded: true,
-      customStart: DateTime.utc(2026, 5, 1),
-      customEnd: DateTime.utc(2026, 5, 15),
-    );
-
-    await pumpView(
-      tester,
-      anchorDay: DateTime.utc(2026, 8, 10),
-      filters: filters,
-      onFiltersChanged: (f) => captured = f,
-    );
-
-    await tester.tap(find.byTooltip('Clear custom range'));
-    await tester.pump();
-
-    expect(captured, isNotNull);
-    expect(captured!.hasCustomRange, isFalse);
-    expect(captured!.customStart, isNull);
-    expect(captured!.customEnd, isNull);
   });
 
   testWidgets('a pinned custom range suppresses the anchor rescan', (
@@ -203,8 +188,8 @@ void main() {
     );
 
     CalendarEvent.debugOccursOnCalls = 0;
-    // The bloc normalizes selectedDay, so tapping the already-selected day
-    // hands back an equal anchor — the guard must recognise it and skip the
+    // The bloc normalizes selectedDay, so re-anchoring on the already-anchored
+    // day hands back an equal anchor — the guard must recognise it and skip the
     // scan (the "second select of the same day costs zero" contract).
     await pumpView(
       tester,
@@ -231,5 +216,212 @@ void main() {
       ),
     );
     expect(find.text('Leg day'), findsNothing);
+  });
+
+  group('summary chips', () {
+    testWidgets('defaults leave the inline surface chip-free', (tester) async {
+      await pumpView(
+        tester,
+        anchorDay: EventAgenda.dateOnly(DateTime.now()),
+        filters: const UpcomingAgendaFilters(),
+      );
+
+      // No restrictive filter, anchored on today: nothing to summarise, and
+      // nothing to return the window from.
+      expect(find.byType(InputChip), findsNothing);
+    });
+
+    testWidgets('a layer toggle is not a restriction', (tester) async {
+      await pumpView(
+        tester,
+        anchorDay: EventAgenda.dateOnly(DateTime.now()),
+        filters: const UpcomingAgendaFilters(
+          showHolidays: true,
+          collapseRecurring: true,
+        ),
+      );
+
+      // Showing holidays adds rows and collapsing condenses them; neither can
+      // explain a missing entry, so neither earns a chip.
+      expect(find.byType(InputChip), findsNothing);
+    });
+
+    testWidgets('each restriction gets its own chip', (tester) async {
+      await pumpView(
+        tester,
+        anchorDay: EventAgenda.dateOnly(DateTime.now()),
+        filters: const UpcomingAgendaFilters(
+          rangeDays: 90,
+          eventType: AgendaEventType.recurring,
+          priorities: {1},
+          categoryIds: {'gym'},
+        ),
+      );
+
+      expect(find.byType(InputChip), findsNWidgets(4));
+      expect(find.text('90 days'), findsOneWidget);
+      expect(find.text('Recurring'), findsOneWidget);
+    });
+
+    testWidgets('deleting the range chip clears the custom range', (
+      tester,
+    ) async {
+      UpcomingAgendaFilters? captured;
+      final filters = UpcomingAgendaFilters(
+        rangeDays: 30,
+        customStart: DateTime.utc(2026, 5, 1),
+        customEnd: DateTime.utc(2026, 5, 15),
+      );
+
+      await pumpView(
+        tester,
+        anchorDay: DateTime.utc(2026, 8, 10),
+        filters: filters,
+        onFiltersChanged: (f) => captured = f,
+      );
+
+      // A pinned range makes the anchor irrelevant, so the anchor chip is
+      // absent and this is the only chip in the tree.
+      expect(find.byType(InputChip), findsOneWidget);
+      await tester.tap(removeFilter);
+      await tester.pump();
+
+      expect(captured, isNotNull);
+      expect(captured!.hasCustomRange, isFalse);
+      expect(captured!.customStart, isNull);
+      expect(captured!.customEnd, isNull);
+    });
+
+    testWidgets('deleting the priority chip clears the priority filter', (
+      tester,
+    ) async {
+      UpcomingAgendaFilters? captured;
+
+      await pumpView(
+        tester,
+        anchorDay: EventAgenda.dateOnly(DateTime.now()),
+        filters: const UpcomingAgendaFilters(priorities: {1, 2}),
+        onFiltersChanged: (f) => captured = f,
+      );
+
+      await tester.tap(removeFilter);
+      await tester.pump();
+
+      expect(captured, isNotNull);
+      expect(captured!.priorities, isEmpty);
+    });
+  });
+
+  group('anchor chip', () {
+    testWidgets('is absent while the window starts today', (tester) async {
+      await pumpView(
+        tester,
+        anchorDay: EventAgenda.dateOnly(DateTime.now()),
+        filters: const UpcomingAgendaFilters(),
+        onResetAnchor: () {},
+      );
+
+      expect(find.byTooltip('Back to today'), findsNothing);
+    });
+
+    testWidgets('appears once the anchor moves, and resets it', (tester) async {
+      var reset = 0;
+      await pumpView(
+        tester,
+        anchorDay: DateTime.utc(2026, 8, 10),
+        filters: const UpcomingAgendaFilters(),
+        onResetAnchor: () => reset++,
+      );
+
+      expect(find.textContaining('from Aug 10'), findsOneWidget);
+      await tester.tap(find.byTooltip('Back to today'));
+      await tester.pump();
+      expect(reset, 1);
+    });
+
+    testWidgets('stays away while a custom range pins the window', (
+      tester,
+    ) async {
+      await pumpView(
+        tester,
+        anchorDay: DateTime.utc(2026, 8, 10),
+        filters: UpcomingAgendaFilters(
+          customStart: DateTime.utc(2026, 5, 1),
+          customEnd: DateTime.utc(2026, 5, 15),
+        ),
+        onResetAnchor: () {},
+      );
+
+      // The anchor is ignored under a pinned range, so offering to "return" to
+      // today would move nothing.
+      expect(find.byTooltip('Back to today'), findsNothing);
+    });
+  });
+
+  group('fasting display', () {
+    setUp(
+      () => FastingCalendar.configure(
+        traditions: const {FastingTradition.orthodox},
+      ),
+    );
+    tearDown(FastingCalendar.resetConfiguration);
+
+    const shown = UpcomingAgendaFilters(rangeDays: 30, showFasting: true);
+
+    testWidgets('changing the presentation costs no event rescan', (
+      tester,
+    ) async {
+      // Fasting days never enter the event scan, so moving between the three
+      // presentations must re-derive only the annotation layer — the same
+      // counting seam the anchor tests use.
+      await pumpView(
+        tester,
+        anchorDay: DateTime.utc(2026, 8, 10),
+        filters: shown,
+      );
+
+      CalendarEvent.debugOccursOnCalls = 0;
+      await pumpView(
+        tester,
+        anchorDay: DateTime.utc(2026, 8, 10),
+        filters: shown.copyWith(fastingDisplay: AgendaFastingDisplay.summary),
+      );
+      await tester.pump();
+      expect(CalendarEvent.debugOccursOnCalls, 0);
+
+      await pumpView(
+        tester,
+        anchorDay: DateTime.utc(2026, 8, 10),
+        filters: shown.copyWith(fastingDisplay: AgendaFastingDisplay.everyDay),
+      );
+      await tester.pump();
+      expect(CalendarEvent.debugOccursOnCalls, 0);
+    });
+
+    testWidgets('the summary condenses the fasting rows to one card', (
+      tester,
+    ) async {
+      // Every fasting day listed: an August window carries the Dormition Fast
+      // plus the year-round Wednesday/Friday rule, so there is plenty to
+      // condense.
+      await pumpView(
+        tester,
+        anchorDay: DateTime.utc(2026, 8, 10),
+        filters: shown.copyWith(fastingDisplay: AgendaFastingDisplay.everyDay),
+      );
+      final perDay = tester
+          .widgetList<Text>(find.byType(Text))
+          .where((t) => t.data == 'Dormition Fast')
+          .length;
+      expect(perDay, greaterThan(1));
+
+      await pumpView(
+        tester,
+        anchorDay: DateTime.utc(2026, 8, 10),
+        filters: shown.copyWith(fastingDisplay: AgendaFastingDisplay.summary),
+      );
+      await tester.pump();
+      expect(find.text('Dormition Fast'), findsOneWidget);
+    });
   });
 }

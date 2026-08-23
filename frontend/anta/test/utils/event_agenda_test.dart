@@ -1,9 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/fasting_calendar.dart';
 import 'package:anta/models/calendar_event.dart';
+import 'package:anta/models/fasting_appearance.dart';
+import 'package:anta/models/fasting_schedule.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/models/upcoming_agenda_filters.dart';
 import 'package:anta/utils/event_agenda.dart';
+import 'package:anta/utils/liturgical_computus.dart';
 
 /// Pure coverage for the agenda scan's event-type axis and the fasting-day
 /// scan — no widget tree, no database. `SpecificDatesRecurrence` counts as
@@ -130,5 +134,339 @@ void main() {
       to: windowEnd,
     );
     expect(occ.where((o) => o.event.id == 'd').length, 3);
+    // Nothing was folded, so no row stands in for more than itself.
+    expect(occ.every((o) => o.occurrenceCountInWindow == 1), isTrue);
+  });
+
+  test('a collapsed row carries how many occurrences it stands for', () {
+    final occ = EventAgenda.occurrencesInRange(
+      events: events,
+      from: windowStart,
+      to: windowEnd,
+      collapseRecurring: true,
+    );
+    final byId = {for (final o in occ) o.event.id: o.occurrenceCountInWindow};
+    // The daily event occurs on all three days of the window; the other two
+    // occur once each and must not claim otherwise.
+    expect(byId, {'ot': 1, 'd': 3, 'sp': 1});
+  });
+
+  test('collapsing does not change how often occursOn is asked', () {
+    // The count is a post-filter over an already-built list, never a
+    // short-circuit of the scan — the occursOn budget tests depend on it.
+    CalendarEvent.debugOccursOnCalls = 0;
+    EventAgenda.occurrencesInRange(
+      events: events,
+      from: windowStart,
+      to: windowEnd,
+    );
+    final plain = CalendarEvent.debugOccursOnCalls;
+
+    CalendarEvent.debugOccursOnCalls = 0;
+    EventAgenda.occurrencesInRange(
+      events: events,
+      from: windowStart,
+      to: windowEnd,
+      collapseRecurring: true,
+    );
+    expect(CalendarEvent.debugOccursOnCalls, plain);
+  });
+
+  group('fastingRunsInRange', () {
+    // Orthodox Wednesday/Friday abstinence gives a predictable sparse pattern,
+    // and the Nativity Fast a long contiguous one.
+    setUp(
+      () => FastingCalendar.configure(
+        traditions: const {FastingTradition.orthodox},
+      ),
+    );
+    tearDown(FastingCalendar.resetConfiguration);
+
+    List<FastingRun> runsIn(DateTime from, DateTime to) =>
+        EventAgenda.fastingRunsInRange(from: from, to: to);
+
+    test('is empty when no tradition is configured', () {
+      FastingCalendar.resetConfiguration();
+      expect(
+        runsIn(DateTime.utc(2026, 11, 20), DateTime.utc(2026, 12, 5)),
+        isEmpty,
+      );
+    });
+
+    test('groups a contiguous period into one run', () {
+      // Mid-Nativity-Fast: every day fasts, so the whole window is one run.
+      final runs = runsIn(
+        DateTime.utc(2026, 11, 20),
+        DateTime.utc(2026, 12, 5),
+      );
+
+      expect(runs, hasLength(1));
+      expect(runs.single.day, DateTime.utc(2026, 11, 20));
+      expect(runs.single.period, FastingPeriod.nativityFast);
+      expect(runs.single.tradition, FastingTradition.orthodox);
+    });
+
+    test('a clipped run reports its true extent, not the window', () {
+      final runs = runsIn(
+        DateTime.utc(2026, 11, 20),
+        DateTime.utc(2026, 12, 5),
+      );
+      final run = runs.single;
+
+      // The fast starts on 15 November and runs to Christmas Eve, both outside
+      // the queried window — the label must say so, or a collapsed row would
+      // claim the window's own bounds.
+      expect(run.start, DateTime.utc(2026, 11, 15));
+      expect(run.end, DateTime.utc(2026, 12, 24));
+      // Contiguous, so the marked-day count and the calendar extent agree.
+      expect(run.dayCount, 40);
+      expect(run.end.difference(run.start).inDays + 1, run.dayCount);
+      // Placement stays inside the window so the row merges in day order.
+      expect(run.day.isBefore(run.start), isFalse);
+    });
+
+    test('a sparse period is still one run, counted by marked days', () {
+      // The user's own practice is Wednesday and Friday, applied to every
+      // fast: the Nativity Fast keeps only its Wednesdays and Fridays, and a
+      // day-contiguity grouping would emit eleven one-day rows instead of the
+      // one period the user is actually keeping.
+      FastingCalendar.configure(
+        traditions: const {FastingTradition.orthodox},
+        schedule: const FastingSchedule().copyWith(
+          weekdays: {DateTime.wednesday, DateTime.friday},
+          weekdayScope: FastingWeekdayScope.allFasts,
+        ),
+      );
+
+      final runs = runsIn(
+        DateTime.utc(2026, 11, 20),
+        DateTime.utc(2026, 12, 5),
+      );
+
+      expect(runs, hasLength(1));
+      final run = runs.single;
+      expect(run.period, FastingPeriod.nativityFast);
+      expect(run.day, DateTime.utc(2026, 11, 20));
+      // First and last *marked* days of the fast, both outside the window.
+      expect(run.start, DateTime.utc(2026, 11, 18));
+      expect(run.end, DateTime.utc(2026, 12, 23));
+      // Eleven kept days, not the forty the calendar distance would claim.
+      expect(run.dayCount, 11);
+    });
+
+    test('the weekly fast never bridges — one run per marked day', () {
+      // Bridging the year-round rule would fuse a whole window into a single
+      // span that means nothing, so only named multi-day periods bridge.
+      final runs = runsIn(DateTime.utc(2026, 9, 7), DateTime.utc(2026, 9, 20));
+      final weekly = runs
+          .where((run) => run.period == FastingPeriod.weekdayFast)
+          .toList();
+
+      expect(weekly.map((run) => run.day), [
+        DateTime.utc(2026, 9, 9),
+        DateTime.utc(2026, 9, 11),
+        DateTime.utc(2026, 9, 16),
+        DateTime.utc(2026, 9, 18),
+      ]);
+      expect(weekly.every((run) => run.dayCount == 1), isTrue);
+      expect(weekly.every((run) => run.start == run.end), isTrue);
+    });
+
+    test('two periods that touch in time stay two runs', () {
+      // Cheesefare week's Friday sits three days before Clean Monday: close
+      // enough for the bridge, but a different period — merging them would
+      // invent a fast nobody keeps.
+      final pascha = LiturgicalComputus.easterSundayOrthodox(2026);
+      final runs = runsIn(
+        pascha.subtract(const Duration(days: 55)),
+        pascha.subtract(const Duration(days: 40)),
+      );
+
+      expect(runs.map((run) => run.period), [
+        FastingPeriod.cheesefareWeek,
+        FastingPeriod.greatLent,
+      ]);
+      // Cheesefare is Wednesday/Friday by its own rule — sparse from birth.
+      expect(runs.first.dayCount, 2);
+    });
+
+    test('separate stretches stay separate runs', () {
+      // An ordinary stretch of Ordinary Time: only Wednesdays and Fridays
+      // fast, so a two-week window yields several short runs rather than one.
+      final runs = runsIn(DateTime.utc(2026, 9, 7), DateTime.utc(2026, 9, 20));
+
+      expect(runs.length, greaterThan(1));
+      for (final run in runs) {
+        expect(run.start.isAfter(run.end), isFalse);
+      }
+      // Runs come out in ascending order, and none of them touch.
+      for (var i = 1; i < runs.length; i++) {
+        expect(runs[i].day.isAfter(runs[i - 1].day), isTrue);
+      }
+    });
+
+    test('a day filter narrows the runs and their extent', () {
+      // A filter nothing satisfies must produce no runs at all — the outward
+      // walk has to honour it too, or a run would grow past its own days.
+      final runs = EventAgenda.fastingRunsInRange(
+        from: DateTime.utc(2026, 11, 20),
+        to: DateTime.utc(2026, 12, 5),
+        dayFilter: (_) => false,
+      );
+
+      expect(runs, isEmpty);
+    });
+
+    test('runs never cost an occursOn call', () {
+      CalendarEvent.debugOccursOnCalls = 0;
+      runsIn(DateTime.utc(2026, 11, 20), DateTime.utc(2026, 12, 5));
+      expect(CalendarEvent.debugOccursOnCalls, 0);
+    });
+  });
+
+  group('fastingSummariesInRange', () {
+    setUp(
+      () => FastingCalendar.configure(
+        traditions: const {FastingTradition.orthodox},
+      ),
+    );
+    tearDown(FastingCalendar.resetConfiguration);
+
+    List<FastingSummary> summariesIn(DateTime from, DateTime to) =>
+        EventAgenda.fastingSummariesInRange(from: from, to: to);
+
+    test('is empty when no tradition is configured', () {
+      FastingCalendar.resetConfiguration();
+      expect(
+        summariesIn(DateTime.utc(2026, 11, 20), DateTime.utc(2026, 12, 5)),
+        isEmpty,
+      );
+    });
+
+    test('a fully-contained fast is digested to its own numbers', () {
+      // The whole Nativity Fast, window and fast coinciding: every day marked,
+      // so the pattern is "every weekday" and the count is the fast's length.
+      final summary = summariesIn(
+        DateTime.utc(2026, 11, 15),
+        DateTime.utc(2026, 12, 24),
+      ).single;
+
+      expect(summary.tradition, FastingTradition.orthodox);
+      expect(summary.first, DateTime.utc(2026, 11, 15));
+      expect(summary.last, DateTime.utc(2026, 12, 24));
+      expect(summary.dayCount, 40);
+      expect(summary.weekdays, {1, 2, 3, 4, 5, 6, 7});
+      expect(summary.spanPeriods, [FastingPeriod.nativityFast]);
+    });
+
+    test('the numbers are window-scoped, unlike a run\x27s', () {
+      // The same fast seen through a narrower window. A run reports the fast\x27s
+      // true extent (Nov 15 - Dec 24, forty days) because it *is* the fast; a
+      // summary describes fasting **here**, so claiming days the list below it
+      // does not show would make the card disagree with its own list.
+      final from = DateTime.utc(2026, 11, 20);
+      final to = DateTime.utc(2026, 12, 5);
+      final summary = summariesIn(from, to).single;
+      final run = EventAgenda.fastingRunsInRange(from: from, to: to).single;
+
+      expect(summary.first, from);
+      expect(summary.last, to);
+      expect(summary.dayCount, 16);
+      expect(run.start, DateTime.utc(2026, 11, 15));
+      expect(run.dayCount, 40);
+    });
+
+    test('a sparse practice reports the weekdays it actually keeps', () {
+      FastingCalendar.configure(
+        traditions: const {FastingTradition.orthodox},
+        schedule: const FastingSchedule().copyWith(
+          weekdays: {DateTime.wednesday, DateTime.friday},
+          weekdayScope: FastingWeekdayScope.allFasts,
+        ),
+      );
+
+      final summary = summariesIn(
+        DateTime.utc(2026, 11, 20),
+        DateTime.utc(2026, 12, 5),
+      ).single;
+
+      expect(summary.weekdays, {DateTime.wednesday, DateTime.friday});
+      // Nov 20, 25, 27 and Dec 2, 4 - the kept days inside the window, never
+      // the calendar distance between the ends.
+      expect(summary.first, DateTime.utc(2026, 11, 20));
+      expect(summary.last, DateTime.utc(2026, 12, 4));
+      expect(summary.dayCount, 5);
+    });
+
+    test('each named fast in the window is listed once', () {
+      // Cheesefare week then Great Lent: two span periods, so the card can no
+      // longer name itself after one of them.
+      final pascha = LiturgicalComputus.easterSundayOrthodox(2026);
+      final summary = summariesIn(
+        pascha.subtract(const Duration(days: 55)),
+        pascha.subtract(const Duration(days: 40)),
+      ).single;
+
+      expect(summary.spanPeriods, [
+        FastingPeriod.cheesefareWeek,
+        FastingPeriod.greatLent,
+      ]);
+    });
+
+    test('single-day fasts add a weekday but never a named period', () {
+      // Ordinary time: the year-round Wednesday/Friday rule, plus the
+      // Exaltation of the Cross falling on a Monday. Only multi-day periods
+      // are span periods, so the card has nothing to name itself after - but
+      // the Monday is a day the user fasts, so the pattern must say so.
+      final summary = summariesIn(
+        DateTime.utc(2026, 9, 7),
+        DateTime.utc(2026, 9, 20),
+      ).single;
+
+      expect(summary.spanPeriods, isEmpty);
+      expect(summary.weekdays, {
+        DateTime.monday,
+        DateTime.wednesday,
+        DateTime.friday,
+      });
+    });
+
+    test('one summary per tradition, in declaration order', () {
+      FastingCalendar.configure(
+        traditions: const {
+          FastingTradition.catholic,
+          FastingTradition.orthodox,
+        },
+      );
+
+      final summaries = summariesIn(
+        DateTime.utc(2026, 9, 7),
+        DateTime.utc(2026, 9, 20),
+      );
+
+      // Declaration order, matching what `FastingCalendar.on` emits - never
+      // the order the configured set happens to iterate in.
+      expect(summaries.map((s) => s.tradition), [
+        FastingTradition.orthodox,
+        FastingTradition.catholic,
+      ]);
+    });
+
+    test('a day filter that matches nothing yields no summaries', () {
+      expect(
+        EventAgenda.fastingSummariesInRange(
+          from: DateTime.utc(2026, 11, 20),
+          to: DateTime.utc(2026, 12, 5),
+          dayFilter: (_) => false,
+        ),
+        isEmpty,
+      );
+    });
+
+    test('summaries never cost an occursOn call', () {
+      CalendarEvent.debugOccursOnCalls = 0;
+      summariesIn(DateTime.utc(2026, 11, 20), DateTime.utc(2026, 12, 5));
+      expect(CalendarEvent.debugOccursOnCalls, 0);
+    });
   });
 }

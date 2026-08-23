@@ -27,8 +27,35 @@ enum FastingMonthScope {
   }
 }
 
+/// What a weekday the user turned off actually suppresses.
+///
+/// The exact mirror of [FastingMonthScope], and exposed for the same reason:
+/// someone who keeps Great Lent in full but fasts weekly only on Wednesday
+/// and Friday wants [weeklyOnly], while someone whose whole practice is
+/// "Wednesdays and Fridays, whatever the season" wants [allFasts].
+enum FastingWeekdayScope {
+  /// The weekday set gates only the year-round weekly rule (default, and the
+  /// behaviour that shipped first). A multi-day fast still marks every one of
+  /// its days, including the weekdays the weekly fast is not kept on.
+  weeklyOnly,
+
+  /// The weekday set gates every fasting mark, multi-day fasts and the other
+  /// traditions included — a day of the week you turn off is never marked.
+  allFasts;
+
+  /// Forward-compatible parsing: unknown/null values fall back to
+  /// [weeklyOnly].
+  static FastingWeekdayScope fromName(String? name) {
+    for (final scope in values) {
+      if (scope.name == name) return scope;
+    }
+    return weeklyOnly;
+  }
+}
+
 /// The personal fasting practice: which weekdays are kept, which months, what
-/// a disabled month suppresses, and the exact dates that override both.
+/// a disabled weekday or month suppresses, and the exact dates that override
+/// all of them.
 ///
 /// One schedule covers every enabled tradition. It may **subtract** from a
 /// tradition's own weekly rule but never **invent** days that tradition does
@@ -56,6 +83,8 @@ class FastingSchedule extends Equatable {
   /// is a deliberate "no weekly fast", not a missing value.
   final Set<int> weekdays;
 
+  final FastingWeekdayScope weekdayScope;
+
   /// Months (1..12) the practice is kept in. Empty is legitimate and blanks
   /// whatever [monthScope] covers.
   final Set<int> months;
@@ -71,6 +100,7 @@ class FastingSchedule extends Equatable {
 
   const FastingSchedule({
     this.weekdays = defaultWeekdays,
+    this.weekdayScope = FastingWeekdayScope.weeklyOnly,
     this.months = allMonths,
     this.monthScope = FastingMonthScope.weeklyOnly,
     this.skipDates = const {},
@@ -90,6 +120,7 @@ class FastingSchedule extends Equatable {
   /// one set of rules instead of re-deriving them.
   FastingSchedule copyWith({
     Set<int>? weekdays,
+    FastingWeekdayScope? weekdayScope,
     Set<int>? months,
     FastingMonthScope? monthScope,
     Set<DateTime>? skipDates,
@@ -97,6 +128,7 @@ class FastingSchedule extends Equatable {
   }) {
     return _normalized(
       weekdays: weekdays ?? this.weekdays,
+      weekdayScope: weekdayScope ?? this.weekdayScope,
       months: months ?? this.months,
       monthScope: monthScope ?? this.monthScope,
       skipDates: skipDates ?? this.skipDates,
@@ -106,6 +138,7 @@ class FastingSchedule extends Equatable {
 
   static FastingSchedule _normalized({
     required Set<int> weekdays,
+    required FastingWeekdayScope weekdayScope,
     required Set<int> months,
     required FastingMonthScope monthScope,
     required Set<DateTime> skipDates,
@@ -118,6 +151,7 @@ class FastingSchedule extends Equatable {
         for (final day in weekdays)
           if (day >= DateTime.monday && day <= DateTime.sunday) day,
       },
+      weekdayScope: weekdayScope,
       months: {
         for (final month in months)
           if (month >= 1 && month <= 12) month,
@@ -141,11 +175,12 @@ class FastingSchedule extends Equatable {
     return sorted.take(maxExceptionDates).toSet();
   }
 
-  /// JSON object. The three structural fields are always written (their
+  /// JSON object. The four structural fields are always written (their
   /// absence means "default" on read, which is not the same as an empty set);
   /// empty date lists are omitted to keep the stored row small.
   String encode() => jsonEncode({
     'weekdays': (weekdays.toList()..sort()),
+    'weekdayScope': weekdayScope.name,
     'months': (months.toList()..sort()),
     'monthScope': monthScope.name,
     if (skipDates.isNotEmpty) 'skip': _encodeDates(skipDates),
@@ -180,6 +215,11 @@ class FastingSchedule extends Equatable {
         if (decoded is Map) {
           return _normalized(
             weekdays: _parseInts(decoded['weekdays']) ?? defaultWeekdays,
+            weekdayScope: FastingWeekdayScope.fromName(
+              decoded['weekdayScope'] is String
+                  ? decoded['weekdayScope'] as String
+                  : null,
+            ),
             months: _parseInts(decoded['months']) ?? allMonths,
             monthScope: FastingMonthScope.fromName(
               decoded['monthScope'] is String
@@ -252,6 +292,7 @@ class FastingSchedule extends Equatable {
   @override
   List<Object?> get props => [
     weekdays,
+    weekdayScope,
     months,
     monthScope,
     skipDates,

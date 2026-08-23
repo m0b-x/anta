@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:table_calendar/table_calendar.dart';
 
 import '../../models/calendar_event.dart';
+import '../../models/calendar_selection_source.dart';
 
 sealed class CalendarPageEvent extends Equatable {
   const CalendarPageEvent();
@@ -18,10 +19,19 @@ final class SelectCalendarDay extends CalendarPageEvent {
   final DateTime day;
   final DateTime focusedDay;
 
-  const SelectCalendarDay({required this.day, required this.focusedDay});
+  /// Which surface moved the selection. Required so a new dispatch site has to
+  /// say, rather than silently inheriting a default that would make the agenda
+  /// re-anchor on its own rows again.
+  final CalendarSelectionSource source;
+
+  const SelectCalendarDay({
+    required this.day,
+    required this.focusedDay,
+    required this.source,
+  });
 
   @override
-  List<Object?> get props => [day, focusedDay];
+  List<Object?> get props => [day, focusedDay, source];
 }
 
 final class ChangeFocusedDay extends CalendarPageEvent {

@@ -1606,6 +1606,24 @@ abstract class AppLocalizations {
   /// **'{count, plural, =1{1 month} other{{count} months}}'**
   String fastingMonthsCount(int count);
 
+  /// Label above the weekday scope chips
+  ///
+  /// In en, this message translates to:
+  /// **'Weekdays apply to'**
+  String get fastingWeekdayScopeTitle;
+
+  /// Hint under the weekday scope chips while the weekday set gates only the weekly fast
+  ///
+  /// In en, this message translates to:
+  /// **'Multi-day fasts still mark every one of their days'**
+  String get fastingWeekdayScopeHintWeekly;
+
+  /// Hint under the weekday scope chips while the weekday set gates every fast
+  ///
+  /// In en, this message translates to:
+  /// **'A day you turn off is never marked'**
+  String get fastingWeekdayScopeHintAll;
+
   /// Label above the month scope chips
   ///
   /// In en, this message translates to:
@@ -1624,11 +1642,17 @@ abstract class AppLocalizations {
   /// **'All fasts'**
   String get fastingMonthScopeAll;
 
-  /// Hint under the month scope chips
+  /// Hint under the month scope chips while the month set gates only the weekly fast
+  ///
+  /// In en, this message translates to:
+  /// **'Multi-day fasts still show in a month you turn off'**
+  String get fastingMonthScopeHintWeekly;
+
+  /// Hint under the month scope chips while the month set gates every fast
   ///
   /// In en, this message translates to:
   /// **'A month you turn off is never marked'**
-  String get fastingMonthScopeHint;
+  String get fastingMonthScopeHintAll;
 
   /// Label above the skipped fasting dates list
   ///
@@ -5956,11 +5980,107 @@ abstract class AppLocalizations {
   /// **'All categories'**
   String get upcomingClearCategories;
 
-  /// Agenda filter chip: show each recurring event once (its next occurrence) instead of one row per occurring day
+  /// Agenda display switch: show each recurring event once (its next occurrence) instead of one row per occurring day
   ///
   /// In en, this message translates to:
   /// **'Collapse recurring'**
   String get upcomingCollapseRecurring;
+
+  /// Agenda display control label: how fasting days are listed
+  ///
+  /// In en, this message translates to:
+  /// **'Fasting rows'**
+  String get upcomingFastingDisplayTitle;
+
+  /// Agenda fasting display option: one row per fasting day
+  ///
+  /// In en, this message translates to:
+  /// **'Every day'**
+  String get upcomingFastingDisplayEveryDay;
+
+  /// Agenda fasting display option: one row per fasting period, spanning it
+  ///
+  /// In en, this message translates to:
+  /// **'Periods'**
+  String get upcomingFastingDisplayPeriods;
+
+  /// Agenda fasting display option: a single summary card per fasting tradition, digesting the whole window
+  ///
+  /// In en, this message translates to:
+  /// **'One card'**
+  String get upcomingFastingDisplaySummary;
+
+  /// Agenda display switch: the look-ahead window restarts from the day selected in the calendar instead of always starting today
+  ///
+  /// In en, this message translates to:
+  /// **'Start from selected day'**
+  String get upcomingFollowSelectedDay;
+
+  /// Badge on a collapsed agenda row saying how many occurrences of the recurring event fall inside the window
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one {1× in window} other {{count}× in window}}'**
+  String upcomingCollapsedTimes(int count);
+
+  /// Length of a collapsed fasting period, shown after its date range
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one {1 day} other {{count} days}}'**
+  String upcomingFastingSpanDays(int count);
+
+  /// Chip in the agenda header showing which day the look-ahead window starts on, when that is not today
+  ///
+  /// In en, this message translates to:
+  /// **'from {date}'**
+  String upcomingAnchorFrom(String date);
+
+  /// Tooltip of the delete button on an active-filter chip in the agenda, which returns that one filter to its default
+  ///
+  /// In en, this message translates to:
+  /// **'Remove filter'**
+  String get upcomingRemoveFilter;
+
+  /// Tooltip of the delete button on the agenda's anchor chip, which returns the look-ahead window to today
+  ///
+  /// In en, this message translates to:
+  /// **'Back to today'**
+  String get upcomingResetAnchor;
+
+  /// Button in the agenda filters sheet restoring every filter to its default
+  ///
+  /// In en, this message translates to:
+  /// **'Reset'**
+  String get upcomingFiltersReset;
+
+  /// Section heading for the look-ahead window controls in the agenda filters sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Period'**
+  String get upcomingSectionPeriod;
+
+  /// Section heading for the layer toggles (events, holidays, fasting) in the agenda filters sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Show'**
+  String get upcomingSectionShow;
+
+  /// Section heading for the agenda's presentation switches in the filters sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Display'**
+  String get upcomingSectionDisplay;
+
+  /// Agenda layer toggle: whether calendar events are listed at all
+  ///
+  /// In en, this message translates to:
+  /// **'Events'**
+  String get upcomingShowEvents;
+
+  /// Summary chip shown when the events layer is switched off, leaving only holiday and fasting rows
+  ///
+  /// In en, this message translates to:
+  /// **'No events'**
+  String get upcomingEventsHidden;
 
   /// Look-ahead period preset chip in the upcoming events sheet
   ///
@@ -6052,13 +6172,7 @@ abstract class AppLocalizations {
   /// **'One-time'**
   String get upcomingEventTypeOneTime;
 
-  /// Agenda event-type chip: hide all events, leaving only holiday/fasting rows
-  ///
-  /// In en, this message translates to:
-  /// **'None'**
-  String get upcomingEventTypeNone;
-
-  /// Tooltip of the button expanding the agenda's period and priority filters
+  /// Title of the agenda filters sheet, and the tooltip of the button that opens it
   ///
   /// In en, this message translates to:
   /// **'Filters'**

@@ -2,6 +2,7 @@ import '../constants/fasting_calendar.dart';
 import '../constants/occurrence_descriptions.dart';
 import '../constants/public_holidays.dart';
 import '../models/calendar_event.dart';
+import '../models/fasting_appearance.dart';
 import '../models/recurrence_rule.dart';
 import '../models/upcoming_agenda_filters.dart';
 import '../services/folder_search_service.dart' show normalizeForSearch;
@@ -17,7 +18,164 @@ class EventOccurrence {
   /// used by [CalendarEvent.occursOn] and the calendar bloc.
   final DateTime day;
 
-  const EventOccurrence({required this.event, required this.day});
+  /// How many occurrences this one **stands for**. Always 1 unless the
+  /// collapse pass dropped the event's other in-window days, in which case the
+  /// surviving occurrence carries their total — so a collapsed row can say it
+  /// represents more than itself instead of passing as a single event.
+  final int occurrenceCountInWindow;
+
+  const EventOccurrence({
+    required this.event,
+    required this.day,
+    this.occurrenceCountInWindow = 1,
+  });
+}
+
+/// One fasting period's stretch of days, collapsed for the agenda.
+///
+/// A run belongs to exactly one ([tradition], [period]) pair, which is what
+/// lets a **sparse** period collapse at all: a Great Lent thinned to
+/// Wednesdays and Fridays by the personal weekday scope is still one Lent, and
+/// grouping by "the day is a fasting day" alone would emit forty one-day rows
+/// and merge two neighbouring periods into one meaningless span.
+///
+/// [start] and [end] are the run's **true** extent — its first and last marked
+/// day, which may reach outside the queried window, so a Lent that began
+/// before the window still reads as its full length. [day] is where the row is
+/// placed: the first marked day of the run that is actually inside the window,
+/// so runs merge into the agenda's ascending day walk alongside events and
+/// holidays.
+///
+/// [dayCount] is the number of days actually **marked**, not the calendar
+/// distance between the edges: for a contiguous run the two agree, and for a
+/// sparse one only the count is honest.
+class FastingRun {
+  final DateTime day;
+  final DateTime start;
+  final DateTime end;
+  final FastingTradition tradition;
+  final FastingPeriod period;
+  final int dayCount;
+
+  const FastingRun({
+    required this.day,
+    required this.start,
+    required this.end,
+    required this.tradition,
+    required this.period,
+    required this.dayCount,
+  });
+}
+
+/// A [FastingRun] still being accumulated by the in-window scan.
+///
+/// Mutable and private on purpose: the scan touches one of these per marked
+/// day, and the immutable [FastingRun] is built once, when the run closes and
+/// its outward extent is known.
+class _OpenFastingRun {
+  final FastingTradition tradition;
+  final FastingPeriod period;
+
+  /// First marked day of the run inside the window — the row's placement, and
+  /// the anchor the backward walk starts from.
+  final DateTime day;
+
+  /// Most recent marked day, against which the next day's gap is measured.
+  DateTime last;
+
+  /// Marked days seen inside the window so far.
+  int dayCount = 1;
+
+  _OpenFastingRun(this.tradition, this.period, this.day) : last = day;
+}
+
+/// A whole window's fasting for one tradition, digested to a single card.
+///
+/// The third presentation of fasting in the agenda, beside one row per day and
+/// one row per [FastingRun]: even collapsed to runs, a year-round Wed/Fri
+/// practice contributes a row every few days — deliberately, since the weekly
+/// fast never bridges — so a 90-day window still buries everything else. One
+/// summary per **tradition** rather than per fast, because a window holding
+/// Lent *and* the weekly rule would otherwise be right back at several cards.
+///
+/// Every number here is **window-scoped**: unlike a run, which reports a
+/// period's true extent because it *is* the period, a summary describes
+/// "fasting in this window", and claiming days outside it would make the card
+/// disagree with the list it summarizes.
+class FastingSummary {
+  final FastingTradition tradition;
+
+  /// `DateTime.weekday` values actually marked inside the window — the input
+  /// to the card's "Wed, Fri" / "Daily" pattern fragment.
+  final Set<int> weekdays;
+
+  /// First and last marked day inside the window. [first] is the card's tap
+  /// target as well as one end of its span label.
+  final DateTime first;
+  final DateTime last;
+
+  /// Marked days inside the window — the count, never the calendar distance
+  /// between [first] and [last], which a sparse practice would inflate.
+  final int dayCount;
+
+  /// Distinct named multi-day periods present in the window, in first-seen
+  /// order. Empty for a window holding only weekly or single-day fasts; a
+  /// single entry is what lets the card title itself "Nativity Fast" instead
+  /// of falling back to the tradition's name.
+  final List<FastingPeriod> spanPeriods;
+
+  const FastingSummary({
+    required this.tradition,
+    required this.weekdays,
+    required this.first,
+    required this.last,
+    required this.dayCount,
+    required this.spanPeriods,
+  });
+}
+
+/// A [FastingSummary] still being accumulated by the in-window scan — one per
+/// tradition, mutable for the same reason [_OpenFastingRun] is.
+class _OpenFastingSummary {
+  final FastingTradition tradition;
+  final DateTime first;
+  DateTime last;
+  int dayCount = 1;
+  final Set<int> weekdays = <int>{};
+  final List<FastingPeriod> spanPeriods = <FastingPeriod>[];
+
+  _OpenFastingSummary(this.tradition, this.first, FastingPeriod period)
+    : last = first {
+    weekdays.add(first.weekday);
+    _addPeriod(period);
+  }
+
+  /// [day] is non-decreasing (the scan walks forward), and a tradition marks a
+  /// day at most once — but the guard keeps [dayCount] a count of *days*
+  /// rather than of infos regardless of what a later rule change emits.
+  void add(DateTime day, FastingPeriod period) {
+    if (last != day) {
+      last = day;
+      dayCount++;
+      weekdays.add(day.weekday);
+    }
+    _addPeriod(period);
+  }
+
+  void _addPeriod(FastingPeriod period) {
+    if (EventAgenda._isSpanPeriod(period) && !spanPeriods.contains(period)) {
+      spanPeriods.add(period);
+    }
+  }
+
+  FastingSummary close() => FastingSummary(
+    tradition: tradition,
+    weekdays: Set.unmodifiable(weekdays),
+    first: first,
+    last: last,
+    dayCount: dayCount,
+    spanPeriods: List.unmodifiable(spanPeriods),
+  );
 }
 
 /// Expands recurrence rules across a date range into a flat, ordered agenda.
@@ -163,14 +321,32 @@ abstract final class EventAgenda {
     if (!collapseRecurring) return List.unmodifiable(result);
 
     // `result` is ascending by day, so the first time a recurring event's id is
-    // seen is its next in-window occurrence — keep that, drop the rest.
-    // One-time events pass through untouched. A post-filter, not a scan
-    // short-circuit, so `occursOn` call counts are unchanged.
+    // seen is its next in-window occurrence — keep that, drop the rest, and
+    // hand it the tally of what it now stands for. Two passes over an
+    // already-built list: still a post-filter, not a scan short-circuit, so
+    // `occursOn` call counts are unchanged.
+    final counts = <String, int>{};
+    for (final occ in result) {
+      if (occ.event.rule is OneTimeRecurrence) continue;
+      counts.update(occ.event.id, (n) => n + 1, ifAbsent: () => 1);
+    }
     final seen = <String>{};
-    return List.unmodifiable([
-      for (final occ in result)
-        if (occ.event.rule is OneTimeRecurrence || seen.add(occ.event.id)) occ,
-    ]);
+    final collapsed = <EventOccurrence>[];
+    for (final occ in result) {
+      if (occ.event.rule is OneTimeRecurrence) {
+        collapsed.add(occ);
+        continue;
+      }
+      if (!seen.add(occ.event.id)) continue;
+      collapsed.add(
+        EventOccurrence(
+          event: occ.event,
+          day: occ.day,
+          occurrenceCountInWindow: counts[occ.event.id] ?? 1,
+        ),
+      );
+    }
+    return List.unmodifiable(collapsed);
   }
 
   /// Public holidays falling inside the range, in ascending order.
@@ -217,6 +393,227 @@ abstract final class EventAgenda {
       if (FastingCalendar.isFastingDay(day)) days.add(day);
     }
     return days;
+  }
+
+  /// Fasting days inside the range, grouped into runs **per fasting period**.
+  ///
+  /// The collapse counterpart of [fastingDaysInRange]: forty Lent rows become
+  /// one. Grouping is by ([FastingTradition], [FastingPeriod]) rather than by
+  /// "this day fasts", because the boolean is not enough for either direction —
+  /// a period the personal schedule sparsified is still one period, and two
+  /// different periods that happen to touch are still two.
+  ///
+  /// Each run's [FastingRun.start] / [FastingRun.end] are walked **outward past
+  /// the window** so a clipped run still reports its real extent, bounded by
+  /// [maxRangeDays] steps in each direction.
+  ///
+  /// [dayFilter] narrows which days count as fasting — the agenda passes its
+  /// text query — and is applied to the outward walk too, so a run never claims
+  /// an extent made of days the filter excluded. A filtered-out day counts as
+  /// unmarked for every run, exactly as an unfasted day does.
+  ///
+  /// Reads only the memoized [FastingCalendar]; never `CalendarEvent.occursOn`.
+  static List<FastingRun> fastingRunsInRange({
+    required DateTime from,
+    required DateTime to,
+    bool Function(DateTime day)? dayFilter,
+  }) {
+    if (!FastingCalendar.isEnabled) return const [];
+    final range = resolveRange(from, to);
+    if (range == null) return const [];
+    final (start, end) = range;
+
+    // Insertion order is kept alongside the run so the final sort can stay
+    // stable: several runs legitimately share a `day` when traditions or
+    // periods overlap, and Dart's `sort` is not stable on its own.
+    final closed = <({FastingRun run, int order})>[];
+    final open =
+        <
+          ({FastingTradition tradition, FastingPeriod period}),
+          _OpenFastingRun
+        >{};
+    var order = 0;
+
+    void close(_OpenFastingRun run) {
+      final maxGap = _maxFastingGap(run.period);
+      final backward = _walkFastingEdge(
+        run.day,
+        run.tradition,
+        run.period,
+        maxGap,
+        dayFilter,
+        forward: false,
+      );
+      final forward = _walkFastingEdge(
+        run.last,
+        run.tradition,
+        run.period,
+        maxGap,
+        dayFilter,
+        forward: true,
+      );
+      closed.add((
+        run: FastingRun(
+          day: run.day,
+          start: backward.edge,
+          end: forward.edge,
+          tradition: run.tradition,
+          period: run.period,
+          dayCount: run.dayCount + backward.marked + forward.marked,
+        ),
+        order: order++,
+      ));
+    }
+
+    for (
+      var day = start;
+      !day.isAfter(end);
+      day = day.add(const Duration(days: 1))
+    ) {
+      if (dayFilter != null && !dayFilter(day)) continue;
+      for (final info in FastingCalendar.on(day)) {
+        final key = (tradition: info.tradition, period: info.period);
+        final current = open[key];
+        if (current != null) {
+          if (day.difference(current.last).inDays - 1 <=
+              _maxFastingGap(info.period)) {
+            current.last = day;
+            current.dayCount++;
+            continue;
+          }
+          close(current);
+        }
+        open[key] = _OpenFastingRun(info.tradition, info.period, day);
+      }
+    }
+    for (final run in open.values) {
+      close(run);
+    }
+
+    closed.sort((a, b) {
+      final byDay = a.run.day.compareTo(b.run.day);
+      return byDay != 0 ? byDay : a.order.compareTo(b.order);
+    });
+    return [for (final entry in closed) entry.run];
+  }
+
+  /// The whole window's fasting, digested to **one [FastingSummary] per
+  /// enabled tradition** — the agenda's `summary` presentation.
+  ///
+  /// The third and most condensed counterpart of [fastingDaysInRange] and
+  /// [fastingRunsInRange]. Unlike runs, it never walks outward past the
+  /// window: a summary answers "what does fasting look like here", so every
+  /// number it carries is in-window by construction.
+  ///
+  /// [dayFilter] narrows which days count, exactly as it does for runs — the
+  /// agenda passes its text query, and a filtered-out day is unmarked for
+  /// every summary.
+  ///
+  /// Traditions with no marked day in the window produce nothing, and the
+  /// result follows [FastingTradition] declaration order, matching the order
+  /// [FastingCalendar.on] emits its infos in.
+  ///
+  /// Reads only the memoized [FastingCalendar]; never `CalendarEvent.occursOn`.
+  static List<FastingSummary> fastingSummariesInRange({
+    required DateTime from,
+    required DateTime to,
+    bool Function(DateTime day)? dayFilter,
+  }) {
+    if (!FastingCalendar.isEnabled) return const [];
+    final range = resolveRange(from, to);
+    if (range == null) return const [];
+    final (start, end) = range;
+
+    final open = <FastingTradition, _OpenFastingSummary>{};
+    for (
+      var day = start;
+      !day.isAfter(end);
+      day = day.add(const Duration(days: 1))
+    ) {
+      if (dayFilter != null && !dayFilter(day)) continue;
+      for (final info in FastingCalendar.on(day)) {
+        final current = open[info.tradition];
+        if (current == null) {
+          open[info.tradition] = _OpenFastingSummary(
+            info.tradition,
+            day,
+            info.period,
+          );
+          continue;
+        }
+        current.add(day, info.period);
+      }
+    }
+    if (open.isEmpty) return const [];
+    return [
+      for (final tradition in FastingTradition.values)
+        if (open[tradition] case final summary?) summary.close(),
+    ];
+  }
+
+  /// Named multi-day periods, whose days may be **sparse**: the personal
+  /// weekday/month schedule can thin any of them out, and Cheesefare week is
+  /// Wed/Fri-only by the rule itself. Their runs bridge a gap of up to
+  /// [_spanFastingGap] days so the period reads as one row.
+  ///
+  /// Everything else — the year-round weekly fasts, the single-day fasts and
+  /// forced personal days — keeps strict contiguity. Bridging a weekly fast
+  /// would fuse a whole window into one span that means nothing.
+  static bool _isSpanPeriod(FastingPeriod period) => switch (period) {
+    FastingPeriod.greatLent ||
+    FastingPeriod.apostlesFast ||
+    FastingPeriod.dormitionFast ||
+    FastingPeriod.nativityFast ||
+    FastingPeriod.cheesefareWeek ||
+    FastingPeriod.lent ||
+    FastingPeriod.advent ||
+    FastingPeriod.ramadan => true,
+    _ => false,
+  };
+
+  /// A week: wide enough to bridge any weekday pattern (even a single kept
+  /// weekday leaves six unmarked days), narrow enough that two consecutive
+  /// years' Nativity fasts can never join.
+  static const int _spanFastingGap = 7;
+
+  static int _maxFastingGap(FastingPeriod period) =>
+      _isSpanPeriod(period) ? _spanFastingGap : 0;
+
+  /// Extends one end of a run past the window, following the same period and
+  /// the same gap rule, and reports how many marked days it added.
+  ///
+  /// Steps are capped at [maxRangeDays] per direction — counted as *steps*, not
+  /// as matches, so a pathological configuration cannot walk forever.
+  static ({DateTime edge, int marked}) _walkFastingEdge(
+    DateTime from,
+    FastingTradition tradition,
+    FastingPeriod period,
+    int maxGap,
+    bool Function(DateTime day)? dayFilter, {
+    required bool forward,
+  }) {
+    final step = Duration(days: forward ? 1 : -1);
+    var edge = from;
+    var marked = 0;
+    var gap = 0;
+    var cursor = from;
+    for (var i = 0; i < maxRangeDays; i++) {
+      cursor = cursor.add(step);
+      final hit =
+          (dayFilter?.call(cursor) ?? true) &&
+          FastingCalendar.on(
+            cursor,
+          ).any((info) => info.tradition == tradition && info.period == period);
+      if (hit) {
+        edge = cursor;
+        marked++;
+        gap = 0;
+        continue;
+      }
+      gap++;
+      if (gap > maxGap) break;
+    }
+    return (edge: edge, marked: marked);
   }
 
   /// Normalizes and clamps a requested range, or `null` when it is empty.
