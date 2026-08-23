@@ -10,6 +10,7 @@ import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/recurrence_rule.dart';
+import 'package:anta/models/upcoming_agenda_filters.dart';
 import 'package:anta/utils/event_agenda.dart';
 import 'package:anta/utils/liturgical_computus.dart';
 import 'package:anta/widgets/agenda_list_view.dart';
@@ -63,6 +64,8 @@ void main() {
     List<DateTime> fastingDays = const [],
     List<FastingRun> fastingRuns = const [],
     List<FastingSummary> fastingSummaries = const [],
+    AgendaHolidayDisplay holidayDisplay = AgendaHolidayDisplay.everyDay,
+    List<EventCategorySummary> eventSummaries = const [],
     CalendarMissedDisplay missedDisplay = CalendarMissedDisplay.faded,
   }) {
     return buildAgendaRows(
@@ -71,6 +74,8 @@ void main() {
       fastingDays: fastingDays,
       fastingRuns: fastingRuns,
       fastingSummaries: fastingSummaries,
+      holidayDisplay: holidayDisplay,
+      eventSummaries: eventSummaries,
       l10n: l10n,
       showRecurrenceLabels: true,
       missedDisplay: missedDisplay,
@@ -482,6 +487,235 @@ void main() {
 
       expect(rows.whereType<AgendaFastingSummaryRow>(), isEmpty);
       expect(rows.whereType<AgendaEntryRow>(), hasLength(1));
+    });
+  });
+
+  group('holiday summary card', () {
+    /// New Year and Christmas Day both resolve through the uninitialized
+    /// fixed-date fallback, so no profile has to be configured here.
+    final newYear = DateTime.utc(2026, 1, 1);
+    final christmas = DateTime.utc(2026, 12, 25);
+
+    List<AgendaRow> summaryBuild({
+      List<EventOccurrence> occurrences = const [],
+      List<DateTime> holidayDays = const [],
+      List<FastingSummary> fastingSummaries = const [],
+    }) {
+      return build(
+        occurrences: occurrences,
+        holidayDays: holidayDays,
+        fastingSummaries: fastingSummaries,
+        holidayDisplay: AgendaHolidayDisplay.summary,
+      );
+    }
+
+    test('every-day mode still interleaves one row per holiday', () {
+      final rows = build(holidayDays: [newYear, christmas]);
+
+      expect(rows.whereType<AgendaHolidaySummaryRow>(), isEmpty);
+      expect(rows.whereType<AgendaDayHeaderRow>(), hasLength(2));
+      expect(rows.whereType<AgendaEntryRow>(), hasLength(2));
+    });
+
+    test('summary mode replaces those rows with one card', () {
+      final rows = summaryBuild(holidayDays: [newYear, christmas]);
+
+      expect(rows, hasLength(1));
+      expect(rows.single, isA<AgendaHolidaySummaryRow>());
+      // The days left the walk entirely — no header, no entry row.
+      expect(rows.whereType<AgendaDayHeaderRow>(), isEmpty);
+      expect(rows.whereType<AgendaEntryRow>(), isEmpty);
+    });
+
+    test('the card leads the list and is not an entry', () {
+      final rows = summaryBuild(
+        occurrences: [EventOccurrence(event: untracked, day: day1)],
+        holidayDays: [newYear, christmas],
+      );
+
+      expect(rows.first, isA<AgendaHolidaySummaryRow>());
+      expect(rows[1], isA<AgendaDayHeaderRow>());
+      // The event is the only entry; the card summarizes rather than being one.
+      expect(rows.whereType<AgendaEntryRow>(), hasLength(1));
+      expect(rows.whereType<AgendaDayHeaderRow>().single.count, 1);
+    });
+
+    test('it carries the count and the range it stands for', () {
+      final row = summaryBuild(
+        holidayDays: [newYear, christmas],
+      ).whereType<AgendaHolidaySummaryRow>().single;
+
+      expect(row.entry.title, 'Holidays');
+      expect(row.entry.subtitle, '2 holidays · Jan 1 – Dec 25');
+      // The card's days are the exact list its drill-down will show.
+      expect(row.days, [newYear, christmas]);
+    });
+
+    test('no holidays in the window means no card', () {
+      final rows = summaryBuild(
+        occurrences: [EventOccurrence(event: untracked, day: day1)],
+      );
+
+      expect(rows.whereType<AgendaHolidaySummaryRow>(), isEmpty);
+    });
+
+    group('beside a fasting card', () {
+      setUp(
+        () =>
+            FastingCalendar.configure(traditions: {FastingTradition.orthodox}),
+      );
+      tearDown(FastingCalendar.resetConfiguration);
+
+      List<FastingSummary> nativity() => EventAgenda.fastingSummariesInRange(
+        from: DateTime.utc(2026, 11, 15),
+        to: DateTime.utc(2026, 12, 24),
+      );
+
+      test('the holiday card leads by default', () {
+        // Public holiday priority 150 against fasting's default placement 160,
+        // matching the order the day panel already ranks them in.
+        final rows = summaryBuild(
+          holidayDays: [newYear],
+          fastingSummaries: nativity(),
+        );
+
+        expect(rows[0], isA<AgendaHolidaySummaryRow>());
+        expect(rows[1], isA<AgendaFastingSummaryRow>());
+      });
+
+      test('a tradition placed first outranks it', () {
+        // The user's day-panel placement choice reaches the cards for free,
+        // because they sort by the entry priority it already sets.
+        FastingCalendar.configure(
+          traditions: const {FastingTradition.orthodox},
+          appearance: const FastingAppearance().withStyle(
+            FastingTradition.orthodox,
+            const FastingTraditionStyle(placement: FastingRowPlacement.first),
+          ),
+        );
+
+        final rows = summaryBuild(
+          holidayDays: [newYear],
+          fastingSummaries: nativity(),
+        );
+
+        expect(rows[0], isA<AgendaFastingSummaryRow>());
+        expect(rows[1], isA<AgendaHolidaySummaryRow>());
+      });
+    });
+  });
+
+  group('event summary cards', () {
+    List<EventCategorySummary> summariesFor(List<EventOccurrence> occ) =>
+        EventAgenda.categorySummariesOf(occ);
+
+    /// `untracked` is a `mobility` event; `tracked` is `gym`.
+    final mixed = [
+      EventOccurrence(event: tracked, day: day1),
+      EventOccurrence(event: untracked, day: day1),
+      EventOccurrence(event: tracked, day: day2),
+    ];
+
+    test('one card per category, and none of them an entry', () {
+      final rows = build(eventSummaries: summariesFor(mixed));
+
+      final cards = rows.whereType<AgendaEventSummaryRow>().toList();
+      expect(cards, hasLength(2));
+      // The cards summarize entries rather than being them, so nothing counts
+      // them — there are no day groups left at all here.
+      expect(rows.whereType<AgendaEntryRow>(), isEmpty);
+      expect(rows.whereType<AgendaDayHeaderRow>(), isEmpty);
+    });
+
+    test('the card counts distinct events, then occurrences', () {
+      final rows = build(eventSummaries: summariesFor(mixed));
+      final gym = rows.whereType<AgendaEventSummaryRow>().firstWhere(
+        (r) => r.summary.categoryId == 'gym',
+      );
+
+      // One event across two days: "1 event · 2× in window · <range>".
+      expect(gym.entry.subtitle, startsWith('1 event · '));
+      expect(gym.entry.subtitle, contains('2'));
+    });
+
+    test('a category with no repeats omits the occurrence tally', () {
+      // One event, one occurrence — repeating the number would say nothing.
+      final rows = build(
+        eventSummaries: summariesFor([
+          EventOccurrence(event: untracked, day: day1),
+        ]),
+      );
+      final card = rows.whereType<AgendaEventSummaryRow>().single;
+
+      expect(card.entry.subtitle, startsWith('1 event · '));
+      expect(card.entry.subtitle, isNot(contains('×')));
+    });
+
+    test('cards lead the list, above every header', () {
+      // Holidays stay in the day walk here, so there is a header for the cards
+      // to lead. Events and their summaries are mutually exclusive at the call
+      // site — passing both would be the caller contradicting itself.
+      final rows = build(
+        holidayDays: [DateTime.utc(2026, 1, 1)],
+        eventSummaries: summariesFor(mixed),
+      );
+
+      expect(rows.first, isA<AgendaEventSummaryRow>());
+      expect(rows.whereType<AgendaDayHeaderRow>(), hasLength(1));
+      // The header's one entry is the holiday, never a card.
+      expect(rows.whereType<AgendaEntryRow>(), hasLength(1));
+      expect(rows.indexWhere((r) => r is AgendaDayHeaderRow), greaterThan(1));
+    });
+
+    test('summary mode takes the occurrences out of the day walk', () {
+      // The cards are a fold of the very same list, so leaving the rows in
+      // would show every occurrence twice.
+      final rows = build(
+        occurrences: mixed,
+        eventSummaries: summariesFor(mixed),
+      );
+
+      expect(rows.whereType<AgendaEventSummaryRow>(), hasLength(2));
+      expect(rows.whereType<AgendaEntryRow>(), isEmpty);
+      expect(rows.whereType<AgendaDayHeaderRow>(), isEmpty);
+    });
+
+    test('events outrank the holiday and fasting cards', () {
+      final rows = build(
+        holidayDays: [DateTime.utc(2026, 1, 1)],
+        holidayDisplay: AgendaHolidayDisplay.summary,
+        eventSummaries: summariesFor(mixed),
+      );
+
+      // Event band (0) before the public holiday (150) — the same order the
+      // day panel ranks these in.
+      expect(rows.first, isA<AgendaEventSummaryRow>());
+      expect(rows.last, isA<AgendaHolidaySummaryRow>());
+    });
+
+    test('cards at equal priority keep a stable order across builds', () {
+      // `List.sort` is not stable in Dart, and every category card shares the
+      // event band — without an insertion-order tie-break the cards could
+      // reshuffle between two builds of identical input.
+      final summaries = summariesFor(mixed);
+      List<String> orderOf() => build(eventSummaries: summaries)
+          .whereType<AgendaEventSummaryRow>()
+          .map((r) => r.summary.categoryId)
+          .toList();
+
+      final first = orderOf();
+      for (var i = 0; i < 5; i++) {
+        expect(orderOf(), first);
+      }
+      // And it is the scan's own order: gym occurs first in `mixed`.
+      expect(first, ['gym', 'mobility']);
+    });
+
+    test('no summaries leaves the ordinary rows exactly as they were', () {
+      final rows = build(occurrences: mixed);
+
+      expect(rows.whereType<AgendaEventSummaryRow>(), isEmpty);
+      expect(rows.whereType<AgendaEntryRow>(), hasLength(3));
     });
   });
 }

@@ -129,8 +129,16 @@ class SettingsKeys {
   static const String calendarUpcomingShowFasting =
       'calendar_upcoming_show_fasting';
 
-  /// Whether the upcoming agenda collapses each recurring event to a single
-  /// (next) occurrence.
+  /// How the upcoming agenda presents events (`AgendaEventDisplay` name):
+  /// everyOccurrence / perEvent / summary. Parsed with a forward-compatible
+  /// fallback to `everyOccurrence`.
+  static const String calendarUpcomingEventDisplay =
+      'calendar_upcoming_event_display';
+
+  /// **Legacy, read-only.** Superseded by [calendarUpcomingEventDisplay]; read
+  /// only when that key is absent, mapping `true` to `perEvent` and `false` to
+  /// `everyOccurrence` so nobody's configuration resets on update. Never
+  /// written again.
   static const String calendarUpcomingCollapseRecurring =
       'calendar_upcoming_collapse_recurring';
 
@@ -146,6 +154,13 @@ class SettingsKeys {
   /// written again.
   static const String calendarUpcomingCollapseFasting =
       'calendar_upcoming_collapse_fasting';
+
+  /// How the upcoming agenda presents public holidays (`AgendaHolidayDisplay`
+  /// name): everyDay / summary. Parsed with a forward-compatible fallback to
+  /// `everyDay`. A new axis rather than a replacement, so unlike
+  /// [calendarUpcomingFastingDisplay] it has no legacy key to fall back on.
+  static const String calendarUpcomingHolidayDisplay =
+      'calendar_upcoming_holiday_display';
 
   /// Whether the upcoming agenda's window restarts from the calendar's
   /// selected day instead of always starting today.
@@ -347,12 +362,17 @@ class SettingsKeys {
   /// tradition is configured).
   static const bool defaultCalendarUpcomingShowFasting = false;
 
-  /// Default: show every occurrence of a recurring event (no collapse).
-  static const bool defaultCalendarUpcomingCollapseRecurring = false;
+  /// Default event presentation: one row per occurring day. Condensing the
+  /// events layer is entirely opt-in.
+  static const String defaultCalendarUpcomingEventDisplay = 'everyOccurrence';
 
   /// Default fasting presentation: one row per period. A single Lent would
   /// otherwise contribute forty consecutive rows.
   static const String defaultCalendarUpcomingFastingDisplay = 'periods';
+
+  /// Default holiday presentation: one row per holiday, interleaved into the
+  /// day walk — what the agenda has always done.
+  static const String defaultCalendarUpcomingHolidayDisplay = 'everyDay';
 
   /// Default: the agenda window starts today, and a grid tap only moves the
   /// grid. Opt in to have the selection re-anchor the window.

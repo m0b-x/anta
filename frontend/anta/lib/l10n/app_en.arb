@@ -546,13 +546,9 @@
   "@resetToDefault": {
     "description": "Tooltip on the button that clears the custom icon override"
   },
-  "eventDate": "Date",
+  "eventDate": "Starting date",
   "@eventDate": {
-    "description": "Section label in the event editor for the event date / recurrence anchor"
-  },
-  "startsOn": "Starts on this date",
-  "@startsOn": {
-    "description": "Subtitle shown under the date row for recurring events"
+    "description": "Section label in the event editor for the recurring event start date"
   },
   "repeatMode": "Repeats",
   "@repeatMode": {
@@ -1249,6 +1245,10 @@
         "example": "Aug 1, 2026"
       }
     }
+  },
+  "eventAppearance": "Icon & color",
+  "@eventAppearance": {
+    "description": "Section label for the combined icon and color picker in the event editor"
   },
   "eventColor": "Color",
   "@eventColor": {
@@ -4323,9 +4323,30 @@
   "@upcomingClearCategories": {
     "description": "Reset action/tooltip for the agenda category filter — clears the allowlist so every category shows"
   },
-  "upcomingCollapseRecurring": "Collapse recurring",
-  "@upcomingCollapseRecurring": {
-    "description": "Agenda display switch: show each recurring event once (its next occurrence) instead of one row per occurring day"
+  "upcomingEventDisplayTitle": "Event rows",
+  "@upcomingEventDisplayTitle": {
+    "description": "Agenda display control label: how events are listed"
+  },
+  "upcomingEventDisplayEveryOccurrence": "Every one",
+  "@upcomingEventDisplayEveryOccurrence": {
+    "description": "Agenda event display option: one row per occurring day"
+  },
+  "upcomingEventDisplayPerEvent": "Per event",
+  "@upcomingEventDisplayPerEvent": {
+    "description": "Agenda event display option: a repeating event shown once, carrying how many occurrences it stands for"
+  },
+  "upcomingEventDisplaySummary": "One card",
+  "@upcomingEventDisplaySummary": {
+    "description": "Agenda event display option: a single summary card per category, digesting the whole window"
+  },
+  "upcomingEventCount": "{count, plural, one {1 event} other {{count} events}}",
+  "@upcomingEventCount": {
+    "description": "How many distinct events a category summary card stands for",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   },
   "upcomingFastingDisplayTitle": "Fasting rows",
   "@upcomingFastingDisplayTitle": {
@@ -4342,6 +4363,31 @@
   "upcomingFastingDisplaySummary": "One card",
   "@upcomingFastingDisplaySummary": {
     "description": "Agenda fasting display option: a single summary card per fasting tradition, digesting the whole window"
+  },
+  "upcomingHolidayDisplayTitle": "Holiday rows",
+  "@upcomingHolidayDisplayTitle": {
+    "description": "Agenda display control label: how public holidays are listed"
+  },
+  "upcomingHolidayDisplayEveryDay": "Every day",
+  "@upcomingHolidayDisplayEveryDay": {
+    "description": "Agenda holiday display option: one row per public holiday, interleaved by day"
+  },
+  "upcomingHolidayDisplaySummary": "One card",
+  "@upcomingHolidayDisplaySummary": {
+    "description": "Agenda holiday display option: a single summary card digesting every public holiday in the window"
+  },
+  "upcomingHolidayCount": "{count, plural, one {1 holiday} other {{count} holidays}}",
+  "@upcomingHolidayCount": {
+    "description": "How many public holidays the summary card stands for, shown before its date range",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "upcomingShowAllDays": "Show every day",
+  "@upcomingShowAllDays": {
+    "description": "Tooltip on a summary card's button opening the full list of the days it stands for"
   },
   "upcomingFollowSelectedDay": "Start from selected day",
   "@upcomingFollowSelectedDay": {

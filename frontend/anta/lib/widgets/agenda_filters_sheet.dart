@@ -135,6 +135,31 @@ class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
     };
   }
 
+  /// Its own keys rather than the fasting/holiday ones, even where the English
+  /// coincides: sharing strings across axes means rewording one silently
+  /// rewords the others.
+  String _eventDisplayLabel(AppLocalizations l10n, AgendaEventDisplay display) {
+    return switch (display) {
+      AgendaEventDisplay.everyOccurrence =>
+        l10n.upcomingEventDisplayEveryOccurrence,
+      AgendaEventDisplay.perEvent => l10n.upcomingEventDisplayPerEvent,
+      AgendaEventDisplay.summary => l10n.upcomingEventDisplaySummary,
+    };
+  }
+
+  /// Its own keys rather than the fasting ones, even though the English words
+  /// coincide: sharing strings across two axes means rewording one silently
+  /// rewords the other.
+  String _holidayDisplayLabel(
+    AppLocalizations l10n,
+    AgendaHolidayDisplay display,
+  ) {
+    return switch (display) {
+      AgendaHolidayDisplay.everyDay => l10n.upcomingHolidayDisplayEveryDay,
+      AgendaHolidayDisplay.summary => l10n.upcomingHolidayDisplaySummary,
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -402,54 +427,36 @@ class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          visualDensity: VisualDensity.compact,
-          secondary: const Icon(Icons.repeat_rounded),
-          title: Text(l10n.upcomingCollapseRecurring),
-          value: _draft.collapseRecurring,
-          onChanged: (value) =>
-              _update(_draft.copyWith(collapseRecurring: value)),
+        _displayControl<AgendaEventDisplay>(
+          icon: Icons.event_rounded,
+          label: l10n.upcomingEventDisplayTitle,
+          values: AgendaEventDisplay.values,
+          selected: _draft.eventDisplay,
+          labelOf: (display) => _eventDisplayLabel(l10n, display),
+          onChanged: (display) =>
+              _update(_draft.copyWith(eventDisplay: display)),
         ),
-        // Three mutually exclusive presentations of one thing, so a segmented
-        // control rather than a switch — the same shape the events sub-choice
-        // uses in the Show section above.
-        if (FastingCalendar.isEnabled) ...[
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Row(
-              children: [
-                const Icon(Icons.no_food_rounded),
-                // Matches the zero-padding SwitchListTiles' title offset, so
-                // the label lines up with the switches above and below it.
-                const SizedBox(width: 16),
-                Expanded(child: Text(l10n.upcomingFastingDisplayTitle)),
-              ],
-            ),
+        // Fasting is inert until a tradition is configured, so its control
+        // only appears once it can act. Holidays are always available.
+        if (FastingCalendar.isEnabled)
+          _displayControl<AgendaFastingDisplay>(
+            icon: Icons.no_food_rounded,
+            label: l10n.upcomingFastingDisplayTitle,
+            values: AgendaFastingDisplay.values,
+            selected: _draft.fastingDisplay,
+            labelOf: (display) => _fastingDisplayLabel(l10n, display),
+            onChanged: (display) =>
+                _update(_draft.copyWith(fastingDisplay: display)),
           ),
-          SegmentedButton<AgendaFastingDisplay>(
-            segments: [
-              for (final display in AgendaFastingDisplay.values)
-                ButtonSegment<AgendaFastingDisplay>(
-                  value: display,
-                  label: Text(
-                    _fastingDisplayLabel(l10n, display),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-            ],
-            selected: {_draft.fastingDisplay},
-            showSelectedIcon: false,
-            style: const ButtonStyle(
-              visualDensity: VisualDensity.compact,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-            onSelectionChanged: (selection) =>
-                _update(_draft.copyWith(fastingDisplay: selection.first)),
-          ),
-          const SizedBox(height: 8),
-        ],
+        _displayControl<AgendaHolidayDisplay>(
+          icon: Icons.celebration_rounded,
+          label: l10n.upcomingHolidayDisplayTitle,
+          values: AgendaHolidayDisplay.values,
+          selected: _draft.holidayDisplay,
+          labelOf: (display) => _holidayDisplayLabel(l10n, display),
+          onChanged: (display) =>
+              _update(_draft.copyWith(holidayDisplay: display)),
+        ),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
           visualDensity: VisualDensity.compact,
@@ -459,6 +466,58 @@ class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
           onChanged: (value) =>
               _update(_draft.copyWith(followSelectedDay: value)),
         ),
+      ],
+    );
+  }
+
+  /// One "how is this layer presented" control: mutually exclusive options, so
+  /// a `SegmentedButton` rather than a switch — the same shape the events
+  /// sub-choice uses in the Show section. Shared by the fasting and holiday
+  /// axes so the two cannot drift apart visually.
+  Widget _displayControl<T>({
+    required IconData icon,
+    required String label,
+    required List<T> values,
+    required T selected,
+    required String Function(T value) labelOf,
+    required ValueChanged<T> onChanged,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            children: [
+              Icon(icon),
+              // Matches the zero-padding SwitchListTiles' title offset, so the
+              // label lines up with the switches above and below it.
+              const SizedBox(width: 16),
+              Expanded(child: Text(label)),
+            ],
+          ),
+        ),
+        SegmentedButton<T>(
+          segments: [
+            for (final value in values)
+              ButtonSegment<T>(
+                value: value,
+                label: Text(
+                  labelOf(value),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+          ],
+          selected: {selected},
+          showSelectedIcon: false,
+          style: const ButtonStyle(
+            visualDensity: VisualDensity.compact,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+          onSelectionChanged: (selection) => onChanged(selection.first),
+        ),
+        const SizedBox(height: 8),
       ],
     );
   }

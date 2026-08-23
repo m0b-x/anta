@@ -170,27 +170,30 @@ void main() {
     expect(after.selectionSource, CalendarSelectionSource.agendaRow);
   });
 
-  test('re-selecting the same day from another surface repaints nothing', () async {
-    final fromGrid = await dispatch(
-      SelectCalendarDay(
-        day: day,
-        focusedDay: day,
-        source: CalendarSelectionSource.grid,
-      ),
-    );
-    final fromRow = await dispatch(
-      SelectCalendarDay(
-        day: day,
-        focusedDay: day,
-        source: CalendarSelectionSource.agendaRow,
-      ),
-    );
+  test(
+    're-selecting the same day from another surface repaints nothing',
+    () async {
+      final fromGrid = await dispatch(
+        SelectCalendarDay(
+          day: day,
+          focusedDay: day,
+          source: CalendarSelectionSource.grid,
+        ),
+      );
+      final fromRow = await dispatch(
+        SelectCalendarDay(
+          day: day,
+          focusedDay: day,
+          source: CalendarSelectionSource.agendaRow,
+        ),
+      );
 
-    // The source is state — it has to emit, or the panel could not see it —
-    // but nothing renders from it, so neither subtree may rebuild for a
-    // source-only change. That is why it is absent from both predicates.
-    expect(fromGrid.selectionSource, isNot(fromRow.selectionSource));
-    expect(fromGrid.sameGridInputs(fromRow), isTrue);
-    expect(fromGrid.samePanelInputs(fromRow), isTrue);
-  });
+      // The source is state — it has to emit, or the panel could not see it —
+      // but nothing renders from it, so neither subtree may rebuild for a
+      // source-only change. That is why it is absent from both predicates.
+      expect(fromGrid.selectionSource, isNot(fromRow.selectionSource));
+      expect(fromGrid.sameGridInputs(fromRow), isTrue);
+      expect(fromGrid.samePanelInputs(fromRow), isTrue);
+    },
+  );
 }

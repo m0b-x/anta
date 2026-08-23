@@ -18,7 +18,7 @@ import 'package:anta/widgets/fasting_schedule_sheet.dart';
 void main() {
   /// The sheet body is a lazy `ListView`, so the month section sits outside a
   /// default 800x600 test viewport and is never built. A tall surface keeps
-  /// both scope sections in one pass, which is the point here  14 the two axes
+  /// both scope sections in one pass, which is the point here — the two axes
   /// have to be asserted against each other.
   Future<void> pumpSheet(WidgetTester tester, FastingSchedule schedule) async {
     tester.view.physicalSize = const Size(1200, 3000);

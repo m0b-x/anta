@@ -413,10 +413,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get resetToDefault => 'Auf Standard zurücksetzen';
 
   @override
-  String get eventDate => 'Datum';
-
-  @override
-  String get startsOn => 'Beginnt an diesem Datum';
+  String get eventDate => 'Startdatum';
 
   @override
   String get repeatMode => 'Wiederholung';
@@ -1035,6 +1032,9 @@ class AppLocalizationsDe extends AppLocalizations {
   String eventDetailsSeriesStart(String date) {
     return 'Wiederholt sich seit $date';
   }
+
+  @override
+  String get eventAppearance => 'Symbol & Farbe';
 
   @override
   String get eventColor => 'Farbe';
@@ -3372,7 +3372,27 @@ class AppLocalizationsDe extends AppLocalizations {
   String get upcomingClearCategories => 'Alle Kategorien';
 
   @override
-  String get upcomingCollapseRecurring => 'Wiederkehrende bündeln';
+  String get upcomingEventDisplayTitle => 'Termin-Zeilen';
+
+  @override
+  String get upcomingEventDisplayEveryOccurrence => 'Jedes';
+
+  @override
+  String get upcomingEventDisplayPerEvent => 'Pro Termin';
+
+  @override
+  String get upcomingEventDisplaySummary => 'Eine Karte';
+
+  @override
+  String upcomingEventCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Termine',
+      one: '1 Termin',
+    );
+    return '$_temp0';
+  }
 
   @override
   String get upcomingFastingDisplayTitle => 'Fasten-Zeilen';
@@ -3385,6 +3405,29 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get upcomingFastingDisplaySummary => 'Eine Karte';
+
+  @override
+  String get upcomingHolidayDisplayTitle => 'Feiertags-Zeilen';
+
+  @override
+  String get upcomingHolidayDisplayEveryDay => 'Jeder Tag';
+
+  @override
+  String get upcomingHolidayDisplaySummary => 'Eine Karte';
+
+  @override
+  String upcomingHolidayCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Feiertage',
+      one: '1 Feiertag',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get upcomingShowAllDays => 'Alle Tage anzeigen';
 
   @override
   String get upcomingFollowSelectedDay => 'Ab ausgewähltem Tag';

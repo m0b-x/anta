@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../constants/app_spacing.dart';
 import '../constants/calendar_colors.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_event.dart';
@@ -173,7 +174,13 @@ class DaySummaryPanel extends StatelessWidget {
             // its scroll position, which left the previous day's cards
             // showing faintly through the overscroll correction.
             key: ValueKey(day),
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            // Clears the page's floating add button — see AppSpacing.
+            padding: const EdgeInsets.fromLTRB(
+              16,
+              8,
+              16,
+              16 + AppSpacing.fabClearance,
+            ),
             itemCount: entries.length,
             separatorBuilder: (_, _) => const SizedBox(height: 8),
             itemBuilder: (context, index) {

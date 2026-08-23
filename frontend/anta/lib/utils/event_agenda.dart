@@ -31,6 +31,41 @@ class EventOccurrence {
   });
 }
 
+/// One category's events across the window, digested to a single card.
+///
+/// The event layer's counterpart of [FastingSummary], keyed on **category**
+/// because a category is to events what a tradition is to fasting: the thing
+/// that gives a row its colour, its icon and its identity.
+///
+/// Unlike the fasting summaries this needs no scan of its own — it folds an
+/// already-built occurrence list, so it can only ever describe occurrences the
+/// scan produced, and the card can never disagree with its own drill-down.
+class EventCategorySummary {
+  final String categoryId;
+
+  /// Every occurrence in the window, ascending — the drill-down's rows, and
+  /// what [occurrenceCount] counts.
+  final List<EventOccurrence> occurrences;
+
+  /// Distinct events behind [occurrences]. A daily event across ninety days
+  /// is **one** event, which is the number worth leading a digest with; the
+  /// occurrence tally says how much of the window it fills.
+  final int eventCount;
+
+  final DateTime first;
+  final DateTime last;
+
+  const EventCategorySummary({
+    required this.categoryId,
+    required this.occurrences,
+    required this.eventCount,
+    required this.first,
+    required this.last,
+  });
+
+  int get occurrenceCount => occurrences.length;
+}
+
 /// One fasting period's stretch of days, collapsed for the agenda.
 ///
 /// A run belongs to exactly one ([tradition], [period]) pair, which is what
@@ -118,6 +153,12 @@ class FastingSummary {
   /// between [first] and [last], which a sparse practice would inflate.
   final int dayCount;
 
+  /// Every marked day, ascending — the same days [dayCount] counts, which is
+  /// what lets the card's drill-down list exactly what the card claims. Kept
+  /// here rather than re-walked on demand because a re-walk would lose the
+  /// scan's `dayFilter` and quietly disagree with the number above it.
+  final List<DateTime> days;
+
   /// Distinct named multi-day periods present in the window, in first-seen
   /// order. Empty for a window holding only weekly or single-day fasts; a
   /// single entry is what lets the card title itself "Nativity Fast" instead
@@ -130,6 +171,7 @@ class FastingSummary {
     required this.first,
     required this.last,
     required this.dayCount,
+    required this.days,
     required this.spanPeriods,
   });
 }
@@ -138,28 +180,30 @@ class FastingSummary {
 /// tradition, mutable for the same reason [_OpenFastingRun] is.
 class _OpenFastingSummary {
   final FastingTradition tradition;
-  final DateTime first;
-  DateTime last;
-  int dayCount = 1;
+
+  /// Every marked day in order. The count is `days.length` rather than a
+  /// counter kept beside it, so the number the card prints and the list its
+  /// drill-down shows are structurally the same thing.
+  final List<DateTime> days = <DateTime>[];
   final Set<int> weekdays = <int>{};
   final List<FastingPeriod> spanPeriods = <FastingPeriod>[];
 
-  _OpenFastingSummary(this.tradition, this.first, FastingPeriod period)
-    : last = first {
-    weekdays.add(first.weekday);
+  _OpenFastingSummary(this.tradition, DateTime first, FastingPeriod period) {
+    _addDay(first);
     _addPeriod(period);
   }
 
   /// [day] is non-decreasing (the scan walks forward), and a tradition marks a
-  /// day at most once — but the guard keeps [dayCount] a count of *days*
-  /// rather than of infos regardless of what a later rule change emits.
+  /// day at most once — but the guard keeps this a list of *days* rather than
+  /// of infos regardless of what a later rule change emits.
   void add(DateTime day, FastingPeriod period) {
-    if (last != day) {
-      last = day;
-      dayCount++;
-      weekdays.add(day.weekday);
-    }
+    if (days.last != day) _addDay(day);
     _addPeriod(period);
+  }
+
+  void _addDay(DateTime day) {
+    days.add(day);
+    weekdays.add(day.weekday);
   }
 
   void _addPeriod(FastingPeriod period) {
@@ -171,9 +215,10 @@ class _OpenFastingSummary {
   FastingSummary close() => FastingSummary(
     tradition: tradition,
     weekdays: Set.unmodifiable(weekdays),
-    first: first,
-    last: last,
-    dayCount: dayCount,
+    first: days.first,
+    last: days.last,
+    dayCount: days.length,
+    days: List.unmodifiable(days),
     spanPeriods: List.unmodifiable(spanPeriods),
   );
 }
@@ -347,6 +392,42 @@ abstract final class EventAgenda {
       );
     }
     return List.unmodifiable(collapsed);
+  }
+
+  /// Groups an already-scanned occurrence list into one summary per category —
+  /// the agenda's `summary` event presentation.
+  ///
+  /// A **post-pass**, never a scan: it walks [occurrences] once and touches no
+  /// facade, so it costs nothing in `CalendarEvent.occursOn` calls and cannot
+  /// see days the scan (and its filters, and the search query) already
+  /// excluded. Same discipline as the collapse post-filter above.
+  ///
+  /// [occurrences] must be the scan's own output — ascending by day — which is
+  /// what makes `first`/`last` and the per-category order fall out for free.
+  /// Categories are ordered by their first in-window occurrence, matching the
+  /// time ordering of everything else in the agenda.
+  static List<EventCategorySummary> categorySummariesOf(
+    List<EventOccurrence> occurrences,
+  ) {
+    if (occurrences.isEmpty) return const [];
+    final byCategory = <String, List<EventOccurrence>>{};
+    for (final occurrence in occurrences) {
+      (byCategory[occurrence.event.categoryId] ??= <EventOccurrence>[]).add(
+        occurrence,
+      );
+    }
+    return [
+      // `byCategory` preserves first-insertion order, and the input is
+      // ascending, so this is already "whichever category comes up first".
+      for (final entry in byCategory.entries)
+        EventCategorySummary(
+          categoryId: entry.key,
+          occurrences: List.unmodifiable(entry.value),
+          eventCount: {for (final o in entry.value) o.event.id}.length,
+          first: entry.value.first.day,
+          last: entry.value.last.day,
+        ),
+    ];
   }
 
   /// Public holidays falling inside the range, in ascending order.

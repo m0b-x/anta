@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 
+import '../constants/app_spacing.dart';
 import '../constants/event_priorities.dart';
 import '../constants/fasting_calendar.dart';
 import '../constants/public_holidays.dart';
@@ -13,6 +14,7 @@ import '../services/folder_search_service.dart' show normalizeForSearch;
 import '../models/upcoming_agenda_filters.dart';
 import '../utils/event_agenda.dart';
 import '../utils/markdown_color_syntax.dart';
+import 'agenda_day_list_sheet.dart';
 import 'agenda_filters_sheet.dart';
 import 'agenda_list_view.dart';
 
@@ -120,6 +122,12 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
   static const Duration _scanDebounceDelay = Duration(milliseconds: 200);
 
   List<EventOccurrence> _occurrences = const [];
+
+  /// The occurrence list digested to one entry per category. Non-empty only
+  /// under [AgendaEventDisplay.summary]; derived in [_recompute] because it is
+  /// a fold of [_occurrences] rather than a scan of its own.
+  List<EventCategorySummary> _eventSummaries = const [];
+
   List<DateTime> _holidayDays = const [];
   List<DateTime> _fastingDays = const [];
 
@@ -158,7 +166,9 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
   List<DateTime>? _rowsForHolidays;
   List<DateTime>? _rowsForFasting;
   List<FastingRun>? _rowsForFastingRuns;
+  List<EventCategorySummary>? _rowsForEventSummaries;
   List<FastingSummary>? _rowsForFastingSummaries;
+  AgendaHolidayDisplay? _rowsForHolidayDisplay;
   String? _rowsForLocale;
   bool? _rowsForShowRecurrence;
   int? _rowsForOccurrenceRevision;
@@ -170,7 +180,12 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
         identical(_rowsForHolidays, _holidayDays) &&
         identical(_rowsForFasting, _fastingDays) &&
         identical(_rowsForFastingRuns, _fastingRuns) &&
+        identical(_rowsForEventSummaries, _eventSummaries) &&
         identical(_rowsForFastingSummaries, _fastingSummaries) &&
+        // A holiday-presentation change re-derives nothing — the days are
+        // already scanned — so this memo key *is* the whole mechanism behind
+        // the toggle, and `didUpdateWidget` needs no branch for it.
+        _rowsForHolidayDisplay == widget.filters.holidayDisplay &&
         _rowsForLocale == l10n.localeName &&
         _rowsForShowRecurrence == widget.showRecurrenceLabels &&
         _rowsForOccurrenceRevision == widget.occurrenceRevision &&
@@ -182,7 +197,9 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
     _rowsForHolidays = _holidayDays;
     _rowsForFasting = _fastingDays;
     _rowsForFastingRuns = _fastingRuns;
+    _rowsForEventSummaries = _eventSummaries;
     _rowsForFastingSummaries = _fastingSummaries;
+    _rowsForHolidayDisplay = widget.filters.holidayDisplay;
     _rowsForLocale = l10n.localeName;
     _rowsForShowRecurrence = widget.showRecurrenceLabels;
     _rowsForOccurrenceRevision = widget.occurrenceRevision;
@@ -193,7 +210,9 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
       holidayDays: _holidayDays,
       fastingDays: _fastingDays,
       fastingRuns: _fastingRuns,
+      eventSummaries: _eventSummaries,
       fastingSummaries: _fastingSummaries,
+      holidayDisplay: widget.filters.holidayDisplay,
       l10n: l10n,
       showRecurrenceLabels: widget.showRecurrenceLabels,
       missedDisplay: widget.missedDisplay,
@@ -251,7 +270,7 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
         o.customEnd != n.customEnd ||
         o.eventType != n.eventType ||
         !setEquals(o.categoryIds, n.categoryIds) ||
-        o.collapseRecurring != n.collapseRecurring ||
+        o.eventDisplay != n.eventDisplay ||
         // Cancelling an occurrence changes what the scan finds, so it must run.
         oldWidget.membershipRevision != widget.membershipRevision ||
         anchorChanged;
@@ -342,6 +361,7 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
   /// Re-runs the range scan. Called from the lifecycle hooks so `build`
   /// never expands recurrences.
   void _recompute() {
+    final display = widget.filters.eventDisplay;
     _occurrences = EventAgenda.occurrencesInRange(
       events: widget.events,
       from: _resolved.$1,
@@ -351,8 +371,14 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
       query: widget.filters.query,
       eventType: widget.filters.eventType,
       categoryIds: widget.filters.categoryIds,
-      collapseRecurring: widget.filters.collapseRecurring,
+      // Summary mode scans uncollapsed: the card counts distinct events *and*
+      // their occurrences, and the collapse post-filter would have thrown the
+      // second number away.
+      collapseRecurring: display == AgendaEventDisplay.perEvent,
     );
+    _eventSummaries = display == AgendaEventDisplay.summary
+        ? EventAgenda.categorySummariesOf(_occurrences)
+        : const [];
   }
 
   /// Resolves the holiday days to interleave.
@@ -463,6 +489,30 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
       if (normalizeForSearch(regime).contains(needle)) return true;
     }
     return false;
+  }
+
+  /// Opens a summary card's drill-down and routes what the viewer picked.
+  ///
+  /// A day goes through [UpcomingAgendaView.onDaySelected] — which the panel
+  /// already tags `CalendarSelectionSource.agendaRow`, so choosing one here
+  /// moves the selection without re-anchoring (and truncating) the list it came
+  /// from. An edit action runs **after** the sheet has closed rather than from
+  /// inside it, so the editor never stacks on top of a sheet it would return
+  /// the user to.
+  Future<void> _showDayList(AgendaDayList list) async {
+    final l10n = AppLocalizations.of(context)!;
+    final result = await AgendaDayListSheet.show(
+      context,
+      list,
+      editTooltip: l10n.upcomingEditEvent,
+    );
+    if (result == null || !mounted) return;
+    final day = result.focusDay;
+    if (day != null) {
+      widget.onDaySelected(day);
+      return;
+    }
+    result.edit?.call();
   }
 
   Future<void> _openFilters() async {
@@ -726,9 +776,18 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
                 onDaySelected: widget.onDaySelected,
                 onEditEvent: widget.onEditEvent,
                 onOpenNote: widget.onOpenNote,
+                onShowDayList: _showDayList,
                 emptyTitle: l10n.upcomingNoEvents,
                 emptyHint: l10n.upcomingNoEventsHint,
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                // The page's FAB floats over this list, so the last row's edit
+                // and open-note buttons would sit under it without the reserved
+                // clearance. Short content just leaves the space empty.
+                padding: const EdgeInsets.fromLTRB(
+                  16,
+                  4,
+                  16,
+                  16 + AppSpacing.fabClearance,
+                ),
                 colorPalette: widget.colorPalette,
               ),
             ],

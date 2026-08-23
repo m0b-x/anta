@@ -463,10 +463,139 @@ void main() {
       );
     });
 
+    test('the day list is exactly what the count counts', () {
+      // The card prints `dayCount` and its drill-down lists `days`; the two
+      // disagreeing is the one way that surface can lie, so they are the same
+      // list by construction and this pins it.
+      final summary = summariesIn(
+        DateTime.utc(2026, 11, 20),
+        DateTime.utc(2026, 12, 5),
+      ).single;
+
+      expect(summary.days, hasLength(summary.dayCount));
+      expect(summary.days.first, summary.first);
+      expect(summary.days.last, summary.last);
+      expect(summary.days.toSet(), hasLength(summary.dayCount));
+      for (var i = 1; i < summary.days.length; i++) {
+        expect(summary.days[i].isAfter(summary.days[i - 1]), isTrue);
+      }
+    });
+
+    test('a day filter narrows the day list, not just the count', () {
+      // A filtered-out day must not survive in the list a drill-down shows,
+      // or the sheet would offer days the agenda deliberately excluded.
+      final summary = EventAgenda.fastingSummariesInRange(
+        from: DateTime.utc(2026, 11, 20),
+        to: DateTime.utc(2026, 12, 5),
+        dayFilter: (day) => day.weekday == DateTime.wednesday,
+      ).single;
+
+      expect(summary.days, isNotEmpty);
+      expect(
+        summary.days.every((day) => day.weekday == DateTime.wednesday),
+        isTrue,
+      );
+      expect(summary.days, hasLength(summary.dayCount));
+    });
+
     test('summaries never cost an occursOn call', () {
       CalendarEvent.debugOccursOnCalls = 0;
       summariesIn(DateTime.utc(2026, 11, 20), DateTime.utc(2026, 12, 5));
       expect(CalendarEvent.debugOccursOnCalls, 0);
+    });
+  });
+
+  group('categorySummariesOf', () {
+    final gym = CalendarEvent(
+      id: 'g1',
+      title: 'Leg day',
+      categoryId: 'gym',
+      startDate: DateTime.utc(2026, 8, 1),
+      rule: const DailyRecurrence(),
+    );
+    final gymOnce = CalendarEvent(
+      id: 'g2',
+      title: 'Assessment',
+      categoryId: 'gym',
+      startDate: DateTime.utc(2026, 8, 11),
+      rule: const OneTimeRecurrence(),
+    );
+    final dentist = CalendarEvent(
+      id: 'o1',
+      title: 'Dentist',
+      categoryId: 'other',
+      startDate: DateTime.utc(2026, 8, 12),
+      rule: const OneTimeRecurrence(),
+    );
+
+    List<EventCategorySummary> summarize(List<CalendarEvent> events) {
+      return EventAgenda.categorySummariesOf(
+        EventAgenda.occurrencesInRange(
+          events: events,
+          from: windowStart,
+          to: windowEnd,
+        ),
+      );
+    }
+
+    test('an empty scan produces nothing', () {
+      expect(EventAgenda.categorySummariesOf(const []), isEmpty);
+    });
+
+    test('one summary per category, ordered by first occurrence', () {
+      final summaries = summarize([gym, gymOnce, dentist]);
+
+      // Gym occurs on the window's first day; 'other' not until the 12th.
+      expect(summaries.map((s) => s.categoryId), ['gym', 'other']);
+    });
+
+    test('the count leads with distinct events, not occurrences', () {
+      // A daily event across the window is one event, not three — that is the
+      // number worth putting on a digest card.
+      final summary = summarize([gym, gymOnce]).single;
+
+      expect(summary.categoryId, 'gym');
+      expect(summary.eventCount, 2);
+      expect(summary.occurrenceCount, 4);
+      expect(summary.occurrences, hasLength(4));
+    });
+
+    test('first and last bracket the occurrences it holds', () {
+      final summary = summarize([gym, gymOnce]).single;
+
+      expect(summary.first, summary.occurrences.first.day);
+      expect(summary.last, summary.occurrences.last.day);
+      expect(summary.first, windowStart);
+      expect(summary.last, windowEnd);
+    });
+
+    test('it is a post-pass, so it costs no occursOn call', () {
+      // The whole point of folding the scan's output rather than re-walking:
+      // the card is free, and it can only describe days the scan produced.
+      final occurrences = EventAgenda.occurrencesInRange(
+        events: [gym, gymOnce, dentist],
+        from: windowStart,
+        to: windowEnd,
+      );
+
+      CalendarEvent.debugOccursOnCalls = 0;
+      EventAgenda.categorySummariesOf(occurrences);
+      expect(CalendarEvent.debugOccursOnCalls, 0);
+    });
+
+    test('it inherits whatever the scan already filtered out', () {
+      // A category the allowlist excluded never reaches the fold, so no card
+      // can claim it.
+      final summaries = EventAgenda.categorySummariesOf(
+        EventAgenda.occurrencesInRange(
+          events: [gym, dentist],
+          from: windowStart,
+          to: windowEnd,
+          categoryIds: {'gym'},
+        ),
+      );
+
+      expect(summaries.map((s) => s.categoryId), ['gym']);
     });
   });
 }

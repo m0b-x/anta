@@ -1,14 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../constants/calendar_categories.dart';
 import '../constants/calendar_colors.dart';
+import '../constants/calendar_icons.dart';
 import '../constants/fasting_calendar.dart';
+import '../constants/public_holidays.dart';
 import '../constants/event_priorities.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../models/day_summary_entry.dart';
+import '../models/upcoming_agenda_filters.dart';
 import '../utils/markdown_color_syntax.dart';
+import 'agenda_day_list_sheet.dart';
 import 'markdown_inline_text.dart';
 import '../services/day_summary_resolver.dart';
 import '../utils/event_agenda.dart';
@@ -19,7 +24,9 @@ import '../utils/event_agenda.dart';
 /// Holiday days are merged into the same ascending walk, so a day that is
 /// only a holiday still gets a header and a row. Within a day, events come
 /// first and the holiday last — matching the day summary panel, where the
-/// holiday entry's higher `priority` value sinks it below the events.
+/// holiday entry's higher `priority` value sinks it below the events. Under
+/// [AgendaHolidayDisplay.summary] they leave the walk entirely and become one
+/// card built from the same [holidayDays] list.
 ///
 /// Fasting arrives one of three ways, mutually exclusive at the call site:
 /// [fastingDays] lists every fasting day, [fastingRuns] carries whole periods
@@ -30,8 +37,11 @@ import '../utils/event_agenda.dart';
 /// `FastingSummaryProvider` and the day panel it also feeds stay untouched.
 ///
 /// Summary cards are emitted **before** the first month or day header, because
-/// they describe the window rather than a day inside it. They are
-/// [AgendaFastingSummaryRow]s and not [AgendaEntryRow]s, so a caller counting
+/// they describe the window rather than a day inside it, and among themselves
+/// they sort by their entry's `priority` — so the holiday card leads the
+/// fasting ones by default, and a user who placed fasting first in the day
+/// panel gets the same order here. They are [AgendaHolidaySummaryRow]s and
+/// [AgendaFastingSummaryRow]s, never [AgendaEntryRow]s, so a caller counting
 /// entries leaves them out with no extra logic — a card summarizes entries
 /// rather than being one.
 ///
@@ -56,6 +66,8 @@ List<AgendaRow> buildAgendaRows({
   required CalendarMissedDisplay missedDisplay,
   List<FastingRun> fastingRuns = const [],
   List<FastingSummary> fastingSummaries = const [],
+  AgendaHolidayDisplay holidayDisplay = AgendaHolidayDisplay.everyDay,
+  List<EventCategorySummary> eventSummaries = const [],
 }) {
   final hideMissed = missedDisplay == CalendarMissedDisplay.hidden;
   final eventProvider = EventSummaryProvider(
@@ -64,6 +76,17 @@ List<AgendaRow> buildAgendaRows({
   );
   final holidayProvider = PublicHolidaySummaryProvider(l10n);
   final fastingProvider = FastingSummaryProvider(l10n);
+
+  // In summary mode a layer leaves the day walk entirely — its cards below are
+  // built from the very same list, so nothing is dropped, only relocated.
+  final holidaysAsSummary = holidayDisplay == AgendaHolidayDisplay.summary;
+  final walkedHolidays = holidaysAsSummary ? const <DateTime>[] : holidayDays;
+  // Events are keyed off the summaries rather than a flag: they are a fold of
+  // `occurrences`, so a non-empty list *is* the caller having chosen summary
+  // mode, and the two can never contradict each other.
+  final walkedOccurrences = eventSummaries.isEmpty
+      ? occurrences
+      : const <EventOccurrence>[];
 
   // One cursor shape for both fasting modes, so the merge walk below does not
   // branch: a collapsed run is placed on its first in-window day. Several runs
@@ -78,14 +101,14 @@ List<AgendaRow> buildAgendaRows({
   var holidayIndex = 0;
   var fastingIndex = 0;
 
-  while (index < occurrences.length ||
-      holidayIndex < holidayDays.length ||
+  while (index < walkedOccurrences.length ||
+      holidayIndex < walkedHolidays.length ||
       fastingIndex < fasting.length) {
-    final nextEventDay = index < occurrences.length
-        ? occurrences[index].day
+    final nextEventDay = index < walkedOccurrences.length
+        ? walkedOccurrences[index].day
         : null;
-    final nextHolidayDay = holidayIndex < holidayDays.length
-        ? holidayDays[holidayIndex]
+    final nextHolidayDay = holidayIndex < walkedHolidays.length
+        ? walkedHolidays[holidayIndex]
         : null;
     final nextFastingDay = fastingIndex < fasting.length
         ? fasting[fastingIndex].day
@@ -107,8 +130,9 @@ List<AgendaRow> buildAgendaRows({
     // How many occurrences each of the day's events stands for — 1 unless the
     // collapse pass folded its other days into this one.
     final dayCounts = <String, int>{};
-    while (index < occurrences.length && occurrences[index].day == day) {
-      final occurrence = occurrences[index];
+    while (index < walkedOccurrences.length &&
+        walkedOccurrences[index].day == day) {
+      final occurrence = walkedOccurrences[index];
       dayEvents.add(occurrence.event);
       dayCounts[occurrence.event.id] = occurrence.occurrenceCountInWindow;
       index++;
@@ -153,14 +177,37 @@ List<AgendaRow> buildAgendaRows({
   }
 
   // Built before the day groups are flattened, not appended after them: a
-  // summary describes the whole window, so it leads the list.
-  final rows = <AgendaRow>[
-    for (final summary in fastingSummaries)
-      AgendaFastingSummaryRow(
-        summary: summary,
-        entry: _fastingSummaryEntry(summary, l10n),
-      ),
-  ];
+  // summary describes the whole window, so it leads the list. Sorted among
+  // themselves by the entry priority the day panel already ranks by, so the
+  // two surfaces agree about which annotation comes first — and tie-broken on
+  // insertion order, because `List.sort` is **not** stable in Dart and several
+  // cards legitimately share a priority (every event category sits in the
+  // event band, and two fasting traditions share the fasting one).
+  final summaryRows =
+      <AgendaRow>[
+        for (final summary in eventSummaries)
+          AgendaEventSummaryRow(
+            summary: summary,
+            entry: _eventSummaryEntry(summary, l10n),
+          ),
+        if (holidaysAsSummary && holidayDays.isNotEmpty)
+          AgendaHolidaySummaryRow(
+            days: holidayDays,
+            entry: _holidaySummaryEntry(holidayDays, l10n),
+          ),
+        for (final summary in fastingSummaries)
+          AgendaFastingSummaryRow(
+            summary: summary,
+            entry: _fastingSummaryEntry(summary, l10n),
+          ),
+      ].indexed.toList()..sort((a, b) {
+        final byPriority = _summaryPriority(
+          a.$2,
+        ).compareTo(_summaryPriority(b.$2));
+        return byPriority != 0 ? byPriority : a.$1.compareTo(b.$1);
+      });
+
+  final rows = <AgendaRow>[for (final entry in summaryRows) entry.$2];
   if (groups.isEmpty) return rows;
 
   final firstDay = groups.first.day;
@@ -230,6 +277,148 @@ Iterable<DaySummaryEntry> _fastingEntries(
 /// Two months. Exact dates stay readable up to roughly that span, and beyond
 /// it the month is the useful unit — nobody reads "Mar 2 – Dec 24" as a shape.
 const int _exactSpanMaxDays = 62;
+
+/// Ranking among the summary cards, read off the entry each one already
+/// carries. Reusing `DaySummaryEntry.priority` rather than hardcoding an order
+/// is what makes the cards follow the placement the user chose for the day
+/// panel — the public holiday sits at 150 and fasting defaults to 160, but
+/// `FastingRowPlacement.first` legitimately puts a tradition above it.
+int _summaryPriority(AgendaRow row) => switch (row) {
+  AgendaEventSummaryRow(:final entry) => entry.priority,
+  AgendaHolidaySummaryRow(:final entry) => entry.priority,
+  AgendaFastingSummaryRow(:final entry) => entry.priority,
+  _ => 0,
+};
+
+/// The card standing in for one category's whole window of events.
+///
+/// Icon, colour and title come from the category itself, so the card carries
+/// the same identity its rows do. The count leads with **distinct events**
+/// because a daily event across ninety days is one event, not ninety; the
+/// occurrence tally follows, and only when it says something the event count
+/// does not — a category of one-time events would just repeat itself.
+DaySummaryEntry _eventSummaryEntry(
+  EventCategorySummary summary,
+  AppLocalizations l10n,
+) {
+  final category = CalendarCategories.resolve(summary.categoryId);
+  return DaySummaryEntry(
+    key: 'category:${summary.categoryId}',
+    icon: CalendarIcons.forKey(category.iconKey) ?? Icons.event_rounded,
+    color: category.color,
+    title: CalendarCategories.labelOf(category, l10n),
+    subtitle: [
+      l10n.upcomingEventCount(summary.eventCount),
+      if (summary.occurrenceCount > summary.eventCount)
+        l10n.upcomingCollapsedTimes(summary.occurrenceCount),
+      AgendaListView.rangeLabel(l10n.localeName, summary.first, summary.last),
+    ].join(' · '),
+    // The event band, so category cards lead the holiday (150) and fasting
+    // (160) ones — the same order the day panel ranks these three in.
+    priority: 0,
+  );
+}
+
+/// The event card's drill-down: one row per occurrence, **date first**,
+/// because the rows share a category and it is the date and title that vary.
+///
+/// Every row carries its edit action, so collapsing the events layer never
+/// puts editing further away than it was in the list.
+List<AgendaDayListEntry> _eventDayEntries(
+  EventCategorySummary summary,
+  AppLocalizations l10n,
+  DateTime today,
+  void Function(CalendarEvent event, DateTime day) onEditEvent,
+) {
+  return [
+    for (final occurrence in summary.occurrences)
+      AgendaDayListEntry(
+        day: occurrence.day,
+        icon: CalendarCategories.iconFor(occurrence.event),
+        color: CalendarCategories.resolve(occurrence.event.categoryId).color,
+        title: occurrence.event.title,
+        subtitle: AgendaListView.dayHeaderLabel(l10n, occurrence.day, today),
+        onEdit: () => onEditEvent(occurrence.event, occurrence.day),
+      ),
+  ];
+}
+
+/// The card standing in for every public holiday in the window.
+///
+/// Icon, colour, key and priority mirror [PublicHolidaySummaryProvider] exactly
+/// — the provider answers for a *day* and this row has none, but the two must
+/// still read as the same thing.
+DaySummaryEntry _holidaySummaryEntry(
+  List<DateTime> days,
+  AppLocalizations l10n,
+) {
+  final span = AgendaListView.rangeLabel(
+    l10n.localeName,
+    days.first,
+    days.last,
+  );
+  return DaySummaryEntry(
+    key: 'holiday',
+    icon: Icons.celebration_rounded,
+    color: CalendarColors.publicHoliday,
+    title: l10n.upcomingShowHolidays,
+    subtitle: '${l10n.upcomingHolidayCount(days.length)} · $span',
+    priority: 150,
+  );
+}
+
+/// The holiday card's drill-down: one row per holiday, **name first**, because
+/// every row is a different holiday and the name is what distinguishes them.
+List<AgendaDayListEntry> _holidayDayEntries(
+  List<DateTime> days,
+  AppLocalizations l10n,
+  DateTime today,
+) {
+  return [
+    for (final day in days)
+      if (PublicHolidays.holidayOn(day) case final info?)
+        AgendaDayListEntry(
+          day: day,
+          icon: Icons.celebration_rounded,
+          color: CalendarColors.publicHoliday,
+          // Carries the "(observed)" suffix for a substitute day, so two
+          // Christmas rows in one week explain themselves here too.
+          title: PublicHolidays.labelOf(info, l10n),
+          subtitle: AgendaListView.dayHeaderLabel(l10n, day, today),
+        ),
+  ];
+}
+
+/// The fasting card's drill-down: one row per marked day, **date first**,
+/// because every row belongs to the same fast and only the date varies.
+///
+/// The regime line comes from [FastingSummaryProvider] filtered to this
+/// summary's tradition — the same reuse `_fastingEntries` makes for run rows,
+/// so the title-override rule and the regime naming are inherited rather than
+/// re-derived.
+List<AgendaDayListEntry> _fastingDayEntries(
+  FastingSummary summary,
+  AppLocalizations l10n,
+  DateTime today,
+) {
+  final provider = FastingSummaryProvider(l10n);
+  final key = 'fasting:${summary.tradition.name}';
+  return [
+    for (final day in summary.days)
+      if (provider
+              .summaryFor(day, const [])
+              .where((entry) => entry.key == key)
+              .firstOrNull
+          case final entry?)
+        AgendaDayListEntry(
+          day: day,
+          icon: entry.icon,
+          color: entry.color,
+          title: AgendaListView.dayHeaderLabel(l10n, day, today),
+          subtitle: [entry.title, ?entry.subtitle].join(' · '),
+        ),
+  ];
+}
 
 /// The card standing in for a whole window of one tradition's fasting.
 ///
@@ -326,6 +515,12 @@ class AgendaListView extends StatelessWidget {
   final void Function(CalendarEvent event, DateTime day) onEditEvent;
   final ValueChanged<CalendarEvent> onOpenNote;
 
+  /// Opens a summary card's drill-down. The list is built here, where the
+  /// localized entries already are, and shown by the owner, which owns
+  /// navigation — and which routes a picked day back through [onDaySelected].
+  /// Null hides the cards' trailing button entirely.
+  final ValueChanged<AgendaDayList>? onShowDayList;
+
   final String emptyTitle;
   final String emptyHint;
   final EdgeInsets padding;
@@ -353,6 +548,7 @@ class AgendaListView extends StatelessWidget {
     required this.onDaySelected,
     required this.onEditEvent,
     required this.onOpenNote,
+    this.onShowDayList,
     required this.emptyTitle,
     required this.emptyHint,
     this.padding = const EdgeInsets.fromLTRB(16, 12, 16, 16),
@@ -399,6 +595,20 @@ class AgendaListView extends StatelessWidget {
     return (_rangeFormatCache[localeName] ??= DateFormat.MMMd(
       localeName,
     )).format(day);
+  }
+
+  /// "Today" / "Tomorrow" / "Aug 25" — [dayHeaderLabel]'s short twin, for
+  /// places with no room for a full weekday-and-month date (the add button's
+  /// label). Shares [anchorLabel]'s cached format, and [today] is passed in for
+  /// the same reason: the caller computes it once.
+  static String shortDayLabel(
+    AppLocalizations l10n,
+    DateTime day,
+    DateTime today,
+  ) {
+    if (day == today) return l10n.upcomingToday;
+    if (day == today.add(const Duration(days: 1))) return l10n.upcomingTomorrow;
+    return anchorLabel(l10n.localeName, day);
   }
 
   /// "Aug – Dec" — the wide counterpart of [rangeLabel], for spans where exact
@@ -488,6 +698,18 @@ class AgendaListView extends StatelessWidget {
     // `dayHeaderLabel` for its Today/Tomorrow test.
     final today = EventAgenda.dateOnly(DateTime.now());
 
+    // Built on press, not per frame: a 366-day window's fasting card would
+    // otherwise resolve forty-odd rows nobody has asked to see.
+    void showDayList(
+      String title,
+      String subtitle,
+      List<AgendaDayListEntry> Function() entries,
+    ) {
+      onShowDayList?.call(
+        AgendaDayList(title: title, subtitle: subtitle, entries: entries()),
+      );
+    }
+
     Widget buildItem(BuildContext context, int index) {
       final row = rows[index];
       return switch (row) {
@@ -556,6 +778,47 @@ class AgendaListView extends StatelessWidget {
             // No event: nothing to rank, nothing to edit, nothing to open.
             priorityBadge: null,
             onTap: () => onDaySelected(summary.first),
+            onShowAll: onShowDayList == null
+                ? null
+                : () => showDayList(
+                    entry.title,
+                    entry.subtitle ?? '',
+                    () => _fastingDayEntries(summary, l10n, today),
+                  ),
+            colorPalette: colorPalette,
+          ),
+        ),
+        AgendaEventSummaryRow(:final summary, :final entry) => Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: _AgendaCard(
+            entry: entry,
+            // The card ranks a whole category; no single event's priority
+            // could speak for it.
+            priorityBadge: null,
+            onTap: () => onDaySelected(summary.first),
+            onShowAll: onShowDayList == null
+                ? null
+                : () => showDayList(
+                    entry.title,
+                    entry.subtitle ?? '',
+                    () => _eventDayEntries(summary, l10n, today, onEditEvent),
+                  ),
+            colorPalette: colorPalette,
+          ),
+        ),
+        AgendaHolidaySummaryRow(:final days, :final entry) => Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: _AgendaCard(
+            entry: entry,
+            priorityBadge: null,
+            onTap: () => onDaySelected(days.first),
+            onShowAll: onShowDayList == null
+                ? null
+                : () => showDayList(
+                    entry.title,
+                    entry.subtitle ?? '',
+                    () => _holidayDayEntries(days, l10n, today),
+                  ),
             colorPalette: colorPalette,
           ),
         ),
@@ -647,6 +910,33 @@ class AgendaEntryRow extends AgendaRow {
   });
 }
 
+/// One category's events across the window, standing above the list it
+/// summarizes.
+///
+/// Like its holiday and fasting siblings, deliberately **not** an
+/// [AgendaEntryRow]: it belongs to no day and must not be counted among the
+/// entries.
+class AgendaEventSummaryRow extends AgendaRow {
+  final EventCategorySummary summary;
+  final DaySummaryEntry entry;
+
+  const AgendaEventSummaryRow({required this.summary, required this.entry});
+}
+
+/// Every public holiday in the window, standing above the list it summarizes.
+///
+/// Like its fasting twin, deliberately **not** an [AgendaEntryRow]: it belongs
+/// to no day and must not be counted among the entries.
+class AgendaHolidaySummaryRow extends AgendaRow {
+  /// The holidays this card stands for, ascending — the exact list its
+  /// drill-down shows, so the count on the card cannot outrun it.
+  final List<DateTime> days;
+
+  final DaySummaryEntry entry;
+
+  const AgendaHolidaySummaryRow({required this.days, required this.entry});
+}
+
 /// A whole window of one tradition's fasting, standing above the list it
 /// summarizes.
 ///
@@ -674,6 +964,11 @@ class _AgendaCard extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback? onEdit;
   final VoidCallback? onOpenNote;
+
+  /// Opens the drill-down behind a summary card. Only the summary cards set
+  /// it: an ordinary row already *is* the thing, with nothing to expand into.
+  final VoidCallback? onShowAll;
+
   final MarkdownColorPalette colorPalette;
 
   /// Dims the whole card. Only reached in faded mode — hidden mode drops the
@@ -688,6 +983,7 @@ class _AgendaCard extends StatelessWidget {
     this.collapsedBadge,
     this.onEdit,
     this.onOpenNote,
+    this.onShowAll,
     this.missed = false,
   });
 
@@ -761,9 +1057,11 @@ class _AgendaCard extends StatelessWidget {
                           ],
                         ),
                   isThreeLine: description != null,
-                  // Holiday rows carry no event, so they get no trailing
-                  // actions at all rather than an empty action strip.
-                  trailing: onOpenNote == null && onEdit == null
+                  // A per-day holiday or fasting row carries no event and no
+                  // drill-down, so it gets no trailing strip at all rather
+                  // than an empty one.
+                  trailing:
+                      onOpenNote == null && onEdit == null && onShowAll == null
                       ? null
                       : Row(
                           mainAxisSize: MainAxisSize.min,
@@ -779,6 +1077,12 @@ class _AgendaCard extends StatelessWidget {
                                 tooltip: l10n.upcomingEditEvent,
                                 icon: const Icon(Icons.edit_outlined),
                                 onPressed: onEdit,
+                              ),
+                            if (onShowAll != null)
+                              IconButton(
+                                tooltip: l10n.upcomingShowAllDays,
+                                icon: const Icon(Icons.list_rounded),
+                                onPressed: onShowAll,
                               ),
                           ],
                         ),

@@ -1364,6 +1364,50 @@ The area under the grid is now a mode-switched panel owned by
   (specific-dates included), not just high-frequency ones — the toggle is the
   escape hatch. See
   [upcoming-agenda-dense-recurrence-roadmap.md](upcoming-agenda-dense-recurrence-roadmap.md).
+- **Event presentation** (`eventDisplay`, an `AgendaEventDisplay` of
+  `everyOccurrence` / `perEvent` / `summary`, **`everyOccurrence` by default**,
+  2026-08-23): the events layer's twin of `fastingDisplay`, replacing the
+  `collapseRecurring` bool for the same reason — three mutually exclusive
+  presentations, where a second flag would have encoded "collapse *and*
+  summarize". Persisted by name under `calendar_upcoming_event_display`; when
+  absent the retired `calendar_upcoming_collapse_recurring` boolean is read
+  once (`true` → `perEvent`, `false` → `everyOccurrence`) and never written
+  again. Condensing the events layer is **entirely opt-in** — an install that
+  never touched it opens on exactly the rows it always had.
+  - **`perEvent`** is the shipped collapse: the post-filter described above,
+    one row per recurring event carrying `occurrenceCountInWindow`.
+  - **`summary`** is one card per **category** — a category is to events what a
+    tradition is to fasting, the thing that gives a row its colour, icon and
+    identity. `EventAgenda.categorySummariesOf` folds the scan's own output
+    into one `EventCategorySummary` per category (its occurrences, the count of
+    **distinct** events behind them, first/last day), so it is a **post-pass**
+    costing **zero** `occursOn` calls and can only ever describe occurrences the
+    scan — and its filters, and the search query — already produced. The scan
+    runs uncollapsed in this mode (`collapseRecurring: false`), because the card
+    wants both numbers and the collapse pass would throw the occurrence tally
+    away. Categories are ordered by first in-window occurrence, matching the
+    time ordering of everything else in the agenda.
+  - The card's subtitle leads with **distinct events** (a daily event across
+    ninety days is one event, not ninety), adds the occurrence tally only when
+    it exceeds that count, then the range: *"12 events · 47× in window ·
+    Aug 23 – Sep 21"*. `AgendaEventSummaryRow` is not an `AgendaEntryRow`, so
+    the entry counts exclude it like its two siblings, and in summary mode
+    `buildAgendaRows` walks an **empty occurrence cursor** — the cards are a
+    fold of the same list, so leaving the rows in would show everything twice.
+- **Summary cards sort on `(priority, insertion index)`, never priority alone.**
+  `List.sort` is not stable in Dart and cards legitimately share a band — every
+  event category sits in the event band (0), two fasting traditions share 160 —
+  so a bare priority sort let identical input reshuffle between rebuilds. Events
+  lead, then the holiday card (150), then fasting (160), matching the day panel.
+- **The drill-down can edit (2026-08-23).** `AgendaDayListEntry.onEdit` is an
+  optional trailing action: event rows open the editor with it, while a holiday
+  or fasting day has nothing to open and leaves it null, which is also what
+  keeps those rows free of an empty action strip. The sheet **resolves an
+  intent rather than running it** — `Future<({DateTime? focusDay, VoidCallback?
+  edit})?>` — so the editor opens after the sheet has closed instead of stacked
+  on top of it, the same contract `EventDetailSheet` follows. That keeps the
+  sheet dumb: still no facade reads, and its one string (the edit tooltip) is
+  passed in.
 - **Fasting presentation** (`fastingDisplay`, an `AgendaFastingDisplay` of
   `everyDay` / `periods` / `summary`, **`periods` by default**): a
   `SegmentedButton` in the filters sheet's Display section, shown only when
@@ -1428,6 +1472,56 @@ The area under the grid is now a mode-switched panel owned by
     neither can claim days the search excluded. `fastingDisplay` stays out of
     `restrictiveFilterCount` and the summary-chip row for the same reason
     `collapseRecurring` does: it condenses rows, it never hides content.
+- **Holiday presentation** (`holidayDisplay`, an `AgendaHolidayDisplay` of
+  `everyDay` / `summary`, **`everyDay` by default**, 2026-08-23): the two-value
+  twin of `fastingDisplay`, with no `periods` analogue because a holiday is a
+  single day and has no run to collapse into. A second `SegmentedButton` under
+  the fasting one in the filters sheet's Display section — **ungated**, since
+  holidays are always available where fasting waits on `FastingCalendar
+  .isEnabled`. Persisted by name under `calendar_upcoming_holiday_display`; a
+  new axis rather than a replacement, so unlike the fasting key it has no
+  legacy value to fall back on and no migration.
+  - **No scan of its own.** `_recomputeHolidays` is untouched: the days are
+    already resolved, query-filtered and ascending, so `summary` is a pure
+    *rendering* choice over the same list. `holidayDisplay` in the view's
+    `_rowsFor` memo key is the whole mechanism — `didUpdateWidget` needs no
+    branch for it, and flipping the control costs zero `occursOn` calls.
+  - In `summary` mode `buildAgendaRows` walks an **empty** holiday cursor (so
+    no day header or entry row is emitted for a holiday-only day) and builds
+    one `AgendaHolidaySummaryRow` from the same `holidayDays` list. Icon,
+    colour, key and priority mirror `PublicHolidaySummaryProvider` exactly;
+    the title is the existing `upcomingShowHolidays` ("Holidays") and the
+    subtitle is `"<upcomingHolidayCount> · <rangeLabel(first, last)>"`.
+- **Summary cards sort by `DaySummaryEntry.priority`**, not by a hardcoded
+  order: the public holiday sits at 150 and fasting defaults to
+  `FastingRowPlacement.afterHolidays` (160), so the holiday card leads — and a
+  tradition the user placed `first` (10) outranks it, exactly as it does in the
+  day panel. One ranking rule for both surfaces instead of two.
+- **The drill-down** (`agenda_day_list_sheet.dart`, 2026-08-23) is shared by
+  both summary cards: an `IconButton` on the card's right (`onShowAll`,
+  `upcomingShowAllDays`) opens `AgendaDayListSheet`, which lists every day the
+  card stands for and pops the tapped one; the view routes it back through
+  `onDaySelected`, already tagged `CalendarSelectionSource.agendaRow` by the
+  panel, so choosing a day never re-anchors the list it came from. Rules:
+  - **Its scope is the card's scope** — the agenda window. A sheet reaching
+    further would contradict the number the user just tapped. This is also why
+    `FastingSummary` carries `days`: re-walking the window in the sheet would
+    drop the scan's `dayFilter` and quietly disagree with `dayCount`. The two
+    are the same list by construction (`days.length` *is* the count).
+  - **The sheet is deliberately dumb** — no `PublicHolidays`, no
+    `FastingCalendar`, no `AppLocalizations`. It renders a pre-resolved
+    `AgendaDayList` (the card's own title + subtitle, plus `AgendaDayListEntry`
+    rows), which is what lets one sheet serve both cards and a third source
+    later. The entry builders live beside `_fastingSummaryEntry` in
+    `agenda_list_view.dart`, and are called **on press**, never per frame.
+  - Row titles differ per source on purpose: a holiday list leads with the
+    **name** (every row is a different holiday, `labelOf` carrying the
+    "(observed)" suffix) and a fasting list with the **date** (every row
+    belongs to the same fast, so only the date varies). Both dates go through
+    the existing `AgendaListView.dayHeaderLabel`, inheriting its locale cache
+    and its Today/Tomorrow labels; the fasting subtitle reuses
+    `FastingSummaryProvider` filtered to the tradition, exactly as
+    `_fastingEntries` does for run rows.
 - **Three independently-suppressible layers.** The sheet presents them as three
   peer toggles — **Events / Holidays / Fasting** — with All / Recurring /
   One-time as a `SegmentedButton` *under* Events. The model underneath is

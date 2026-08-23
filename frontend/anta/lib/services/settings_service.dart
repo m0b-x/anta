@@ -659,11 +659,14 @@ class SettingsService {
         SettingsKeys.calendarUpcomingShowFasting,
         SettingsKeys.defaultCalendarUpcomingShowFasting,
       ),
-      collapseRecurring: await _getBool(
-        SettingsKeys.calendarUpcomingCollapseRecurring,
-        SettingsKeys.defaultCalendarUpcomingCollapseRecurring,
-      ),
+      eventDisplay: await _readUpcomingEventDisplay(),
       fastingDisplay: await _readUpcomingFastingDisplay(),
+      holidayDisplay: AgendaHolidayDisplay.fromName(
+        await _db.userSettingsDao.getValue(
+              SettingsKeys.calendarUpcomingHolidayDisplay,
+            ) ??
+            SettingsKeys.defaultCalendarUpcomingHolidayDisplay,
+      ),
       followSelectedDay: await _getBool(
         SettingsKeys.calendarUpcomingFollowSelectedDay,
         SettingsKeys.defaultCalendarUpcomingFollowSelectedDay,
@@ -688,11 +691,34 @@ class SettingsService {
     return UpcomingAgendaFilters.decodePriorities(raw);
   }
 
+  /// Reads the event presentation, falling back to the superseded
+  /// `collapse_recurring` boolean when the new key has never been written
+  /// (`true` was one row per event, `false` one row per occurrence). A
+  /// read-time fallback rather than a migration pass, exactly like
+  /// [_readUpcomingFastingDisplay].
+  Future<AgendaEventDisplay> _readUpcomingEventDisplay() async {
+    final raw = await _db.userSettingsDao.getValue(
+      SettingsKeys.calendarUpcomingEventDisplay,
+    );
+    if (raw != null) return AgendaEventDisplay.fromName(raw);
+    final legacy = await _db.userSettingsDao.getValue(
+      SettingsKeys.calendarUpcomingCollapseRecurring,
+    );
+    if (legacy == null) {
+      return AgendaEventDisplay.fromName(
+        SettingsKeys.defaultCalendarUpcomingEventDisplay,
+      );
+    }
+    return legacy == 'true'
+        ? AgendaEventDisplay.perEvent
+        : AgendaEventDisplay.everyOccurrence;
+  }
+
   /// Reads the fasting presentation, falling back to the superseded
   /// `collapse_fasting` boolean when the new key has never been written
   /// (`true` was one row per period, `false` one row per day). A read-time
   /// fallback rather than a migration pass, exactly like the schedule's
-  /// legacy weekday CSV  14 so nobody's configuration resets on update.
+  /// legacy weekday CSV — so nobody's configuration resets on update.
   Future<AgendaFastingDisplay> _readUpcomingFastingDisplay() async {
     final raw = await _db.userSettingsDao.getValue(
       SettingsKeys.calendarUpcomingFastingDisplay,
@@ -743,13 +769,17 @@ class SettingsService {
       SettingsKeys.calendarUpcomingShowFasting,
       filters.showFasting,
     );
-    await _setBool(
-      SettingsKeys.calendarUpcomingCollapseRecurring,
-      filters.collapseRecurring,
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.calendarUpcomingEventDisplay,
+      filters.eventDisplay.name,
     );
     await _db.userSettingsDao.setValue(
       SettingsKeys.calendarUpcomingFastingDisplay,
       filters.fastingDisplay.name,
+    );
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.calendarUpcomingHolidayDisplay,
+      filters.holidayDisplay.name,
     );
     await _setBool(
       SettingsKeys.calendarUpcomingFollowSelectedDay,

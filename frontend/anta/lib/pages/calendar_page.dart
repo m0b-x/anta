@@ -32,6 +32,7 @@ import '../utils/custom_snackbar.dart';
 import '../utils/event_agenda.dart';
 import '../utils/markdown_color_syntax.dart';
 import '../widgets/app_dialogs.dart';
+import '../widgets/calendar_add_fab.dart';
 import '../widgets/calendar_bottom_panel.dart';
 import '../widgets/calendar_day_bars.dart';
 import '../widgets/calendar_day_cell.dart';
@@ -71,6 +72,13 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   /// on purpose: restoring a hidden calendar across app opens would read as
   /// "the calendar disappeared", so every visit starts with the grid shown.
   bool _panelExpanded = false;
+
+  /// Whether the add button shows its day label. Driven by the panel's scroll
+  /// through a notifier rather than `setState`, because the only widget that
+  /// cares is the button: a page-level rebuild on every scroll tick would
+  /// dirty the 42-cell grid and the whole bottom panel, which is exactly what
+  /// their `sameGridInputs` / `samePanelInputs` gates exist to avoid.
+  final ValueNotifier<bool> _fabExtended = ValueNotifier(true);
 
   /// Memoized day-bar resolver. Its providers are stateless and depend only
   /// on the localization and the missed-display setting, both of which change
@@ -122,6 +130,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   @override
   void dispose() {
     AppNavigator.routeObserver.unsubscribe(this);
+    _fabExtended.dispose();
     super.dispose();
   }
 
@@ -346,116 +355,128 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
       // ticks the panel generates. Each half sits under its own
       // RepaintBoundary so a panel repaint cannot dirty the 42-cell grid's
       // layer.
-      body: BlocBuilder<CalendarBloc, CalendarPageState>(
-        buildWhen: (previous, current) =>
-            previous.runtimeType != current.runtimeType ||
-            (previous is CalendarPageError &&
-                current is CalendarPageError &&
-                previous.message != current.message),
-        builder: (context, state) {
-          if (state is CalendarPageLoading || state is CalendarPageInitial) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (state is CalendarPageError) {
-            return Center(child: Text(state.message));
-          }
-          return Column(
-            children: [
-              // AnimatedSize collapses the grid to zero height when the
-              // panel is expanded — the grid keeps its own state either way
-              // and no manual layout math is involved.
-              AnimatedSize(
-                duration: const Duration(milliseconds: 250),
-                curve: Curves.easeInOut,
-                alignment: Alignment.topCenter,
-                child: _panelExpanded
-                    ? const SizedBox(width: double.infinity)
-                    : RepaintBoundary(
-                        child: BlocBuilder<CalendarBloc, CalendarPageState>(
-                          buildWhen: (previous, current) =>
-                              previous is! CalendarPageLoaded ||
-                              current is! CalendarPageLoaded ||
-                              !previous.sameGridInputs(current),
-                          builder: (context, state) {
-                            if (state is! CalendarPageLoaded) {
-                              return const SizedBox(width: double.infinity);
-                            }
-                            return _CalendarTable(
-                              state: state,
-                              appearance: _appearance,
-                              barsResolver: _resolverFor(l10n),
-                              tintResolver: _cellTintResolver,
-                              onDayLongPressed: (day) =>
-                                  _quickAddFromTemplate(context, day),
-                            );
-                          },
+      // Catches scrolls from whichever panel mode is mounted, so the add
+      // button's collapse needs no plumbing through the panel. `fabExtendedFor`
+      // owns the rules — notably that horizontal scrollables (the agenda's
+      // chip row, the timeline's hour track) are ignored.
+      body: NotificationListener<UserScrollNotification>(
+        onNotification: (notification) {
+          final extended = fabExtendedFor(notification);
+          if (extended != null) _fabExtended.value = extended;
+          // Never swallow it: the panel's own scroll machinery listens too.
+          return false;
+        },
+        child: BlocBuilder<CalendarBloc, CalendarPageState>(
+          buildWhen: (previous, current) =>
+              previous.runtimeType != current.runtimeType ||
+              (previous is CalendarPageError &&
+                  current is CalendarPageError &&
+                  previous.message != current.message),
+          builder: (context, state) {
+            if (state is CalendarPageLoading || state is CalendarPageInitial) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (state is CalendarPageError) {
+              return Center(child: Text(state.message));
+            }
+            return Column(
+              children: [
+                // AnimatedSize collapses the grid to zero height when the
+                // panel is expanded — the grid keeps its own state either way
+                // and no manual layout math is involved.
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 250),
+                  curve: Curves.easeInOut,
+                  alignment: Alignment.topCenter,
+                  child: _panelExpanded
+                      ? const SizedBox(width: double.infinity)
+                      : RepaintBoundary(
+                          child: BlocBuilder<CalendarBloc, CalendarPageState>(
+                            buildWhen: (previous, current) =>
+                                previous is! CalendarPageLoaded ||
+                                current is! CalendarPageLoaded ||
+                                !previous.sameGridInputs(current),
+                            builder: (context, state) {
+                              if (state is! CalendarPageLoaded) {
+                                return const SizedBox(width: double.infinity);
+                              }
+                              return _CalendarTable(
+                                state: state,
+                                appearance: _appearance,
+                                barsResolver: _resolverFor(l10n),
+                                tintResolver: _cellTintResolver,
+                                onDayLongPressed: (day) =>
+                                    _quickAddFromTemplate(context, day),
+                              );
+                            },
+                          ),
                         ),
-                      ),
-              ),
-              const Divider(height: 1),
-              Expanded(
-                child: RepaintBoundary(
-                  child: BlocBuilder<CalendarBloc, CalendarPageState>(
-                    // The panel ignores focus/format, so month paging and a
-                    // format toggle must not rebuild it — that is what used to
-                    // re-run the agenda scan on every grid page turn.
-                    buildWhen: (previous, current) =>
-                        previous is! CalendarPageLoaded ||
-                        current is! CalendarPageLoaded ||
-                        !previous.samePanelInputs(current),
-                    builder: (context, state) {
-                      if (state is! CalendarPageLoaded) {
-                        return const SizedBox.shrink();
-                      }
-                      return CalendarBottomPanel(
-                        loaded: state,
-                        expanded: _panelExpanded,
-                        onToggleExpanded: () =>
-                            setState(() => _panelExpanded = !_panelExpanded),
-                        onEditEvent: (event, day) => _openEditorSheet(
-                          context,
-                          initialEvent: event,
-                          occurrenceDay: day,
-                        ),
-                        onShowEvent: (event, day) =>
-                            _openDetailSheet(context, event, day),
-                        onOpenNote: (event) => _openLinkedNote(context, event),
-                        colorPalette: _colorPalette,
-                        showRecurrenceLabels: _appearance.showRecurrenceLabels,
-                        missedDisplay: _appearance.missedDisplay,
-                        onSuppressHoliday: (day) =>
-                            _removeHoliday(context, day),
-                        onToggleMissed: (event, day, missed) =>
-                            _setOccurrenceMissed(
-                              context.read<CalendarBloc>(),
-                              event.id,
-                              day,
-                              missed,
-                            ),
-                      );
-                    },
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: RepaintBoundary(
+                    child: BlocBuilder<CalendarBloc, CalendarPageState>(
+                      // The panel ignores focus/format, so month paging and a
+                      // format toggle must not rebuild it — that is what used to
+                      // re-run the agenda scan on every grid page turn.
+                      buildWhen: (previous, current) =>
+                          previous is! CalendarPageLoaded ||
+                          current is! CalendarPageLoaded ||
+                          !previous.samePanelInputs(current),
+                      builder: (context, state) {
+                        if (state is! CalendarPageLoaded) {
+                          return const SizedBox.shrink();
+                        }
+                        return CalendarBottomPanel(
+                          loaded: state,
+                          expanded: _panelExpanded,
+                          onToggleExpanded: () =>
+                              setState(() => _panelExpanded = !_panelExpanded),
+                          onEditEvent: (event, day) => _openEditorSheet(
+                            context,
+                            initialEvent: event,
+                            occurrenceDay: day,
+                          ),
+                          onShowEvent: (event, day) =>
+                              _openDetailSheet(context, event, day),
+                          onOpenNote: (event) =>
+                              _openLinkedNote(context, event),
+                          colorPalette: _colorPalette,
+                          showRecurrenceLabels:
+                              _appearance.showRecurrenceLabels,
+                          missedDisplay: _appearance.missedDisplay,
+                          onSuppressHoliday: (day) =>
+                              _removeHoliday(context, day),
+                          onToggleMissed: (event, day, missed) =>
+                              _setOccurrenceMissed(
+                                context.read<CalendarBloc>(),
+                                event.id,
+                                day,
+                                missed,
+                              ),
+                        );
+                      },
+                    ),
                   ),
                 ),
-              ),
-            ],
-          );
-        },
+              ],
+            );
+          },
+        ),
       ),
       floatingActionButton: BlocBuilder<CalendarBloc, CalendarPageState>(
         buildWhen: (previous, current) =>
             _selectedDayOf(previous) != _selectedDayOf(current),
         builder: (context, state) {
-          final selectedDay = _selectedDayOf(state);
-          return FloatingActionButton(
-            tooltip: l10n.addEvent,
+          return CalendarAddFab(
             // Inert until the calendar services have resolved. The editor
             // reads `CalendarCategories`, which stays empty until then, so an
             // early tap would open a picker showing no categories and default
             // the event to the `other` fallback.
-            onPressed: selectedDay == null
-                ? null
-                : () => _openEditorSheet(context, day: selectedDay),
-            child: const Icon(Icons.add_rounded),
+            selectedDay: _selectedDayOf(state),
+            appearance: _appearance,
+            extended: _fabExtended,
+            onPressed: (day) => _openEditorSheet(context, day: day),
           );
         },
       ),

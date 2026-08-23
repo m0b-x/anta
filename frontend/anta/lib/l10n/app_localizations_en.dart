@@ -412,10 +412,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get resetToDefault => 'Reset to Default';
 
   @override
-  String get eventDate => 'Date';
-
-  @override
-  String get startsOn => 'Starts on this date';
+  String get eventDate => 'Starting date';
 
   @override
   String get repeatMode => 'Repeats';
@@ -1032,6 +1029,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String eventDetailsSeriesStart(String date) {
     return 'Repeats since $date';
   }
+
+  @override
+  String get eventAppearance => 'Icon & color';
 
   @override
   String get eventColor => 'Color';
@@ -3344,7 +3344,27 @@ class AppLocalizationsEn extends AppLocalizations {
   String get upcomingClearCategories => 'All categories';
 
   @override
-  String get upcomingCollapseRecurring => 'Collapse recurring';
+  String get upcomingEventDisplayTitle => 'Event rows';
+
+  @override
+  String get upcomingEventDisplayEveryOccurrence => 'Every one';
+
+  @override
+  String get upcomingEventDisplayPerEvent => 'Per event';
+
+  @override
+  String get upcomingEventDisplaySummary => 'One card';
+
+  @override
+  String upcomingEventCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count events',
+      one: '1 event',
+    );
+    return '$_temp0';
+  }
 
   @override
   String get upcomingFastingDisplayTitle => 'Fasting rows';
@@ -3357,6 +3377,29 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get upcomingFastingDisplaySummary => 'One card';
+
+  @override
+  String get upcomingHolidayDisplayTitle => 'Holiday rows';
+
+  @override
+  String get upcomingHolidayDisplayEveryDay => 'Every day';
+
+  @override
+  String get upcomingHolidayDisplaySummary => 'One card';
+
+  @override
+  String upcomingHolidayCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count holidays',
+      one: '1 holiday',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get upcomingShowAllDays => 'Show every day';
 
   @override
   String get upcomingFollowSelectedDay => 'Start from selected day';

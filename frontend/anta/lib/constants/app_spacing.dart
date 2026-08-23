@@ -69,6 +69,13 @@ class AppSpacing {
   );
   static const EdgeInsets iconPadding = EdgeInsets.only(right: sm);
 
+  /// Vertical space a Scaffold FAB needs before scroll content can pass under
+  /// it: the 56px button, the Scaffold's own 16px margin, and 16px of breathing
+  /// room. Any scrollable sharing a screen with a FAB adds this to its bottom
+  /// padding — that, and not hiding the button on scroll, is what makes the
+  /// last row's trailing actions reachable at every content length.
+  static const double fabClearance = 88.0;
+
   // Toolbar offset for snackbars
   static const double toolbarOffset = 70.0;
   static EdgeInsets snackbarMargin({bool withToolbarOffset = false}) {

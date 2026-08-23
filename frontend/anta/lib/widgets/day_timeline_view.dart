@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../constants/app_spacing.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_colors.dart';
 import '../constants/event_presence.dart';
@@ -147,7 +148,13 @@ class DayTimelineView extends StatelessWidget {
           ),
         Expanded(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(0, 8, 16, 24),
+            // Clears the page's floating add button — see AppSpacing.
+            padding: const EdgeInsets.fromLTRB(
+              0,
+              8,
+              16,
+              24 + AppSpacing.fabClearance,
+            ),
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final trackWidth = constraints.maxWidth - gutterWidth;

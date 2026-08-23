@@ -54,13 +54,94 @@ void main() {
     );
   }
 
+  // "Every one"/"Every day" and "One card" label segments on **three** display
+  // controls now, so every assertion addresses them by position rather than by
+  // text alone. They are built in order: events, fasting (only when a tradition
+  // is configured), then holidays.
+  Finder segmentAt(String label, int index) => find.text(label).at(index);
+
   testWidgets('the fasting control is absent while fasting is inert', (
     tester,
   ) async {
     await openSheet(tester, const UpcomingAgendaFilters());
+    await scrollTo(tester, find.text('Holiday rows'));
 
     expect(find.text('Fasting rows'), findsNothing);
-    expect(find.text('One card'), findsNothing);
+    expect(find.text('Periods'), findsNothing);
+    // Events and holidays are never inert, so their two controls remain — and
+    // between them they carry "One card" twice.
+    expect(find.text('Event rows'), findsOneWidget);
+    expect(find.text('One card'), findsNWidgets(2));
+  });
+
+  testWidgets('picking one holiday card survives Apply', (tester) async {
+    final applied = await openSheet(tester, const UpcomingAgendaFilters());
+
+    await scrollTo(tester, find.text('Holiday rows'));
+    await tester.tap(find.text('One card').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Apply'));
+    await tester.pumpAndSettle();
+
+    expect(applied.value, isNotNull);
+    expect(applied.value!.holidayDisplay, AgendaHolidayDisplay.summary);
+  });
+
+  testWidgets('Reset returns the holiday presentation to every day', (
+    tester,
+  ) async {
+    final applied = await openSheet(
+      tester,
+      const UpcomingAgendaFilters(holidayDisplay: AgendaHolidayDisplay.summary),
+    );
+
+    await tester.tap(find.text('Reset'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Apply'));
+    await tester.pumpAndSettle();
+
+    expect(applied.value!.holidayDisplay, AgendaHolidayDisplay.everyDay);
+  });
+
+  testWidgets('the event control offers all three presentations', (
+    tester,
+  ) async {
+    await openSheet(tester, const UpcomingAgendaFilters());
+    await scrollTo(tester, find.text('Event rows'));
+
+    expect(find.text('Every one'), findsOneWidget);
+    expect(find.text('Per event'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('picking one event card survives Apply', (tester) async {
+    final applied = await openSheet(tester, const UpcomingAgendaFilters());
+
+    await scrollTo(tester, find.text('Event rows'));
+    await tester.tap(find.text('One card').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Apply'));
+    await tester.pumpAndSettle();
+
+    expect(applied.value!.eventDisplay, AgendaEventDisplay.summary);
+    // The three axes are independent: picking one must not drag the others.
+    expect(applied.value!.holidayDisplay, AgendaHolidayDisplay.everyDay);
+  });
+
+  testWidgets('Reset returns the event presentation to every occurrence', (
+    tester,
+  ) async {
+    final applied = await openSheet(
+      tester,
+      const UpcomingAgendaFilters(eventDisplay: AgendaEventDisplay.summary),
+    );
+
+    await tester.tap(find.text('Reset'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Apply'));
+    await tester.pumpAndSettle();
+
+    expect(applied.value!.eventDisplay, AgendaEventDisplay.everyOccurrence);
   });
 
   group('with a tradition configured', () {
@@ -71,30 +152,36 @@ void main() {
     );
     tearDown(FastingCalendar.resetConfiguration);
 
-    testWidgets('offers all three presentations', (tester) async {
+    testWidgets('both display controls stand side by side', (tester) async {
       await openSheet(tester, const UpcomingAgendaFilters());
-      await scrollTo(tester, find.text('Fasting rows'));
+      await scrollTo(tester, find.text('Holiday rows'));
 
-      expect(find.text('Every day'), findsOneWidget);
+      expect(find.text('Fasting rows'), findsOneWidget);
+      expect(find.text('Holiday rows'), findsOneWidget);
+      // Three fasting segments plus two holiday ones, so the shared labels
+      // appear twice and "Periods" only once.
       expect(find.text('Periods'), findsOneWidget);
-      expect(find.text('One card'), findsOneWidget);
+      // Fasting and holidays both say "Every day"; all three say "One card".
+      expect(find.text('Every day'), findsNWidgets(2));
+      expect(find.text('One card'), findsNWidgets(3));
       // Three labels in one segmented row is the layout most at risk here;
       // they ellipsize rather than overflow, exactly like the event-type
       // control above them.
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('picking one card survives Apply', (tester) async {
+    testWidgets('the two axes move independently', (tester) async {
       final applied = await openSheet(tester, const UpcomingAgendaFilters());
 
-      await scrollTo(tester, find.text('One card'));
-      await tester.tap(find.text('One card'));
+      await scrollTo(tester, find.text('Holiday rows'));
+      await tester.tap(segmentAt('One card', 1));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Apply'));
       await tester.pumpAndSettle();
 
-      expect(applied.value, isNotNull);
       expect(applied.value!.fastingDisplay, AgendaFastingDisplay.summary);
+      // Untouched: picking a fasting presentation must not drag holidays along.
+      expect(applied.value!.holidayDisplay, AgendaHolidayDisplay.everyDay);
     });
 
     testWidgets('Reset returns the presentation to periods', (tester) async {

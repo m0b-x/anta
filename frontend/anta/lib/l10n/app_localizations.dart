@@ -868,17 +868,11 @@ abstract class AppLocalizations {
   /// **'Reset to Default'**
   String get resetToDefault;
 
-  /// Section label in the event editor for the event date / recurrence anchor
+  /// Section label in the event editor for the recurring event start date
   ///
   /// In en, this message translates to:
-  /// **'Date'**
+  /// **'Starting date'**
   String get eventDate;
-
-  /// Subtitle shown under the date row for recurring events
-  ///
-  /// In en, this message translates to:
-  /// **'Starts on this date'**
-  String get startsOn;
 
   /// Section label for the one-time / recurring toggle
   ///
@@ -1803,6 +1797,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Repeats since {date}'**
   String eventDetailsSeriesStart(String date);
+
+  /// Section label for the combined icon and color picker in the event editor
+  ///
+  /// In en, this message translates to:
+  /// **'Icon & color'**
+  String get eventAppearance;
 
   /// Section label for the per-event color picker
   ///
@@ -5980,11 +5980,35 @@ abstract class AppLocalizations {
   /// **'All categories'**
   String get upcomingClearCategories;
 
-  /// Agenda display switch: show each recurring event once (its next occurrence) instead of one row per occurring day
+  /// Agenda display control label: how events are listed
   ///
   /// In en, this message translates to:
-  /// **'Collapse recurring'**
-  String get upcomingCollapseRecurring;
+  /// **'Event rows'**
+  String get upcomingEventDisplayTitle;
+
+  /// Agenda event display option: one row per occurring day
+  ///
+  /// In en, this message translates to:
+  /// **'Every one'**
+  String get upcomingEventDisplayEveryOccurrence;
+
+  /// Agenda event display option: a repeating event shown once, carrying how many occurrences it stands for
+  ///
+  /// In en, this message translates to:
+  /// **'Per event'**
+  String get upcomingEventDisplayPerEvent;
+
+  /// Agenda event display option: a single summary card per category, digesting the whole window
+  ///
+  /// In en, this message translates to:
+  /// **'One card'**
+  String get upcomingEventDisplaySummary;
+
+  /// How many distinct events a category summary card stands for
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one {1 event} other {{count} events}}'**
+  String upcomingEventCount(int count);
 
   /// Agenda display control label: how fasting days are listed
   ///
@@ -6009,6 +6033,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'One card'**
   String get upcomingFastingDisplaySummary;
+
+  /// Agenda display control label: how public holidays are listed
+  ///
+  /// In en, this message translates to:
+  /// **'Holiday rows'**
+  String get upcomingHolidayDisplayTitle;
+
+  /// Agenda holiday display option: one row per public holiday, interleaved by day
+  ///
+  /// In en, this message translates to:
+  /// **'Every day'**
+  String get upcomingHolidayDisplayEveryDay;
+
+  /// Agenda holiday display option: a single summary card digesting every public holiday in the window
+  ///
+  /// In en, this message translates to:
+  /// **'One card'**
+  String get upcomingHolidayDisplaySummary;
+
+  /// How many public holidays the summary card stands for, shown before its date range
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one {1 holiday} other {{count} holidays}}'**
+  String upcomingHolidayCount(int count);
+
+  /// Tooltip on a summary card's button opening the full list of the days it stands for
+  ///
+  /// In en, this message translates to:
+  /// **'Show every day'**
+  String get upcomingShowAllDays;
 
   /// Agenda display switch: the look-ahead window restarts from the day selected in the calendar instead of always starting today
   ///

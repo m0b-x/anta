@@ -2,12 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/constants/app_spacing.dart';
 import 'package:anta/constants/fasting_calendar.dart';
+import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/fasting_appearance.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/models/upcoming_agenda_filters.dart';
 import 'package:anta/utils/event_agenda.dart';
+import 'package:anta/widgets/agenda_list_view.dart';
 import 'package:anta/widgets/upcoming_agenda_view.dart';
 
 /// Widget tests for [UpcomingAgendaView], driven against fakes with no
@@ -41,6 +45,8 @@ void main() {
     required UpcomingAgendaFilters filters,
     ValueChanged<UpcomingAgendaFilters>? onFiltersChanged,
     VoidCallback? onResetAnchor,
+    ValueChanged<DateTime>? onDaySelected,
+    void Function(CalendarEvent event, DateTime day)? onEditEvent,
   }) {
     return tester.pumpWidget(
       MaterialApp(
@@ -55,8 +61,8 @@ void main() {
             hiddenCategoryIds: const {},
             filters: filters,
             onFiltersChanged: onFiltersChanged ?? (_) {},
-            onDaySelected: (_) {},
-            onEditEvent: (_, _) {},
+            onDaySelected: onDaySelected ?? (_) {},
+            onEditEvent: onEditEvent ?? (_, _) {},
             onOpenNote: (_) {},
           ),
         ),
@@ -237,7 +243,7 @@ void main() {
         anchorDay: EventAgenda.dateOnly(DateTime.now()),
         filters: const UpcomingAgendaFilters(
           showHolidays: true,
-          collapseRecurring: true,
+          eventDisplay: AgendaEventDisplay.perEvent,
         ),
       );
 
@@ -358,6 +364,126 @@ void main() {
     });
   });
 
+  testWidgets('the list reserves room for the page\'s add button', (
+    tester,
+  ) async {
+    // The reported bug: the FAB floats over this list, so without reserved
+    // clearance the last row's edit and open-note buttons sit underneath it
+    // and cannot be tapped. Padding rather than hiding the button is what
+    // makes them reachable at every scroll position.
+    await pumpView(
+      tester,
+      anchorDay: DateTime.utc(2026, 8, 10),
+      filters: const UpcomingAgendaFilters(rangeDays: 30),
+    );
+
+    final list = tester.widget<AgendaListView>(find.byType(AgendaListView));
+    expect(list.padding.bottom, greaterThanOrEqualTo(AppSpacing.fabClearance));
+  });
+
+  group('holiday display', () {
+    // Assumption (Aug 15) and All Saints (Nov 1) both resolve through the
+    // uninitialized fixed-date fallback, so a 90-day window from Aug 10 holds
+    // exactly two holidays with no profile configured.
+    const shown = UpcomingAgendaFilters(rangeDays: 90, showHolidays: true);
+    final anchor = DateTime.utc(2026, 8, 10);
+
+    testWidgets('every-day mode lists the holiday on its own day', (
+      tester,
+    ) async {
+      // A short window anchored on the holiday itself: the list is lazily
+      // built, so a 90-day window would leave the row below the fold and the
+      // absence would prove nothing.
+      await pumpView(
+        tester,
+        anchorDay: DateTime.utc(2026, 8, 14),
+        filters: const UpcomingAgendaFilters(rangeDays: 3, showHolidays: true),
+      );
+
+      expect(find.text('Assumption of Mary'), findsOneWidget);
+      expect(find.text('Holidays'), findsNothing);
+    });
+
+    testWidgets('summary mode condenses them into one card', (tester) async {
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: shown.copyWith(holidayDisplay: AgendaHolidayDisplay.summary),
+      );
+
+      expect(find.text('Holidays'), findsOneWidget);
+      expect(find.text('2 holidays · Aug 15 – Nov 1'), findsOneWidget);
+      // The individual rows are gone from the list — they live in the
+      // drill-down now.
+      expect(find.text('Assumption of Mary'), findsNothing);
+    });
+
+    testWidgets('changing the presentation costs no event rescan', (
+      tester,
+    ) async {
+      // Holidays never enter the event scan and the days are already resolved,
+      // so this is a pure re-render: the memo key is the whole mechanism.
+      await pumpView(tester, anchorDay: anchor, filters: shown);
+
+      CalendarEvent.debugOccursOnCalls = 0;
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: shown.copyWith(holidayDisplay: AgendaHolidayDisplay.summary),
+      );
+      await tester.pump();
+      expect(CalendarEvent.debugOccursOnCalls, 0);
+    });
+
+    testWidgets('the card drills down to the holidays it stands for', (
+      tester,
+    ) async {
+      DateTime? selected;
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: shown.copyWith(holidayDisplay: AgendaHolidayDisplay.summary),
+        onDaySelected: (day) => selected = day,
+      );
+
+      await tester.tap(find.byTooltip('Show every day'));
+      await tester.pumpAndSettle();
+
+      // Same two holidays the card counted, now named and dated.
+      expect(find.text('Assumption of Mary'), findsOneWidget);
+      expect(find.text("All Saints' Day"), findsOneWidget);
+      expect(find.text('Saturday, August 15'), findsOneWidget);
+
+      await tester.tap(find.text("All Saints' Day"));
+      await tester.pumpAndSettle();
+
+      expect(selected, DateTime.utc(2026, 11, 1));
+    });
+
+    testWidgets('the card is not counted among the entries', (tester) async {
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: shown.copyWith(holidayDisplay: AgendaHolidayDisplay.summary),
+      );
+      final withCard = header(tester);
+
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: shown.copyWith(holidayDisplay: AgendaHolidayDisplay.everyDay),
+      );
+      await tester.pump();
+      final withRows = header(tester);
+
+      // Ninety daily occurrences either way; the two holiday rows are entries
+      // and the card that replaces them is not, so the count drops by exactly
+      // two rather than by one.
+      expect(withRows, contains('92 entries'));
+      expect(withCard, contains('90 entries'));
+    });
+  });
+
   group('fasting display', () {
     setUp(
       () => FastingCalendar.configure(
@@ -422,6 +548,106 @@ void main() {
       );
       await tester.pump();
       expect(find.text('Dormition Fast'), findsOneWidget);
+    });
+  });
+
+  group('event display', () {
+    const window = UpcomingAgendaFilters(rangeDays: 30);
+    final anchor = DateTime.utc(2026, 8, 10);
+
+    // `CalendarCategories` is a facade `CategoryService` normally fills; a bare
+    // widget test resolves every id to the `other` fallback without this, so
+    // the card would be titled "Other" whatever category it holds.
+    setUp(() {
+      CalendarCategories.updateCache([
+        for (final (index, seed) in CalendarCategories.builtInSeeds.indexed)
+          CalendarCategory(
+            id: seed.id,
+            name: seed.kind.name,
+            colorValue: seed.colorValue,
+            iconKey: seed.iconKey,
+            sortOrder: index,
+            isBuiltIn: true,
+          ),
+      ]);
+    });
+    tearDown(() => CalendarCategories.updateCache(const []));
+
+    testWidgets('the default lists every occurrence', (tester) async {
+      await pumpView(tester, anchorDay: anchor, filters: window);
+
+      expect(find.text('Leg day'), findsWidgets);
+      // No card: condensing the events layer is opt-in.
+      expect(find.text('Gym'), findsNothing);
+    });
+
+    testWidgets('summary mode condenses them to one card per category', (
+      tester,
+    ) async {
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: window.copyWith(eventDisplay: AgendaEventDisplay.summary),
+      );
+
+      expect(find.text('Gym'), findsOneWidget);
+      expect(find.text('Leg day'), findsNothing);
+      // One daily event across thirty days: one event, thirty occurrences.
+      expect(find.textContaining('1 event'), findsOneWidget);
+      expect(find.textContaining('30'), findsWidgets);
+    });
+
+    testWidgets('the card is not counted among the entries', (tester) async {
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: window.copyWith(eventDisplay: AgendaEventDisplay.summary),
+      );
+
+      // Thirty entry rows became one card, and a card is not an entry.
+      expect(header(tester), contains('0 entries'));
+    });
+
+    testWidgets('the drill-down lists the occurrences and can edit them', (
+      tester,
+    ) async {
+      CalendarEvent? edited;
+      DateTime? editedDay;
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: window.copyWith(eventDisplay: AgendaEventDisplay.summary),
+        onEditEvent: (event, day) {
+          edited = event;
+          editedDay = day;
+        },
+      );
+
+      await tester.tap(find.byTooltip('Show every day'));
+      await tester.pumpAndSettle();
+      expect(find.text('Leg day'), findsWidgets);
+
+      // Collapsing must never put editing further away than a row tap.
+      await tester.tap(find.byIcon(Icons.edit_outlined).first);
+      await tester.pumpAndSettle();
+
+      expect(edited?.id, 'e1');
+      expect(editedDay, anchor);
+      // The sheet closed first, so the editor never stacks on top of it.
+      expect(find.text('Show every day'), findsNothing);
+    });
+
+    testWidgets('per-event mode still collapses repeats to one row', (
+      tester,
+    ) async {
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: window.copyWith(eventDisplay: AgendaEventDisplay.perEvent),
+      );
+
+      expect(find.text('Leg day'), findsOneWidget);
+      expect(find.text('Gym'), findsNothing);
     });
   });
 }

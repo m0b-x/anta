@@ -415,10 +415,7 @@ class AppLocalizationsRo extends AppLocalizations {
   String get resetToDefault => 'Resetează la Implicit';
 
   @override
-  String get eventDate => 'Dată';
-
-  @override
-  String get startsOn => 'Începe la această dată';
+  String get eventDate => 'Data de început';
 
   @override
   String get repeatMode => 'Repetare';
@@ -1051,6 +1048,9 @@ class AppLocalizationsRo extends AppLocalizations {
   String eventDetailsSeriesStart(String date) {
     return 'Se repetă din $date';
   }
+
+  @override
+  String get eventAppearance => 'Pictogramă și culoare';
 
   @override
   String get eventColor => 'Culoare';
@@ -3397,7 +3397,28 @@ class AppLocalizationsRo extends AppLocalizations {
   String get upcomingClearCategories => 'Toate categoriile';
 
   @override
-  String get upcomingCollapseRecurring => 'Grupează recurente';
+  String get upcomingEventDisplayTitle => 'Rânduri de evenimente';
+
+  @override
+  String get upcomingEventDisplayEveryOccurrence => 'Fiecare';
+
+  @override
+  String get upcomingEventDisplayPerEvent => 'Pe eveniment';
+
+  @override
+  String get upcomingEventDisplaySummary => 'Un card';
+
+  @override
+  String upcomingEventCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de evenimente',
+      few: '$count evenimente',
+      one: '1 eveniment',
+    );
+    return '$_temp0';
+  }
 
   @override
   String get upcomingFastingDisplayTitle => 'Rânduri de post';
@@ -3410,6 +3431,30 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get upcomingFastingDisplaySummary => 'Un card';
+
+  @override
+  String get upcomingHolidayDisplayTitle => 'Rânduri de sărbători';
+
+  @override
+  String get upcomingHolidayDisplayEveryDay => 'Fiecare zi';
+
+  @override
+  String get upcomingHolidayDisplaySummary => 'Un card';
+
+  @override
+  String upcomingHolidayCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de sărbători',
+      few: '$count sărbători',
+      one: '1 sărbătoare',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get upcomingShowAllDays => 'Arată toate zilele';
 
   @override
   String get upcomingFollowSelectedDay => 'Începe din ziua selectată';

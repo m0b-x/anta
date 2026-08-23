@@ -21,6 +21,29 @@ enum AgendaEventType {
   }
 }
 
+/// How the upcoming agenda presents events — the third and busiest layer's
+/// twin of [AgendaFastingDisplay], replacing the `collapseRecurring` bool for
+/// the same reason: three mutually exclusive presentations of one thing, where
+/// a second boolean would have encoded "collapse *and* summarize".
+///
+/// [everyOccurrence] lists one row per occurring day (the shipped behaviour,
+/// and the default — this whole axis is opt-in), [perEvent] shows a repeating
+/// event once with its "N× in window" tally, and [summary] replaces the rows
+/// with a single card per **category**. Persisted by name; [fromName] falls
+/// back to [everyOccurrence] for a value written by a newer build.
+enum AgendaEventDisplay {
+  everyOccurrence,
+  perEvent,
+  summary;
+
+  static AgendaEventDisplay fromName(String? name) {
+    for (final display in values) {
+      if (display.name == name) return display;
+    }
+    return everyOccurrence;
+  }
+}
+
 /// How the upcoming agenda presents fasting days — three mutually exclusive
 /// presentations of one thing, so it can never encode the nonsense a second
 /// boolean stacked on the old collapse switch would allow (collapse *and*
@@ -40,6 +63,26 @@ enum AgendaFastingDisplay {
       if (display.name == name) return display;
     }
     return periods;
+  }
+}
+
+/// How the upcoming agenda presents public holidays — the two-value twin of
+/// [AgendaFastingDisplay], with no `periods` analogue because a holiday is a
+/// single day and has no run to collapse into.
+///
+/// [everyDay] interleaves one row per holiday (the shipped behaviour, and the
+/// default), [summary] replaces them with a single card digesting the window,
+/// whose drill-down lists the same holidays. Persisted by name; [fromName]
+/// falls back to [everyDay] for a value written by a newer build.
+enum AgendaHolidayDisplay {
+  everyDay,
+  summary;
+
+  static AgendaHolidayDisplay fromName(String? name) {
+    for (final display in values) {
+      if (display.name == name) return display;
+    }
+    return everyDay;
   }
 }
 
@@ -73,15 +116,19 @@ class UpcomingAgendaFilters extends Equatable {
   /// default, and inert unless a fasting tradition is configured.
   final bool showFasting;
 
-  /// Whether each recurring event is shown once (its next in-window
-  /// occurrence) instead of one row per occurring day. Off by default; the
-  /// recurrence label already conveys the cadence.
-  final bool collapseRecurring;
+  /// How events are presented — see [AgendaEventDisplay].
+  /// [AgendaEventDisplay.everyOccurrence] by default: condensing events is
+  /// opt-in, and the recurrence label already conveys the cadence.
+  final AgendaEventDisplay eventDisplay;
 
   /// How fasting days are presented — see [AgendaFastingDisplay].
   /// [AgendaFastingDisplay.periods] by default: a Lent is forty consecutive
   /// days, and listing each one buries everything else.
   final AgendaFastingDisplay fastingDisplay;
+
+  /// How public holidays are presented — see [AgendaHolidayDisplay].
+  /// [AgendaHolidayDisplay.everyDay] by default, which is what shipped.
+  final AgendaHolidayDisplay holidayDisplay;
 
   /// Whether the look-ahead window restarts from the calendar's selected day.
   /// **Off by default** — the window starts today, and a grid tap only moves
@@ -106,8 +153,9 @@ class UpcomingAgendaFilters extends Equatable {
     this.query = '',
     this.showHolidays = false,
     this.showFasting = false,
-    this.collapseRecurring = false,
+    this.eventDisplay = AgendaEventDisplay.everyOccurrence,
     this.fastingDisplay = AgendaFastingDisplay.periods,
+    this.holidayDisplay = AgendaHolidayDisplay.everyDay,
     this.followSelectedDay = false,
     this.eventType = AgendaEventType.all,
     this.categoryIds = const {},
@@ -146,8 +194,9 @@ class UpcomingAgendaFilters extends Equatable {
     String? query,
     bool? showHolidays,
     bool? showFasting,
-    bool? collapseRecurring,
+    AgendaEventDisplay? eventDisplay,
     AgendaFastingDisplay? fastingDisplay,
+    AgendaHolidayDisplay? holidayDisplay,
     bool? followSelectedDay,
     AgendaEventType? eventType,
     Set<String>? categoryIds,
@@ -161,8 +210,9 @@ class UpcomingAgendaFilters extends Equatable {
       query: query ?? this.query,
       showHolidays: showHolidays ?? this.showHolidays,
       showFasting: showFasting ?? this.showFasting,
-      collapseRecurring: collapseRecurring ?? this.collapseRecurring,
+      eventDisplay: eventDisplay ?? this.eventDisplay,
       fastingDisplay: fastingDisplay ?? this.fastingDisplay,
+      holidayDisplay: holidayDisplay ?? this.holidayDisplay,
       followSelectedDay: followSelectedDay ?? this.followSelectedDay,
       eventType: eventType ?? this.eventType,
       categoryIds: categoryIds ?? this.categoryIds,
@@ -262,8 +312,9 @@ class UpcomingAgendaFilters extends Equatable {
     query,
     showHolidays,
     showFasting,
-    collapseRecurring,
+    eventDisplay,
     fastingDisplay,
+    holidayDisplay,
     followSelectedDay,
     eventType,
     categoryIds,

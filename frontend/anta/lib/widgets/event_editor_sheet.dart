@@ -1610,6 +1610,11 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     final localeName = l10n.localeName;
     final category = CalendarCategories.resolve(_categoryId);
     final categoryColor = category.color;
+    // Faithful agenda tint: the chosen colour drives the icon only when the
+    // user opted in, otherwise the category colour — the row's exact rule.
+    final accent = (_colorValue != null && _tintIcon)
+        ? Color(_colorValue!)
+        : categoryColor;
     // All one-time dates (anchor + extras) as one uniform, sorted list.
     final oneTimeDates = <DateTime>{_date, ..._additionalDates}.toList()
       ..sort();
@@ -1765,16 +1770,6 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                           ),
                         ),
                       ),
-                  ] else ...[
-                    _SectionLabel(text: l10n.eventDate),
-                    _PickerTile(
-                      leading: const CircleAvatar(
-                        child: Icon(Icons.calendar_today_rounded),
-                      ),
-                      title: DateFormat.yMMMMEEEEd(localeName).format(_date),
-                      subtitle: l10n.startsOn,
-                      onTap: _pickDate,
-                    ),
                   ],
                   if (_mode == _RepeatMode.recurring) ...[
                     _SectionLabel(text: l10n.frequency),
@@ -1834,6 +1829,32 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                           ),
                         ),
                     ],
+                    _SectionLabel(text: l10n.eventDate),
+                    _PickerTile(
+                      leading: const CircleAvatar(
+                        child: Icon(Icons.calendar_today_rounded),
+                      ),
+                      title: DateFormat.yMMMMEEEEd(localeName).format(_date),
+                      onTap: _pickDate,
+                    ),
+                    _SectionLabel(text: l10n.eventUntilLabel),
+                    _PickerTile(
+                      leading: const CircleAvatar(
+                        child: Icon(Icons.event_busy_rounded),
+                      ),
+                      title: _endDate == null
+                          ? l10n.eventUntilNone
+                          : DateFormat.yMMMMEEEEd(localeName).format(_endDate!),
+                      subtitle: _endDate == null ? l10n.eventUntilHint : null,
+                      trailing: _endDate == null
+                          ? const Icon(Icons.chevron_right_rounded)
+                          : IconButton(
+                              tooltip: l10n.resetToDefault,
+                              icon: const Icon(Icons.close_rounded),
+                              onPressed: () => setState(() => _endDate = null),
+                            ),
+                      onTap: _pickEndDate,
+                    ),
                     _SectionLabel(text: l10n.recurrenceScopeLabel),
                     Wrap(
                       spacing: 8,
@@ -1906,24 +1927,6 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                         ),
                       ],
                     ],
-                    _SectionLabel(text: l10n.eventUntilLabel),
-                    _PickerTile(
-                      leading: const CircleAvatar(
-                        child: Icon(Icons.event_busy_rounded),
-                      ),
-                      title: _endDate == null
-                          ? l10n.eventUntilNone
-                          : DateFormat.yMMMMEEEEd(localeName).format(_endDate!),
-                      subtitle: _endDate == null ? l10n.eventUntilHint : null,
-                      trailing: _endDate == null
-                          ? const Icon(Icons.chevron_right_rounded)
-                          : IconButton(
-                              tooltip: l10n.resetToDefault,
-                              icon: const Icon(Icons.close_rounded),
-                              onPressed: () => setState(() => _endDate = null),
-                            ),
-                      onTap: _pickEndDate,
-                    ),
                   ],
                   // Outside both branches so a specific-dates set — which the
                   // form files under one-time — can track presence too. The
@@ -2041,77 +2044,103 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                     const SizedBox(height: 12),
                   ],
                   _buildDescriptionField(context, l10n, theme),
-                  _SectionLabel(text: l10n.iconLabel),
-                  _PickerTile(
-                    leading: CircleAvatar(
-                      backgroundColor: categoryColor.withValues(alpha: 0.18),
-                      foregroundColor: categoryColor,
-                      child: Icon(
-                        CalendarIcons.forKey(_iconKey) ??
-                            CalendarIcons.forKey(category.iconKey) ??
-                            Icons.event_rounded,
+                  Card(
+                    margin: EdgeInsets.zero,
+                    clipBehavior: Clip.antiAlias,
+                    child: ExpansionTile(
+                      // Collapsed for a fresh event; opens when the event
+                      // already carries a custom icon or colour.
+                      initiallyExpanded:
+                          _iconKey != null || _colorValue != null,
+                      shape: const Border(),
+                      collapsedShape: const Border(),
+                      tilePadding: const EdgeInsets.symmetric(horizontal: 16),
+                      leading: CircleAvatar(
+                        backgroundColor: accent.withValues(alpha: 0.18),
+                        foregroundColor: accent,
+                        child: Icon(
+                          CalendarIcons.forKey(_iconKey) ??
+                              CalendarIcons.forKey(category.iconKey) ??
+                              Icons.event_rounded,
+                        ),
                       ),
-                    ),
-                    title: _iconKey == null
-                        ? l10n.iconDefault
-                        : l10n.iconCustom,
-                    subtitle: l10n.pickIcon,
-                    trailing: _iconKey == null
-                        ? const Icon(Icons.chevron_right_rounded)
-                        : IconButton(
-                            tooltip: l10n.resetToDefault,
-                            icon: const Icon(Icons.refresh_rounded),
-                            onPressed: () => setState(() => _iconKey = null),
+                      title: Text(l10n.eventAppearance),
+                      childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                      expandedCrossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(l10n.iconLabel),
+                          subtitle: Text(
+                            _iconKey == null
+                                ? l10n.iconDefault
+                                : l10n.iconCustom,
                           ),
-                    onTap: _pickIcon,
-                  ),
-                  _SectionLabel(text: l10n.eventColor),
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: [
-                      _EventColorDot(
-                        color: categoryColor,
-                        icon:
-                            CalendarIcons.forKey(category.iconKey) ??
-                            Icons.event_rounded,
-                        selected: _colorValue == null,
-                        onTap: () => setState(() => _colorValue = null),
-                      ),
-                      for (final swatch in CalendarColors.swatchPalette)
-                        _EventColorDot(
-                          color: Color(swatch),
-                          selected: _colorValue == swatch,
-                          onTap: () => setState(() => _colorValue = swatch),
+                          trailing: _iconKey == null
+                              ? const Icon(Icons.chevron_right_rounded)
+                              : IconButton(
+                                  tooltip: l10n.resetToDefault,
+                                  icon: const Icon(Icons.refresh_rounded),
+                                  onPressed: () =>
+                                      setState(() => _iconKey = null),
+                                ),
+                          onTap: _pickIcon,
                         ),
-                      for (final c in customColorDots)
-                        _EventColorDot(
-                          color: Color(c),
-                          selected: _colorValue == c,
-                          onTap: () => setState(() => _colorValue = c),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(0, 8, 0, 8),
+                          child: Text(
+                            l10n.eventColor,
+                            style: theme.textTheme.labelLarge?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
                         ),
-                      _EventColorDot(
-                        icon: Icons.colorize_rounded,
-                        selected: false,
-                        onTap: _pickCustomColor,
-                      ),
-                    ],
-                  ),
-                  if (_colorValue != null) ...[
-                    const SizedBox(height: 8),
-                    Card(
-                      margin: EdgeInsets.zero,
-                      child: SwitchListTile(
-                        value: _tintIcon,
-                        onChanged: (v) => setState(() => _tintIcon = v),
-                        secondary: const CircleAvatar(
-                          child: Icon(Icons.brush_rounded),
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 12,
+                          children: [
+                            _EventColorDot(
+                              color: categoryColor,
+                              icon:
+                                  CalendarIcons.forKey(category.iconKey) ??
+                                  Icons.event_rounded,
+                              selected: _colorValue == null,
+                              onTap: () => setState(() => _colorValue = null),
+                            ),
+                            for (final swatch in CalendarColors.swatchPalette)
+                              _EventColorDot(
+                                color: Color(swatch),
+                                selected: _colorValue == swatch,
+                                onTap: () =>
+                                    setState(() => _colorValue = swatch),
+                              ),
+                            for (final c in customColorDots)
+                              _EventColorDot(
+                                color: Color(c),
+                                selected: _colorValue == c,
+                                onTap: () => setState(() => _colorValue = c),
+                              ),
+                            _EventColorDot(
+                              icon: Icons.colorize_rounded,
+                              selected: false,
+                              onTap: _pickCustomColor,
+                            ),
+                          ],
                         ),
-                        title: Text(l10n.eventTintIcon),
-                        subtitle: Text(l10n.eventTintIconHint),
-                      ),
+                        if (_colorValue != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: SwitchListTile(
+                              contentPadding: EdgeInsets.zero,
+                              value: _tintIcon,
+                              onChanged: (v) => setState(() => _tintIcon = v),
+                              title: Text(l10n.eventTintIcon),
+                              subtitle: Text(l10n.eventTintIconHint),
+                            ),
+                          ),
+                      ],
                     ),
-                  ],
+                  ),
                   _SectionLabel(text: l10n.eventPriority),
                   // One chip per level, P1 (highest) first. Chips replaced
                   // the numeric stepper when the scale flipped to

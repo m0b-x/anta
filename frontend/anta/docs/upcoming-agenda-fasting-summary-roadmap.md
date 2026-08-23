@@ -294,3 +294,26 @@ Everything above shipped as written except these.
    control above them).
 
 Test counts: 592 + 2 skipped before, **632 + 2 skipped** after.
+
+## Follow-on — the card gained a drill-down (2026-08-23)
+
+Shipped hours later, with the holiday summary card that reused this design.
+The fasting card as planned here was a dead end: tapping it jumped to
+`summary.first` and there was no way to see the forty days it stood for.
+
+It now carries a trailing `IconButton` opening the shared
+`AgendaDayListSheet` (`lib/widgets/agenda_day_list_sheet.dart`), which lists
+its marked days with each day's period and regime and focuses the tapped one.
+Two consequences for this document:
+
+- **`FastingSummary` gained `days`** — the marked days themselves, not just
+  `dayCount`. The card claims a number and the sheet lists the days, so
+  re-walking the window in the sheet would drop this scan's `dayFilter` and
+  quietly disagree with the card. `_OpenFastingSummary` now accumulates the
+  list and `dayCount` **is** `days.length`, so the two cannot drift.
+- **The sheet's scope is the card's scope** — the same window-scoped rule the
+  "Decisions locked" table already set for the digest's numbers, applied one
+  level down.
+
+See `calendar-events-feature.md` for the holiday half and the shared sheet's
+rules.
