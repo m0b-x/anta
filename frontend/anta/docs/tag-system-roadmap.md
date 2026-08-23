@@ -83,6 +83,14 @@ real cross-note filter.
   frequency/recency). Hook into `ModernEditorWrapper`'s existing inline UI; insert
   on selection. No renderer change.
 - **Effort:** M. **Risk:** none (editor text op).
+- **Update (v32):** the suggestion infrastructure this step needs now exists,
+  built for vocabulary autocomplete (`docs/vocabulary-autocomplete-feature.md`).
+  `VocabularySuggestionController` takes a `candidateSource` seam, and the
+  session, the toolbar-height suggestion bar and the undo-safe insertion path are
+  all provider-agnostic. What is left for tags is the `TagIndex` (step 2) plus a
+  `#`-shaped trigger rule beside `VocabularyTrigger` — **not** a second bar, a
+  second insertion path, or any renderer change. Its canonicalization is already
+  step 8's rule: store verbatim, match folded through `normalizeForSearch`.
 
 ### 5. Tag browser / filter screen
 - **Why:** see every tag in use with counts, tap to filter notes — turns tags

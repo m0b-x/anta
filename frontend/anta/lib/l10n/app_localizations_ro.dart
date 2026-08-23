@@ -301,6 +301,89 @@ class AppLocalizationsRo extends AppLocalizations {
   String get categoryDeleted => 'Categorie ștearsă';
 
   @override
+  String get vocabularySection => 'Autocompletare';
+
+  @override
+  String get vocabularySuggestionsLabel => 'Sugerează termeni în timp ce scrii';
+
+  @override
+  String get vocabularySuggestionsDesc =>
+      'Oferă termeni din listele tale după caracterul declanșator sau când atingi un substituent.';
+
+  @override
+  String get vocabularySuggestionsDismiss => 'Ascunde sugestiile';
+
+  @override
+  String get vocabularyTriggerLabel => 'Caracter declanșator';
+
+  @override
+  String get vocabularyTriggerDesc =>
+      'Scrie-l după un spațiu ca să cauți în liste.';
+
+  @override
+  String get manageVocabularies => 'Editează listele';
+
+  @override
+  String get vocabularies => 'Liste de cuvinte';
+
+  @override
+  String get vocabulariesEmpty =>
+      'Nicio listă încă. Creează una ca să primești sugestii pentru lucrurile pe care le scrii des — exerciții, mese, clienți.';
+
+  @override
+  String get createVocabulary => 'Listă nouă';
+
+  @override
+  String get editVocabulary => 'Editează lista';
+
+  @override
+  String get vocabularyName => 'Numele listei';
+
+  @override
+  String get vocabularyNameHint => 'Exerciții';
+
+  @override
+  String get vocabularyNameHelper =>
+      'Un substituent cu acest nume sugerează doar această listă.';
+
+  @override
+  String get vocabularyEnabled => 'Folosește pentru sugestii';
+
+  @override
+  String get vocabularyEnabledDesc =>
+      'Oprește ca să păstrezi lista fără să o sugerezi.';
+
+  @override
+  String get vocabularyTerms => 'Termeni';
+
+  @override
+  String get vocabularyTermsHint =>
+      'Câte unul pe linie:\nÎmpins la piept\nÎndreptări\nGenuflexiuni';
+
+  @override
+  String vocabularyTermCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count termeni',
+      one: '1 termen',
+      zero: 'Niciun termen',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get deleteVocabulary => 'Șterge lista';
+
+  @override
+  String deleteVocabularyConfirm(String name) {
+    return 'Ștergi „$name”? Notițele deja scrise își păstrează textul.';
+  }
+
+  @override
+  String get vocabularyDeleted => 'Listă ștearsă';
+
+  @override
   String get calendarEventsSection => 'Evenimente';
 
   @override

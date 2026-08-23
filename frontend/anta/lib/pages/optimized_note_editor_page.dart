@@ -57,6 +57,8 @@ import '../utils/paste_line_breaker.dart';
 import '../controllers/markdown_shortcut_inserter.dart';
 import '../controllers/preview_scroll_controller.dart';
 import '../controllers/shortcut_applier.dart';
+import '../controllers/vocabulary_suggestion_controller.dart';
+import '../services/vocabulary_service.dart';
 import '../database/database.dart';
 import '../constants/app_constants.dart';
 import '../constants/app_spacing.dart';
@@ -87,6 +89,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   late CodeLineEditingController _contentController;
   final MarkdownEditorSpanBuilder _markdownSpanBuilder =
       MarkdownEditorSpanBuilder();
+  late final VocabularySuggestionController _vocabularySuggestions;
   bool _liveMarkdownRendering = SettingsKeys.defaultLiveMarkdownRendering;
   MoneyDisplayConfig _moneyConfig = const MoneyDisplayConfig(
     enabled: SettingsKeys.defaultMoneyLedgerEnabled,
@@ -221,6 +224,10 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       delegate: CodeLineEditingController(spanBuilder: _buildEditorSpan),
     );
     _markdownSpanBuilder.bind(_contentController);
+    _vocabularySuggestions = VocabularySuggestionController(
+      controller: _contentController,
+      onInsert: _applyVocabularyInsertion,
+    );
     _historyObserver = TextHistoryObserver(_contentController);
     _previousTextLength = 0;
     _contentFocusNode = FocusNode()..addListener(_onContentFocusChanged);
@@ -524,7 +531,59 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       _previewBloc.add(PreviewLinesPerChunkChanged(previewLinesPerChunk));
       await _refreshMoneyConfig(settings);
       await _refreshColorPalette(settings);
+      await _refreshVocabularies(settings);
     }
+  }
+
+  /// Loads the user's vocabularies and hands the suggestion controller its
+  /// settings. Called on note open and again when returning from settings.
+  ///
+  /// The service is a lazy singleton, so the first editor open is what pulls
+  /// the tables into memory; later opens hit the cache. Failure is silent by
+  /// design — autocomplete is an accelerator, and a note must always open.
+  Future<void> _refreshVocabularies(SettingsService settings) async {
+    final enabled = await settings.getVocabularySuggestionsEnabled();
+    final trigger = await settings.getVocabularyTriggerChar();
+    if (enabled) {
+      try {
+        await VocabularyService.getInstance();
+      } catch (e) {
+        debugPrint('[NoteEditor] Vocabulary load error: $e');
+      }
+    }
+    if (!mounted) return;
+    _vocabularySuggestions.configure(
+      enabled: enabled,
+      trigger: trigger,
+      isFenceLine: _markdownSpanBuilder.lineInFence,
+    );
+  }
+
+  /// Applies an accepted suggestion, with the same bookkeeping every other
+  /// programmatic insert uses (see [_handleShortcut]): the reentrancy guard so
+  /// the paste heuristic cannot fire mid-op, one revocable op so the whole
+  /// completion is a single undo step, then a `_previousTextLength` resync so
+  /// the next keystroke diffs correctly.
+  void _applyVocabularyInsertion(VocabularyInsertion insertion) {
+    _isProcessingTextChange = true;
+    _contentController.runRevocableOp(() {
+      _contentController.replaceSelection(
+        insertion.text,
+        CodeLineSelection(
+          baseIndex: insertion.lineIndex,
+          baseOffset: insertion.start,
+          extentIndex: insertion.lineIndex,
+          extentOffset: insertion.end,
+        ),
+      );
+    });
+    _isProcessingTextChange = false;
+    _previousTextLength = _contentController.textLength;
+    _onTextChanged();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _contentController.makeCursorVisible();
+    });
   }
 
   /// Resolves the effective money config (enabled flag, global start
@@ -1065,6 +1124,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     _autoSaveService?.dispose();
     _titleController.dispose();
     _historyObserver.dispose();
+    _vocabularySuggestions.dispose();
     _contentController.dispose();
     _contentFocusNode.removeListener(_onContentFocusChanged);
     _contentFocusNode.dispose();
@@ -1857,6 +1917,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       onCounter: enabled ? _showCounterPicker : null,
       onScrollToTop: () => _scrollToEdge(toTop: true),
       onScrollToBottom: () => _scrollToEdge(toTop: false),
+      suggestions: enabled ? _vocabularySuggestions : null,
     );
   }
 

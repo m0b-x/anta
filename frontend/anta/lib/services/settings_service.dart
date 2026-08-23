@@ -13,6 +13,7 @@ import '../models/calendar_panel_mode.dart';
 import '../models/upcoming_agenda_filters.dart';
 import '../models/utility_button_config.dart';
 import '../utils/markdown_color_syntax.dart';
+import '../utils/vocabulary_trigger.dart';
 
 /// Service for managing app settings using SQLite database
 class SettingsService {
@@ -386,6 +387,41 @@ class SettingsService {
 
   Future<void> setAutoBreakLongLines(bool value) async {
     await _setBool(SettingsKeys.autoBreakLongLines, value);
+  }
+
+  // Editor settings - Vocabulary autocomplete
+  Future<bool> getVocabularySuggestionsEnabled() async {
+    return _getBool(
+      SettingsKeys.vocabularySuggestionsEnabled,
+      SettingsKeys.defaultVocabularySuggestionsEnabled,
+    );
+  }
+
+  Future<void> setVocabularySuggestionsEnabled(bool value) async {
+    await _setBool(SettingsKeys.vocabularySuggestionsEnabled, value);
+  }
+
+  /// The character that opens the suggestion bar. Anything other than a single
+  /// character from [VocabularyTrigger.availableTriggers] falls back to the
+  /// default, so a corrupted row can never disable the feature silently.
+  Future<String> getVocabularyTriggerChar() async {
+    final stored = await _db.userSettingsDao.getValue(
+      SettingsKeys.vocabularyTriggerChar,
+    );
+    if (stored == null || stored.length != 1) {
+      return SettingsKeys.defaultVocabularyTriggerChar;
+    }
+    if (!VocabularyTrigger.availableTriggers.contains(stored)) {
+      return SettingsKeys.defaultVocabularyTriggerChar;
+    }
+    return stored;
+  }
+
+  Future<void> setVocabularyTriggerChar(String value) async {
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.vocabularyTriggerChar,
+      value,
+    );
   }
 
   // Editor settings - Show preview when keyboard is hidden

@@ -306,6 +306,68 @@ void main() {
     expect(byName['id']!.read<int>('pk'), 1);
   });
 
+  test('the vocabulary tables match their frozen migration DDL', () async {
+    // Frozen at v32, born with the CRDT block — so the v29 template shape, not
+    // the v27/v28 one: no DEFAULT on the identity columns, `deleted_at` the
+    // only nullable. Both tables are asserted together because a term is
+    // meaningless without its list, and the two must tombstone alike.
+    for (final table in ['vocabularies', 'vocabulary_items']) {
+      final columns = await db
+          .customSelect('PRAGMA table_info($table)')
+          .get();
+      final byName = {for (final row in columns) row.read<String>('name'): row};
+
+      expect(byName.keys.toSet(), {
+        'id',
+        if (table == 'vocabularies') ...['name', 'is_enabled'],
+        if (table == 'vocabulary_items') ...['vocabulary_id', 'term'],
+        'sort_order',
+        'created_at',
+        'updated_at',
+        'hlc_timestamp',
+        'device_id',
+        'version',
+        'is_deleted',
+        'deleted_at',
+      }, reason: '$table columns');
+
+      for (final name in byName.keys) {
+        expect(
+          byName[name]!.read<int>('notnull'),
+          name == 'deleted_at' ? 0 : 1,
+          reason: name == 'deleted_at'
+              ? '$table.deleted_at must stay nullable'
+              : '$table.$name should be NOT NULL',
+        );
+      }
+
+      expect(byName['id']!.read<String>('type'), 'TEXT');
+      expect(byName['hlc_timestamp']!.read<String>('type'), 'TEXT');
+      expect(byName['device_id']!.read<String>('type'), 'TEXT');
+      expect(byName['sort_order']!.read<String>('dflt_value'), '0');
+      expect(byName['version']!.read<String>('dflt_value'), '1');
+      expect(byName['is_deleted']!.read<String>('dflt_value'), '0');
+      // No DEFAULT on the identity columns: every insert must stamp them or
+      // fail, which is what keeps CRDT stamping out of the service.
+      expect(
+        byName['hlc_timestamp']!.readNullable<String>('dflt_value'),
+        isNull,
+      );
+      expect(byName['device_id']!.readNullable<String>('dflt_value'), isNull);
+      expect(byName['id']!.read<int>('pk'), 1);
+    }
+
+    final vocabularies = await db
+        .customSelect('PRAGMA table_info(vocabularies)')
+        .get();
+    final byName = {
+      for (final row in vocabularies) row.read<String>('name'): row,
+    };
+    // A list is offered until the user says otherwise; an install that
+    // upgrades mid-edit must not silently mute its own vocabularies.
+    expect(byName['is_enabled']!.read<String>('dflt_value'), '1');
+  });
+
   test('the event table carries the v27 CRDT block', () async {
     // `calendar_events` is the one CRDT table whose identity columns have a
     // DEFAULT: v27 added them to a *populated* table, and SQLite's

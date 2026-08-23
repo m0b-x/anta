@@ -39,6 +39,11 @@ class SettingsKeys {
       'preview_when_keyboard_hidden';
   static const String scrollCursorOnKeyboard = 'scroll_cursor_on_keyboard';
 
+  // Vocabulary autocomplete settings
+  static const String vocabularySuggestionsEnabled =
+      'vocabulary_suggestions_enabled';
+  static const String vocabularyTriggerChar = 'vocabulary_trigger_char';
+
   // Money ledger settings
   /// Master switch for the `$`-prefixed money ledger syntax. Off by
   /// default — the toolbar shortcuts still insert their text, but `$`
@@ -288,6 +293,10 @@ class SettingsKeys {
   static const bool defaultAutoBreakLongLines = true;
   static const bool defaultPreviewWhenKeyboardHidden = false;
   static const bool defaultScrollCursorOnKeyboard = false;
+
+  // Default values for vocabulary autocomplete
+  static const bool defaultVocabularySuggestionsEnabled = true;
+  static const String defaultVocabularyTriggerChar = '@';
 
   // Default values for money ledger settings
   /// Ledger folds start from this balance (cents); 0 keeps the original

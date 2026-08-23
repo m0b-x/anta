@@ -19,6 +19,7 @@ import '../widgets/markdown_bar.dart';
 import '../widgets/settings_search_field.dart';
 import '../widgets/unified_app_bars.dart';
 import '../services/app_navigator.dart';
+import '../utils/vocabulary_trigger.dart';
 
 class MarkdownSettingsPage extends StatefulWidget {
   final List<CustomMarkdownShortcut> allShortcuts;
@@ -54,6 +55,9 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
   int _moneyStartCents = 0;
   String _moneySymbol = '';
   bool _moneySuffix = false;
+  bool _vocabularyExpanded = true;
+  bool _vocabularyEnabled = SettingsKeys.defaultVocabularySuggestionsEnabled;
+  String _vocabularyTrigger = SettingsKeys.defaultVocabularyTriggerChar;
   SettingsService? _settingsService;
 
   List<MarkdownBarProfile> _profiles = [];
@@ -74,6 +78,7 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
   static const String _sectionToolbar = 'toolbar';
   static const String _sectionColors = 'colors';
   static const String _sectionMoney = 'money';
+  static const String _sectionVocabulary = 'vocabulary';
   static const String _sectionUtility = 'utility';
   static const String _sectionShortcuts = 'shortcuts';
 
@@ -109,6 +114,7 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
       _toolbarExpanded ||
       _colorsExpanded ||
       _moneyExpanded ||
+      _vocabularyExpanded ||
       _utilityExpanded ||
       _shortcutsExpanded;
 
@@ -117,6 +123,7 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
     if (!_toolbarExpanded) _sectionToolbar,
     if (!_colorsExpanded) _sectionColors,
     if (!_moneyExpanded) _sectionMoney,
+    if (!_vocabularyExpanded) _sectionVocabulary,
     if (!_utilityExpanded) _sectionUtility,
     if (!_shortcutsExpanded) _sectionShortcuts,
   };
@@ -128,6 +135,7 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
     _toolbarExpanded = !collapsed.contains(_sectionToolbar);
     _colorsExpanded = !collapsed.contains(_sectionColors);
     _moneyExpanded = !collapsed.contains(_sectionMoney);
+    _vocabularyExpanded = !collapsed.contains(_sectionVocabulary);
     _utilityExpanded = !collapsed.contains(_sectionUtility);
     _shortcutsExpanded = !collapsed.contains(_sectionShortcuts);
 
@@ -278,6 +286,8 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
     final splitEnabled = await settings.getToolbarSplitEnabled();
     final utilityConfigs = await settings.getToolbarUtilityConfig();
     final moneyConfig = await settings.getMoneyConfig();
+    final vocabularyEnabled = await settings.getVocabularySuggestionsEnabled();
+    final vocabularyTrigger = await settings.getVocabularyTriggerChar();
     final collapsedSections = await settings.getCollapsedMarkdownSections();
     if (mounted) {
       setState(() {
@@ -288,6 +298,8 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
         _moneyStartCents = moneyConfig.startCents;
         _moneySymbol = moneyConfig.symbol;
         _moneySuffix = moneyConfig.suffix;
+        _vocabularyEnabled = vocabularyEnabled;
+        _vocabularyTrigger = vocabularyTrigger;
         _applyCollapsedSections(collapsedSections, animated: false);
       });
       // Arming `animate` has to land in its own frame. `_FoldableContent`
@@ -1158,6 +1170,160 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
         ],
       ),
     );
+  }
+
+  /// Entry point for vocabulary autocomplete: the master switch, the trigger
+  /// character, and the door to the list manager.
+  ///
+  /// Suggestions insert plain text, so turning this off never changes anything
+  /// already written — it only stops the bar from appearing.
+  Widget _buildVocabularySection(BuildContext context) {
+    final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context)!;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            onTap: () => _toggleSection(
+              () => _vocabularyExpanded = !_vocabularyExpanded,
+            ),
+            borderRadius: BorderRadius.circular(8),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.auto_awesome_outlined,
+                  size: 26,
+                  color: theme.colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  l10n.vocabularySection,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 17,
+                  ),
+                ),
+                const Spacer(),
+                AnimatedRotation(
+                  turns: _vocabularyExpanded ? 0.0 : 0.5,
+                  duration: const Duration(milliseconds: 200),
+                  child: const Icon(Icons.expand_more),
+                ),
+              ],
+            ),
+          ),
+          _FoldableContent(
+            expanded: _vocabularyExpanded,
+            animate: _foldAnimationsEnabled,
+            builder: (context) => Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            l10n.vocabularySuggestionsLabel,
+                            style: theme.textTheme.bodyLarge,
+                          ),
+                          Text(
+                            l10n.vocabularySuggestionsDesc,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurface.withValues(
+                                alpha: 0.6,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Transform.scale(
+                      scale: 0.8,
+                      child: Switch(
+                        value: _vocabularyEnabled,
+                        onChanged: (value) {
+                          setState(() => _vocabularyEnabled = value);
+                          _saveVocabularyEnabled(value);
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                IgnorePointer(
+                  ignoring: !_vocabularyEnabled,
+                  child: Opacity(
+                    opacity: _vocabularyEnabled ? 1.0 : 0.45,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(l10n.vocabularyTriggerLabel),
+                          subtitle: Text(
+                            l10n.vocabularyTriggerDesc,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurface.withValues(
+                                alpha: 0.6,
+                              ),
+                            ),
+                          ),
+                          trailing: SegmentedButton<String>(
+                            style: const ButtonStyle(
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            showSelectedIcon: false,
+                            segments: [
+                              for (final trigger
+                                  in VocabularyTrigger.availableTriggers)
+                                ButtonSegment<String>(
+                                  value: trigger,
+                                  label: Text(trigger),
+                                ),
+                            ],
+                            selected: {_vocabularyTrigger},
+                            onSelectionChanged: (selection) {
+                              final value = selection.first;
+                              setState(() => _vocabularyTrigger = value);
+                              _saveVocabularyTrigger(value);
+                            },
+                          ),
+                        ),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: OutlinedButton.icon(
+                            onPressed: () =>
+                                AppNavigator.toVocabularies(context),
+                            icon: const Icon(Icons.chevron_right, size: 18),
+                            label: Text(l10n.manageVocabularies),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Divider(color: theme.colorScheme.outline.withValues(alpha: 0.2)),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _saveVocabularyEnabled(bool value) async {
+    final settings = await _getSettingsService();
+    await settings.setVocabularySuggestionsEnabled(value);
+  }
+
+  Future<void> _saveVocabularyTrigger(String value) async {
+    final settings = await _getSettingsService();
+    await settings.setVocabularyTriggerChar(value);
   }
 
   Widget _buildMoneySection(BuildContext context) {
@@ -2173,6 +2339,7 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
             SliverToBoxAdapter(child: _buildToolbarRatioAdjuster(context)),
             SliverToBoxAdapter(child: _buildColorsSection(context)),
             SliverToBoxAdapter(child: _buildMoneySection(context)),
+            SliverToBoxAdapter(child: _buildVocabularySection(context)),
             SliverToBoxAdapter(child: _buildUtilityButtonsSection(context)),
             ..._buildShortcutSlivers(context),
           ],

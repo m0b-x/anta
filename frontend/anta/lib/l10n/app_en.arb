@@ -390,6 +390,102 @@
   "@categoryDeleted": {
     "description": "Snackbar shown after a custom category is deleted"
   },
+  "vocabularySection": "Autocomplete",
+  "@vocabularySection": {
+    "description": "Section title in markdown settings for vocabulary autocomplete"
+  },
+  "vocabularySuggestionsLabel": "Suggest terms while typing",
+  "@vocabularySuggestionsLabel": {
+    "description": "Master switch label for vocabulary autocomplete"
+  },
+  "vocabularySuggestionsDesc": "Offer terms from your lists after the trigger character, or when you tap a placeholder.",
+  "@vocabularySuggestionsDesc": {
+    "description": "Explanation under the vocabulary autocomplete master switch"
+  },
+  "vocabularySuggestionsDismiss": "Hide suggestions",
+  "@vocabularySuggestionsDismiss": {
+    "description": "Tooltip on the button that closes the suggestion bar"
+  },
+  "vocabularyTriggerLabel": "Trigger character",
+  "@vocabularyTriggerLabel": {
+    "description": "Setting label for the character that opens the suggestion bar"
+  },
+  "vocabularyTriggerDesc": "Type it after a space to start searching your lists.",
+  "@vocabularyTriggerDesc": {
+    "description": "Explanation under the trigger character setting"
+  },
+  "manageVocabularies": "Edit lists",
+  "@manageVocabularies": {
+    "description": "Button opening the vocabulary management page"
+  },
+  "vocabularies": "Word lists",
+  "@vocabularies": {
+    "description": "Title of the vocabulary management page"
+  },
+  "vocabulariesEmpty": "No lists yet. Create one to get suggestions for the things you write often — exercises, meals, clients.",
+  "@vocabulariesEmpty": {
+    "description": "Empty state on the vocabulary management page"
+  },
+  "createVocabulary": "New list",
+  "@createVocabulary": {
+    "description": "Action for creating a vocabulary"
+  },
+  "editVocabulary": "Edit list",
+  "@editVocabulary": {
+    "description": "Title when editing an existing vocabulary"
+  },
+  "vocabularyName": "List name",
+  "@vocabularyName": {
+    "description": "Label for the vocabulary name field"
+  },
+  "vocabularyNameHint": "Exercises",
+  "@vocabularyNameHint": {
+    "description": "Placeholder for the vocabulary name field"
+  },
+  "vocabularyNameHelper": "A placeholder with this name suggests only this list.",
+  "@vocabularyNameHelper": {
+    "description": "Helper text explaining that a ghost placeholder matching the list name scopes suggestions to it"
+  },
+  "vocabularyEnabled": "Use for suggestions",
+  "@vocabularyEnabled": {
+    "description": "Switch label controlling whether a vocabulary is offered in the editor"
+  },
+  "vocabularyEnabledDesc": "Turn off to keep the list without suggesting it.",
+  "@vocabularyEnabledDesc": {
+    "description": "Explanation under the per-vocabulary enable switch"
+  },
+  "vocabularyTerms": "Terms",
+  "@vocabularyTerms": {
+    "description": "Label above the vocabulary terms field"
+  },
+  "vocabularyTermsHint": "One per line:\nBench Press\nDeadlift\nSquat",
+  "@vocabularyTermsHint": {
+    "description": "Placeholder for the multiline terms field, showing the one-per-line format"
+  },
+  "vocabularyTermCount": "{count, plural, =0{No terms} =1{1 term} other{{count} terms}}",
+  "@vocabularyTermCount": {
+    "description": "Number of terms in a vocabulary",
+    "placeholders": {
+      "count": { "type": "int", "example": "12" }
+    }
+  },
+  "deleteVocabulary": "Delete list",
+  "@deleteVocabulary": {
+    "description": "Action/title for deleting a vocabulary"
+  },
+  "deleteVocabularyConfirm": "Delete \"{name}\"? Notes you already wrote keep their text.",
+  "@deleteVocabularyConfirm": {
+    "description": "Confirmation message when deleting a vocabulary",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "vocabularyDeleted": "List deleted",
+  "@vocabularyDeleted": {
+    "description": "Snackbar shown after a vocabulary is deleted"
+  },
   "calendarEventsSection": "Events",
   "@calendarEventsSection": {
     "description": "Section title on calendar settings grouping event data actions"

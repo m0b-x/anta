@@ -300,6 +300,89 @@ class AppLocalizationsDe extends AppLocalizations {
   String get categoryDeleted => 'Kategorie gelöscht';
 
   @override
+  String get vocabularySection => 'Autovervollständigung';
+
+  @override
+  String get vocabularySuggestionsLabel => 'Begriffe beim Tippen vorschlagen';
+
+  @override
+  String get vocabularySuggestionsDesc =>
+      'Begriffe aus deinen Listen nach dem Auslösezeichen anbieten oder wenn du einen Platzhalter antippst.';
+
+  @override
+  String get vocabularySuggestionsDismiss => 'Vorschläge ausblenden';
+
+  @override
+  String get vocabularyTriggerLabel => 'Auslösezeichen';
+
+  @override
+  String get vocabularyTriggerDesc =>
+      'Nach einem Leerzeichen eingeben, um deine Listen zu durchsuchen.';
+
+  @override
+  String get manageVocabularies => 'Listen bearbeiten';
+
+  @override
+  String get vocabularies => 'Wortlisten';
+
+  @override
+  String get vocabulariesEmpty =>
+      'Noch keine Listen. Lege eine an, um Vorschläge für häufig Geschriebenes zu bekommen — Übungen, Mahlzeiten, Kunden.';
+
+  @override
+  String get createVocabulary => 'Neue Liste';
+
+  @override
+  String get editVocabulary => 'Liste bearbeiten';
+
+  @override
+  String get vocabularyName => 'Listenname';
+
+  @override
+  String get vocabularyNameHint => 'Übungen';
+
+  @override
+  String get vocabularyNameHelper =>
+      'Ein Platzhalter mit diesem Namen schlägt nur diese Liste vor.';
+
+  @override
+  String get vocabularyEnabled => 'Für Vorschläge verwenden';
+
+  @override
+  String get vocabularyEnabledDesc =>
+      'Ausschalten, um die Liste zu behalten, ohne sie vorzuschlagen.';
+
+  @override
+  String get vocabularyTerms => 'Begriffe';
+
+  @override
+  String get vocabularyTermsHint =>
+      'Einer pro Zeile:\nBankdrücken\nKreuzheben\nKniebeuge';
+
+  @override
+  String vocabularyTermCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Begriffe',
+      one: '1 Begriff',
+      zero: 'Keine Begriffe',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get deleteVocabulary => 'Liste löschen';
+
+  @override
+  String deleteVocabularyConfirm(String name) {
+    return '„$name“ löschen? Bereits geschriebene Notizen behalten ihren Text.';
+  }
+
+  @override
+  String get vocabularyDeleted => 'Liste gelöscht';
+
+  @override
   String get calendarEventsSection => 'Ereignisse';
 
   @override

@@ -12,6 +12,7 @@ import 'event_occurrence_service.dart';
 import 'event_presence_service.dart';
 import 'event_skip_service.dart';
 import 'event_template_service.dart';
+import 'vocabulary_service.dart';
 import 'category_service.dart';
 import 'counter_service.dart';
 import 'markdown_bar_service.dart';
@@ -98,6 +99,8 @@ class BackupService {
         .exportData();
     final eventTemplates = await (await EventTemplateService.getInstance())
         .exportData();
+    final vocabularies = await (await VocabularyService.getInstance())
+        .exportData();
 
     return {
       // v7: event priorities are stored inverted (1 = highest). Older
@@ -133,6 +136,10 @@ class BackupService {
       // Purely additive (v29): an absent key on an older backup is a database
       // with no templates, which is what those installs had.
       'eventTemplates': eventTemplates,
+      // Purely additive (v32): an absent key is an install with no suggestion
+      // lists. Each entry nests its own terms, so a vocabulary and its items
+      // can never be restored apart.
+      'vocabularies': vocabularies,
     };
   }
 
@@ -376,6 +383,12 @@ class BackupService {
         } else {
           await templates.clearAllForImport();
         }
+      }
+      // Vocabularies (v32+ backups). Self-contained — no foreign reference to
+      // strand — so an absent key simply leaves existing lists in place.
+      final vocabularies = data['vocabularies'] as List?;
+      if (vocabularies != null) {
+        await (await VocabularyService.getInstance()).importData(vocabularies);
       }
       final calendarEvents = data['calendarEvents'] as List?;
       if (calendarEvents != null) {

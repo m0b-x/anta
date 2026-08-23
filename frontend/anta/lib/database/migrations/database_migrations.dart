@@ -161,6 +161,11 @@ class DatabaseMigrations {
       toVersion: DatabaseSchema.v31CalendarDeltaIndexes,
       migrate: _migrateV30ToV31,
     ),
+    Migration(
+      fromVersion: DatabaseSchema.v31CalendarDeltaIndexes,
+      toVersion: DatabaseSchema.v32Vocabularies,
+      migrate: _migrateV31ToV32,
+    ),
   ];
 
   Future<void> runMigrations(Migrator m, int from, int to) async {
@@ -1148,5 +1153,60 @@ class DatabaseMigrations {
   /// `CREATE INDEX IF NOT EXISTS` makes the step idempotent either way.
   Future<void> _migrateV30ToV31(Migrator m, GeneratedDatabase db) async {
     await DatabaseIndexes(_db).createCalendarDeltaIndexes();
+  }
+
+  /// v31 → v32: adds `vocabularies` and `vocabulary_items`, the user-defined
+  /// suggestion lists behind editor autocomplete.
+  ///
+  /// Two brand-new tables, so the v29 shape applies to both: the five CRDT
+  /// columns are the plain Notes/Folders block with no `DEFAULT ''` deviation
+  /// on the identity columns, and no backfill is needed. Every row is stamped
+  /// by `VocabularyDao` from the moment the tables exist.
+  ///
+  /// Terms are rows rather than a delimited blob on the parent because any
+  /// delimiter is a term someone eventually types, and because per-row identity
+  /// is what survives a list being re-saved.
+  ///
+  /// No index, including none on `vocabulary_items.vocabulary_id`: both tables
+  /// are read in full into the `Vocabularies` facade at first use and the
+  /// suggestion path then matches in memory — the same reasoning as
+  /// `calendar_event_templates` in v29. `PRIMARY KEY (id)` already covers the
+  /// point lookup, and the only `vocabulary_id` filter runs inside a save, over
+  /// a table holding hundreds of rows at most.
+  ///
+  /// The DDL is frozen at this version and must never be re-derived from the
+  /// live Drift declaration. Idempotent by `CREATE TABLE IF NOT EXISTS`.
+  Future<void> _migrateV31ToV32(Migrator m, GeneratedDatabase db) async {
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS vocabularies (
+        id TEXT NOT NULL PRIMARY KEY,
+        name TEXT NOT NULL,
+        is_enabled INTEGER NOT NULL DEFAULT 1,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        hlc_timestamp TEXT NOT NULL,
+        device_id TEXT NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        deleted_at INTEGER NULL
+      )
+    ''');
+
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS vocabulary_items (
+        id TEXT NOT NULL PRIMARY KEY,
+        vocabulary_id TEXT NOT NULL,
+        term TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        hlc_timestamp TEXT NOT NULL,
+        device_id TEXT NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        deleted_at INTEGER NULL
+      )
+    ''');
   }
 }

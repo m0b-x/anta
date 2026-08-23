@@ -670,6 +670,138 @@ abstract class AppLocalizations {
   /// **'Category deleted'**
   String get categoryDeleted;
 
+  /// Section title in markdown settings for vocabulary autocomplete
+  ///
+  /// In en, this message translates to:
+  /// **'Autocomplete'**
+  String get vocabularySection;
+
+  /// Master switch label for vocabulary autocomplete
+  ///
+  /// In en, this message translates to:
+  /// **'Suggest terms while typing'**
+  String get vocabularySuggestionsLabel;
+
+  /// Explanation under the vocabulary autocomplete master switch
+  ///
+  /// In en, this message translates to:
+  /// **'Offer terms from your lists after the trigger character, or when you tap a placeholder.'**
+  String get vocabularySuggestionsDesc;
+
+  /// Tooltip on the button that closes the suggestion bar
+  ///
+  /// In en, this message translates to:
+  /// **'Hide suggestions'**
+  String get vocabularySuggestionsDismiss;
+
+  /// Setting label for the character that opens the suggestion bar
+  ///
+  /// In en, this message translates to:
+  /// **'Trigger character'**
+  String get vocabularyTriggerLabel;
+
+  /// Explanation under the trigger character setting
+  ///
+  /// In en, this message translates to:
+  /// **'Type it after a space to start searching your lists.'**
+  String get vocabularyTriggerDesc;
+
+  /// Button opening the vocabulary management page
+  ///
+  /// In en, this message translates to:
+  /// **'Edit lists'**
+  String get manageVocabularies;
+
+  /// Title of the vocabulary management page
+  ///
+  /// In en, this message translates to:
+  /// **'Word lists'**
+  String get vocabularies;
+
+  /// Empty state on the vocabulary management page
+  ///
+  /// In en, this message translates to:
+  /// **'No lists yet. Create one to get suggestions for the things you write often — exercises, meals, clients.'**
+  String get vocabulariesEmpty;
+
+  /// Action for creating a vocabulary
+  ///
+  /// In en, this message translates to:
+  /// **'New list'**
+  String get createVocabulary;
+
+  /// Title when editing an existing vocabulary
+  ///
+  /// In en, this message translates to:
+  /// **'Edit list'**
+  String get editVocabulary;
+
+  /// Label for the vocabulary name field
+  ///
+  /// In en, this message translates to:
+  /// **'List name'**
+  String get vocabularyName;
+
+  /// Placeholder for the vocabulary name field
+  ///
+  /// In en, this message translates to:
+  /// **'Exercises'**
+  String get vocabularyNameHint;
+
+  /// Helper text explaining that a ghost placeholder matching the list name scopes suggestions to it
+  ///
+  /// In en, this message translates to:
+  /// **'A placeholder with this name suggests only this list.'**
+  String get vocabularyNameHelper;
+
+  /// Switch label controlling whether a vocabulary is offered in the editor
+  ///
+  /// In en, this message translates to:
+  /// **'Use for suggestions'**
+  String get vocabularyEnabled;
+
+  /// Explanation under the per-vocabulary enable switch
+  ///
+  /// In en, this message translates to:
+  /// **'Turn off to keep the list without suggesting it.'**
+  String get vocabularyEnabledDesc;
+
+  /// Label above the vocabulary terms field
+  ///
+  /// In en, this message translates to:
+  /// **'Terms'**
+  String get vocabularyTerms;
+
+  /// Placeholder for the multiline terms field, showing the one-per-line format
+  ///
+  /// In en, this message translates to:
+  /// **'One per line:\nBench Press\nDeadlift\nSquat'**
+  String get vocabularyTermsHint;
+
+  /// Number of terms in a vocabulary
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{No terms} =1{1 term} other{{count} terms}}'**
+  String vocabularyTermCount(int count);
+
+  /// Action/title for deleting a vocabulary
+  ///
+  /// In en, this message translates to:
+  /// **'Delete list'**
+  String get deleteVocabulary;
+
+  /// Confirmation message when deleting a vocabulary
+  ///
+  /// In en, this message translates to:
+  /// **'Delete \"{name}\"? Notes you already wrote keep their text.'**
+  String deleteVocabularyConfirm(String name);
+
+  /// Snackbar shown after a vocabulary is deleted
+  ///
+  /// In en, this message translates to:
+  /// **'List deleted'**
+  String get vocabularyDeleted;
+
   /// Section title on calendar settings grouping event data actions
   ///
   /// In en, this message translates to:

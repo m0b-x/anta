@@ -5,11 +5,13 @@ import 'package:flutter/services.dart';
 import 'package:re_editor/re_editor.dart';
 
 import '../constants/app_constants.dart';
+import '../controllers/vocabulary_suggestion_controller.dart';
 import '../l10n/app_localizations.dart';
 import '../models/custom_markdown_shortcut.dart';
 import '../models/utility_button_config.dart';
 import '../models/utility_button_definition.dart';
 import '../utils/icon_utils.dart';
+import 'vocabulary_suggestion_bar.dart';
 
 class MarkdownBar extends StatefulWidget {
   final List<CustomMarkdownShortcut> shortcuts;
@@ -47,6 +49,11 @@ class MarkdownBar extends StatefulWidget {
   /// When null, all utility buttons are shown in the default order.
   final List<UtilityButtonConfig>? utilityConfigs;
 
+  /// While this reports an open session the toolbar shows vocabulary
+  /// suggestions in place of the shortcut buttons. Same height either way, so
+  /// the swap never shifts the editor. Null disables the feature for this bar.
+  final VocabularySuggestionController? suggestions;
+
   const MarkdownBar({
     super.key,
     required this.shortcuts,
@@ -74,6 +81,7 @@ class MarkdownBar extends StatefulWidget {
     this.shortcutRatio = 0.7,
     this.splitEnabled = true,
     this.utilityConfigs,
+    this.suggestions,
   });
 
   @override
@@ -149,7 +157,27 @@ class _MarkdownBarState extends State<MarkdownBar> {
     if (_isReorderMode) {
       return CodeEditorTapRegion(child: _buildReorderMode(context));
     }
-    return CodeEditorTapRegion(child: _buildNormalMode(context));
+
+    final suggestions = widget.suggestions;
+    if (suggestions == null || widget.isPreviewMode) {
+      return CodeEditorTapRegion(child: _buildNormalMode(context));
+    }
+
+    return ValueListenableBuilder<VocabularySuggestionSession?>(
+      valueListenable: suggestions,
+      builder: (context, session, _) {
+        return CodeEditorTapRegion(
+          child: session == null
+              ? _buildNormalMode(context)
+              : VocabularySuggestionBar(
+                  session: session,
+                  onAccept: suggestions.accept,
+                  onDismiss: suggestions.dismiss,
+                  showBackground: widget.showBackground,
+                ),
+        );
+      },
+    );
   }
 
   Widget _buildNormalMode(BuildContext context) {

@@ -299,6 +299,89 @@ class AppLocalizationsEn extends AppLocalizations {
   String get categoryDeleted => 'Category deleted';
 
   @override
+  String get vocabularySection => 'Autocomplete';
+
+  @override
+  String get vocabularySuggestionsLabel => 'Suggest terms while typing';
+
+  @override
+  String get vocabularySuggestionsDesc =>
+      'Offer terms from your lists after the trigger character, or when you tap a placeholder.';
+
+  @override
+  String get vocabularySuggestionsDismiss => 'Hide suggestions';
+
+  @override
+  String get vocabularyTriggerLabel => 'Trigger character';
+
+  @override
+  String get vocabularyTriggerDesc =>
+      'Type it after a space to start searching your lists.';
+
+  @override
+  String get manageVocabularies => 'Edit lists';
+
+  @override
+  String get vocabularies => 'Word lists';
+
+  @override
+  String get vocabulariesEmpty =>
+      'No lists yet. Create one to get suggestions for the things you write often — exercises, meals, clients.';
+
+  @override
+  String get createVocabulary => 'New list';
+
+  @override
+  String get editVocabulary => 'Edit list';
+
+  @override
+  String get vocabularyName => 'List name';
+
+  @override
+  String get vocabularyNameHint => 'Exercises';
+
+  @override
+  String get vocabularyNameHelper =>
+      'A placeholder with this name suggests only this list.';
+
+  @override
+  String get vocabularyEnabled => 'Use for suggestions';
+
+  @override
+  String get vocabularyEnabledDesc =>
+      'Turn off to keep the list without suggesting it.';
+
+  @override
+  String get vocabularyTerms => 'Terms';
+
+  @override
+  String get vocabularyTermsHint =>
+      'One per line:\nBench Press\nDeadlift\nSquat';
+
+  @override
+  String vocabularyTermCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count terms',
+      one: '1 term',
+      zero: 'No terms',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get deleteVocabulary => 'Delete list';
+
+  @override
+  String deleteVocabularyConfirm(String name) {
+    return 'Delete \"$name\"? Notes you already wrote keep their text.';
+  }
+
+  @override
+  String get vocabularyDeleted => 'List deleted';
+
+  @override
   String get calendarEventsSection => 'Events';
 
   @override
