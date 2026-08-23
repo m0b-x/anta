@@ -29,6 +29,19 @@ Ignoring the bar costs nothing. No match means the bar simply closes and the
 characters stay exactly as typed — the feature never refuses input, which is the
 whole reason it is suggestion rather than validation.
 
+Lists are edited one entry per line on a full-screen page. A line starting with
+`;;` is a **section header** — it keeps a forty-exercise list navigable and is
+never suggested:
+
+```
+;; Chest
+Bench Press
+Incline Press
+
+;; Legs
+Squat
+```
+
 ## Decisions worth keeping
 
 **Plain text, not a new syntax.** An accepted suggestion inserts the bare term.
@@ -82,7 +95,30 @@ and the guard protecting `a@b.com` fires first. Widening that guard to recover
 one trigger character's scoping would trade away the invariant the whole
 trigger rule rests on, so it stays.
 
-**Terms are rows, and a save is a diff.** The editor sheet edits the whole list
+**Section headers are rows, not a column or a table.** A `;;` line is stored as
+an ordinary `vocabulary_items` row, so it carries position and identity exactly
+like a term: the diff-based save reorders and tombstones it with no special
+case, and a list round-trips through the editor unchanged. Only the *suggestion*
+path filters headers out, which is why the grammar lives on `VocabularyItem` —
+the one file both the facade and the service already import, so neither has to
+depend on the other. Headers de-duplicate like any other line (two identically
+titled headings collapse to the first): one rule applied consistently beats a
+second one to remember. "How many terms" everywhere means
+`Vocabulary.termCount`, which excludes them — ten exercises under three headings
+is still ten.
+
+**The list editor is a page, not a bottom sheet.** Editing forty exercises is a
+full-screen task. A sheet is capped at a fraction of the screen *and* does not
+shrink for the keyboard — the framework's modal bottom sheet adds no keyboard
+padding of its own — so the list box was left with a handful of visible lines
+and the only way to see the shape of the list was to dismiss the keyboard. A
+`Scaffold` resizes for the keyboard by itself, which is also why
+`VocabularyEditorPage` contains no `viewInsets` arithmetic. The name field and
+enable switch fold away while the terms field has focus, so the list gets the
+whole body; the header's chevron re-opens them without dismissing the keyboard,
+so editing the name mid-session costs no keyboard round-trip either.
+
+**Terms are rows, and a save is a diff.** The editor edits the whole list
 as one block of lines, so every save re-submits every term. A wipe-and-reinsert
 would fork each row's id and bump each version, turning one edited word into a
 full-list conflict the moment two devices merge. `VocabularyDao.saveItems` keeps
@@ -95,7 +131,7 @@ applied through `normalizeForSearch`. Never a second folding table.
 ## Shape
 
 ```
-VocabulariesPage / VocabularyEditorSheet
+VocabulariesPage / VocabularyEditorPage
         ↓
 VocabularyService  ──publishes──>  Vocabularies (sync facade, lib/constants)
         ↓                                    ↑
@@ -153,6 +189,8 @@ same insertion path, different provider.
   resurrection, the diff-based save (identity preservation, reorder, clear), and
   the v32 migration.
 - `test/database/schema_parity_test.dart` — frozen DDL for both tables.
+- `test/models/vocabulary_item_test.dart` — the `;;` boundary: a term keeping a
+  single semicolon must never stop being suggested.
 - `test/services/vocabulary_service_test.dart` — term parsing, the published
   facade, placeholder resolution, mutations, backup round-trip.
 - `test/controllers/vocabulary_suggestion_controller_test.dart` — both entry

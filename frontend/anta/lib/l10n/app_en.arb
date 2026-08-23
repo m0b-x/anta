@@ -458,9 +458,13 @@
   "@vocabularyTerms": {
     "description": "Label above the vocabulary terms field"
   },
-  "vocabularyTermsHint": "One per line:\nBench Press\nDeadlift\nSquat",
+  "vocabularyTermsHint": "One per line:\nBench Press\nDeadlift\n\n;; Legs\nSquat",
   "@vocabularyTermsHint": {
-    "description": "Placeholder for the multiline terms field, showing the one-per-line format"
+    "description": "Placeholder for the multiline terms field, showing the one-per-line format and the ;; section header syntax"
+  },
+  "vocabularyDetails": "List name and settings",
+  "@vocabularyDetails": {
+    "description": "Tooltip on the button that folds the name field and enable switch away while editing terms"
   },
   "vocabularyTermCount": "{count, plural, =0{No terms} =1{1 term} other{{count} terms}}",
   "@vocabularyTermCount": {

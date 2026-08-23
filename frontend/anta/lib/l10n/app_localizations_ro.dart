@@ -358,7 +358,10 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get vocabularyTermsHint =>
-      'Câte unul pe linie:\nÎmpins la piept\nÎndreptări\nGenuflexiuni';
+      'Câte unul pe linie:\nÎmpins la piept\nÎndreptări\n\n;; Picioare\nGenuflexiuni';
+
+  @override
+  String get vocabularyDetails => 'Numele listei și setările';
 
   @override
   String vocabularyTermCount(int count) {

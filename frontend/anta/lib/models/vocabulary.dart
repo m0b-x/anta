@@ -22,7 +22,17 @@ class Vocabulary extends Equatable {
     this.items = const [],
   });
 
+  /// Every line, section headers included — this is what round-trips through
+  /// the editor, so dropping headers here would delete them on the next save.
   List<String> get terms => [for (final item in items) item.term];
+
+  /// The lines that can actually be suggested.
+  Iterable<VocabularyItem> get suggestibleItems =>
+      items.where((item) => !item.isComment);
+
+  /// What every surface means by "how many terms" — headers are structure, not
+  /// content, so a list of ten exercises under three headings is still ten.
+  int get termCount => suggestibleItems.length;
 
   Vocabulary copyWith({
     String? id,

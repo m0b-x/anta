@@ -772,11 +772,17 @@ abstract class AppLocalizations {
   /// **'Terms'**
   String get vocabularyTerms;
 
-  /// Placeholder for the multiline terms field, showing the one-per-line format
+  /// Placeholder for the multiline terms field, showing the one-per-line format and the ;; section header syntax
   ///
   /// In en, this message translates to:
-  /// **'One per line:\nBench Press\nDeadlift\nSquat'**
+  /// **'One per line:\nBench Press\nDeadlift\n\n;; Legs\nSquat'**
   String get vocabularyTermsHint;
+
+  /// Tooltip on the button that folds the name field and enable switch away while editing terms
+  ///
+  /// In en, this message translates to:
+  /// **'List name and settings'**
+  String get vocabularyDetails;
 
   /// Number of terms in a vocabulary
   ///

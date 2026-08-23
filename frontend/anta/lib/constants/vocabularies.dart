@@ -86,7 +86,8 @@ class Vocabularies {
     final candidates = <VocabularyCandidate>[];
     for (final vocabulary in vocabularies) {
       if (!vocabulary.isEnabled) continue;
-      for (final item in vocabulary.items) {
+      // Section headers organise the list; they are never offered as terms.
+      for (final item in vocabulary.suggestibleItems) {
         candidates.add(
           VocabularyCandidate(
             term: item.term,

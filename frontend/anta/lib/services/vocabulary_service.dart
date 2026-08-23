@@ -69,12 +69,18 @@ class VocabularyService {
 
   Future<void> reload() => _load();
 
-  /// Turns the editor sheet's one-term-per-line block into a clean term list:
-  /// trimmed, blank lines dropped, duplicates removed.
+  /// Turns the editor's one-line-per-entry block into a clean list: trimmed,
+  /// blank lines dropped, duplicates removed.
   ///
   /// Duplicates are judged **folded**, so "Bench press" typed twice with
   /// different capitalisation collapses to the first spelling — the same
   /// store-verbatim / match-folded rule the suggestion bar uses.
+  ///
+  /// `;;` section headers survive as ordinary lines (they are non-blank, so
+  /// they need no special case here) and are filtered out of suggestions by the
+  /// facade instead. They de-duplicate like anything else: two identically
+  /// titled headings in one list collapse to the first, which is the same rule
+  /// applied consistently rather than a second one to remember.
   static List<String> parseTerms(String raw) {
     final seen = <String>{};
     final terms = <String>[];

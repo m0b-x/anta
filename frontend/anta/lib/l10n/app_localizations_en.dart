@@ -356,7 +356,10 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get vocabularyTermsHint =>
-      'One per line:\nBench Press\nDeadlift\nSquat';
+      'One per line:\nBench Press\nDeadlift\n\n;; Legs\nSquat';
+
+  @override
+  String get vocabularyDetails => 'List name and settings';
 
   @override
   String vocabularyTermCount(int count) {

@@ -357,7 +357,10 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get vocabularyTermsHint =>
-      'Einer pro Zeile:\nBankdrücken\nKreuzheben\nKniebeuge';
+      'Einer pro Zeile:\nBankdrücken\nKreuzheben\n\n;; Beine\nKniebeuge';
+
+  @override
+  String get vocabularyDetails => 'Listenname und Einstellungen';
 
   @override
   String vocabularyTermCount(int count) {

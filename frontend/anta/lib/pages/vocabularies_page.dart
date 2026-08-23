@@ -2,11 +2,12 @@ import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
 import '../models/vocabulary.dart';
+import '../services/app_navigator.dart';
 import '../services/vocabulary_service.dart';
 import '../utils/custom_snackbar.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/unified_app_bars.dart';
-import '../widgets/vocabulary_editor_sheet.dart';
+import 'vocabulary_editor_page.dart';
 
 /// Management page for the editor's suggestion lists. Create, edit, enable and
 /// reorder vocabularies; the terms themselves are edited in
@@ -53,15 +54,18 @@ class _VocabulariesPageState extends State<VocabulariesPage> {
   }
 
   Future<void> _create() async {
-    final created = await VocabularyEditorSheet.show(context);
+    final created = await AppNavigator.push<Vocabulary>(
+      context,
+      const VocabularyEditorPage(),
+    );
     if (created == null || !mounted) return;
     _refresh();
   }
 
   Future<void> _edit(Vocabulary vocabulary) async {
-    final updated = await VocabularyEditorSheet.show(
+    final updated = await AppNavigator.push<Vocabulary>(
       context,
-      initial: vocabulary,
+      VocabularyEditorPage(initial: vocabulary),
     );
     if (updated == null || !mounted) return;
     _refresh();
@@ -137,7 +141,7 @@ class _VocabulariesPageState extends State<VocabulariesPage> {
                       ),
                       title: Text(vocabulary.name),
                       subtitle: Text(
-                        l10n.vocabularyTermCount(vocabulary.items.length),
+                        l10n.vocabularyTermCount(vocabulary.termCount),
                       ),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,

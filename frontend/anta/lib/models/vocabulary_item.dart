@@ -1,10 +1,25 @@
 import 'package:equatable/equatable.dart';
 
-/// One term inside a [Vocabulary] — the exact text the editor inserts when the
-/// suggestion is accepted.
+/// One line of a [Vocabulary] — either a term the editor inserts when the
+/// suggestion is accepted, or a `;;` **section header** that only organises the
+/// list.
 ///
 /// [term] is stored verbatim; matching folds it at comparison time.
+///
+/// Headers are ordinary rows rather than a separate table or column: they carry
+/// position and identity exactly like terms, so the diff-based save reorders
+/// and tombstones them with no special case, and a list round-trips through the
+/// editor unchanged. Only the *suggestion* path filters them out — the grammar
+/// lives here because both the facade (`lib/constants/vocabularies.dart`) and
+/// the service need it, and the model is the one file both already import.
 class VocabularyItem extends Equatable {
+  /// Marks a line as a section header. Two characters, because a single `;`
+  /// is plausible inside a real term and a header must never swallow one.
+  static const String commentMarker = ';;';
+
+  static bool isCommentText(String text) =>
+      text.trimLeft().startsWith(commentMarker);
+
   final String id;
   final String vocabularyId;
   final String term;
@@ -16,6 +31,14 @@ class VocabularyItem extends Equatable {
     required this.term,
     required this.sortOrder,
   });
+
+  /// Whether this line organises the list rather than being suggestible.
+  bool get isComment => isCommentText(term);
+
+  /// The header's text with its marker stripped, for surfaces that show the
+  /// section rather than the raw line.
+  String get commentLabel =>
+      term.trimLeft().substring(commentMarker.length).trim();
 
   VocabularyItem copyWith({
     String? id,

@@ -58,6 +58,26 @@ void main() {
     test('an empty block is no terms, not one blank term', () {
       expect(VocabularyService.parseTerms('   \n\n'), isEmpty);
     });
+
+    test('keeps section headers as lines of their own', () {
+      const raw = ';; Chest\nBench Press\n\n;; Legs\nSquat';
+
+      expect(VocabularyService.parseTerms(raw), [
+        ';; Chest',
+        'Bench Press',
+        ';; Legs',
+        'Squat',
+      ]);
+    });
+
+    test('a header round-trips through formatTerms unchanged', () {
+      const lines = [';; Chest', 'Bench Press'];
+
+      expect(
+        VocabularyService.parseTerms(VocabularyService.formatTerms(lines)),
+        lines,
+      );
+    });
   });
 
   group('the published facade', () {
@@ -75,6 +95,36 @@ void main() {
       expect(candidates.first.foldedTerm, 'impins la piept');
       expect(candidates.first.vocabularyName, 'Exercises');
       expect(Vocabularies.hasCandidates, isTrue);
+    });
+
+    test('section headers organise the list but are never suggested', () async {
+      await service.createVocabulary(
+        name: 'Exercises',
+        terms: const [';; Chest', 'Bench Press', ';; Legs', 'Squat'],
+      );
+
+      // The headers are stored — they have to survive an edit round-trip.
+      final stored = service.vocabularies.single;
+      expect(stored.terms, [';; Chest', 'Bench Press', ';; Legs', 'Squat']);
+      expect(stored.items, hasLength(4));
+
+      // But they are structure, not content.
+      expect(stored.termCount, 2);
+      expect([for (final c in Vocabularies.candidates) c.term], [
+        'Bench Press',
+        'Squat',
+      ]);
+    });
+
+    test('a list of only headers offers nothing', () async {
+      await service.createVocabulary(
+        name: 'Exercises',
+        terms: const [';; Chest', ';; Legs'],
+      );
+
+      expect(Vocabularies.candidates, isEmpty);
+      expect(Vocabularies.hasCandidates, isFalse);
+      expect(service.vocabularies.single.termCount, 0);
     });
 
     test('a disabled list contributes no candidates but stays listed', () async {
