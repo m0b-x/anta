@@ -3,7 +3,13 @@
 **Status: Phases 0, 1 and 2 shipped (2026-08-20). 3.1, the agenda half of 3.2,
 and the debounce half of 4.1 shipped (2026-08-21) via
 [calendar-anchor-perf-regression-2026-08.md](calendar-anchor-perf-regression-2026-08.md).
-The rest of Phases 3-5 planned.**
+3.4 shipped (2026-08-23). 3.2a — sharing that agenda partition with the grid —
+also shipped (2026-08-23). 3.2b — per-rule candidate generation
+(`RecurrenceRule.candidateDaysIn`) — shipped (2026-08-24), completing 3.2. 3.3
+— sort once, memoize resolver output, plus new `CalendarCategories`/
+`FastingCalendar` revision counters and a `FastingCalendar.cellStyleFor`
+eviction fix it needed first — shipped (2026-08-24), completing Phase 3. The
+rest of Phases 4-5 planned.**
 
 This started as a review, not a changelog. Every finding was verified by reading source;
 no profiler run backs the timing estimates yet — Phase 0 exists to produce those numbers
@@ -124,9 +130,11 @@ The SQL audit listed `_dayCache`'s wholesale-clear-on-overflow under "fine"; the
 recurrence audits both flagged it. The latter two are right — the SQL audit was not
 looking at month-paging behaviour, where the clear evicts the page being painted.
 
-Unverified claim to check before acting: `day_bars_resolver.dart:246` and
-`day_summary_resolver.dart:313` both comment that events "arrive pre-sorted", while both
-files also sort defensively. Establish which is true before removing either sort (3.3).
+Checked before acting, per 3.3: `day_bars_resolver.dart:246` and `day_summary_resolver.dart:313`
+both comment that events "arrive pre-sorted", while both files also sorted defensively before
+this item. Both were true, one layer apart — the comments describe `.resolve()`'s own input
+(the list `barsFor`/`summaryFor` had already sorted), not the raw `events` parameter, which
+was never guaranteed sorted before 3.3 moved that guarantee to `CalendarBloc.eventsForDay`.
 
 ---
 
@@ -608,56 +616,357 @@ the wrapper rescues it. The assert plus keeping the wrapper public is the mitiga
 `calendar_page.dart:447` and `event_detail_sheet.dart:273` first.
 
 **3.2 Add superset-only candidate generation and a window index.**
-**Partially shipped (2026-08-21)** — the anchor-regression doc's B2 added
-span-based candidate pruning + one-time bucketing to the **agenda scan**
-(`EventAgenda.occurrencesInRange`), exempting `SpecificDatesRecurrence` because
-it has no pre-start guard. The **grid** half described here — `candidateDaysIn`
-on `RecurrenceRule` plus the per-window index for `eventsForDay` — is **not**
-done. `eventsForDay`
-(`calendar_bloc.dart:61-76`) tests every event against every day with no pruning — a yearly
-birthday is checked against all 42 visible days. Add
-`Iterable<DateTime> candidateDaysIn(from, to, start, {retroactive})` to `RecurrenceRule`,
-**with a base implementation that yields every day in the window**, so an un-overridden rule
-is bit-identical to today. Override for `OneTime`, `SpecificDates`, `Yearly`, `Monthly`,
-`Weekly`, `Daily`; leave `Workdays`/`Weekends`/`HolidaysOnly` on the base. Replace the
-per-day memo with a per-window memo built in one pass, with two O(1) prunes (`endDate` before
-window, non-retroactive `startDate` after window).
+**3.2a shipped (2026-08-23); 3.2b shipped (2026-08-24) — 3.2 is complete.** The anchor-regression
+doc's B2 (2026-08-21) added span-based candidate pruning + one-time bucketing to
+the **agenda scan** (`EventAgenda.occurrencesInRange`), exempting
+`SpecificDatesRecurrence` because it has no pre-start guard. 3.2a is a pure
+extraction of that pruning plus a new consumer: it moved unchanged into
+`EventAgenda.partitionForWindow(events, start, end)` (inclusive `end`, matching
+the scan's own convention) — pinned by `event_agenda_test.dart` and by the
+agenda case of `calendar_occurs_on_budget_test.dart` staying at exactly
+**4800** at the time — and `CalendarBloc.eventsForDay` now consults the same
+split on a cache miss instead of scanning `allEvents`.
 
-**`occursOn` must remain the sole arbiter** — every generated candidate is still validated
-through it, so `endDate`, `retroactive` and skips stay enforced in exactly one place.
+`_partitionFor` builds (or reuses) one split per
+`_dayCacheWindowFor` window — 3.4's single window definition, also shared with
+eviction and the neighbour-month prewarm — and only for a day inside that
+window; a day outside it (a date picker, the day/timeline panel, a birthday
+decades away) still falls back to the full `allEvents` scan, unchanged from
+before 3.2a. At the time 3.2a landed this was **not yet** the
+`candidateDaysIn`/per-rule window index this item originally described:
+one-time events were the only kind pruned out of the grid's per-day scan,
+and a yearly birthday was still checked against every visible day in the
+window. 3.2b, below, closed that.
 
-*Must stay byte-identical:* Feb-29 yearly skipping non-leap years (`recurrence_rule.dart:186`);
-day-31 monthly clamping (`:162`); the Monday-grid week phase including the negative-index floor
-in `_weekIndex` (`:62-65`) — stepping from `start` instead of the epoch grid silently changes
-A/B-week phase; Euclidean `%` for retroactive days; the refusal to back-project the anchor
-(`:11-19`); `Weekly` with an empty weekday set producing nothing.
+3.2a's own measured win is exactly the one-time share.
+`calendar_occurs_on_budget_test.dart` seeds 200 events cycling five rule kinds
+(40 one-time); its cold-month and re-expansion-after-a-skip cases moved from
+**8400 to 6720** calls (42 days x 160 recurring events) — the repeat-lookup and
+presence-write cases stay at **0**, unchanged, since eviction and the
+deliberate presence non-trigger are orthogonal to this item.
 
-*Also:* the hidden-category filter must stay **out** of the index and remain render-time —
-moving it in makes a skip and a hide indistinguishable, which both `event_skips.dart:14-17`
-and `calendar_event.dart:322-327` explicitly warn against.
+**Verified before relying on it:** the bucketing rests on "a one-time event is
+never skipped", which holds at the model layer regardless of data state, not
+just by policy. `CalendarEvent.occursOnUtcDay` guards the skip check itself
+with `rule is! OneTimeRecurrence` before it ever calls `EventSkips.isSkipped`,
+so a stale skip row could not hide a one-time occurrence even if one existed;
+`EventSkips.appliesTo` mirrors the same guard to keep the only UI skip action
+off one-time events in the first place. `calendar_event_skip_test.dart`'s
+"a stale row can never hide one" case plants a skip on a one-time event's own
+day and asserts it still occurs. Bucketed one-time events therefore never need
+to reach `occursOnUtcDay` to be safe from a skip — nothing here is a latent
+bug, in the grid or in the agenda scan it was copied from.
 
-**3.3 Sort once, memoize resolver output.** `eventsForDay` returns unsorted, so
-`DayBarsResolver` (`:127`), `DaySummaryResolver` (`:144`) and `CellTintResolver` each copy and
-re-sort per cell per frame — with a comparator whose common tie-break `toLowerCase()`s both
-titles (`event_agenda.dart:154`). ~2,000 string allocations per frame, independent of N. Sort
-once where the list is memoized, precompute a `_titleFold` on the model, and memoize the
-**resolver outputs** (not just the instances, which `calendar_page.dart:77-103` already does)
-keyed on the union of every facade revision.
+**The partition cache key is `allEvents` identity plus `(windowStart,
+windowEndExclusive)`**, checked by one `identical()` plus two `DateTime`
+comparisons on every read (`_partitionFor`), and additionally dropped
+unconditionally inside `_invalidateDayCache` — the same signal `_dayCache` and
+`_monthNetCache` already answer to (8 call sites, including the
+holiday-generation sync `_syncHolidayGeneration` runs). The identity/window
+check alone already covers every mutation that replaces `allEvents` wholesale
+(create, update, delete, reload all build a fresh list, which is also
+`sameGridInputs`' own precondition); a hidden-category change and a skip
+change neither `allEvents` nor the window, and do not need to — hiding stays a
+render-time filter applied when each day is materialized, and a skip is a
+fact `occursOnUtcDay` still checks fresh for every candidate the partition
+hands back, bucketed or not. Dropping the partition in `_invalidateDayCache`
+regardless is redundant for every one of today's 8 call sites, and is kept
+anyway: one signal to reason about, and the one guard a future call site that
+mutates `allEvents` in place — instead of replacing it — could not defeat.
 
-*Verify first:* the "arrive pre-sorted" comments noted above.
-*Risk:* an incomplete revision key stales a cell. The three surfaces must keep agreeing on
-"top event" — sorting once upstream strengthens that, but the widget test that ticks
-presence/skip/description and asserts a repaint is mandatory.
+**`occursOnUtcDay` stays the sole arbiter** — every candidate the partition
+returns, recurring or bucketed, is still validated through it, never through
+`event.rule.occursOn`, so `endDate`, retroactive and skips stay enforced in the
+one place `debugOccursOnCalls` can see. **The hidden-category filter stays out
+of the partition and render-time**, applied in `eventsForDay` exactly as
+before 3.2a — the partition is built from rules and dates only, which is also
+why it needs no invalidation of its own for a category-visibility change.
 
-**3.4 Fix cache eviction and prewarm neighbours.** `calendar_bloc.dart:73` clears all 512
-entries **inside `eventsForDay`**, i.e. mid-paint, evicting the page being painted right then;
-each cell hits the cache twice (`eventLoader` at `:786` and `_buildDayCell` at `:762`), so the
-clear can fire between the two lookups of the same cell. Consecutive pages overlap, so this
-fires roughly every 16 page turns. Switch to window-based eviction (`focusedDay ± 3 months`)
-driven from `_onChangeFocusedDay`, never from the lookup. Separately, `PageView` runs with
-`cacheExtent: 0`, so the neighbouring month is built inside the first drag frame against a
-cold cache — prewarm prev/next months in a post-frame callback at idle priority. Nothing may
-dispatch from inside `eventLoader`.
+*Guard:* `test/bloc/calendar_bloc_day_cache_partition_test.dart` — create,
+update, delete and a skip, each asserting the very next lookup reflects the
+mutation, including for a day never looked up before. Verified to fail on
+three of the four (create/update/delete) with the partition's invalidation
+disabled; the skip case legitimately keeps passing even then, since skip
+correctness lives in `occursOnUtcDay`, not in the partition's composition —
+consistent with the point above.
+
+**3.2b — per-rule candidate generation.** *Shipped (2026-08-24), completing 3.2.*
+`RecurrenceRule.candidateDaysIn(from, to, start, {retroactive})` returns the
+days inside an inclusive window the rule *may* fire on, or **`null`** meaning
+"I cannot usefully prune myself — scan me against every day". `null` is not
+"never" and not "every day in the window": a caller buckets a returned iterable
+into a per-day map, and for a rule that fires daily that map costs far more than
+the scan it replaces, so `null` keeps such a rule on exactly its pre-3.2b path,
+bit-identical.
+
+| Rule | Behaviour |
+| --- | --- |
+| `OneTime` | `start`, if the window holds it. No pre-start clamp — `occursOn` is a bare `day == start`. |
+| `SpecificDates` | its `dates` inside the window. **Independent of `start`** (no `_beforeStart` guard, `supportsRetroactive` false), and its `dates` is insertion-ordered, so the result is unordered. |
+| `Daily` | `interval <= 1` → **`null`**. Else the arithmetic sequence congruent to `start` mod `interval`. |
+| `Weekly` | empty `weekdays` → **empty**. All seven **and** `interval <= 1` → **`null`**. Else one stepped sequence per selected weekday, phase-filtered through `_weekIndex` when `interval > 1`. |
+| `Monthly` | one candidate per month the window touches, skipped when the month is shorter than `start.day`. |
+| `Yearly` | one candidate per year the window touches, non-leap years skipped for a Feb-29 anchor. |
+| `Workdays` / `Weekends` / `PublicHolidaysOnly` | **`null`** (inherited). |
+
+`PublicHolidaysOnly` and `Workdays` returning `null` is **mandatory, not a
+shortcut**: their membership is the mutable, revision-tracked `PublicHolidays`
+facade, which a profile switch, a suppression, a backup restore or a database
+switch all change with nothing dispatched. Folding that into a cached day index
+would put a mutable input inside the index — the exact bug
+`_syncHolidayGeneration` exists to avoid.
+
+**Over-yielding is safe; under-yielding is a bug**, and the six invariants that
+make that true are each preserved deliberately, not incidentally:
+
+* **Feb-29 yearly** (`recurrence_rule.dart:360`, was `:186`) — the generator skips non-leap years outright rather
+  than constructing `DateTime.utc(2027, 2, 29)`, which rolls into March 1.
+* **Day-31 monthly** (`:303`, was `:162`) — guarded on the real month length (`_daysInMonth`,
+  a table plus a leap test), never on a reconstructed date.
+* **Monday-grid week phase** (`_weekIndex`, `:84-89`, was `:62-65`) — the weekly generator calls
+  `_weekIndex` for its phase and steps `7 * interval` days. Stepping 7 days from
+  `start` instead silently flips A/B-week parity; that is one of the three bugs
+  injected to prove the differential test bites (it dropped every real occurrence
+  from the first mismatched week onward, failing 5 cases).
+* **Euclidean `%`** — the daily/monthly/yearly phases take the residue directly
+  from a possibly negative difference, exactly as `occursOn` does.
+* **No back-projected anchor** (`:11-19`, unmoved) — phase is arithmetic (`_weekIndex`,
+  month counts, year counts); `start` is never shifted backwards.
+* **Empty `weekdays`** — returns an **empty** iterable, never `null` and never
+  every day; `occursOn`'s `weekdays.contains` fails for all seven.
+
+`_beforeStart` applies to rules 3-9 only, so only those clamp `from` up to
+`start` when not retroactive (`_candidateFloor`). `OneTime` and `SpecificDates`
+must not, and a clamp added to `SpecificDates` was the third injected bug — it
+failed 2 cases immediately.
+
+**Consumers.** `EventAgenda.partitionForWindow` now returns
+`{dense, sparseByDay, oneTimeByDay}`: `null` → `dense` (scanned every day, as
+before), otherwise bucketed into `sparseByDay`. Both `occurrencesInRange` and
+`CalendarBloc._dayCandidates` (and its `_DayCachePartition` cache) consider
+`dense + sparseByDay[day] + oneTimeByDay[day]`. **`occursOnUtcDay` remains the
+sole arbiter** — every sparse candidate is validated through it, never through
+`rule.occursOn`, which would skip the `endDate` clamp and the skip subtraction
+and be invisible to `debugOccursOnCalls`. **The hidden-category filter stays
+render-time**, out of the index, exactly as 3.2a left it. The forward `endDate`
+clamp *is* applied to the generator's window — provably subtractive, since
+`occursOnUtcDay` rejects those days anyway.
+
+**Counts** (`calendar_occurs_on_budget_test.dart`, exact, not ceilings). Cold
+month and re-expansion-after-a-skip: **6720 → 1973** = `42*40` dense daily +
+`6*40` weekly Mondays in the window + 53 monthly hits (`(7+6)*2 + 27`, from the
+July 27-31 / September 1-6 overhang) + 0 yearly + 0 one-time. Agenda 30-day
+window: **4800 → 1400** = `30*40` + `4*40` + `1*40`. The repeat-lookup and
+presence-write cases stay at **0**.
+
+**Window sizing — measured, and it is not free everywhere.** Bucketing one
+candidate day costs roughly **2x** one `occursOnUtcDay`, so with `W` window days,
+`K` candidates per event and `L` days actually looked up before the partition is
+discarded, bucketing wins iff `2K < L*(1 - K/W)`. Measured on the mixed 200-event
+set over the grid's 214-day window: **L=42 → 1.34x slower**, L=84 → 2.0x faster,
+**L=126 → 2.6x faster**, L=214 → 3.1x faster; the agenda's 366-day window →
+3.0x faster. The grid lands at L≈126, not L=42, because 3.4's prewarm warms both
+neighbour months (42 painted + 84 prewarmed) against a single partition — so the
+one losing column is a shape the eviction/prewarm design already prevents.
+
+*Known, bounded, non-correctness trade-off:* a `Weekly` selecting **six of seven**
+weekdays generates 6/7 of the window and loses at every size (2.6x-6.3x). A
+density cutoff (fall back to `null` when the generated set would exceed ~1/3 of
+the window) would send it dense; not added, because it is a shape no built-in
+produces and the guard would be an unmeasured knob.
+
+*Guard:* `test/models/recurrence_candidate_days_test.dart` — a table-driven
+differential test over all nine rule kinds x `{retroactive, not}` x windows that
+sit after, straddle and sit entirely before the anchor, asserting one direction
+only: **every day for which `occursOn` is true is present in `candidateDaysIn`,
+whenever it returns non-null**. Plus explicit Feb-29 and day-29/30/31 anchors
+across 2020-2033, `interval > 1` for every kind that supports it, an empty
+weekday set, a pre-`_weekEpoch` retroactive window (the negative `_weekIndex`
+floor), and the `null`-vs-empty distinction. Verified to bite: three injected
+bugs (7-day stepping instead of `_weekIndex`; the leap-year guard removed; a
+pre-start clamp on `SpecificDates`) failed 5, 1 and 2 cases respectively, each
+naming the dropped or spurious days.
+
+**3.3 Sort once, memoize resolver output.** *Shipped (2026-08-24).* Landed behind two
+prerequisites the plan did not name, plus the item itself.
+
+**Prerequisite: two facades the plan's "union of every facade revision" needs had no
+revision at all.** `CalendarCategories` and `FastingCalendar` are exactly the kind of
+static, mutable input a resolver-output memo has to key on — a recoloured category or a
+changed fasting schedule changes what `DayBarsResolver`/`CellTintResolver` paint with no
+event row touched — but neither had a counter. Both gained one in the `EventSkips`/
+`PublicHolidays` shape (private counter, public getter). `CalendarCategories.updateCache` is
+the single bump point (there is no reset to also bump from — `CategoryService` owns no
+`DatabaseLifecycle` hook of its own, unlike `PublicHolidayService`/`FastingCalendar`'s
+owning `SettingsService`). `FastingCalendar.configure` bumps twice: once inside the
+appearance-only branch (display-only, but it drops `_cellStyles`, which a resolver-output
+memo depends on) and once in the main branch after the `unchanged` early return (where
+traditions/scope/schedule actually change and both caches clear) — plus once from
+`resetConfiguration`. The early return itself is never a bump point: every settings-return
+calls `configure` again with unchanged values, and bumping there would invalidate 3.3's
+memo on every such return, silently undoing it.
+
+**A second, unrelated bug surfaced alongside it: `FastingCalendar.cellStyleFor` had the
+exact defect 3.4 had just fixed for `CalendarBloc._dayCache`.**
+`if (_cellStyles.length >= _cellCacheCap) _cellStyles.clear();` wiped all 512 entries from
+inside the lookup, on a path called twice per cell (`calendar_page.dart` and
+`CellTintResolver`) — the clear could fire between the two calls for the day being painted
+right then. Unlike the bloc's cache this static facade has no focus-change event to hang a
+windowed eviction on, so the fix is a single-entry FIFO instead: `_cellStyles` is a
+`LinkedHashMap`, so `_cellStyles.remove(_cellStyles.keys.first)` evicts exactly the oldest
+entry, never the whole map. `on()`'s sibling year cache (`_years`, cap 12) was deliberately
+left as a wholesale clear-on-overflow: it is keyed per **year**, not per day, and a single
+grid frame (one month) spans at most two distinct years — far under the cap — so the
+entries a frame actually needs are inserted immediately after any clear a miss triggers,
+and can never be the ones evicted by a same-frame insert the way a day-keyed cache's
+512-entries-vs-42-cells-per-frame arithmetic allows.
+
+*Guard:* `test/constants/fasting_calendar_test.dart`'s `cellStyleFor eviction` group inserts
+500 padding days, caches a real (non-`empty`) Great Lent day, then floods 20 more days past
+the 512 cap and asserts the target survives by identity (`same`). The padding is
+load-bearing: a target cached with *no* padding ahead of it is the single oldest entry, so
+*any* bounded eviction (FIFO or true LRU alike) would sacrifice it first — which is correct
+behaviour, not the bug this test exists to catch. Verified to fail against the original
+wholesale clear.
+
+**Sort once, in `CalendarBloc.eventsForDay`'s memo body**, before `List.unmodifiable` freezes
+it — build the day's matches into a mutable list, sort by `EventAgenda.compareWithinDay`,
+then freeze. Removed the matching per-cell `[...events]..sort(...)` copy from
+`DayBarsResolver`'s `EventDayBarProvider.barsFor` and `DaySummaryResolver`'s
+`EventSummaryProvider.summaryFor`; both now trust their input arrives already ordered.
+`CellTintResolver` was left untouched, per the plan's own note — it is a single-pass
+min-scan, never a copy-and-sort, so there was nothing to remove; it benefits from
+`_titleFold` (below) for free.
+
+**The "arrive pre-sorted" comments this item asked to verify first were accurate, but about
+one layer removed from where the doubt was aimed.** Both resolvers' own `.resolve()` methods
+(the stable priority-then-insertion-index tie-break) were correctly assuming that the
+`DayBar`/`DaySummaryEntry` list `barsFor`/`summaryFor` had *already built* arrived in
+`compareWithinDay` order — true, because `barsFor`/`summaryFor` sorted defensively just
+before returning it. The real question was about the raw `events` **parameter**, one layer
+further out, which was never guaranteed sorted before this item. That guarantee now lives at
+`eventsForDay`, one layer further out still, which is what let the defensive copies come out.
+
+**`_titleFold`:** `late final String titleFold = title.toLowerCase()` on `CalendarEvent`,
+the same derived-non-`props` shape as `startDateUtc`. Used in
+`EventAgenda.compareWithinDay`'s title tie-break in place of
+`a.title.toLowerCase().compareTo(b.title.toLowerCase())`. That tie-break is reached only
+when priority *and* the all-day/timed split *and* the start minute all tie, so the original
+"~2,000 string allocations per frame" estimate is a worst case, not a typical frame.
+`CellTintResolver`, which calls the comparator `n-1` times per cell as its own min-scan,
+gets the saving for free with no code change of its own.
+
+**Other `eventsForDay` consumers, checked, none needing a change.**
+`calendar_bottom_panel.dart`'s two call sites (`DaySummaryResolver.resolve` for the day
+panel, `DayTimelineView` for the timeline) already receive the memoized, now-sorted list.
+`day_timeline_view.dart`/`day_timeline_layout.dart` run their own independent sort for
+hour-grid column packing (by start minute, not `compareWithinDay`) and were never dependent
+on `eventsForDay`'s order in either direction. `calendar_page.dart`'s editor date-picker
+`dayLoad:` only reads `.length`.
+
+**Resolver tests updated to the new contract, per the plan's own permission.**
+`day_bars_resolver_test.dart`'s `EventDayBarProvider ordering` group and the
+`DayBarsResolver.resolve stability` group's "agrees with the shared same-day comparator"
+case fed deliberately unsorted input and relied on `barsFor` sorting it internally; they now
+feed `compareWithinDay`-sorted input and assert the resolver preserves that order, which is
+the guarantee `barsFor` still actually owns. `does not mutate the caller list` needed no
+change (it never asserted on order) and `preserves provider order for equal-priority bars`
+needed no change either — its fixture was already incidentally pre-sorted, now called out in
+a comment. `day_summary_resolver.dart` has no dedicated test file to update.
+`cell_tint_resolver_test.dart` needed no change, matching that its resolver was untouched.
+
+**Memoize resolver output, per day, on `_CalendarViewState`** — which already memoized the
+*resolver instances* (`_resolverFor`/`_cellTintResolver`, `calendar_page.dart:122-151`), not
+their output. Two maps, `_barsOutputCache`/`_tintOutputCache`, cleared wholesale on a
+mismatch against one `_outputGeneration` int rather than keyed per cell — composing a tuple
+key per cell instead would grow the maps on every facade tick rather than clearing them,
+exactly the shape `CalendarBloc._syncHolidayGeneration` already uses for the same reason.
+Recomputed once per grid build, inside the grid `BlocBuilder`'s own `builder` callback — which
+runs on *every* rebuild of that element, not only a `sameGridInputs`-qualifying bloc emission
+(`flutter_bloc`'s `BlocBuilder` wraps a `BlocListener` and calls `widget.build(context,
+_state)` unconditionally from its own `State.build()`), so it also catches a facade-only
+change riding in on an unrelated `_CalendarViewState.setState()` (`_loadSettings`, on every
+settings return). The generation folds: `CalendarPageLoaded.allEvents`/`hiddenCategoryIds`
+identity, `membershipRevision`, `presenceRevision`, `PublicHolidays.revision`,
+`CalendarCategories.revision` (new above), `FastingCalendar.revision` (new above),
+`NoteMoneyLedgerService.instanceOrNull?.revision`, and the `barsResolver`/`tintResolver`
+instance identities (already folding in `AppLocalizations` and `CalendarAppearance`, per
+their own existing memoization). `occurrenceRevision` is deliberately absent — verified by
+reading both resolvers: neither imports `OccurrenceDescriptions`; only
+`EventSummaryProvider`, the day/timeline **panel**'s provider, does.
+`selectedDay`/`focusedDay`/`format` are also absent, on the same evidence in reverse —
+nothing in `DayBarsResolver`/`CellTintResolver` reads any of the three — which is exactly
+what lets a day tap or a month page reuse the whole memo instead of dropping it.
+
+*Guard:* `test/widgets/calendar_grid_output_memo_test.dart` pumps the real `CalendarPage`
+(a real `CalendarBloc` over the real `CalendarEventService`/`AppDatabase`; `ImportExportBloc`
+wired to a throwaway in-memory database purely because `CalendarPage`'s `MultiBlocListener`
+reads it, never exercised) with one daily recurring,
+presence-tracked event, and ticks presence, then a skip, then a description on it in that
+order. Presence must fade exactly the one marked day's bar without changing how many event
+bars exist; the skip must remove that day's bar entirely; the description write — on a day
+that still occurs — must leave every rendered `CalendarDayBars.bars` list not just
+value-equal but `identical` to the snapshot from immediately before it, proof the memo was
+actually reused rather than recomputed to the same values by coincidence. Verified to fail
+with `presenceRevision` dropped from the generation: the presence assertion fails first
+(`afterPresence.where((bar) => bar.color.a < 0.99).length` is `0`, not `1`) — the mutation
+lands in the bloc's state (`sameGridInputs` already forces the subtree to see the fresh
+`state`, per `calendar_grid_rebuild_test.dart`), but the grid's own output memo, unable to
+see the presence revision had moved, keeps serving the pre-tick, unfaded bar it cached on the
+previous build.
+
+**A harness note for the next `CalendarPage`-level widget test.** `SettingsService` must be
+pointed at a same-isolate database via `SettingsService.forTesting(await openTestDatabase())`
+(the shape `calendar_bottom_panel_anchor_test.dart` already uses), even though
+`CalendarEventService` stays on the real `AppDatabase.getInstance()`. Left on the real
+database, `CalendarBottomPanel._load()`'s settings read — issued from its own `initState`,
+outside any `runAsync` the test controls — never resolves inside `testWidgets`' fake-async
+zone (production's background-isolate round trip has no fake-clock equivalent for a real
+isolate message), and `LoadingQueryInterceptor`'s "still loading" timer is left pending at
+teardown, failing the test for a reason that has nothing to do with what it is guarding.
+Event mutations dispatched from the test body do not have this problem, because
+`WidgetTester.runAsync` around the dispatch-and-await genuinely escapes the fake zone — the
+only reads that need this treatment are the ones a widget issues on its own from `initState`.
+
+**3.4 Fix cache eviction and prewarm neighbours.** *Shipped (2026-08-23).* The day cache
+cleared all 512 entries **inside `eventsForDay`** — mid-paint, evicting the page being
+painted right then, because each cell hits the cache twice (`eventLoader` and
+`_buildDayCell`) and the clear could fire between the two lookups of the same cell.
+Replaced with window-based eviction — `_dayCacheWindowFor` (`focusedDay`'s month ±3,
+the single definition) and `_evictColdDayCacheEntries` — run only from
+`_onChangeFocusedDay`, **after** its existing no-op guard so the page-settle re-report of
+an unchanged month never pays for it. `_maxDayCacheEntries` stays a backstop, but only
+after the window prune, and only from the focus handler, never the lookup.
+
+`_monthNetCache` is deliberately **not** folded into the same eviction: it is keyed by
+month, already capped at 36 entries (six times this window's width), and
+`headerTitleBuilder` reads it exactly once per build, so the two-lookups-in-one-frame race
+this item closes cannot occur there. Pruning it to a 7-month window on every page turn
+would trade a cache that survives a multi-year paging session for one that forgets
+everything past three months, with no matching bug to justify it.
+
+**The `cacheExtent: 0` framing was wrong, and was not chased.** `table_calendar`'s
+`PageView` lives in a pub.dev package, not the `re_editor` fork; it never sets
+`allowImplicitScrolling`, and a `PageController` cannot retroactively change a viewport's
+cache extent. The reachable prewarm is bloc-side instead: a
+`BlocListener<CalendarBloc, CalendarPageState>` in `_CalendarViewState`, gated on a
+genuine `focusedDay` change, schedules a `SchedulerBinding` post-frame callback that calls
+the already-memoized `eventsForDay` across the previous and next month's 42-day grid
+windows (`_gridDaysForMonth`, replicating `table_calendar`'s first-visible-day arithmetic
+so the prewarmed set is always a superset of the real page) — read-only, no dispatch, no
+`setState`. Its radius (1 month) is deliberately narrower than the eviction window's
+radius (3 months) — the same "months relative to focus" definition at two radii — so
+nothing just prewarmed is ever evicted before the grid can read it.
+
+*Guard:* `test/bloc/calendar_bloc_day_cache_eviction_test.dart` — a cached day survives
+the cache exceeding its 512 cap with no focus change (verified to fail if the in-lookup
+clear is restored), and a focus change evicts only the day that falls outside the new
+window while keeping the one inside it (verified to fail with the eviction call removed).
+`calendar_occurs_on_budget_test.dart`'s counts (8400/0/0/8400/4800 at the time) were
+unchanged by this item: eviction changes only *when* the cache is trimmed, never what
+it computes. 3.2a, landed separately right after, is what later moved the first and
+fourth of those five to 6720 — a different mechanism (fewer candidates per day, not a
+cache-lifetime change) — see 3.2a below.
 
 ---
 

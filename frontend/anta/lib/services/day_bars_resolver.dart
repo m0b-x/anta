@@ -10,7 +10,6 @@ import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../models/day_bar.dart';
 import '../models/fasting_appearance.dart';
-import '../utils/event_agenda.dart';
 import 'note_money_ledger_service.dart';
 
 /// Contract for anything that contributes bars to a calendar day cell.
@@ -123,10 +122,12 @@ class EventDayBarProvider implements DayBarProvider {
     // Same-day order comes from the one shared comparator, exactly as the
     // day summary does — otherwise equal-priority stripes fall back to the
     // resolver's key tie-break (`event:<uuid>`) and the grid disagrees with
-    // the panel about which event is on top.
-    final ordered = [...events]..sort(EventAgenda.compareWithinDay);
+    // the panel about which event is on top. `events` already arrives
+    // sorted by `EventAgenda.compareWithinDay`: `CalendarBloc.eventsForDay`
+    // sorts once when a day's memo entry is built (3.3), so this trusts that
+    // order instead of copying and re-sorting on every cell, every frame.
     final bars = <DayBar>[];
-    for (final event in ordered) {
+    for (final event in events) {
       final missed =
           EventPresence.appliesTo(event) &&
           EventPresence.isMissed(event.id, day);

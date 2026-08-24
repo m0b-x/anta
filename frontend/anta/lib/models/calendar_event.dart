@@ -318,6 +318,14 @@ class CalendarEvent extends Equatable {
       ? null
       : DateTime.utc(endDate!.year, endDate!.month, endDate!.day);
 
+  /// Folded [title], computed once. Derived, so it is not a [props] member
+  /// and never affects equality — it exists only to spare
+  /// `EventAgenda.compareWithinDay` a `toLowerCase()` allocation on its
+  /// title tie-break, which every sorted-events surface (the day cache, the
+  /// day bars/summary resolvers, the agenda scan) runs on every equal-
+  /// priority, equal-time pair.
+  late final String titleFold = title.toLowerCase();
+
   /// Counts [occursOnUtcDay] invocations — every [occursOn] routes through it.
   /// Incremented inside an `assert`, so both the statement and its closure are
   /// stripped from profile and release builds and cost nothing there.

@@ -385,6 +385,49 @@ void main() {
     });
   });
 
+  group('cellStyleFor eviction', () {
+    test(
+      'filling past the cap does not lose an earlier still-relevant day',
+      () {
+        _configureOrthodox(greatFasts: true);
+
+        // Padding inserted first, so the target below is not itself among the
+        // oldest entries once the cap is crossed — a FIFO always sacrifices
+        // its oldest entries, so a target inserted with no padding ahead of it
+        // would be evicted by *any* bounded scheme, which is correct, not a
+        // bug this test should catch.
+        for (var i = 0; i < 500; i++) {
+          FastingCalendar.cellStyleFor(_d(1950, 1, 1).add(Duration(days: i)));
+        }
+
+        final lentenWednesday = pascha2026.subtract(const Duration(days: 46));
+        final first = FastingCalendar.cellStyleFor(lentenWednesday);
+        // A real, freshly-allocated style (not the `FastingCellStyle.empty`
+        // const singleton every empty day shares) — otherwise `same(first)`
+        // below would pass even after a wholesale clear-and-recompute, since
+        // every empty result is `identical` to every other.
+        expect(first.isEmpty, isFalse);
+
+        // Cross `_cellCacheCap` (512) by a margin far smaller than the padding
+        // above. A wholesale clear-on-overflow (the old bug) wipes every entry
+        // the moment the cap is crossed at all, regardless of margin; a
+        // bounded FIFO evicts only that many of the *oldest* entries — the
+        // padding, never the target that was inserted after all of it.
+        for (var i = 500; i < 520; i++) {
+          FastingCalendar.cellStyleFor(_d(1950, 1, 1).add(Duration(days: i)));
+        }
+
+        expect(
+          FastingCalendar.cellStyleFor(lentenWednesday),
+          same(first),
+          reason:
+              'cellStyleFor must evict one entry at a time, never clear the '
+              'whole cache from inside the lookup',
+        );
+      },
+    );
+  });
+
   group('resetConfiguration', () {
     test('drops the configuration and both caches', () {
       _configureOrthodox();

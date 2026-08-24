@@ -296,39 +296,20 @@ abstract final class EventAgenda {
     // Prune candidates that provably cannot occur inside [start, end] before
     // the O(days x candidates) scan — a narrow window against a large store
     // leaves only a small fraction in play. Every survivor is still validated
-    // through `occursOnUtcDay`, so this only ever drops non-occurrences.
-    //
-    // One-time events occur on exactly one day, so they are bucketed by it and
-    // never enter the per-day scan: a one-time event is never skipped and its
-    // rule is a bare `day == start`, so once the (rare) end-date clamp is
-    // honoured its placement on that day is certain.
-    final recurring = <CalendarEvent>[];
-    final oneTimeByDay = <DateTime, List<CalendarEvent>>{};
-    for (final event in candidates) {
-      final endUtc = event.endDateUtc;
-      // endDate clamps every rule at the model layer, so a series that ended
-      // before the window has nothing left inside it.
-      if (endUtc != null && endUtc.isBefore(start)) continue;
-      final rule = event.rule;
-      if (rule is OneTimeRecurrence) {
-        final day = event.startDateUtc;
-        if (day.isBefore(start) || day.isAfter(end)) continue;
-        if (endUtc != null && day.isAfter(endUtc)) continue;
-        (oneTimeByDay[day] ??= <CalendarEvent>[]).add(event);
-        continue;
-      }
-      // Only the start-guarded rules can be pruned by their start.
-      // `SpecificDatesRecurrence` has no pre-start guard — its dates may fall
-      // before `startDate` — so it stays in the scan, where its
-      // allocation-free set lookup is already cheap.
-      if (rule is! SpecificDatesRecurrence &&
-          !event.retroactive &&
-          event.startDateUtc.isAfter(end)) {
-        continue;
-      }
-      recurring.add(event);
+    // through `occursOnUtcDay`, so this only ever drops non-occurrences. See
+    // [partitionForWindow] for what the split does and why.
+    final partition = partitionForWindow(candidates, start, end);
+    final dense = partition.dense;
+    final sparseByDay = partition.sparseByDay;
+    final oneTimeByDay = partition.oneTimeByDay;
+    if (dense.isEmpty && sparseByDay.isEmpty && oneTimeByDay.isEmpty) {
+      return const [];
     }
-    if (recurring.isEmpty && oneTimeByDay.isEmpty) return const [];
+
+    bool matchesQuery(CalendarEvent event, DateTime day) =>
+        needle.isEmpty ||
+        titleMatched.contains(event.id) ||
+        _dayDescriptionMatches(event, day, needle);
 
     final result = <EventOccurrence>[];
     for (
@@ -337,12 +318,19 @@ abstract final class EventAgenda {
       day = day.add(const Duration(days: 1))
     ) {
       List<CalendarEvent>? onDay;
-      for (final event in recurring) {
-        if (event.occursOnUtcDay(day) &&
-            (needle.isEmpty ||
-                titleMatched.contains(event.id) ||
-                _dayDescriptionMatches(event, day, needle))) {
+      for (final event in dense) {
+        if (event.occursOnUtcDay(day) && matchesQuery(event, day)) {
           (onDay ??= <CalendarEvent>[]).add(event);
+        }
+      }
+      final sparseToday = sparseByDay[day];
+      if (sparseToday != null) {
+        // A candidate day, not a decision: `occursOnUtcDay` stays the sole
+        // arbiter, so the endDate clamp and cancelled occurrences still apply.
+        for (final event in sparseToday) {
+          if (event.occursOnUtcDay(day) && matchesQuery(event, day)) {
+            (onDay ??= <CalendarEvent>[]).add(event);
+          }
         }
       }
       final oneTimeToday = oneTimeByDay[day];
@@ -350,9 +338,7 @@ abstract final class EventAgenda {
         for (final event in oneTimeToday) {
           // The occurrence here is certain; only the search query narrows it,
           // and a one-time event's description never varies by day.
-          if (needle.isEmpty ||
-              titleMatched.contains(event.id) ||
-              _dayDescriptionMatches(event, day, needle)) {
+          if (matchesQuery(event, day)) {
             (onDay ??= <CalendarEvent>[]).add(event);
           }
         }
@@ -392,6 +378,96 @@ abstract final class EventAgenda {
       );
     }
     return List.unmodifiable(collapsed);
+  }
+
+  /// Splits [events] into what a day-by-day scan of `[start, end]`
+  /// (**inclusive** on both ends) actually needs to check, pruning what
+  /// provably cannot occur in that span before any per-day work happens.
+  /// Every survivor is still validated through `occursOnUtcDay` by the
+  /// caller — this only ever drops non-occurrences, never decides membership
+  /// itself.
+  ///
+  /// One-time events occur on exactly one day, so they are bucketed by it
+  /// ([oneTimeByDay]) and never enter the per-day scan: a one-time event is
+  /// never skipped (`CalendarEvent.occursOnUtcDay` only consults
+  /// `EventSkips` for `rule is! OneTimeRecurrence`) and its rule is a bare
+  /// `day == start`, so once the (rare) end-date clamp is honoured its
+  /// placement on that day is certain.
+  ///
+  /// Every other survivor is asked for its candidate days
+  /// ([RecurrenceRule.candidateDaysIn], **3.2b**) and lands in one of two
+  /// places:
+  ///
+  /// * [sparseByDay] — the rule named the days it can fire on, so the event is
+  ///   bucketed under each of them and the scan only reaches it there. Its
+  ///   generator is O(occurrences), never O(window days), which is what makes
+  ///   bucketing cheaper than the scan it replaces.
+  /// * [dense] — the rule returned `null`, meaning "I cannot usefully prune
+  ///   myself". Those events are scanned against every day in the window,
+  ///   exactly as every recurring event was before 3.2b. A rule that fires
+  ///   (nearly) daily belongs here: bucketing 214 days of a `Daily` event
+  ///   costs far more than testing it 214 times.
+  ///
+  /// Only the start-guarded rules can additionally be pruned by their start —
+  /// `SpecificDatesRecurrence` has no pre-start guard, since its dates may
+  /// fall before `startDate`.
+  ///
+  /// Shared by [occurrencesInRange] (over its query-filtered candidates) and
+  /// `CalendarBloc`'s grid-window partition (over the full event set): both
+  /// feed the result into the same per-day `occursOnUtcDay` check, so a bug
+  /// here moves both surfaces identically rather than making them disagree.
+  static ({
+    List<CalendarEvent> dense,
+    Map<DateTime, List<CalendarEvent>> sparseByDay,
+    Map<DateTime, List<CalendarEvent>> oneTimeByDay,
+  })
+  partitionForWindow(
+    Iterable<CalendarEvent> events,
+    DateTime start,
+    DateTime end,
+  ) {
+    final dense = <CalendarEvent>[];
+    final sparseByDay = <DateTime, List<CalendarEvent>>{};
+    final oneTimeByDay = <DateTime, List<CalendarEvent>>{};
+    for (final event in events) {
+      final endUtc = event.endDateUtc;
+      // endDate clamps every rule at the model layer, so a series that ended
+      // before the window has nothing left inside it.
+      if (endUtc != null && endUtc.isBefore(start)) continue;
+      final rule = event.rule;
+      if (rule is OneTimeRecurrence) {
+        final day = event.startDateUtc;
+        if (day.isBefore(start) || day.isAfter(end)) continue;
+        if (endUtc != null && day.isAfter(endUtc)) continue;
+        (oneTimeByDay[day] ??= <CalendarEvent>[]).add(event);
+        continue;
+      }
+      // Only the start-guarded rules can be pruned by their start.
+      // `SpecificDatesRecurrence` has no pre-start guard — its dates may fall
+      // before `startDate` — so it is never dropped here.
+      if (rule is! SpecificDatesRecurrence &&
+          !event.retroactive &&
+          event.startDateUtc.isAfter(end)) {
+        continue;
+      }
+      // The same endDate clamp, applied forwards: `occursOnUtcDay` rejects
+      // every day past it, so generating those would only grow the buckets.
+      final last = endUtc != null && endUtc.isBefore(end) ? endUtc : end;
+      final candidateDays = rule.candidateDaysIn(
+        start,
+        last,
+        event.startDateUtc,
+        retroactive: event.retroactive,
+      );
+      if (candidateDays == null) {
+        dense.add(event);
+        continue;
+      }
+      for (final day in candidateDays) {
+        (sparseByDay[day] ??= <CalendarEvent>[]).add(event);
+      }
+    }
+    return (dense: dense, sparseByDay: sparseByDay, oneTimeByDay: oneTimeByDay);
   }
 
   /// Groups an already-scanned occurrence list into one summary per category —
@@ -727,7 +803,7 @@ abstract final class EventAgenda {
       final byStart = aTime.startMinute.compareTo(bTime.startMinute);
       if (byStart != 0) return byStart;
     }
-    final byTitle = a.title.toLowerCase().compareTo(b.title.toLowerCase());
+    final byTitle = a.titleFold.compareTo(b.titleFold);
     return byTitle != 0 ? byTitle : a.id.compareTo(b.id);
   }
 

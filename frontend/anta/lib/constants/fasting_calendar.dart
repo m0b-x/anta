@@ -104,6 +104,18 @@ abstract final class FastingCalendar {
   static final Map<DateTime, FastingCellStyle> _cellStyles = {};
   static const int _cellCacheCap = 512;
 
+  static int _revision = 0;
+
+  /// Bumped whenever anything a resolver-output memo could depend on
+  /// changes: an appearance-only [configure] call (cell style only) and the
+  /// fuller membership-changing branch (traditions/scope/schedule) each bump
+  /// once, and so does [resetConfiguration] — same shape and purpose as
+  /// `EventSkips.revision` / `PublicHolidays.revision`. **Never** bumped on
+  /// the `unchanged` early return below: every settings-return calls
+  /// [configure] again with (almost always) identical values, and bumping on
+  /// a no-op would invalidate a downstream memo on every such return.
+  static int get revision => _revision;
+
   /// Replaces the whole configuration.
   ///
   /// The expensive part (year maps) is invalidated only when something that
@@ -120,6 +132,7 @@ abstract final class FastingCalendar {
     if (appearance != _appearance) {
       _appearance = appearance;
       _cellStyles.clear();
+      _revision++;
     }
     final unchanged =
         traditions.length == _traditions.length &&
@@ -132,6 +145,7 @@ abstract final class FastingCalendar {
     _schedule = schedule;
     _years.clear();
     _cellStyles.clear();
+    _revision++;
   }
 
   /// Drops every configured input and both caches.
@@ -149,6 +163,7 @@ abstract final class FastingCalendar {
     _schedule = const FastingSchedule();
     _years.clear();
     _cellStyles.clear();
+    _revision++;
   }
 
   static Set<FastingTradition> get traditions => _traditions;
@@ -206,13 +221,34 @@ abstract final class FastingCalendar {
       }
       resolved = FastingCellStyle(tint: tint, numberColor: numberColor);
     }
-    if (_cellStyles.length >= _cellCacheCap) _cellStyles.clear();
+    // A bounded FIFO, never a wholesale clear from inside the lookup: this
+    // method runs twice per cell per build (`calendar_page.dart` and
+    // `CellTintResolver`), so a clear here could fire between the two calls
+    // for the very day being painted — the exact bug 3.4 fixed for
+    // `CalendarBloc._dayCache`. Unlike that cache, this static facade has no
+    // focus-change event to hang a windowed eviction on, so a single-entry
+    // FIFO (`_cellStyles` is a `LinkedHashMap`; its first key is the oldest
+    // insert) is the mechanism here instead — it only ever drops the one
+    // entry that made the map exceed its cap.
+    if (_cellStyles.length >= _cellCacheCap) {
+      _cellStyles.remove(_cellStyles.keys.first);
+    }
     _cellStyles[key] = resolved;
     return resolved;
   }
 
   /// Fasting entries for [day] — at most one per enabled tradition, in
   /// [FastingTradition] declaration order. Empty list when none apply.
+  ///
+  /// Left as a wholesale clear-on-overflow, unlike [cellStyleFor]'s FIFO:
+  /// this cache is keyed per **year**, not per day, and a single grid frame
+  /// (one month) spans at most two distinct years, well under
+  /// [_yearCacheCap] (12). A clear can only fire on a miss, and the same
+  /// frame's own two-year need is satisfied by the two inserts that follow
+  /// immediately after — it cannot evict a year *this frame* still needs the
+  /// way [cellStyleFor]'s per-day clear could evict the very day being
+  /// painted. Reaching the cap at all needs 12+ distinct years touched in one
+  /// session, a coarser, rarer pattern than the day-cache's.
   static List<FastingInfo> on(DateTime day) {
     if (_traditions.isEmpty) return const [];
     final key = DateTime.utc(day.year, day.month, day.day);

@@ -65,6 +65,18 @@ abstract final class CalendarCategories {
 
   static Map<String, CalendarCategory> _byId = const {};
   static List<CalendarCategory> _ordered = const [];
+  static int _revision = 0;
+
+  /// Bumped on every [updateCache] call. There is no reset method to mirror
+  /// — `CategoryService` has no `DatabaseLifecycle` cache-drop of its own
+  /// (unlike `PublicHolidays`/`FastingCalendar`), so `updateCache` is the
+  /// single point that can change what a category resolves to, and the
+  /// single point this counter needs to bump from. Read by
+  /// `_CalendarViewState`'s per-day resolver-output memo (3.3): a recoloured
+  /// or renamed category changes what `DayBarsResolver`/`CellTintResolver`
+  /// paint without any event row changing, so the generation that memo keys
+  /// on must see it.
+  static int get revision => _revision;
 
   /// Fallback for an event whose stored id no longer resolves (e.g. its
   /// custom category was deleted). Keeps render paths total.
@@ -82,6 +94,7 @@ abstract final class CalendarCategories {
     final sorted = [...categories]..sort(_byOrder);
     _ordered = List.unmodifiable(sorted);
     _byId = Map.unmodifiable({for (final c in sorted) c.id: c});
+    _revision++;
   }
 
   static int _byOrder(CalendarCategory a, CalendarCategory b) {

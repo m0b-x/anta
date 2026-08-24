@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get_it/get_it.dart';
 import 'package:intl/intl.dart';
@@ -12,6 +13,7 @@ import '../bloc/import_export/import_export_state.dart';
 import '../constants/app_icon_sizes.dart';
 import '../constants/app_spacing.dart';
 import '../constants/calendar_bounds.dart';
+import '../constants/calendar_categories.dart';
 import '../constants/calendar_colors.dart';
 import '../constants/calendar_templates.dart';
 import '../constants/event_skips.dart';
@@ -21,6 +23,8 @@ import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../models/calendar_selection_source.dart';
+import '../models/day_bar.dart';
+import '../models/day_cell_tint.dart';
 import '../repositories/note_repository.dart';
 import '../services/app_navigator.dart';
 import '../services/cell_tint_resolver.dart';
@@ -44,6 +48,51 @@ import '../widgets/month_year_picker_sheet.dart';
 
 /// Overflow-menu actions on the calendar app bar.
 enum _CalendarMenuAction { exportIcs }
+
+/// Days in the grid window [gridDaysForMonth] returns — a fixed six-week
+/// span, always a superset of what [TableCalendar] actually shows for one
+/// month (4-6 rows depending on the month and week-start), so a prewarm can
+/// never miss a day the real page paints.
+@visibleForTesting
+const int prewarmGridDayCount = 42;
+
+/// Months either side of the focused one that [_CalendarViewState] warms —
+/// radius 1, deliberately inside `CalendarBloc`'s radius-3 eviction window.
+const List<int> _prewarmMonthOffsets = [-1, 1];
+
+/// Maps the app's week-start setting onto `table_calendar`'s enum. Shared by
+/// [_CalendarTable]'s grid and [_CalendarViewState]'s neighbour-month
+/// prewarm so the two can never disagree on a month's first visible day.
+@visibleForTesting
+StartingDayOfWeek startingDayOfWeekFor(CalendarWeekStart weekStart) {
+  return switch (weekStart) {
+    CalendarWeekStart.monday => StartingDayOfWeek.monday,
+    CalendarWeekStart.saturday => StartingDayOfWeek.saturday,
+    CalendarWeekStart.sunday => StartingDayOfWeek.sunday,
+  };
+}
+
+/// The [prewarmGridDayCount]-day window `table_calendar`'s `PageView` pages
+/// to for [monthAnchor] — same first-visible-day arithmetic as
+/// `CalendarCore._getDaysBefore` (a pub.dev package, not forked; this is a
+/// standalone reimplementation of a few lines of ISO-weekday math, not a call
+/// into it). A fixed 42-day span from the correct start is always a superset
+/// of the real page, whatever its row count.
+@visibleForTesting
+List<DateTime> gridDaysForMonth(
+  DateTime monthAnchor,
+  StartingDayOfWeek startingDayOfWeek,
+) {
+  final firstOfMonth = DateTime.utc(monthAnchor.year, monthAnchor.month);
+  final startWeekdayNumber =
+      StartingDayOfWeek.values.indexOf(startingDayOfWeek) + 1;
+  final daysBefore = (firstOfMonth.weekday + 7 - startWeekdayNumber) % 7;
+  final firstVisible = firstOfMonth.subtract(Duration(days: daysBefore));
+  return [
+    for (var i = 0; i < prewarmGridDayCount; i++)
+      firstVisible.add(Duration(days: i)),
+  ];
+}
 
 class CalendarPage extends StatelessWidget {
   const CalendarPage({super.key});
@@ -109,6 +158,76 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
       _tintAppearance = _appearance;
     }
     return _tintResolver!;
+  }
+
+  /// Per-day memo of resolver **output** — `_resolverFor`/`_cellTintResolver`
+  /// above only memoize the resolver *instances*, so a rebuild that changes
+  /// nothing they read (a day tap, a format toggle — both ride
+  /// `sameGridInputs` for other reasons) still re-ran `.resolve()` for all 42
+  /// cells. Cleared wholesale whenever [_outputGeneration] no longer matches
+  /// — see [_syncResolverOutputCache].
+  final Map<DateTime, List<DayBar>> _barsOutputCache = {};
+  final Map<DateTime, DayCellTint> _tintOutputCache = {};
+
+  /// Generation the two output caches above were last built against, or
+  /// `null` before the first grid build.
+  ///
+  /// One int folding every input a cell's bars/tint can depend on —
+  /// recomputed here, once per grid build (never once per cell) — so a
+  /// rebuild whose cause is not one of these inputs (day selection, a format
+  /// toggle, an unrelated settings-return rebuild) reuses every cached entry,
+  /// and one that is drops the whole memo and starts over. Mirrors
+  /// `CalendarBloc._syncHolidayGeneration`'s shape: a generation drops a
+  /// cache, it never keys one — composing a tuple key per cell instead would
+  /// grow the map on every facade tick rather than clearing it.
+  ///
+  /// `occurrenceRevision` is deliberately absent: no grid resolver reads
+  /// `OccurrenceDescriptions`, only the day/timeline panel does
+  /// (`EventSummaryProvider`). `selectedDay`/`focusedDay`/`format` are also
+  /// absent — none of them is read by `DayBarsResolver`/`CellTintResolver` —
+  /// which is exactly what lets a day tap or a month page reuse this memo
+  /// instead of invalidating it.
+  /// A record, not an `Object.hash` fold: a hash is a *probabilistically*
+  /// incomplete key, and the whole failure this memo must not have is a cell
+  /// left stale because its inputs changed without the key noticing. Records
+  /// compare field by field, and `List`/`Set`/the two resolvers all inherit
+  /// identity `==`, so this matches the identity semantics `sameGridInputs`
+  /// already relies on while being exact.
+  ({
+    Object allEvents,
+    Object hiddenCategoryIds,
+    int membershipRevision,
+    int presenceRevision,
+    int holidayRevision,
+    int categoryRevision,
+    int fastingRevision,
+    int? ledgerRevision,
+    Object barsResolver,
+    Object tintResolver,
+  })?
+  _outputGeneration;
+
+  void _syncResolverOutputCache(
+    CalendarPageLoaded state,
+    DayBarsResolver barsResolver,
+    CellTintResolver tintResolver,
+  ) {
+    final generation = (
+      allEvents: state.allEvents,
+      hiddenCategoryIds: state.hiddenCategoryIds,
+      membershipRevision: state.membershipRevision,
+      presenceRevision: state.presenceRevision,
+      holidayRevision: PublicHolidays.revision,
+      categoryRevision: CalendarCategories.revision,
+      fastingRevision: FastingCalendar.revision,
+      ledgerRevision: NoteMoneyLedgerService.instanceOrNull?.revision,
+      barsResolver: barsResolver,
+      tintResolver: tintResolver,
+    );
+    if (_outputGeneration == generation) return;
+    _outputGeneration = generation;
+    _barsOutputCache.clear();
+    _tintOutputCache.clear();
   }
 
   @override
@@ -400,11 +519,20 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
                               if (state is! CalendarPageLoaded) {
                                 return const SizedBox(width: double.infinity);
                               }
+                              final barsResolver = _resolverFor(l10n);
+                              final tintResolver = _cellTintResolver;
+                              _syncResolverOutputCache(
+                                state,
+                                barsResolver,
+                                tintResolver,
+                              );
                               return _CalendarTable(
                                 state: state,
                                 appearance: _appearance,
-                                barsResolver: _resolverFor(l10n),
-                                tintResolver: _cellTintResolver,
+                                barsResolver: barsResolver,
+                                tintResolver: tintResolver,
+                                barsOutputCache: _barsOutputCache,
+                                tintOutputCache: _tintOutputCache,
                                 onDayLongPressed: (day) =>
                                     _quickAddFromTemplate(context, day),
                               );
@@ -482,11 +610,32 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
       ),
     );
 
-    // Export feedback funnels through one listener so the menu action only
-    // has to dispatch. Guarded on the calendar operation because the bloc is
-    // app-wide and also serves note/folder exports.
-    return BlocListener<ImportExportBloc, ImportExportState>(
-      listener: _onImportExportState,
+    // Export feedback and the neighbour-month prewarm each funnel through
+    // their own listener: the first so the menu action only has to dispatch
+    // (guarded on the calendar operation, since the bloc is app-wide and also
+    // serves note/folder exports), the second so the grid never has to know
+    // it is being kept warm.
+    return MultiBlocListener(
+      listeners: [
+        BlocListener<ImportExportBloc, ImportExportState>(
+          listener: _onImportExportState,
+        ),
+        BlocListener<CalendarBloc, CalendarPageState>(
+          // Month-level, not day-level: the neighbours only move when the
+          // focused month does, so a day tap inside the same month would
+          // re-warm a window that is already warm.
+          listenWhen: (previous, current) =>
+              current is CalendarPageLoaded &&
+              (previous is! CalendarPageLoaded ||
+                  previous.focusedDay.year != current.focusedDay.year ||
+                  previous.focusedDay.month != current.focusedDay.month),
+          listener: (context, state) {
+            if (state is CalendarPageLoaded) {
+              _schedulePrewarm(state.focusedDay);
+            }
+          },
+        ),
+      ],
       child: scaffold,
     );
   }
@@ -795,6 +944,53 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     // bumps no revision.
     bloc.add(const LoadCalendarEvents());
   }
+
+  /// Warms [CalendarBloc.eventsForDay] for the month before and after
+  /// [focusedDay], so the first drag onto either neighbour is a cache hit
+  /// instead of a cold scan across all its visible days. Read-only —
+  /// dispatches nothing, calls `setState` on nothing — so, unlike the
+  /// memoized lookup itself, it is safe to run outside build.
+  ///
+  /// **One task per month, at [Priority.idle], and both halves of that
+  /// matter.** A post-frame callback would run on the UI thread before the
+  /// next vsync, so paying 84 cold lookups there during a continuous swipe
+  /// relocates jank rather than removing it. But idle priority alone only
+  /// governs when a task *starts*: `SchedulerBinding` runs one queued task to
+  /// completion per event-loop turn, so a single task covering both months
+  /// would still block for both once it began. Queuing them separately halves
+  /// that worst case and — because the scheduling strategy is re-consulted
+  /// per task — lets the second month defer if a fling starts after the
+  /// first. The default strategy skips idle tasks while transient callbacks
+  /// are pending, so they wait out the drag and stay queued, never dropped.
+  ///
+  /// Each task re-checks [mounted] and the state independently: they land at
+  /// least a frame apart, and either could change in between (a pop, a
+  /// database switch, a fast page-to-page swipe).
+  void _schedulePrewarm(DateTime focusedDay) {
+    for (final monthOffset in _prewarmMonthOffsets) {
+      SchedulerBinding.instance.scheduleTask(() {
+        if (!mounted) return;
+        if (context.read<CalendarBloc>().state is! CalendarPageLoaded) return;
+        _prewarmMonth(focusedDay, monthOffset);
+      }, Priority.idle);
+    }
+  }
+
+  /// The window this fills — radius 1 month around [focusedDay] — is
+  /// strictly inside [CalendarBloc]'s day-cache eviction window (radius 3):
+  /// same "months relative to focus" definition, different radii, so nothing
+  /// warmed here is ever evicted before the grid gets to read it.
+  void _prewarmMonth(DateTime focusedDay, int monthOffset) {
+    final bloc = context.read<CalendarBloc>();
+    final monthAnchor = DateTime.utc(
+      focusedDay.year,
+      focusedDay.month + monthOffset,
+    );
+    final startingDayOfWeek = startingDayOfWeekFor(_appearance.weekStart);
+    for (final day in gridDaysForMonth(monthAnchor, startingDayOfWeek)) {
+      bloc.eventsForDay(day);
+    }
+  }
 }
 
 class _CalendarTable extends StatelessWidget {
@@ -817,6 +1013,15 @@ class _CalendarTable extends StatelessWidget {
   /// appearance, which the page already reloads when settings change.
   final CellTintResolver tintResolver;
 
+  /// Per-day memo of [barsResolver]/[tintResolver] **output**, owned by
+  /// [_CalendarViewState] and kept valid by its
+  /// `_syncResolverOutputCache` — this widget only reads and populates it,
+  /// never decides when to drop it. Passed down (rather than rebuilt here)
+  /// because this widget is reconstructed on every grid build, while the
+  /// memo needs to survive across builds whose generation has not changed.
+  final Map<DateTime, List<DayBar>> barsOutputCache;
+  final Map<DateTime, DayCellTint> tintOutputCache;
+
   /// Long-press quick-add. The grid only reports the day; deciding what to do
   /// with it (pick a template, create, undo) belongs to the page, which owns
   /// the sheets and the bloc.
@@ -827,16 +1032,13 @@ class _CalendarTable extends StatelessWidget {
     required this.appearance,
     required this.barsResolver,
     required this.tintResolver,
+    required this.barsOutputCache,
+    required this.tintOutputCache,
     required this.onDayLongPressed,
   });
 
-  StartingDayOfWeek get _startingDayOfWeek {
-    return switch (appearance.weekStart) {
-      CalendarWeekStart.monday => StartingDayOfWeek.monday,
-      CalendarWeekStart.saturday => StartingDayOfWeek.saturday,
-      CalendarWeekStart.sunday => StartingDayOfWeek.sunday,
-    };
-  }
+  StartingDayOfWeek get _startingDayOfWeek =>
+      startingDayOfWeekFor(appearance.weekStart);
 
   /// Row height that guarantees the day-number chip zone and the marker
   /// strip never overlap, whatever the marker style and density.
@@ -898,6 +1100,15 @@ class _CalendarTable extends StatelessWidget {
     // and the day's events come from the bloc's day cache — the same
     // memoized call `eventLoader` makes for this cell.
     final fasting = FastingCalendar.cellStyleFor(day);
+    final key = DateTime.utc(day.year, day.month, day.day);
+    // Resolver output memo (3.3): valid for as long as `_outputGeneration`
+    // says it is, so a rebuild the generation is unaffected by (a day tap, a
+    // format toggle) serves this from cache instead of re-running
+    // `tintResolver.resolve` for all 42 cells.
+    final tint = tintOutputCache[key] ??= tintResolver.resolve(
+      day,
+      bloc.eventsForDay(day),
+    );
     return CalendarDayCell(
       day: day,
       isToday: isSameDay(day, now),
@@ -908,7 +1119,7 @@ class _CalendarTable extends StatelessWidget {
       todayStyle: appearance.todayStyle,
       highlightWeekends: appearance.highlightWeekends,
       accent: accent,
-      tint: tintResolver.resolve(day, bloc.eventsForDay(day)),
+      tint: tint,
       fastingNumberColor: fasting.numberColor,
     );
   }
@@ -1084,7 +1295,13 @@ class _CalendarTable extends StatelessWidget {
           );
         },
         markerBuilder: (context, day, events) {
-          final bars = barsResolver.resolve(day, events);
+          // Resolver output memo (3.3) — see `_buildDayCell`'s tint lookup
+          // for the identical reasoning.
+          final key = DateTime.utc(day.year, day.month, day.day);
+          final bars = barsOutputCache[key] ??= barsResolver.resolve(
+            day,
+            events,
+          );
           if (bars.isEmpty) return const SizedBox.shrink();
           // Outside-month fading only applies to the month format; week and
           // two-week rows show every day at full strength.

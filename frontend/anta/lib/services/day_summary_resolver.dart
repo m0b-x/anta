@@ -141,8 +141,11 @@ class EventSummaryProvider implements DaySummaryProvider {
     DateTime day,
     List<CalendarEvent> events,
   ) {
-    final ordered = [...events]..sort(EventAgenda.compareWithinDay);
-    return ordered.map((event) {
+    // `events` already arrives sorted by `EventAgenda.compareWithinDay`:
+    // `CalendarBloc.eventsForDay` sorts once when a day's memo entry is
+    // built (3.3), so this trusts that order instead of copying and
+    // re-sorting on every panel build.
+    return events.map((event) {
       final category = CalendarCategories.resolve(event.categoryId);
       // The event color tints the icon only when the user opted in
       // (tintIcon); otherwise the icon keeps its category color.

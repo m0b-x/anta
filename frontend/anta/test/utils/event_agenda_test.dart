@@ -598,4 +598,183 @@ void main() {
       expect(summaries.map((s) => s.categoryId), ['gym']);
     });
   });
+
+  group('the window partition drops no occurrence', () {
+    /// The scan with the 3.2b partition removed: every event tested on every
+    /// day, through the same sole arbiter (`occursOnUtcDay`) and sorted by the
+    /// same comparator. Whatever pruning `partitionForWindow` does, the two
+    /// must agree exactly — that is the whole safety claim, checked rather
+    /// than argued.
+    List<String> reference(
+      List<CalendarEvent> events,
+      DateTime from,
+      DateTime to,
+    ) {
+      final rows = <String>[];
+      for (
+        var day = from;
+        !day.isAfter(to);
+        day = day.add(const Duration(days: 1))
+      ) {
+        final onDay = [
+          for (final event in events)
+            if (event.occursOnUtcDay(day)) event,
+        ]..sort(EventAgenda.compareWithinDay);
+        for (final event in onDay) {
+          rows.add('${event.id}@${day.toIso8601String()}');
+        }
+      }
+      return rows;
+    }
+
+    List<String> scanned(
+      List<CalendarEvent> events,
+      DateTime from,
+      DateTime to,
+    ) => EventAgenda.occurrencesInRange(
+      events: events,
+      from: from,
+      to: to,
+    ).map((o) => '${o.event.id}@${o.day.toIso8601String()}').toList();
+
+    CalendarEvent build(
+      String id,
+      RecurrenceRule rule,
+      DateTime start, {
+      DateTime? endDate,
+      bool retroactive = false,
+    }) => CalendarEvent(
+      id: id,
+      title: id,
+      categoryId: 'gym',
+      startDate: start,
+      rule: rule,
+      endDate: endDate,
+      retroactive: retroactive,
+    );
+
+    final oneJan = DateTime.utc(2019, 1, 1);
+
+    // One event per rule shape the generator handles differently, plus the two
+    // clamps that live outside the rule: `endDate` and `retroactive`. The
+    // holiday-backed rules are included deliberately — both sides read the same
+    // process-wide `PublicHolidays` state, so the comparison stays valid.
+    final mixed = <CalendarEvent>[
+      build('daily1', const DailyRecurrence(), DateTime.utc(2026, 1, 15)),
+      build(
+        'daily4',
+        const DailyRecurrence(interval: 4),
+        DateTime.utc(2026, 2, 3),
+      ),
+      build(
+        'weekMonFri',
+        const WeeklyRecurrence(weekdays: {DateTime.monday, DateTime.friday}),
+        DateTime.utc(2026, 3, 5),
+      ),
+      build(
+        'weekEvery2',
+        const WeeklyRecurrence(weekdays: {DateTime.thursday}, interval: 2),
+        DateTime.utc(2026, 4, 2),
+      ),
+      build('weekNone', const WeeklyRecurrence(weekdays: <int>{}), oneJan),
+      build('month31', const MonthlyRecurrence(), DateTime.utc(2026, 1, 31)),
+      build(
+        'month3',
+        const MonthlyRecurrence(interval: 3),
+        DateTime.utc(2026, 2, 14),
+      ),
+      build('yearFeb29', const YearlyRecurrence(), DateTime.utc(2024, 2, 29)),
+      build('yearly', const YearlyRecurrence(), DateTime.utc(2020, 9, 3)),
+      build('workdays', const WorkdaysRecurrence(), oneJan),
+      build('weekends', const WeekendsRecurrence(), oneJan),
+      build('holidays', const PublicHolidaysOnlyRecurrence(), oneJan),
+      build('once', const OneTimeRecurrence(), DateTime.utc(2026, 8, 20)),
+      build(
+        'pinned',
+        SpecificDatesRecurrence(
+          dates: {
+            DateTime.utc(2026, 9, 4),
+            DateTime.utc(2025, 12, 1),
+            DateTime.utc(2026, 7, 7),
+          },
+        ),
+        DateTime.utc(2026, 9, 4),
+      ),
+      build(
+        'ended',
+        const WeeklyRecurrence(weekdays: {DateTime.wednesday}),
+        DateTime.utc(2026, 1, 7),
+        endDate: DateTime.utc(2026, 8, 19),
+      ),
+      build(
+        'retroMonthly',
+        const MonthlyRecurrence(interval: 2),
+        DateTime.utc(2027, 5, 21),
+        retroactive: true,
+      ),
+      build(
+        'retroYearly',
+        const YearlyRecurrence(),
+        DateTime.utc(2030, 2, 29),
+        retroactive: true,
+      ),
+    ];
+
+    for (final window in <(String, DateTime, DateTime)>[
+      (
+        'a grid-sized window',
+        DateTime.utc(2026, 7, 27),
+        DateTime.utc(2026, 9, 6),
+      ),
+      (
+        'the full 366-day cap',
+        DateTime.utc(2026, 1, 1),
+        DateTime.utc(2026, 12, 31),
+      ),
+      (
+        'a window before every anchor',
+        DateTime.utc(2019, 3, 1),
+        DateTime.utc(2019, 6, 30),
+      ),
+      ('a single day', DateTime.utc(2026, 8, 20), DateTime.utc(2026, 8, 20)),
+    ]) {
+      test('matches an unpruned scan over ${window.$1}', () {
+        expect(
+          scanned(mixed, window.$2, window.$3),
+          reference(mixed, window.$2, window.$3),
+        );
+      });
+    }
+
+    test('endDate still clamps a bucketed sparse rule', () {
+      final ids = scanned(
+        [mixed.firstWhere((e) => e.id == 'ended')],
+        DateTime.utc(2026, 8, 1),
+        DateTime.utc(2026, 8, 31),
+      );
+      // Wednesdays in August 2026 are the 5th, 12th, 19th and 26th; endDate
+      // is the 19th, so the 26th must not survive the bucket.
+      expect(ids, [
+        'ended@2026-08-05T00:00:00.000Z',
+        'ended@2026-08-12T00:00:00.000Z',
+        'ended@2026-08-19T00:00:00.000Z',
+      ]);
+    });
+
+    test('a retroactive rule still fires before its anchor', () {
+      final ids = scanned(
+        [mixed.firstWhere((e) => e.id == 'retroMonthly')],
+        DateTime.utc(2026, 1, 1),
+        DateTime.utc(2026, 6, 30),
+      );
+      // Anchored 2027-05-21 every two months, retroactive: the phase runs
+      // backwards through the odd-month offsets, never by rebuilding the
+      // anchor in an earlier month.
+      expect(ids, [
+        'retroMonthly@2026-01-21T00:00:00.000Z',
+        'retroMonthly@2026-03-21T00:00:00.000Z',
+        'retroMonthly@2026-05-21T00:00:00.000Z',
+      ]);
+    });
+  });
 }

@@ -52,11 +52,14 @@ void main() {
   tearDown(EventPresence.resetCache);
 
   group('EventDayBarProvider ordering', () {
-    test('equal priorities put the all-day event before the timed one', () {
-      // Reversed on input so a provider that just echoes its argument fails.
+    // barsFor no longer sorts its own input (3.3) — `CalendarBloc.eventsForDay`
+    // sorts once by `EventAgenda.compareWithinDay` when a day's memo entry is
+    // built, so every one of these feeds events already in that order and
+    // asserts barsFor preserves it rather than re-deriving it.
+    test('equal priorities preserve the all-day-before-timed order', () {
       final events = [
-        event('timed', time: const EventTime(startMinute: 9 * 60)),
         event('allDay'),
+        event('timed', time: const EventTime(startMinute: 9 * 60)),
       ];
 
       final bars = const EventDayBarProvider()
@@ -66,10 +69,10 @@ void main() {
       expect(barIds(bars), ['allDay', 'timed']);
     });
 
-    test('equal priorities order timed events by start minute', () {
+    test('equal priorities preserve start-minute order', () {
       final events = [
-        event('evening', time: const EventTime(startMinute: 18 * 60)),
         event('morning', time: const EventTime(startMinute: 7 * 60)),
+        event('evening', time: const EventTime(startMinute: 18 * 60)),
       ];
 
       final bars = const EventDayBarProvider()
@@ -79,10 +82,10 @@ void main() {
       expect(barIds(bars), ['morning', 'evening']);
     });
 
-    test('priority still outranks time', () {
+    test('preserves priority order over time', () {
       final events = [
-        event('lowLate', priority: 5, time: const EventTime(startMinute: 60)),
         event('highLate', priority: 1, time: const EventTime(startMinute: 600)),
+        event('lowLate', priority: 5, time: const EventTime(startMinute: 60)),
       ];
 
       final bars = const EventDayBarProvider()
@@ -107,7 +110,10 @@ void main() {
   group('DayBarsResolver.resolve stability', () {
     test('preserves provider order for equal-priority bars', () {
       // Ids chosen so lexical order is the exact reverse of the intended
-      // order: a key tie-break would sort 'aaa' first.
+      // order: a key tie-break would sort 'aaa' first. Already in
+      // `compareWithinDay` order (zzz's start minute is earlier) — the
+      // caller's contract since 3.3 — so this is a real precondition here,
+      // not an accident of the ids chosen.
       final events = [
         event('zzz', time: const EventTime(startMinute: 7 * 60)),
         event('aaa', time: const EventTime(startMinute: 18 * 60)),
@@ -121,19 +127,22 @@ void main() {
     });
 
     test('agrees with the shared same-day comparator', () {
+      // barsFor no longer sorts (3.3), so this feeds events pre-sorted by
+      // the shared comparator and asserts the resolver's own priority
+      // tie-break (by insertion index) preserves that order end to end,
+      // rather than re-deriving it the way the two layers used to together.
       final events = [
-        event('c', priority: 2, time: const EventTime(startMinute: 600)),
         event('a', priority: 4),
         event('b', priority: 2, time: const EventTime(startMinute: 480)),
-      ];
-      final expected = [...events]..sort(EventAgenda.compareWithinDay);
+        event('c', priority: 2, time: const EventTime(startMinute: 600)),
+      ]..sort(EventAgenda.compareWithinDay);
 
       final resolver = const DayBarsResolver(
         providers: [EventDayBarProvider()],
       );
 
       expect(barIds(resolver.resolve(day, events)), [
-        for (final e in expected) e.id,
+        for (final e in events) e.id,
       ]);
     });
   });

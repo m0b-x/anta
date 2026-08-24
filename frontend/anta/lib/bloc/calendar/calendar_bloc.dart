@@ -13,11 +13,27 @@ import '../../services/event_skip_service.dart';
 import '../../services/event_template_service.dart';
 import '../../services/note_money_ledger_service.dart';
 import '../../services/public_holiday_service.dart';
+import '../../utils/event_agenda.dart';
 import 'calendar_event.dart';
 import 'calendar_state.dart';
 
 export 'calendar_event.dart';
 export 'calendar_state.dart';
+
+/// One window's worth of [EventAgenda.partitionForWindow] output, cached by
+/// [CalendarBloc._partitionFor] alongside the exact inputs it was built from
+/// — an [allEvents] instance and a `[windowStart, windowEndExclusive)` span —
+/// so a read can tell a stale entry from a fresh one with one `identical`
+/// check and two `DateTime` comparisons, no deep comparison of either
+/// collection.
+typedef _DayCachePartition = ({
+  List<CalendarEvent> allEvents,
+  DateTime windowStart,
+  DateTime windowEndExclusive,
+  List<CalendarEvent> dense,
+  Map<DateTime, List<CalendarEvent>> sparseByDay,
+  Map<DateTime, List<CalendarEvent>> oneTimeByDay,
+});
 
 class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   /// Seed for the first resolution of [CalendarEventService], not a permanent
@@ -49,13 +65,47 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       _seenExternalRevision != CalendarEventService.externalRevision;
 
   /// Memoizes recurrence expansion per calendar day. The first lookup for a
-  /// day runs the O(N) scan over the event list; the result is cached so
+  /// day runs the scan described at [_dayCandidates]; the result is cached so
   /// subsequent rebuilds (day selection, focus/format changes — none of
   /// which alter the result) are O(1) map lookups. Invalidated only when the
-  /// event set or the visible-category filter changes. Bounded so a long
-  /// month-paging session cannot grow it without limit.
+  /// event set or the visible-category filter changes.
+  ///
+  /// Bounded by [_evictColdDayCacheEntries], never by the lookup itself. A
+  /// clear inside [eventsForDay] would fire mid-build — between
+  /// `eventLoader`'s and `_buildDayCell`'s lookups of the very day being
+  /// painted — forcing a full re-expansion of the page the frame is already
+  /// drawing. Eviction instead runs from [_onChangeFocusedDay], on a genuine
+  /// month change.
   final Map<DateTime, List<CalendarEvent>> _dayCache = {};
   static const int _maxDayCacheEntries = 512;
+
+  /// Half-width, in months, of the window [_evictColdDayCacheEntries] keeps
+  /// warm around the focused month — [_dayCacheWindowFor]'s single
+  /// definition, shared with `_CalendarViewState`'s neighbour-month prewarm
+  /// *and* [_partitionFor]. The prewarm only ever fills the month immediately
+  /// before/after (radius 1), strictly inside this radius, so nothing it just
+  /// warmed is evicted — or falls outside the partition — before it can be
+  /// read.
+  static const int _dayCacheWindowMonths = 3;
+
+  /// Cached [EventAgenda.partitionForWindow] split of the current
+  /// [_dayCacheWindowFor] window, consulted by [_dayCandidates] on a
+  /// [_dayCache] miss for a day inside that window. `null` before the first
+  /// such miss, and whenever anything it depends on changes.
+  ///
+  /// Built from [CalendarPageLoaded.allEvents] and the window bounds alone —
+  /// **never** [CalendarPageLoaded.hiddenCategoryIds] (that filter stays
+  /// render-time, applied in [eventsForDay] exactly as before this cache
+  /// existed) and never any skip/holiday state (every candidate the
+  /// partition returns is still validated fresh through `occursOnUtcDay`,
+  /// which is what actually consults those). [_partitionFor] guards every
+  /// read with an `identical`-and-window check, so a stale entry cannot
+  /// survive a changed [CalendarPageLoaded.allEvents] instance or a moved
+  /// window even if some caller forgot to invalidate; [_invalidateDayCache]
+  /// additionally drops it outright, piggybacking on the same signal that
+  /// already keeps [_dayCache] and [_monthNetCache] honest so a reason to
+  /// invalidate one is a reason to invalidate all three.
+  _DayCachePartition? _dayCachePartition;
 
   /// Generation of [PublicHolidays] the memoized days were expanded against.
   ///
@@ -164,9 +214,9 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       (await _resolveService()).service;
 
   /// Amortized O(1) lookup over the in-memory cache populated by
-  /// [CalendarEventService]. The first call for a given day expands the
-  /// recurrence rules once (O(N) over the event list) and memoizes the
-  /// result in [_dayCache]; later rebuilds reuse it. Stays synchronous so
+  /// [CalendarEventService]. The first call for a given day validates only
+  /// [_dayCandidates]' narrowed list through `occursOnUtcDay` and memoizes
+  /// the result in [_dayCache]; later rebuilds reuse it. Stays synchronous so
   /// `TableCalendar.eventLoader` can call it directly during build.
   List<CalendarEvent> eventsForDay(DateTime day) {
     final current = state;
@@ -175,15 +225,85 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     final key = DateTime.utc(day.year, day.month, day.day);
     final cached = _dayCache[key];
     if (cached != null) return cached;
-    final result = List<CalendarEvent>.unmodifiable([
-      for (final e in current.allEvents)
+    // Sorted once, here, on the miss — not by every consumer that reads this
+    // memoized list. `DayBarsResolver`/`DaySummaryResolver` used to copy and
+    // re-sort by `EventAgenda.compareWithinDay` on every cell/panel build;
+    // now that this list is stable for the entry's whole lifetime, they (and
+    // every other reader of this method) can trust it arrives pre-sorted.
+    final matches = [
+      for (final e in _dayCandidates(current, key))
         if (!current.hiddenCategoryIds.contains(e.categoryId) &&
             e.occursOnUtcDay(key))
           e,
-    ]);
-    if (_dayCache.length >= _maxDayCacheEntries) _dayCache.clear();
+    ]..sort(EventAgenda.compareWithinDay);
+    final result = List<CalendarEvent>.unmodifiable(matches);
     _dayCache[key] = result;
     return result;
+  }
+
+  /// Candidates to validate through `occursOnUtcDay` for [key] — never a
+  /// membership decision by itself. `occursOnUtcDay` remains the sole arbiter
+  /// for every candidate this returns; nothing here reads `event.rule.occursOn`
+  /// or applies the hidden-category filter (that stays in [eventsForDay],
+  /// exactly where it always was).
+  ///
+  /// Inside [_dayCacheWindowFor]'s current window this is
+  /// [EventAgenda.partitionForWindow]'s `dense` list plus its [key]-keyed
+  /// sparse and one-time buckets — the same events a full scan would have
+  /// reached, minus the ones whose rule provably cannot fire on [key]
+  /// ([RecurrenceRule.candidateDaysIn]) and the one-time events whose single
+  /// occurrence falls on some other day. Outside the window (a date picker,
+  /// the day or timeline panel, a birthday decades away) this is the full
+  /// [CalendarPageLoaded.allEvents] scan [eventsForDay] always ran, because
+  /// the partition was never built to cover that day.
+  List<CalendarEvent> _dayCandidates(CalendarPageLoaded current, DateTime key) {
+    final (start, endExclusive) = _dayCacheWindowFor(current.focusedDay);
+    if (key.isBefore(start) || !key.isBefore(endExclusive)) {
+      return current.allEvents;
+    }
+    final partition = _partitionFor(current, start, endExclusive);
+    final sparseToday = partition.sparseByDay[key];
+    final oneTimeToday = partition.oneTimeByDay[key];
+    if (sparseToday == null && oneTimeToday == null) return partition.dense;
+    return [...partition.dense, ...?sparseToday, ...?oneTimeToday];
+  }
+
+  /// Builds, or reuses, the [EventAgenda.partitionForWindow] split for the
+  /// `[windowStart, windowEndExclusive)` window.
+  ///
+  /// Reuse requires both the window bounds and the
+  /// [CalendarPageLoaded.allEvents] instance to match [_dayCachePartition]
+  /// exactly; either differing means the cached split no longer describes
+  /// the calendar this bloc would compute today, so it is rebuilt rather than
+  /// patched. [partitionForWindow] takes an **inclusive** end, so the window's
+  /// exclusive bound is converted once here.
+  _DayCachePartition _partitionFor(
+    CalendarPageLoaded current,
+    DateTime windowStart,
+    DateTime windowEndExclusive,
+  ) {
+    final existing = _dayCachePartition;
+    if (existing != null &&
+        identical(existing.allEvents, current.allEvents) &&
+        existing.windowStart == windowStart &&
+        existing.windowEndExclusive == windowEndExclusive) {
+      return existing;
+    }
+    final split = EventAgenda.partitionForWindow(
+      current.allEvents,
+      windowStart,
+      windowEndExclusive.subtract(const Duration(days: 1)),
+    );
+    final built = (
+      allEvents: current.allEvents,
+      windowStart: windowStart,
+      windowEndExclusive: windowEndExclusive,
+      dense: split.dense,
+      sparseByDay: split.sparseByDay,
+      oneTimeByDay: split.oneTimeByDay,
+    );
+    _dayCachePartition = built;
+    return built;
   }
 
   /// Net money change for [month]: the exact sum of what the visible day
@@ -254,9 +374,63 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   /// Drops every memoized day so the next [eventsForDay] recomputes against
   /// the current event set / category filter. Called from the handlers that
   /// actually change those inputs — never from day/focus/format changes.
+  ///
+  /// Also drops [_dayCachePartition]. Most of these call sites do not
+  /// actually change the partition's own inputs (a skip, a holiday-generation
+  /// bump and the hidden-category filter all leave `allEvents` and the
+  /// window untouched — [_partitionFor]'s per-call `occursOnUtcDay`
+  /// validation is what makes those correct regardless), but dropping it
+  /// here anyway means every existing and future reason to invalidate the day
+  /// cache reaches the partition for free, with nothing new to keep in sync.
   void _invalidateDayCache() {
     if (_dayCache.isNotEmpty) _dayCache.clear();
     if (_monthNetCache.isNotEmpty) _monthNetCache.clear();
+    _dayCachePartition = null;
+  }
+
+  /// Start (inclusive) and end (exclusive) of the months [_dayCache] keeps
+  /// warm around [focusedDay]'s month: [_dayCacheWindowMonths] before and
+  /// after. Deliberately not extended to [_monthNetCache]: that cache is
+  /// keyed by month and already capped at 36 entries — six times this
+  /// window's width — and `headerTitleBuilder` reads it exactly once per
+  /// build, so the double-lookup-in-one-frame race this method exists to
+  /// close cannot happen there. Pruning it to this window on every page turn
+  /// would trade a cache that already survives a multi-year paging session
+  /// for one that forgets everything past three months, with no matching bug
+  /// to justify it.
+  static (DateTime start, DateTime endExclusive) _dayCacheWindowFor(
+    DateTime focusedDay,
+  ) {
+    final start = DateTime.utc(
+      focusedDay.year,
+      focusedDay.month - _dayCacheWindowMonths,
+    );
+    final endExclusive = DateTime.utc(
+      focusedDay.year,
+      focusedDay.month + _dayCacheWindowMonths + 1,
+    );
+    return (start, endExclusive);
+  }
+
+  /// Evicts [_dayCache] entries outside [_dayCacheWindowFor] — eviction, not
+  /// invalidation: the entries kept are still correct, just unlikely to be
+  /// read again soon, whereas [_invalidateDayCache] drops everything because
+  /// the event set itself changed. Called only from [_onChangeFocusedDay],
+  /// after its no-op guard, so a genuine month change pays for this and the
+  /// page-settle re-report of the same month does not.
+  ///
+  /// [_maxDayCacheEntries] stays a backstop rather than disappearing: the
+  /// date pickers and the day/timeline panels also call [eventsForDay], on
+  /// days that can land far outside the window with no focus change at all.
+  /// The window prune runs first; the wholesale clear only fires if the
+  /// cache is still over the cap afterwards, and — like the prune — only
+  /// from here, never from the lookup.
+  void _evictColdDayCacheEntries(DateTime focusedDay) {
+    final (start, endExclusive) = _dayCacheWindowFor(focusedDay);
+    _dayCache.removeWhere(
+      (day, _) => day.isBefore(start) || !day.isBefore(endExclusive),
+    );
+    if (_dayCache.length >= _maxDayCacheEntries) _dayCache.clear();
   }
 
   /// Resolves every calendar service, then publishes the event set.
@@ -347,6 +521,9 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     // month, and without this that second, equal-but-for-nothing emit rebuilds
     // the grid again (the panel is protected separately by `samePanelInputs`).
     if (focused == current.focusedDay) return;
+    // Past the guard, this is a genuine month change — the only point that
+    // pays for day-cache eviction.
+    _evictColdDayCacheEntries(focused);
     emit(current.copyWith(focusedDay: focused));
   }
 
