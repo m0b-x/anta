@@ -8,8 +8,15 @@ also shipped (2026-08-23). 3.2b — per-rule candidate generation
 (`RecurrenceRule.candidateDaysIn`) — shipped (2026-08-24), completing 3.2. 3.3
 — sort once, memoize resolver output, plus new `CalendarCategories`/
 `FastingCalendar` revision counters and a `FastingCalendar.cellStyleFor`
-eviction fix it needed first — shipped (2026-08-24), completing Phase 3. The
-rest of Phases 4-5 planned.**
+eviction fix it needed first — shipped (2026-08-24), completing Phase 3.
+**Phase 4 shipped in full (2026-08-24)** — 4.1's remaining template-fold
+cache, 4.2, 4.3 and 4.4; two of its claims were already stale, see items 14
+and 15 below. **Phase 5 completed the same day, closing the roadmap**: 5.1,
+5.2, 5.3, 5.5, 5.6 and 5.7 shipped, and 5.4 shipped in its safe half with the
+interface-widening half declined (item 17). 5.6 turned out to be an
+**accessibility** change rather than a perf one and shipped as a label merge,
+never a removal (item 19); 5.7's memo needed `EventPresence.revision` in its
+key or it would have served a stale layout (item 20). Phases 0-5 are done.**
 
 This started as a review, not a changelog. Every finding was verified by reading source;
 no profiler run backs the timing estimates yet — Phase 0 exists to produce those numbers
@@ -85,6 +92,49 @@ And its code-review pass caught two more, both fixed:
     rejected, so re-awaiting it meant every later create/update/delete silently no-oped and
     not even a database switch could recover. The resolver now falls back to `getInstance()`
     once the seed has been consumed, successfully or not.
+
+14. **4.1 was two-thirds already done.** Its "three independent fixes" listed the debounce
+    (shipped 2026-08-21) and "apply 3.2's candidate generation to the day loop" — which
+    3.2b shipped on 2026-08-24 when it put `partitionForWindow` into `occurrencesInRange`.
+    Neither line was struck at the time. Only the per-event template-fold cache was left.
+15. **4.4's "and four siblings" was stale.** There are **two** sliders in
+    `calendar_settings_page.dart`, not five, and both already routed through a single
+    `_sliderRow` helper — so the fix was one extracted widget, not five edits.
+16. **4.3 had no test seam, and the obvious one would not have worked.** The resolver is
+    private state on the panel and `resolve` returns a freshly built list either way, so
+    comparing output cannot distinguish a reused instance from a rebuilt one. Guarded with
+    an assert-stripped construction counter instead, the same shape as
+    `CalendarEvent.debugOccursOnCalls`.
+17. **5.4 no longer had a win to collect.** Phase 3's tint *output* memo means the second
+    `cellStyleFor` call runs only on a generation-miss frame, and on such a frame the
+    first call has already warmed the per-day memo for that key — so the second is a
+    guaranteed hit, never a recompute. Investigated and **declined**; the fix would have
+    cost either a widened `CellTintProvider` interface or an ad-hoc path for one provider,
+    to save a map lookup. An earlier item silently fixing a later one is the same pattern
+    as 14: re-verify before implementing.
+18. **5.1 was worse than written, in the way that mattered.** The item said "per-row
+    transactions"; the actual cost was that `CalendarEventDao.upsert` opens its *own*
+    transaction, so the loop paid a WAL commit **and** a guaranteed-miss `SELECT` per
+    event. The four sibling services already had insert-shaped DAO methods and still paid
+    one commit per row. Both facts only surface by reading `upsert` and `deleteAll`
+    together — the hard-wipe comment on `deleteAll` is what proves the `SELECT` can never
+    hit, and therefore that a plain insert is safe.
+19. **5.6 was an accessibility item filed as a performance one.** "~126 extra render
+    objects" is true, but those objects were `Semantics` nodes carrying every marker's
+    label — the only thing the grid's markers say to a screen reader. Implemented as
+    written it would have silently deleted that, and no perf metric would have noticed.
+    Shipped as a **merge** into one node per cell instead, with the overflow chip's count
+    folded into the same label. Its `IntrinsicHeight` half was also already half-done:
+    `_AgendaCard` had been converted to a `Stack`/`Positioned` stripe at some point and
+    the roadmap never said so, leaving only `day_summary_panel.dart`.
+20. **5.7's obvious cache key would have been stale.** The timeline layout is built from a
+    list filtered by `_isMissed`, which reads the `EventPresence` static facade — mutable
+    global state the widget's props do not capture. Keyed only on `events` +
+    `missedDisplay`, a presence toggle would have left the old layout on screen: item 1's
+    bug reached from the opposite direction. `EventPresence.revision` already existed for
+    this purpose and is the third key field. **Any memo over a static facade needs that
+    facade's revision in its key** — this is now the third time that has come up (1.1,
+    3.3, 5.7).
 
 **Method note.** Every roadmap claim was re-verified against source before being
 implemented, and the ones that would have shipped bugs (1.1, 1.2, 1.5's index placement,
@@ -970,79 +1020,331 @@ cache-lifetime change) — see 3.2a below.
 
 ---
 
-## Phase 4 — Agenda and settings
+## Phase 4 — Agenda and settings — **shipped (2026-08-24)**
 
-**4.1 Debounce the agenda scan, not just the persist.**
-**Partially shipped (2026-08-21)** — the anchor-regression doc's A4 added a
-~200 ms debounce on the query-only rescan in `UpcomingAgendaView.didUpdateWidget`
-(the field stays live; anchor/filter changes still scan synchronously). The
-per-event template-description fold cache below is **not** done — the
-per-(event, day) description fold remains, reached only for description-matched
-candidates under a needle. Original analysis:
-`calendar_bottom_panel.dart:141-155`
-calls `setState` immediately and debounces only `_persist` (500ms). So every keystroke re-runs
-the full range scan (`upcoming_agenda_view.dart:173` -> `_recompute`), which folds every title
-and description (`event_agenda.dart:70`, `:172-183`) and re-folds descriptions **per (event,
-day)** at `:192-200`. At N=2000 over 30 days that is ~60M chars copied per character typed; a
-366-day custom range multiplies by 12.
+**4.1 Debounce the agenda scan, not just the persist.** *Complete.* Two of its three fixes
+had already landed and the roadmap never struck them (correction 14): the ~200 ms debounce
+on `UpcomingAgendaView.didUpdateWidget`'s query-only rescan shipped 2026-08-21 via the
+anchor-regression doc's A4, and "apply 3.2's candidate generation to the day loop" shipped
+as 3.2b, which put `partitionForWindow` into `occurrencesInRange`.
 
-Three independent fixes: debounce the scan (~150-200ms, keep the field fully controlled so the
-caret never jumps); hoist template-description folding out of the day loop into a per-event
-cache, folding only the day's *override* per day; and apply 3.2's candidate generation to the
-day loop.
+What was left — the per-(event, day) description fold — shipped here. The scan folded
+`event.description` through `normalizeForSearch` **once per day per candidate**; at a
+366-day range that is the same 300-character copy 366 times for one event. Replaced with
+two per-event maps built in the candidate loop that already walks every event:
+`templateMatched` (the template's verdict, folded once) and `variesByDay` (the ids that
+can override it per occurrence). `matchesQuery` now folds nothing at all for an event with
+no per-occurrence text, and for one that has them folds only the days it actually
+overrode — the other days fall back to the cached template verdict.
 
-*Preserve:* the documented asymmetry at `event_agenda.dart:185-191` — an event whose override
-on one day no longer mentions the needle must drop out of *that day* even though the template
-still matches. Cache the fold; never substitute for the per-day decision.
+The old `_descriptionCandidate` / `_dayDescriptionMatches` pair is gone; their rationale
+moved onto the cache locals and `matchesQuery`, which is now a documented block rather
+than a one-line disjunction. The candidate pre-filter stays the same deliberate
+*superset* test (`appliesTo && hasAnyOverride`), so an event whose only hit lives on one
+day still reaches the scan.
 
-**4.2 Rewrite `removeDiacritics`.** `folder_search_service.dart:41-48` indexes with `text[i]`,
-allocating a one-character `String` per character. Iterate `codeUnits` and only consult the map
-above ASCII. This is shared with note search, so it must produce byte-identical output —
-table-driven test over the full `SearchConstants.diacriticsMap` key set.
+*Preserved, and now directly tested:* the documented asymmetry — a live override wins over
+the template **including when it is empty**, so a day whose override no longer mentions the
+needle drops out of *that day* while every other day stays, and symmetrically an override
+on one day cannot drag the event's other occurrences in. This is exactly what a naive
+per-event memo would have flattened, which is why the guard tests it from both directions.
 
-**4.3 Memoize the day panel's resolver.** `calendar_bottom_panel.dart:201-204` constructs
-`DaySummaryResolver.defaults(...)` — 5 provider allocations — inside `build`, then rebuilds
-every row including an `IntrinsicHeight` double layout pass. Hoist onto state with the memo
-shape `calendar_page.dart:81-91` already uses.
+*Guard:* `test/utils/event_agenda_description_fold_test.dart` — twelve tests over a 31-day
+window, in two halves. The **budget** half asserts exact fold counts through
+`EventAgenda.debugDescriptionFolds`, a new assert-stripped counter in the register of
+`CalendarEvent.debugOccursOnCalls` (there is no injection seam on a top-level function):
+ten always-occurring events cost 10 folds, not 310; a title hit costs 0; an empty query
+costs 0; an opted-in event with an empty override map still costs 1, because every day
+provably resolves to the template; an event with two overridden days costs 3. The
+**asymmetry** half pins the behaviour the cache must not flatten. Verified by mutation:
+restoring the per-day fold moves the counts to 320 / 32 / 32 while every asymmetry test
+stays green — which is the point, since the mutant is the old *correct* behaviour and only
+the budget can tell the two apart.
 
-**4.4 Slider drags in calendar settings.** `calendar_settings_page.dart:918-922` and four
-siblings do `setState` + an awaited settings write + haptic feedback *per drag tick*,
-rebuilding a non-lazy `ListView(children:)` of ~40 rows plus the live preview. Keep a local
-draft value, move the write and haptic to `onChangeEnd` (with a debounced fallback —
-`onChangeEnd` does not fire for accessibility-driven changes on all platforms). The
-`ListView.builder` change in `settings_section_list.dart` helps every settings page but widens
-blast radius; treat separately.
+**4.2 Rewrite `removeDiacritics`.** *Shipped.* `folder_search_service.dart` indexed with
+`text[i]`, allocating a throwaway one-character `String` per code unit for a map lookup
+that almost always misses. Now iterates `codeUnitAt`, with `_diacriticsByCodeUnit` —
+**derived** from `SearchConstants.diacriticsMap` by comprehension, never hand-transcribed,
+because a second hand-copied table is precisely the drift bug already documented above
+`_buildIndexInIsolate` (an isolate-local copy that lost the Romanian entries, so
+bulk-indexed notes folded differently than queries and never matched). Code units `<= 0xBF`
+skip the lookup entirely, and a string needing no fold at all returns `text` itself with no
+buffer allocated — the common case for English text and for every ASCII search query.
+
+Byte-identical by construction: every one of the 193 keys is a single UTF-16 code unit
+(U+00C0–U+017E plus the Romanian comma-below block U+0218–U+021B), and because Dart's
+`text[i]` already yields *code units* rather than runes, surrogate pairs round-trip
+unchanged under both the old and the new version.
+
+*Guard:* `test/services/remove_diacritics_test.dart` — thirteen tests, the load-bearing one
+being a table-driven equivalence check against an inline reimplementation of the old
+algorithm as an oracle, run over every key in the map, the whole key set concatenated, and
+that set interleaved with ASCII. Plus astral-plane cases (emoji, a ZWJ sequence mixed with
+diacritics), exact-output cases that survive an edit to the oracle
+(`Sărbătoare în Țara Românească`), and the multi-character folds `Æ`/`ß`/`Þ`.
+
+**4.3 Memoize the day panel's resolver.** *Shipped.* `CalendarBottomPanel._buildPanel`
+constructed `DaySummaryResolver.defaults(...)` — five stateless provider allocations —
+from `build`, so every panel rebuild threw away five identical objects and made five more.
+Hoisted onto state as `_summaryResolverFor`, keyed on the localization and
+`showRecurrenceLabels`, the same memo shape `_CalendarViewState._resolverFor` already uses
+for the grid's `DayBarsResolver`.
+
+The `IntrinsicHeight` double layout pass named in the original item is **not** part of this
+— it is 5.6, and still deferred.
+
+*Guard:* `test/widgets/calendar_bottom_panel_resolver_memo_test.dart` — pumps the real
+`CalendarBottomPanel` in day mode and asserts through
+`DaySummaryResolver.debugDefaultsBuilds` (correction 16) that day changes and repaints
+rebuild it zero times, while flipping `showRecurrenceLabels` rebuilds it exactly once and
+then stays put. Uses the `SettingsService.forTesting(await openTestDatabase())` harness
+the anchor test established, for the reason documented under 3.3: the panel issues its
+settings read from its own `initState`, outside any `runAsync` the test controls.
+
+**4.4 Slider drags in calendar settings.** *Shipped.* There are two sliders, not five
+(correction 15), and both already shared one `_sliderRow` helper. Each drag tick fired a
+haptic, an **awaited** settings write, and a parent `setState` that rebuilt the non-lazy
+~40-row `ListView(children:)` plus the live `_AppearancePreview`.
+
+Extracted to `lib/widgets/slider_setting_row.dart` as `SliderSettingRow`, a
+`StatefulWidget` holding a local draft: `onChanged` updates only the draft, with the row's
+own `setState`; `onChangeEnd` commits once (haptic + parent `setState` + write). A 350 ms
+debounce timer, restarted per tick, is the fallback for the platforms where `onChangeEnd`
+does not fire for accessibility-driven changes. The draft doubles as "a commit is still
+owed", so whichever path fires first wins and the other is a no-op — no double write.
+`didUpdateWidget` drops the draft when the committed value changes from outside, which is
+what keeps "Reset to defaults" working.
+
+The **caption** is why this needed a widget rather than a local variable. Both sliders sit
+under l10n descriptions that interpolate the value, and `SettingsSectionList` hands the row
+a *pre-rendered, search-highlighted* `Widget` built from the committed value — which would
+visibly freeze mid-drag. While a drag is in progress the row renders `draftCaption(draft)`
+as plain `Text` styled to match `_buildRow`'s base description style exactly
+(`fontSize: 12`, `onSurfaceVariant`; neither entry sets a `descriptionStyle`), and swaps
+the highlighted widget back the instant the drag commits. Losing highlighting for the
+duration of an active drag is deliberate.
+
+The `ListView.builder` change in `settings_section_list.dart` remains **out of scope** —
+it helps every settings page but widens the blast radius, and is still to be treated
+separately.
+
+*Guard:* `test/widgets/calendar_settings_slider_draft_test.dart` — drives
+`SliderSettingRow` through its `Slider`'s callbacks rather than simulated gestures, since a
+raw drag cannot cleanly leave `onChangeEnd` unfired: dragging does not commit but the
+caption tracks the draft; `onChangeEnd` commits exactly once; the timer commits exactly
+once when `onChangeEnd` never arrives; a late `onChangeEnd` after a timer commit does not
+commit twice; an external `value` change discards the draft.
 
 ---
 
-## Phase 5 — Cleanup
+## Phase 5 — Cleanup — **complete (2026-08-24)**
 
-**5.1** Backup import: per-row transactions. 2,000 events ≈ 8,000 statements and 2,000 WAL
-commits, each with a guaranteed-miss `SELECT` (the table was just emptied by `deleteAll()`).
-Add `importEvent` matching the existing `importOccurrence` convention and wrap each loop in one
-transaction. The author's own measured table (`database.dart:204-217`) prices this at ~3x.
-Verify `deleteAll()` precedes the loop in every service before changing upsert semantics to
-insert.
+Every item is now either shipped or explicitly declined with its reason recorded. **This
+closes the roadmap**: Phases 0-5 are done.
 
-**5.2** `RecurrenceCodec.decode` calls `jsonDecode` twice for weekly rules
-(`recurrence_rule_codec.dart:76-79`). Load-time only. Preserve the defensive contract:
-malformed payload must still let the kind through.
+Taken as vertical slices rather than in numeric order, so each is a coherent commit on its
+own: **A** = 5.1 + 5.2 (restore and load path), **B** = 5.3 + 5.4 (grid paint constants),
+**C** = 5.5 (overlay publish), **D** = 5.6 + 5.7 (render-object and layout diet).
 
-**5.3** `DayBar` keys interpolate `'event:${event.id}'` per event per cell per frame
-(`day_bars_resolver.dart:141`). Precompute, without letting an event key collide with
-`'fasting:'`/`'holiday'`/`'weekend'`.
+D was deliberately held back from the first pass rather than rushed into it, and that was
+the right call for a reason worth keeping: **5.6 is an accessibility change wearing a
+performance item's clothes.** Read as written — "remove ~126 render objects" — it deletes
+the only screen-reader information the grid's markers carry. It is shipped here as a label
+*merge*, not a removal. Anyone revisiting this file for a similar-sounding item should
+check what the widget being deleted was actually doing for someone who cannot see it.
 
-**5.4** `FastingCalendar.cellStyleFor(day)` called twice per cell for the same day
-(`calendar_page.dart:751` and `cell_tint_resolver.dart:97`).
+5.4 is the one item that stayed partly declined. Its safe half shipped; the half that
+would have widened a shared interface did not, and correction 17 says why.
 
-**5.5** Copy-on-write publish in the three overlay services — currently a full map deep-copy
-per single-day mutation. Preserve the stated invariant that a published snapshot can never be
-mutated under a render path.
+**5.1 Backup import: per-row transactions.** *Shipped.* Worse than the item described.
+`CalendarEventService.importData` drove `CalendarEventDao.upsert` once per row, and
+`upsert` opens **its own transaction** — so 2,000 events meant 2,000 WAL commits, each
+preceded by a `SELECT` that could not possibly hit: `deleteAll()` runs immediately before
+the loop and is a documented *hard* wipe (tombstones included), so the table is empty and
+the insert branch always won.
 
-**5.6** `Semantics` per bar = ~126 extra render objects in the grid; `IntrinsicHeight` per
-agenda/panel row is a double layout pass.
+The other four calendar import loops (`event_occurrence_service`,
+`event_presence_service`, `event_skip_service`, `event_template_service`) already had
+insert-shaped DAO methods per the `importOccurrence` convention, but still awaited one
+insert — one commit — per archived row.
 
-**5.7** `DayTimelineView` computes its layout in `build`.
+All five now parse into a companion list first and write it through a new
+`importAll(List<Companion>)` on each DAO, which is a single `batch` — one transaction,
+one commit — following the `ContentChunkDao` precedent already in the codebase. The
+per-row `try` stays around **parsing**, so one malformed archive row is still skipped
+rather than fatal; only the write moved. `insertOrReplace` rather than a plain insert
+solely to keep `upsert`'s last-one-wins behaviour if an archive carries an id twice; the
+schema declares no foreign keys anywhere, so it can never cascade. The single-row
+`importOccurrence`/`importAbsence`/`importSkip`/`importTemplate` methods are **replaced**,
+not kept alongside, so there is no second convention to drift.
+
+*Guard:* four tests in `test/database/query_count_test.dart`, the file that already owns
+this register. A 40-row import issues **no `SELECT` at all** and fewer statements than
+rows (a bound, not an exact count, so a drift version that batches differently cannot fail
+it for the wrong reason); an empty import touches the database not at all; every restored
+row is a live `version 1` original of this device; and a duplicate id inside one archive
+keeps the last row rather than failing the batch.
+
+**5.2 `RecurrenceCodec.decode` decoded twice.** *Shipped.* `kWeekly` called
+`_decodeWeekdays(payload)` and `_decodeInterval(payload)`, each running its own
+`jsonDecode` on the identical string. A new `_decodePayload(payload, kind)` parses once at
+the top of `decode` and the field extractors now read keys off the already-parsed `Map?`.
+
+The defensive contract is intact and is the whole risk here: `_decodePayload` is now the
+sole `jsonDecode`/try-catch site, returns `null` on a throw **or** on valid JSON that is
+not a `Map` (`'[]'`), and each extractor treats `null` exactly as it treated a parse
+failure — its documented default. So a corrupt payload still yields a rule of the **right
+kind** with defaulted fields, never a throw and never a silent collapse to
+`OneTimeRecurrence`. The one pre-existing exception, `kSpecificDates` falling back to
+one-time on an *empty date set*, is untouched — that is a different thing from a parse
+failure. One `debugPrint` per bad payload now instead of one per field.
+
+*Behaviour note:* a payload that parses as valid non-`Map` JSON previously logged nothing
+(no exception was thrown); it now logs "not a JSON object". No return value changed.
+
+*Guard:* `test/models/recurrence_codec_decode_test.dart` — 25 tests. Round-trip for every
+kind, keyed off the codec's own `k*` constants so a future kind cannot be silently missed;
+the weekly dual-field case specifically; malformed payloads (`'not json'`, `'{'`, `'[]'`,
+`'{"weekdays": "nope"}'`) for every kind asserting no throw and the correct runtime type;
+null/empty payloads; and legacy no-`interval` payloads defaulting to 1.
+
+**5.3 `DayBar` key interpolation.** *Shipped.* `day_bars_resolver.dart` built
+`'event:${event.id}'` per event, per cell, per frame. Precomputed as
+`CalendarEvent.barKey`, a `late final` beside the `titleFold` / `startDateUtc` /
+`endDateUtc` derived fields that already exist for exactly this reason. The `'event:'`
+prefix is kept, which is what keeps the keyspace disjoint from `'weekend'`, `'holiday'`,
+`'fasting:<tradition>'` and `'money'` by construction.
+
+*Guard:* a `CalendarEvent.barKey` group in `test/services/day_bars_resolver_test.dart` —
+pins the format, asserts `late final` memoization via `identical()`, and feeds events
+whose **id** is literally `'weekend'`, `'money'` or `'fasting:greatLent'` through the
+resolver alongside the sibling providers, asserting both bars survive the `putIfAbsent`
+dedup a real collision would silently drop one from.
+
+**5.4 The double `cellStyleFor` call.** *Shipped in its safe half; the wider half stays
+declined (correction 17).*
+
+First pass declined the item outright, and that verdict was right about the part that
+matters: Phase 3's tint **output** memo means `FastingCellTintProvider.tintFor` — the
+second call site — runs only on a generation-miss frame, and on such a frame
+`_buildDayCell`'s own call has already warmed `FastingCalendar`'s per-day memo for that
+exact key, so the second lookup is a guaranteed hit that never recomputes. Making it
+disappear entirely would mean widening the shared `CellTintProvider.tintFor(day, events)`
+contract to promise a normalized day — reaching every other provider and its tests — to
+save one map lookup on rare frames. Still not worth it, and still not done.
+
+What a second pass did find, and the first missed: `_buildDayCell` computes the date-only
+UTC `key` for the tint output memo **on the very next line**, then handed `cellStyleFor`
+the un-normalized `day` and paid for a second `DateTime.utc` allocation per cell to
+re-derive what it already had. Split along the `occursOn`/`occursOnUtcDay` line this
+codebase already uses: `cellStyleForUtcDay(key)` is the fast path with a debug assert on
+its precondition, `cellStyleFor` normalizes and delegates, and the grid now computes `key`
+first and passes it. The tint provider keeps calling the normalizing entry point, because
+it genuinely cannot promise a normalized day.
+
+*Guard:* three tests in `test/constants/fasting_calendar_test.dart` — the two entry points
+agree for a local-time instant with a wall clock (the shape the grid hands in), the fast
+path asserts on a day that is not date-only UTC, and an unconfigured calendar is empty
+through either door.
+
+**5.5 Copy-on-write publish in the three overlay services.** *Shipped.* Each `_publish()`
+deep-copied **every** event's collection on **every** single-day mutation — so marking one
+day missed, cancelling one occurrence, or editing one day's text rebuilt the whole store.
+The description overlay was the worst of the three, since its values are description
+strings.
+
+Each service now holds `_published`, the snapshot the facade is currently serving, and
+gains `_publishFor(eventId)` beside the full `_publish()`. The targeted path rebuilds only
+the touched event's collection and pointer-copies the outer map, so cost follows the event
+that changed rather than the size of the store. `_load()` and the bulk paths keep the full
+rebuild — every event changed there anyway, and a targeted republish would be strictly
+more work. The six single-event mutation sites (`markMissed`/`unmark`,
+`markSkipped`/`unskip`, `setDescription`/`clearDescription`) are the only callers of the
+new path.
+
+*Preserved:* the stated invariant, which is precisely what makes the sharing legal — a
+published collection is never mutated in place, so a render path already reading one
+cannot see it change underneath. Sharing is safe *because* of that, not in spite of it.
+
+*Guard:* `test/services/overlay_publish_sharing_test.dart` — ten tests against the real
+DAOs and real static facades over an in-memory database. Sharing is asserted by
+**identity**, never value equality: a full deep copy compares equal too, so only
+`identical()` can tell a shared entry from a rebuilt one. The immutability half asserts
+that a snapshot taken before a mutation still reads what it read, that a published set
+rejects mutation, and that a blanked day (`''`) stays live and distinct from an absent
+one. `EventPresence.daysFor` and `OccurrenceDescriptions.overridesFor` were added as
+`@visibleForTesting` parallels to the public `EventSkips.daysFor` purely so identity is
+observable. Verified by mutation: restoring the full deep copy fails both identity
+assertions while every immutability test stays green.
+
+**5.6 `Semantics` per bar, and `IntrinsicHeight` per row.** *Both shipped, and the
+`IntrinsicHeight` half was already half-done.*
+
+**The bars half is an accessibility fix that happens to remove render objects, not the
+reverse** — which is why it was held back until it could be done deliberately rather than
+folded into a perf sweep. `CalendarDayBars` wrapped **each** marker in its own
+`Semantics(label: bars[i].semanticLabel)`. Deleting those, as "remove ~126 render objects"
+invites, would have deleted the only screen-reader information the grid's markers carry.
+
+What actually happens to a screen-reader user today is worse than the count suggests: a
+3px bar inside a calendar cell is not a usefully targetable focus stop, so the reader
+halts on up to `maxBars` unlabelled slivers per cell, across 42 cells, reading them one at
+a time with nothing tying them to the day they belong to. They are now merged into **one**
+node per cell carrying every label in marker order — "Leg day, Dentist, +2" — with
+`ExcludeSemantics` keeping the overflow chip's `Text` from surfacing as a second node
+inside it. The chip's count is folded into the same label rather than dropped: `+N` is
+exactly what it announced before, so nothing audible was lost and no invented string
+needed localizing.
+
+*Guard:* `test/widgets/calendar_day_bars_semantics_test.dart` — eleven tests, run across
+**both** marker styles. The load-bearing ones assert the labels *survived*, because the
+failure mode of this change is silently dropping information that no perf metric would
+catch: every label appears in the merged node, no node carries a single marker's label any
+more, the overflow count is still audible, a lone marker still announces itself, and an
+empty day contributes no node at all (scoped to the widget's own subtree — a bare
+`find.byType` also matches MaterialApp's and Scaffold's chrome).
+
+**The `IntrinsicHeight` half was already half-done and the roadmap never said so.**
+`agenda_list_view.dart`'s `_AgendaCard` had at some point been converted to a `Stack` with
+a `Positioned` stripe; only `day_summary_panel.dart` still paid the double layout pass.
+The day panel now uses the same shape — which is also a consistency win, since both files'
+comments already claimed the agenda and the day panel "read as one system" while building
+the identical design two different ways. Nothing in the day panel's row needed the
+intrinsic pass; it was a straight copy of the existing precedent.
+
+*Guard:* `test/widgets/day_summary_panel_layout_test.dart` — no `IntrinsicHeight` survives
+in the panel, the stripe's height matches the tile's for both a one-line row and a row
+with a wrapped description, the tall row is genuinely taller than the short one (so the
+height match is not coincidental at one size), and the stripe still carries the entry's
+colour. This repo has **no golden infrastructure** (see 1.3), so these are measured
+rectangles, not images.
+
+**5.7 `DayTimelineView` computes its layout in `build`.** *Shipped.* `DayTimelineLayout.compute`
+resolved the whole day's hour span and overlap columns on every rebuild of the bottom
+panel, including rebuilds that changed nothing it depends on. `DayTimelineView` is now a
+`StatefulWidget` memoizing the layout in the shape `_CalendarViewState._resolverFor` and
+`CalendarBottomPanel._summaryResolverFor` already use.
+
+**The cache key is the whole risk here, and it is not just the constructor arguments.**
+The filtered event list is built from `_isMissed`, which reads the `EventPresence` static
+facade — mutable global state a widget's props do not capture. A memo keyed only on
+`events` + `missedDisplay` would have served a stale layout after a presence toggle:
+precisely the bug item 1 of "where the plan was wrong" describes, arrived at from the
+other direction. `EventPresence.revision` already existed, built to
+`OccurrenceDescriptions.revision`'s pattern for exactly this purpose, so it is folded in
+as the third key field. The `events` field is compared by **identity**, which errs toward
+recomputing rather than toward staleness — the lists are `List.unmodifiable` and rebuilt
+by the bloc, so a content change always brings a new instance.
+
+*Guard:* `test/widgets/day_timeline_layout_memo_test.dart`, counting through a new
+assert-stripped `DayTimelineLayout.debugComputeCalls`. An unrelated rebuild recomputes
+zero times; a changed event list, a changed `missedDisplay` and **a presence toggle with
+everything else unchanged** each recompute exactly once; and a memo hit renders the same
+blocks. The presence case also asserts the rendered block count actually drops under
+`hidden` mode, so the recompute is proven not to be a no-op. Verified by mutation:
+dropping `presenceRevision` from the key leaves that one test failing (`Expected: 1,
+Actual: 0`) while the other four stay green — the signature of a memo that has gone stale
+rather than one that has stopped working.
 
 ---
 

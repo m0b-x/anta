@@ -89,15 +89,45 @@ class EventOccurrenceService {
     _publish();
   }
 
+  /// The snapshot the facade is currently serving. Held so [_publishFor] can
+  /// **share** the entries it did not touch: every inner map here is already
+  /// unmodifiable and is never rebuilt in place, so handing the same instance
+  /// to the next snapshot is safe.
+  Map<String, Map<DateTime, String>> _published = const {};
+
   /// Hands the facade an unmodifiable snapshot. Copied per publish so a later
   /// in-place patch can never mutate what render paths are already reading.
+  ///
+  /// The full rebuild, for [_load] and the bulk paths — where every event
+  /// changed anyway, so a targeted republish would be strictly more work.
   void _publish() {
-    OccurrenceDescriptions.updateCache(
-      byEvent: {
-        for (final entry in _byEvent.entries)
-          entry.key: Map.unmodifiable(Map<DateTime, String>.of(entry.value)),
-      },
-    );
+    _published = {
+      for (final entry in _byEvent.entries)
+        entry.key: Map.unmodifiable(Map<DateTime, String>.of(entry.value)),
+    };
+    OccurrenceDescriptions.updateCache(byEvent: _published);
+  }
+
+  /// Republish after a change confined to one event (**5.5**).
+  ///
+  /// Editing a single day's text used to deep-copy **every** event's whole
+  /// override map — the most expensive of the three overlays, since the values
+  /// are description strings. Now only [eventId]'s map is rebuilt and the
+  /// outer map is a pointer copy, so the cost follows the event that changed
+  /// rather than the size of the store. The published-snapshots-are-immutable
+  /// invariant is what makes the sharing safe, and it is unchanged: nothing
+  /// here mutates a collection that has already been handed out, so a render
+  /// path mid-read cannot see one shift underneath it.
+  void _publishFor(String eventId) {
+    final next = Map<String, Map<DateTime, String>>.of(_published);
+    final days = _byEvent[eventId];
+    if (days == null || days.isEmpty) {
+      next.remove(eventId);
+    } else {
+      next[eventId] = Map.unmodifiable(Map<DateTime, String>.of(days));
+    }
+    _published = next;
+    OccurrenceDescriptions.updateCache(byEvent: next);
   }
 
   // ── Mutations ────────────────────────────────────────────────────────
@@ -122,7 +152,7 @@ class EventOccurrenceService {
       ),
     );
     (_byEvent[eventId] ??= {})[key] = description;
-    _publish();
+    _publishFor(eventId);
   }
 
   /// Returns one day to the template. The row survives as a tombstone — it is
@@ -137,7 +167,7 @@ class EventOccurrenceService {
       forEvent.remove(key);
       if (forEvent.isEmpty) _byEvent.remove(eventId);
     }
-    _publish();
+    _publishFor(eventId);
   }
 
   /// Cascade for a deleted event. Called inside the event service's delete
@@ -173,6 +203,10 @@ class EventOccurrenceService {
   /// DAO, so a tombstone never round-trips a restore.
   Future<void> importData(List<dynamic> data) async {
     await _dao.deleteAll();
+    // Parsed first, written once (**5.1**): the per-row `try` still guards
+    // parsing, but the write is one batched transaction instead of one
+    // awaited insert — and one WAL commit — per archived row.
+    final companions = <EventOccurrenceDescriptionsCompanion>[];
     for (final raw in data) {
       if (raw is! Map) continue;
       final map = raw.cast<String, dynamic>();
@@ -186,7 +220,7 @@ class EventOccurrenceService {
         final createdAtMs = map['createdAtMs'];
         final updatedAtMs = map['updatedAtMs'];
         final now = DateTime.now();
-        await _dao.importOccurrence(
+        companions.add(
           EventOccurrenceDescriptionsCompanion(
             eventId: Value(eventId),
             day: Value(
@@ -211,6 +245,7 @@ class EventOccurrenceService {
         debugPrint('[EventOccurrenceService] Import row error: $e');
       }
     }
+    await _dao.importAll(companions);
     await _load();
   }
 

@@ -29,6 +29,7 @@ import '../widgets/color_wheel_picker.dart';
 import '../widgets/removed_holidays_sheet.dart';
 import '../widgets/settings_search_field.dart';
 import '../widgets/settings_section_list.dart';
+import '../widgets/slider_setting_row.dart';
 import '../widgets/unified_app_bars.dart';
 
 /// Calendar settings page grouping every calendar-specific option
@@ -527,21 +528,25 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
         SettingsEntry(
           title: l10n.calendarMaxDayBars,
           description: l10n.calendarMaxDayBarsDesc(_appearance.maxDayBars),
-          builder: (context, title, description) => _sliderRow(
+          builder: (context, title, description) => SliderSettingRow(
             title: title,
             description: description,
-            value: _appearance.maxDayBars.toDouble(),
+            value: _appearance.maxDayBars,
             min: 1,
             max: 6,
             divisions: 5,
-            onChanged: (value) async {
+            captionStyle: TextStyle(
+              fontSize: 12,
+              color: colorScheme.onSurfaceVariant,
+            ),
+            draftCaption: (draft) => l10n.calendarMaxDayBarsDesc(draft),
+            onCommit: (value) async {
               _onHapticFeedback();
               setState(
-                () => _appearance = _appearance.copyWith(
-                  maxDayBars: value.round(),
-                ),
+                () =>
+                    _appearance = _appearance.copyWith(maxDayBars: value),
               );
-              await _settings?.setCalendarMaxDayBars(value.round());
+              await _settings?.setCalendarMaxDayBars(value);
             },
           ),
         ),
@@ -893,20 +898,25 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
         SettingsEntry(
           title: l10n.eventDescriptionLimit,
           description: l10n.eventDescriptionLimitDesc(_descriptionLimit),
-          builder: (context, title, description) => _sliderRow(
+          builder: (context, title, description) => SliderSettingRow(
             title: title,
             description: description,
-            value: _descriptionLimit.toDouble(),
-            min: SettingsKeys.minEventDescriptionLimit.toDouble(),
-            max: SettingsKeys.maxEventDescriptionLimit.toDouble(),
+            value: _descriptionLimit,
+            min: SettingsKeys.minEventDescriptionLimit,
+            max: SettingsKeys.maxEventDescriptionLimit,
             divisions:
                 (SettingsKeys.maxEventDescriptionLimit -
                     SettingsKeys.minEventDescriptionLimit) ~/
                 SettingsKeys.eventDescriptionLimitStep,
-            onChanged: (value) async {
+            captionStyle: TextStyle(
+              fontSize: 12,
+              color: colorScheme.onSurfaceVariant,
+            ),
+            draftCaption: (draft) => l10n.eventDescriptionLimitDesc(draft),
+            onCommit: (value) async {
               _onHapticFeedback();
-              setState(() => _descriptionLimit = value.round());
-              await _settings?.setEventDescriptionLimit(value.round());
+              setState(() => _descriptionLimit = value);
+              await _settings?.setEventDescriptionLimit(value);
             },
           ),
         ),
@@ -932,36 +942,6 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
           ),
         ),
       ],
-    );
-  }
-
-  Widget _sliderRow({
-    required Widget title,
-    required Widget? description,
-    required double value,
-    required double min,
-    required double max,
-    required int divisions,
-    required ValueChanged<double> onChanged,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          title,
-          const SizedBox(height: 4),
-          ?description,
-          Slider(
-            value: value,
-            min: min,
-            max: max,
-            divisions: divisions,
-            label: '${value.round()}',
-            onChanged: onChanged,
-          ),
-        ],
-      ),
     );
   }
 

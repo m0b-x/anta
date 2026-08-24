@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../models/calendar_event.dart';
 import '../models/recurrence_rule.dart';
 
@@ -77,6 +79,13 @@ class OccurrenceDescriptions {
     final forEvent = _byEvent[eventId];
     return forEvent != null && forEvent.isNotEmpty;
   }
+
+  /// Every override of [eventId], date-only UTC keys. Exposed for the **5.5**
+  /// publish-sharing guard, which has to compare published map *identity*:
+  /// value equality cannot tell a shared entry from a deep copy that matches.
+  @visibleForTesting
+  static Map<DateTime, String> overridesFor(String eventId) =>
+      _byEvent[eventId] ?? const <DateTime, String>{};
 
   /// **The** entry point for "what description does this event show on this
   /// day". Every surface goes through it so the template fallback can never

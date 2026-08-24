@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/calendar_colors.dart';
 import 'package:anta/constants/event_presence.dart';
+import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/day_bar.dart';
@@ -198,6 +199,85 @@ void main() {
           .toList(growable: false);
 
       expect(bars.single.color, const Color(override));
+    });
+  });
+
+  group('CalendarEvent.barKey (5.3 precompute)', () {
+    test('is `event:<id>`', () {
+      expect(event('abc-123').barKey, 'event:abc-123');
+    });
+
+    test('is stable across reads — the `late final` memo, not recomputed', () {
+      final e = event('stable');
+      // Two reads of a `late final` field return the exact same String
+      // instance; a plain getter re-running `'event:${event.id}'` would
+      // also pass `==` here but would allocate a fresh String each time.
+      expect(identical(e.barKey, e.barKey), isTrue);
+    });
+
+    test('barsFor emits the precomputed key unchanged', () {
+      final bars = const EventDayBarProvider()
+          .barsFor(day, [event('precomputed')])
+          .toList(growable: false);
+
+      expect(bars.single.key, 'event:precomputed');
+    });
+
+    // The collision constraint from the roadmap: the resolver's other
+    // well-known keys are 'weekend', 'holiday', 'fasting:<tradition>' and
+    // 'money'. None of them carry the 'event:' prefix, so no event id can
+    // ever produce a bar key equal to one of them. Pinned here by feeding
+    // an event whose *id* is chosen to look exactly like a sibling key and
+    // confirming both bars survive `DayBarsResolver.resolve`'s
+    // `putIfAbsent`-keyed dedup — a real collision would silently drop one.
+    test('cannot collide with the weekend key', () {
+      final saturday = DateTime.utc(2026, 8, 8);
+      expect(saturday.weekday, DateTime.saturday);
+      final l10n = AppLocalizationsEn();
+      final resolver = DayBarsResolver(
+        providers: [
+          const EventDayBarProvider(),
+          WeekendDayBarProvider(l10n),
+        ],
+      );
+
+      final bars = resolver.resolve(saturday, [
+        event('weekend', title: 'Impersonator'),
+      ]);
+
+      expect(
+        bars.map((b) => b.key).toSet(),
+        {'event:weekend', 'weekend'},
+      );
+    });
+
+    test('cannot collide with the money key', () {
+      final l10n = AppLocalizationsEn();
+      final resolver = DayBarsResolver(
+        providers: [const EventDayBarProvider(), MoneyDayBarProvider(l10n)],
+      );
+
+      // MoneyDayBarProvider needs no linked note to still leave the event
+      // bar alone — it only ever contributes a bar of its own when the
+      // ledger service is initialized, which it is not in this test. The
+      // point here is purely that an id of 'money' resolves to a distinct
+      // key, not that both bars are present.
+      final bars = resolver.resolve(day, [
+        event('money', title: 'Impersonator'),
+      ]);
+
+      expect(bars.map((b) => b.key), ['event:money']);
+    });
+
+    test('cannot collide with a fasting tradition key', () {
+      // No FastingCalendar configuration is loaded in this test, so
+      // FastingDayBarProvider contributes nothing either way — asserting
+      // only that the event keeps its own distinct, prefixed key.
+      final bars = const EventDayBarProvider()
+          .barsFor(day, [event('fasting:greatLent', title: 'Impersonator')])
+          .toList(growable: false);
+
+      expect(bars.single.key, 'event:fasting:greatLent');
     });
   });
 }

@@ -1990,3 +1990,145 @@ system rather than a single hardcoded fasting wash.
 - `CalendarColors.moneyPositive` / `moneyNegative` replace the literals
   duplicated across three money surfaces, and `category_editor_sheet.dart` now
   reads `CalendarColors.swatchPalette` instead of its own copy.
+
+## Addendum (2026-08-24): keyboard-aware grid, agenda card layout
+
+- **The soft keyboard collapses the month grid to a week.** Typing in the
+  agenda search field used to leave the agenda invisible: the grid is the
+  non-flexible child of the page `Column`, so the `Expanded` bottom panel
+  absorbed the entire keyboard shrink. The grid now renders
+  `CalendarFormat.week` while the keyboard is up. This is an **ephemeral
+  render-time override** — no `ChangeCalendarFormat` is dispatched, so
+  `CalendarBloc.state.format` stays the user's pick and the filter sheet keeps
+  showing it.
+- **The body does not resize for the keyboard.** The page `Scaffold` sets
+  `resizeToAvoidBottomInset: false`, so the `Column`'s constraints never
+  change when the keyboard opens and overflow is structurally impossible —
+  the keyboard covers the bottom of the panel, and the grid's week-collapse
+  progressively reveals agenda content above it. The compensation lives in
+  `CalendarBottomPanel.build`, which reads `MediaQuery.viewInsetsOf` once and
+  threads `bottomInset` into all three panel modes as extra bottom padding on
+  their scrollables (agenda sliver padding, day-summary list, timeline
+  scroll), so scroll extent grows and everything stays reachable. The FAB
+  intentionally gets no inset handling: it sits behind the keyboard, where it
+  was unusable anyway. A short-screen regression test pumps every frame of
+  the 200 ms collapse and restore asserting no overflow; it goes red if the
+  resize flag is flipped back.
+- **`_KeyboardInsetProbe` still sits above the `Scaffold`.** Its original
+  reason was that `ScaffoldState.build` strips the bottom inset from the
+  body's `MediaQuery` whenever `resizeToAvoidBottomInset` is true — a read
+  below it saw `0` forever, and the first implementation silently did
+  nothing. With resize now off, body-level reads work (the panel uses one),
+  but the probe stays: it reads the inset in `didChangeDependencies` and
+  publishes a `ValueNotifier<bool>` so the **grid** subtree gets its
+  week-collapse signal without depending on `MediaQuery` at all, and the
+  probe's `build` returns `child` unchanged so an inset frame never rebuilds
+  from the top.
+- **The keyboard rebuilds the panel's padding, never its scan.** An inset
+  frame rebuilds `CalendarBottomPanel` and its mode child (the padding is
+  live), but `sameGridInputs` / `samePanelInputs` are untouched and the
+  agenda's `_rowsFor` memo absorbs the rebuild. Tests assert
+  `CalendarEvent.debugOccursOnCalls == 0`, `identical` `AgendaListView.rows`
+  across a show+hide, and `DaySummaryResolver.debugDefaultsBuilds == 0`.
+- **`onFormatChanged` is nulled while collapsed** — table_calendar's own way
+  to disable the vertical-swipe format gesture — so a swipe cannot rewrite the
+  chosen format even when the user was already on week.
+- **One animation, not two.** `table_calendar` wraps its page in a 200 ms
+  `AnimatedSize` and re-targets `_pageHeight` from `didUpdateWidget`; because
+  the grid section is a non-flexible `Column` child it gets unbounded height,
+  so that inner tween really drives the transition. The page's own 250 ms
+  `AnimatedSize` goes unstable once the child resizes on consecutive layouts
+  and from then on tracks it 1:1 — exactly one frame diverges. A test pins
+  `<= 1` divergent frame, so a future change layering a second real tween
+  fails loudly.
+- **Agenda cards no longer clip their date range.** `_AgendaCard` wrapped its
+  `ListTile` in `IntrinsicHeight` so the 4px category stripe could stretch.
+  `_RenderListTile.computeMinIntrinsicHeight` measures title/subtitle at the
+  **full** tile width, ignoring the leading `CircleAvatar` and the trailing
+  icon strip, so the tile got a tight height that `performLayout` — which lays
+  text out at `tileWidth - titleStart - adjustedTrailingWidth` — then
+  exceeded; `size = constraints.constrain(tileSize)` clamped it back and
+  `Card`'s `Clip.antiAlias` sliced the wrapped second line in half. The stripe
+  is now a `Positioned(left: 0, top: 0, bottom: 0, width: 4)` strip in a
+  `Stack` behind the tile, which stretches without constraining it.
+- **Summary subtitles put the date range on its own line.** `secondaryLine`
+  renders the range as a separate ellipsized `Text` instead of joining it into
+  the `' · '` string, with
+  `isThreeLine: description != null || range != null`. Both lines carry
+  `maxLines: 1` + `TextOverflow.ellipsis` as a safety net. Tests must assert
+  the pieces (`'2 holidays'`, `'Aug 15 – Nov 1'`), never the old joined
+  string.
+- **Which test protects which half.** The two range-line tests in
+  `test/widgets/agenda_summary_card_layout_test.dart` pass *even with the
+  `IntrinsicHeight` put back*, because both subtitle lines are `maxLines: 1`
+  and so can no longer wrap — Part B alone hides the symptom for summary
+  cards. Only a **wrapping description** (`MarkdownInlineText`, `maxLines: 2`)
+  still grows the tile and re-triggers the clip, which is what
+  `'a wrapping description grows the card instead of clipping'` covers. It was
+  verified by reintroducing the bug and watching exactly that test go red. If
+  the stripe/`Stack` structure is ever refactored, that is the test to trust.
+
+## Addendum (2026-08-24): the event search grammar
+
+Supersedes the scope described under "Upcoming agenda (search across
+events)" above: search was a **single folded needle** matched by substring
+against event title and descriptions only. Category, dates and multi-word
+queries did not work. The folding behaviour described there is unchanged —
+it is still the note search's `normalizeForSearch`.
+
+- **The grammar is its own pure module**,
+  [lib/utils/event_search_query.dart](../lib/utils/event_search_query.dart).
+  `EventSearchQuery.parse(raw, {localeName})` splits on whitespace, folds each
+  token **once**, dedupes into `terms` (a repeated word is one constraint)
+  capped at `maxTerms = 30` and addressed by an `int` bitmask, then groups them
+  into `clauses` that each carry an optional `EventSearchDate`.
+  `parse('')` returns the `const empty`: no allocation, `satisfied` trivially
+  true, so an empty query costs exactly what it did before.
+- **Match semantics.** An occurrence of event `E` on day `D` matches iff
+  **every** clause is satisfied. A clause is satisfied when *either* all its
+  text terms appear as substrings of `E.title`, `E`'s description resolved for
+  `D`, or `E`'s localized category label — a term may be answered by a
+  different field than its clause-mate — *or* the clause carries a date that
+  matches `D`. So `aug 26` returns everything on Aug 26 **plus** anything whose
+  text contains both "aug" and "26"; `gym aug 26` requires both clauses.
+- **Dates never go through `DateTime.tryParse`** — its rollover is the same
+  hazard [fasting_schedule.dart](../lib/models/fasting_schedule.dart) warns
+  about. Month names come from `DateFormat.MMMM(locale).dateSymbols` (MONTHS,
+  STANDALONE, SHORT and STANDALONESHORT), folded, punctuation-stripped, matched
+  by unique ≥3-character prefix and cached per locale; day+month parses in both
+  orders (`aug 26`, `26 aug`, German `26. august`); ISO `2026-08-26` is
+  validated by a UTC round-trip. Bare numbers (`26`), bare years (`2026`),
+  two-letter fragments and impossible dates (`2026-02-30`, `feb 30`, `aug 44`)
+  all degrade to plain text rather than silently narrowing the window.
+- **`EventAgenda` stays context-free.** It never takes `AppLocalizations`;
+  the view resolves a `Map<String, String>` of category id → localized label
+  and passes it in. A `Set` of *matched* ids — the obvious first design —
+  cannot express **which** term a category answered, which is exactly what AND
+  semantics needs, so the map is the right shape. Labels are folded once per
+  scan, never per event or per occurrence.
+- **The hot loop did not get slower.** Per-event state is one
+  `_EventQueryMatch`: `base` (title | category), `template` folded **only** for
+  the bits `base` left open — so a title hit still costs no description fold,
+  the 4.1 invariant — plus `varies` and `always`. `matchesQuery` is one map
+  lookup and an `always` short-circuit per (event, day), and a live
+  per-occurrence override still **replaces** the template contribution,
+  empty included. The 4.1 budget test
+  (`test/utils/event_agenda_description_fold_test.dart`) passes with its
+  **original** numbers; only its `scan()` helper changed, to wrap the raw
+  string in `EventSearchQuery.parse`.
+- **Parsed once per rescan.** `_syncQuery()` is a no-op while text and locale
+  stand still, so all three recompute paths can call it. `_recompute()` moved
+  from `initState` into `didChangeDependencies` behind
+  `_refreshSearchCatalog()` (locale + `CalendarCategories.revision`), so mount
+  still runs exactly one scan, a keyboard or theme dependency change rescans
+  nothing, and a category renamed behind the panel's back is now picked up.
+- **All three layers agree.** Holiday and fasting filtering run the *same*
+  clause test against their own localized labels instead of the private
+  `contains` calls they each used to carry.
+- Date narrowing is a per-day post-check, like `collapseRecurring` — it costs
+  **zero** extra `occursOn` calls, and there is a guard asserting that.
+- `CalendarEvent.titleFold` was deliberately **not** re-purposed as a
+  diacritic-folded field: it is lowercase-only *and* load-bearing as
+  `compareWithinDay`'s sort key, so a second derived field would allocate for
+  every event ever constructed to save one fold per event per already-debounced
+  scan.

@@ -428,7 +428,8 @@ void main() {
         fastingSummaries: nativity(),
       ).whereType<AgendaFastingSummaryRow>().single;
 
-      expect(row.entry.subtitle, 'Daily · Nov 15 – Dec 24 · 40 days');
+      expect(row.entry.subtitle, 'Daily · 40 days');
+      expect(row.rangeLabel, 'Nov 15 – Dec 24');
     });
 
     test('a sparse practice names the weekdays it keeps', () {
@@ -462,7 +463,8 @@ void main() {
         ),
       ).whereType<AgendaFastingSummaryRow>().single;
 
-      expect(row.entry.subtitle, contains('Sep – Dec'));
+      expect(row.rangeLabel, 'Sep – Dec');
+      expect(row.entry.subtitle, isNot(contains('Sep')));
       expect(row.entry.subtitle, isNot(contains('Dec 24')));
     });
 
@@ -546,7 +548,8 @@ void main() {
       ).whereType<AgendaHolidaySummaryRow>().single;
 
       expect(row.entry.title, 'Holidays');
-      expect(row.entry.subtitle, '2 holidays · Jan 1 – Dec 25');
+      expect(row.entry.subtitle, '2 holidays');
+      expect(row.rangeLabel, 'Jan 1 – Dec 25');
       // The card's days are the exact list its drill-down will show.
       expect(row.days, [newYear, christmas]);
     });
@@ -633,9 +636,11 @@ void main() {
         (r) => r.summary.categoryId == 'gym',
       );
 
-      // One event across two days: "1 event · 2× in window · <range>".
+      // One event across two days: "1 event · 2× in window", range on its
+      // own line.
       expect(gym.entry.subtitle, startsWith('1 event · '));
       expect(gym.entry.subtitle, contains('2'));
+      expect(gym.rangeLabel, AgendaListView.rangeLabel('en', day1, day2));
     });
 
     test('a category with no repeats omits the occurrence tally', () {
@@ -647,8 +652,9 @@ void main() {
       );
       final card = rows.whereType<AgendaEventSummaryRow>().single;
 
-      expect(card.entry.subtitle, startsWith('1 event · '));
+      expect(card.entry.subtitle, '1 event');
       expect(card.entry.subtitle, isNot(contains('×')));
+      expect(card.rangeLabel, AgendaListView.rangeLabel('en', day1, day1));
     });
 
     test('cards lead the list, above every header', () {

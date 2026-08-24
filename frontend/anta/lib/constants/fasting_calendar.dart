@@ -188,9 +188,35 @@ abstract final class FastingCalendar {
 
   /// Grid decoration for [day], resolved across every tradition that marks
   /// it. Memoized; safe to call once per cell per build.
-  static FastingCellStyle cellStyleFor(DateTime day) {
+  ///
+  /// Normalizes and delegates to [cellStyleForUtcDay], the
+  /// `occursOn`/`occursOnUtcDay` split this codebase already uses: a caller
+  /// that is already holding a date-only UTC day should call that directly
+  /// rather than paying for a `DateTime` allocation it has the answer to.
+  static FastingCellStyle cellStyleFor(DateTime day) =>
+      cellStyleForUtcDay(DateTime.utc(day.year, day.month, day.day));
+
+  /// [cellStyleFor] for callers that already hold a date-only UTC [day] — the
+  /// grid's `_buildDayCell` does, since it computes the same key for the tint
+  /// output memo on the next line (**5.4**, the safe half).
+  ///
+  /// The wider half of that item — threading one resolved style into
+  /// `FastingCellTintProvider` so the second lookup disappears entirely — was
+  /// **not** done: it would mean widening the shared
+  /// `CellTintProvider.tintFor(day, events)` contract to promise a normalized
+  /// day, which reaches every other provider and its tests, to save a lookup
+  /// that Phase 3's tint output memo already made rare. See roadmap
+  /// correction 17.
+  ///
+  /// [day] **must** be date-only UTC; [cellStyleFor] is the normalizing entry
+  /// point for everyone else.
+  static FastingCellStyle cellStyleForUtcDay(DateTime key) {
+    assert(
+      key == DateTime.utc(key.year, key.month, key.day),
+      'cellStyleForUtcDay requires a date-only UTC day; '
+      'call cellStyleFor to normalize',
+    );
     if (_traditions.isEmpty) return FastingCellStyle.empty;
-    final key = DateTime.utc(day.year, day.month, day.day);
     final cached = _cellStyles[key];
     if (cached != null) return cached;
     final infos = on(key);

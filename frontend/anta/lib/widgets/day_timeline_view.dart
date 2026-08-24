@@ -19,7 +19,7 @@ import 'agenda_list_view.dart';
 /// day summary and the day bars both collapse an event to a single row.
 /// All-day events have no position on the grid, so they are pinned to a strip
 /// above it rather than being dropped.
-class DayTimelineView extends StatelessWidget {
+class DayTimelineView extends StatefulWidget {
   /// The day being drawn, used to decide whether to show the "now" line.
   final DateTime day;
 
@@ -33,12 +33,15 @@ class DayTimelineView extends StatelessWidget {
   /// neither a block nor an all-day chip nor a column in the overlap solver.
   final CalendarMissedDisplay missedDisplay;
 
+  final double bottomInset;
+
   const DayTimelineView({
     super.key,
     required this.day,
     required this.events,
     required this.onEventTap,
     this.missedDisplay = CalendarMissedDisplay.faded,
+    this.bottomInset = 0,
   });
 
   /// Vertical scale of the grid: logical pixels per hour.
@@ -63,6 +66,54 @@ class DayTimelineView extends StatelessWidget {
   /// instead of wherever the label's intrinsic height happens to put it.
   static const double _hourRowHeight = 16;
 
+  @override
+  State<DayTimelineView> createState() => _DayTimelineViewState();
+}
+
+class _DayTimelineViewState extends State<DayTimelineView> {
+  /// Memoized layout, so a rebuild that changes none of the three fields
+  /// below (a keyboard-visibility tick, a theme rebuild bubbling down from
+  /// the page) reuses the previous solve instead of re-running the overlap
+  /// solver — **5.7**.
+  ///
+  /// `_layoutForPresenceRevision` is the load-bearing field of the three:
+  /// `_isMissed` below reads `EventPresence`, a static cache the widget's own
+  /// constructor arguments do not capture, so a memo keyed only on
+  /// `events`/`missedDisplay` would keep serving a layout computed against a
+  /// stale presence mark after a toggle — the class of bug **1.1** describes.
+  /// `EventPresence.revision` is bumped on every republish, exactly like
+  /// `OccurrenceDescriptions.revision`, so folding it in here is what makes
+  /// the memo safe rather than just fast.
+  DayTimelineLayout? _layout;
+  List<CalendarEvent>? _layoutForEvents;
+  CalendarMissedDisplay? _layoutForMissedDisplay;
+  int? _layoutForPresenceRevision;
+
+  DayTimelineLayout _layoutFor(List<CalendarEvent> events) {
+    final missedDisplay = widget.missedDisplay;
+    final presenceRevision = EventPresence.revision;
+    if (_layout != null &&
+        identical(_layoutForEvents, events) &&
+        _layoutForMissedDisplay == missedDisplay &&
+        _layoutForPresenceRevision == presenceRevision) {
+      return _layout!;
+    }
+    // Filtered before the layout so the empty state, the hour span and the
+    // overlap columns all reflect what is actually drawn.
+    final visible = missedDisplay == CalendarMissedDisplay.hidden
+        ? [
+            for (final event in events)
+              if (!_isMissed(event)) event,
+          ]
+        : events;
+    final layout = DayTimelineLayout.compute(visible);
+    _layout = layout;
+    _layoutForEvents = events;
+    _layoutForMissedDisplay = missedDisplay;
+    _layoutForPresenceRevision = presenceRevision;
+    return layout;
+  }
+
   Color _colorFor(CalendarEvent event) {
     // Matches `EventDayBarProvider`: an explicit event color always wins for
     // a colored block (unlike icons, which additionally honor `tintIcon`).
@@ -73,14 +124,19 @@ class DayTimelineView extends StatelessWidget {
 
   /// Whether this occurrence carries a presence mark. Two static map probes,
   /// resolved through the same facade every other surface uses.
-  bool _isMissed(CalendarEvent event) =>
-      EventPresence.appliesTo(event) && EventPresence.isMissed(event.id, day);
+  bool _isMissed(CalendarEvent event) => EventPresence.appliesTo(event) &&
+      EventPresence.isMissed(event.id, widget.day);
 
-  /// Minutes since midnight of "now", or `null` when [day] is not today.
+  /// Minutes since midnight of "now", or `null` when [DayTimelineView.day] is
+  /// not today.
   int? _nowMinute() {
     final now = DateTime.now();
     final today = DateTime.utc(now.year, now.month, now.day);
-    final target = DateTime.utc(day.year, day.month, day.day);
+    final target = DateTime.utc(
+      widget.day.year,
+      widget.day.month,
+      widget.day.day,
+    );
     if (today != target) return null;
     return now.hour * 60 + now.minute;
   }
@@ -90,15 +146,7 @@ class DayTimelineView extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    // Filtered before the layout so the empty state, the hour span and the
-    // overlap columns all reflect what is actually drawn.
-    final visible = missedDisplay == CalendarMissedDisplay.hidden
-        ? [
-            for (final event in events)
-              if (!_isMissed(event)) event,
-          ]
-        : events;
-    final layout = DayTimelineLayout.compute(visible);
+    final layout = _layoutFor(widget.events);
 
     if (layout.isEmpty) {
       return AgendaEmptyState(
@@ -107,7 +155,8 @@ class DayTimelineView extends StatelessWidget {
       );
     }
 
-    final totalHeight = (layout.endHour - layout.startHour) * hourHeight;
+    final totalHeight =
+        (layout.endHour - layout.startHour) * DayTimelineView.hourHeight;
     final nowMinute = _nowMinute();
 
     return Column(
@@ -138,7 +187,7 @@ class DayTimelineView extends StatelessWidget {
                           backgroundColor: _colorFor(
                             event,
                           ).withValues(alpha: 0.12),
-                          onPressed: () => onEventTap(event),
+                          onPressed: () => widget.onEventTap(event),
                         ),
                       ),
                     ),
@@ -149,17 +198,18 @@ class DayTimelineView extends StatelessWidget {
         Expanded(
           child: SingleChildScrollView(
             // Clears the page's floating add button — see AppSpacing.
-            padding: const EdgeInsets.fromLTRB(
+            padding: EdgeInsets.fromLTRB(
               0,
               8,
               16,
-              24 + AppSpacing.fabClearance,
+              24 + AppSpacing.fabClearance + widget.bottomInset,
             ),
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final trackWidth = constraints.maxWidth - gutterWidth;
+                final trackWidth =
+                    constraints.maxWidth - DayTimelineView.gutterWidth;
                 return SizedBox(
-                  height: totalHeight + _topInset * 2,
+                  height: totalHeight + DayTimelineView._topInset * 2,
                   child: Stack(
                     children: [
                       for (
@@ -169,22 +219,25 @@ class DayTimelineView extends StatelessWidget {
                       )
                         Positioned(
                           top:
-                              _offsetOf(layout, hour * 60) - _hourRowHeight / 2,
-                          height: _hourRowHeight,
+                              _offsetOf(layout, hour * 60) -
+                              DayTimelineView._hourRowHeight / 2,
+                          height: DayTimelineView._hourRowHeight,
                           left: 0,
                           right: 0,
                           child: _HourRow(
                             label: _hourLabel(context, hour),
-                            gutterWidth: gutterWidth,
+                            gutterWidth: DayTimelineView.gutterWidth,
                           ),
                         ),
                       for (final block in layout.blocks)
                         Positioned(
                           top: _offsetOf(layout, block.startMinute),
                           left:
-                              gutterWidth +
+                              DayTimelineView.gutterWidth +
                               block.column * (trackWidth / block.columnCount),
-                          width: (trackWidth / block.columnCount) - columnGap,
+                          width:
+                              (trackWidth / block.columnCount) -
+                              DayTimelineView.columnGap,
                           height: _blockHeight(block),
                           child: Opacity(
                             opacity: _isMissed(block.event)
@@ -193,7 +246,7 @@ class DayTimelineView extends StatelessWidget {
                             child: _TimelineBlockCard(
                               block: block,
                               color: _colorFor(block.event),
-                              onTap: () => onEventTap(block.event),
+                              onTap: () => widget.onEventTap(block.event),
                             ),
                           ),
                         ),
@@ -203,7 +256,7 @@ class DayTimelineView extends StatelessWidget {
                         Positioned(
                           top: _offsetOf(layout, nowMinute) - 4,
                           height: 8,
-                          left: gutterWidth - 6,
+                          left: DayTimelineView.gutterWidth - 6,
                           right: 0,
                           child: _NowIndicator(color: colorScheme.error),
                         ),
@@ -222,12 +275,15 @@ class DayTimelineView extends StatelessWidget {
   /// of truth for placement, so gridlines, blocks and the now-line can never
   /// drift apart.
   double _offsetOf(DayTimelineLayout layout, int minute) {
-    return _topInset + (minute - layout.startHour * 60) / 60 * hourHeight;
+    return DayTimelineView._topInset +
+        (minute - layout.startHour * 60) / 60 * DayTimelineView.hourHeight;
   }
 
   double _blockHeight(TimelineBlock block) {
-    final height = block.durationMinutes / 60 * hourHeight;
-    return height < minBlockHeight ? minBlockHeight : height;
+    final height = block.durationMinutes / 60 * DayTimelineView.hourHeight;
+    return height < DayTimelineView.minBlockHeight
+        ? DayTimelineView.minBlockHeight
+        : height;
   }
 
   String _hourLabel(BuildContext context, int hour) {

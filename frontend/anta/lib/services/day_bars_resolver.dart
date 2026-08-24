@@ -140,7 +140,7 @@ class EventDayBarProvider implements DayBarProvider {
       }
       bars.add(
         DayBar(
-          key: 'event:${event.id}',
+          key: event.barKey,
           color: color,
           priority: event.priority - kMinEventPriority,
           semanticLabel: event.title,

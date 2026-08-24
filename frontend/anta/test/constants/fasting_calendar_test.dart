@@ -454,4 +454,33 @@ void main() {
       expect(_periodsOn(_d(2026, 1, 12)), [FastingPeriod.weekdayFast]);
     });
   });
+
+  group('cellStyleForUtcDay (5.4)', () {
+    test('agrees with the normalizing entry point', () {
+      _configureOrthodox();
+      // A local-time instant with a wall clock, the shape the grid hands in.
+      final wall = DateTime(2026, 1, 14, 13, 45);
+      final key = _d(2026, 1, 14);
+
+      expect(
+        FastingCalendar.cellStyleForUtcDay(key),
+        FastingCalendar.cellStyleFor(wall),
+      );
+    });
+
+    test('rejects a day that is not date-only UTC', () {
+      // The grid's fast path trusts its caller, so the assert is the contract.
+      _configureOrthodox();
+      expect(
+        () => FastingCalendar.cellStyleForUtcDay(DateTime(2026, 1, 14, 13)),
+        throwsA(isA<AssertionError>()),
+      );
+    });
+
+    test('an unconfigured calendar is empty either way', () {
+      FastingCalendar.resetConfiguration();
+      expect(FastingCalendar.cellStyleForUtcDay(_d(2026, 1, 14)).isEmpty, isTrue);
+      expect(FastingCalendar.cellStyleFor(_d(2026, 1, 14)).isEmpty, isTrue);
+    });
+  });
 }

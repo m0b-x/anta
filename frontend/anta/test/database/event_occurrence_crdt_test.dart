@@ -211,9 +211,9 @@ void main() {
     test('preserves audit timestamps and stamps fresh identity', () async {
       final createdAt = DateTime(2024, 3, 1, 9, 30);
       final updatedAt = DateTime(2024, 3, 2, 18, 5);
-      await db.eventOccurrenceDao.importOccurrence(
+      await db.eventOccurrenceDao.importAll([
         _entry(day, 'restored', createdAt: createdAt, updatedAt: updatedAt),
-      );
+      ]);
 
       final row = await rowFor('e1', day);
       // Drift stores unix seconds, so a restored timestamp round-trips to the

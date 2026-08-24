@@ -412,7 +412,8 @@ void main() {
       );
 
       expect(find.text('Holidays'), findsOneWidget);
-      expect(find.text('2 holidays · Aug 15 – Nov 1'), findsOneWidget);
+      expect(find.text('2 holidays'), findsOneWidget);
+      expect(find.text('Aug 15 – Nov 1'), findsOneWidget);
       // The individual rows are gone from the list — they live in the
       // drill-down now.
       expect(find.text('Assumption of Mary'), findsNothing);
@@ -648,6 +649,108 @@ void main() {
 
       expect(find.text('Leg day'), findsOneWidget);
       expect(find.text('Gym'), findsNothing);
+    });
+  });
+
+  group('search', () {
+    const window = UpcomingAgendaFilters(rangeDays: 30);
+    final anchor = DateTime.utc(2026, 8, 10);
+
+    // The category label only exists once the facade is filled — matching a
+    // term against it is the whole point of this group.
+    setUp(() {
+      CalendarCategories.updateCache([
+        for (final (index, seed) in CalendarCategories.builtInSeeds.indexed)
+          CalendarCategory(
+            id: seed.id,
+            name: seed.kind.name,
+            colorValue: seed.colorValue,
+            iconKey: seed.iconKey,
+            sortOrder: index,
+            isBuiltIn: true,
+          ),
+      ]);
+    });
+    tearDown(() => CalendarCategories.updateCache(const []));
+
+    testWidgets('a term matching only the category label keeps the event', (
+      tester,
+    ) async {
+      // "Leg day" says nothing about a gym; its *category* does.
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: window.copyWith(query: 'gym'),
+      );
+
+      expect(header(tester), contains('30 entries'));
+      expect(find.text('Leg day'), findsWidgets);
+    });
+
+    testWidgets('a term matching nothing empties the list', (tester) async {
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: window.copyWith(query: 'pilates'),
+      );
+
+      expect(header(tester), contains('0 entries'));
+      expect(find.text('Leg day'), findsNothing);
+    });
+
+    testWidgets('every term must match, across title and category', (
+      tester,
+    ) async {
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: window.copyWith(query: 'gym leg'),
+      );
+      expect(header(tester), contains('30 entries'));
+
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: window.copyWith(query: 'gym pilates'),
+      );
+      await tester.pump(const Duration(milliseconds: 250));
+      expect(header(tester), contains('0 entries'));
+    });
+
+    testWidgets('a date term narrows the list to that day', (tester) async {
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: window.copyWith(query: 'aug 26'),
+      );
+
+      expect(header(tester), contains('1 entry'));
+      expect(find.textContaining('August 26'), findsOneWidget);
+      expect(find.textContaining('August 25'), findsNothing);
+    });
+
+    testWidgets('a query change rescans once, after the debounce', (
+      tester,
+    ) async {
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: window.copyWith(query: 'gym'),
+      );
+
+      CalendarEvent.debugOccursOnCalls = 0;
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: window.copyWith(query: 'gym leg'),
+      );
+      await tester.pump();
+      // The keystroke is debounced: nothing is expanded yet.
+      expect(CalendarEvent.debugOccursOnCalls, 0);
+
+      await tester.pump(const Duration(milliseconds: 250));
+      // One window scan, not one per rebuild the keystroke caused.
+      expect(CalendarEvent.debugOccursOnCalls, 30);
     });
   });
 }

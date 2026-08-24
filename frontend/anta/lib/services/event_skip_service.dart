@@ -86,15 +86,44 @@ class EventSkipService {
     _publish();
   }
 
+  /// The snapshot the facade is currently serving. Held so [_publishFor] can
+  /// **share** the entries it did not touch: every inner set here is already
+  /// unmodifiable and is never rebuilt in place, so handing the same instance
+  /// to the next snapshot is safe.
+  Map<String, Set<DateTime>> _published = const {};
+
   /// Hands the facade an unmodifiable snapshot. Copied per publish so a later
   /// in-place patch can never mutate what render paths are already reading.
+  ///
+  /// The full rebuild, for [_load] and the bulk paths — where every event
+  /// changed anyway, so a targeted republish would be strictly more work.
   void _publish() {
-    EventSkips.updateCache(
-      byEvent: {
-        for (final entry in _byEvent.entries)
-          entry.key: Set.unmodifiable(Set<DateTime>.of(entry.value)),
-      },
-    );
+    _published = {
+      for (final entry in _byEvent.entries)
+        entry.key: Set.unmodifiable(Set<DateTime>.of(entry.value)),
+    };
+    EventSkips.updateCache(byEvent: _published);
+  }
+
+  /// Republish after a change confined to one event (**5.5**).
+  ///
+  /// Skipping a single day used to deep-copy **every** event's whole set; now
+  /// only [eventId]'s set is rebuilt and the outer map is a pointer copy, so
+  /// the cost follows the event that changed rather than the size of the
+  /// store. The published-snapshots-are-immutable invariant is what makes the
+  /// sharing safe, and it is unchanged: nothing here mutates a collection that
+  /// has already been handed out, so a render path mid-read cannot see one
+  /// shift underneath it.
+  void _publishFor(String eventId) {
+    final next = Map<String, Set<DateTime>>.of(_published);
+    final days = _byEvent[eventId];
+    if (days == null || days.isEmpty) {
+      next.remove(eventId);
+    } else {
+      next[eventId] = Set.unmodifiable(Set<DateTime>.of(days));
+    }
+    _published = next;
+    EventSkips.updateCache(byEvent: next);
   }
 
   // ── Mutations ────────────────────────────────────────────────────────
@@ -110,7 +139,7 @@ class EventSkipService {
     final key = _dateOnlyUtc(day);
     await _dao.markSkipped(eventId, key);
     (_byEvent[eventId] ??= <DateTime>{}).add(key);
-    _publish();
+    _publishFor(eventId);
     try {
       final presence = await EventPresenceService.getInstance();
       await presence.unmark(eventId, key);
@@ -130,7 +159,7 @@ class EventSkipService {
       forEvent.remove(key);
       if (forEvent.isEmpty) _byEvent.remove(eventId);
     }
-    _publish();
+    _publishFor(eventId);
   }
 
   /// Cascade for a deleted event. Called after the event service's delete
@@ -165,6 +194,10 @@ class EventSkipService {
   /// the DAO, so a tombstone never round-trips a restore.
   Future<void> importData(List<dynamic> data) async {
     await _dao.deleteAll();
+    // Parsed first, written once (**5.1**): the per-row `try` still guards
+    // parsing, but the write is one batched transaction instead of one
+    // awaited insert — and one WAL commit — per archived row.
+    final companions = <EventSkipsCompanion>[];
     for (final raw in data) {
       if (raw is! Map) continue;
       final map = raw.cast<String, dynamic>();
@@ -175,7 +208,7 @@ class EventSkipService {
         final createdAtMs = map['createdAtMs'];
         final updatedAtMs = map['updatedAtMs'];
         final now = DateTime.now();
-        await _dao.importSkip(
+        companions.add(
           EventSkipsCompanion(
             eventId: Value(eventId),
             day: Value(
@@ -199,6 +232,7 @@ class EventSkipService {
         debugPrint('[EventSkipService] Import row error: $e');
       }
     }
+    await _dao.importAll(companions);
     await _load();
   }
 

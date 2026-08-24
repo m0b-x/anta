@@ -287,11 +287,28 @@ class DaySummaryResolver {
 
   const DaySummaryResolver({required this.providers});
 
+  /// Counts [DaySummaryResolver.defaults] invocations — each allocates five
+  /// stateless providers. Incremented inside an `assert`, so both the
+  /// statement and its closure are stripped from profile and release builds,
+  /// mirroring `CalendarEvent.debugOccursOnCalls`.
+  ///
+  /// The providers depend only on the localization and the recurrence-label
+  /// setting, so a caller building this from `build` is throwing away five
+  /// identical objects per frame. There is no other seam a test could watch
+  /// the memo through — the resolver is private state on the panel, and its
+  /// output is a fresh list either way (**4.3**).
+  @visibleForTesting
+  static int debugDefaultsBuilds = 0;
+
   /// Default resolver bundling events + public holiday + weekend.
   factory DaySummaryResolver.defaults(
     AppLocalizations l10n, {
     bool showRecurrence = true,
   }) {
+    assert(() {
+      debugDefaultsBuilds++;
+      return true;
+    }());
     return DaySummaryResolver(
       providers: [
         EventSummaryProvider(l10n, showRecurrence: showRecurrence),

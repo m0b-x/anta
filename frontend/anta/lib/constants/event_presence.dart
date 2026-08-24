@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../models/calendar_event.dart';
 import '../models/recurrence_rule.dart';
 
@@ -64,4 +66,12 @@ class EventPresence {
     if (forEvent == null) return false;
     return forEvent.contains(day);
   }
+
+  /// Every missed day of [eventId], date-only UTC — the [EventSkips.daysFor]
+  /// parallel. Exposed for the **5.5** publish-sharing guard, which has to
+  /// compare published set *identity*: value equality cannot tell a shared
+  /// entry from a deep copy that happens to match.
+  @visibleForTesting
+  static Set<DateTime> daysFor(String eventId) =>
+      _byEvent[eventId] ?? const <DateTime>{};
 }

@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../models/calendar_event.dart';
 
 /// One timed event placed on the day timeline.
@@ -57,6 +59,15 @@ class DayTimelineLayout {
   static const int defaultStartHour = 7;
   static const int defaultEndHour = 21;
 
+  /// Counts [compute] invocations. Incremented inside an `assert`, so both
+  /// the statement and its closure are stripped from profile and release
+  /// builds and cost nothing there — mirrors `CalendarEvent.debugOccursOnCalls`.
+  /// `DayTimelineView` memoizes its result (**5.7**), and this is the seam a
+  /// test uses to assert the memo actually skips recomputation on an
+  /// unrelated rebuild.
+  @visibleForTesting
+  static int debugComputeCalls = 0;
+
   /// Places [events] on a timeline.
   ///
   /// All-day events (`time == null`) are separated out for the pinned strip;
@@ -65,6 +76,10 @@ class DayTimelineLayout {
   /// 9:00 and 9:30 split the width only against each other and not against
   /// an unrelated 18:00 event.
   static DayTimelineLayout compute(List<CalendarEvent> events) {
+    assert(() {
+      debugComputeCalls++;
+      return true;
+    }());
     final allDay = <CalendarEvent>[];
     final timed = <CalendarEvent>[];
     for (final event in events) {

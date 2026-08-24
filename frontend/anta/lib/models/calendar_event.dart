@@ -326,6 +326,16 @@ class CalendarEvent extends Equatable {
   /// priority, equal-time pair.
   late final String titleFold = title.toLowerCase();
 
+  /// `'event:<id>'`, computed once. Derived, so it is not a [props] member
+  /// and never affects equality — it exists only to spare
+  /// `DayBarsResolver.EventDayBarProvider.barsFor` a string interpolation
+  /// per event, per cell, per frame across a 42-cell grid. The `'event:'`
+  /// prefix keeps this keyspace disjoint from the resolver's other
+  /// well-known keys (`'weekend'`, `'holiday'`, `'fasting:<tradition>'`,
+  /// `'money'`) — none of them carry a colon-prefixed variable id, so no
+  /// event id can ever collide with one.
+  late final String barKey = 'event:$id';
+
   /// Counts [occursOnUtcDay] invocations — every [occursOn] routes through it.
   /// Incremented inside an `assert`, so both the statement and its closure are
   /// stripped from profile and release builds and cost nothing there.

@@ -128,17 +128,41 @@ class CalendarDayBars extends StatelessWidget {
       );
     }
 
+    // One semantics node for the whole strip, not one per marker (**5.6**).
+    //
+    // Primarily an accessibility fix and only incidentally a render-object
+    // saving: a 3px bar inside a calendar cell is not a useful focus target,
+    // so a screen reader used to stop on each of up to `maxBars` unlabelled
+    // slivers per cell — 42 cells' worth — and read them one at a time with
+    // no sense of which day they belonged to. Merged, the cell announces
+    // "Leg day, Dentist, +2" once.
+    //
+    // The overflow chip's own `Text` semantics is folded into the same label
+    // rather than dropped: `+N` is exactly what it announced before, so
+    // nothing a user could hear has been lost, and no invented string needs
+    // localizing. [ExcludeSemantics] is what stops that `Text` from also
+    // surfacing as a second node inside this one.
+    final label = [
+      for (var i = 0; i < visibleCount; i++) bars[i].semanticLabel,
+      if (hasOverflow) '+$hiddenCount',
+    ].join(', ');
+
+    Widget labelled(Widget strip) => Semantics(
+      container: true,
+      label: label,
+      child: ExcludeSemantics(child: strip),
+    );
+
     if (style == CalendarMarkerStyle.dots) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          for (var i = 0; i < visibleCount; i++) ...[
-            if (i > 0) const SizedBox(width: 3),
-            Semantics(
-              label: bars[i].semanticLabel,
-              child: Container(
+      return labelled(
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            for (var i = 0; i < visibleCount; i++) ...[
+              if (i > 0) const SizedBox(width: 3),
+              Container(
                 width: dotSize,
                 height: dotSize,
                 decoration: BoxDecoration(
@@ -147,30 +171,29 @@ class CalendarDayBars extends StatelessWidget {
                   border: outlineFor(bars[i].color),
                 ),
               ),
-            ),
+            ],
+            if (hasOverflow) ...[
+              if (visibleCount > 0) const SizedBox(width: 3),
+              _OverflowChip(
+                count: hiddenCount,
+                color: _fade(theme.colorScheme.onSurfaceVariant),
+              ),
+            ],
           ],
-          if (hasOverflow) ...[
-            if (visibleCount > 0) const SizedBox(width: 3),
-            _OverflowChip(
-              count: hiddenCount,
-              color: _fade(theme.colorScheme.onSurfaceVariant),
-            ),
-          ],
-        ],
+        ),
       );
     }
 
-    return Padding(
-      padding: EdgeInsets.symmetric(horizontal: horizontalInset),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (var i = 0; i < visibleCount; i++) ...[
-            if (i > 0) SizedBox(height: spacing),
-            Semantics(
-              label: bars[i].semanticLabel,
-              child: Container(
+    return labelled(
+      Padding(
+        padding: EdgeInsets.symmetric(horizontal: horizontalInset),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (var i = 0; i < visibleCount; i++) ...[
+              if (i > 0) SizedBox(height: spacing),
+              Container(
                 height: barHeight,
                 decoration: BoxDecoration(
                   color: _fade(bars[i].color),
@@ -178,16 +201,16 @@ class CalendarDayBars extends StatelessWidget {
                   border: outlineFor(bars[i].color),
                 ),
               ),
-            ),
+            ],
+            if (hasOverflow) ...[
+              if (visibleCount > 0) SizedBox(height: spacing),
+              _OverflowChip(
+                count: hiddenCount,
+                color: _fade(theme.colorScheme.onSurfaceVariant),
+              ),
+            ],
           ],
-          if (hasOverflow) ...[
-            if (visibleCount > 0) SizedBox(height: spacing),
-            _OverflowChip(
-              count: hiddenCount,
-              color: _fade(theme.colorScheme.onSurfaceVariant),
-            ),
-          ],
-        ],
+        ),
       ),
     );
   }

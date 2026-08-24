@@ -4,15 +4,16 @@ import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 
 import '../constants/app_spacing.dart';
+import '../constants/calendar_categories.dart';
 import '../constants/event_priorities.dart';
 import '../constants/fasting_calendar.dart';
 import '../constants/public_holidays.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
-import '../services/folder_search_service.dart' show normalizeForSearch;
 import '../models/upcoming_agenda_filters.dart';
 import '../utils/event_agenda.dart';
+import '../utils/event_search_query.dart';
 import '../utils/markdown_color_syntax.dart';
 import 'agenda_day_list_sheet.dart';
 import 'agenda_filters_sheet.dart';
@@ -88,6 +89,8 @@ class UpcomingAgendaView extends StatefulWidget {
   /// agenda keeps listing a day that no longer exists.
   final int membershipRevision;
 
+  final double bottomInset;
+
   const UpcomingAgendaView({
     super.key,
     required this.events,
@@ -104,6 +107,7 @@ class UpcomingAgendaView extends StatefulWidget {
     this.occurrenceRevision = 0,
     this.membershipRevision = 0,
     this.missedDisplay = CalendarMissedDisplay.faded,
+    this.bottomInset = 0,
   });
 
   @override
@@ -120,6 +124,27 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
   /// synchronously — see [didUpdateWidget].
   Timer? _scanDebounce;
   static const Duration _scanDebounceDelay = Duration(milliseconds: 200);
+
+  /// The raw query parsed **once per rescan** and shared by all three layers —
+  /// events, holidays, fasting — so they can never disagree about what
+  /// "matches" means. Reparsed only when the raw text or the locale moves
+  /// (month names are localized), never per event and never per occurrence.
+  EventSearchQuery _query = EventSearchQuery.empty;
+  String? _queryForRaw;
+  String? _queryForLocale;
+
+  /// Locale + category-catalog generation behind [_categoryLabels] and the
+  /// parsed query. The first `didChangeDependencies` finds the locale null,
+  /// which is what runs the initial scan; an unrelated dependency change
+  /// (keyboard, theme) leaves both equal and rescans nothing.
+  String? _searchLocale;
+  int? _searchCategoryRevision;
+  String _localeName = '';
+
+  /// Localized category labels, resolved once per catalog/locale change so the
+  /// scan can match a term against a category name without ever seeing an
+  /// [AppLocalizations].
+  Map<String, String> _categoryLabels = const {};
 
   List<EventOccurrence> _occurrences = const [];
 
@@ -230,14 +255,42 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
     super.initState();
     _searchController = TextEditingController(text: widget.filters.query);
     _updateRange();
-    _recompute();
   }
 
+  /// The event scan lives here rather than in [initState] because matching a
+  /// term against a category name — and parsing a localized month name —
+  /// needs the locale, which is only readable once dependencies are in place.
+  /// [_refreshSearchCatalog] is what keeps that from becoming a rescan on
+  /// every unrelated dependency change: the first call finds no locale and
+  /// scans once, exactly as `initState` used to.
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    if (_refreshSearchCatalog()) _recompute();
     _recomputeHolidays();
     _recomputeFasting();
+  }
+
+  /// Re-resolves the localized category labels when the locale or the category
+  /// catalog has moved, and reports whether it did. Cheap enough to sit at the
+  /// top of every scan — two comparisons — which is what keeps a category
+  /// renamed behind the panel's back from leaving the search matching a label
+  /// nobody sees any more.
+  bool _refreshSearchCatalog() {
+    final l10n = AppLocalizations.of(context)!;
+    _localeName = l10n.localeName;
+    final revision = CalendarCategories.revision;
+    if (_searchLocale == _localeName && _searchCategoryRevision == revision) {
+      return false;
+    }
+    _searchLocale = _localeName;
+    _searchCategoryRevision = revision;
+    _categoryLabels = {
+      for (final category in CalendarCategories.all)
+        category.id: CalendarCategories.labelOf(category, l10n),
+    };
+    _queryForLocale = null;
+    return true;
   }
 
   @override
@@ -358,9 +411,27 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
         EventAgenda.resolveRange(rawStart, rawEnd) ?? (rawStart, rawStart);
   }
 
+  /// Parses the raw query into [_query], once per rescan. A no-op while the
+  /// text and the locale both stand still, so the three recompute passes can
+  /// each call it without ever parsing twice for one change.
+  void _syncQuery() {
+    if (_queryForRaw == widget.filters.query &&
+        _queryForLocale == _localeName) {
+      return;
+    }
+    _queryForRaw = widget.filters.query;
+    _queryForLocale = _localeName;
+    _query = EventSearchQuery.parse(
+      widget.filters.query,
+      localeName: _localeName,
+    );
+  }
+
   /// Re-runs the range scan. Called from the lifecycle hooks so `build`
   /// never expands recurrences.
   void _recompute() {
+    _refreshSearchCatalog();
+    _syncQuery();
     final display = widget.filters.eventDisplay;
     _occurrences = EventAgenda.occurrencesInRange(
       events: widget.events,
@@ -368,7 +439,8 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
       to: _resolved.$2,
       hiddenCategoryIds: widget.hiddenCategoryIds,
       priorities: widget.filters.priorities,
-      query: widget.filters.query,
+      query: _query,
+      categoryLabels: _categoryLabels,
       eventType: widget.filters.eventType,
       categoryIds: widget.filters.categoryIds,
       // Summary mode scans uncollapsed: the card counts distinct events *and*
@@ -393,6 +465,7 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
   /// filter on. The text query does apply, so searching narrows the whole
   /// agenda rather than only its event half.
   void _recomputeHolidays() {
+    _syncQuery();
     if (!widget.filters.showHolidays) {
       _holidayDays = const [];
       return;
@@ -401,16 +474,14 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
       from: _resolved.$1,
       to: _resolved.$2,
     );
-    // Same case + diacritic fold the event scan and the note search use.
-    final needle = normalizeForSearch(widget.filters.query.trim());
-    if (needle.isEmpty) {
+    if (_query.isEmpty) {
       _holidayDays = days;
       return;
     }
     final l10n = AppLocalizations.of(context)!;
     _holidayDays = [
       for (final day in days)
-        if (normalizeForSearch(_holidayLabel(day, l10n)).contains(needle)) day,
+        if (_query.matchesText(_holidayLabel(day, l10n), day)) day,
     ];
   }
 
@@ -429,17 +500,17 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
   /// filter is handed to the run walk and the summary scan alike, so neither
   /// can claim days the search excluded.
   void _recomputeFasting() {
+    _syncQuery();
     if (!widget.filters.showFasting || !FastingCalendar.isEnabled) {
       _fastingDays = const [];
       _fastingRuns = const [];
       _fastingSummaries = const [];
       return;
     }
-    final needle = normalizeForSearch(widget.filters.query.trim());
     bool Function(DateTime day)? dayFilter;
-    if (needle.isNotEmpty) {
+    if (_query.isNotEmpty) {
       final l10n = AppLocalizations.of(context)!;
-      dayFilter = (day) => _fastingMatches(day, l10n, needle);
+      dayFilter = (day) => _fastingMatches(day, l10n);
     }
 
     switch (widget.filters.fastingDisplay) {
@@ -475,20 +546,22 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
     }
   }
 
-  /// Whether any of [day]'s fasting entries (across configured traditions)
-  /// matches [needle] — the displayed title (custom override or period name)
-  /// or the regime subtitle. [needle] is already folded through
-  /// [normalizeForSearch].
-  bool _fastingMatches(DateTime day, AppLocalizations l10n, String needle) {
+  /// Whether [day]'s fasting entries (across configured traditions) satisfy
+  /// [_query] — its terms against the displayed title (custom override or
+  /// period name) and the regime subtitle, its date terms against the day
+  /// itself. The masks accumulate across entries, so a two-term query can be
+  /// answered by two different traditions on the same day.
+  bool _fastingMatches(DateTime day, AppLocalizations l10n) {
+    var mask = 0;
     for (final info in FastingCalendar.on(day)) {
       final title =
           FastingCalendar.styleOf(info.tradition).titleOverride ??
           FastingCalendar.periodNameOf(info.period, l10n);
-      if (normalizeForSearch(title).contains(needle)) return true;
-      final regime = FastingCalendar.regimeNameOf(info.regime, l10n);
-      if (normalizeForSearch(regime).contains(needle)) return true;
+      mask |= _query.maskOf(title);
+      mask |= _query.maskOf(FastingCalendar.regimeNameOf(info.regime, l10n));
+      if (_query.satisfied(mask, day)) return true;
     }
-    return false;
+    return _query.satisfied(mask, day);
   }
 
   /// Opens a summary card's drill-down and routes what the viewer picked.
@@ -782,11 +855,11 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
                 // The page's FAB floats over this list, so the last row's edit
                 // and open-note buttons would sit under it without the reserved
                 // clearance. Short content just leaves the space empty.
-                padding: const EdgeInsets.fromLTRB(
+                padding: EdgeInsets.fromLTRB(
                   16,
                   4,
                   16,
-                  16 + AppSpacing.fabClearance,
+                  16 + AppSpacing.fabClearance + widget.bottomInset,
                 ),
                 colorPalette: widget.colorPalette,
               ),

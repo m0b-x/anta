@@ -127,16 +127,27 @@ class EventOccurrenceDao extends DatabaseAccessor<AppDatabase>
   /// [NoteDao.importNote] convention: `createdAt`/`updatedAt` come from the
   /// caller, identity is stamped **fresh**. A backup is not a sync channel, so
   /// a restored day is this device's own live row, never a replayed one.
-  Future<void> importOccurrence(EventOccurrenceDescriptionsCompanion entry) {
-    return into(eventOccurrenceDescriptions).insert(
-      entry.copyWith(
-        hlcTimestamp: Value(db.generateHlc()),
-        deviceId: Value(db.deviceId),
-        version: const Value(1),
-        isDeleted: const Value(false),
-        deletedAt: const Value(null),
-      ),
-    );
+  /// Takes the whole archive at once (**5.1**): one batched transaction and one
+  /// commit, where this was a separate awaited insert — and so a separate WAL
+  /// commit — per restored day. See [CalendarEventDao.importAll] for why
+  /// `insertOrReplace` is the safe mode here.
+  Future<void> importAll(List<EventOccurrenceDescriptionsCompanion> entries) {
+    if (entries.isEmpty) return Future.value();
+    return batch((b) {
+      for (final entry in entries) {
+        b.insert(
+          eventOccurrenceDescriptions,
+          entry.copyWith(
+            hlcTimestamp: Value(db.generateHlc()),
+            deviceId: Value(db.deviceId),
+            version: const Value(1),
+            isDeleted: const Value(false),
+            deletedAt: const Value(null),
+          ),
+          mode: InsertMode.insertOrReplace,
+        );
+      }
+    });
   }
 
   /// The **hard** single-day drop. Superseded by [tombstone] for "reset this

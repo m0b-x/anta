@@ -145,6 +145,41 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
     return delete(calendarEvents).go();
   }
 
+  /// Bulk restore path for a backup import — **5.1**, the [EventOccurrenceDao]
+  /// `importOccurrence` convention widened to the whole list.
+  ///
+  /// [importData] used to drive [upsert] once per row, which cost a nested
+  /// transaction (so a WAL commit) **and** a `SELECT` per event. Both were
+  /// pure waste here and nowhere else: [deleteAll] runs immediately before
+  /// this and is a documented *hard* wipe, tombstones included, so the table
+  /// is empty and every one of those reads was a guaranteed miss whose insert
+  /// branch always won. One `batch` is one transaction and one commit for the
+  /// whole restore.
+  ///
+  /// `insertOrReplace` rather than a plain insert **only** to keep the old
+  /// last-one-wins behaviour if an archive carries the same id twice; against
+  /// an empty table with no foreign keys in the schema it can never cascade.
+  /// Rows arrive as `version 1` originals of this device, which is what a
+  /// restore is — never a merge.
+  Future<void> importAll(List<CalendarEventsCompanion> entries) {
+    if (entries.isEmpty) return Future.value();
+    return batch((b) {
+      for (final entry in entries) {
+        b.insert(
+          calendarEvents,
+          entry.copyWith(
+            hlcTimestamp: Value(db.generateHlc()),
+            deviceId: Value(db.deviceId),
+            version: const Value(1),
+            isDeleted: const Value(false),
+            deletedAt: const Value(null),
+          ),
+          mode: InsertMode.insertOrReplace,
+        );
+      }
+    });
+  }
+
   /// Deliberately unfiltered: [upsert] has to see a tombstone to resurrect it,
   /// and [softDeleteById] has to see one to stay a no-op.
   Future<CalendarEventRow?> _byId(String id) {

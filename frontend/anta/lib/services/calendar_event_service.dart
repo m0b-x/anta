@@ -225,6 +225,11 @@ class CalendarEventService {
   /// rows are skipped, the rest still imports.
   Future<void> importData(List<dynamic> data) async {
     await _dao.deleteAll();
+    // Parsed first, written once (**5.1**). The per-row `try` still guards
+    // *parsing* — one malformed archive row is skipped, never fatal — but the
+    // write is a single batched transaction instead of one nested transaction
+    // and one guaranteed-miss `SELECT` per event.
+    final companions = <CalendarEventsCompanion>[];
     for (final raw in data) {
       if (raw is! Map) continue;
       final map = raw.cast<String, dynamic>();
@@ -248,7 +253,7 @@ class CalendarEventService {
             ? map['updatedAtMs'] as int
             : createdMs;
         final endMs = map['endDateMs'];
-        await _dao.upsert(
+        companions.add(
           CalendarEventsCompanion(
             id: Value(id),
             title: Value(title),
@@ -326,6 +331,7 @@ class CalendarEventService {
         debugPrint('[CalendarEventService] Import row error: $e');
       }
     }
+    await _dao.importAll(companions);
     await _load();
     externalRevision++;
   }

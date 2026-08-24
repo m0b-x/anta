@@ -126,16 +126,27 @@ class EventAbsenceDao extends DatabaseAccessor<AppDatabase>
   /// [NoteDao.importNote] convention: `createdAt`/`updatedAt` come from the
   /// caller, identity is stamped **fresh**. A backup is not a sync channel, so
   /// a restored mark is this device's own live row, never a replayed one.
-  Future<void> importAbsence(EventAbsencesCompanion entry) {
-    return into(eventAbsences).insert(
-      entry.copyWith(
-        hlcTimestamp: Value(db.generateHlc()),
-        deviceId: Value(db.deviceId),
-        version: const Value(1),
-        isDeleted: const Value(false),
-        deletedAt: const Value(null),
-      ),
-    );
+  /// Takes the whole archive at once (**5.1**): one batched transaction and one
+  /// commit, where this was a separate awaited insert — and so a separate WAL
+  /// commit — per restored mark. See [CalendarEventDao.importAll] for why
+  /// `insertOrReplace` is the safe mode here.
+  Future<void> importAll(List<EventAbsencesCompanion> entries) {
+    if (entries.isEmpty) return Future.value();
+    return batch((b) {
+      for (final entry in entries) {
+        b.insert(
+          eventAbsences,
+          entry.copyWith(
+            hlcTimestamp: Value(db.generateHlc()),
+            deviceId: Value(db.deviceId),
+            version: const Value(1),
+            isDeleted: const Value(false),
+            deletedAt: const Value(null),
+          ),
+          mode: InsertMode.insertOrReplace,
+        );
+      }
+    });
   }
 
   /// Cascade for a deleted event, matching the parent: since v27 deleting one

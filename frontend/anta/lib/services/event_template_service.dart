@@ -147,6 +147,10 @@ class EventTemplateService {
   /// skipped so one bad entry cannot hide the rest.
   Future<void> importData(List<dynamic> data) async {
     await _dao.deleteAll();
+    // Parsed first, written once (**5.1**): the per-row `try` still guards
+    // parsing, but the write is one batched transaction instead of one
+    // awaited insert — and one WAL commit — per archived row.
+    final companions = <EventTemplatesCompanion>[];
     for (final raw in data) {
       if (raw is! Map) continue;
       final map = raw.cast<String, dynamic>();
@@ -158,7 +162,7 @@ class EventTemplateService {
         final now = DateTime.now();
         final createdAtMs = map['createdAtMs'];
         final updatedAtMs = map['updatedAtMs'];
-        await _dao.importTemplate(
+        companions.add(
           EventTemplatesCompanion(
             id: Value(id),
             name: Value(name),
@@ -209,6 +213,7 @@ class EventTemplateService {
         debugPrint('[EventTemplateService] Import row error: $e');
       }
     }
+    await _dao.importAll(companions);
     await _load();
   }
 

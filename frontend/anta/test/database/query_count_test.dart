@@ -215,6 +215,71 @@ void main() {
     expect(counter.selects, hasLength(1));
   });
 
+  test('a bulk event import reads nothing and scales in one batch', () async {
+    const rows = 40;
+    final entries = [for (var i = 0; i < rows; i++) _event('e$i')];
+
+    counter.reset();
+    await db.calendarEventDao.importAll(entries);
+
+    // The whole point of 5.1: not one `SELECT` in the restore path. `upsert`
+    // issued one per row, and every one was a guaranteed miss — `deleteAll`
+    // is a documented hard wipe, so the table is empty when this runs.
+    expect(
+      counter.selects,
+      isEmpty,
+      reason: 'issued:\n${counter.statements.join('\n')}',
+    );
+    // Statements must not scale at `upsert`'s 2-per-row. The batch collapses
+    // the inserts; the bound is deliberately far below `rows * 2` rather than
+    // an exact figure, so a drift version that batches differently does not
+    // fail this for the wrong reason.
+    expect(
+      counter.count,
+      lessThan(rows),
+      reason: 'issued:\n${counter.statements.join('\n')}',
+    );
+
+    final stored = await db.calendarEventDao.getAll();
+    expect(stored, hasLength(rows));
+  });
+
+  test('a bulk import of nothing touches the database not at all', () async {
+    counter.reset();
+    await db.calendarEventDao.importAll(const []);
+    expect(counter.count, 0);
+  });
+
+  test('a bulk import stamps every row as a live version-1 original', () async {
+    // A restore is this device's own authorship, never a replayed merge — the
+    // same contract the single-row import methods carried before 5.1 widened
+    // them to lists.
+    await db.calendarEventDao.importAll([_event('e1'), _event('e2')]);
+
+    final rows = await db.calendarEventDao.getAll();
+    expect(rows, hasLength(2));
+    for (final row in rows) {
+      expect(row.version, 1);
+      expect(row.isDeleted, isFalse);
+      expect(row.deletedAt, null);
+      expect(row.deviceId, db.deviceId);
+      expect(row.hlcTimestamp, isNotEmpty);
+    }
+  });
+
+  test('a duplicate id inside one archive keeps the last row', () async {
+    // `upsert` was last-one-wins by construction; `insertOrReplace` preserves
+    // that for a malformed archive instead of failing the whole batch.
+    await db.calendarEventDao.importAll([
+      _event('dup'),
+      _event('dup').copyWith(title: const Value('Overwritten')),
+    ]);
+
+    final rows = await db.calendarEventDao.getAll();
+    expect(rows, hasLength(1));
+    expect(rows.single.title, 'Overwritten');
+  });
+
   test('an occurrence upsert reads the row it overwrites exactly once', () async {
     counter.reset();
     await db.eventOccurrenceDao.upsert(_occurrence(1));

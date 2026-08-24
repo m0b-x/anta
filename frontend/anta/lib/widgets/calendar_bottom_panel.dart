@@ -235,6 +235,7 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
 
   @override
   Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     return Column(
       children: [
         _PanelModeBar(
@@ -246,23 +247,53 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
         // SafeArea keeps the panel's content above the device's system
         // navigation bar (gesture pill / 3-button bar) — without it the
         // last rows render underneath and can't be tapped.
-        Expanded(child: SafeArea(top: false, child: _buildPanel(context))),
+        Expanded(
+          child: SafeArea(
+            top: false,
+            child: _buildPanel(context, bottomInset),
+          ),
+        ),
       ],
     );
+  }
+
+  /// Memoized day-summary resolver, mirroring the grid's own memo in
+  /// `_CalendarViewState._resolverFor` — **4.3**. `DaySummaryResolver.defaults`
+  /// allocates five stateless providers, and it was being called from `build`,
+  /// so every panel rebuild (a day tap, a presence tick, a scroll-driven
+  /// notifier that happens to dirty this subtree) threw the previous five away.
+  /// Its providers depend only on the localization and the recurrence-label
+  /// setting, both of which change far less often than the panel rebuilds.
+  DaySummaryResolver? _summaryResolver;
+  AppLocalizations? _summaryL10n;
+  bool? _summaryShowRecurrence;
+
+  DaySummaryResolver _summaryResolverFor(AppLocalizations l10n) {
+    final showRecurrence = widget.showRecurrenceLabels;
+    if (_summaryResolver == null ||
+        _summaryL10n != l10n ||
+        _summaryShowRecurrence != showRecurrence) {
+      _summaryResolver = DaySummaryResolver.defaults(
+        l10n,
+        showRecurrence: showRecurrence,
+      );
+      _summaryL10n = l10n;
+      _summaryShowRecurrence = showRecurrence;
+    }
+    return _summaryResolver!;
   }
 
   /// Builds the active panel. Day and timeline both render the selected day
   /// through the bloc's memoized `eventsForDay`; upcoming works off the
   /// whole event list and does its own range scan.
-  Widget _buildPanel(BuildContext context) {
+  Widget _buildPanel(BuildContext context, double bottomInset) {
     final l10n = AppLocalizations.of(context)!;
     final loaded = widget.loaded;
     final bloc = context.read<CalendarBloc>();
     switch (_mode) {
       case CalendarPanelMode.day:
-        final entries = DaySummaryResolver.defaults(
+        final entries = _summaryResolverFor(
           l10n,
-          showRecurrence: widget.showRecurrenceLabels,
         ).resolve(loaded.selectedDay, bloc.eventsForDay(loaded.selectedDay));
         return DaySummaryPanel(
           day: loaded.selectedDay,
@@ -275,6 +306,7 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
           onToggleMissed: (event, missed) =>
               widget.onToggleMissed(event, loaded.selectedDay, missed),
           colorPalette: widget.colorPalette,
+          bottomInset: bottomInset,
         );
       case CalendarPanelMode.timeline:
         return DayTimelineView(
@@ -284,6 +316,7 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
           // there. Both render the same day's events, so they must agree.
           onEventTap: (event) => widget.onShowEvent(event, loaded.selectedDay),
           missedDisplay: widget.missedDisplay,
+          bottomInset: bottomInset,
         );
       case CalendarPanelMode.upcoming:
         return UpcomingAgendaView(
@@ -310,6 +343,7 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
           occurrenceRevision: loaded.occurrenceRevision,
           membershipRevision: loaded.membershipRevision,
           missedDisplay: widget.missedDisplay,
+          bottomInset: bottomInset,
         );
     }
   }

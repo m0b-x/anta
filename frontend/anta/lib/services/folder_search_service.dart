@@ -38,13 +38,52 @@ Map<String, dynamic> _buildIndexInIsolate(List<NoteIndexData> notesData) {
   };
 }
 
+/// [SearchConstants.diacriticsMap] keyed by UTF-16 code unit instead of
+/// one-character `String`, derived (never hand-transcribed — see the comment
+/// on [_buildIndexInIsolate] for what a second, drifted table costs) from the
+/// canonical map so the two can never disagree.
+final Map<int, String> _diacriticsByCodeUnit = {
+  for (final entry in SearchConstants.diacriticsMap.entries)
+    entry.key.codeUnitAt(0): entry.value,
+};
+
+/// Folds every code unit >= U+00C0 that appears in [SearchConstants.diacriticsMap]
+/// to its plain-ASCII form (`'ß' -> 'ss'`, `'Æ' -> 'AE'`, ...), unchanged
+/// otherwise.
+///
+/// Iterates `codeUnits`, not one-character substrings: `String.write` per
+/// character allocated a throwaway String per code unit for a map lookup that
+/// almost always misses (plain text has none of these). Every key in the map
+/// is a single code unit in U+00C0..U+017E plus the Romanian comma-below
+/// block U+0218-U+021B, so code units <= 0xBF skip the lookup entirely and go
+/// straight to the buffer.
+///
+/// Surrogate pairs (emoji, astral-plane text) are two code units each in
+/// U+D800..U+DFFF — outside every map key's range — so neither half matches
+/// and both round-trip unchanged, exactly like the old per-`String` version
+/// (which likewise never combined a pair into one rune before lookup).
 String removeDiacritics(String text) {
-  final buffer = StringBuffer();
+  StringBuffer? buffer;
+
   for (int i = 0; i < text.length; i++) {
-    final char = text[i];
-    buffer.write(SearchConstants.diacriticsMap[char] ?? char);
+    final unit = text.codeUnitAt(i);
+    final replacement = unit <= 0xBF ? null : _diacriticsByCodeUnit[unit];
+
+    if (replacement == null) {
+      // No fold needed: only write to the buffer once one exists (i.e.
+      // once an earlier code unit already folded), otherwise skip work
+      // entirely for the common plain-text case.
+      buffer?.writeCharCode(unit);
+      continue;
+    }
+
+    // First actual fold: only now is a buffer worth allocating. Back-fill
+    // everything seen so far unchanged, then write the replacement.
+    buffer ??= StringBuffer()..write(text.substring(0, i));
+    buffer.write(replacement);
   }
-  return buffer.toString();
+
+  return buffer?.toString() ?? text;
 }
 
 String normalizeForSearch(String text, {bool caseSensitive = false}) {

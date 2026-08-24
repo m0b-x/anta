@@ -129,6 +129,8 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   /// their `sameGridInputs` / `samePanelInputs` gates exist to avoid.
   final ValueNotifier<bool> _fabExtended = ValueNotifier(true);
 
+  final ValueNotifier<bool> _keyboardVisible = ValueNotifier(false);
+
   /// Memoized day-bar resolver. Its providers are stateless and depend only
   /// on the localization and the missed-display setting, both of which change
   /// far less often than the grid rebuilds.
@@ -250,6 +252,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   void dispose() {
     AppNavigator.routeObserver.unsubscribe(this);
     _fabExtended.dispose();
+    _keyboardVisible.dispose();
     super.dispose();
   }
 
@@ -400,6 +403,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     final l10n = AppLocalizations.of(context)!;
 
     final scaffold = Scaffold(
+      resizeToAvoidBottomInset: false,
       appBar: AppBar(
         title: Text(l10n.calendar),
         actions: [
@@ -510,33 +514,43 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
                   child: _panelExpanded
                       ? const SizedBox(width: double.infinity)
                       : RepaintBoundary(
-                          child: BlocBuilder<CalendarBloc, CalendarPageState>(
-                            buildWhen: (previous, current) =>
-                                previous is! CalendarPageLoaded ||
-                                current is! CalendarPageLoaded ||
-                                !previous.sameGridInputs(current),
-                            builder: (context, state) {
-                              if (state is! CalendarPageLoaded) {
-                                return const SizedBox(width: double.infinity);
-                              }
-                              final barsResolver = _resolverFor(l10n);
-                              final tintResolver = _cellTintResolver;
-                              _syncResolverOutputCache(
-                                state,
-                                barsResolver,
-                                tintResolver,
-                              );
-                              return _CalendarTable(
-                                state: state,
-                                appearance: _appearance,
-                                barsResolver: barsResolver,
-                                tintResolver: tintResolver,
-                                barsOutputCache: _barsOutputCache,
-                                tintOutputCache: _tintOutputCache,
-                                onDayLongPressed: (day) =>
-                                    _quickAddFromTemplate(context, day),
-                              );
-                            },
+                          child: ValueListenableBuilder<bool>(
+                            valueListenable: _keyboardVisible,
+                            builder: (context, keyboardVisible, _) =>
+                                BlocBuilder<CalendarBloc, CalendarPageState>(
+                                  buildWhen: (previous, current) =>
+                                      previous is! CalendarPageLoaded ||
+                                      current is! CalendarPageLoaded ||
+                                      !previous.sameGridInputs(current),
+                                  builder: (context, state) {
+                                    if (state is! CalendarPageLoaded) {
+                                      return const SizedBox(
+                                        width: double.infinity,
+                                      );
+                                    }
+                                    final barsResolver = _resolverFor(l10n);
+                                    final tintResolver = _cellTintResolver;
+                                    _syncResolverOutputCache(
+                                      state,
+                                      barsResolver,
+                                      tintResolver,
+                                    );
+                                    return _CalendarTable(
+                                      state: state,
+                                      format: keyboardVisible
+                                          ? CalendarFormat.week
+                                          : state.format,
+                                      formatLocked: keyboardVisible,
+                                      appearance: _appearance,
+                                      barsResolver: barsResolver,
+                                      tintResolver: tintResolver,
+                                      barsOutputCache: _barsOutputCache,
+                                      tintOutputCache: _tintOutputCache,
+                                      onDayLongPressed: (day) =>
+                                          _quickAddFromTemplate(context, day),
+                                    );
+                                  },
+                                ),
                           ),
                         ),
                 ),
@@ -636,7 +650,10 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
           },
         ),
       ],
-      child: scaffold,
+      child: _KeyboardInsetProbe(
+        keyboardVisible: _keyboardVisible,
+        child: scaffold,
+      ),
     );
   }
 
@@ -1002,6 +1019,8 @@ class _CalendarTable extends StatelessWidget {
   static final DateTime _lastDay = CalendarBounds.latest;
 
   final CalendarPageLoaded state;
+  final CalendarFormat format;
+  final bool formatLocked;
   final CalendarAppearance appearance;
 
   /// Built once by [_CalendarViewState] and rebuilt only when its inputs
@@ -1029,6 +1048,8 @@ class _CalendarTable extends StatelessWidget {
 
   const _CalendarTable({
     required this.state,
+    required this.format,
+    required this.formatLocked,
     required this.appearance,
     required this.barsResolver,
     required this.tintResolver,
@@ -1099,8 +1120,10 @@ class _CalendarTable extends StatelessWidget {
     // Both lookups are O(1): the fasting style is memoized inside the engine
     // and the day's events come from the bloc's day cache — the same
     // memoized call `eventLoader` makes for this cell.
-    final fasting = FastingCalendar.cellStyleFor(day);
     final key = DateTime.utc(day.year, day.month, day.day);
+    // The normalized key is needed for the output memo below anyway, so the
+    // fasting lookup takes it directly rather than re-deriving it (**5.4**).
+    final fasting = FastingCalendar.cellStyleForUtcDay(key);
     // Resolver output memo (3.3): valid for as long as `_outputGeneration`
     // says it is, so a rebuild the generation is unaffected by (a day tap, a
     // format toggle) serves this from cache instead of re-running
@@ -1142,7 +1165,7 @@ class _CalendarTable extends StatelessWidget {
       lastDay: _lastDay,
       focusedDay: state.focusedDay,
       selectedDayPredicate: (day) => isSameDay(state.selectedDay, day),
-      calendarFormat: state.format,
+      calendarFormat: format,
       eventLoader: calendarBloc.eventsForDay,
       startingDayOfWeek: _startingDayOfWeek,
       weekNumbersVisible: appearance.showWeekNumbers,
@@ -1306,7 +1329,7 @@ class _CalendarTable extends StatelessWidget {
           // Outside-month fading only applies to the month format; week and
           // two-week rows show every day at full strength.
           final isOutside =
-              state.format == CalendarFormat.month &&
+              format == CalendarFormat.month &&
               (day.month != state.focusedDay.month ||
                   day.year != state.focusedDay.year);
           return Align(
@@ -1339,9 +1362,37 @@ class _CalendarTable extends StatelessWidget {
           ChangeFocusedDay(focusedDay: focusedDay),
         );
       },
-      onFormatChanged: (format) {
-        context.read<CalendarBloc>().add(ChangeCalendarFormat(format: format));
-      },
+      onFormatChanged: formatLocked
+          ? null
+          : (next) {
+              context.read<CalendarBloc>().add(
+                ChangeCalendarFormat(format: next),
+              );
+            },
     );
   }
+}
+
+class _KeyboardInsetProbe extends StatefulWidget {
+  const _KeyboardInsetProbe({
+    required this.keyboardVisible,
+    required this.child,
+  });
+
+  final ValueNotifier<bool> keyboardVisible;
+  final Widget child;
+
+  @override
+  State<_KeyboardInsetProbe> createState() => _KeyboardInsetProbeState();
+}
+
+class _KeyboardInsetProbeState extends State<_KeyboardInsetProbe> {
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    widget.keyboardVisible.value = MediaQuery.viewInsetsOf(context).bottom > 0;
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }

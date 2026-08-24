@@ -189,16 +189,27 @@ List<AgendaRow> buildAgendaRows({
           AgendaEventSummaryRow(
             summary: summary,
             entry: _eventSummaryEntry(summary, l10n),
+            rangeLabel: AgendaListView.rangeLabel(
+              l10n.localeName,
+              summary.first,
+              summary.last,
+            ),
           ),
         if (holidaysAsSummary && holidayDays.isNotEmpty)
           AgendaHolidaySummaryRow(
             days: holidayDays,
             entry: _holidaySummaryEntry(holidayDays, l10n),
+            rangeLabel: AgendaListView.rangeLabel(
+              l10n.localeName,
+              holidayDays.first,
+              holidayDays.last,
+            ),
           ),
         for (final summary in fastingSummaries)
           AgendaFastingSummaryRow(
             summary: summary,
             entry: _fastingSummaryEntry(summary, l10n),
+            rangeLabel: _fastingSummaryRangeLabel(summary, l10n),
           ),
       ].indexed.toList()..sort((a, b) {
         final byPriority = _summaryPriority(
@@ -311,7 +322,6 @@ DaySummaryEntry _eventSummaryEntry(
       l10n.upcomingEventCount(summary.eventCount),
       if (summary.occurrenceCount > summary.eventCount)
         l10n.upcomingCollapsedTimes(summary.occurrenceCount),
-      AgendaListView.rangeLabel(l10n.localeName, summary.first, summary.last),
     ].join(' · '),
     // The event band, so category cards lead the holiday (150) and fasting
     // (160) ones — the same order the day panel ranks these three in.
@@ -352,17 +362,12 @@ DaySummaryEntry _holidaySummaryEntry(
   List<DateTime> days,
   AppLocalizations l10n,
 ) {
-  final span = AgendaListView.rangeLabel(
-    l10n.localeName,
-    days.first,
-    days.last,
-  );
   return DaySummaryEntry(
     key: 'holiday',
     icon: Icons.celebration_rounded,
     color: CalendarColors.publicHoliday,
     title: l10n.upcomingShowHolidays,
-    subtitle: '${l10n.upcomingHolidayCount(days.length)} · $span',
+    subtitle: l10n.upcomingHolidayCount(days.length),
     priority: 150,
   );
 }
@@ -451,23 +456,27 @@ DaySummaryEntry _fastingSummaryEntry(
   );
 }
 
-/// "Wed, Fri · Mar 2 – Apr 18 · 14 days" — which days, over what stretch, how
-/// many. The whole point of the summary card is that these three fragments
-/// replace the rows they stand for, so each has to survive on its own.
+/// "Wed, Fri · 14 days" — which days, how many. The exact span is
+/// [_fastingSummaryRangeLabel], rendered on the card's own second line so it
+/// can never be the fragment a clip slices in half.
 String _fastingSummarySubtitle(FastingSummary summary, AppLocalizations l10n) {
-  final span =
-      summary.last.difference(summary.first).inDays <= _exactSpanMaxDays
+  return [
+    _weekdayPattern(summary.weekdays, l10n),
+    l10n.upcomingFastingSpanDays(summary.dayCount),
+  ].join(' · ');
+}
+
+String _fastingSummaryRangeLabel(
+  FastingSummary summary,
+  AppLocalizations l10n,
+) {
+  return summary.last.difference(summary.first).inDays <= _exactSpanMaxDays
       ? AgendaListView.rangeLabel(l10n.localeName, summary.first, summary.last)
       : AgendaListView.monthRangeLabel(
           l10n.localeName,
           summary.first,
           summary.last,
         );
-  return [
-    _weekdayPattern(summary.weekdays, l10n),
-    span,
-    l10n.upcomingFastingSpanDays(summary.dayCount),
-  ].join(' · ');
 }
 
 /// The weekday fragment: the three patterns that already have a name, else the
@@ -768,60 +777,74 @@ class AgendaListView extends StatelessWidget {
             ],
           ),
         ),
-        AgendaFastingSummaryRow(:final summary, :final entry) => Padding(
-          // Same bottom gap as an entry row, and no special top padding: the
-          // month or day header that follows is no longer at index 0, so it
-          // opens its normal gap under the card.
-          padding: const EdgeInsets.only(bottom: 8),
-          child: _AgendaCard(
-            entry: entry,
-            // No event: nothing to rank, nothing to edit, nothing to open.
-            priorityBadge: null,
-            onTap: () => onDaySelected(summary.first),
-            onShowAll: onShowDayList == null
-                ? null
-                : () => showDayList(
-                    entry.title,
-                    entry.subtitle ?? '',
-                    () => _fastingDayEntries(summary, l10n, today),
-                  ),
-            colorPalette: colorPalette,
+        AgendaFastingSummaryRow(
+          :final summary,
+          :final entry,
+          :final rangeLabel,
+        ) =>
+          Padding(
+            // Same bottom gap as an entry row, and no special top padding: the
+            // month or day header that follows is no longer at index 0, so it
+            // opens its normal gap under the card.
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _AgendaCard(
+              entry: entry,
+              // No event: nothing to rank, nothing to edit, nothing to open.
+              priorityBadge: null,
+              secondaryLine: rangeLabel,
+              onTap: () => onDaySelected(summary.first),
+              onShowAll: onShowDayList == null
+                  ? null
+                  : () => showDayList(
+                      entry.title,
+                      [?entry.subtitle, rangeLabel].join(' · '),
+                      () => _fastingDayEntries(summary, l10n, today),
+                    ),
+              colorPalette: colorPalette,
+            ),
           ),
-        ),
-        AgendaEventSummaryRow(:final summary, :final entry) => Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: _AgendaCard(
-            entry: entry,
-            // The card ranks a whole category; no single event's priority
-            // could speak for it.
-            priorityBadge: null,
-            onTap: () => onDaySelected(summary.first),
-            onShowAll: onShowDayList == null
-                ? null
-                : () => showDayList(
-                    entry.title,
-                    entry.subtitle ?? '',
-                    () => _eventDayEntries(summary, l10n, today, onEditEvent),
-                  ),
-            colorPalette: colorPalette,
+        AgendaEventSummaryRow(
+          :final summary,
+          :final entry,
+          :final rangeLabel,
+        ) =>
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _AgendaCard(
+              entry: entry,
+              // The card ranks a whole category; no single event's priority
+              // could speak for it.
+              priorityBadge: null,
+              secondaryLine: rangeLabel,
+              onTap: () => onDaySelected(summary.first),
+              onShowAll: onShowDayList == null
+                  ? null
+                  : () => showDayList(
+                      entry.title,
+                      [?entry.subtitle, rangeLabel].join(' · '),
+                      () => _eventDayEntries(summary, l10n, today, onEditEvent),
+                    ),
+              colorPalette: colorPalette,
+            ),
           ),
-        ),
-        AgendaHolidaySummaryRow(:final days, :final entry) => Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: _AgendaCard(
-            entry: entry,
-            priorityBadge: null,
-            onTap: () => onDaySelected(days.first),
-            onShowAll: onShowDayList == null
-                ? null
-                : () => showDayList(
-                    entry.title,
-                    entry.subtitle ?? '',
-                    () => _holidayDayEntries(days, l10n, today),
-                  ),
-            colorPalette: colorPalette,
+        AgendaHolidaySummaryRow(:final days, :final entry, :final rangeLabel) =>
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _AgendaCard(
+              entry: entry,
+              priorityBadge: null,
+              secondaryLine: rangeLabel,
+              onTap: () => onDaySelected(days.first),
+              onShowAll: onShowDayList == null
+                  ? null
+                  : () => showDayList(
+                      entry.title,
+                      [?entry.subtitle, rangeLabel].join(' · '),
+                      () => _holidayDayEntries(days, l10n, today),
+                    ),
+              colorPalette: colorPalette,
+            ),
           ),
-        ),
         AgendaEntryRow(:final day, :final entry, :final occurrenceCount) =>
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
@@ -919,8 +942,13 @@ class AgendaEntryRow extends AgendaRow {
 class AgendaEventSummaryRow extends AgendaRow {
   final EventCategorySummary summary;
   final DaySummaryEntry entry;
+  final String rangeLabel;
 
-  const AgendaEventSummaryRow({required this.summary, required this.entry});
+  const AgendaEventSummaryRow({
+    required this.summary,
+    required this.entry,
+    required this.rangeLabel,
+  });
 }
 
 /// Every public holiday in the window, standing above the list it summarizes.
@@ -933,8 +961,13 @@ class AgendaHolidaySummaryRow extends AgendaRow {
   final List<DateTime> days;
 
   final DaySummaryEntry entry;
+  final String rangeLabel;
 
-  const AgendaHolidaySummaryRow({required this.days, required this.entry});
+  const AgendaHolidaySummaryRow({
+    required this.days,
+    required this.entry,
+    required this.rangeLabel,
+  });
 }
 
 /// A whole window of one tradition's fasting, standing above the list it
@@ -948,8 +981,13 @@ class AgendaFastingSummaryRow extends AgendaRow {
   /// Synthesized by `buildAgendaRows`, so the card renders through the same
   /// path every other agenda row does.
   final DaySummaryEntry entry;
+  final String rangeLabel;
 
-  const AgendaFastingSummaryRow({required this.summary, required this.entry});
+  const AgendaFastingSummaryRow({
+    required this.summary,
+    required this.entry,
+    required this.rangeLabel,
+  });
 }
 
 /// Event card mirroring the day summary panel's accent-stripe layout so the
@@ -975,6 +1013,11 @@ class _AgendaCard extends StatelessWidget {
   /// row while the list is built.
   final bool missed;
 
+  /// The date range a summary card stands for, forced onto its own line so a
+  /// long span can never be the fragment a two-line wrap slices in half.
+  /// Null for every row that is not a summary card.
+  final String? secondaryLine;
+
   const _AgendaCard({
     required this.entry,
     required this.priorityBadge,
@@ -985,6 +1028,7 @@ class _AgendaCard extends StatelessWidget {
     this.onOpenNote,
     this.onShowAll,
     this.missed = false,
+    this.secondaryLine,
   });
 
   @override
@@ -997,100 +1041,116 @@ class _AgendaCard extends StatelessWidget {
       ?collapsedBadge,
     ].join(' · ');
     final description = entry.description;
+    final range = secondaryLine;
 
     return Card(
       margin: EdgeInsets.zero,
       clipBehavior: Clip.antiAlias,
-      child: IntrinsicHeight(
-        child: Opacity(
-          opacity: missed ? CalendarColors.missedEventAlpha : 1.0,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Container(width: 4, color: entry.color),
-              Expanded(
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: entry.color.withValues(alpha: 0.16),
-                    foregroundColor: entry.color,
-                    child: Icon(entry.icon),
-                  ),
-                  title: Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          entry.title,
-                          overflow: TextOverflow.ellipsis,
+      child: Opacity(
+        opacity: missed ? CalendarColors.missedEventAlpha : 1.0,
+        child: Stack(
+          children: [
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: 4,
+              child: Container(color: entry.color),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(left: 4),
+              child: ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: entry.color.withValues(alpha: 0.16),
+                  foregroundColor: entry.color,
+                  child: Icon(entry.icon),
+                ),
+                title: Row(
+                  children: [
+                    Flexible(
+                      child: Text(entry.title, overflow: TextOverflow.ellipsis),
+                    ),
+                    if (description != null) ...[
+                      const SizedBox(width: 6),
+                      Tooltip(
+                        message: l10n.eventHasDescription,
+                        child: Icon(
+                          Icons.notes_rounded,
+                          size: 14,
+                          color: theme.colorScheme.onSurfaceVariant,
                         ),
                       ),
-                      if (description != null) ...[
-                        const SizedBox(width: 6),
-                        Tooltip(
-                          message: l10n.eventHasDescription,
-                          child: Icon(
-                            Icons.notes_rounded,
-                            size: 14,
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
                     ],
-                  ),
-                  subtitle: (subtitle.isEmpty && description == null)
-                      ? null
-                      : Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (subtitle.isNotEmpty) Text(subtitle),
-                            if (description != null)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 2),
-                                child: MarkdownInlineText(
-                                  data: description,
-                                  colorPalette: colorPalette,
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: theme.colorScheme.onSurfaceVariant,
-                                  ),
+                  ],
+                ),
+                subtitle:
+                    (subtitle.isEmpty && range == null && description == null)
+                    ? null
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (subtitle.isNotEmpty)
+                            Text(
+                              subtitle,
+                              maxLines: range == null ? null : 1,
+                              overflow: range == null
+                                  ? null
+                                  : TextOverflow.ellipsis,
+                            ),
+                          if (range != null)
+                            Text(
+                              range,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          if (description != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 2),
+                              child: MarkdownInlineText(
+                                data: description,
+                                colorPalette: colorPalette,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
                                 ),
                               ),
-                          ],
-                        ),
-                  isThreeLine: description != null,
-                  // A per-day holiday or fasting row carries no event and no
-                  // drill-down, so it gets no trailing strip at all rather
-                  // than an empty one.
-                  trailing:
-                      onOpenNote == null && onEdit == null && onShowAll == null
-                      ? null
-                      : Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (onOpenNote != null)
-                              IconButton(
-                                tooltip: l10n.eventOpenLinkedNote,
-                                icon: const Icon(Icons.sticky_note_2_outlined),
-                                onPressed: onOpenNote,
-                              ),
-                            if (onEdit != null)
-                              IconButton(
-                                tooltip: l10n.upcomingEditEvent,
-                                icon: const Icon(Icons.edit_outlined),
-                                onPressed: onEdit,
-                              ),
-                            if (onShowAll != null)
-                              IconButton(
-                                tooltip: l10n.upcomingShowAllDays,
-                                icon: const Icon(Icons.list_rounded),
-                                onPressed: onShowAll,
-                              ),
-                          ],
-                        ),
-                  onTap: onTap,
-                ),
+                            ),
+                        ],
+                      ),
+                isThreeLine: description != null || range != null,
+                // A per-day holiday or fasting row carries no event and no
+                // drill-down, so it gets no trailing strip at all rather
+                // than an empty one.
+                trailing:
+                    onOpenNote == null && onEdit == null && onShowAll == null
+                    ? null
+                    : Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (onOpenNote != null)
+                            IconButton(
+                              tooltip: l10n.eventOpenLinkedNote,
+                              icon: const Icon(Icons.sticky_note_2_outlined),
+                              onPressed: onOpenNote,
+                            ),
+                          if (onEdit != null)
+                            IconButton(
+                              tooltip: l10n.upcomingEditEvent,
+                              icon: const Icon(Icons.edit_outlined),
+                              onPressed: onEdit,
+                            ),
+                          if (onShowAll != null)
+                            IconButton(
+                              tooltip: l10n.upcomingShowAllDays,
+                              icon: const Icon(Icons.list_rounded),
+                              onPressed: onShowAll,
+                            ),
+                        ],
+                      ),
+                onTap: onTap,
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

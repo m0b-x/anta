@@ -116,7 +116,7 @@ void main() {
       () async {
         final created = DateTime.utc(2020, 5, 4);
 
-        await db.eventTemplateDao.importTemplate(
+        await db.eventTemplateDao.importAll([
           _entry('t1', 'Push day', createdAt: created).copyWith(
             // A backup is not a sync channel: whatever identity it claims is
             // ignored and replaced with this device's.
@@ -125,7 +125,7 @@ void main() {
             version: const Value(9),
             isDeleted: const Value(true),
           ),
-        );
+        ]);
 
         final row = await rowFor('t1');
         // Drift stores unix seconds and hands the column back as a *local*
