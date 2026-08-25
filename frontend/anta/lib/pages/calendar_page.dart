@@ -34,6 +34,7 @@ import '../services/public_holiday_service.dart';
 import '../services/settings_service.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/event_agenda.dart';
+import '../utils/keyboard_inset_tracker.dart';
 import '../utils/markdown_color_syntax.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/calendar_add_fab.dart';
@@ -44,6 +45,7 @@ import '../widgets/calendar_filter_sheet.dart';
 import '../widgets/event_detail_sheet.dart';
 import '../widgets/event_editor_sheet.dart';
 import '../widgets/event_template_picker_sheet.dart';
+import '../widgets/keyboard_coupled_size.dart';
 import '../widgets/month_year_picker_sheet.dart';
 
 /// Overflow-menu actions on the calendar app bar.
@@ -129,7 +131,19 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   /// their `sameGridInputs` / `samePanelInputs` gates exist to avoid.
   final ValueNotifier<bool> _fabExtended = ValueNotifier(true);
 
-  final ValueNotifier<bool> _keyboardVisible = ValueNotifier(false);
+  /// Raw bottom view inset, republished once per keyboard animation frame.
+  final ValueNotifier<double> _keyboardInset = ValueNotifier(0);
+
+  /// Whether the grid renders as a single week. Flips on as the keyboard
+  /// starts to open and off on the first frame it starts to close, so the
+  /// grid gives space back while the keyboard is still sliding away.
+  final ValueNotifier<bool> _gridCollapsed = ValueNotifier(false);
+
+  /// Progress of the keyboard's own animation, or null when it is not
+  /// animating and [KeyboardCoupledSize] should run its own tween.
+  final ValueNotifier<double?> _collapseProgress = ValueNotifier(null);
+
+  final KeyboardInsetTracker _insetTracker = KeyboardInsetTracker();
 
   /// Memoized day-bar resolver. Its providers are stateless and depend only
   /// on the localization and the missed-display setting, both of which change
@@ -235,7 +249,18 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   @override
   void initState() {
     super.initState();
+    _keyboardInset.addListener(_handleKeyboardInset);
     _loadSettings();
+  }
+
+  /// Folds one keyboard animation frame into the format decision and the
+  /// grid's height driver. Neither notifier rebuilds this page: the format
+  /// flip rebuilds the grid subtree alone, and the progress goes straight to
+  /// a render object.
+  void _handleKeyboardInset() {
+    _insetTracker.update(_keyboardInset.value);
+    _collapseProgress.value = _insetTracker.progress;
+    _gridCollapsed.value = _insetTracker.collapsed;
   }
 
   @override
@@ -252,7 +277,10 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   void dispose() {
     AppNavigator.routeObserver.unsubscribe(this);
     _fabExtended.dispose();
-    _keyboardVisible.dispose();
+    _keyboardInset.removeListener(_handleKeyboardInset);
+    _keyboardInset.dispose();
+    _gridCollapsed.dispose();
+    _collapseProgress.dispose();
     super.dispose();
   }
 
@@ -514,43 +542,46 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
                   child: _panelExpanded
                       ? const SizedBox(width: double.infinity)
                       : RepaintBoundary(
-                          child: ValueListenableBuilder<bool>(
-                            valueListenable: _keyboardVisible,
-                            builder: (context, keyboardVisible, _) =>
-                                BlocBuilder<CalendarBloc, CalendarPageState>(
-                                  buildWhen: (previous, current) =>
-                                      previous is! CalendarPageLoaded ||
-                                      current is! CalendarPageLoaded ||
-                                      !previous.sameGridInputs(current),
-                                  builder: (context, state) {
-                                    if (state is! CalendarPageLoaded) {
-                                      return const SizedBox(
-                                        width: double.infinity,
+                          child: KeyboardCoupledSize(
+                            progress: _collapseProgress,
+                            child: ValueListenableBuilder<bool>(
+                              valueListenable: _gridCollapsed,
+                              builder: (context, keyboardVisible, _) =>
+                                  BlocBuilder<CalendarBloc, CalendarPageState>(
+                                    buildWhen: (previous, current) =>
+                                        previous is! CalendarPageLoaded ||
+                                        current is! CalendarPageLoaded ||
+                                        !previous.sameGridInputs(current),
+                                    builder: (context, state) {
+                                      if (state is! CalendarPageLoaded) {
+                                        return const SizedBox(
+                                          width: double.infinity,
+                                        );
+                                      }
+                                      final barsResolver = _resolverFor(l10n);
+                                      final tintResolver = _cellTintResolver;
+                                      _syncResolverOutputCache(
+                                        state,
+                                        barsResolver,
+                                        tintResolver,
                                       );
-                                    }
-                                    final barsResolver = _resolverFor(l10n);
-                                    final tintResolver = _cellTintResolver;
-                                    _syncResolverOutputCache(
-                                      state,
-                                      barsResolver,
-                                      tintResolver,
-                                    );
-                                    return _CalendarTable(
-                                      state: state,
-                                      format: keyboardVisible
-                                          ? CalendarFormat.week
-                                          : state.format,
-                                      formatLocked: keyboardVisible,
-                                      appearance: _appearance,
-                                      barsResolver: barsResolver,
-                                      tintResolver: tintResolver,
-                                      barsOutputCache: _barsOutputCache,
-                                      tintOutputCache: _tintOutputCache,
-                                      onDayLongPressed: (day) =>
-                                          _quickAddFromTemplate(context, day),
-                                    );
-                                  },
-                                ),
+                                      return _CalendarTable(
+                                        state: state,
+                                        format: keyboardVisible
+                                            ? CalendarFormat.week
+                                            : state.format,
+                                        formatLocked: keyboardVisible,
+                                        appearance: _appearance,
+                                        barsResolver: barsResolver,
+                                        tintResolver: tintResolver,
+                                        barsOutputCache: _barsOutputCache,
+                                        tintOutputCache: _tintOutputCache,
+                                        onDayLongPressed: (day) =>
+                                            _quickAddFromTemplate(context, day),
+                                      );
+                                    },
+                                  ),
+                            ),
                           ),
                         ),
                 ),
@@ -650,10 +681,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
           },
         ),
       ],
-      child: _KeyboardInsetProbe(
-        keyboardVisible: _keyboardVisible,
-        child: scaffold,
-      ),
+      child: _KeyboardInsetProbe(inset: _keyboardInset, child: scaffold),
     );
   }
 
@@ -1166,6 +1194,12 @@ class _CalendarTable extends StatelessWidget {
       focusedDay: state.focusedDay,
       selectedDayPredicate: (day) => isSameDay(state.selectedDay, day),
       calendarFormat: format,
+      // The height animation belongs to `KeyboardCoupledSize` above, so the
+      // package's own one is collapsed to a single frame. Not `Duration.zero`:
+      // a zero-duration `AnimationController` publishes its end value
+      // synchronously from inside `RenderAnimatedSize.performLayout`, which
+      // then re-dirties itself mid-layout and throws.
+      formatAnimationDuration: const Duration(milliseconds: 1),
       eventLoader: calendarBloc.eventsForDay,
       startingDayOfWeek: _startingDayOfWeek,
       weekNumbersVisible: appearance.showWeekNumbers,
@@ -1374,12 +1408,9 @@ class _CalendarTable extends StatelessWidget {
 }
 
 class _KeyboardInsetProbe extends StatefulWidget {
-  const _KeyboardInsetProbe({
-    required this.keyboardVisible,
-    required this.child,
-  });
+  const _KeyboardInsetProbe({required this.inset, required this.child});
 
-  final ValueNotifier<bool> keyboardVisible;
+  final ValueNotifier<double> inset;
   final Widget child;
 
   @override
@@ -1390,7 +1421,7 @@ class _KeyboardInsetProbeState extends State<_KeyboardInsetProbe> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    widget.keyboardVisible.value = MediaQuery.viewInsetsOf(context).bottom > 0;
+    widget.inset.value = MediaQuery.viewInsetsOf(context).bottom;
   }
 
   @override

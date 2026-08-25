@@ -302,6 +302,14 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
     final description = _description;
     final time = event.time;
     final isRecurring = event.rule is! OneTimeRecurrence;
+    // `useSafeArea: true` on the modal route avoids the status bar but has
+    // proven unreliable against the bottom gesture/nav bar on real devices —
+    // same fix as `CategoryPickerSheet`: pad the list's bottom by the larger
+    // of the keyboard inset and the system's bottom inset so the last row
+    // (the occurrence chips, or the description) always lands above both.
+    final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
+    final viewPadding = MediaQuery.viewPaddingOf(context).bottom;
+    final bottomClearance = viewInsets > viewPadding ? viewInsets : viewPadding;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -335,7 +343,7 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
         ),
         Expanded(
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+            padding: EdgeInsets.fromLTRB(20, 8, 20, 24 + bottomClearance),
             children: [
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,

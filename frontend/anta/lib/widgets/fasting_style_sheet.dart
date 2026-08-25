@@ -144,6 +144,11 @@ class _FastingStyleSheetState extends State<FastingStyleSheet> {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    // `useSafeArea: true` guards the status bar, not the bottom gesture/nav
+    // bar — same fix as `CategoryPickerSheet`.
+    final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
+    final viewPadding = MediaQuery.viewPaddingOf(context).bottom;
+    final bottomClearance = viewInsets > viewPadding ? viewInsets : viewPadding;
 
     return FractionallySizedBox(
       heightFactor: 0.86,
@@ -170,7 +175,7 @@ class _FastingStyleSheetState extends State<FastingStyleSheet> {
           ),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+              padding: EdgeInsets.fromLTRB(20, 8, 20, 24 + bottomClearance),
               children: [
                 _label(theme, l10n.fastingPreviewLabel),
                 _Preview(

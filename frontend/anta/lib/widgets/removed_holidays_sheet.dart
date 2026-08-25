@@ -66,6 +66,11 @@ class _RemovedHolidaysSheetState extends State<RemovedHolidaysSheet> {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final items = _items;
+    // `useSafeArea: true` guards the status bar, not the bottom gesture/nav
+    // bar — same fix as `CategoryPickerSheet`.
+    final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
+    final viewPadding = MediaQuery.viewPaddingOf(context).bottom;
+    final bottomClearance = viewInsets > viewPadding ? viewInsets : viewPadding;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -95,7 +100,7 @@ class _RemovedHolidaysSheetState extends State<RemovedHolidaysSheet> {
                   ),
                 )
               : ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+                  padding: EdgeInsets.fromLTRB(20, 4, 20, 16 + bottomClearance),
                   itemCount: items.length,
                   separatorBuilder: (_, _) => const Divider(height: 1),
                   itemBuilder: (context, index) {

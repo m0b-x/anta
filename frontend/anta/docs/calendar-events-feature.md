@@ -2012,18 +2012,21 @@ system rather than a single hardcoded fasting wash.
   scroll), so scroll extent grows and everything stays reachable. The FAB
   intentionally gets no inset handling: it sits behind the keyboard, where it
   was unusable anyway. A short-screen regression test pumps every frame of
-  the 200 ms collapse and restore asserting no overflow; it goes red if the
-  resize flag is flipped back.
+  the collapse and restore — stepped and ramped, both directions — asserting
+  no overflow; it goes red if the resize flag is flipped back.
 - **`_KeyboardInsetProbe` still sits above the `Scaffold`.** Its original
   reason was that `ScaffoldState.build` strips the bottom inset from the
   body's `MediaQuery` whenever `resizeToAvoidBottomInset` is true — a read
   below it saw `0` forever, and the first implementation silently did
   nothing. With resize now off, body-level reads work (the panel uses one),
   but the probe stays: it reads the inset in `didChangeDependencies` and
-  publishes a `ValueNotifier<bool>` so the **grid** subtree gets its
+  publishes it as a `ValueNotifier<double>` so the **grid** subtree gets its
   week-collapse signal without depending on `MediaQuery` at all, and the
   probe's `build` returns `child` unchanged so an inset frame never rebuilds
-  from the top.
+  from the top. (It published a thresholded `bool` until the 2026-08-25
+  coupling work below; `didChangeDependencies` always fired once per inset
+  frame, and the `> 0` comparison was the only thing throwing the fraction
+  away.)
 - **The keyboard rebuilds the panel's padding, never its scan.** An inset
   frame rebuilds `CalendarBottomPanel` and its mode child (the padding is
   live), but `sameGridInputs` / `samePanelInputs` are untouched and the
@@ -2033,14 +2036,12 @@ system rather than a single hardcoded fasting wash.
 - **`onFormatChanged` is nulled while collapsed** — table_calendar's own way
   to disable the vertical-swipe format gesture — so a swipe cannot rewrite the
   chosen format even when the user was already on week.
-- **One animation, not two.** `table_calendar` wraps its page in a 200 ms
-  `AnimatedSize` and re-targets `_pageHeight` from `didUpdateWidget`; because
-  the grid section is a non-flexible `Column` child it gets unbounded height,
-  so that inner tween really drives the transition. The page's own 250 ms
-  `AnimatedSize` goes unstable once the child resizes on consecutive layouts
-  and from then on tracks it 1:1 — exactly one frame diverges. A test pins
-  `<= 1` divergent frame, so a future change layering a second real tween
-  fails loudly.
+- **One animation, not two.** The page's own 250 ms `AnimatedSize` (which
+  exists for `_panelExpanded`) goes unstable once the child resizes on
+  consecutive layouts and from then on tracks it 1:1 — exactly one frame
+  diverges. A test pins `<= 1` divergent frame, so a future change layering a
+  second real tween fails loudly. Which animator *is* the one changed on
+  2026-08-25; see below.
 - **Agenda cards no longer clip their date range.** `_AgendaCard` wrapped its
   `ListTile` in `IntrinsicHeight` so the 4px category stripe could stretch.
   `_RenderListTile.computeMinIntrinsicHeight` measures title/subtitle at the
@@ -2067,6 +2068,112 @@ system rather than a single hardcoded fasting wash.
   `'a wrapping description grows the card instead of clipping'` covers. It was
   verified by reintroducing the bug and watching exactly that test go red. If
   the stripe/`Stack` structure is ever refactored, that is the test to trust.
+
+## Addendum (2026-08-25): keyboard-coupled grid motion
+
+The collapse above worked but read as robotic, for two structural reasons:
+`table_calendar`'s inner `AnimatedSize` ran it on `Curves.linear` (the package
+default the page never overrode), and the `> 0` inset threshold meant the grid
+could not begin expanding until the keyboard had **finished** leaving — about
+250 ms of keyboard followed by 200 ms of grid, one after the other. The fix is
+not a curve override: the page now owns the animation and drives it from the
+keyboard's own per-frame inset.
+
+- **`KeyboardInsetTracker`** (`lib/utils/keyboard_inset_tracker.dart`) is a
+  pure state machine fed one inset per frame. It emits a `collapsed` flag and
+  a `progress` fraction, and owns direction, peak tracking, peak learning and
+  jump detection. It has its own unit suite; nothing about it needs a widget.
+- **The collapse flag is asymmetric, and that is the whole point.** It flips
+  true on the first *rising* frame and false on the first *falling* one, so
+  the grid starts giving space back while the keyboard is still on screen.
+  Waiting for zero is what serialized the two animations.
+- **`KeyboardCoupledSize`** (`lib/widgets/keyboard_coupled_size.dart`) is a
+  `RenderShiftedBox` modelled on Flutter's `RenderAnimatedSize`. It animates a
+  **gap** added to the child's natural height rather than tweening between two
+  sizes.
+- **The child is never given a bounded height.** This is the constraint that
+  shapes the whole design: `table_calendar` divides a bounded height across
+  its rows (`calendar_core.dart`'s `constrainedRowHeight`), so wrapping it in
+  a `SizedBox` whose height shrinks squashes all six weeks into an accordion
+  instead of showing fewer of them. The box sizes and clips itself; the child
+  lays out at whatever height it wants.
+- **Continuity is measured, not computed.** When the child's height changes
+  between layouts the gap is seeded to `oldChildHeight + oldGap -
+  newChildHeight`, so the painted height is unchanged across the frame the
+  format flipped, and then relaxes to zero. Because it reads the child rather
+  than reimplementing the package's row-count formula, the same mechanism
+  covers month↔week, the filter sheet's format toggle, the vertical-swipe
+  gesture, and 4/5/6-row month swipes — which previously tweened on the
+  package's 200 ms linear curve and now use the house one.
+- **Coupled progress is `inset / peak`.** The hide path divides by the peak
+  this cycle actually observed. The show path has no peak of its own yet, so
+  it borrows the one **learned from the previous completed cycle this app
+  run** (not persisted — a settings key for this would be over-engineering).
+- **Three fallbacks to a timed 250 ms `easeOutCubic` tween**, because coupling
+  is only honest when there is motion to couple to: the first keyboard of an
+  app run (no learned peak), an inset that arrives or vanishes in a single
+  frame (Android < 30 does not animate it), and a coupled transition that has
+  been idle for 150 ms — an IME panel swap, a resume with the stuck inset
+  `main.dart` unfocuses against, or a learned peak that overshoots the real
+  one and would otherwise strand the grid part-collapsed.
+- **`formatAnimationDuration` is 1 ms, never `Duration.zero`.** Zero looks
+  like the obvious way to silence the package's animator, but a zero-duration
+  `AnimationController` publishes its end value *synchronously* from inside
+  `RenderAnimatedSize.performLayout`, which then re-dirties itself mid-layout
+  and throws. 1 ms completes on the next frame with no such edge. The cost is
+  that the child's resize lands one frame after the format flip, which the
+  gap absorbs.
+- **Reduce motion snaps.** `MediaQuery.disableAnimationsOf` zeroes the gap on
+  any child resize. Note the page's outer `AnimatedSize` is Flutter's own and
+  does **not** honour that setting, so the reduce-motion test asserts on
+  `KeyboardCoupledSize` rather than on the outer box.
+- **Tests.** `test/utils/keyboard_inset_tracker_test.dart` covers the state
+  machine; the widget suite gained a `rampKeyboard` helper (the old helpers
+  step the inset 0→320 in one frame, which is now precisely the API < 30
+  fallback and stays tested as such) plus coupled show/hide, both fallbacks
+  and reduce motion. The headline hide test asserts the grid grows while the
+  inset is still non-zero and lands **exactly** on the month height by the end
+  of a 160 ms ramp — inside the 250 ms fallback, so arriving exactly is what
+  proves the motion was inset-driven. Both coupled tests were watched go red
+  against the restored `> 0` threshold before being kept.
+
+## Addendum (2026-08-25): sheets and the system navigation bar
+
+`showModalBottomSheet(useSafeArea: true)` reads like it protects both edges. It
+does not — the route wraps the sheet in `SafeArea(bottom: false)`, so the top
+is guarded and the bottom deliberately is not. A sheet is anchored to the
+bottom edge of the screen, so its content runs underneath the gesture pill or
+the three-button bar, and the last row of a scrollable is what vanishes.
+
+Five sheets already worked around this individually. An audit found **six more
+that did not**: `EventDetailSheet` (reported: the description and occurrence
+chips), `AgendaDayListSheet`, `CalendarDatePickerSheet`, `FastingScheduleSheet`,
+`FastingStyleSheet` and `RemovedHolidaysSheet` — each carrying a `const`
+bottom padding of 16–24 px, which is less than a nav bar and, being `const`,
+structurally incapable of responding to one.
+
+- **The rule, now uniform:** pad by
+  `max(viewInsets.bottom, viewPadding.bottom)` — the keyboard inset or the
+  system inset, whichever is larger. `viewPadding` rather than `padding`
+  because the latter is already net of the keyboard, and the two cases are
+  mutually exclusive in practice.
+- **Where it goes:** onto the **scrollable's** bottom padding, so content still
+  scrolls the full height of the sheet and simply gains room to clear the bar.
+  Wrap the **whole sheet** in a `Padding` only when a fixed footer sits below
+  the scroll view, where the footer itself is what must clear the bar —
+  `CalendarFilterSheet` (Cancel/Apply) and `CalendarDatePickerSheet` (the
+  multi-select count and Clear button).
+- **`MonthYearPickerSheet` is the exception and is already correct**: a real
+  `SafeArea` inside the sheet plus a route-level `viewInsets` padding for typed
+  mode. Equivalent result, so it was left alone.
+- **Test:** `test/widgets/sheet_bottom_clearance_test.dart` asserts the resolved
+  padding responds to a faked 48 px nav bar, and that it stays at the designed
+  value with no nav bar (the clearance is additive, not a floor). Verified by
+  restoring the `const` padding and watching it go red.
+
+Not covered here, and still unpadded: `MoneyDetailSheet`, `MoveHistorySheet`,
+`NoteMatchListSheet` and `BarSwitcherSheet` — outside the calendar, so outside
+this pass.
 
 ## Addendum (2026-08-24): the event search grammar
 

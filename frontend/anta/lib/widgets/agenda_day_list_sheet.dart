@@ -115,6 +115,11 @@ class AgendaDayListSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    // `useSafeArea: true` guards the status bar, not the bottom gesture/nav
+    // bar — same fix as `CategoryPickerSheet`.
+    final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
+    final viewPadding = MediaQuery.viewPaddingOf(context).bottom;
+    final bottomClearance = viewInsets > viewPadding ? viewInsets : viewPadding;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -142,7 +147,7 @@ class AgendaDayListSheet extends StatelessWidget {
         ),
         Expanded(
           child: ListView.separated(
-            padding: const EdgeInsets.fromLTRB(8, 4, 8, 16),
+            padding: EdgeInsets.fromLTRB(8, 4, 8, 16 + bottomClearance),
             itemCount: list.entries.length,
             separatorBuilder: (_, _) => const Divider(height: 1),
             itemBuilder: (context, index) {

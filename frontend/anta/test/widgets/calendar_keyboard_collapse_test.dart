@@ -26,6 +26,7 @@ import 'package:anta/services/note_storage_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/widgets/agenda_list_view.dart';
 import 'package:anta/widgets/calendar_day_bars.dart';
+import 'package:anta/widgets/keyboard_coupled_size.dart';
 
 import '../database/support/db_test_support.dart';
 
@@ -159,6 +160,8 @@ void main() {
         find.byType(TableCalendar<CalendarEvent>),
       );
 
+  /// Raises the inset in a single frame, the way Android below API 30 reports
+  /// it — and the way every test here did before coupling existed.
   Future<void> showKeyboard(WidgetTester tester) async {
     tester.view.viewInsets = const FakeViewPadding(bottom: 320);
     await tester.pump();
@@ -169,12 +172,54 @@ void main() {
     await tester.pump();
   }
 
-  /// Height of the page's own `AnimatedSize` (the outer one, an ancestor of
-  /// `table_calendar`'s) and of the grid it wraps.
+  void setInset(WidgetTester tester, double inset) {
+    if (inset <= 0) {
+      tester.view.resetViewInsets();
+    } else {
+      tester.view.viewInsets = FakeViewPadding(bottom: inset);
+    }
+  }
+
+  /// Walks the inset from [from] to [to] one frame at a time, the way an IME
+  /// on API 30+ reports its own animation. Returns the inset of each frame.
+  Future<List<double>> rampKeyboard(
+    WidgetTester tester,
+    double from,
+    double to, {
+    int frames = 10,
+  }) async {
+    final insets = <double>[];
+    for (var i = 1; i <= frames; i++) {
+      final inset = from + (to - from) * (i / frames);
+      setInset(tester, inset);
+      await tester.pump(const Duration(milliseconds: 16));
+      insets.add(inset);
+    }
+    return insets;
+  }
+
+  /// Height of the page's own `AnimatedSize` (the outer one, which exists for
+  /// the panel-expanded toggle) and of the grid animator it wraps.
+  ///
+  /// The inner probe is [KeyboardCoupledSize], not `TableCalendar`: the grid
+  /// itself now snaps between formats in a single frame and the height
+  /// animation is owned by the page.
   (double outer, double inner) heights(WidgetTester tester) => (
     tester.getSize(find.byType(AnimatedSize).first).height,
-    tester.getSize(find.byType(TableCalendar<CalendarEvent>)).height,
+    tester.getSize(find.byType(KeyboardCoupledSize)).height,
   );
+
+  /// One completed open/close cycle, returning the collapsed height. The show
+  /// path has no observed peak of its own to divide by, so nothing couples
+  /// until a cycle has taught the tracker how tall this keyboard is.
+  Future<double> learnKeyboardHeight(WidgetTester tester) async {
+    await showKeyboard(tester);
+    await tester.pumpAndSettle();
+    final weekHeight = heights(tester).$1;
+    await hideKeyboard(tester);
+    await tester.pumpAndSettle();
+    return weekHeight;
+  }
 
   testWidgets('the keyboard collapses the grid to a week and back', (
     tester,
@@ -246,12 +291,12 @@ void main() {
             'is what two competing size animations look like',
       );
     }
-    // `table_calendar` owns the transition. The page's own AnimatedSize sees a
-    // child that resizes on consecutive layouts, drops into `RenderAnimatedSize`'s
-    // `unstable` state and tracks it from then on — so exactly one frame (the
-    // first, where it has started its own tween but not yet noticed the child
-    // moving again) may hold the old height. If it ever ran its 250ms tween
-    // through, the two would diverge for its whole length.
+    // `KeyboardCoupledSize` owns the transition. The page's own AnimatedSize
+    // sees a child that resizes on consecutive layouts, drops into
+    // `RenderAnimatedSize`'s `unstable` state and tracks it from then on — so
+    // exactly one frame (the first, where it has started its own tween but not
+    // yet noticed the child moving again) may hold the old height. If it ever
+    // ran its 250ms tween through, the two would diverge for its whole length.
     final divergent = [
       for (var i = 0; i < samples.length; i++)
         if (samples[i].$1 != samples[i].$2) i,
@@ -324,9 +369,9 @@ void main() {
     await pumpCalendar(tester);
     await tester.pumpAndSettle();
 
-    final before = tester.widget<AgendaListView>(
-      find.byType(AgendaListView),
-    ).rows;
+    final before = tester
+        .widget<AgendaListView>(find.byType(AgendaListView))
+        .rows;
     CalendarEvent.debugOccursOnCalls = 0;
 
     await showKeyboard(tester);
@@ -339,9 +384,9 @@ void main() {
       0,
       reason: 'the keyboard changes no agenda input',
     );
-    final after = tester.widget<AgendaListView>(
-      find.byType(AgendaListView),
-    ).rows;
+    final after = tester
+        .widget<AgendaListView>(find.byType(AgendaListView))
+        .rows;
     expect(
       identical(after, before),
       isTrue,
@@ -400,6 +445,202 @@ void main() {
       }
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
+
+      await learnKeyboardHeight(tester);
+      await rampKeyboard(tester, 0, 320);
+      expect(tester.takeException(), isNull);
+      await rampKeyboard(tester, 320, 0);
+      expect(tester.takeException(), isNull);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('the grid expands while the keyboard is still sliding away', (
+    tester,
+  ) async {
+    sizeSurface(tester);
+    await setPanelMode(CalendarPanelMode.upcoming);
+    await pumpCalendar(tester);
+    await tester.pumpAndSettle();
+
+    final monthHeight = heights(tester).$1;
+    final weekHeight = await learnKeyboardHeight(tester);
+    expect(weekHeight, lessThan(monthHeight));
+
+    await showKeyboard(tester);
+    await tester.pumpAndSettle();
+    expect(heights(tester).$1, weekHeight);
+
+    final insets = <double>[];
+    final samples = <double>[];
+    for (var i = 1; i <= 10; i++) {
+      final inset = 320 - 32.0 * i;
+      setInset(tester, inset);
+      await tester.pump(const Duration(milliseconds: 16));
+      insets.add(inset);
+      samples.add(heights(tester).$1);
+    }
+
+    final firstGrowth = samples.indexWhere((h) => h > weekHeight);
+    expect(firstGrowth, isNonNegative);
+    expect(
+      insets[firstGrowth],
+      greaterThan(0),
+      reason:
+          'the grid must take space back while the keyboard is still on '
+          'screen — waiting for the inset to reach zero is what made the two '
+          'animations run one after the other',
+    );
+
+    for (var i = 1; i < samples.length; i++) {
+      expect(
+        samples[i],
+        greaterThanOrEqualTo(samples[i - 1]),
+        reason: 'the expansion must never reverse mid-flight',
+      );
+    }
+
+    expect(
+      samples.last,
+      monthHeight,
+      reason:
+          'the ramp spans 160ms, well inside the 250ms timed fallback, so '
+          'landing exactly on the month height proves the motion was driven '
+          'by the inset rather than by a timer',
+    );
+  });
+
+  testWidgets('the collapse tracks a keyboard that animates open', (
+    tester,
+  ) async {
+    sizeSurface(tester);
+    await setPanelMode(CalendarPanelMode.upcoming);
+    await pumpCalendar(tester);
+    await tester.pumpAndSettle();
+
+    final monthHeight = heights(tester).$1;
+    final weekHeight = await learnKeyboardHeight(tester);
+    expect(heights(tester).$1, monthHeight);
+
+    final samples = <double>[];
+    for (var i = 1; i <= 10; i++) {
+      setInset(tester, 32.0 * i);
+      await tester.pump(const Duration(milliseconds: 16));
+      samples.add(heights(tester).$1);
+    }
+
+    expect(samples.toSet().length, greaterThan(2));
+    for (var i = 1; i < samples.length; i++) {
+      expect(samples[i], lessThanOrEqualTo(samples[i - 1]));
+    }
+    expect(
+      samples.last,
+      weekHeight,
+      reason:
+          'a learned peak lets the show path couple too, so the collapse '
+          'finishes with the keyboard instead of outliving it',
+    );
+  });
+
+  testWidgets('the first keyboard of a run animates without a learned peak', (
+    tester,
+  ) async {
+    sizeSurface(tester);
+    await setPanelMode(CalendarPanelMode.upcoming);
+    await pumpCalendar(tester);
+    await tester.pumpAndSettle();
+
+    final monthHeight = heights(tester).$1;
+    final samples = <double>[];
+    for (var i = 1; i <= 10; i++) {
+      setInset(tester, 32.0 * i);
+      await tester.pump(const Duration(milliseconds: 16));
+      samples.add(heights(tester).$1);
+    }
+
+    expect(samples.first, lessThanOrEqualTo(monthHeight));
+    expect(
+      samples.toSet().length,
+      greaterThan(2),
+      reason: 'the fallback still animates rather than snapping',
+    );
+
+    final duringRamp = samples.last;
+    await tester.pumpAndSettle();
+    final weekHeight = heights(tester).$1;
+    expect(
+      duringRamp,
+      greaterThan(weekHeight),
+      reason:
+          'nothing has taught the tracker this keyboard height yet, so the '
+          'collapse runs on its own 250ms tween — which 160ms of ramp cannot '
+          'have finished',
+    );
+  });
+
+  testWidgets('a keyboard that vanishes in one frame still animates back', (
+    tester,
+  ) async {
+    sizeSurface(tester);
+    await setPanelMode(CalendarPanelMode.upcoming);
+    await pumpCalendar(tester);
+    await tester.pumpAndSettle();
+
+    final monthHeight = heights(tester).$1;
+    await showKeyboard(tester);
+    await tester.pumpAndSettle();
+    final weekHeight = heights(tester).$1;
+
+    await hideKeyboard(tester);
+    final samples = <double>[heights(tester).$1];
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      samples.add(heights(tester).$1);
+    }
+
+    expect(
+      samples.first,
+      weekHeight,
+      reason:
+          'the grid must grow out of the height it already had — a jump to '
+          'the month height on the frame the format flips is the seam this '
+          'animator exists to absorb',
+    );
+    expect(samples.toSet().length, greaterThan(2));
+    for (var i = 1; i < samples.length; i++) {
+      expect(samples[i], greaterThanOrEqualTo(samples[i - 1]));
+    }
+    expect(samples.last, monthHeight);
+  });
+
+  testWidgets('reduce motion snaps the grid instead of animating it', (
+    tester,
+  ) async {
+    sizeSurface(tester);
+    // The real platform signal, so it reaches the page the way the OS setting
+    // does: through `MediaQueryData.fromView`.
+    tester.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(disableAnimations: true);
+    addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+    await setPanelMode(CalendarPanelMode.upcoming);
+    await pumpCalendar(tester);
+    await tester.pumpAndSettle();
+
+    // The inner probe: the page's outer `AnimatedSize` is Flutter's own and
+    // does not read the reduce-motion setting, so only the grid animator can
+    // be asserted on here.
+    final monthHeight = heights(tester).$2;
+    await showKeyboard(tester);
+    await tester.pump(const Duration(milliseconds: 16));
+
+    final collapsed = heights(tester).$2;
+    expect(collapsed, lessThan(monthHeight));
+    await tester.pumpAndSettle();
+    expect(
+      heights(tester).$2,
+      collapsed,
+      reason: 'with animations off there is nothing left to run',
+    );
+  });
 }
