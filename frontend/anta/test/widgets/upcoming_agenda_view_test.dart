@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/intl.dart';
 
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/constants/app_spacing.dart';
@@ -38,6 +39,21 @@ void main() {
   /// `allEvents` identity on a day tap, so the view's `identical(events)` guard
   /// stays quiet and only the anchor drives (or does not drive) a rescan.
   final events = [daily];
+
+  /// A day far enough from the real clock that the agenda never relabels it.
+  ///
+  /// `AgendaListView.dayHeaderLabel` substitutes "Today"/"Tomorrow" for the two
+  /// days around `DateTime.now()`, deliberately, so a panel left open across
+  /// midnight relabels itself. That makes a fixture pinned to a literal date a
+  /// time bomb: this file used to assert "August 26" and went red on every
+  /// 25 August. Anchoring off the clock is what keeps these assertions honest.
+  DateTime farDay(int offsetDays) =>
+      EventAgenda.dateOnly(DateTime.now()).add(Duration(days: 60 + offsetDays));
+
+  /// The exact strings the agenda renders for [day]: the day-group header
+  /// inside the list, and the abbreviated form used in the panel header.
+  String dayHeader(DateTime day) => DateFormat.MMMMEEEEd('en').format(day);
+  String rangeStamp(DateTime day) => DateFormat.MMMd('en').format(day);
 
   Future<void> pumpView(
     WidgetTester tester, {
@@ -85,29 +101,23 @@ void main() {
     tester,
   ) async {
     const filters = UpcomingAgendaFilters(rangeDays: 30);
+    final first = farDay(0);
+    final second = farDay(31);
 
-    await pumpView(
-      tester,
-      anchorDay: DateTime.utc(2026, 8, 10),
-      filters: filters,
-    );
-    expect(header(tester), contains('Aug 10'));
+    await pumpView(tester, anchorDay: first, filters: filters);
+    expect(header(tester), contains(rangeStamp(first)));
     // The first day-group header is scan output (a row), not the pure range
     // label — asserting it proves the scan actually re-ran, not just that the
     // header getter recomputed. Full month name, so it cannot collide with the
-    // abbreviated "Aug 10" in the panel header.
-    expect(find.textContaining('August 10'), findsOneWidget);
+    // abbreviated stamp in the panel header.
+    expect(find.textContaining(dayHeader(first)), findsOneWidget);
 
-    await pumpView(
-      tester,
-      anchorDay: DateTime.utc(2026, 9, 10),
-      filters: filters,
-    );
+    await pumpView(tester, anchorDay: second, filters: filters);
     await tester.pump();
-    expect(header(tester), contains('Sep 10'));
-    expect(header(tester), isNot(contains('Aug 10')));
-    expect(find.textContaining('September 10'), findsOneWidget);
-    expect(find.textContaining('August 10'), findsNothing);
+    expect(header(tester), contains(rangeStamp(second)));
+    expect(header(tester), isNot(contains(rangeStamp(first))));
+    expect(find.textContaining(dayHeader(second)), findsOneWidget);
+    expect(find.textContaining(dayHeader(first)), findsNothing);
   });
 
   testWidgets('anchor change under a custom range leaves the window put', (
@@ -683,7 +693,9 @@ void main() {
         filters: window.copyWith(query: 'gym'),
       );
 
-      expect(header(tester), contains('30 entries'));
+      // A non-empty query widens the window to the 366-day maximum: search
+      // is a lookup over the calendar, not a filter over the visible month.
+      expect(header(tester), contains('366 entries'));
       expect(find.text('Leg day'), findsWidgets);
     });
 
@@ -706,7 +718,7 @@ void main() {
         anchorDay: anchor,
         filters: window.copyWith(query: 'gym leg'),
       );
-      expect(header(tester), contains('30 entries'));
+      expect(header(tester), contains('366 entries'));
 
       await pumpView(
         tester,
@@ -718,15 +730,27 @@ void main() {
     });
 
     testWidgets('a date term narrows the list to that day', (tester) async {
+      // Sixteen days into a window that itself starts sixty days out, so the
+      // target is unique inside the searched year and can never be the day the
+      // agenda relabels as Today/Tomorrow.
+      final start = farDay(0);
+      final target = start.add(const Duration(days: 16));
+      final query = '${DateFormat.MMM('en').format(target)} ${target.day}';
+
       await pumpView(
         tester,
-        anchorDay: anchor,
-        filters: window.copyWith(query: 'aug 26'),
+        anchorDay: start,
+        filters: window.copyWith(query: query),
       );
 
       expect(header(tester), contains('1 entry'));
-      expect(find.textContaining('August 26'), findsOneWidget);
-      expect(find.textContaining('August 25'), findsNothing);
+      expect(find.textContaining(dayHeader(target)), findsOneWidget);
+      expect(
+        find.textContaining(
+          dayHeader(target.subtract(const Duration(days: 1))),
+        ),
+        findsNothing,
+      );
     });
 
     testWidgets('a query change rescans once, after the debounce', (
@@ -750,7 +774,9 @@ void main() {
 
       await tester.pump(const Duration(milliseconds: 250));
       // One window scan, not one per rebuild the keystroke caused.
-      expect(CalendarEvent.debugOccursOnCalls, 30);
+      // 366, not 30: the query widened the window. Still ONE scan, which is
+      // what this test exists to pin — the debounce, not the window size.
+      expect(CalendarEvent.debugOccursOnCalls, 366);
     });
   });
 }

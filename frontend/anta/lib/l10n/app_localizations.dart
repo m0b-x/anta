@@ -1390,6 +1390,30 @@ abstract class AppLocalizations {
   /// **'Jewish'**
   String get fastingTraditionJewish;
 
+  /// Comma-separated hidden search synonyms for the Orthodox fasting tradition, matched but never shown
+  ///
+  /// In en, this message translates to:
+  /// **'orthodox, orthodoxe, ortodox, fasting, church'**
+  String get fastingTraditionOrthodoxKeywords;
+
+  /// Comma-separated hidden search synonyms for the Catholic fasting tradition, matched but never shown
+  ///
+  /// In en, this message translates to:
+  /// **'catholic, katholisch, catolic, roman catholic, church'**
+  String get fastingTraditionCatholicKeywords;
+
+  /// Comma-separated hidden search synonyms for the Muslim fasting tradition, matched but never shown
+  ///
+  /// In en, this message translates to:
+  /// **'muslim, muslimisch, musulman, islamic, mosque'**
+  String get fastingTraditionMuslimKeywords;
+
+  /// Comma-separated hidden search synonyms for the Jewish fasting tradition, matched but never shown
+  ///
+  /// In en, this message translates to:
+  /// **'jewish, judisch, evreiesc, synagogue, hebrew'**
+  String get fastingTraditionJewishKeywords;
+
   /// Orthodox Easter fast (Postul Pastelui)
   ///
   /// In en, this message translates to:
@@ -1527,6 +1551,54 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Fast of Esther'**
   String get fastingEstherFast;
+
+  /// Comma-separated hidden search synonyms for Great Lent, matched but never shown
+  ///
+  /// In en, this message translates to:
+  /// **'lent, great lent, easter fast, post, postul mare, fastenzeit'**
+  String get fastingGreatLentKeywords;
+
+  /// Comma-separated hidden search synonyms for the Catholic Lent period, matched but never shown
+  ///
+  /// In en, this message translates to:
+  /// **'fastenzeit, postul mare, lenten season, easter fast, penance'**
+  String get fastingLentKeywords;
+
+  /// Comma-separated hidden search synonyms for the Advent period, matched but never shown
+  ///
+  /// In en, this message translates to:
+  /// **'advent, christmas fast, pre-christmas, waiting season'**
+  String get fastingAdventKeywords;
+
+  /// Comma-separated hidden search synonyms for Ramadan, matched but never shown
+  ///
+  /// In en, this message translates to:
+  /// **'ramadan, ramazan, muslim fast, islamic month, fasting month'**
+  String get fastingRamadanKeywords;
+
+  /// Comma-separated hidden search synonyms for the Nativity Fast, matched but never shown
+  ///
+  /// In en, this message translates to:
+  /// **'nativity fast, christmas fast, weihnachtsfasten, postul craciunului, advent'**
+  String get fastingNativityFastKeywords;
+
+  /// Comma-separated hidden search synonyms for the Dormition Fast, matched but never shown
+  ///
+  /// In en, this message translates to:
+  /// **'dormition fast, assumption fast, august fast, entschlafungsfasten, postul adormirii'**
+  String get fastingDormitionFastKeywords;
+
+  /// Comma-separated hidden search synonyms for the Apostles' Fast, matched but never shown
+  ///
+  /// In en, this message translates to:
+  /// **'apostles fast, peter and paul fast, apostelfasten, postul sfintilor apostoli'**
+  String get fastingApostlesFastKeywords;
+
+  /// Comma-separated hidden search synonyms for the weekly Wednesday/Friday fast, matched but never shown
+  ///
+  /// In en, this message translates to:
+  /// **'wednesday, friday, weekly fast, miercuri, vineri, mittwoch, freitag'**
+  String get fastingWeekdayFastKeywords;
 
   /// Fasting rule: strict fast, no oil
   ///
@@ -6303,6 +6375,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Nothing coming up'**
   String get upcomingNoEvents;
+
+  /// Label before suggestion chips shown when a search returns nothing
+  ///
+  /// In en, this message translates to:
+  /// **'Did you mean'**
+  String get upcomingDidYouMean;
 
   /// Empty state hint of the upcoming events sheet
   ///

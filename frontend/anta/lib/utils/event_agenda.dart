@@ -248,6 +248,18 @@ abstract final class EventAgenda {
   /// case- and diacritic-insensitively against the title, the description,
   /// the localized category label supplied in [categoryLabels] and — for date
   /// terms — the occurrence's own day.
+  ///
+  /// [labelTextOf] supplies the rest of what a row actually *shows* — its
+  /// recurrence pattern, its time or "All day" badge, its priority word — so
+  /// text visible on screen is text the search can find. A closure rather than
+  /// a value for the same reason [categoryLabels] is a map: this file stays
+  /// `AppLocalizations`-free, and the caller resolves the strings where a
+  /// localization actually exists. See `AgendaSearchText.forEvent`.
+  ///
+  /// It is called **at most once per candidate event**, and only for events
+  /// the title and category left unsettled — the same gate the description
+  /// fold lives behind. Its answer cannot vary by day, so it never reaches the
+  /// per-(event, day) path.
   static List<EventOccurrence> occurrencesInRange({
     required List<CalendarEvent> events,
     required DateTime from,
@@ -256,6 +268,7 @@ abstract final class EventAgenda {
     Set<int> priorities = const {},
     EventSearchQuery query = EventSearchQuery.empty,
     Map<String, String> categoryLabels = const {},
+    String Function(CalendarEvent event)? labelTextOf,
     AgendaEventType eventType = AgendaEventType.all,
     Set<String> categoryIds = const {},
     bool collapseRecurring = false,
@@ -301,11 +314,23 @@ abstract final class EventAgenda {
       final base =
           query.maskOf(event.title) | (categoryMasks[event.categoryId] ?? 0);
       // Everything the title and the category already answer for is settled;
-      // the description is only folded for what they left open, so a title hit
-      // still costs no description fold at all.
+      // nothing below is folded for what they already closed, so a title hit
+      // still costs neither a label nor a description fold.
       final baseSettles = query.couldSatisfy(base);
+      // The row's own labels come **before** the description: they are short,
+      // already on screen, and settling here spares a whole-description fold.
+      // A template that still matches is folded either way, so every
+      // description-fold budget this scan is pinned to stays where it was.
+      var labels = 0;
+      if (!baseSettles && labelTextOf != null) {
+        labels = _labelFoldMask(labelTextOf(event), query);
+      }
+      final settled = base | labels;
+      final settledSatisfies = labels == 0
+          ? baseSettles
+          : query.couldSatisfy(settled);
       var template = 0;
-      if (!baseSettles) {
+      if (!settledSatisfies) {
         final description = event.description;
         if (description != null) {
           template = _descriptionFoldMask(description, query);
@@ -315,21 +340,24 @@ abstract final class EventAgenda {
       // match. Without it, an event whose only hit is a single day's override
       // never reaches the scan.
       final varies =
-          !baseSettles &&
+          !settledSatisfies &&
           OccurrenceDescriptions.appliesTo(event) &&
           OccurrenceDescriptions.hasAnyOverride(event.id);
       // Deliberately a *superset* test: with per-occurrence descriptions an
       // event may match only through text living on one specific day, so
       // dropping it here would make that text unfindable. A date term is
       // likewise treated as satisfiable here and narrowed per day below.
-      if (!baseSettles && !varies && !query.couldSatisfy(base | template)) {
+      if (!settledSatisfies &&
+          !varies &&
+          !query.couldSatisfy(settled | template)) {
         continue;
       }
       matchState[event.id] = _EventQueryMatch(
         base: base,
+        labels: labels,
         template: template,
         varies: varies,
-        always: !query.hasDateClauses && (baseSettles || !varies),
+        always: !query.hasDateClauses && (settledSatisfies || !varies),
       );
       candidates.add(event);
     }
@@ -363,7 +391,9 @@ abstract final class EventAgenda {
       final state = matchState[event.id];
       if (state == null) return false;
       if (state.always) return true;
-      var mask = state.base;
+      // Both halves were decided once per event — the labels no more vary by
+      // day than the title does.
+      var mask = state.base | state.labels;
       if (state.varies) {
         final override = OccurrenceDescriptions.overrideFor(event.id, day);
         mask |= override == null
@@ -899,27 +929,54 @@ abstract final class EventAgenda {
     }());
     return query.maskOf(text);
   }
+
+  /// Counts calls to `occurrencesInRange`'s `labelTextOf` closure. Mirrors
+  /// [debugDescriptionFolds] exactly, `assert`-only so it costs nothing in
+  /// profile and release builds.
+  ///
+  /// The closure builds several localized strings — a recurrence phrase, a
+  /// formatted time range — so the property worth pinning is that it runs
+  /// **once per candidate event**, never once per (event, day), and not at all
+  /// when the title or the category already settled the query.
+  @visibleForTesting
+  static int debugLabelFolds = 0;
+
+  /// Folds [text] into [query]'s term bits, counting the fold. The one place a
+  /// row's display labels are normalized during a scan, so [debugLabelFolds]
+  /// cannot drift from what actually happens.
+  static int _labelFoldMask(String text, EventSearchQuery query) {
+    assert(() {
+      debugLabelFolds++;
+      return true;
+    }());
+    return query.maskOf(text);
+  }
 }
 
 /// What a candidate event already satisfies of the active query, resolved once
 /// per event by [EventAgenda.occurrencesInRange]'s pre-filter.
 ///
 /// [base] holds the term bits the title and the category label answer for —
-/// neither varies by day. [template] holds the template description's bits,
-/// folded only for what [base] left open. [varies] means the day loop has to
-/// ask [OccurrenceDescriptions] whether this day overrode that template, and a
+/// neither varies by day. [labels] holds the bits the row's own rendered
+/// labels answer for (recurrence pattern, time or "All day", priority word),
+/// folded once for what [base] left open and just as day-invariant.
+/// [template] holds the template description's bits, folded only for what the
+/// two above left open. [varies] means the day loop has to ask
+/// [OccurrenceDescriptions] whether this day overrode that template, and a
 /// live override **replaces** [template] rather than adding to it, including
 /// when its text is empty. [always] short-circuits the whole thing for the
 /// common case: no date term to narrow by, and nothing left for a day to
 /// change.
 class _EventQueryMatch {
   final int base;
+  final int labels;
   final int template;
   final bool varies;
   final bool always;
 
   const _EventQueryMatch({
     required this.base,
+    required this.labels,
     required this.template,
     required this.varies,
     required this.always,

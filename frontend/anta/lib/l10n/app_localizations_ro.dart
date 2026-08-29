@@ -825,6 +825,22 @@ class AppLocalizationsRo extends AppLocalizations {
   String get fastingTraditionJewish => 'Evreiesc';
 
   @override
+  String get fastingTraditionOrthodoxKeywords =>
+      'ortodox, orthodox, post, biserică, răsăriteană';
+
+  @override
+  String get fastingTraditionCatholicKeywords =>
+      'catolic, catholic, katholisch, biserică, papă';
+
+  @override
+  String get fastingTraditionMuslimKeywords =>
+      'musulman, muslim, muslimisch, islamic, moschee';
+
+  @override
+  String get fastingTraditionJewishKeywords =>
+      'evreiesc, jewish, judisch, sinagogă, ebraic';
+
+  @override
   String get fastingGreatLent => 'Postul Paștelui';
 
   @override
@@ -892,6 +908,37 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get fastingEstherFast => 'Postul Esterei';
+
+  @override
+  String get fastingGreatLentKeywords =>
+      'lent, great lent, easter fast, fastenzeit, postul mare';
+
+  @override
+  String get fastingLentKeywords => 'lent, fastenzeit, post catolic, penitență';
+
+  @override
+  String get fastingAdventKeywords =>
+      'advent, christmas fast, așteptarea crăciunului, pregătire';
+
+  @override
+  String get fastingRamadanKeywords =>
+      'ramadan, ramazan, luna postului, post musulman';
+
+  @override
+  String get fastingNativityFastKeywords =>
+      'postul crăciunului, nativity fast, christmas fast, weihnachtsfasten, advent';
+
+  @override
+  String get fastingDormitionFastKeywords =>
+      'postul adormirii, dormition fast, assumption fast, entschlafungsfasten';
+
+  @override
+  String get fastingApostlesFastKeywords =>
+      'postul sfinților apostoli, apostles fast, peter and paul fast, apostelfasten, postul sfinților petru și pavel';
+
+  @override
+  String get fastingWeekdayFastKeywords =>
+      'miercuri, vineri, post săptămânal, wednesday, friday, mittwoch, freitag';
 
   @override
   String get fastingRegimeStrict => 'Post aspru';
@@ -3621,6 +3668,9 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get upcomingNoEvents => 'Nimic în perioada aleasă';
+
+  @override
+  String get upcomingDidYouMean => 'Ai vrut să spui';
 
   @override
   String get upcomingNoEventsHint =>

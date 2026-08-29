@@ -11,6 +11,7 @@
 library;
 
 import '../services/folder_search_service.dart';
+import 'fuzzy_rank.dart';
 
 /// One term, pre-folded, with everything the suggestion bar needs to render it.
 ///
@@ -41,11 +42,9 @@ class VocabularyMatcher {
   /// typing another character than by scrolling.
   static const int maxResults = 8;
 
-  static const int _scorePrefix = 0;
-  static const int _scoreWordStart = 1;
-  static const int _scoreSubstring = 2;
-  static const int _scoreSubsequence = 3;
-  static const int _tiers = 4;
+  /// Tiering lives in [FuzzyRank], shared with the agenda's suggestion chip.
+  static const int _scorePrefix = FuzzyRank.tierPrefix;
+  static const int _tiers = FuzzyRank.tiers;
 
   /// Ranks [candidates] against [query].
   ///
@@ -93,7 +92,7 @@ class VocabularyMatcher {
           !vocabularyIds.contains(candidate.vocabularyId)) {
         continue;
       }
-      final score = _score(candidate.foldedTerm, folded);
+      final score = FuzzyRank.score(candidate.foldedTerm, folded);
       if (score < 0) continue;
 
       (buckets[score] ??= <VocabularyCandidate>[]).add(candidate);
@@ -110,41 +109,5 @@ class VocabularyMatcher {
       }
     }
     return results;
-  }
-
-  /// Lower is better; `-1` means no match.
-  static int _score(String term, String query) {
-    if (term.startsWith(query)) return _scorePrefix;
-
-    final index = term.indexOf(query);
-    if (index > 0) {
-      return _isWordStart(term, index) ? _scoreWordStart : _scoreSubstring;
-    }
-
-    return _isSubsequence(term, query) ? _scoreSubsequence : -1;
-  }
-
-  static bool _isWordStart(String term, int index) {
-    final previous = term.codeUnitAt(index - 1);
-    return !_isWordChar(previous);
-  }
-
-  static bool _isWordChar(int c) {
-    if (c >= 0x30 && c <= 0x39) return true;
-    if (c >= 0x61 && c <= 0x7A) return true;
-    if (c >= 0x41 && c <= 0x5A) return true;
-    return c > 0x7F;
-  }
-
-  static bool _isSubsequence(String term, String query) {
-    final termLength = term.length;
-    final queryLength = query.length;
-    if (queryLength > termLength) return false;
-
-    var q = 0;
-    for (var t = 0; t < termLength && q < queryLength; t++) {
-      if (term.codeUnitAt(t) == query.codeUnitAt(q)) q++;
-    }
-    return q == queryLength;
   }
 }

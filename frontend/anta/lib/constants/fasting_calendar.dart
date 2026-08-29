@@ -332,6 +332,39 @@ abstract final class FastingCalendar {
     };
   }
 
+  /// Search-only synonyms for a tradition — matched, never rendered.
+  ///
+  /// Each locale's list carries the *other* languages' terms too, so a user
+  /// whose app is in Romanian can still find "Ortodox" by typing "orthodox".
+  /// Same mechanism the settings search uses (`swipeKeywords`).
+  static String traditionKeywordsOf(
+    FastingTradition tradition,
+    AppLocalizations l10n,
+  ) {
+    return switch (tradition) {
+      FastingTradition.orthodox => l10n.fastingTraditionOrthodoxKeywords,
+      FastingTradition.catholic => l10n.fastingTraditionCatholicKeywords,
+      FastingTradition.muslim => l10n.fastingTraditionMuslimKeywords,
+      FastingTradition.jewish => l10n.fastingTraditionJewishKeywords,
+    };
+  }
+
+  /// Search-only synonyms for a period, or null where the displayed name is
+  /// the only sensible term. Same contract as [traditionKeywordsOf].
+  static String? searchKeywordsOf(FastingPeriod period, AppLocalizations l10n) {
+    return switch (period) {
+      FastingPeriod.greatLent => l10n.fastingGreatLentKeywords,
+      FastingPeriod.lent => l10n.fastingLentKeywords,
+      FastingPeriod.advent => l10n.fastingAdventKeywords,
+      FastingPeriod.ramadan => l10n.fastingRamadanKeywords,
+      FastingPeriod.nativityFast => l10n.fastingNativityFastKeywords,
+      FastingPeriod.dormitionFast => l10n.fastingDormitionFastKeywords,
+      FastingPeriod.apostlesFast => l10n.fastingApostlesFastKeywords,
+      FastingPeriod.weekdayFast => l10n.fastingWeekdayFastKeywords,
+      _ => null,
+    };
+  }
+
   static String regimeNameOf(FastingRegime regime, AppLocalizations l10n) {
     return switch (regime) {
       FastingRegime.strict => l10n.fastingRegimeStrict,

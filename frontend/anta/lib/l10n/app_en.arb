@@ -961,6 +961,22 @@
   "@fastingTraditionJewish": {
     "description": "Fasting tradition toggle: Jewish"
   },
+  "fastingTraditionOrthodoxKeywords": "orthodox, orthodoxe, ortodox, fasting, church",
+  "@fastingTraditionOrthodoxKeywords": {
+    "description": "Comma-separated hidden search synonyms for the Orthodox fasting tradition, matched but never shown"
+  },
+  "fastingTraditionCatholicKeywords": "catholic, katholisch, catolic, roman catholic, church",
+  "@fastingTraditionCatholicKeywords": {
+    "description": "Comma-separated hidden search synonyms for the Catholic fasting tradition, matched but never shown"
+  },
+  "fastingTraditionMuslimKeywords": "muslim, muslimisch, musulman, islamic, mosque",
+  "@fastingTraditionMuslimKeywords": {
+    "description": "Comma-separated hidden search synonyms for the Muslim fasting tradition, matched but never shown"
+  },
+  "fastingTraditionJewishKeywords": "jewish, judisch, evreiesc, synagogue, hebrew",
+  "@fastingTraditionJewishKeywords": {
+    "description": "Comma-separated hidden search synonyms for the Jewish fasting tradition, matched but never shown"
+  },
   "fastingGreatLent": "Great Lent",
   "@fastingGreatLent": {
     "description": "Orthodox Easter fast (Postul Pastelui)"
@@ -1052,6 +1068,38 @@
   "fastingEstherFast": "Fast of Esther",
   "@fastingEstherFast": {
     "description": "Jewish minor fast before Purim"
+  },
+  "fastingGreatLentKeywords": "lent, great lent, easter fast, post, postul mare, fastenzeit",
+  "@fastingGreatLentKeywords": {
+    "description": "Comma-separated hidden search synonyms for Great Lent, matched but never shown"
+  },
+  "fastingLentKeywords": "fastenzeit, postul mare, lenten season, easter fast, penance",
+  "@fastingLentKeywords": {
+    "description": "Comma-separated hidden search synonyms for the Catholic Lent period, matched but never shown"
+  },
+  "fastingAdventKeywords": "advent, christmas fast, pre-christmas, waiting season",
+  "@fastingAdventKeywords": {
+    "description": "Comma-separated hidden search synonyms for the Advent period, matched but never shown"
+  },
+  "fastingRamadanKeywords": "ramadan, ramazan, muslim fast, islamic month, fasting month",
+  "@fastingRamadanKeywords": {
+    "description": "Comma-separated hidden search synonyms for Ramadan, matched but never shown"
+  },
+  "fastingNativityFastKeywords": "nativity fast, christmas fast, weihnachtsfasten, postul craciunului, advent",
+  "@fastingNativityFastKeywords": {
+    "description": "Comma-separated hidden search synonyms for the Nativity Fast, matched but never shown"
+  },
+  "fastingDormitionFastKeywords": "dormition fast, assumption fast, august fast, entschlafungsfasten, postul adormirii",
+  "@fastingDormitionFastKeywords": {
+    "description": "Comma-separated hidden search synonyms for the Dormition Fast, matched but never shown"
+  },
+  "fastingApostlesFastKeywords": "apostles fast, peter and paul fast, apostelfasten, postul sfintilor apostoli",
+  "@fastingApostlesFastKeywords": {
+    "description": "Comma-separated hidden search synonyms for the Apostles' Fast, matched but never shown"
+  },
+  "fastingWeekdayFastKeywords": "wednesday, friday, weekly fast, miercuri, vineri, mittwoch, freitag",
+  "@fastingWeekdayFastKeywords": {
+    "description": "Comma-separated hidden search synonyms for the weekly Wednesday/Friday fast, matched but never shown"
   },
   "fastingRegimeStrict": "Strict fast",
   "@fastingRegimeStrict": {
@@ -4576,6 +4624,10 @@
   "upcomingNoEvents": "Nothing coming up",
   "@upcomingNoEvents": {
     "description": "Empty state title of the upcoming events sheet"
+  },
+  "upcomingDidYouMean": "Did you mean",
+  "@upcomingDidYouMean": {
+    "description": "Label before suggestion chips shown when a search returns nothing"
   },
   "upcomingNoEventsHint": "Try a longer period or a lower priority",
   "@upcomingNoEventsHint": {

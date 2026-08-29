@@ -809,6 +809,22 @@ class AppLocalizationsEn extends AppLocalizations {
   String get fastingTraditionJewish => 'Jewish';
 
   @override
+  String get fastingTraditionOrthodoxKeywords =>
+      'orthodox, orthodoxe, ortodox, fasting, church';
+
+  @override
+  String get fastingTraditionCatholicKeywords =>
+      'catholic, katholisch, catolic, roman catholic, church';
+
+  @override
+  String get fastingTraditionMuslimKeywords =>
+      'muslim, muslimisch, musulman, islamic, mosque';
+
+  @override
+  String get fastingTraditionJewishKeywords =>
+      'jewish, judisch, evreiesc, synagogue, hebrew';
+
+  @override
   String get fastingGreatLent => 'Great Lent';
 
   @override
@@ -876,6 +892,38 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get fastingEstherFast => 'Fast of Esther';
+
+  @override
+  String get fastingGreatLentKeywords =>
+      'lent, great lent, easter fast, post, postul mare, fastenzeit';
+
+  @override
+  String get fastingLentKeywords =>
+      'fastenzeit, postul mare, lenten season, easter fast, penance';
+
+  @override
+  String get fastingAdventKeywords =>
+      'advent, christmas fast, pre-christmas, waiting season';
+
+  @override
+  String get fastingRamadanKeywords =>
+      'ramadan, ramazan, muslim fast, islamic month, fasting month';
+
+  @override
+  String get fastingNativityFastKeywords =>
+      'nativity fast, christmas fast, weihnachtsfasten, postul craciunului, advent';
+
+  @override
+  String get fastingDormitionFastKeywords =>
+      'dormition fast, assumption fast, august fast, entschlafungsfasten, postul adormirii';
+
+  @override
+  String get fastingApostlesFastKeywords =>
+      'apostles fast, peter and paul fast, apostelfasten, postul sfintilor apostoli';
+
+  @override
+  String get fastingWeekdayFastKeywords =>
+      'wednesday, friday, weekly fast, miercuri, vineri, mittwoch, freitag';
 
   @override
   String get fastingRegimeStrict => 'Strict fast';
@@ -3563,6 +3611,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get upcomingNoEvents => 'Nothing coming up';
+
+  @override
+  String get upcomingDidYouMean => 'Did you mean';
 
   @override
   String get upcomingNoEventsHint => 'Try a longer period or a lower priority';

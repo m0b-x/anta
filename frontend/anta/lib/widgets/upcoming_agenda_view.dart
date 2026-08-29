@@ -11,9 +11,12 @@ import '../constants/public_holidays.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
+import '../models/fasting_appearance.dart';
 import '../models/upcoming_agenda_filters.dart';
+import '../services/agenda_search_text.dart';
 import '../utils/event_agenda.dart';
 import '../utils/event_search_query.dart';
+import '../utils/fuzzy_rank.dart';
 import '../utils/markdown_color_syntax.dart';
 import 'agenda_day_list_sheet.dart';
 import 'agenda_filters_sheet.dart';
@@ -405,7 +408,17 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
       rawEnd = EventAgenda.dateOnly(filters.customEnd!);
     } else {
       rawStart = EventAgenda.dateOnly(widget.anchorDay);
-      rawEnd = rawStart.add(Duration(days: filters.rangeDays - 1));
+      // A query turns the agenda from a filter over the visible window into a
+      // search over the calendar. Great Lent starts in February, so a 30-day
+      // window anchored in August can never surface it however good the
+      // matching is — the reach, not the grammar, is what made "lent" fail.
+      // A pinned custom range still wins: that is an explicit instruction
+      // about what to show, and searching inside it is a narrowing, not a
+      // lookup.
+      final days = filters.query.trim().isEmpty
+          ? filters.rangeDays
+          : EventAgenda.maxRangeDays;
+      rawEnd = rawStart.add(Duration(days: days - 1));
     }
     _resolved =
         EventAgenda.resolveRange(rawStart, rawEnd) ?? (rawStart, rawStart);
@@ -433,6 +446,7 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
     _refreshSearchCatalog();
     _syncQuery();
     final display = widget.filters.eventDisplay;
+    final l10n = AppLocalizations.of(context)!;
     _occurrences = EventAgenda.occurrencesInRange(
       events: widget.events,
       from: _resolved.$1,
@@ -441,6 +455,10 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
       priorities: widget.filters.priorities,
       query: _query,
       categoryLabels: _categoryLabels,
+      // Everything the row's subtitle shows — the repeat pattern, the time or
+      // "All day", the priority word — folded lazily and once per event, so a
+      // row can be found by any text it actually displays.
+      labelTextOf: (event) => AgendaSearchText.forEvent(event, l10n),
       eventType: widget.filters.eventType,
       categoryIds: widget.filters.categoryIds,
       // Summary mode scans uncollapsed: the card counts distinct events *and*
@@ -479,9 +497,19 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
       return;
     }
     final l10n = AppLocalizations.of(context)!;
+    // Chrome every holiday surface renders but no holiday is named after: the
+    // row's own "Public holiday" subtitle, and the summary card's "Holidays"
+    // title. Folded once for the whole scan rather than once per day.
+    final chrome =
+        _query.maskOf(l10n.dayBarPublicHoliday) |
+        _query.maskOf(l10n.upcomingShowHolidays);
     _holidayDays = [
       for (final day in days)
-        if (_query.matchesText(_holidayLabel(day, l10n), day)) day,
+        if (_query.satisfied(
+          chrome | _query.maskOf(_holidayLabel(day, l10n)),
+          day,
+        ))
+          day,
     ];
   }
 
@@ -554,14 +582,100 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
   bool _fastingMatches(DateTime day, AppLocalizations l10n) {
     var mask = 0;
     for (final info in FastingCalendar.on(day)) {
-      final title =
-          FastingCalendar.styleOf(info.tradition).titleOverride ??
-          FastingCalendar.periodNameOf(info.period, l10n);
-      mask |= _query.maskOf(title);
+      final style = FastingCalendar.styleOf(info.tradition);
+      // The override **and** the computed name, never `??`. Mirroring the
+      // display's fallback here is what made a period stop being searchable
+      // the moment a user renamed it — the row is still that period.
+      mask |= _query.maskOf(style.titleOverride);
+      mask |= _query.maskOf(FastingCalendar.periodNameOf(info.period, l10n));
       mask |= _query.maskOf(FastingCalendar.regimeNameOf(info.regime, l10n));
+      // The summary card is titled with the tradition whenever the window
+      // holds no single named period, so "Orthodox" is on screen and has to
+      // be findable — it was folded nowhere before.
+      mask |= _query.maskOf(
+        FastingCalendar.traditionNameOf(info.tradition, l10n),
+      );
+      // Rendered under every fasting row.
+      mask |= _query.maskOf(style.description);
+      // Matched but never rendered: the other languages' names for the same
+      // period, so "lent" finds Postul Paștelui and "orthodox" finds Ortodox.
+      mask |= _query.maskOf(
+        FastingCalendar.searchKeywordsOf(info.period, l10n),
+      );
+      mask |= _query.maskOf(
+        FastingCalendar.traditionKeywordsOf(info.tradition, l10n),
+      );
       if (_query.satisfied(mask, day)) return true;
     }
     return _query.satisfied(mask, day);
+  }
+
+  /// Corrections offered when a non-empty query matched nothing, memoized on
+  /// the inputs that can change them.
+  ///
+  /// Built only on an empty result, so the catalogue walk — every loaded title,
+  /// every category label, the enabled traditions and their periods, and the
+  /// window's holidays — never runs on the path where the search worked.
+  List<String> _suggestions = const [];
+  String? _suggestionsForQuery;
+  String? _suggestionsForLocale;
+  List<CalendarEvent>? _suggestionsForEvents;
+
+  List<String> _suggestionsFor(AppLocalizations l10n) {
+    final raw = widget.filters.query;
+    if (_suggestionsForQuery == raw &&
+        _suggestionsForLocale == _localeName &&
+        identical(_suggestionsForEvents, widget.events)) {
+      return _suggestions;
+    }
+    _suggestionsForQuery = raw;
+    _suggestionsForLocale = _localeName;
+    _suggestionsForEvents = widget.events;
+    _suggestions = raw.trim().isEmpty
+        ? const []
+        : FuzzyRank.best(_searchCatalog(l10n), raw, limit: 3);
+    return _suggestions;
+  }
+
+  /// Everything a user could plausibly have meant. Deliberately the *displayed*
+  /// names — a suggestion the user taps becomes the query, so it has to be a
+  /// term the search can then actually find.
+  List<String> _searchCatalog(AppLocalizations l10n) {
+    final catalog = <String>[
+      for (final event in widget.events) event.title,
+      ..._categoryLabels.values,
+    ];
+    // Scoped to the window and the layer toggle, exactly like the holidays
+    // below: a chip is a promise that tapping it finds something, so offering
+    // a period the search cannot reach — one outside a pinned range, or from a
+    // layer that is switched off — would hand the user a second empty result.
+    if (widget.filters.showFasting && FastingCalendar.isEnabled) {
+      final seenPeriods = <FastingPeriod>{};
+      final seenTraditions = <FastingTradition>{};
+      for (final day in EventAgenda.fastingDaysInRange(
+        from: _resolved.$1,
+        to: _resolved.$2,
+      )) {
+        for (final info in FastingCalendar.on(day)) {
+          if (seenPeriods.add(info.period)) {
+            catalog.add(FastingCalendar.periodNameOf(info.period, l10n));
+          }
+          if (seenTraditions.add(info.tradition)) {
+            catalog.add(FastingCalendar.traditionNameOf(info.tradition, l10n));
+          }
+        }
+      }
+    }
+    if (widget.filters.showHolidays) {
+      for (final day in EventAgenda.holidayDaysInRange(
+        from: _resolved.$1,
+        to: _resolved.$2,
+      )) {
+        final label = _holidayLabel(day, l10n);
+        if (label.isNotEmpty) catalog.add(label);
+      }
+    }
+    return catalog;
   }
 
   /// Opens a summary card's drill-down and routes what the viewer picked.
@@ -843,6 +957,20 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
                   ),
                 ),
               ),
+              // A search that found nothing is the one moment a correction is
+              // worth screen space. Tapping a chip replaces the query, so the
+              // suggestions are display names the search can actually find.
+              if (rows.isEmpty && filters.query.trim().isNotEmpty)
+                SliverToBoxAdapter(
+                  child: _DidYouMean(
+                    suggestions: _suggestionsFor(l10n),
+                    label: l10n.upcomingDidYouMean,
+                    onSelected: (term) {
+                      _searchController.text = term;
+                      _onQueryChanged(term);
+                    },
+                  ),
+                ),
               AgendaListView(
                 rows: rows,
                 sliver: true,
@@ -867,6 +995,56 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Corrections offered above the empty state, strongest match first.
+///
+/// Renders nothing when there is nothing to suggest, so the empty state keeps
+/// its own wording rather than gaining a stray label.
+class _DidYouMean extends StatelessWidget {
+  final List<String> suggestions;
+  final String label;
+  final ValueChanged<String> onSelected;
+
+  const _DidYouMean({
+    required this.suggestions,
+    required this.label,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (suggestions.isEmpty) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            children: [
+              for (final suggestion in suggestions)
+                ActionChip(
+                  avatar: const Icon(Icons.search_rounded, size: 16),
+                  label: Text(suggestion),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => onSelected(suggestion),
+                ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

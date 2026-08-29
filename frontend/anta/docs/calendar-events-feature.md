@@ -2239,3 +2239,73 @@ it is still the note search's `normalizeForSearch`.
   `compareWithinDay`'s sort key, so a second derived field would allocate for
   every event ever constructed to save one fold per event per already-debounced
   scan.
+
+## Addendum (2026-08-25): agenda search — coverage, reach, language, typos
+
+The grammar above was sound; what it was *pointed at* was not. Reported as
+"searching `fast` works but `lent` and `orthodox` find nothing", the
+investigation found four independent causes, only one of which is about string
+matching:
+
+1. **Coverage.** The scan folded `title | category label | description` and
+   nothing else, while rows *display* recurrence patterns, times / "All day",
+   priority words, regime names, "Public holiday", and summary cards titled
+   "Holidays" / "Orthodox". The one field beyond title/description that *was*
+   searchable — the category label — is never rendered on an event row, the
+   exact inverse of what a user expects.
+2. **Reach.** Search filtered the days already in the window and never looked
+   past it. English `fastingGreatLent` **is** "Great Lent", so `lent` was never
+   a string problem: Great Lent is in February and the default window is 30
+   days. Search was a filter, not a finder.
+3. **Language.** The same period is "Fastenzeit" / "Postul Paștelui". Typing
+   `lent` under `ro` could never work against visible text alone.
+4. **Typos.** `orthodx` matched nothing, with no recovery affordance.
+
+Plus two outright defects: `_fastingMatches` folded
+`titleOverride ?? periodName`, mirroring the display's `??` — so **renaming a
+period made it unsearchable** — and `traditionNameOf` was folded nowhere
+despite being the summary card's own title.
+
+The governing principle now: **if a row displays a piece of text, typing that
+text finds the row.**
+
+- **The searchable-text seam.** `occurrencesInRange` takes an optional
+  `String Function(CalendarEvent)? labelTextOf`, invoked **at most once per
+  candidate event** and only when title+category have not already settled the
+  query. Fold order is `base` → **labels** → `template`, so a recurrence-label
+  hit costs no description fold. `EventAgenda.debugLabelFolds` mirrors
+  `debugDescriptionFolds` for pinning that budget. `EventAgenda` stays
+  `AppLocalizations`-free: the closure is built by the view, exactly as
+  `categoryLabels` already was.
+- **`AgendaSearchText.forEvent`** (`lib/services/`) composes precisely what
+  `EventSummaryProvider._subtitleFor` renders — recurrence pattern (with the
+  "· also before" suffix), time or "All day", priority word above the default.
+- **`countLabel` is deliberately excluded.** "Week 3" / "26 years" is a
+  function of `(event, day)`, so folding it would break the `always`
+  short-circuit that both the description-fold and `occursOn` budgets depend
+  on. This is the one place the principle is knowingly not met.
+- **Auto-widen.** A non-empty query with no pinned custom range scans
+  `EventAgenda.maxRangeDays` (366) instead of `filters.rangeDays`. This is what
+  actually fixes `lent`. A pinned custom range still wins — that is an explicit
+  instruction. The header renders `_resolved`, so it reports the widened window
+  honestly with no extra work, and the debounce budget test moves from
+  `0`-then-`30` to `0`-then-`366`.
+- **Annotation parity.** `_fastingMatches` folds the override **and** the
+  period name (OR, never `??`), the regime, the tradition name, and the style
+  description. `_recomputeHolidays` folds `dayBarPublicHoliday` and the
+  `upcomingShowHolidays` card title once per scan, not per day.
+- **Hidden localized keywords**, following the settings search's proven
+  `swipeKeywords` pattern: `FastingCalendar.traditionKeywordsOf` and
+  `searchKeywordsOf` (nullable — minor periods carry none) return
+  comma-separated synonyms that are matched but never rendered, each locale
+  carrying the *other* languages' terms. That is what makes `lent` find
+  "Postul Paștelui".
+- **"Did you mean" on zero results.** `FuzzyRank` (`lib/utils/fuzzy_rank.dart`)
+  is the vocabulary bar's 4-tier scorer — prefix › word-start › substring ›
+  ordered subsequence — extracted unchanged and now shared, with
+  `VocabularyMatcher` delegating to it (its existing tests are the proof of
+  behaviour preservation). On an empty result only, it ranks a catalogue of
+  loaded titles, category labels, enabled traditions and their periods, and the
+  window's holidays, offering the top three as chips that replace the query.
+  Kept strictly separate from the filtering grammar, which stays exact
+  substring: fuzziness suggests, it never decides what matches.
