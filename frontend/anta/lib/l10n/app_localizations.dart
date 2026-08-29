@@ -700,6 +700,48 @@ abstract class AppLocalizations {
   /// **'No categories match'**
   String get noCategoriesMatch;
 
+  /// Action in the category picker's empty state, prefilling the typed text as the new category's name
+  ///
+  /// In en, this message translates to:
+  /// **'Create \"{name}\"'**
+  String createCategoryNamed(String name);
+
+  /// Subtitle marking a hidden category that is only listed because it is already selected
+  ///
+  /// In en, this message translates to:
+  /// **'Hidden'**
+  String get categoryHidden;
+
+  /// Soft warning under the category name field when the name matches an existing category. Never blocks saving.
+  ///
+  /// In en, this message translates to:
+  /// **'\"{name}\" already exists'**
+  String categoryNameExists(String name);
+
+  /// Soft warning under the category name field when the matching category is hidden. Never blocks saving.
+  ///
+  /// In en, this message translates to:
+  /// **'\"{name}\" already exists but is hidden'**
+  String categoryNameExistsHidden(String name);
+
+  /// Subtitle of the categories filter tile when no category is filtered out
+  ///
+  /// In en, this message translates to:
+  /// **'All categories'**
+  String get categoriesAllSelected;
+
+  /// Subtitle of the categories filter tile when it cannot name the selection
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{No categories} =1{1 category} other{{count} categories}}'**
+  String categoriesNSelected(int count);
+
+  /// Suffix on the categories filter tile subtitle for the selected categories it did not name
+  ///
+  /// In en, this message translates to:
+  /// **'+{count} more'**
+  String categoriesMore(int count);
+
   /// Overflow menu action sorting categories alphabetically
   ///
   /// In en, this message translates to:

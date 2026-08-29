@@ -1,12 +1,12 @@
 # Category Scaling Roadmap — ANTA
 
-**Status: waves 1, 2 and 3a shipped (2026-08-29). Waves 3b and 4 remain.**
+**Status: waves 1, 2, 3a and 3b shipped (2026-08-29). Wave 4 remains.**
 This is the plan of record for scaling calendar event categories from the
 shipped baseline (9 built-ins, a 63-icon palette, no search / reorder / hide
 anywhere) to a set that stays usable at forty categories.
 
-The data and logic layer shipped in waves 1–2; wave 3a gave all of it callers.
-What exists now:
+The data and logic layer shipped in waves 1–2; wave 3a gave all of it callers,
+and 3b carried it into the capture and filter surfaces. What exists now:
 
 - **B2 schema + facade + service + backup** — `calendar_categories.is_hidden`
   at schema **v33**, `CalendarCategories.visible` / `visiblePlus`,
@@ -27,8 +27,12 @@ What exists now:
   `matchesSettingsQuery`, order by `FuzzyRank`, icon-only hits demoted a band,
   explicit `(band, sortOrder, id)` sort) **behind the page's search field**.
 - **B4** — create moved from the FAB to the app bar.
+- **C + D** — `CategoryPickerSheet.pickSingle` / `.pickMulti` over
+  `visiblePlus`, searchable, with the add button and a create-what-you-typed
+  empty state; the editor's soft duplicate guard; the shared
+  `CategoryFilterTile` behind both filter sheets above the 12-row threshold.
 
-Three notes for whoever picks up 3b:
+Three notes carried over from 3a, still live:
 
 1. **An empty query must render the local order directly, never through
    `rankCategories`.** The ranker tie-breaks on `sortOrder`, which still holds
@@ -47,9 +51,11 @@ Three notes for whoever picks up 3b:
    it rather than settling — pump in a bounded loop, as the calendar page's own
    tests already do.
 
-`CategoryPickerSheet`, `CalendarFilterSheet` and `AgendaFiltersSheet` are the
-three surfaces still reading `CalendarCategories.all`; wave 3b is where they
-move to `visible` / `visiblePlus`, inside the C and D rewrites.
+`CategoryPickerSheet`, `CalendarFilterSheet` and `AgendaFiltersSheet` moved to
+`visible` / `visiblePlus` inside the C and D rewrites, as planned. The only
+remaining reader of `CalendarCategories.all` outside the resolution paths is
+`CategoryEditorSheet`'s duplicate guard, deliberately — it is what lets the
+warning say a match is *hidden*.
 
 Read alongside `docs/calendar-events-feature.md` (the running behaviour of the
 subsystem) and the `calendar-events` skill (hard rules). This file is written to
@@ -432,7 +438,7 @@ will do — what makes hide-vs-delete an informed choice.
 4. Once B2 has landed, a nonzero count earns one extra sentence suggesting
    **hide** instead — deleting recolours history grey, hiding does not.
 
-### C — The picker sheet
+### C — The picker sheet  (SHIPPED)
 
 1. `CategoryPickerSheet` becomes stateful; `show()` keeps its signature.
 2. Title row gains a trailing `IconButton.filledTonal` add button — the same
@@ -454,7 +460,16 @@ will do — what makes hide-vs-delete an informed choice.
 7. Raise `heightFactor` 0.7 → 0.85 now there is a search field; keep the
    bottom-clearance maths, which `sheet_bottom_clearance_test` guards.
 
-### D — Filter sheets at scale
+**As shipped**, step 1 went further than "keeps its signature": since D lands in
+the same commit, `show()` became the private `_show` behind `pickSingle` /
+`pickMulti` — mirroring the date sheet *exactly*, as D asks — and the two
+callers (`event_editor_sheet`, `event_template_editor_sheet`) moved to
+`pickSingle`. Keeping a third public name for the same thing was the drift the
+mirror exists to prevent. The duplicate guard also distinguishes a **hidden**
+match (*… already exists but is hidden*), which is the sentence that teaches
+hiding; it is why `CategoryEditorSheet` still reads `all` rather than `visible`.
+
+### D — Filter sheets at scale  (SHIPPED)
 
 Ships: the two filter sheets stay one screen tall at forty categories.
 
@@ -519,6 +534,16 @@ Files: `widgets/category_picker_sheet.dart`, `widgets/agenda_filters_sheet.dart`
 `widgets/calendar_filter_sheet.dart`, ARB ×3 (`categoriesAllSelected`,
 `categoriesNSelected`, `categoriesMore`).
 
+**As shipped**, the tile is `CategoryFilterTile`, exported from
+`category_picker_sheet.dart` beside the sheet it opens rather than copied into
+both callers — one place computes the *All categories* / names + *+N more*
+subtitle. Two things the plan did not spell out and the code now does:
+`CalendarFilterSheet`'s universe is `visiblePlus(_hidden)` (a denylist holds a
+selection too, so invariant 8 applies to it), and its **Clear all unions**
+rather than replaces, or an archived id already denied would be silently
+un-hidden by the reset. `test/widgets/category_filter_sheets_test.dart` pins
+both inversions and the no-empty-collapse rule end to end.
+
 ### A3 — Letters and digits
 
 Ships: A–Z and 0–9 as glyph "icons" — the letter-avatar look Google Calendar and
@@ -569,7 +594,7 @@ slice.
 | 1 ✅ | B2 schema (table, migration, `currentVersion`, create path, model); A1 catalog restructure; B2 facade + service + backup | Opus | yes |
 | 2 ✅ | B1 DAO + service; B5 `countByCategory`; B3 `category_search.dart` | Sonnet | yes |
 | 3a ✅ | A1 picker UI; **one rewrite** of `calendar_categories_page.dart` carrying B1+B2+B3+B4+B5; `UpcomingAgendaView`'s chip source | Opus | yes |
-| 3b | C, then D (D needs C's `pickMulti`) | Opus preferred, Sonnet viable | yes |
+| 3b ✅ | C, then D (D needs C's `pickMulti`) | Opus | yes |
 | 4 | A2 icons + keywords + recent-icons; A3 spike + letters | Sonnet | yes |
 
 **Why 3 splits.** It was already the densest wave, and D pushed it over: nine
@@ -596,7 +621,8 @@ opening a fresh session for it costs more context than it saves, so it rides
 with 1 — but only **after** `flutter test test/database/` passes, which is the
 gate on the migration. **3a always runs alone**: it is the densest wave and the
 one where a mid-rewrite interruption hurts most. Under tight budget, `3b + 4`
-can share a Sonnet session, in that order. *(1 + 2 and 3a each ran as planned.)*
+can share a Sonnet session, in that order. *(1 + 2, 3a and 3b each ran as
+planned; only wave 4 is left, and it is the one that shares best.)*
 
 Start each session fresh against this document rather than continuing the
 previous one — the plan is written to be re-entered cold, and a stale

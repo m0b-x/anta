@@ -334,6 +334,44 @@ class AppLocalizationsDe extends AppLocalizations {
   String get noCategoriesMatch => 'Keine passenden Kategorien';
 
   @override
+  String createCategoryNamed(String name) {
+    return '„$name“ erstellen';
+  }
+
+  @override
+  String get categoryHidden => 'Verborgen';
+
+  @override
+  String categoryNameExists(String name) {
+    return '„$name“ existiert bereits';
+  }
+
+  @override
+  String categoryNameExistsHidden(String name) {
+    return '„$name“ existiert bereits, ist aber verborgen';
+  }
+
+  @override
+  String get categoriesAllSelected => 'Alle Kategorien';
+
+  @override
+  String categoriesNSelected(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Kategorien',
+      one: '1 Kategorie',
+      zero: 'Keine Kategorien',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String categoriesMore(int count) {
+    return '+$count weitere';
+  }
+
+  @override
   String get sortCategoriesAlphabetically => 'A–Z sortieren';
 
   @override

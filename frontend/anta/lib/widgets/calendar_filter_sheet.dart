@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
 
+import '../constants/app_constants.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_icons.dart';
 import '../l10n/app_localizations.dart';
+import '../models/calendar_category.dart';
+import 'category_picker_sheet.dart';
 
 /// Result returned by [CalendarFilterSheet] when the user applies a change.
 class CalendarFilterResult {
@@ -85,8 +88,37 @@ class _CalendarFilterSheetState extends State<CalendarFilterSheet> {
     setState(() => _hidden = <String>{});
   }
 
+  /// Hides everything the sheet offers. The union keeps any archived category
+  /// already sitting in the denylist denied — this filter reaches events of
+  /// hidden categories too, and "hide all" must not quietly un-hide one.
   void _clearAll() {
-    setState(() => _hidden = {for (final c in CalendarCategories.all) c.id});
+    setState(() {
+      _hidden = {..._hidden, for (final c in CalendarCategories.visible) c.id};
+    });
+  }
+
+  /// Opens the multi-select picker over the categories currently shown.
+  ///
+  /// The sheet is semantics-free — a set in, a set out — and this side is a
+  /// **denylist**, so the caller inverts: what comes back is what should be
+  /// visible, and everything else is hidden. `pickMulti` deliberately does
+  /// not collapse an empty result to `null`, because selecting nothing here
+  /// means "hide every category", which is a real state.
+  Future<void> _pickCategories(List<CalendarCategory> categories) async {
+    final picked = await CategoryPickerSheet.pickMulti(
+      context,
+      selected: {
+        for (final c in categories)
+          if (!_hidden.contains(c.id)) c.id,
+      },
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _hidden = {
+        for (final c in categories)
+          if (!picked.contains(c.id)) c.id,
+      };
+    });
   }
 
   void _apply() {
@@ -103,6 +135,14 @@ class _CalendarFilterSheetState extends State<CalendarFilterSheet> {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final allSelected = _hidden.isEmpty;
+    // Hidden categories leave every choosing surface, but a denylist already
+    // holding an archived id must still show it or the user cannot un-hide
+    // what they can no longer see.
+    final categories = CalendarCategories.visiblePlus(_hidden);
+    final shown = [
+      for (final c in categories)
+        if (!_hidden.contains(c.id)) c,
+    ];
     // `useSafeArea: true` on the modal route avoids the status bar but has
     // proven unreliable against the bottom gesture/nav bar on real devices —
     // same fix as `EventEditorSheet` / `CategoryEditorSheet`: pad the whole
@@ -162,27 +202,40 @@ class _CalendarFilterSheetState extends State<CalendarFilterSheet> {
                   ],
                 ),
                 const SizedBox(height: 4),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final c in CalendarCategories.all)
-                      FilterChip(
-                        avatar: CircleAvatar(
-                          backgroundColor: c.color.withValues(alpha: 0.18),
-                          foregroundColor: c.color,
-                          child: Icon(
-                            CalendarIcons.forKey(c.iconKey) ??
-                                Icons.event_rounded,
-                            size: 16,
+                // Short sets are genuinely better as chips — one tap, no
+                // navigation. Past the threshold the wall of chips buries the
+                // view-range section above it, so it collapses to one row plus
+                // a sub-sheet. Select all / Clear all stay in the header
+                // either way, so the common "show everything again" reset
+                // never needs the sub-sheet.
+                if (categories.length > AppConstants.listSearchThreshold)
+                  CategoryFilterTile(
+                    selected: shown,
+                    selectsAll: shown.length == categories.length,
+                    onTap: () => _pickCategories(categories),
+                  )
+                else
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final c in categories)
+                        FilterChip(
+                          avatar: CircleAvatar(
+                            backgroundColor: c.color.withValues(alpha: 0.18),
+                            foregroundColor: c.color,
+                            child: Icon(
+                              CalendarIcons.forKey(c.iconKey) ??
+                                  Icons.event_rounded,
+                              size: 16,
+                            ),
                           ),
+                          label: Text(CalendarCategories.labelOf(c, l10n)),
+                          selected: !_hidden.contains(c.id),
+                          onSelected: (sel) => _toggleCategory(c.id, sel),
                         ),
-                        label: Text(CalendarCategories.labelOf(c, l10n)),
-                        selected: !_hidden.contains(c.id),
-                        onSelected: (sel) => _toggleCategory(c.id, sel),
-                      ),
-                  ],
-                ),
+                    ],
+                  ),
               ],
             ),
           ),

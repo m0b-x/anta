@@ -6,6 +6,7 @@ import '../constants/calendar_icons.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_category.dart';
 import '../services/category_service.dart';
+import '../services/folder_search_service.dart' show normalizeForSearch;
 import 'icon_picker_sheet.dart';
 
 const int _defaultCategoryColor = 0xFFFB8C00;
@@ -19,11 +20,17 @@ const String _defaultCategoryIconKey = 'event';
 class CategoryEditorSheet extends StatefulWidget {
   final CalendarCategory? initial;
 
-  const CategoryEditorSheet({super.key, this.initial});
+  /// Prefills the name field when creating. The category picker passes what
+  /// the user typed into its search field, so "no match" flows straight into
+  /// creating the thing they were looking for. Ignored when [initial] is set.
+  final String? initialName;
+
+  const CategoryEditorSheet({super.key, this.initial, this.initialName});
 
   static Future<CalendarCategory?> show(
     BuildContext context, {
     CalendarCategory? initial,
+    String? initialName,
   }) {
     return showModalBottomSheet<CalendarCategory>(
       context: context,
@@ -31,7 +38,10 @@ class CategoryEditorSheet extends StatefulWidget {
       showDragHandle: true,
       builder: (_) => FractionallySizedBox(
         heightFactor: 0.85,
-        child: CategoryEditorSheet(initial: initial),
+        child: CategoryEditorSheet(
+          initial: initial,
+          initialName: initialName,
+        ),
       ),
     );
   }
@@ -53,7 +63,9 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   void initState() {
     super.initState();
     final initial = widget.initial;
-    _nameController = TextEditingController(text: initial?.name ?? '');
+    _nameController = TextEditingController(
+      text: initial?.name ?? widget.initialName ?? '',
+    );
     _colorValue = initial?.colorValue ?? _defaultCategoryColor;
     _iconKey = initial?.iconKey ?? _defaultCategoryIconKey;
   }
@@ -62,6 +74,30 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   void dispose() {
     _nameController.dispose();
     super.dispose();
+  }
+
+  /// The existing category whose name folds equal to what has been typed, if
+  /// there is one.
+  ///
+  /// A **soft** guard: near-duplicates are how a category set rots on the way
+  /// to forty entries, and a hidden duplicate is usually where a user first
+  /// learns hiding exists. It never blocks Save — a custom *Cardio* beside the
+  /// built-in one may be exactly what someone wants.
+  CalendarCategory? _duplicateOf(AppLocalizations l10n) {
+    if (_isBuiltIn) return null;
+    final typed = normalizeForSearch(_nameController.text.trim());
+    if (typed.isEmpty) return null;
+    final selfId = widget.initial?.id;
+    for (final category in CalendarCategories.all) {
+      if (category.id == selfId) continue;
+      final label = normalizeForSearch(
+        CalendarCategories.labelOf(category, l10n),
+      );
+      if (label == typed || normalizeForSearch(category.name) == typed) {
+        return category;
+      }
+    }
+    return null;
   }
 
   bool get _canSave {
@@ -116,6 +152,16 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
     final builtInLabel = _isBuiltIn && widget.initial != null
         ? CalendarCategories.labelOf(widget.initial!, l10n)
         : null;
+    final duplicate = _duplicateOf(l10n);
+    final duplicateWarning = duplicate == null
+        ? null
+        : (duplicate.isHidden
+              ? l10n.categoryNameExistsHidden(
+                  CalendarCategories.labelOf(duplicate, l10n),
+                )
+              : l10n.categoryNameExists(
+                  CalendarCategories.labelOf(duplicate, l10n),
+                ));
 
     return Padding(
       padding: EdgeInsets.only(bottom: bottomClearance),
@@ -188,6 +234,11 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
                       decoration: InputDecoration(
                         labelText: l10n.categoryName,
                         hintText: l10n.categoryNameHint,
+                        helperText: duplicateWarning,
+                        helperMaxLines: 2,
+                        helperStyle: TextStyle(
+                          color: theme.colorScheme.tertiary,
+                        ),
                         border: const OutlineInputBorder(),
                       ),
                       onChanged: (_) => setState(() {}),

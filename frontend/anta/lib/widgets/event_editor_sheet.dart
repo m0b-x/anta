@@ -1060,7 +1060,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   }
 
   Future<void> _pickCategory() async {
-    final picked = await CategoryPickerSheet.show(
+    final picked = await CategoryPickerSheet.pickSingle(
       context,
       selectedId: _categoryId,
     );

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../constants/app_constants.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_icons.dart';
 import '../constants/event_priorities.dart';
@@ -9,6 +10,7 @@ import '../models/calendar_event.dart';
 import '../models/upcoming_agenda_filters.dart';
 import '../utils/event_agenda.dart';
 import 'agenda_list_view.dart';
+import 'category_picker_sheet.dart';
 
 /// Every upcoming-agenda filter, in one modal sheet.
 ///
@@ -104,6 +106,24 @@ class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
       next.remove(id);
     }
     _update(_draft.copyWith(categoryIds: next));
+  }
+
+  /// Opens the multi-select picker over the category allowlist.
+  ///
+  /// The sheet is semantics-free — a set in, a set out — and this side is an
+  /// **allowlist** where empty means "all categories". That is why
+  /// `pickMulti` must not collapse an empty result to `null` the way its date
+  /// twin does: clearing every row here is a real choice, not a dismissal.
+  ///
+  /// It returns into the local draft, so nothing re-runs the agenda scan
+  /// behind the sheet until Apply.
+  Future<void> _pickCategories() async {
+    final picked = await CategoryPickerSheet.pickMulti(
+      context,
+      selected: _draft.categoryIds,
+    );
+    if (picked == null || !mounted) return;
+    _update(_draft.copyWith(categoryIds: picked));
   }
 
   /// Opens a date-range picker. The lower bound reaches into the past on
@@ -427,33 +447,53 @@ class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
   }
 
   Widget _buildCategories(AppLocalizations l10n) {
+    // Read on every build so a database switch (which clears the facade)
+    // cannot leave a stale category list here. Hidden categories are dropped
+    // from every choosing surface, but an allowlist already holding a hidden
+    // id must still show it or the user cannot un-select it.
+    final categories = CalendarCategories.visiblePlus(_draft.categoryIds);
+    final selectedCategories = [
+      for (final category in categories)
+        if (_draft.categoryIds.contains(category.id)) category,
+    ];
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            // Read on every build so a database switch (which clears the
-            // facade) cannot leave a stale category list here.
-            for (final category in CalendarCategories.all)
-              FilterChip(
-                avatar: CircleAvatar(
-                  backgroundColor: category.color.withValues(alpha: 0.18),
-                  foregroundColor: category.color,
-                  child: Icon(
-                    CalendarIcons.forKey(category.iconKey) ??
-                        Icons.event_rounded,
-                    size: 16,
+        // Short sets are genuinely better as chips — one tap, no navigation.
+        // Past the threshold the wall of chips buries every other section, so
+        // it collapses to one row plus a sub-sheet.
+        if (categories.length > AppConstants.listSearchThreshold)
+          CategoryFilterTile(
+            selected: selectedCategories,
+            selectsAll:
+                _draft.categoryIds.isEmpty ||
+                selectedCategories.length == categories.length,
+            onTap: _pickCategories,
+          )
+        else
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final category in categories)
+                FilterChip(
+                  avatar: CircleAvatar(
+                    backgroundColor: category.color.withValues(alpha: 0.18),
+                    foregroundColor: category.color,
+                    child: Icon(
+                      CalendarIcons.forKey(category.iconKey) ??
+                          Icons.event_rounded,
+                      size: 16,
+                    ),
                   ),
+                  label: Text(CalendarCategories.labelOf(category, l10n)),
+                  selected: _draft.categoryIds.contains(category.id),
+                  onSelected: (selected) =>
+                      _toggleCategory(category.id, selected),
                 ),
-                label: Text(CalendarCategories.labelOf(category, l10n)),
-                selected: _draft.categoryIds.contains(category.id),
-                onSelected: (selected) =>
-                    _toggleCategory(category.id, selected),
-              ),
-          ],
-        ),
+            ],
+          ),
         // An empty allowlist already means "all", so the reset only appears
         // when there is a selection to clear.
         if (_draft.categoryIds.isNotEmpty)

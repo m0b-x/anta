@@ -96,8 +96,8 @@ no `await`. An unknown id resolves to a fallback (`other`) so deleting a custom
 category never corrupts its events; `CategoryService.deleteCategory` also
 reassigns those events to `other` in a transaction. Built-ins cannot be
 deleted. CRUD lives in `CategoryService`; the UI is `CategoryEditorSheet`
-(name + icon + color) and `CalendarCategoriesPage` (§2.4), plus an inline
-"Create category" entry in `CategoryPickerSheet`. The calendar filter is a
+(name + icon + color) and `CalendarCategoriesPage` (§2.4), plus the add button
+and the create-what-you-typed empty state in `CategoryPickerSheet` (§2.5). The calendar filter is a
 hidden-id set (`CalendarPageLoaded.hiddenCategoryIds`), so new categories are
 visible by default.
 
@@ -221,6 +221,68 @@ empty query keeps the grouped sections; an active one renders one flat ranked
 `Wrap`. The localized group labels are folded once per sheet open and joined
 into the match set, which is how the deliberately unlocalized English keywords
 stay reachable in de/ro.
+
+### 2.5 Choosing categories at scale
+
+[`CategoryPickerSheet`](../lib/widgets/category_picker_sheet.dart) serves two
+arities off one sheet, mirroring `CalendarDatePickerSheet`:
+
+```
+CategoryPickerSheet.pickSingle(context, selectedId:)  → String?
+CategoryPickerSheet.pickMulti (context, selected:)    → Set<String>?
+```
+
+Both render `visiblePlus(selection)` — a hidden category the selection already
+carries stays listed, subtitled *Hidden* so it does not read as an ordinary
+row — and both search through the shared `rankCategories`, above
+`AppConstants.listSearchThreshold` (12). There is **no autofocus**: the sheet's
+job is picking, and raising the keyboard on every open pushes the list up and
+costs a tap to dismiss. `heightFactor` is 0.85 now that a search field sits
+above the rows. The title row carries the same `IconButton.filledTonal` add
+button the management page's app bar does, and a query that matches nothing
+offers to create what was typed — *Create "Dentist"* — through
+`CategoryEditorSheet.show(context, initialName:)`.
+
+That editor grows a **soft** duplicate guard: a trimmed name folding equal to
+an existing category's label shows a helper line under the field (*"Dentist"
+already exists*, or *… but is hidden* when the match is archived — usually
+where a user first learns hiding exists) **without blocking Save**. Never a
+hard block: a custom *Cardio* beside the built-in one may be exactly what
+someone wants. It scans `all`, not `visible`, precisely so the hidden case is
+reachable.
+
+**`pickMulti` is semantics-free** — a set in, a set out — so it serves both
+filter sheets without knowing which it is:
+`UpcomingAgendaFilters.categoryIds` is an **allowlist** (empty = all) and
+`CalendarFilterSheet._hidden` a **denylist** (empty = show all); the caller
+inverts. **Unlike `CalendarDatePickerSheet.pickMulti` an empty result is not
+collapsed to `null`** — empty is a real, meaningful state on both sides, and
+swallowing it would make clearing the last row look like a dismissal. The date
+sheet's collapse is the thing to not copy by reflex.
+
+Above the same threshold both
+[`agenda_filters_sheet.dart`](../lib/widgets/agenda_filters_sheet.dart) and
+[`calendar_filter_sheet.dart`](../lib/widgets/calendar_filter_sheet.dart) swap
+their per-category `FilterChip` `Wrap` for one shared `CategoryFilterTile`
+(leading `category_rounded`, title *Categories*, subtitle *All categories* or
+the first names plus *+N more*, trailing chevron) that opens the sub-sheet.
+Below it they keep today's chips — short sets are genuinely better as chips,
+one tap and no navigation, and a user on the nine built-ins sees zero change.
+**No surface re-adds a chip row for the selection beneath the tile**: twenty
+allowlisted categories would rebuild the exact wall the tile removes, the
+subtitle already names them, and the agenda panel's removable
+`Categories (N)` chip already undoes them (`restrictiveFilterCount` counts
+categories as **one** restriction — that is the pattern, not a rounding
+error). `CalendarFilterSheet` keeps its Select all / Clear all header buttons
+operating on the whole set directly, so the common "show everything again"
+reset never needs the sub-sheet; Clear all unions rather than replaces, so an
+archived id already in the denylist is not quietly un-hidden.
+
+A sheet opening a sheet is established here (`EventEditorSheet` →
+`CategoryPickerSheet`, `CategoryEditorSheet` → `IconPickerSheet`), and it
+preserves `AgendaFiltersSheet`'s invariant: the sub-sheet returns into the
+**local draft**, so nothing re-runs the agenda scan behind the sheet until
+Apply.
 
 ---
 

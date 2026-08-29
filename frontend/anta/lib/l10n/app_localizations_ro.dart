@@ -336,6 +336,45 @@ class AppLocalizationsRo extends AppLocalizations {
   String get noCategoriesMatch => 'Nicio categorie potrivită';
 
   @override
+  String createCategoryNamed(String name) {
+    return 'Creează „$name”';
+  }
+
+  @override
+  String get categoryHidden => 'Ascunsă';
+
+  @override
+  String categoryNameExists(String name) {
+    return '„$name” există deja';
+  }
+
+  @override
+  String categoryNameExistsHidden(String name) {
+    return '„$name” există deja, dar este ascunsă';
+  }
+
+  @override
+  String get categoriesAllSelected => 'Toate categoriile';
+
+  @override
+  String categoriesNSelected(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de categorii',
+      few: '$count categorii',
+      one: '1 categorie',
+      zero: 'Nicio categorie',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String categoriesMore(int count) {
+    return '+încă $count';
+  }
+
+  @override
   String get sortCategoriesAlphabetically => 'Sortează A–Z';
 
   @override

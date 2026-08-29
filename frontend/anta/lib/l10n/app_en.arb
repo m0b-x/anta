@@ -417,6 +417,55 @@
   "@noCategoriesMatch": {
     "description": "Empty state when a category search returns nothing"
   },
+  "createCategoryNamed": "Create \"{name}\"",
+  "@createCategoryNamed": {
+    "description": "Action in the category picker's empty state, prefilling the typed text as the new category's name",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "categoryHidden": "Hidden",
+  "@categoryHidden": {
+    "description": "Subtitle marking a hidden category that is only listed because it is already selected"
+  },
+  "categoryNameExists": "\"{name}\" already exists",
+  "@categoryNameExists": {
+    "description": "Soft warning under the category name field when the name matches an existing category. Never blocks saving.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "categoryNameExistsHidden": "\"{name}\" already exists but is hidden",
+  "@categoryNameExistsHidden": {
+    "description": "Soft warning under the category name field when the matching category is hidden. Never blocks saving.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "categoriesAllSelected": "All categories",
+  "@categoriesAllSelected": {
+    "description": "Subtitle of the categories filter tile when no category is filtered out"
+  },
+  "categoriesNSelected": "{count, plural, =0{No categories} =1{1 category} other{{count} categories}}",
+  "@categoriesNSelected": {
+    "description": "Subtitle of the categories filter tile when it cannot name the selection",
+    "placeholders": {
+      "count": { "type": "int", "example": "3" }
+    }
+  },
+  "categoriesMore": "+{count} more",
+  "@categoriesMore": {
+    "description": "Suffix on the categories filter tile subtitle for the selected categories it did not name",
+    "placeholders": {
+      "count": { "type": "int", "example": "3" }
+    }
+  },
   "sortCategoriesAlphabetically": "Sort A–Z",
   "@sortCategoriesAlphabetically": {
     "description": "Overflow menu action sorting categories alphabetically"
