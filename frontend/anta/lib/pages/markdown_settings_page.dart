@@ -16,6 +16,7 @@ import '../widgets/app_drawer.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/app_loading_bar.dart';
 import '../widgets/markdown_bar.dart';
+import '../widgets/settings_reorder.dart';
 import '../widgets/settings_search_field.dart';
 import '../widgets/unified_app_bars.dart';
 import '../services/app_navigator.dart';
@@ -1561,13 +1562,10 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
             leading: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  Icons.drag_handle,
-                  size: 24,
-                  color: theme.colorScheme.onSurface.withValues(
-                    alpha: _isFilteringUtilities ? 0.15 : 0.4,
-                  ),
-                ),
+                // No index: this list keeps `ReorderableListView`'s default
+                // drag handles, so the icon is decoration that only has to
+                // read as active or greyed.
+                ReorderHandle(enabled: !_isFilteringUtilities),
                 const SizedBox(width: 8),
                 Icon(
                   _utilityIcon(config.id),
@@ -1682,7 +1680,7 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
                   ),
                   const SizedBox(height: 8),
                   if (_isFilteringUtilities) ...[
-                    _buildReorderLockedHint(context, horizontalPadding: 0),
+                    const ReorderLockedHint(horizontalPadding: 0),
                     const SizedBox(height: 4),
                   ],
                 ],
@@ -1744,7 +1742,7 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
                 ),
               ),
             if (_isFilteringShortcuts && filtered.isNotEmpty)
-              SliverToBoxAdapter(child: _buildReorderLockedHint(context)),
+              SliverToBoxAdapter(child: const ReorderLockedHint()),
             _buildShortcutListSliver(context, filtered),
             const SliverToBoxAdapter(child: SizedBox(height: 110)),
           ],
@@ -1918,36 +1916,6 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
     );
   }
 
-  Widget _buildReorderLockedHint(
-    BuildContext context, {
-    double horizontalPadding = 16,
-  }) {
-    final theme = Theme.of(context);
-    final l10n = AppLocalizations.of(context)!;
-
-    return Padding(
-      padding: EdgeInsets.fromLTRB(horizontalPadding, 0, horizontalPadding, 8),
-      child: Row(
-        children: [
-          Icon(
-            Icons.lock_outline,
-            size: 14,
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-          ),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              l10n.clearSearchToReorder,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildShortcutListSliver(
     BuildContext context,
     List<({CustomMarkdownShortcut shortcut, int index})> filtered,
@@ -1981,7 +1949,7 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
       padding: padding,
       sliver: SliverReorderableList(
         itemCount: filtered.length,
-        proxyDecorator: _buildShortcutDragProxy,
+        proxyDecorator: reorderDragProxy,
         onReorderItem: (oldIndex, newIndex) {
           setState(() {
             final item = _shortcuts.removeAt(oldIndex);
@@ -1997,29 +1965,6 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
           reorderable: true,
         ),
       ),
-    );
-  }
-
-  Widget _buildShortcutDragProxy(
-    Widget child,
-    int index,
-    Animation<double> animation,
-  ) {
-    return AnimatedBuilder(
-      animation: animation,
-      builder: (context, _) {
-        final t = Curves.easeInOut.transform(animation.value);
-        return Transform.scale(
-          scale: 1 + 0.02 * t,
-          child: Material(
-            color: Colors.transparent,
-            elevation: 6 * t,
-            borderRadius: BorderRadius.circular(12),
-            child: child,
-          ),
-        );
-      },
-      child: child,
     );
   }
 
@@ -2043,26 +1988,10 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
           leading: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // The handle keeps its slot while filtering so clearing the
-              // filter does not shift every row sideways.
-              reorderable
-                  ? ReorderableDragStartListener(
-                      index: renderIndex,
-                      child: Icon(
-                        Icons.drag_handle,
-                        size: 24,
-                        color: theme.colorScheme.onSurface.withValues(
-                          alpha: 0.4,
-                        ),
-                      ),
-                    )
-                  : Icon(
-                      Icons.drag_handle,
-                      size: 24,
-                      color: theme.colorScheme.onSurface.withValues(
-                        alpha: 0.15,
-                      ),
-                    ),
+              ReorderHandle(
+                index: reorderable ? renderIndex : null,
+                enabled: reorderable,
+              ),
               const SizedBox(width: 8),
               MarkdownSettingsUtils.buildShortcutIcon(context, shortcut),
             ],

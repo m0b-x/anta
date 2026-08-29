@@ -5,6 +5,7 @@ import '../constants/calendar_categories.dart';
 import '../constants/calendar_icons.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_category.dart';
+import '../services/calendar_event_service.dart';
 import '../services/category_service.dart';
 import '../services/folder_search_service.dart' show normalizeForSearch;
 import '../utils/category_search.dart';
@@ -12,6 +13,7 @@ import '../utils/custom_snackbar.dart';
 import '../utils/settings_search.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/category_editor_sheet.dart';
+import '../widgets/settings_reorder.dart';
 import '../widgets/settings_search_field.dart';
 import '../widgets/unified_app_bars.dart';
 
@@ -40,12 +42,14 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   final TextEditingController _searchController = TextEditingController();
 
   CategoryService? _service;
+  CalendarEventService? _eventService;
 
   /// The local display order. While a drag is being persisted this leads the
   /// service's own list, which is the whole point of the optimistic update —
   /// and the reason an empty query renders it **directly** rather than through
-  /// [rankCategories], whose `sortOrder` tiebreak still holds the pre-drag
-  /// values until the write lands.
+  /// [rankCategories], which sorts same-band rows on `sortOrder` and never on
+  /// input order (a deliberate, tested property of that function), so the
+  /// pre-drag values it still sees would snap the dragged row back.
   List<CalendarCategory> _categories = const [];
 
   /// Advisory event counts, loaded once per page entry and after a delete.
@@ -71,11 +75,18 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   }
 
   Future<void> _load() async {
-    final service = await CategoryService.getInstance();
-    final counts = await service.eventCountsByCategory();
+    // Independent resolves, so start both before awaiting either. Reaching
+    // this page means the calendar has already been open, so the event
+    // service is a warm singleton and its `getInstance()` costs nothing.
+    final categoryFuture = CategoryService.getInstance();
+    final eventFuture = CalendarEventService.getInstance();
+    final service = await categoryFuture;
+    final eventService = await eventFuture;
+    final counts = await eventService.countByCategory();
     if (!mounted) return;
     setState(() {
       _service = service;
+      _eventService = eventService;
       _categories = service.categories;
       _counts = counts;
       _isLoading = false;
@@ -89,9 +100,9 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   }
 
   Future<void> _refreshCounts() async {
-    final service = _service;
-    if (service == null) return;
-    final counts = await service.eventCountsByCategory();
+    final eventService = _eventService;
+    if (eventService == null) return;
+    final counts = await eventService.countByCategory();
     if (!mounted) return;
     setState(() => _counts = counts);
   }
@@ -109,6 +120,26 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
 
   // ── Mutations ────────────────────────────────────────────────────────
 
+  /// Runs [write] and reconciles with the service afterwards, whether it
+  /// succeeded or not.
+  ///
+  /// Every mutation here is fired from a menu callback and never awaited, so
+  /// an escaping error would surface as an unhandled async error rather than
+  /// anything the user can act on. Reconciling on failure is the feedback: an
+  /// optimistic order or a flipped visibility icon visibly springs back to
+  /// what is actually stored.
+  Future<bool> _guarded(Future<void> Function() write) async {
+    try {
+      await write();
+      return true;
+    } catch (e) {
+      debugPrint('[CalendarCategoriesPage] Write failed: $e');
+      return false;
+    } finally {
+      if (mounted) _refresh();
+    }
+  }
+
   Future<void> _create() async {
     final created = await CategoryEditorSheet.show(context);
     if (created == null || !mounted) return;
@@ -121,10 +152,8 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
     _refresh();
   }
 
-  Future<void> _setHidden(CalendarCategory category, bool hidden) async {
-    await _service?.setHidden(category.id, hidden);
-    if (!mounted) return;
-    _refresh();
+  Future<void> _setHidden(CalendarCategory category, bool hidden) {
+    return _guarded(() => _service!.setHidden(category.id, hidden));
   }
 
   Future<void> _delete(CalendarCategory category) async {
@@ -146,9 +175,8 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
       isDestructive: true,
     );
     if (!confirmed || !mounted) return;
-    await _service?.deleteCategory(category.id);
-    if (!mounted) return;
-    _refresh();
+    final deleted = await _guarded(() => _service!.deleteCategory(category.id));
+    if (!mounted || !deleted) return;
     await _refreshCounts();
     if (!mounted) return;
     CustomSnackbar.showSuccess(context, l10n.categoryDeleted);
@@ -162,11 +190,11 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   /// this must not build a second one — it just hands over its *current* full
   /// local order, which is what makes the last write the whole truth however
   /// the futures land.
-  Future<void> _persistOrder(List<CalendarCategory> ordered) async {
+  Future<void> _persistOrder(List<CalendarCategory> ordered) {
     setState(() => _categories = ordered);
-    await _service?.reorder([for (final c in ordered) c.id]);
-    if (!mounted) return;
-    _refresh();
+    return _guarded(
+      () => _service!.reorder([for (final c in ordered) c.id]),
+    );
   }
 
   Future<void> _reorder(int oldIndex, int newIndex) {
@@ -282,7 +310,7 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
               onChanged: _onQueryChanged,
             ),
           ),
-        if (showSearch && _isFiltering) _buildReorderLockedHint(context),
+        if (showSearch && _isFiltering) const ReorderLockedHint(),
         // The list owns the nearest enclosing `Scrollable`, which is what
         // binds `ReorderableListView`'s edge auto-scroller to the thing that
         // actually scrolls. Nesting it in an outer scroll view with
@@ -291,31 +319,22 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
           child: _isFiltering
               ? (rows.isEmpty
                     ? _buildNoMatchesState(context)
-                    : _buildFilteredList(context, rows))
-              : _buildReorderableList(context, rows),
+                    : _buildFilteredList(rows))
+              : _buildReorderableList(rows),
         ),
       ],
     );
   }
 
-  Widget _buildFilteredList(
-    BuildContext context,
-    List<CalendarCategory> rows,
-  ) {
+  Widget _buildFilteredList(List<CalendarCategory> rows) {
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
       itemCount: rows.length,
-      itemBuilder: (context, index) => KeyedSubtree(
-        key: ValueKey(rows[index].id),
-        child: _buildRow(context, rows[index], index, reorderable: false),
-      ),
+      itemBuilder: (context, index) => _rowFor(rows[index], dragIndex: null),
     );
   }
 
-  Widget _buildReorderableList(
-    BuildContext context,
-    List<CalendarCategory> rows,
-  ) {
+  Widget _buildReorderableList(List<CalendarCategory> rows) {
     return ReorderableListView.builder(
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
       buildDefaultDragHandles: false,
@@ -325,46 +344,93 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
       // filtering), but focus with an empty field can.
       onReorderStart: (_) => FocusScope.of(context).unfocus(),
       onReorderItem: _reorder,
-      proxyDecorator: _buildDragProxy,
+      proxyDecorator: reorderDragProxy,
       itemBuilder: (context, index) => ReorderableDelayedDragStartListener(
         key: ValueKey(rows[index].id),
         index: index,
-        child: _buildRow(context, rows[index], index, reorderable: true),
+        child: _rowFor(rows[index], dragIndex: index),
       ),
     );
   }
 
-  Widget _buildDragProxy(Widget child, int index, Animation<double> animation) {
-    return AnimatedBuilder(
-      animation: animation,
-      builder: (context, _) {
-        final t = Curves.easeInOut.transform(animation.value);
-        return Transform.scale(
-          scale: 1 + 0.02 * t,
-          child: Material(
-            color: Colors.transparent,
-            elevation: 6 * t,
-            borderRadius: BorderRadius.circular(12),
-            child: child,
-          ),
-        );
-      },
-      child: child,
+  Widget _rowFor(CalendarCategory category, {required int? dragIndex}) {
+    final row = _CategoryRow(
+      category: category,
+      eventCount: _counts[category.id] ?? 0,
+      dragIndex: dragIndex,
+      onToggleHidden: () => _setHidden(category, !category.isHidden),
+      onAction: (action) => _onCategoryAction(action, category),
+      onTap: () => _edit(category),
     );
+    // The reorderable list keys its own wrapper; the filtered one has to.
+    return dragIndex == null
+        ? KeyedSubtree(key: ValueKey(category.id), child: row)
+        : row;
   }
 
-  Widget _buildRow(
-    BuildContext context,
-    CalendarCategory category,
-    int renderIndex, {
-    required bool reorderable,
-  }) {
+  Widget _buildNoMatchesState(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
-    final count = _counts[category.id] ?? 0;
+
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.search_off_rounded,
+            size: 48,
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            l10n.noCategoriesMatch,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+            ),
+          ),
+          const SizedBox(height: 4),
+          TextButton(onPressed: _clearQuery, child: Text(l10n.clearSearch)),
+        ],
+      ),
+    );
+  }
+}
+
+/// One category row: colour/icon avatar, localized label, the built-in badge
+/// and usage count, a visibility toggle and the options menu.
+///
+/// A widget rather than a method on the page so a keystroke in the search
+/// field rebuilds the rows without rebuilding their subtrees wholesale, and so
+/// the row's own layout stays readable next to a page that owns five slices'
+/// worth of behaviour.
+class _CategoryRow extends StatelessWidget {
+  final CalendarCategory category;
+  final int eventCount;
+
+  /// Index in the enclosing reorderable list, or `null` while a query is
+  /// active and reorder is therefore off.
+  final int? dragIndex;
+
+  final VoidCallback onToggleHidden;
+  final ValueChanged<_CategoryAction> onAction;
+  final VoidCallback onTap;
+
+  const _CategoryRow({
+    required this.category,
+    required this.eventCount,
+    required this.dragIndex,
+    required this.onToggleHidden,
+    required this.onAction,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
     final subtitle = [
       if (category.isBuiltIn) l10n.categoryDefault,
-      l10n.categoryEventCount(count),
+      l10n.categoryEventCount(eventCount),
     ].join(' · ');
 
     return Padding(
@@ -380,26 +446,7 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
             leading: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // The handle keeps its slot while filtering so clearing the
-                // query does not shift every row sideways.
-                reorderable
-                    ? ReorderableDragStartListener(
-                        index: renderIndex,
-                        child: Icon(
-                          Icons.drag_handle,
-                          size: 24,
-                          color: theme.colorScheme.onSurface.withValues(
-                            alpha: 0.4,
-                          ),
-                        ),
-                      )
-                    : Icon(
-                        Icons.drag_handle,
-                        size: 24,
-                        color: theme.colorScheme.onSurface.withValues(
-                          alpha: 0.15,
-                        ),
-                      ),
+                ReorderHandle(index: dragIndex, enabled: dragIndex != null),
                 const SizedBox(width: 8),
                 CircleAvatar(
                   backgroundColor: category.color.withValues(alpha: 0.18),
@@ -423,11 +470,11 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
                         : Icons.visibility,
                   ),
                   tooltip: category.isHidden ? l10n.show : l10n.hide,
-                  onPressed: () => _setHidden(category, !category.isHidden),
+                  onPressed: onToggleHidden,
                 ),
                 PopupMenuButton<_CategoryAction>(
                   icon: const Icon(Icons.more_vert),
-                  onSelected: (action) => _onCategoryAction(action, category),
+                  onSelected: onAction,
                   itemBuilder: (ctx) => [
                     PopupMenuItem(
                       value: _CategoryAction.moveToTop,
@@ -490,63 +537,9 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
                 ),
               ],
             ),
-            onTap: () => _edit(category),
+            onTap: onTap,
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildReorderLockedHint(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-      child: Row(
-        children: [
-          Icon(
-            Icons.lock_outline,
-            size: 14,
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-          ),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              l10n.clearSearchToReorder,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildNoMatchesState(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.search_off_rounded,
-            size: 48,
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            l10n.noCategoriesMatch,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-            ),
-          ),
-          const SizedBox(height: 4),
-          TextButton(onPressed: _clearQuery, child: Text(l10n.clearSearch)),
-        ],
       ),
     );
   }

@@ -74,6 +74,23 @@ class CalendarEventService {
 
   List<CalendarEvent> get events => _cache;
 
+  /// How many live events sit in each category, keyed by category id.
+  /// Categories with none are absent rather than zero.
+  ///
+  /// **One statement for the whole page**, never a count per row — the
+  /// category management page renders forty of them, and
+  /// `test/database/query_count_test.dart` guards the shape. Advisory data:
+  /// read once per page entry and after a delete, never held as live state,
+  /// so it does not ride the cache or bump any revision.
+  Future<Map<String, int>> countByCategory() async {
+    try {
+      return await _dao.countByCategory();
+    } catch (e) {
+      debugPrint('[CalendarEventService] Count error: $e');
+      return const {};
+    }
+  }
+
   Future<void> reload() => _load();
 
   Future<void> _load() async {

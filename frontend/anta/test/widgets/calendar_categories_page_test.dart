@@ -5,6 +5,7 @@ import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/pages/calendar_categories_page.dart';
+import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/category_service.dart';
 import 'package:anta/widgets/settings_search_field.dart';
 
@@ -31,13 +32,18 @@ void main() {
 
   setUp(() async {
     CategoryService.reset();
+    CalendarEventService.reset();
     db = await openTestDatabase();
     service = await CategoryService.forTesting(db);
+    // The page reads its usage counts from the event service, which owns
+    // them; binding it here keeps `getInstance()` off `path_provider`.
+    await CalendarEventService.forTesting(db);
     pumps = 0;
   });
 
   tearDown(() async {
     CategoryService.reset();
+    CalendarEventService.reset();
     await db.close();
   });
 

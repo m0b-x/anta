@@ -21,7 +21,7 @@ What exists now:
   `0..N-1`), `CategoryService.reorder` with the writes serialized onto a chain,
   **and the drag UI plus Move to top / Sort A–Z**.
 - **B5** — `countByCategory` (one `GROUP BY`, in `query_count_test`'s guard),
-  surfaced through `CategoryService.eventCountsByCategory` **into the row
+  surfaced through `CalendarEventService.countByCategory` **into the row
   subtitles and the delete confirmation**.
 - **B3** — `lib/utils/category_search.dart` (`rankCategories`, membership by
   `matchesSettingsQuery`, order by `FuzzyRank`, icon-only hits demoted a band,

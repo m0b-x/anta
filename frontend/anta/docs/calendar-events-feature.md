@@ -189,12 +189,25 @@ to on return.
   `SettingsSearchField` ranked by `rankCategories`; while a query is active the
   list falls back to a plain `ListView` and the drag handle greys **in place**,
   so clearing the query does not shift every row sideways.
-- **Usage counts** come from one `CalendarEventDao.countByCategory()`
-  `GROUP BY` per page entry (`CategoryService.eventCountsByCategory`), never a
-  count per row — `test/database/query_count_test.dart` is the guard. They are
-  advisory: rendered in the row subtitle, refreshed after a delete, and folded
-  into the delete confirmation, which at `count > 0` says what will move and
-  suggests hiding instead.
+- **Usage counts** come from one `GROUP BY` per page entry, exposed as
+  `CalendarEventService.countByCategory()` — on the **event** service, since
+  counting events is that domain's job and reaching this page always means the
+  singleton is warm — never a count per row;
+  `test/database/query_count_test.dart` is the guard. They are advisory:
+  rendered in the row subtitle, refreshed after a delete, and folded into the
+  delete confirmation, which at `count > 0` says what will move and suggests
+  hiding instead.
+- **Mutations fired from a menu callback are never awaited**, so each goes
+  through one `_guarded` wrapper that catches and then reconciles with the
+  service. A failed write springs the optimistic row back to what is stored
+  rather than escaping as an unhandled async error.
+- **The reorder chrome is shared.** `ReorderHandle`, `reorderDragProxy` and
+  `ReorderLockedHint` live in
+  [settings_reorder.dart](../lib/widgets/settings_reorder.dart), used by this
+  page and by both reorderable lists in `markdown_settings_page.dart` —
+  extracted for the same reason `SettingsSearchField` was. `ReorderHandle`
+  keeps `index` (wire it to the list, or null when the list supplies its own
+  default handles) separate from `enabled` (the visual grey).
 - **Create moved to the app bar** (`IconButton.filledTonal`) from the FAB, so
   it never scrolls away and never collides with the list; creating *during
   capture* stays in `CategoryPickerSheet`.
