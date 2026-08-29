@@ -3628,6 +3628,12 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String get upcomingPeriodRestOfYear => 'Rest des Jahres';
+
+  @override
+  String get upcomingPeriodWholeYear => 'Dieses Jahr';
+
+  @override
   String get upcomingPeriodCustom => 'Eigener';
 
   @override

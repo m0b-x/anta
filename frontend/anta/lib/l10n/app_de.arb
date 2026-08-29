@@ -2177,6 +2177,8 @@
       }
     }
   },
+  "upcomingPeriodRestOfYear": "Rest des Jahres",
+  "upcomingPeriodWholeYear": "Dieses Jahr",
   "upcomingPeriodCustom": "Eigener",
   "upcomingPriority": "Priorität",
   "upcomingPriorityAny": "Alle",

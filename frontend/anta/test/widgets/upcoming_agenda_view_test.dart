@@ -779,4 +779,132 @@ void main() {
       expect(CalendarEvent.debugOccursOnCalls, 366);
     });
   });
+
+  /// The two calendar-year windows. Unlike the rolling presets these are
+  /// anchored to 1 January / 31 December rather than counted forward, which is
+  /// what lets the agenda answer "every birthday this year" — including the
+  /// ones already past.
+  group('calendar-year windows', () {
+    const wholeYear = UpcomingAgendaFilters(
+      periodMode: AgendaPeriodMode.wholeYear,
+    );
+    const restOfYear = UpcomingAgendaFilters(
+      periodMode: AgendaPeriodMode.restOfYear,
+    );
+    // A non-leap year, so the day counts below are 365 rather than 366.
+    final midYear = DateTime.utc(2026, 8, 29);
+
+    testWidgets('the whole year reaches back to January', (tester) async {
+      await pumpView(tester, anchorDay: midYear, filters: wholeYear);
+
+      expect(
+        header(tester),
+        contains(
+          AgendaListView.rangeLabel(
+            'en',
+            DateTime.utc(2026, 1, 1),
+            DateTime.utc(2026, 12, 31),
+          ),
+        ),
+      );
+    });
+
+    testWidgets('the rest of the year starts at the anchor', (tester) async {
+      await pumpView(tester, anchorDay: midYear, filters: restOfYear);
+
+      expect(
+        header(tester),
+        contains(
+          AgendaListView.rangeLabel('en', midYear, DateTime.utc(2026, 12, 31)),
+        ),
+      );
+    });
+
+    testWidgets('walking the grid inside the year costs no rescan', (
+      tester,
+    ) async {
+      await pumpView(tester, anchorDay: midYear, filters: wholeYear);
+      final before = header(tester);
+
+      CalendarEvent.debugOccursOnCalls = 0;
+      await pumpView(
+        tester,
+        anchorDay: DateTime.utc(2026, 11, 3),
+        filters: wholeYear,
+      );
+
+      // The window is the year, not the anchor: nothing moved, so nothing may
+      // be re-expanded — a 365-day rescan per grid tap is exactly the cost
+      // this mode must not introduce.
+      expect(CalendarEvent.debugOccursOnCalls, 0);
+      expect(header(tester), before);
+    });
+
+    testWidgets('crossing into another year rescans once', (tester) async {
+      await pumpView(tester, anchorDay: midYear, filters: wholeYear);
+
+      CalendarEvent.debugOccursOnCalls = 0;
+      await pumpView(
+        tester,
+        anchorDay: DateTime.utc(2027, 2, 4),
+        filters: wholeYear,
+      );
+
+      // One daily event across 2027: one occursOn per day of the new window,
+      // and no more.
+      expect(CalendarEvent.debugOccursOnCalls, 365);
+      expect(
+        header(tester),
+        contains(
+          AgendaListView.rangeLabel(
+            'en',
+            DateTime.utc(2027, 1, 1),
+            DateTime.utc(2027, 12, 31),
+          ),
+        ),
+      );
+    });
+
+    testWidgets('a query narrows a year window instead of widening it', (
+      tester,
+    ) async {
+      await pumpView(tester, anchorDay: midYear, filters: wholeYear);
+      final before = header(tester);
+
+      await pumpView(
+        tester,
+        anchorDay: midYear,
+        filters: wholeYear.copyWith(query: 'leg'),
+      );
+      await tester.pump(const Duration(milliseconds: 250));
+
+      // The rolling window widens to a full year on a query so a search can
+      // reach February from August. A year window already *is* that reach, and
+      // widening it would push it forward off the year the user asked for —
+      // so the window, and with it every matching row, stands still.
+      expect(header(tester), before);
+    });
+
+    testWidgets('the chip undoes the year without forgetting the preset', (
+      tester,
+    ) async {
+      UpcomingAgendaFilters? captured;
+      await pumpView(
+        tester,
+        anchorDay: midYear,
+        filters: wholeYear.copyWith(rangeDays: 90),
+        onFiltersChanged: (f) => captured = f,
+      );
+
+      expect(find.byType(InputChip), findsOneWidget);
+      expect(find.text('This year'), findsOneWidget);
+
+      await tester.tap(removeFilter);
+      await tester.pump();
+
+      expect(captured?.periodMode, AgendaPeriodMode.rollingDays);
+      // The rolling window the user had chosen before, not the default.
+      expect(captured?.rangeDays, 90);
+    });
+  });
 }

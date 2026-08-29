@@ -25,6 +25,22 @@ class AgendaFiltersSheet extends StatefulWidget {
 
   const AgendaFiltersSheet({super.key, required this.initial});
 
+  /// Names one period choice. Shared with the panel's summary chip so the
+  /// sheet and the chip that undoes it can never name the same window
+  /// differently. [AgendaPeriodMode.rollingDays] has no chip of its own — it
+  /// is the preset row — so it falls back to the window it spans.
+  static String periodModeLabel(
+    AppLocalizations l10n,
+    AgendaPeriodMode mode,
+    int rangeDays,
+  ) {
+    return switch (mode) {
+      AgendaPeriodMode.wholeYear => l10n.upcomingPeriodWholeYear,
+      AgendaPeriodMode.restOfYear => l10n.upcomingPeriodRestOfYear,
+      AgendaPeriodMode.rollingDays => l10n.upcomingPeriodDays(rangeDays),
+    };
+  }
+
   static Future<UpcomingAgendaFilters?> show(
     BuildContext context, {
     required UpcomingAgendaFilters filters,
@@ -242,10 +258,39 @@ class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
           ChoiceChip(
             label: Text(l10n.upcomingPeriodDays(days)),
             visualDensity: VisualDensity.compact,
-            selected: !_draft.hasCustomRange && _draft.rangeDays == days,
+            selected:
+                !_draft.hasCustomRange &&
+                _draft.periodMode == AgendaPeriodMode.rollingDays &&
+                _draft.rangeDays == days,
             onSelected: (selected) {
               if (!selected) return;
-              _update(_draft.copyWith(rangeDays: days, clearCustomRange: true));
+              _update(
+                _draft.copyWith(
+                  periodMode: AgendaPeriodMode.rollingDays,
+                  rangeDays: days,
+                  clearCustomRange: true,
+                ),
+              );
+            },
+          ),
+        // The two year windows are anchored to the calendar year rather than
+        // counted forward, which is why they cannot be expressed as another
+        // entry in `rangePresets`.
+        for (final mode in const [
+          AgendaPeriodMode.restOfYear,
+          AgendaPeriodMode.wholeYear,
+        ])
+          ChoiceChip(
+            label: Text(
+              AgendaFiltersSheet.periodModeLabel(l10n, mode, _draft.rangeDays),
+            ),
+            visualDensity: VisualDensity.compact,
+            selected: !_draft.hasCustomRange && _draft.periodMode == mode,
+            onSelected: (selected) {
+              if (!selected) return;
+              _update(
+                _draft.copyWith(periodMode: mode, clearCustomRange: true),
+              );
             },
           ),
         InputChip(

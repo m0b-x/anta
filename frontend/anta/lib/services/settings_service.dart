@@ -678,6 +678,11 @@ class SettingsService {
           '',
     );
     return UpcomingAgendaFilters(
+      periodMode: AgendaPeriodMode.fromName(
+        await _db.userSettingsDao.getValue(
+          SettingsKeys.calendarUpcomingPeriodMode,
+        ),
+      ),
       rangeDays: rangeDays,
       priorities: await _readUpcomingPriorities(),
       customStart: customStart,
@@ -784,6 +789,10 @@ class SettingsService {
   /// Persists every upcoming-agenda filter. Callers debounce the text query
   /// themselves; the discrete choices are cheap enough to write on change.
   Future<void> saveUpcomingAgendaFilters(UpcomingAgendaFilters filters) async {
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.calendarUpcomingPeriodMode,
+      filters.periodMode.name,
+    );
     await _setInt(SettingsKeys.calendarUpcomingRangeDays, filters.rangeDays);
     await _db.userSettingsDao.setValue(
       SettingsKeys.calendarUpcomingPriorities,

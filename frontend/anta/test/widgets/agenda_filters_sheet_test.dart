@@ -200,6 +200,91 @@ void main() {
       expect(applied.value!.fastingDisplay, AgendaFastingDisplay.periods);
     });
   });
+
+  /// The Period row is one mutually-exclusive axis across six chips: three
+  /// rolling presets, two calendar-year windows and the custom range. Picking
+  /// any of them has to leave the others off, which is the only way the row
+  /// can honestly show what the agenda is doing.
+  group('period chips', () {
+    testWidgets('picking this year survives Apply', (tester) async {
+      final applied = await openSheet(tester, const UpcomingAgendaFilters());
+
+      await tester.tap(find.text('This year'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Apply'));
+      await tester.pumpAndSettle();
+
+      expect(applied.value!.periodMode, AgendaPeriodMode.wholeYear);
+    });
+
+    testWidgets('picking the rest of the year survives Apply', (tester) async {
+      final applied = await openSheet(tester, const UpcomingAgendaFilters());
+
+      await tester.tap(find.text('Rest of year'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Apply'));
+      await tester.pumpAndSettle();
+
+      expect(applied.value!.periodMode, AgendaPeriodMode.restOfYear);
+    });
+
+    testWidgets('a year window drops a pinned custom range', (tester) async {
+      final applied = await openSheet(
+        tester,
+        UpcomingAgendaFilters(
+          customStart: DateTime.utc(2026, 5, 1),
+          customEnd: DateTime.utc(2026, 5, 15),
+        ),
+      );
+
+      await tester.tap(find.text('This year'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Apply'));
+      await tester.pumpAndSettle();
+
+      // Both would otherwise be live at once, with the pinned range silently
+      // winning over the chip the user just pressed.
+      expect(applied.value!.periodMode, AgendaPeriodMode.wholeYear);
+      expect(applied.value!.hasCustomRange, isFalse);
+    });
+
+    testWidgets('a day preset takes the window back off the year', (
+      tester,
+    ) async {
+      final applied = await openSheet(
+        tester,
+        const UpcomingAgendaFilters(periodMode: AgendaPeriodMode.wholeYear),
+      );
+
+      await tester.tap(find.text('7 days'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Apply'));
+      await tester.pumpAndSettle();
+
+      expect(applied.value!.periodMode, AgendaPeriodMode.rollingDays);
+      expect(applied.value!.rangeDays, 7);
+    });
+
+    testWidgets('Reset returns the window to the rolling default', (
+      tester,
+    ) async {
+      final applied = await openSheet(
+        tester,
+        const UpcomingAgendaFilters(periodMode: AgendaPeriodMode.restOfYear),
+      );
+
+      await tester.tap(find.text('Reset'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Apply'));
+      await tester.pumpAndSettle();
+
+      expect(applied.value!.periodMode, AgendaPeriodMode.rollingDays);
+      expect(
+        applied.value!.rangeDays,
+        UpcomingAgendaFilters.defaultRangeDays,
+      );
+    });
+  });
 }
 
 /// Mutable holder for the sheet's Apply result — the sheet is awaited inside a

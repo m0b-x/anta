@@ -1046,6 +1046,8 @@
       }
     }
   },
+  "upcomingPeriodRestOfYear": "Restul anului",
+  "upcomingPeriodWholeYear": "Anul acesta",
   "upcomingPeriodCustom": "Personalizat",
   "upcomingPriority": "Prioritate",
   "upcomingPriorityAny": "Oricare",

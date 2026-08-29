@@ -86,14 +86,45 @@ enum AgendaHolidayDisplay {
   }
 }
 
+/// Which window the upcoming agenda covers when no explicit range is pinned.
+///
+/// [rollingDays] is the shipped behaviour — `rangeDays` counted forward from
+/// the anchor. The two year modes are anchored to the *calendar* year instead:
+/// [wholeYear] spans 1 January to 31 December of the anchor's year, reaching
+/// into the past on purpose so a yearly event that has already happened (a
+/// birthday in March, seen in August) still appears; [restOfYear] keeps the
+/// anchor as the start and runs to 31 December.
+///
+/// Derived from the anchor on every read rather than stored as dates, so
+/// neither mode can go stale the way a pinned custom range does — see
+/// [withoutElapsedRange]. Persisted by name; [fromName] falls back to
+/// [rollingDays] for a value written by a newer build.
+enum AgendaPeriodMode {
+  rollingDays,
+  wholeYear,
+  restOfYear;
+
+  static AgendaPeriodMode fromName(String? name) {
+    for (final mode in values) {
+      if (mode.name == name) return mode;
+    }
+    return rollingDays;
+  }
+}
+
 /// Everything the upcoming-agenda panel filters by.
 ///
 /// Lives above the panel widget and is persisted through `SettingsService`,
 /// so the agenda survives both a panel-mode switch (which disposes the view)
 /// and an app restart.
 class UpcomingAgendaFilters extends Equatable {
-  /// Look-ahead window in days, used when no [customStart]/[customEnd] is
-  /// set.
+  /// Which window the agenda covers when no [customStart]/[customEnd] is set —
+  /// see [AgendaPeriodMode]. [rangeDays] applies only to
+  /// [AgendaPeriodMode.rollingDays].
+  final AgendaPeriodMode periodMode;
+
+  /// Look-ahead window in days, used when no [customStart]/[customEnd] is set
+  /// and [periodMode] is [AgendaPeriodMode.rollingDays].
   final int rangeDays;
 
   /// Priorities to include. **Empty means every priority** — the filter is
@@ -146,6 +177,7 @@ class UpcomingAgendaFilters extends Equatable {
   final Set<String> categoryIds;
 
   const UpcomingAgendaFilters({
+    this.periodMode = AgendaPeriodMode.rollingDays,
     this.rangeDays = defaultRangeDays,
     this.priorities = const {},
     this.customStart,
@@ -170,6 +202,26 @@ class UpcomingAgendaFilters extends Equatable {
 
   bool get hasCustomRange => customStart != null && customEnd != null;
 
+  /// The window [periodMode] asks for, anchored at [anchor] (date-only UTC,
+  /// inclusive at both ends). Ignores [customStart]/[customEnd], which the
+  /// caller resolves first because a pinned range outranks every preset.
+  ///
+  /// A year mode can span 366 days, which is exactly `EventAgenda.maxRangeDays`
+  /// — the same reach a text query already gives the agenda, so it adds no new
+  /// worst case to the scan.
+  (DateTime, DateTime) presetWindow(DateTime anchor) {
+    final start = DateTime.utc(anchor.year, anchor.month, anchor.day);
+    final yearEnd = DateTime.utc(anchor.year, 12, 31);
+    return switch (periodMode) {
+      AgendaPeriodMode.rollingDays => (
+        start,
+        start.add(Duration(days: rangeDays - 1)),
+      ),
+      AgendaPeriodMode.wholeYear => (DateTime.utc(anchor.year, 1, 1), yearEnd),
+      AgendaPeriodMode.restOfYear => (start, yearEnd),
+    };
+  }
+
   /// How many filters are currently **narrowing** the results.
   ///
   /// Only restrictions count: the layer toggles ([showHolidays],
@@ -179,7 +231,11 @@ class UpcomingAgendaFilters extends Equatable {
   /// what the panel's badge counts and its summary chips undo one at a time.
   int get restrictiveFilterCount {
     var count = 0;
-    if (hasCustomRange || rangeDays != defaultRangeDays) count++;
+    if (hasCustomRange ||
+        periodMode != AgendaPeriodMode.rollingDays ||
+        rangeDays != defaultRangeDays) {
+      count++;
+    }
     if (eventType != AgendaEventType.all) count++;
     if (priorities.isNotEmpty) count++;
     if (categoryIds.isNotEmpty) count++;
@@ -187,6 +243,7 @@ class UpcomingAgendaFilters extends Equatable {
   }
 
   UpcomingAgendaFilters copyWith({
+    AgendaPeriodMode? periodMode,
     int? rangeDays,
     Set<int>? priorities,
     DateTime? customStart,
@@ -203,6 +260,7 @@ class UpcomingAgendaFilters extends Equatable {
     bool clearCustomRange = false,
   }) {
     return UpcomingAgendaFilters(
+      periodMode: periodMode ?? this.periodMode,
       rangeDays: rangeDays ?? this.rangeDays,
       priorities: priorities ?? this.priorities,
       customStart: clearCustomRange ? null : (customStart ?? this.customStart),
@@ -305,6 +363,7 @@ class UpcomingAgendaFilters extends Equatable {
 
   @override
   List<Object?> get props => [
+    periodMode,
     rangeDays,
     priorities,
     customStart,

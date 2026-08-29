@@ -4609,6 +4609,14 @@
       }
     }
   },
+  "upcomingPeriodRestOfYear": "Rest of year",
+  "@upcomingPeriodRestOfYear": {
+    "description": "Period chip in the agenda filters covering from the window's start day to 31 December of that year"
+  },
+  "upcomingPeriodWholeYear": "This year",
+  "@upcomingPeriodWholeYear": {
+    "description": "Period chip in the agenda filters covering the whole calendar year, 1 January to 31 December, including days already past"
+  },
   "upcomingPeriodCustom": "Custom",
   "@upcomingPeriodCustom": {
     "description": "Chip opening a custom date range picker in the upcoming events sheet"

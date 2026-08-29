@@ -1590,6 +1590,30 @@ The area under the grid is now a mode-switched panel owned by
   "why is this missing", which is the question the row exists for. Each chip's
   body opens the sheet and its "×" (tooltip `upcomingRemoveFilter`) resets that
   one filter.
+- **The Period axis is one mutually-exclusive choice across six chips**
+  (2026-08-29): the three rolling presets (`UpcomingAgendaFilters.rangePresets`
+  = 7 / 30 / 90 days counted forward from the anchor), two calendar-year
+  windows, and Custom. The year windows are
+  `AgendaPeriodMode { rollingDays, wholeYear, restOfYear }` on the filters
+  model — an enum rather than more `rangePresets` entries because they are
+  *anchored*, not counted: `wholeYear` is 1 Jan – 31 Dec of the anchor's year
+  and **reaches into the past on purpose** (a birthday in March is still
+  findable in August, which is what the mode exists for), `restOfYear` runs
+  from the anchor to 31 December. `presetWindow(anchor)` derives both on every
+  read rather than storing dates, so unlike a pinned custom range neither can
+  go stale — there is no `withoutElapsedRange` equivalent to write. A year is
+  at most 366 days, exactly `EventAgenda.maxRangeDays`, so `resolveRange` never
+  clips December off a window the header claims to show, and the scan gains no
+  new worst case (a query already reached 366 days). Picking a year chip clears
+  any pinned range; picking a preset returns to `rollingDays` and keeps its
+  `rangeDays`, so dropping the year view returns to the rolling window the user
+  last chose. Persisted by name in `calendar_upcoming_period_mode`; an absent
+  key is `rollingDays`, which is what every existing install meant.
+  `AgendaFiltersSheet.periodModeLabel` is shared with the panel's summary chip
+  so the sheet and the chip that undoes it cannot name a window differently.
+  In `didUpdateWidget` the anchor-driven rescan is suppressed while `wholeYear`
+  is active and the anchor stays inside its year — the window did not move, so
+  a grid tap must not pay for a 365-day rescan.
 - **The Custom period chip is an `InputChip`** whose delete "×" (tooltip
   `upcomingClearRange`) clears the range back to the anchored preset window; the
   "×" shows only while a range is active. `showCheckmark: false` keeps the
@@ -2287,7 +2311,9 @@ text finds the row.**
 - **Auto-widen.** A non-empty query with no pinned custom range scans
   `EventAgenda.maxRangeDays` (366) instead of `filters.rangeDays`. This is what
   actually fixes `lent`. A pinned custom range still wins — that is an explicit
-  instruction. The header renders `_resolved`, so it reports the widened window
+  instruction, and so is a calendar-year window — widening that one would push
+  it *forward* off the year the user asked for, losing the months the search
+  most needs. The header renders `_resolved`, so it reports the widened window
   honestly with no extra work, and the debounce budget test moves from
   `0`-then-`30` to `0`-then-`366`.
 - **Annotation parity.** `_fastingMatches` folds the override **and** the

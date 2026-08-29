@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/models/upcoming_agenda_filters.dart';
+import 'package:anta/utils/event_agenda.dart';
 
 /// The fasting presentation is persisted **by name**, so the axis that matters
 /// is forward compatibility: a value written by a newer build must degrade to
@@ -195,6 +196,155 @@ void main() {
           0,
         );
       }
+    });
+  });
+
+  group('AgendaPeriodMode.fromName', () {
+    test('round-trips every value', () {
+      for (final mode in AgendaPeriodMode.values) {
+        expect(AgendaPeriodMode.fromName(mode.name), mode);
+      }
+    });
+
+    test('falls back to rollingDays for null and for unknown names', () {
+      // An absent key is every existing install, where the window was
+      // `rangeDays` counted forward and nothing else.
+      expect(AgendaPeriodMode.fromName(null), AgendaPeriodMode.rollingDays);
+      expect(AgendaPeriodMode.fromName(''), AgendaPeriodMode.rollingDays);
+      expect(
+        AgendaPeriodMode.fromName('someFutureMode'),
+        AgendaPeriodMode.rollingDays,
+      );
+    });
+  });
+
+  group('UpcomingAgendaFilters.presetWindow', () {
+    final anchor = DateTime.utc(2026, 8, 29);
+
+    test('defaults to the rolling window that shipped', () {
+      const filters = UpcomingAgendaFilters();
+      expect(filters.periodMode, AgendaPeriodMode.rollingDays);
+      expect(filters.presetWindow(anchor), (
+        anchor,
+        DateTime.utc(2026, 9, 27),
+      ));
+    });
+
+    test('rollingDays counts rangeDays inclusive of the anchor', () {
+      const filters = UpcomingAgendaFilters(rangeDays: 7);
+      expect(filters.presetWindow(anchor), (anchor, DateTime.utc(2026, 9, 4)));
+    });
+
+    test('wholeYear spans the anchor year, reaching into the past', () {
+      // The point of the mode: a birthday in March is still findable in
+      // August, which a forward-only window can never do.
+      const filters = UpcomingAgendaFilters(
+        periodMode: AgendaPeriodMode.wholeYear,
+      );
+      expect(filters.presetWindow(anchor), (
+        DateTime.utc(2026, 1, 1),
+        DateTime.utc(2026, 12, 31),
+      ));
+    });
+
+    test('wholeYear follows the anchor into another year', () {
+      const filters = UpcomingAgendaFilters(
+        periodMode: AgendaPeriodMode.wholeYear,
+      );
+      expect(filters.presetWindow(DateTime.utc(2028, 3, 2)), (
+        DateTime.utc(2028, 1, 1),
+        DateTime.utc(2028, 12, 31),
+      ));
+    });
+
+    test('a leap year fits inside the scan cap', () {
+      // 2028 is 366 days, which is exactly `EventAgenda.maxRangeDays`. One day
+      // more and `resolveRange` would silently clip December off the window
+      // the header claims to show.
+      const filters = UpcomingAgendaFilters(
+        periodMode: AgendaPeriodMode.wholeYear,
+      );
+      final (start, end) = filters.presetWindow(DateTime.utc(2028, 6, 1));
+      expect(end.difference(start).inDays + 1, EventAgenda.maxRangeDays);
+      expect(EventAgenda.resolveRange(start, end), (start, end));
+    });
+
+    test('restOfYear runs from the anchor to 31 December', () {
+      const filters = UpcomingAgendaFilters(
+        periodMode: AgendaPeriodMode.restOfYear,
+      );
+      expect(filters.presetWindow(anchor), (anchor, DateTime.utc(2026, 12, 31)));
+    });
+
+    test('restOfYear degenerates to a single day on 31 December', () {
+      const filters = UpcomingAgendaFilters(
+        periodMode: AgendaPeriodMode.restOfYear,
+      );
+      final lastDay = DateTime.utc(2026, 12, 31);
+      expect(filters.presetWindow(lastDay), (lastDay, lastDay));
+      // Still a resolvable window rather than an empty one, so the panel shows
+      // that day instead of falling back to a degenerate range.
+      expect(EventAgenda.resolveRange(lastDay, lastDay), (lastDay, lastDay));
+    });
+
+    test('ignores rangeDays in the year modes', () {
+      const filters = UpcomingAgendaFilters(
+        periodMode: AgendaPeriodMode.wholeYear,
+        rangeDays: 7,
+      );
+      expect(filters.presetWindow(anchor).$2, DateTime.utc(2026, 12, 31));
+    });
+
+    test('normalizes a timestamped anchor to its date', () {
+      const filters = UpcomingAgendaFilters(
+        periodMode: AgendaPeriodMode.restOfYear,
+      );
+      expect(
+        filters.presetWindow(DateTime.utc(2026, 8, 29, 17, 42)).$1,
+        DateTime.utc(2026, 8, 29),
+      );
+    });
+  });
+
+  group('UpcomingAgendaFilters.periodMode', () {
+    test('copyWith carries it and leaves the rest alone', () {
+      const base = UpcomingAgendaFilters(rangeDays: 90, showHolidays: true);
+      final next = base.copyWith(periodMode: AgendaPeriodMode.wholeYear);
+
+      expect(next.periodMode, AgendaPeriodMode.wholeYear);
+      // Kept, so dropping the year view returns to the rolling window the user
+      // last chose rather than to the default.
+      expect(next.rangeDays, 90);
+      expect(next.showHolidays, isTrue);
+    });
+
+    test('is part of equality, so a mode change reaches the panel', () {
+      expect(
+        const UpcomingAgendaFilters(periodMode: AgendaPeriodMode.wholeYear),
+        isNot(const UpcomingAgendaFilters()),
+      );
+    });
+
+    test('counts as a window restriction, so it earns a summary chip', () {
+      // Wider than the default is still "not the default window", exactly as
+      // the 90-day preset is — the count exists so every non-default window
+      // has a chip that undoes it.
+      for (final mode in AgendaPeriodMode.values) {
+        expect(
+          UpcomingAgendaFilters(periodMode: mode).restrictiveFilterCount,
+          mode == AgendaPeriodMode.rollingDays ? 0 : 1,
+        );
+      }
+    });
+
+    test('does not double-count with a non-default rangeDays', () {
+      expect(
+        const UpcomingAgendaFilters(
+          periodMode: AgendaPeriodMode.wholeYear,
+          rangeDays: 90,
+        ).restrictiveFilterCount,
+        1,
+      );
     });
   });
 }

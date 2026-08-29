@@ -312,14 +312,21 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
     // an anchor move under a pinned custom range changes nothing — do not
     // rescan it. The custom-range transitions themselves are covered by the
     // customStart/customEnd comparisons below.
+    // A whole-year window only cares which year the anchor lands in, so
+    // walking the grid inside one year moves nothing and must not pay for a
+    // 365-day rescan.
     final anchorChanged =
-        !n.hasCustomRange && oldWidget.anchorDay != widget.anchorDay;
+        !n.hasCustomRange &&
+        oldWidget.anchorDay != widget.anchorDay &&
+        (n.periodMode != AgendaPeriodMode.wholeYear ||
+            oldWidget.anchorDay.year != widget.anchorDay.year);
     // Everything that moves the scan except the text query. A concrete change
     // like this is worth scanning for at once; only a lone keystroke is worth
     // debouncing.
     final nonQueryScanChanged =
         !identical(oldWidget.events, widget.events) ||
         oldWidget.hiddenCategoryIds != widget.hiddenCategoryIds ||
+        o.periodMode != n.periodMode ||
         o.rangeDays != n.rangeDays ||
         !setEquals(o.priorities, n.priorities) ||
         o.customStart != n.customStart ||
@@ -407,18 +414,24 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
       rawStart = EventAgenda.dateOnly(filters.customStart!);
       rawEnd = EventAgenda.dateOnly(filters.customEnd!);
     } else {
-      rawStart = EventAgenda.dateOnly(widget.anchorDay);
+      final window = filters.presetWindow(
+        EventAgenda.dateOnly(widget.anchorDay),
+      );
+      rawStart = window.$1;
       // A query turns the agenda from a filter over the visible window into a
       // search over the calendar. Great Lent starts in February, so a 30-day
       // window anchored in August can never surface it however good the
       // matching is — the reach, not the grammar, is what made "lent" fail.
       // A pinned custom range still wins: that is an explicit instruction
       // about what to show, and searching inside it is a narrowing, not a
-      // lookup.
-      final days = filters.query.trim().isEmpty
-          ? filters.rangeDays
-          : EventAgenda.maxRangeDays;
-      rawEnd = rawStart.add(Duration(days: days - 1));
+      // lookup. A calendar-year window is the same kind of instruction, and
+      // widening it would push the window *forward* off the year the user
+      // asked for — the opposite of what the search needs.
+      rawEnd =
+          filters.query.trim().isEmpty ||
+              filters.periodMode != AgendaPeriodMode.rollingDays
+          ? window.$2
+          : rawStart.add(const Duration(days: EventAgenda.maxRangeDays - 1));
     }
     _resolved =
         EventAgenda.resolveRange(rawStart, rawEnd) ?? (rawStart, rawStart);
@@ -738,6 +751,23 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
           ),
           onDeleted: () =>
               widget.onFiltersChanged(filters.copyWith(clearCustomRange: true)),
+        ),
+      );
+    } else if (filters.periodMode != AgendaPeriodMode.rollingDays) {
+      chips.add(
+        _SummaryChip(
+          icon: Icons.calendar_today_rounded,
+          label: AgendaFiltersSheet.periodModeLabel(
+            l10n,
+            filters.periodMode,
+            filters.rangeDays,
+          ),
+          // Back to the rolling window the user last chose, not to the
+          // default — dropping a year view should not also forget that they
+          // had been looking ninety days ahead.
+          onDeleted: () => widget.onFiltersChanged(
+            filters.copyWith(periodMode: AgendaPeriodMode.rollingDays),
+          ),
         ),
       );
     } else if (filters.rangeDays != UpcomingAgendaFilters.defaultRangeDays) {

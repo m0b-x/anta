@@ -3601,6 +3601,12 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get upcomingPeriodRestOfYear => 'Rest of year';
+
+  @override
+  String get upcomingPeriodWholeYear => 'This year';
+
+  @override
   String get upcomingPeriodCustom => 'Custom';
 
   @override

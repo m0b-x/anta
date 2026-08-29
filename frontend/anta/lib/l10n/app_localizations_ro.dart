@@ -3658,6 +3658,12 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
+  String get upcomingPeriodRestOfYear => 'Restul anului';
+
+  @override
+  String get upcomingPeriodWholeYear => 'Anul acesta';
+
+  @override
   String get upcomingPeriodCustom => 'Personalizat';
 
   @override

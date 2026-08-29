@@ -106,7 +106,15 @@ class SettingsKeys {
   /// most-recent-first).
   static const String recentEventColors = 'recent_event_colors';
 
+  /// Which window the upcoming agenda covers (`AgendaPeriodMode` name):
+  /// rollingDays / wholeYear / restOfYear. Parsed with a forward-compatible
+  /// fallback to `rollingDays`, which is what [calendarUpcomingRangeDays]
+  /// alone used to mean.
+  static const String calendarUpcomingPeriodMode =
+      'calendar_upcoming_period_mode';
+
   /// Last look-ahead window (in days) used in the upcoming events sheet.
+  /// Applies only while [calendarUpcomingPeriodMode] is `rollingDays`.
   static const String calendarUpcomingRangeDays =
       'calendar_upcoming_range_days';
 

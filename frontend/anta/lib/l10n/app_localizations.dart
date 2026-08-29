@@ -6352,6 +6352,18 @@ abstract class AppLocalizations {
   /// **'{count, plural, one {1 day} other {{count} days}}'**
   String upcomingPeriodDays(int count);
 
+  /// Period chip in the agenda filters covering from the window's start day to 31 December of that year
+  ///
+  /// In en, this message translates to:
+  /// **'Rest of year'**
+  String get upcomingPeriodRestOfYear;
+
+  /// Period chip in the agenda filters covering the whole calendar year, 1 January to 31 December, including days already past
+  ///
+  /// In en, this message translates to:
+  /// **'This year'**
+  String get upcomingPeriodWholeYear;
+
   /// Chip opening a custom date range picker in the upcoming events sheet
   ///
   /// In en, this message translates to:
