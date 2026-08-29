@@ -390,6 +390,41 @@
   "@categoryDeleted": {
     "description": "Snackbar shown after a custom category is deleted"
   },
+  "deleteCategoryConfirmWithEvents": "{count, plural, =1{Move 1 event to Other and delete \"{name}\"?} other{Move {count} events to Other and delete \"{name}\"?}}",
+  "@deleteCategoryConfirmWithEvents": {
+    "description": "Confirmation message when deleting a category that still has events",
+    "placeholders": {
+      "count": { "type": "int", "example": "12" },
+      "name": { "type": "String" }
+    }
+  },
+  "deleteCategoryHideHint": "Hiding it instead keeps those events in their own color.",
+  "@deleteCategoryHideHint": {
+    "description": "Extra sentence suggesting hiding rather than deleting a category that has events"
+  },
+  "categoryEventCount": "{count, plural, =0{No events} =1{1 event} other{{count} events}}",
+  "@categoryEventCount": {
+    "description": "Number of events using a category, shown in the category row subtitle",
+    "placeholders": {
+      "count": { "type": "int", "example": "12" }
+    }
+  },
+  "searchCategories": "Search categories",
+  "@searchCategories": {
+    "description": "Placeholder for the category search field"
+  },
+  "noCategoriesMatch": "No categories match",
+  "@noCategoriesMatch": {
+    "description": "Empty state when a category search returns nothing"
+  },
+  "sortCategoriesAlphabetically": "Sort A–Z",
+  "@sortCategoriesAlphabetically": {
+    "description": "Overflow menu action sorting categories alphabetically"
+  },
+  "moveToTop": "Move to top",
+  "@moveToTop": {
+    "description": "Row menu action moving an item to the first position"
+  },
   "vocabularySection": "Autocomplete",
   "@vocabularySection": {
     "description": "Section title in markdown settings for vocabulary autocomplete"

@@ -142,6 +142,7 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
   /// (keyboard, theme) leaves both equal and rescans nothing.
   String? _searchLocale;
   int? _searchCategoryRevision;
+  Set<String> _searchCategoryKeep = const {};
   String _localeName = '';
 
   /// Localized category labels, resolved once per catalog/locale change so the
@@ -274,22 +275,32 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
     _recomputeFasting();
   }
 
-  /// Re-resolves the localized category labels when the locale or the category
-  /// catalog has moved, and reports whether it did. Cheap enough to sit at the
-  /// top of every scan — two comparisons — which is what keeps a category
-  /// renamed behind the panel's back from leaving the search matching a label
-  /// nobody sees any more.
+  /// Re-resolves the localized category labels when the locale, the category
+  /// catalog or this view's own allowlist has moved, and reports whether it
+  /// did. Cheap enough to sit at the top of every scan — three comparisons —
+  /// which is what keeps a category renamed behind the panel's back from
+  /// leaving the search matching a label nobody sees any more.
+  ///
+  /// The source is `visiblePlus`, not `all`: an archived category is dropped
+  /// from the agenda's chips and from what the search can be steered by, but a
+  /// hidden id sitting in this view's own `categoryIds` allowlist is a live
+  /// selection and must survive — which is why the kept set joins the memo key
+  /// rather than the revision carrying it alone.
   bool _refreshSearchCatalog() {
     final l10n = AppLocalizations.of(context)!;
     _localeName = l10n.localeName;
     final revision = CalendarCategories.revision;
-    if (_searchLocale == _localeName && _searchCategoryRevision == revision) {
+    final keep = widget.filters.categoryIds;
+    if (_searchLocale == _localeName &&
+        _searchCategoryRevision == revision &&
+        setEquals(_searchCategoryKeep, keep)) {
       return false;
     }
     _searchLocale = _localeName;
     _searchCategoryRevision = revision;
+    _searchCategoryKeep = keep;
     _categoryLabels = {
-      for (final category in CalendarCategories.all)
+      for (final category in CalendarCategories.visiblePlus(keep))
         category.id: CalendarCategories.labelOf(category, l10n),
     };
     _queryForLocale = null;

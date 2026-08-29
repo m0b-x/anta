@@ -96,10 +96,10 @@ no `await`. An unknown id resolves to a fallback (`other`) so deleting a custom
 category never corrupts its events; `CategoryService.deleteCategory` also
 reassigns those events to `other` in a transaction. Built-ins cannot be
 deleted. CRUD lives in `CategoryService`; the UI is `CategoryEditorSheet`
-(name + icon + color) and `CalendarCategoriesPage`, plus an inline "Create
-category" entry in `CategoryPickerSheet`. The calendar filter is a hidden-id
-set (`CalendarPageLoaded.hiddenCategoryIds`), so new categories are visible by
-default.
+(name + icon + color) and `CalendarCategoriesPage` (§2.4), plus an inline
+"Create category" entry in `CategoryPickerSheet`. The calendar filter is a
+hidden-id set (`CalendarPageLoaded.hiddenCategoryIds`), so new categories are
+visible by default.
 
 One built-in carries editor behavior: selecting **Birthday**
 (`kBirthdayCategoryId`, a cake-iconed yearly category) on a still-one-time
@@ -159,6 +159,55 @@ rather than the whole category row.
 Design record: `docs/category-scaling-roadmap.md`, which also owns the wider
 plan for keeping the set usable at ~40 categories (searchable icon picker,
 persisted reorder, search, usage counts, bounded filter surfaces).
+
+### 2.4 Managing categories at scale
+
+[`CalendarCategoriesPage`](../lib/pages/calendar_categories_page.dart) is the
+one surface that lists **every** category, hidden rows included and dimmed to
+`Opacity(0.5)` like the shortcuts list. It stays **service-direct** — no
+`CategoryBloc`: search and order are local UI state, mutations go through
+`CategoryService`, and the facade's `revision` bump is what the calendar reacts
+to on return.
+
+- **Reorder.** `ReorderableListView.builder` writing through
+  `CategoryService.reorder`, which serializes its writes onto a chain — so the
+  page does the optimistic `setState` and hands over its *current* full local
+  order, never a second chain and never a delta. Because the local order leads
+  the persisted `sort_order` until that write lands, an empty query renders the
+  local list **directly** rather than through `rankCategories`, whose
+  `sortOrder` tiebreak would snap the row back mid-drag. Escapes from a long
+  drag: **Move to top** in the row menu and **Sort A–Z** in the app bar's
+  overflow, both one `reorder()` call.
+- **The list must own the nearest enclosing `Scrollable`** — `Column` +
+  `Expanded`, never a `shrinkWrap` list inside an outer scroll view. Edge
+  auto-scroll binds to `Scrollable.of(context)`, and an inner viewport with no
+  extent silently disables dragging past the fold. The search field is a fixed
+  header above it, and a drag start unfocuses it so an open keyboard cannot
+  halve the drag region.
+- **Search and reorder are mutually exclusive.** Above
+  `AppConstants.listSearchThreshold` (12) the page shows a
+  `SettingsSearchField` ranked by `rankCategories`; while a query is active the
+  list falls back to a plain `ListView` and the drag handle greys **in place**,
+  so clearing the query does not shift every row sideways.
+- **Usage counts** come from one `CalendarEventDao.countByCategory()`
+  `GROUP BY` per page entry (`CategoryService.eventCountsByCategory`), never a
+  count per row — `test/database/query_count_test.dart` is the guard. They are
+  advisory: rendered in the row subtitle, refreshed after a delete, and folded
+  into the delete confirmation, which at `count > 0` says what will move and
+  suggests hiding instead.
+- **Create moved to the app bar** (`IconButton.filledTonal`) from the FAB, so
+  it never scrolls away and never collides with the list; creating *during
+  capture* stays in `CategoryPickerSheet`.
+
+[`IconPickerSheet`](../lib/widgets/icon_picker_sheet.dart) is searchable on the
+same grammar: membership via `matchesSettingsQuery` over
+`CalendarIcons.searchTextOf` — the prebuilt folded index, so a keystroke is a
+`contains` over static strings and the filter stays synchronous and
+undebounced — ordering via `FuzzyRank`, tie-broken by catalog position. An
+empty query keeps the grouped sections; an active one renders one flat ranked
+`Wrap`. The localized group labels are folded once per sheet open and joined
+into the match set, which is how the deliberately unlocalized English keywords
+stay reachable in de/ro.
 
 ---
 

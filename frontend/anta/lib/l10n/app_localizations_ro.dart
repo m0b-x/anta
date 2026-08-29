@@ -301,6 +301,47 @@ class AppLocalizationsRo extends AppLocalizations {
   String get categoryDeleted => 'Categorie ștearsă';
 
   @override
+  String deleteCategoryConfirmWithEvents(int count, String name) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Muți $count de evenimente la „Altele” și ștergi „$name”?',
+      few: 'Muți $count evenimente la „Altele” și ștergi „$name”?',
+      one: 'Muți 1 eveniment la „Altele” și ștergi „$name”?',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get deleteCategoryHideHint =>
+      'Ascunderea păstrează aceste evenimente în culoarea lor.';
+
+  @override
+  String categoryEventCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de evenimente',
+      few: '$count evenimente',
+      one: '1 eveniment',
+      zero: 'Niciun eveniment',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchCategories => 'Caută categorii';
+
+  @override
+  String get noCategoriesMatch => 'Nicio categorie potrivită';
+
+  @override
+  String get sortCategoriesAlphabetically => 'Sortează A–Z';
+
+  @override
+  String get moveToTop => 'Mută sus';
+
+  @override
   String get vocabularySection => 'Autocompletare';
 
   @override

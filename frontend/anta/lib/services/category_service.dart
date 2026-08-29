@@ -220,6 +220,22 @@ class CategoryService {
     await updateCategory(category.copyWith(isHidden: hidden));
   }
 
+  /// How many live events sit in each category, keyed by category id. Absent
+  /// ids have none.
+  ///
+  /// **One statement for the whole page**, never a count per row — the
+  /// management page renders forty of them. `query_count_test` guards the
+  /// shape. Advisory data: read once per page entry and after a delete, never
+  /// held as live state.
+  Future<Map<String, int>> eventCountsByCategory() async {
+    try {
+      return await _db.calendarEventDao.countByCategory();
+    } catch (e) {
+      debugPrint('[CategoryService] Count error: $e');
+      return const {};
+    }
+  }
+
   /// Deletes a custom category and reassigns its events to the built-in
   /// fallback ([kFallbackCategoryId]) in one transaction. Built-ins cannot be
   /// deleted (the seeder would re-add them anyway). No-op for unknown ids.

@@ -300,6 +300,46 @@ class AppLocalizationsDe extends AppLocalizations {
   String get categoryDeleted => 'Kategorie gelöscht';
 
   @override
+  String deleteCategoryConfirmWithEvents(int count, String name) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count Ereignisse zu „Sonstiges“ verschieben und „$name“ löschen?',
+      one: '1 Ereignis zu „Sonstiges“ verschieben und „$name“ löschen?',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get deleteCategoryHideHint =>
+      'Verbergen behält diese Ereignisse in ihrer eigenen Farbe.';
+
+  @override
+  String categoryEventCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Ereignisse',
+      one: '1 Ereignis',
+      zero: 'Keine Ereignisse',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchCategories => 'Kategorien suchen';
+
+  @override
+  String get noCategoriesMatch => 'Keine passenden Kategorien';
+
+  @override
+  String get sortCategoriesAlphabetically => 'A–Z sortieren';
+
+  @override
+  String get moveToTop => 'Nach oben';
+
+  @override
   String get vocabularySection => 'Autovervollständigung';
 
   @override

@@ -333,4 +333,57 @@ void main() {
       expect(find.text(l10n.upcomingDidYouMean), findsNothing);
     });
   });
+
+  /// Hiding a category archives it: its events keep rendering in their own
+  /// colour, but the agenda stops offering the name as something to search by.
+  /// The exception is the view's own allowlist — a hidden id the user has
+  /// selected is a live selection, which is what `visiblePlus` exists for.
+  group('archived categories', () {
+    const shown = UpcomingAgendaFilters(rangeDays: 30);
+
+    void seedWithHidden(Set<String> hidden) {
+      CalendarCategories.updateCache([
+        for (final (index, seed) in CalendarCategories.builtInSeeds.indexed)
+          CalendarCategory(
+            id: seed.id,
+            name: seed.kind.name,
+            colorValue: seed.colorValue,
+            iconKey: seed.iconKey,
+            sortOrder: index,
+            isBuiltIn: true,
+            isHidden: hidden.contains(seed.id),
+          ),
+      ]);
+    }
+
+    Finder correction(String label) => find.widgetWithText(ActionChip, label);
+
+    testWidgets('a visible category is offered as a correction', (
+      tester,
+    ) async {
+      await pumpView(tester, filters: shown.copyWith(query: 'mobilty'));
+
+      expect(correction(l10n.eventCategoryMobility), findsOneWidget);
+    });
+
+    testWidgets('a hidden one is not', (tester) async {
+      seedWithHidden({'mobility'});
+      await pumpView(tester, filters: shown.copyWith(query: 'mobilty'));
+
+      expect(correction(l10n.eventCategoryMobility), findsNothing);
+    });
+
+    testWidgets('unless it sits in this view own allowlist', (tester) async {
+      seedWithHidden({'mobility'});
+      await pumpView(
+        tester,
+        filters: shown.copyWith(
+          query: 'mobilty',
+          categoryIds: const {'mobility'},
+        ),
+      );
+
+      expect(correction(l10n.eventCategoryMobility), findsOneWidget);
+    });
+  });
 }

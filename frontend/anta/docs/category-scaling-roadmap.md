@@ -1,42 +1,55 @@
 # Category Scaling Roadmap — ANTA
 
-**Status: waves 1 and 2 shipped (2026-08-29). Waves 3a, 3b and 4 remain.**
+**Status: waves 1, 2 and 3a shipped (2026-08-29). Waves 3b and 4 remain.**
 This is the plan of record for scaling calendar event categories from the
 shipped baseline (9 built-ins, a 63-icon palette, no search / reorder / hide
 anywhere) to a set that stays usable at forty categories.
 
-What exists now is the **whole data and logic layer, with no UI on it yet**:
+The data and logic layer shipped in waves 1–2; wave 3a gave all of it callers.
+What exists now:
 
 - **B2 schema + facade + service + backup** — `calendar_categories.is_hidden`
   at schema **v33**, `CalendarCategories.visible` / `visiblePlus`,
   `CategoryService.setHidden`, additive `isHidden` backup key (no version
-  bump). The consumer surfaces are *not* pointed at `visible` yet — that swap
-  happens inside the 3a/3b rewrites, exactly as this document plans.
-- **A1 catalog restructure** — `CalendarIconEntry(key, icon, keywords)`,
-  `groups` as the one source, derived lookup / group / folded-search maps,
-  English keywords on all 63 entries, `CalendarIcons.groupLabel` shared out of
-  the picker sheet, and `matchesSettingsQuery(..., preFolded: true)` so the
-  prebuilt index is not re-folded per keystroke. **The picker UI itself is
-  still the flat unsearchable `Wrap`** — that is A1 step 4, in wave 3a.
-- **B1 DAO + service** — `CalendarCategoryDao.reorder` (one read-free batch,
-  dense `0..N-1`) and `CategoryService.reorder` with the writes serialized onto
-  a chain. No drag UI yet.
-- **B5 `countByCategory`** — one `GROUP BY`, added to `query_count_test`'s
-  guard. Not rendered yet.
-- **B3 `lib/utils/category_search.dart`** — `rankCategories`, membership by
+  bump).
+- **A1** — `CalendarIconEntry(key, icon, keywords)`, `groups` as the one
+  source, derived lookup / group / folded-search maps, English keywords on all
+  63 entries, shared `CalendarIcons.groupLabel`,
+  `matchesSettingsQuery(..., preFolded: true)`, **and the searchable
+  `IconPickerSheet` on top of them**.
+- **B1** — `CalendarCategoryDao.reorder` (one read-free batch, dense
+  `0..N-1`), `CategoryService.reorder` with the writes serialized onto a chain,
+  **and the drag UI plus Move to top / Sort A–Z**.
+- **B5** — `countByCategory` (one `GROUP BY`, in `query_count_test`'s guard),
+  surfaced through `CategoryService.eventCountsByCategory` **into the row
+  subtitles and the delete confirmation**.
+- **B3** — `lib/utils/category_search.dart` (`rankCategories`, membership by
   `matchesSettingsQuery`, order by `FuzzyRank`, icon-only hits demoted a band,
-  explicit `(band, sortOrder, id)` sort. No search field yet.
+  explicit `(band, sortOrder, id)` sort) **behind the page's search field**.
+- **B4** — create moved from the FAB to the app bar.
 
-Two notes for whoever picks up 3a:
+Three notes for whoever picks up 3b:
 
-1. **`CategoryService.reorder` already serializes** (B1 step 4). The page's job
-   is the optimistic `setState` and passing its *current* full local order —
-   do not build a second chain in the widget.
-2. `CategoryService.forTesting(db)` now exists, matching the other calendar
-   services.
+1. **An empty query must render the local order directly, never through
+   `rankCategories`.** The ranker tie-breaks on `sortOrder`, which still holds
+   pre-drag values until the optimistic write lands — routing an unfiltered
+   list through it snaps the dragged row back. The management page learned
+   this; a picker sheet with no reorder is not exposed to it, but say so if one
+   ever gains an optimistic order.
+2. `CategoryService.forTesting(db)` exists, and `CategoryService.getInstance()`
+   returns whatever it installed — which is how the page's widget test runs the
+   real DAO. **A widget test that persists must drain through
+   `tester.runAsync`**: `testWidgets` runs inside `FakeAsync`, where drift's
+   batched transaction never completes however many frames are pumped
+   (`test/widgets/calendar_categories_page_test.dart` carries the helper).
+   Plain selects resolve on microtasks and need none of it.
+3. The management page's spinner animates forever, so `pumpAndSettle` spins on
+   it rather than settling — pump in a bounded loop, as the calendar page's own
+   tests already do.
 
-Nothing outside `test/` reads `visible`, `visiblePlus`, `reorder`,
-`countByCategory` or `rankCategories` yet; wave 3a is where they get callers.
+`CategoryPickerSheet`, `CalendarFilterSheet` and `AgendaFiltersSheet` are the
+three surfaces still reading `CalendarCategories.all`; wave 3b is where they
+move to `visible` / `visiblePlus`, inside the C and D rewrites.
 
 Read alongside `docs/calendar-events-feature.md` (the running behaviour of the
 subsystem) and the `calendar-events` skill (hard rules). This file is written to
@@ -44,6 +57,10 @@ be **self-sufficient**: a fresh session should be able to implement any one wave
 from this document plus the skills, without reconstructing the analysis.
 
 ## Context
+
+*Written against the pre-roadmap baseline; the icon picker and the management
+page below have since been rewritten by wave 3a. Kept as the motivation, not as
+a description of the code.*
 
 The category system was designed for a fixed set. Three things break as it grows:
 
@@ -128,7 +145,7 @@ not to dropping the feature. The spike **prices** A3 (pass = half session, fail
 
 Ten slices. Each ships value on its own.
 
-### A1 — Searchable icon picker  (catalog SHIPPED, picker UI pending)
+### A1 — Searchable icon picker  (SHIPPED)
 
 Ships: typing `run` narrows to running icons, across the existing 63, before a
 single new icon lands.
@@ -207,7 +224,7 @@ priority_high, warning, check_circle, block, lock, shield, push_pin).
 Splits cleanly: **A2a** groups + the ~150 everyday icons, **A2b** the long tail
 and a keyword pass.
 
-### B1 — Persisted reorder  (DAO + service SHIPPED, drag UI pending)
+### B1 — Persisted reorder  (SHIPPED)
 
 Ships: drag categories into your own order and it sticks — in the picker, the
 calendar filter sheet, the agenda chips and the templates page at once, because
@@ -297,7 +314,7 @@ top is miserable at any velocity. Two escapes make it rare:
    have started using a lot. It is one `reorder()` call with the id moved to
    index 0. Add it when that menu lands.
 
-### B2 — Hide a category (schema v33)  (schema + facade + service + backup SHIPPED; consumer surfaces pending)
+### B2 — Hide a category (schema v33)  (SHIPPED, except the three surfaces C and D rewrite)
 
 Written against Decision 1 (hidden = archived).
 
@@ -344,7 +361,7 @@ Same change updates the schema-lineage line in the `calendar-events` skill,
 `docs/calendar-events-feature.md`, and the category section of
 `COPILOT_CONTEXT.md`.
 
-### B3 — Search the category list  (ranking SHIPPED, search field pending)
+### B3 — Search the category list  (SHIPPED)
 
 1. New `lib/utils/category_search.dart` holding one ranking function, shared by
    the page and the picker sheet so the two cannot drift:
@@ -378,7 +395,7 @@ Tests: a name hit outranks an icon-only hit for the same query; diacritics fold
 (`sanatate` finds `Sănătate`); an icon keyword reaches a category whose name
 does not match.
 
-### B4 — Create from the app bar
+### B4 — Create from the app bar  (SHIPPED)
 
 `SettingsAppBar` already accepts `actions`, so this needs **no shared-widget
 change** — it is just what this one page passes.
@@ -396,7 +413,7 @@ acceptable — the app bar is pinned so the action never scrolls away, and
 creating *during capture* stays where the thumb is (the picker sheet keeps its
 own add affordance in C). If it feels wrong on device, keep both.
 
-### B5 — Usage counts  (countByCategory SHIPPED, rendering pending)
+### B5 — Usage counts  (SHIPPED)
 
 Ships: every row says how many events use it, and deleting says exactly what it
 will do — what makes hide-vs-delete an informed choice.
@@ -551,7 +568,7 @@ slice.
 | --- | --- | --- | --- |
 | 1 ✅ | B2 schema (table, migration, `currentVersion`, create path, model); A1 catalog restructure; B2 facade + service + backup | Opus | yes |
 | 2 ✅ | B1 DAO + service; B5 `countByCategory`; B3 `category_search.dart` | Sonnet | yes |
-| 3a | A1 picker UI; **one rewrite** of `calendar_categories_page.dart` carrying B1+B2+B3+B4+B5; `UpcomingAgendaView`'s chip source | Opus | yes |
+| 3a ✅ | A1 picker UI; **one rewrite** of `calendar_categories_page.dart` carrying B1+B2+B3+B4+B5; `UpcomingAgendaView`'s chip source | Opus | yes |
 | 3b | C, then D (D needs C's `pickMulti`) | Opus preferred, Sonnet viable | yes |
 | 4 | A2 icons + keywords + recent-icons; A3 spike + letters | Sonnet | yes |
 
@@ -579,7 +596,7 @@ opening a fresh session for it costs more context than it saves, so it rides
 with 1 — but only **after** `flutter test test/database/` passes, which is the
 gate on the migration. **3a always runs alone**: it is the densest wave and the
 one where a mid-rewrite interruption hurts most. Under tight budget, `3b + 4`
-can share a Sonnet session, in that order.
+can share a Sonnet session, in that order. *(1 + 2 and 3a each ran as planned.)*
 
 Start each session fresh against this document rather than continuing the
 previous one — the plan is written to be re-entered cold, and a stale

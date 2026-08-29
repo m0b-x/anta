@@ -299,6 +299,45 @@ class AppLocalizationsEn extends AppLocalizations {
   String get categoryDeleted => 'Category deleted';
 
   @override
+  String deleteCategoryConfirmWithEvents(int count, String name) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Move $count events to Other and delete \"$name\"?',
+      one: 'Move 1 event to Other and delete \"$name\"?',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get deleteCategoryHideHint =>
+      'Hiding it instead keeps those events in their own color.';
+
+  @override
+  String categoryEventCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count events',
+      one: '1 event',
+      zero: 'No events',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchCategories => 'Search categories';
+
+  @override
+  String get noCategoriesMatch => 'No categories match';
+
+  @override
+  String get sortCategoriesAlphabetically => 'Sort A–Z';
+
+  @override
+  String get moveToTop => 'Move to top';
+
+  @override
   String get vocabularySection => 'Autocomplete';
 
   @override

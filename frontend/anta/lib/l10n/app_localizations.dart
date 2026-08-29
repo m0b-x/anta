@@ -670,6 +670,48 @@ abstract class AppLocalizations {
   /// **'Category deleted'**
   String get categoryDeleted;
 
+  /// Confirmation message when deleting a category that still has events
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Move 1 event to Other and delete \"{name}\"?} other{Move {count} events to Other and delete \"{name}\"?}}'**
+  String deleteCategoryConfirmWithEvents(int count, String name);
+
+  /// Extra sentence suggesting hiding rather than deleting a category that has events
+  ///
+  /// In en, this message translates to:
+  /// **'Hiding it instead keeps those events in their own color.'**
+  String get deleteCategoryHideHint;
+
+  /// Number of events using a category, shown in the category row subtitle
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{No events} =1{1 event} other{{count} events}}'**
+  String categoryEventCount(int count);
+
+  /// Placeholder for the category search field
+  ///
+  /// In en, this message translates to:
+  /// **'Search categories'**
+  String get searchCategories;
+
+  /// Empty state when a category search returns nothing
+  ///
+  /// In en, this message translates to:
+  /// **'No categories match'**
+  String get noCategoriesMatch;
+
+  /// Overflow menu action sorting categories alphabetically
+  ///
+  /// In en, this message translates to:
+  /// **'Sort A–Z'**
+  String get sortCategoriesAlphabetically;
+
+  /// Row menu action moving an item to the first position
+  ///
+  /// In en, this message translates to:
+  /// **'Move to top'**
+  String get moveToTop;
+
   /// Section title in markdown settings for vocabulary autocomplete
   ///
   /// In en, this message translates to:
