@@ -192,9 +192,7 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   /// the futures land.
   Future<void> _persistOrder(List<CalendarCategory> ordered) {
     setState(() => _categories = ordered);
-    return _guarded(
-      () => _service!.reorder([for (final c in ordered) c.id]),
-    );
+    return _guarded(() => _service!.reorder([for (final c in ordered) c.id]));
   }
 
   Future<void> _reorder(int oldIndex, int newIndex) {
@@ -290,8 +288,12 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   Widget _buildBody(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     // Short lists carry no search chrome; the threshold trips on its own as
-    // the set grows.
-    final showSearch = _categories.length > AppConstants.listSearchThreshold;
+    // the set grows. `_isFiltering` holds the field open once it is in use:
+    // deleting a category can drop the count back under the threshold, and
+    // retracting the field mid-query would strand the list filtered with
+    // nothing left to clear it.
+    final showSearch =
+        _isFiltering || _categories.length > AppConstants.listSearchThreshold;
     final rows = _isFiltering
         ? [
             for (final ranked in rankCategories(_query, _categories, l10n))
@@ -465,9 +467,7 @@ class _CategoryRow extends StatelessWidget {
               children: [
                 IconButton(
                   icon: Icon(
-                    category.isHidden
-                        ? Icons.visibility_off
-                        : Icons.visibility,
+                    category.isHidden ? Icons.visibility_off : Icons.visibility,
                   ),
                   tooltip: category.isHidden ? l10n.show : l10n.hide,
                   onPressed: onToggleHidden,

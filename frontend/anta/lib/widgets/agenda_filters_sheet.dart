@@ -6,6 +6,7 @@ import '../constants/calendar_icons.dart';
 import '../constants/event_priorities.dart';
 import '../constants/fasting_calendar.dart';
 import '../l10n/app_localizations.dart';
+import '../models/calendar_category.dart';
 import '../models/calendar_event.dart';
 import '../models/upcoming_agenda_filters.dart';
 import '../utils/event_agenda.dart';
@@ -115,15 +116,33 @@ class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
   /// `pickMulti` must not collapse an empty result to `null` the way its date
   /// twin does: clearing every row here is a real choice, not a dismissal.
   ///
+  /// **The inversion is the caller's, in both directions.** An empty
+  /// allowlist opens with every row *checked* — it already means "all", the
+  /// tile above says so, and opening it unchecked would make one state read
+  /// two ways (and disagree with the calendar filter's sub-sheet, which
+  /// inverts its denylist and so opens checked for the same "everything
+  /// shown" state). A result covering everything on offer collapses back to
+  /// the empty set rather than freezing today's catalog into an explicit
+  /// list, which would silently exclude every category created afterwards.
+  ///
+  /// Unchecking every row still stores the empty set — the same thing
+  /// unchecking every chip does below the threshold, and the only reading
+  /// "no allowlist" has.
+  ///
   /// It returns into the local draft, so nothing re-runs the agenda scan
   /// behind the sheet until Apply.
-  Future<void> _pickCategories() async {
+  Future<void> _pickCategories(List<CalendarCategory> categories) async {
+    final offered = {for (final category in categories) category.id};
     final picked = await CategoryPickerSheet.pickMulti(
       context,
-      selected: _draft.categoryIds,
+      selected: _draft.categoryIds.isEmpty ? offered : _draft.categoryIds,
     );
     if (picked == null || !mounted) return;
-    _update(_draft.copyWith(categoryIds: picked));
+    _update(
+      _draft.copyWith(
+        categoryIds: picked.containsAll(offered) ? const {} : picked,
+      ),
+    );
   }
 
   /// Opens a date-range picker. The lower bound reaches into the past on
@@ -469,7 +488,7 @@ class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
             selectsAll:
                 _draft.categoryIds.isEmpty ||
                 selectedCategories.length == categories.length,
-            onTap: _pickCategories,
+            onTap: () => _pickCategories(categories),
           )
         else
           Wrap(

@@ -84,6 +84,18 @@ class _CalendarFilterSheetState extends State<CalendarFilterSheet> {
     });
   }
 
+  /// Shows everything: empties the denylist outright, archived denials
+  /// included.
+  ///
+  /// **The asymmetry with [_clearAll]'s union is deliberate, not an
+  /// oversight.** That union exists so that *hiding* everything cannot
+  /// accidentally un-hide something — a one-directional hazard with no mirror
+  /// here. An archived category's events already render on the grid in their
+  /// own colour (hiding a category archives it, it does not filter it), so
+  /// restoring them is exactly what "show everything" means, and nothing about
+  /// this button touches `is_hidden`. Subtracting only the visible ids instead
+  /// would leave an archived denial stranded: the header would keep offering
+  /// "Select all" with nothing left for it to do.
   void _selectAll() {
     setState(() => _hidden = <String>{});
   }

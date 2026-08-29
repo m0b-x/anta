@@ -170,9 +170,19 @@ one surface that lists **every** category, hidden rows included and dimmed to
 to on return.
 
 - **Reorder.** `ReorderableListView.builder` writing through
-  `CategoryService.reorder`, which serializes its writes onto a chain — so the
-  page does the optimistic `setState` and hands over its *current* full local
-  order, never a second chain and never a delta. Because the local order leads
+  `CategoryService.reorder`. **Every mutation on that service — create, update,
+  hide, reorder, delete — is serialized onto one chain**, not just reorder: each
+  ends in a `_load()` that republishes the whole facade, so two racing writes
+  can republish out of order even when both land. The page therefore does the
+  optimistic `setState` and hands over its *current* full local order, never a
+  second chain and never a delta. Two details that are load-bearing rather than
+  incidental: `updateCategory` leaves `sort_order` and `is_built_in` **absent**
+  (callers hold a model captured earlier, and order belongs to the drag — a
+  stale value undoes it and breaks the dense `0..N-1` ordering), and the chain's
+  tail starts **null** rather than a completed `Future`, because a
+  `Future.value()` built in a field initializer schedules its continuations on
+  the zone it was born in and would deadlock every widget test that awaits a
+  mutation under `FakeAsync`. Because the local order leads
   the persisted `sort_order` until that write lands, an empty query renders the
   local list **directly** rather than through `rankCategories`, whose
   `sortOrder` tiebreak would snap the row back mid-drag. Escapes from a long
@@ -221,6 +231,39 @@ empty query keeps the grouped sections; an active one renders one flat ranked
 `Wrap`. The localized group labels are folded once per sheet open and joined
 into the match set, which is how the deliberately unlocalized English keywords
 stay reachable in de/ro.
+
+The catalog is **216 entries across 24 groups**, and three things keep it
+usable at that size:
+
+- **An exact term outranks every `FuzzyRank` tier.**
+  `CalendarIcons.isExactTerm(key, foldedTerm)` is true when the term *is* one of
+  the entry's terms — its key read with underscores as spaces, or a whole
+  keyword — rather than a fragment of one, and the picker ranks those in a band
+  above `FuzzyRank.tierPrefix`. Without it a one-character query is useless:
+  `FuzzyRank` scores a prefix of the whole search text, so `a` would rank
+  `ac_unit`, `alarm` and `attach_money` above the **letter A**, whose text
+  begins with "letter".
+- **Recently used.** A section pinned above the catalog holding the last 12
+  picked keys, newest first, persisted as CSV through `SettingsService`
+  (`getRecentIconKeys` / `recordRecentIconKey`) under
+  `SettingsKeys.recentIconKeys`. Unknown keys are dropped on read — an icon may
+  be *retired* even though keys are additive-only — and duplicates collapse. It
+  is hidden while a query is active, because search results are already the
+  shortlist it exists to provide. It is a picker **section**, not an
+  `IconGroupId`: the enum stays exactly the groups `groups` declares, and a test
+  enforces that.
+- **Letters and digits are ordinary entries.** `letter_a`…`letter_z` and
+  `digit_0`…`digit_9` carry an `IconData` with **no font family**, so `Icon`
+  paints the character in the ambient font and every surface that already
+  renders an `IconData` — `DaySummaryEntry.icon`, the day bars, the row avatars
+  — works unchanged. There is no `CategoryGlyph` and no `letterFor`. It also
+  keeps them out of `--tree-shake-icons`, which subsets only the fonts a const
+  `IconData` names; a release build with them present tree-shakes
+  `MaterialIcons-Regular.otf` to a byte-identical size. Never give one a
+  `fontFamily`.
+
+Every tile carries a `Tooltip` of its key read with underscores as spaces —
+216 unnamed buttons is what a screen reader would otherwise get.
 
 ### 2.5 Choosing categories at scale
 
@@ -273,10 +316,29 @@ allowlisted categories would rebuild the exact wall the tile removes, the
 subtitle already names them, and the agenda panel's removable
 `Categories (N)` chip already undoes them (`restrictiveFilterCount` counts
 categories as **one** restriction — that is the pattern, not a rounding
-error). `CalendarFilterSheet` keeps its Select all / Clear all header buttons
-operating on the whole set directly, so the common "show everything again"
-reset never needs the sub-sheet; Clear all unions rather than replaces, so an
-archived id already in the denylist is not quietly un-hidden.
+error). `CalendarFilterSheet` keeps its Select all / Clear all header buttons, so the
+common "show everything again" reset never needs the sub-sheet. They are one
+toggle on `allSelected` (`_hidden.isEmpty`), and their **asymmetry is
+deliberate**: Clear all *unions* the visible ids into the denylist, so hiding
+everything cannot accidentally un-hide an archived category already denied;
+Select all *empties* the denylist outright, archived denials included, because
+showing everything is exactly what it says — an archived category's events
+already render on the grid in their own colour, and nothing here touches
+`is_hidden`. The hazard the union guards is one-directional and has no mirror.
+Making Select all subtract only the visible ids instead strands an archived
+denial: `_hidden` never empties, the toggle never flips back, and the button
+becomes a permanent no-op. (The union is in fact unreachable through the button
+— Clear all only appears once `_hidden` is empty — but it is the correct
+defensive shape and costs nothing.)
+
+**Each caller owns both halves of its own inversion.** The agenda's allowlist
+seeds the sub-sheet with every offered id when `categoryIds` is empty (empty
+already means "all", and the tile above says so — opening it unchecked would
+show one state two contradictory ways), and collapses a result covering
+everything on offer back to `{}` rather than freezing today's catalog into an
+explicit list that would silently exclude every category created afterwards.
+The calendar filter inverts its denylist the same way, in the same place. None
+of this leaks into `pickMulti`, which stays semantics-free.
 
 A sheet opening a sheet is established here (`EventEditorSheet` →
 `CategoryPickerSheet`, `CategoryEditorSheet` → `IconPickerSheet`), and it

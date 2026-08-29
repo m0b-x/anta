@@ -1,12 +1,16 @@
 # Category Scaling Roadmap — ANTA
 
-**Status: waves 1, 2, 3a and 3b shipped (2026-08-29). Wave 4 remains.**
+**Status: COMPLETE. Waves 1–4 all shipped (2026-08-29).**
 This is the plan of record for scaling calendar event categories from the
 shipped baseline (9 built-ins, a 63-icon palette, no search / reorder / hide
 anywhere) to a set that stays usable at forty categories.
 
 The data and logic layer shipped in waves 1–2; wave 3a gave all of it callers,
-and 3b carried it into the capture and filter surfaces. What exists now:
+3b carried it into the capture and filter surfaces, and wave 4 grew the palette.
+A post-implementation review of waves 1–3b produced
+[`category-scaling-review-fixes.md`](category-scaling-review-fixes.md) — that
+document is the record of what the review found and how each item was resolved;
+its fixes are applied. What exists now:
 
 - **B2 schema + facade + service + backup** — `calendar_categories.is_hidden`
   at schema **v33**, `CalendarCategories.visible` / `visiblePlus`,
@@ -31,6 +35,18 @@ and 3b carried it into the capture and filter surfaces. What exists now:
   `visiblePlus`, searchable, with the add button and a create-what-you-typed
   empty state; the editor's soft duplicate guard; the shared
   `CategoryFilterTile` behind both filter sheets above the 12-row threshold.
+- **A2** — the catalog at **216 entries across 24 groups** (from 63 across 10),
+  every one keyworded; `SettingsKeys.recentIconKeys` + `SettingsService`
+  `getRecentIconKeys` / `recordRecentIconKey` behind the picker's **Recently
+  used** section (12 deep, newest first, unknown keys dropped on read).
+- **A3** — `letter_a`…`letter_z` and `digit_0`…`digit_9` as ordinary catalog
+  entries whose `IconData` names no font family, plus `CalendarIcons.isExactTerm`
+  and the picker's exact-term band, without which a one-character query can
+  never reach them.
+- **Review fixes** — every write on `CategoryService` serialized onto one chain
+  and `updateCategory` no longer writing `sort_order` / `is_built_in`; both
+  filter sub-sheets seeding and collapsing their own inversion; the search field
+  held open while a query is live; tooltips on the icon tiles.
 
 Three notes carried over from 3a, still live:
 
@@ -186,7 +202,23 @@ enforceable); every entry has ≥1 keyword; sample queries return expected keys.
 Files: `constants/calendar_icons.dart`, `widgets/icon_picker_sheet.dart`,
 ARB ×3 (`searchIcons`, `noIconsMatch`).
 
-### A2 — Expand the catalog (~63 → 300)
+### A2 — Expand the catalog  (SHIPPED)
+
+*Shipped at **216 entries across 24 groups**, not the ~300 the heading
+originally guessed: the twelve groups enumerated below are the whole specified
+set, and padding past them would have been filler rather than reach. The A2a /
+A2b split was not needed — the groups landed in one pass.*
+
+**As shipped**, one deviation worth knowing: the key `sunny` maps to
+`Icons.wb_sunny_rounded`, the only name in the list with no `_rounded` twin
+under its own spelling. The key is the persisted, *searchable* half, and `wb` is
+a Material prefix nobody types — so the key follows the search, not the SDK.
+Everything else is `<key>_rounded`.
+
+The **Recently used** section (step 5) is a picker-UI concern, not a catalog
+group: `IconGroupId` stays exactly the groups `groups` declares — a test now
+enforces that — and Recent renders from its own `iconGroupRecent` string. Giving
+it an enum value would have created a heading `groupIdOf` can never return.
 
 Twelve new groups: **work** (work, groups, handshake, business_center, badge,
 phone_in_talk, co_present, description, meeting_room), **education** (school,
@@ -544,7 +576,33 @@ rather than replaces, or an archived id already denied would be silently
 un-hidden by the reset. `test/widgets/category_filter_sheets_test.dart` pins
 both inversions and the no-empty-collapse rule end to end.
 
-### A3 — Letters and digits
+### A3 — Letters and digits  (SHIPPED — the spike passed)
+
+**Spike result, 2026-08-29: PASS.** `flutter build apk --release
+--target-platform android-arm64` with the 36 letter/digit entries in the catalog
+exits 0, and `--tree-shake-icons` (on by default) still subsets
+`MaterialIcons-Regular.otf` from 1,645,184 to 81,788 bytes — byte-identical to
+the same build without them. A const `IconData` naming **no** font family is not
+a candidate for any font subset, so it neither breaks the shaker nor survives as
+dead weight. Per Decision 3 this took the *pass* branch: letters are ordinary
+catalog entries, and **no `CategoryGlyph` / `letterFor` fallback exists or is
+needed**. Half a session, as priced.
+
+> Re-run this spike, not just the analyzer, if the letter mechanism is ever
+> touched — the failure it guards against is a **release-only build error**, and
+> a debug build proves nothing about it. (It also has to run *after* the letters
+> are in the tree: an earlier build in this same session passed while they were
+> still uncommitted to the catalog, which proved nothing at all.)
+
+One thing the plan did not anticipate: **ranking, not rendering, was the real
+work.** `FuzzyRank` scores a prefix of the whole search text, and a letter's
+search text begins with "letter" — so a bare `a` ranked `ac_unit`, `alarm` and
+`attach_money` above the letter **A**, which is unusable. The fix is
+`CalendarIcons.isExactTerm(key, foldedTerm)` — true when the term *is* one of the
+entry's terms (its key read with underscores as spaces, or a whole keyword)
+rather than a fragment of one — ranked in a band above `FuzzyRank.tierPrefix`.
+It is not a letter special-case: it is also what makes `gym` land on
+`fitness_center` rather than on whatever spells "gym" earliest.
 
 Ships: A–Z and 0–9 as glyph "icons" — the letter-avatar look Google Calendar and
 Outlook give their categories.
@@ -595,7 +653,7 @@ slice.
 | 2 ✅ | B1 DAO + service; B5 `countByCategory`; B3 `category_search.dart` | Sonnet | yes |
 | 3a ✅ | A1 picker UI; **one rewrite** of `calendar_categories_page.dart` carrying B1+B2+B3+B4+B5; `UpcomingAgendaView`'s chip source | Opus | yes |
 | 3b ✅ | C, then D (D needs C's `pickMulti`) | Opus | yes |
-| 4 | A2 icons + keywords + recent-icons; A3 spike + letters | Sonnet | yes |
+| 4 ✅ | A2 icons + keywords + recent-icons; A3 spike + letters | Opus | yes |
 
 **Why 3 splits.** It was already the densest wave, and D pushed it over: nine
 files of substantive UI plus ~15 ARB keys ×3, with an internal dependency chain
@@ -650,7 +708,10 @@ reasoning demand.
 | Wave 2 | `dart analyze lib`, `flutter test test/utils/ test/services/` |
 | Wave 3a | `flutter gen-l10n` (check `untranslated.txt`), `dart analyze lib`, `flutter test` |
 | Wave 3b | `flutter gen-l10n`, `dart analyze lib`, `flutter test test/widgets/` then `flutter test` |
-| Wave 4 | `dart analyze lib`, `flutter test`, `.\build_release.bat arm64` for the A3 spike |
+| Wave 4 | `flutter gen-l10n`, `dart analyze lib`, `flutter test`, and a **release** build for the A3 spike (`flutter build apk --release --target-platform android-arm64` is enough — the spike needs `--tree-shake-icons`, not `build_release.bat`'s clean/obfuscate steps) |
+
+Last full run, 2026-08-29: `dart analyze lib` clean, `flutter test` **1476
+passed / 2 skipped**, release build exit 0.
 
 ## Invariants — do not break
 
@@ -679,6 +740,26 @@ reasoning demand.
     summary (`Categories (3)`) plus a sub-sheet is the pattern; a `Wrap` over
     `CalendarCategories.all` is the anti-pattern. `restrictiveFilterCount`
     counting categories as one restriction is part of this and must stay.
+12. **Every `CategoryService` mutation goes through `_serialize`** — not just
+    reorder. Each ends in a `_load()` that republishes the whole facade, so two
+    racing writes can republish out of order even when both land. The chain's
+    tail starts **null**, never a `Future.value()`: a completed future built in
+    a field initializer schedules its continuations on the zone it was born in,
+    so a chain seeded during a widget test's `setUp` never advances under the
+    `FakeAsync` the test body runs in, and the first write hangs forever.
+13. **`updateCategory` writes no `sort_order` and no `is_built_in`.** Callers
+    hand over a model captured earlier; order belongs to the drag, and a stale
+    value undoes it *and* breaks the dense `0..N-1` invariant.
+14. **`IconGroupId` is exactly the groups `groups` declares** — a value with no
+    entries is a heading the picker can never render. "Recently used" is a
+    picker section with its own string, not a catalog group.
+15. **An exact term outranks every `FuzzyRank` tier** (`CalendarIcons.isExactTerm`).
+    Without it no one-character query can reach a letter glyph, because
+    `FuzzyRank` scores a prefix of the whole search text.
+16. **Letters and digits carry an `IconData` with no font family.** That is what
+    renders the character in the ambient font *and* what keeps them out of the
+    icon tree-shaker. Giving one a `fontFamily` sends the glyph to a font with
+    no such code point.
 
 ## Deferred, not planned here
 
@@ -691,3 +772,13 @@ reasoning demand.
 - **Per-category default event fields** (duration, priority, reminder). Adjacent
   and tempting, but it is `calendar_event_templates`' job — a category is a
   taxonomy, a template is a prefilled event.
+- **Pruning stale category ids from persisted filters.** Deleting a category
+  reassigns its events but leaves its id in `UpcomingAgendaFilters.categoryIds`.
+  Mostly harmless — `countByCategory` omits absent keys and `visiblePlus`
+  tolerates unknown ids — but an allowlist holding *only* stale ids filters the
+  agenda to nothing while its tile reads "0 categories". Pre-existing, made more
+  likely by forty categories. The agenda's sub-sheet incidentally drops them on
+  any round trip; a deliberate fix is a cleanup hook on `deleteCategory` or a
+  read-side prune. Carried from the review as F7.
+- **True locale collation for Sort A–Z**, which orders on the
+  `normalizeForSearch` fold — right for diacritics, not a real collator.

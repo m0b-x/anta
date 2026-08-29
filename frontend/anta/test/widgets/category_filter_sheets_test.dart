@@ -132,6 +132,59 @@ void main() {
       expect(applied?.hiddenCategoryIds, {'c2'});
     });
 
+    /// The header is one toggle, so its two halves are only ever reachable in
+    /// alternation — which is exactly why **Select all must empty the denylist
+    /// outright**, archived denials included. Subtracting only the visible ids
+    /// instead strands an archived denial: `_hidden` never empties, the toggle
+    /// never flips, and the button becomes a permanent no-op. (Clear all's
+    /// union is the one-directional guard that hiding everything must not
+    /// un-hide anything; it has no mirror here, and it is unreachable while
+    /// anything is already hidden.)
+    testWidgets('Select all empties the denylist, archived denials included', (
+      tester,
+    ) async {
+      // 15 visible plus one archived category the user has *also* denied.
+      seed(15);
+      CalendarCategories.updateCache([
+        ...CalendarCategories.all,
+        const CalendarCategory(
+          id: 'arch',
+          name: 'Archived',
+          colorValue: 0xFF1E88E5,
+          iconKey: 'event',
+          sortOrder: 99,
+          isBuiltIn: false,
+          isHidden: true,
+        ),
+      ]);
+      CalendarFilterResult? applied;
+      await pumpHost(tester, (context) async {
+        applied = await CalendarFilterSheet.show(
+          context,
+          format: CalendarFormat.month,
+          hiddenCategoryIds: const {'arch', 'c2'},
+        );
+      });
+
+      // Something is hidden, so the header offers Select all.
+      await tester.tap(find.text('Select all'));
+      await tester.pumpAndSettle();
+
+      // Everything is shown now, so the header has flipped to its other half —
+      // which is the check that the button is not a permanent no-op.
+      expect(find.text('Select all'), findsNothing);
+      await tester.tap(find.text('Clear'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Apply'));
+      await tester.pumpAndSettle();
+
+      // Clear all denied every visible id; `arch` was already un-denied by
+      // Select all and is not re-added, because Clear all unions the *visible*
+      // set and `arch` is not in it.
+      expect(applied?.hiddenCategoryIds, hasLength(15));
+      expect(applied?.hiddenCategoryIds, isNot(contains('arch')));
+    });
+
     testWidgets('clearing every row in the picker hides every category', (
       tester,
     ) async {
@@ -144,9 +197,7 @@ void main() {
           // Starts with everything already hidden, so the picker opens with an
           // empty selection and Apply returns that empty set unchanged — the
           // case its date twin would have collapsed to a dismissal.
-          hiddenCategoryIds: {
-            for (final c in CalendarCategories.visible) c.id,
-          },
+          hiddenCategoryIds: {for (final c in CalendarCategories.visible) c.id},
         );
       });
 
@@ -186,7 +237,7 @@ void main() {
       expect(find.byType(CategoryFilterTile), findsNothing);
     });
 
-    testWidgets('the allowlist is exactly what the picker returns', (
+    testWidgets('an empty allowlist opens the picker with every row checked', (
       tester,
     ) async {
       seed(15);
@@ -204,7 +255,76 @@ void main() {
 
       await tester.tap(find.byType(CategoryFilterTile));
       await tester.pumpAndSettle();
+
+      // "All categories" over an unchecked sub-sheet would be one state shown
+      // two contradictory ways — and the calendar filter's picker, inverting a
+      // denylist, opens checked for the equivalent state. The caller seeds.
+      final checkboxes = tester.widgetList<Checkbox>(
+        find.descendant(
+          of: find.byType(CategoryPickerSheet),
+          matching: find.byType(Checkbox),
+        ),
+      );
+      expect(checkboxes, isNotEmpty);
+      expect(checkboxes.every((box) => box.value == true), isTrue);
+
+      // Applying it unchanged collapses back to the empty set rather than
+      // freezing today's catalog into a list that would silently exclude
+      // every category created later.
+      await tester.tap(pickerApply());
+      await tester.pumpAndSettle();
+      expect(find.text('All categories'), findsOneWidget);
+
+      await tester.tap(find.text('Apply'));
+      await tester.pumpAndSettle();
+
+      expect(applied?.categoryIds, isEmpty);
+    });
+
+    testWidgets('unchecking rows narrows to the explicit remainder', (
+      tester,
+    ) async {
+      seed(15);
+      UpcomingAgendaFilters? applied;
+      await pumpHost(tester, (context) async {
+        applied = await AgendaFiltersSheet.show(
+          context,
+          filters: const UpcomingAgendaFilters(),
+        );
+      });
+
+      await scrollToCategories(tester);
+      await tester.tap(find.byType(CategoryFilterTile));
+      await tester.pumpAndSettle();
+      await tester.tap(pickerRow('Cat0'));
       await tester.tap(pickerRow('Cat1'));
+      await tester.pumpAndSettle();
+      await tester.tap(pickerApply());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Apply'));
+      await tester.pumpAndSettle();
+
+      expect(applied?.categoryIds, hasLength(13));
+      expect(applied?.categoryIds, isNot(contains('c0')));
+      expect(applied?.categoryIds, isNot(contains('c1')));
+    });
+
+    testWidgets('an explicit allowlist is exactly what the picker returns', (
+      tester,
+    ) async {
+      seed(15);
+      UpcomingAgendaFilters? applied;
+      await pumpHost(tester, (context) async {
+        applied = await AgendaFiltersSheet.show(
+          context,
+          filters: const UpcomingAgendaFilters(categoryIds: {'c1'}),
+        );
+      });
+
+      await scrollToCategories(tester);
+      // A non-empty allowlist seeds itself, so this adds rather than removes.
+      await tester.tap(find.byType(CategoryFilterTile));
+      await tester.pumpAndSettle();
       await tester.tap(pickerRow('Cat4'));
       await tester.pumpAndSettle();
       await tester.tap(pickerApply());

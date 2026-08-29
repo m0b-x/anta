@@ -1362,6 +1362,51 @@ class AppLocalizationsDe extends AppLocalizations {
   String get iconGroupGeneric => 'Sonstiges';
 
   @override
+  String get iconGroupWork => 'Arbeit';
+
+  @override
+  String get iconGroupEducation => 'Bildung';
+
+  @override
+  String get iconGroupHealth => 'Gesundheit';
+
+  @override
+  String get iconGroupHome => 'Zuhause';
+
+  @override
+  String get iconGroupFinance => 'Finanzen';
+
+  @override
+  String get iconGroupFoodDrink => 'Essen & Trinken';
+
+  @override
+  String get iconGroupTransport => 'Verkehr';
+
+  @override
+  String get iconGroupEntertainment => 'Unterhaltung';
+
+  @override
+  String get iconGroupPeople => 'Menschen';
+
+  @override
+  String get iconGroupNature => 'Natur';
+
+  @override
+  String get iconGroupTech => 'Technik';
+
+  @override
+  String get iconGroupSymbols => 'Symbole';
+
+  @override
+  String get iconGroupLetters => 'Buchstaben';
+
+  @override
+  String get iconGroupDigits => 'Zahlen';
+
+  @override
+  String get iconGroupRecent => 'Zuletzt verwendet';
+
+  @override
   String get welcomeToApp => 'Willkommen bei ANTA';
 
   @override

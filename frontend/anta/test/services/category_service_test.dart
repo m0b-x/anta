@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/models/calendar_category.dart';
 import 'package:anta/services/category_service.dart';
 
 import '../database/support/db_test_support.dart';
@@ -194,6 +195,79 @@ void main() {
       final before = currentIds();
       await service.reorder(const []);
       expect(currentIds(), before);
+    });
+  });
+
+  /// Every mutation writes a whole row from a model the caller captured at
+  /// some earlier moment, so the question is what a *stale* field in that
+  /// model may overwrite. Order is the dangerous one: it is the only field
+  /// another surface (the drag) owns, and clobbering it also breaks the dense
+  /// `0..N-1` invariant, after which `_byOrder`'s id tie-break shuffles rows
+  /// nobody touched.
+  group('a write cannot clobber the order', () {
+    List<String> currentIds() => [for (final c in CalendarCategories.all) c.id];
+
+    test('updateCategory ignores a stale sortOrder on the model', () async {
+      final reversed = currentIds().reversed.toList();
+      await service.reorder(reversed);
+      final moved = CalendarCategories.byId('gym')!;
+
+      // The shape an editor sheet produces: opened before the drag, saved
+      // after it, so `sortOrder` still holds the pre-drag value.
+      await service.updateCategory(
+        moved.copyWith(sortOrder: 0, colorValue: 0xFF123456),
+      );
+
+      expect(CalendarCategories.byId('gym')!.colorValue, 0xFF123456);
+      expect(currentIds(), reversed);
+      expect(
+        CalendarCategories.all.map((c) => c.sortOrder),
+        [for (var i = 0; i < CalendarCategories.all.length; i++) i],
+        reason: 'the dense 0..N-1 order reorder writes must survive a save',
+      );
+    });
+
+    test('hiding after a drag leaves the dragged position alone', () async {
+      final reversed = currentIds().reversed.toList();
+      await service.reorder(reversed);
+
+      await service.setHidden('gym', true);
+
+      expect(CalendarCategories.byId('gym')!.isHidden, isTrue);
+      expect(currentIds(), reversed);
+    });
+
+    test('a hide issued during a drag persist still lands after it', () async {
+      final reversed = currentIds().reversed.toList();
+
+      // Not awaited: the drag's write is still in flight when the menu fires,
+      // which is exactly when a re-read of the cache would be stale.
+      final drag = service.reorder(reversed);
+      final hide = service.setHidden('rest', true);
+      await Future.wait([drag, hide]);
+
+      expect(currentIds(), reversed);
+      expect(CalendarCategories.byId('rest')!.isHidden, isTrue);
+    });
+
+    test('updateCategory cannot flip isBuiltIn', () async {
+      final builtIn = CalendarCategories.byId('gym')!;
+      await service.updateCategory(
+        CalendarCategory(
+          id: builtIn.id,
+          name: builtIn.name,
+          colorValue: builtIn.colorValue,
+          iconKey: builtIn.iconKey,
+          sortOrder: builtIn.sortOrder,
+          isBuiltIn: false,
+        ),
+      );
+
+      expect(
+        CalendarCategories.byId('gym')!.isBuiltIn,
+        isTrue,
+        reason: 'a built-in that could be un-flagged becomes deletable',
+      );
     });
   });
 

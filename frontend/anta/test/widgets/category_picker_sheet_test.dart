@@ -62,6 +62,34 @@ void main() {
     matching: find.text('Apply'),
   );
 
+  testWidgets('the search field survives the offered set shrinking', (
+    tester,
+  ) async {
+    // 12 visible plus one archived-but-selected id: `visiblePlus` offers 13,
+    // one over the threshold, so the field is showing. De-selecting the
+    // archived row drops it back to 12 in the very next build.
+    seed(13, hidden: {'c12'});
+    await openSheet<Set<String>>(
+      tester,
+      (context) => CategoryPickerSheet.pickMulti(context, selected: {'c12'}),
+    );
+
+    expect(find.byType(TextField), findsOneWidget);
+    await tester.enterText(find.byType(TextField), 'cat1');
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Cat12'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byType(TextField),
+      findsOneWidget,
+      reason:
+          'the query is still live; retracting the field would strand the '
+          'list filtered with no way to clear it',
+    );
+  });
+
   testWidgets('single mode returns the tapped id', (tester) async {
     seed(4);
     String? picked;
@@ -125,7 +153,10 @@ void main() {
     seed(4);
     Set<String>? applied;
     await openSheet<Set<String>>(tester, (context) async {
-      applied = await CategoryPickerSheet.pickMulti(context, selected: const {});
+      applied = await CategoryPickerSheet.pickMulti(
+        context,
+        selected: const {},
+      );
       return applied;
     });
 

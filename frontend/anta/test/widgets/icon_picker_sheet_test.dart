@@ -24,10 +24,7 @@ void main() {
           body: Builder(
             builder: (context) => TextButton(
               onPressed: () async {
-                picked = await IconPickerSheet.show(
-                  context,
-                  tint: Colors.blue,
-                );
+                picked = await IconPickerSheet.show(context, tint: Colors.blue);
               },
               child: const Text('open'),
             ),
@@ -71,6 +68,46 @@ void main() {
     expect(find.byIcon(Icons.fitness_center_rounded), findsNothing);
     // Section headings belong to the grouped view only.
     expect(find.text('Strength'), findsNothing);
+  });
+
+  /// The companion to the `cardio` case below, which passes for a reason that
+  /// does not generalise: for `cardio` *every* entry lands in the same band and
+  /// the catalog-index tie-break happens to reproduce the expectation, so it
+  /// cannot catch a band that is computed wrongly.
+  ///
+  /// `recovery` separates them. It is the Recovery group's label, so all five
+  /// of its entries are members — but only `bedtime`, `spa` and `bathtub`
+  /// carry it as a keyword of their own; `hotel` and `weekend` match through
+  /// the heading alone and must therefore sort behind all three, not
+  /// interleave with them by catalog position.
+  ///
+  /// This is the case that fails when `FuzzyRank.score`'s `-1` "no match"
+  /// sentinel is conflated with the exact-term band, which is also `-1`: the
+  /// two heading-only hits are promoted to the *best* band and the order comes
+  /// back in bare catalog order instead.
+  testWidgets('a group-label-only hit ranks below a real text hit', (
+    tester,
+  ) async {
+    await openSheet(tester);
+    await type(tester, 'recovery');
+
+    expect(results(tester), [
+      Icons.bedtime_rounded,
+      Icons.spa_rounded,
+      Icons.bathtub_rounded,
+      Icons.hotel_rounded,
+      Icons.weekend_rounded,
+    ]);
+  });
+
+  testWidgets('an exact term outranks a merely-prefixed one', (tester) async {
+    await openSheet(tester);
+    // `a` is a whole keyword on the letter A and a prefix of the search text
+    // of `ac_unit`, `alarm` and `attach_money` — FuzzyRank's best tier. Without
+    // the exact-term band the letter is unreachable by its own name.
+    await type(tester, 'a');
+
+    expect(results(tester).first, const IconData(0x41));
   });
 
   testWidgets('a keyword hit outranks a group-label-only hit', (tester) async {

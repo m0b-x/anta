@@ -2302,6 +2302,96 @@ abstract class AppLocalizations {
   /// **'Other'**
   String get iconGroupGeneric;
 
+  /// Icon picker group: work and office icons
+  ///
+  /// In en, this message translates to:
+  /// **'Work'**
+  String get iconGroupWork;
+
+  /// Icon picker group: study and school icons
+  ///
+  /// In en, this message translates to:
+  /// **'Education'**
+  String get iconGroupEducation;
+
+  /// Icon picker group: medical and health icons
+  ///
+  /// In en, this message translates to:
+  /// **'Health'**
+  String get iconGroupHealth;
+
+  /// Icon picker group: household and chore icons
+  ///
+  /// In en, this message translates to:
+  /// **'Home'**
+  String get iconGroupHome;
+
+  /// Icon picker group: money and banking icons
+  ///
+  /// In en, this message translates to:
+  /// **'Finance'**
+  String get iconGroupFinance;
+
+  /// Icon picker group: meal and drink icons
+  ///
+  /// In en, this message translates to:
+  /// **'Food & drink'**
+  String get iconGroupFoodDrink;
+
+  /// Icon picker group: vehicle and travel icons
+  ///
+  /// In en, this message translates to:
+  /// **'Transport'**
+  String get iconGroupTransport;
+
+  /// Icon picker group: media and hobby icons
+  ///
+  /// In en, this message translates to:
+  /// **'Entertainment'**
+  String get iconGroupEntertainment;
+
+  /// Icon picker group: social and community icons
+  ///
+  /// In en, this message translates to:
+  /// **'People'**
+  String get iconGroupPeople;
+
+  /// Icon picker group: weather and outdoor icons
+  ///
+  /// In en, this message translates to:
+  /// **'Nature'**
+  String get iconGroupNature;
+
+  /// Icon picker group: device and computing icons
+  ///
+  /// In en, this message translates to:
+  /// **'Tech'**
+  String get iconGroupTech;
+
+  /// Icon picker group: shapes and status marker icons
+  ///
+  /// In en, this message translates to:
+  /// **'Symbols'**
+  String get iconGroupSymbols;
+
+  /// Icon picker group: A-Z letter glyphs used as icons
+  ///
+  /// In en, this message translates to:
+  /// **'Letters'**
+  String get iconGroupLetters;
+
+  /// Icon picker group: 0-9 digit glyphs used as icons
+  ///
+  /// In en, this message translates to:
+  /// **'Numbers'**
+  String get iconGroupDigits;
+
+  /// Icon picker section listing the icons picked most recently
+  ///
+  /// In en, this message translates to:
+  /// **'Recently used'**
+  String get iconGroupRecent;
+
   /// Welcome message on onboarding screen
   ///
   /// In en, this message translates to:

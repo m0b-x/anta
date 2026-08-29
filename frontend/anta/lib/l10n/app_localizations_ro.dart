@@ -1381,6 +1381,51 @@ class AppLocalizationsRo extends AppLocalizations {
   String get iconGroupGeneric => 'Altele';
 
   @override
+  String get iconGroupWork => 'Muncă';
+
+  @override
+  String get iconGroupEducation => 'Educație';
+
+  @override
+  String get iconGroupHealth => 'Sănătate';
+
+  @override
+  String get iconGroupHome => 'Acasă';
+
+  @override
+  String get iconGroupFinance => 'Finanțe';
+
+  @override
+  String get iconGroupFoodDrink => 'Mâncare și băutură';
+
+  @override
+  String get iconGroupTransport => 'Transport';
+
+  @override
+  String get iconGroupEntertainment => 'Divertisment';
+
+  @override
+  String get iconGroupPeople => 'Oameni';
+
+  @override
+  String get iconGroupNature => 'Natură';
+
+  @override
+  String get iconGroupTech => 'Tehnologie';
+
+  @override
+  String get iconGroupSymbols => 'Simboluri';
+
+  @override
+  String get iconGroupLetters => 'Litere';
+
+  @override
+  String get iconGroupDigits => 'Cifre';
+
+  @override
+  String get iconGroupRecent => 'Folosite recent';
+
+  @override
   String get welcomeToApp => 'Bine ai venit la ANTA';
 
   @override

@@ -147,9 +147,10 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
       Navigator.of(context).pop({created.id});
       return;
     }
+    _searchController.clear();
     setState(() {
       _selected.add(created.id);
-      _clearQuery();
+      _query = SettingsQuery.empty;
     });
   }
 
@@ -167,8 +168,12 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
           ]
         : categories;
     // Short lists carry no search chrome; the threshold trips on its own as
-    // the set grows.
-    final showSearch = categories.length > AppConstants.listSearchThreshold;
+    // the set grows. `_isFiltering` holds the field open once it is in use —
+    // the offered set can shrink under the threshold while a query is live
+    // (an archived id leaves the list when it is de-selected here), and
+    // retracting the field would strand the list filtered.
+    final showSearch =
+        _isFiltering || categories.length > AppConstants.listSearchThreshold;
     // `useSafeArea: true` on the modal route avoids the status bar but has
     // proven unreliable against the bottom gesture/nav bar on real devices
     // (the last row rendered under it) — same fix as `EventEditorSheet` /

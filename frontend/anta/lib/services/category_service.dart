@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
@@ -20,9 +22,12 @@ import '../models/calendar_event.dart';
 ///      to a built-in's color/icon are never clobbered.
 ///   2. Loads every row into memory and publishes the cache.
 ///
-/// Mutations ([create]/[updateCategory]/[deleteCategory]) write through the DAO
-/// and then reload so the cache stays authoritative. Deleting a custom category
-/// reassigns its events to the built-in fallback so no event is ever orphaned.
+/// Mutations ([create]/[updateCategory]/[setHidden]/[reorder]/[deleteCategory])
+/// write through the DAO and then reload so the cache stays authoritative, and
+/// every one of them is serialized onto a single chain ([_serialize]) so two
+/// writes issued from different callbacks cannot land — or republish the facade
+/// — out of order. Deleting a custom category reassigns its events to the
+/// built-in fallback so no event is ever orphaned.
 class CategoryService {
   static CategoryService? _instance;
 
@@ -30,8 +35,9 @@ class CategoryService {
   late CalendarCategoryDao _dao;
   List<CalendarCategory> _cache = const [];
 
-  /// Tail of the serialized reorder chain — see [reorder].
-  Future<void> _reorderChain = Future<void>.value();
+  /// Tail of the serialized write chain, or null when nothing is in flight —
+  /// see [_serialize].
+  Future<void>? _writes;
 
   CategoryService._();
 
@@ -49,7 +55,18 @@ class CategoryService {
   /// [DatabaseLifecycle] reset contract is built on.
   @visibleForTesting
   static Future<CategoryService> forTesting(AppDatabase db) async {
-    if (_instance != null) return _instance!;
+    final existing = _instance;
+    if (existing != null) {
+      // Returning a singleton bound to some *other* database silently runs the
+      // caller against the previous test's data instead of failing.
+      assert(
+        identical(existing._db, db),
+        'CategoryService.forTesting: a singleton bound to a different '
+        'AppDatabase is already installed. Call CategoryService.reset() in '
+        'tearDown, or this test runs against the previous one.',
+      );
+      return existing;
+    }
     return _create(db);
   }
 
@@ -128,9 +145,64 @@ class CategoryService {
 
   // ── Mutations ────────────────────────────────────────────────────────
 
+  /// Runs [write] after every write already issued, and makes the next one
+  /// wait for it.
+  ///
+  /// **Every mutation is serialized, not just reorder.** Nothing about
+  /// `await` orders two writes issued from different callbacks, and each of
+  /// them ends in a `_load()` that republishes the whole facade — so two
+  /// racing mutations can also republish out of order and leave the cache
+  /// showing the earlier one. Both the writes and their reloads have to be
+  /// sequenced, which is one chain rather than a lock per call site.
+  ///
+  /// It is also what lets a mutation read [CalendarCategories] *inside* its
+  /// own turn ([setHidden], [deleteCategory]) and see the previous write's
+  /// result rather than whatever was cached when the user tapped.
+  ///
+  /// A failed link is swallowed *for the chain only* — the caller's future
+  /// still surfaces it — so one error cannot poison every later write.
+  ///
+  /// **The tail starts null rather than as a completed future**, and an idle
+  /// service therefore awaits nothing. That is not a micro-optimization: a
+  /// `Future.value()` built in a field initializer captures the zone it was
+  /// created in, and `then` on an already-completed future schedules its
+  /// continuation on *that* zone. Built during a widget test's `setUp` it
+  /// belongs to the root zone, so under the `FakeAsync` the test body runs in,
+  /// the first link's continuation is queued somewhere nothing ever drains and
+  /// the very first write never completes.
+  Future<T> _serialize<T>(Future<T> Function() write) async {
+    final previous = _writes;
+    final done = Completer<void>();
+    _writes = done.future;
+    if (previous != null) {
+      try {
+        await previous;
+      } catch (_) {
+        // Already surfaced to whoever issued it; one failure must not stop
+        // the queue.
+      }
+    }
+    try {
+      return await write();
+    } finally {
+      done.complete();
+    }
+  }
+
   /// Creates a new custom category appended after every existing one. Returns
   /// the persisted category.
   Future<CalendarCategory> create({
+    required String name,
+    required int colorValue,
+    required String iconKey,
+  }) {
+    return _serialize(
+      () =>
+          _persistCreate(name: name, colorValue: colorValue, iconKey: iconKey),
+    );
+  }
+
+  Future<CalendarCategory> _persistCreate({
     required String name,
     required int colorValue,
     required String iconKey,
@@ -164,15 +236,26 @@ class CategoryService {
 
   /// Persists edits to an existing category (color/icon for built-ins; also
   /// name for customs). `created_at` is preserved by the DAO.
-  Future<void> updateCategory(CalendarCategory category) async {
+  ///
+  /// **`sort_order` and `is_built_in` are deliberately left absent**, so this
+  /// path writes only what an editor can actually change. Callers hand over a
+  /// whole model captured at some earlier moment — the editor sheet's when it
+  /// opened, [setHidden]'s when the menu was tapped — and order is not theirs
+  /// to carry: a drag that lands between the capture and the save would be
+  /// undone by a stale `sortOrder` riding along, which also breaks the dense
+  /// `0..N-1` invariant `reorder` maintains and lets unrelated rows shuffle on
+  /// `_byOrder`'s id tie-break. `is_built_in` is immutable by definition.
+  Future<void> updateCategory(CalendarCategory category) {
+    return _serialize(() => _persistUpdate(category));
+  }
+
+  Future<void> _persistUpdate(CalendarCategory category) async {
     await _dao.updateCategory(
       CalendarCategoriesCompanion(
         id: Value(category.id),
         name: Value(category.name.trim()),
         colorValue: Value(category.colorValue),
         iconKey: Value(category.iconKey),
-        sortOrder: Value(category.sortOrder),
-        isBuiltIn: Value(category.isBuiltIn),
         isHidden: Value(category.isHidden),
         updatedAt: Value(DateTime.now()),
       ),
@@ -185,20 +268,14 @@ class CategoryService {
   /// the agenda chips and the templates page all follow at once — every one of
   /// them reads `CalendarCategories.all`.
   ///
-  /// **Writes are serialized.** Two quick drags start two async reorders, and
-  /// nothing about `await` guarantees they land in the order they were issued;
-  /// the loser would resurrect the earlier arrangement, which reads as the
-  /// second drag having been ignored. Each write is chained onto the previous
-  /// one's future, so the last one enqueued is the last one applied — and
-  /// because callers pass their *current* full local order rather than a
-  /// delta, that last write is the whole truth regardless.
-  ///
-  /// A failed link is swallowed *for the chain only* (the caller's future
-  /// still surfaces it), so one error cannot poison every later drag.
+  /// **Writes are serialized** ([_serialize]). Two quick drags start two async
+  /// reorders, and nothing about `await` guarantees they land in the order
+  /// they were issued; the loser would resurrect the earlier arrangement,
+  /// which reads as the second drag having been ignored. Because callers pass
+  /// their *current* full local order rather than a delta, the last one
+  /// enqueued is the whole truth regardless.
   Future<void> reorder(List<String> idsInOrder) {
-    final next = _reorderChain.then((_) => _persistReorder(idsInOrder));
-    _reorderChain = next.catchError((_) {});
-    return next;
+    return _serialize(() => _persistReorder(idsInOrder));
   }
 
   Future<void> _persistReorder(List<String> idsInOrder) async {
@@ -214,23 +291,39 @@ class CategoryService {
   /// deleting and re-creating. No-op for unknown ids and for a category
   /// already in the requested state, so a repeated tap cannot churn
   /// `updated_at` or the facade revision.
-  Future<void> setHidden(String id, bool hidden) async {
-    final category = CalendarCategories.byId(id);
-    if (category == null || category.isHidden == hidden) return;
-    await updateCategory(category.copyWith(isHidden: hidden));
+  ///
+  /// Writes **only** the flag rather than a whole row: this is fired from a
+  /// menu against a model captured when that menu was built, and a rename or
+  /// a drag that lands in between is not this call's to undo. The read of the
+  /// current state happens inside the serialized turn for the same reason.
+  Future<void> setHidden(String id, bool hidden) {
+    return _serialize(() async {
+      final category = CalendarCategories.byId(id);
+      if (category == null || category.isHidden == hidden) return;
+      await _dao.updateCategory(
+        CalendarCategoriesCompanion(
+          id: Value(id),
+          isHidden: Value(hidden),
+          updatedAt: Value(DateTime.now()),
+        ),
+      );
+      await _load();
+    });
   }
 
   /// Deletes a custom category and reassigns its events to the built-in
   /// fallback ([kFallbackCategoryId]) in one transaction. Built-ins cannot be
   /// deleted (the seeder would re-add them anyway). No-op for unknown ids.
-  Future<void> deleteCategory(String id) async {
-    final category = CalendarCategories.byId(id);
-    if (category == null || category.isBuiltIn) return;
-    await _db.transaction(() async {
-      await _db.calendarEventDao.reassignCategory(id, kFallbackCategoryId);
-      await _dao.deleteById(id);
+  Future<void> deleteCategory(String id) {
+    return _serialize(() async {
+      final category = CalendarCategories.byId(id);
+      if (category == null || category.isBuiltIn) return;
+      await _db.transaction(() async {
+        await _db.calendarEventDao.reassignCategory(id, kFallbackCategoryId);
+        await _dao.deleteById(id);
+      });
+      await _load();
     });
-    await _load();
   }
 
   // ── Backup export / import ───────────────────────────────────────────
@@ -263,7 +356,17 @@ class CategoryService {
   /// visible, which is exactly what it recorded. Same precedent as v19 / v20.
   /// It is read by *type test* rather than a cast, so a junk value costs the
   /// flag rather than the whole category row.
-  Future<void> importData(List<dynamic> data) async {
+  ///
+  /// Serialized like every other mutation, and this is the one where it counts
+  /// most: it opens by wiping the table, and the management page fires its
+  /// mutations un-awaited, so an in-flight `create` landing mid-restore would
+  /// leave an orphan row and a stale `_load()` could publish a half-imported
+  /// catalog to the facade every render path reads.
+  Future<void> importData(List<dynamic> data) {
+    return _serialize(() => _persistImport(data));
+  }
+
+  Future<void> _persistImport(List<dynamic> data) async {
     await _dao.deleteAll();
     for (final raw in data) {
       if (raw is! Map) continue;

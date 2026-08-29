@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
+import '../constants/calendar_icons.dart';
 import '../constants/fasting_calendar.dart';
 import '../constants/settings_keys.dart';
 import '../models/fasting_appearance.dart';
@@ -854,6 +855,55 @@ class SettingsService {
     await _db.userSettingsDao.setValue(
       SettingsKeys.calendarPanelMode,
       mode.name,
+    );
+  }
+
+  /// How many icon keys the "Recently used" section remembers. Two rows of
+  /// six at the picker's tile size — enough to hold a habit, short enough
+  /// that the section never competes with the catalog below it.
+  static const int recentIconLimit = 12;
+
+  /// The icon keys picked most recently, newest first.
+  ///
+  /// **Unknown keys are dropped on read**, the forward-compatible parsing
+  /// every calendar setting uses: icon keys are additive-only but an icon may
+  /// be *retired* from the catalog, and a retired key must leave this list
+  /// rather than render an empty tile. Duplicates are collapsed for the same
+  /// reason the writer de-duplicates — a list written by an older build is
+  /// still input.
+  Future<List<String>> getRecentIconKeys() async {
+    final raw = await _db.userSettingsDao.getValue(SettingsKeys.recentIconKeys);
+    if (raw == null || raw.isEmpty) return const [];
+    final keys = <String>[];
+    final seen = <String>{};
+    for (final part in raw.split(',')) {
+      final key = part.trim();
+      if (key.isEmpty || !seen.add(key)) continue;
+      if (CalendarIcons.forKey(key) == null) continue;
+      keys.add(key);
+      if (keys.length == recentIconLimit) break;
+    }
+    return keys;
+  }
+
+  /// Moves [key] to the front of the recent list, capped at
+  /// [recentIconLimit]. Re-picking an icon promotes it rather than adding a
+  /// second copy.
+  Future<void> recordRecentIconKey(String key) async {
+    final trimmed = key.trim();
+    if (trimmed.isEmpty) return;
+    final current = await getRecentIconKeys();
+    final next = <String>[
+      trimmed,
+      for (final existing in current)
+        if (existing != trimmed) existing,
+    ];
+    if (next.length > recentIconLimit) {
+      next.removeRange(recentIconLimit, next.length);
+    }
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.recentIconKeys,
+      next.join(','),
     );
   }
 

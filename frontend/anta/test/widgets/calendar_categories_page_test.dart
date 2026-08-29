@@ -154,6 +154,43 @@ void main() {
     expect(find.byType(SettingsSearchField), findsOneWidget);
   });
 
+  testWidgets('the search field survives a delete that drops the count', (
+    tester,
+  ) async {
+    // 13 categories — one over the threshold, so the field is showing and the
+    // next delete takes the set back under it.
+    await addCustoms(4);
+    await pumpPage(tester);
+    expect(CalendarCategories.all, hasLength(13));
+    expect(find.byType(SettingsSearchField), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), 'custom');
+    await tester.pumpAndSettle();
+
+    await openRowMenu(tester, 3);
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    // The menu is gone by now, so this is the confirmation's own button; the
+    // dialog title reads "Delete category" and does not collide.
+    await tester.tap(find.text('Delete'));
+    await settleWrites(tester);
+
+    expect(CalendarCategories.all, hasLength(12));
+    expect(
+      find.byType(SettingsSearchField),
+      findsOneWidget,
+      reason:
+          'the query is still live — retracting the field here would strand '
+          'the list filtered with nothing on screen able to clear it',
+    );
+    expect(find.text('Gym'), findsNothing);
+
+    await tester.enterText(find.byType(TextField), '');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Gym'), findsOneWidget);
+  });
+
   testWidgets('a query switches reorder off and says why', (tester) async {
     await addCustoms(4);
     await pumpPage(tester);
@@ -271,10 +308,7 @@ void main() {
     await tester.tap(find.text('Move to top'));
     await settleWrites(tester);
 
-    expect(CalendarCategories.all.map((c) => c.id).take(2), [
-      'cardio',
-      'gym',
-    ]);
+    expect(CalendarCategories.all.map((c) => c.id).take(2), ['cardio', 'gym']);
     expect(
       CalendarCategories.all.map((c) => c.sortOrder).toList(),
       List.generate(CalendarCategories.all.length, (i) => i),

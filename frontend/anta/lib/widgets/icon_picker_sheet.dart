@@ -3,9 +3,15 @@ import 'package:flutter/material.dart';
 import '../constants/calendar_icons.dart';
 import '../l10n/app_localizations.dart';
 import '../services/folder_search_service.dart' show normalizeForSearch;
+import '../services/settings_service.dart';
 import '../utils/fuzzy_rank.dart';
 import '../utils/settings_search.dart';
 import 'settings_search_field.dart';
+
+/// Band for an entry the query names exactly, one better than
+/// [FuzzyRank.tierPrefix] (0) — the only way a one-character query reaches the
+/// letter glyphs rather than everything spelled with that letter first.
+const int _exactBand = -1;
 
 /// Modal bottom-sheet icon picker. Pops with the selected icon key, or
 /// `null` if the user dismissed.
@@ -70,10 +76,59 @@ class _IconPickerSheetState extends State<IconPickerSheet> {
   Map<IconGroupId, String> _foldedGroupLabels = const {};
   String? _labelsLocale;
 
+  /// The last few picks, newest first — the section that keeps a catalog of
+  /// hundreds feeling small. Empty until the settings read lands, and empty
+  /// on a fresh install, in which case the section is simply absent.
+  List<CalendarIconEntry> _recent = const [];
+  SettingsService? _settings;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRecent();
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_refreshGroupLabels()) _recompute();
+  }
+
+  Future<void> _loadRecent() async {
+    try {
+      final settings = await SettingsService.getInstance();
+      final keys = await settings.getRecentIconKeys();
+      if (!mounted) return;
+      final entries = <CalendarIconEntry>[];
+      for (final key in keys) {
+        final entry = CalendarIcons.entryFor(key);
+        if (entry != null) entries.add(entry);
+      }
+      setState(() {
+        _settings = settings;
+        _recent = entries;
+      });
+    } catch (e) {
+      debugPrint('[IconPickerSheet] Recent icons load failed: $e');
+    }
+  }
+
+  /// Returns [key] to the caller and records the pick.
+  ///
+  /// The write is deliberately not awaited: the sheet is closing, and a
+  /// failed write costs the ordering of a convenience list, never the pick.
+  void _pick(String key) {
+    _recordRecent(key);
+    Navigator.of(context).pop(key);
+  }
+
+  Future<void> _recordRecent(String key) async {
+    try {
+      final settings = _settings ?? await SettingsService.getInstance();
+      await settings.recordRecentIconKey(key);
+    } catch (e) {
+      debugPrint('[IconPickerSheet] Recent icon write failed: $e');
+    }
   }
 
   @override
@@ -117,16 +172,23 @@ class _IconPickerSheetState extends State<IconPickerSheet> {
       final text = CalendarIcons.searchTextOf(entry.key);
       final groupLabel =
           _foldedGroupLabels[CalendarIcons.groupIdOf(entry.key)] ?? '';
-      if (!matchesSettingsQuery(_query, [
-        text,
-        groupLabel,
-      ], preFolded: true)) {
+      if (!matchesSettingsQuery(_query, [text, groupLabel], preFolded: true)) {
         continue;
       }
+      // An exact term outranks every FuzzyRank tier — see
+      // `CalendarIcons.isExactTerm`. Without it a one-character query can
+      // never reach the letter glyphs, because `FuzzyRank` scores a prefix of
+      // the whole search text and a letter's text begins with "letter".
+      //
+      // The two are resolved separately on purpose: `FuzzyRank.score` returns
+      // `-1` for "no match", which is the same value as [_exactBand], so
+      // folding them into one expression promotes every entry that matched
+      // only through its group label to the *best* band instead of the worst.
+      final exact = CalendarIcons.isExactTerm(entry.key, _term);
       final scored = FuzzyRank.score(text, _term);
       ranked.add((
         entry: entry,
-        band: scored >= 0 ? scored : FuzzyRank.tiers,
+        band: exact ? _exactBand : (scored >= 0 ? scored : FuzzyRank.tiers),
         index: i,
       ));
     }
@@ -186,38 +248,56 @@ class _IconPickerSheetState extends State<IconPickerSheet> {
     );
   }
 
+  /// The grouped catalog, with "Recently used" pinned above it when there is
+  /// anything to show. The section is deliberately absent while a query is
+  /// active — this builder only runs for an empty one, because search results
+  /// are already the shortlist a recents row exists to provide.
   Widget _buildGroups(BuildContext context, double bottomClearance) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
+    final showRecent = _recent.isNotEmpty;
 
     return ListView.builder(
       padding: EdgeInsets.fromLTRB(16, 12, 16, 20 + bottomClearance),
-      itemCount: CalendarIcons.groups.length,
+      itemCount: CalendarIcons.groups.length + (showRecent ? 1 : 0),
       itemBuilder: (context, index) {
-        final group = CalendarIcons.groups[index];
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 4,
-                  vertical: 4,
-                ),
-                child: Text(
-                  CalendarIcons.groupLabel(group.id, l10n),
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              _buildWrap(group.entries),
-            ],
-          ),
+        if (showRecent && index == 0) {
+          return _buildSection(context, l10n.iconGroupRecent, _recent);
+        }
+        final group = CalendarIcons.groups[showRecent ? index - 1 : index];
+        return _buildSection(
+          context,
+          CalendarIcons.groupLabel(group.id, l10n),
+          group.entries,
         );
       },
+    );
+  }
+
+  Widget _buildSection(
+    BuildContext context,
+    String label,
+    List<CalendarIconEntry> entries,
+  ) {
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+            child: Text(
+              label,
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          _buildWrap(entries),
+        ],
+      ),
     );
   }
 
@@ -238,7 +318,7 @@ class _IconPickerSheetState extends State<IconPickerSheet> {
             iconKey: entry.key,
             selected: entry.key == widget.initialKey,
             tint: widget.tint,
-            onTap: () => Navigator.of(context).pop(entry.key),
+            onTap: () => _pick(entry.key),
           ),
       ],
     );
@@ -265,10 +345,7 @@ class _IconPickerSheetState extends State<IconPickerSheet> {
             ),
           ),
           const SizedBox(height: 4),
-          TextButton(
-            onPressed: _clearQuery,
-            child: Text(l10n.clearSearch),
-          ),
+          TextButton(onPressed: _clearQuery, child: Text(l10n.clearSearch)),
         ],
       ),
     );
@@ -302,18 +379,27 @@ class _IconTile extends StatelessWidget {
         ? Border.all(color: tint, width: 2)
         : Border.all(color: Colors.transparent, width: 2);
 
-    return InkResponse(
-      onTap: onTap,
-      radius: 28,
-      child: Container(
-        width: 48,
-        height: 48,
-        decoration: BoxDecoration(
-          color: bg,
-          shape: BoxShape.circle,
-          border: border,
+    // A bare `Icon` in an `InkResponse` is an unnamed button to a screen
+    // reader, and there are hundreds of them here. The key read with
+    // underscores as spaces is the same humanization the search index
+    // applies, so it needs no ARB entry — the keywords being English and
+    // unlocalized is a decision about *match* text, and this is the one
+    // place a key becomes readable.
+    return Tooltip(
+      message: iconKey.replaceAll('_', ' '),
+      child: InkResponse(
+        onTap: onTap,
+        radius: 28,
+        child: Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: bg,
+            shape: BoxShape.circle,
+            border: border,
+          ),
+          child: Icon(icon, color: fg, size: 24),
         ),
-        child: Icon(icon, color: fg, size: 24),
       ),
     );
   }

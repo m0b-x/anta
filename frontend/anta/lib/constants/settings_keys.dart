@@ -246,6 +246,12 @@ class SettingsKeys {
   /// defaults on read; an absent key falls back to [calendarFastingWeekdays].
   static const String calendarFastingSchedule = 'calendar_fasting_schedule';
 
+  /// The icon keys picked most recently, newest first, as a CSV. Backs the
+  /// icon picker's "Recently used" section — the thing that keeps a catalog
+  /// of hundreds feeling small. Icon keys never contain a comma, and unknown
+  /// keys are dropped on read, so a retired icon simply stops appearing.
+  static const String recentIconKeys = 'recent_icon_keys';
+
   // Last navigation location (restored on next app launch)
   static const String lastFolderId = 'last_folder_id';
   static const String lastFolderTitle = 'last_folder_title';
