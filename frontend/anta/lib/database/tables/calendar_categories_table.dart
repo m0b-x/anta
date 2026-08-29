@@ -25,6 +25,12 @@ class CalendarCategories extends Table {
 
   IntColumn get sortOrder => integer().withDefault(const Constant(0))();
   BoolColumn get isBuiltIn => boolean().withDefault(const Constant(false))();
+
+  /// Archived: dropped from the pickers and the filter surfaces, but still
+  /// resolvable, so events already carrying it keep their own colour instead
+  /// of falling through to `other`. Distinct from the calendar page's
+  /// transient `hiddenCategoryIds` render filter, which is not persisted.
+  BoolColumn get isHidden => boolean().withDefault(const Constant(false))();
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
 

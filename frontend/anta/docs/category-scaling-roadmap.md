@@ -1,9 +1,42 @@
 # Category Scaling Roadmap — ANTA
 
-**Status: planned (2026-08-29). Nothing below is implemented.** This is the
-plan of record for scaling calendar event categories from the shipped baseline
-(9 built-ins, a 63-icon palette, no search / reorder / hide anywhere) to a set
-that stays usable at forty categories.
+**Status: waves 1 and 2 shipped (2026-08-29). Waves 3a, 3b and 4 remain.**
+This is the plan of record for scaling calendar event categories from the
+shipped baseline (9 built-ins, a 63-icon palette, no search / reorder / hide
+anywhere) to a set that stays usable at forty categories.
+
+What exists now is the **whole data and logic layer, with no UI on it yet**:
+
+- **B2 schema + facade + service + backup** — `calendar_categories.is_hidden`
+  at schema **v33**, `CalendarCategories.visible` / `visiblePlus`,
+  `CategoryService.setHidden`, additive `isHidden` backup key (no version
+  bump). The consumer surfaces are *not* pointed at `visible` yet — that swap
+  happens inside the 3a/3b rewrites, exactly as this document plans.
+- **A1 catalog restructure** — `CalendarIconEntry(key, icon, keywords)`,
+  `groups` as the one source, derived lookup / group / folded-search maps,
+  English keywords on all 63 entries, `CalendarIcons.groupLabel` shared out of
+  the picker sheet, and `matchesSettingsQuery(..., preFolded: true)` so the
+  prebuilt index is not re-folded per keystroke. **The picker UI itself is
+  still the flat unsearchable `Wrap`** — that is A1 step 4, in wave 3a.
+- **B1 DAO + service** — `CalendarCategoryDao.reorder` (one read-free batch,
+  dense `0..N-1`) and `CategoryService.reorder` with the writes serialized onto
+  a chain. No drag UI yet.
+- **B5 `countByCategory`** — one `GROUP BY`, added to `query_count_test`'s
+  guard. Not rendered yet.
+- **B3 `lib/utils/category_search.dart`** — `rankCategories`, membership by
+  `matchesSettingsQuery`, order by `FuzzyRank`, icon-only hits demoted a band,
+  explicit `(band, sortOrder, id)` sort. No search field yet.
+
+Two notes for whoever picks up 3a:
+
+1. **`CategoryService.reorder` already serializes** (B1 step 4). The page's job
+   is the optimistic `setState` and passing its *current* full local order —
+   do not build a second chain in the widget.
+2. `CategoryService.forTesting(db)` now exists, matching the other calendar
+   services.
+
+Nothing outside `test/` reads `visible`, `visiblePlus`, `reorder`,
+`countByCategory` or `rankCategories` yet; wave 3a is where they get callers.
 
 Read alongside `docs/calendar-events-feature.md` (the running behaviour of the
 subsystem) and the `calendar-events` skill (hard rules). This file is written to
@@ -23,6 +56,9 @@ The category system was designed for a fixed set. Three things break as it grows
 - **The picker sheet** (`category_picker_sheet.dart`) is the same flat list,
   and it is the surface used *during capture* — the one place where scrolling
   past forty rows actually costs something.
+- **Both filter sheets** (`agenda_filters_sheet.dart`,
+  `calendar_filter_sheet.dart`) render one `FilterChip` per category in a
+  `Wrap`, which grows without bound and buries every other section.
 
 `markdown_settings_page.dart` already solves search + reorder + hide for
 shortcuts and utility buttons. Reuse that vocabulary rather than inventing a
@@ -90,9 +126,9 @@ not to dropping the feature. The spike **prices** A3 (pass = half session, fail
 
 ## Slices
 
-Nine slices. Each ships value on its own.
+Ten slices. Each ships value on its own.
 
-### A1 — Searchable icon picker
+### A1 — Searchable icon picker  (catalog SHIPPED, picker UI pending)
 
 Ships: typing `run` narrows to running icons, across the existing 63, before a
 single new icon lands.
@@ -171,7 +207,7 @@ priority_high, warning, check_circle, block, lock, shield, push_pin).
 Splits cleanly: **A2a** groups + the ~150 everyday icons, **A2b** the long tail
 and a keyword pass.
 
-### B1 — Persisted reorder
+### B1 — Persisted reorder  (DAO + service SHIPPED, drag UI pending)
 
 Ships: drag categories into your own order and it sticks — in the picker, the
 calendar filter sheet, the agenda chips and the templates page at once, because
@@ -261,7 +297,7 @@ top is miserable at any velocity. Two escapes make it rare:
    have started using a lot. It is one `reorder()` call with the id moved to
    index 0. Add it when that menu lands.
 
-### B2 — Hide a category (schema v33)
+### B2 — Hide a category (schema v33)  (schema + facade + service + backup SHIPPED; consumer surfaces pending)
 
 Written against Decision 1 (hidden = archived).
 
@@ -279,7 +315,9 @@ Written against Decision 1 (hidden = archived).
    `resolve()` falls through to `other`, repainting every one of its events grey.
 5. Point `CategoryPickerSheet`, `CalendarFilterSheet`, `AgendaFiltersSheet` and
    `UpcomingAgendaView` at `visible`. The management page shows everything,
-   dimmed at `Opacity(0.5)` like the shortcuts list.
+   dimmed at `Opacity(0.5)` like the shortcuts list. *(On the wave route the
+   first three are rewritten by C and D anyway — make the swap there rather
+   than editing those files twice.)*
 6. **Guard: every surface holding a selection renders `visible` plus its own
    selected ids.** The picker must still list the event's current category when
    hidden, or opening an old event's editor quietly offers to reassign it; the
@@ -306,7 +344,7 @@ Same change updates the schema-lineage line in the `calendar-events` skill,
 `docs/calendar-events-feature.md`, and the category section of
 `COPILOT_CONTEXT.md`.
 
-### B3 — Search the category list
+### B3 — Search the category list  (ranking SHIPPED, search field pending)
 
 1. New `lib/utils/category_search.dart` holding one ranking function, shared by
    the page and the picker sheet so the two cannot drift:
@@ -358,7 +396,7 @@ acceptable — the app bar is pinned so the action never scrolls away, and
 creating *during capture* stays where the thumb is (the picker sheet keeps its
 own add affordance in C). If it feels wrong on device, keep both.
 
-### B5 — Usage counts
+### B5 — Usage counts  (countByCategory SHIPPED, rendering pending)
 
 Ships: every row says how many events use it, and deleting says exactly what it
 will do — what makes hide-vs-delete an informed choice.
@@ -399,6 +437,71 @@ will do — what makes hide-vs-delete an informed choice.
 7. Raise `heightFactor` 0.7 → 0.85 now there is a search field; keep the
    bottom-clearance maths, which `sheet_bottom_clearance_test` guards.
 
+### D — Filter sheets at scale
+
+Ships: the two filter sheets stay one screen tall at forty categories.
+
+B2 points these at `visible`, which drops hidden categories — but a user with
+forty *active* ones is still the case that breaks. Both
+`agenda_filters_sheet.dart` (`_buildCategories`) and `calendar_filter_sheet.dart`
+render a `Wrap` of one `FilterChip` per category. At ~140px a chip and 2–3 per
+row, forty categories is 700–1000px of chips, which buries every other section
+in the sheet.
+
+**The panel's summary chip is already correct** — `upcoming_agenda_view.dart`
+renders one `Categories (3)` chip, and `restrictiveFilterCount` counts categories
+as **one** restriction, not N. Do not "fix" either; they are the pattern the
+sheets should copy.
+
+1. **`CategoryPickerSheet` grows a multi-select entry point**, mirroring
+   `CalendarDatePickerSheet.pickSingle` / `.pickMulti` exactly — the established
+   local precedent for one sheet serving two arities:
+
+   ```
+   CategoryPickerSheet.pickSingle(context, selectedId:)  → String?
+   CategoryPickerSheet.pickMulti (context, selected:)    → Set<String>?
+   ```
+
+   Both inherit C's search field, ranked rows, `visiblePlus` and the add button
+   for free — which is the whole reason D comes after C rather than duplicating
+   a second searchable list.
+
+2. **`pickMulti` is semantics-free** (set in, set out), like its date twin, so it
+   can serve an allowlist and a denylist without knowing which it is:
+   `agenda_filters_sheet.categoryIds` is an **allowlist** (empty = all);
+   `calendar_filter_sheet._hidden` is a **denylist** (empty = show all). The
+   caller inverts. **Unlike `CalendarDatePickerSheet.pickMulti`, empty must not
+   collapse to `null`** — empty is a real, meaningful state on both sides here.
+   Say so at the call site; the date sheet's collapse is the thing someone will
+   copy by reflex.
+
+3. **Both sheets swap the `Wrap` for a `_PickerTile`-shaped row** above
+   `AppConstants.listSearchThreshold` (12) and keep today's chips below it.
+   Short sets are genuinely better as chips — one tap, no navigation — and the
+   threshold means a user on the nine built-ins sees **zero change**, which also
+   keeps `test/widgets/agenda_filters_sheet_test.dart` passing untouched.
+   The tile reads: leading `Icons.category_rounded`, title *Categories*,
+   subtitle either *All categories* or the first two or three names plus
+   *+N more* (two lines max), trailing chevron.
+4. Do **not** re-add a chip row for the selection beneath the tile — twenty
+   allowlisted categories would rebuild the exact wall the tile removed. The
+   subtitle names them and the panel's removable `Categories (N)` chip already
+   undoes them.
+5. `calendar_filter_sheet` keeps its **Select all / Clear all** header buttons
+   operating on the whole set directly, so the common "show everything again"
+   reset never needs the sub-sheet. (B2 already switches `_clearAll` to
+   `visible` ids.)
+
+A sheet opening a sheet is established here — `EventEditorSheet` →
+`CategoryPickerSheet`, `CategoryEditorSheet` → `IconPickerSheet`. It also
+preserves `AgendaFiltersSheet`'s documented invariant: the sub-sheet returns
+into the **local draft**, so nothing re-runs the agenda scan behind the sheet
+until Apply.
+
+Files: `widgets/category_picker_sheet.dart`, `widgets/agenda_filters_sheet.dart`,
+`widgets/calendar_filter_sheet.dart`, ARB ×3 (`categoriesAllSelected`,
+`categoriesNSelected`, `categoriesMore`).
+
 ### A3 — Letters and digits
 
 Ships: A–Z and 0–9 as glyph "icons" — the letter-avatar look Google Calendar and
@@ -430,11 +533,11 @@ Optional polish: an *Auto — first letter of the name* entry atop the picker.
 ## Execution order
 
 Two routes. Both respect the same dependency graph:
-A1 → A2; A1 → B3; B1 → B3; B2 → C; B3 → C. B4 and B5 are independent.
+A1 → A2; A1 → B3; B1 → B3; B2 → C; B3 → C; C → D. B4 and B5 are independent.
 
 ### Multi-session (one slice at a time)
 
-`A1` → `A2` → `B1 + B4` → `B2 + B5` → `B3` → `C` → `A3` (any time after A1).
+`A1` → `A2` → `B1 + B4` → `B2 + B5` → `B3` → `C` → `D` → `A3` (any time after A1).
 
 ### Single-session (waves)
 
@@ -446,10 +549,41 @@ slice.
 
 | Wave | Contents | Model | Commit after |
 | --- | --- | --- | --- |
-| 1 | B2 schema (table, migration, `currentVersion`, create path, model); A1 catalog restructure; B2 facade + service + backup | Opus | yes |
-| 2 | B1 DAO + service; B5 `countByCategory`; B3 `category_search.dart` | Sonnet | yes |
-| 3 | A1 picker UI; **one rewrite** of `calendar_categories_page.dart` carrying B1+B2+B3+B4+B5; B2 consumer surfaces; C | Opus | yes |
+| 1 ✅ | B2 schema (table, migration, `currentVersion`, create path, model); A1 catalog restructure; B2 facade + service + backup | Opus | yes |
+| 2 ✅ | B1 DAO + service; B5 `countByCategory`; B3 `category_search.dart` | Sonnet | yes |
+| 3a | A1 picker UI; **one rewrite** of `calendar_categories_page.dart` carrying B1+B2+B3+B4+B5; `UpcomingAgendaView`'s chip source | Opus | yes |
+| 3b | C, then D (D needs C's `pickMulti`) | Opus preferred, Sonnet viable | yes |
 | 4 | A2 icons + keywords + recent-icons; A3 spike + letters | Sonnet | yes |
+
+**Why 3 splits.** It was already the densest wave, and D pushed it over: nine
+files of substantive UI plus ~15 ARB keys ×3, with an internal dependency chain
+(page rewrite → C → D) that loses the *capture-time* surfaces first if the wave
+runs out. 3a is the management page and everything it needs; 3b is the two
+consumption surfaces, which share `rankCategories` and `visiblePlus` and want to
+be built together. Each ships standalone value.
+
+**B2's "consumer surfaces" are not a separate step.** Three of the four files
+that need pointing at `visible` / `visiblePlus` — `CategoryPickerSheet`,
+`CalendarFilterSheet`, `AgendaFiltersSheet` — are rewritten by C and D anyway, so
+do the swap *inside* those rewrites rather than touching the same files twice.
+Only `UpcomingAgendaView`'s chip source is standalone; it rides 3a.
+
+**3b is the delegation candidate.** By the time it runs, `rankCategories` (wave
+2) and `visiblePlus` (wave 1) both exist and this document specifies C and D
+down to the two traps (semantics-free `pickMulti`, no empty-collapse). That
+keeps Opus to waves 1 and 3a if budget is tight.
+
+**Session grouping.** Waves must run in order; the session boundaries are the
+choice. Four sessions: `1 + 2` · `3a` · `3b` · `4`. Wave 2 is small enough that
+opening a fresh session for it costs more context than it saves, so it rides
+with 1 — but only **after** `flutter test test/database/` passes, which is the
+gate on the migration. **3a always runs alone**: it is the densest wave and the
+one where a mid-rewrite interruption hurts most. Under tight budget, `3b + 4`
+can share a Sonnet session, in that order.
+
+Start each session fresh against this document rather than continuing the
+previous one — the plan is written to be re-entered cold, and a stale
+conversation is the most expensive thing you can carry into a wave.
 
 Run `flutter test test/database/` immediately after wave 1 — if the migration is
 wrong you want to know before ten UI files sit on top of it.
@@ -457,8 +591,10 @@ wrong you want to know before ten UI files sit on top of it.
 **A2 is deliberately last** despite being first in the original framing. It is
 the only slice that is pure additive content with zero architectural risk, and
 nothing depends on it (B3 needs A1's keyword *mechanism*, not the 300 icons).
-Stopping after wave 3 leaves a fully working searchable / reorderable / hideable
-system over the existing 63 icons. Stopping mid-A2 costs nothing — it is a list.
+Stopping after 3a leaves a fully working searchable / reorderable / hideable
+management page; stopping after 3b adds the capture and filter surfaces. Both
+are honest stopping points over the existing 63 icons. Stopping mid-A2 costs
+nothing — it is a list.
 
 Wave 4 is also the best delegation in the plan: highest token output, lowest
 reasoning demand.
@@ -469,7 +605,8 @@ reasoning demand.
 | --- | --- |
 | Wave 1 | `dart run build_runner build --delete-conflicting-outputs`, `dart analyze lib`, `flutter test test/database/` |
 | Wave 2 | `dart analyze lib`, `flutter test test/utils/ test/services/` |
-| Wave 3 | `flutter gen-l10n` (check `untranslated.txt`), `dart analyze lib`, `flutter test` |
+| Wave 3a | `flutter gen-l10n` (check `untranslated.txt`), `dart analyze lib`, `flutter test` |
+| Wave 3b | `flutter gen-l10n`, `dart analyze lib`, `flutter test test/widgets/` then `flutter test` |
 | Wave 4 | `dart analyze lib`, `flutter test`, `.\build_release.bat arm64` for the A3 spike |
 
 ## Invariants — do not break
@@ -495,6 +632,10 @@ reasoning demand.
 9. Whole-page data comes from single statements — one `GROUP BY` for counts, one
    batch for reorder. `query_count_test` is the guard.
 10. Ranked lists sort on `(band, sortOrder)` — `List.sort` is not stable in Dart.
+11. **No surface renders one chip per category over the full set.** A bounded
+    summary (`Categories (3)`) plus a sub-sheet is the pattern; a `Wrap` over
+    `CalendarCategories.all` is the anti-pattern. `restrictiveFilterCount`
+    counting categories as one restriction is part of this and must stay.
 
 ## Deferred, not planned here
 

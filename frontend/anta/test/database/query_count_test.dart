@@ -426,6 +426,106 @@ void main() {
       );
     });
   });
+
+  group('categories', () {
+    test('counting events per category is a single GROUP BY', () async {
+      for (var i = 0; i < 30; i++) {
+        await db.calendarEventDao.upsert(
+          _event('e$i', category: 'cat${i % 10}'),
+        );
+      }
+
+      counter.reset();
+      final counts = await db.calendarEventDao.countByCategory();
+
+      expect(counts['cat0'], 3);
+      expect(counts, hasLength(10));
+      // The categories page renders this figure on every row. A count per row
+      // is the exact shape this suite exists for: forty individually-fast
+      // statements look fine in a query plan and only the count gives them
+      // away.
+      expect(
+        counter.count,
+        1,
+        reason: 'issued:\n${counter.statements.join('\n')}',
+      );
+      expect(
+        counter.statements.single.toUpperCase(),
+        allOf(contains('COUNT('), contains('GROUP BY')),
+        reason: 'counting must stay a GROUP BY, never a fetch-and-tally',
+      );
+    });
+
+    test('a category with no live events is absent, not zero', () async {
+      await db.calendarEventDao.upsert(_event('e1', category: 'gym'));
+      await db.calendarEventDao.softDeleteById('e1');
+
+      final counts = await db.calendarEventDao.countByCategory();
+      expect(
+        counts.containsKey('gym'),
+        isFalse,
+        reason:
+            'tombstones must not be counted, and callers read the map with '
+            '?? 0 — which is also what makes an unknown id free',
+      );
+    });
+
+    test('reordering categories is one batch and reads nothing', () async {
+      final now = DateTime.now();
+      final ids = [for (var i = 0; i < 40; i++) 'c$i'];
+      await db.batch((b) {
+        for (final id in ids) {
+          b.insert(
+            db.calendarCategories,
+            CalendarCategoriesCompanion.insert(
+              id: id,
+              name: id,
+              colorValue: 1,
+              iconKey: 'event',
+              createdAt: now,
+              updatedAt: now,
+            ),
+          );
+        }
+      });
+
+      counter.reset();
+      await db.calendarCategoryDao.reorder(ids.reversed.toList());
+
+      // No CRDT columns on this table, so unlike the vocabulary reorder there
+      // is no `version + 1` to read first — every statement must be a write.
+      expect(
+        counter.selects,
+        isEmpty,
+        reason:
+            'reorder must not read a row to write it. Issued:\n'
+            '${counter.statements.take(6).join('\n')}',
+      );
+      // One `batch` is one transaction and one commit; drift may collapse the
+      // updates into fewer prepared statements than rows, never more.
+      expect(
+        counter.count,
+        lessThanOrEqualTo(ids.length),
+        reason: 'issued:\n${counter.statements.take(6).join('\n')}',
+      );
+
+      final rows = await db.calendarCategoryDao.getAll();
+      expect(rows.map((r) => r.id), ids.reversed);
+      expect(
+        rows.map((r) => r.sortOrder),
+        [for (var i = 0; i < ids.length; i++) i],
+        reason:
+            'dense 0..N-1: CalendarCategories._byOrder tie-breaks on id, so '
+            'gaps or duplicates let rows shuffle on the next load',
+      );
+    });
+
+    test('reordering nothing touches the database not at all', () async {
+      counter.reset();
+      await db.calendarCategoryDao.reorder(const []);
+      expect(counter.count, 0);
+    });
+  });
 }
 
 Future<void> _seedChunks(
@@ -461,11 +561,11 @@ EventOccurrenceDescriptionsCompanion _occurrence(int day) {
   );
 }
 
-CalendarEventsCompanion _event(String id) {
+CalendarEventsCompanion _event(String id, {String category = 'gym'}) {
   return CalendarEventsCompanion.insert(
     id: id,
     title: 'Leg day',
-    category: 'gym',
+    category: category,
     startDate: DateTime.utc(2026, 1, 1),
     ruleKind: 'daily',
     createdAt: DateTime.now(),

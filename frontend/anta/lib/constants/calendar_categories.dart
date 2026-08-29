@@ -65,6 +65,7 @@ abstract final class CalendarCategories {
 
   static Map<String, CalendarCategory> _byId = const {};
   static List<CalendarCategory> _ordered = const [];
+  static List<CalendarCategory> _visible = const [];
   static int _revision = 0;
 
   /// Bumped on every [updateCache] call. There is no reset method to mirror
@@ -90,10 +91,19 @@ abstract final class CalendarCategories {
   );
 
   /// Replaces the cache. Called by `CategoryService` after every load/mutation.
+  ///
+  /// Builds [visible] as a *second* list rather than filtering [all]: dropping
+  /// a hidden category from the lookup would make [resolve] fall through to
+  /// [fallback] and repaint every one of its events grey, which is the exact
+  /// opposite of what hiding means.
   static void updateCache(List<CalendarCategory> categories) {
     final sorted = [...categories]..sort(_byOrder);
     _ordered = List.unmodifiable(sorted);
     _byId = Map.unmodifiable({for (final c in sorted) c.id: c});
+    _visible = List.unmodifiable([
+      for (final c in sorted)
+        if (!c.isHidden) c,
+    ]);
     _revision++;
   }
 
@@ -102,8 +112,37 @@ abstract final class CalendarCategories {
     return byOrder != 0 ? byOrder : a.id.compareTo(b.id);
   }
 
-  /// All categories in display order.
+  /// All categories in display order, hidden ones included. Every resolution
+  /// path reads this; never narrow it.
   static List<CalendarCategory> get all => _ordered;
+
+  /// The unhidden categories, in display order. The list every *choosing*
+  /// surface renders — pickers, the calendar filter sheet, the agenda chips.
+  static List<CalendarCategory> get visible => _visible;
+
+  /// [visible] plus any of [keep] that is hidden, in display order.
+  ///
+  /// The one helper behind a rule every selection-holding surface needs: an
+  /// event editor must still list the category its event already carries, and
+  /// a filter must still show a hidden id sitting in its own selection, or
+  /// the user cannot un-select a filter they can no longer see.
+  ///
+  /// Returns [visible] itself when nothing hidden is kept, so the common case
+  /// allocates nothing and stays identity-stable for widget memos.
+  static List<CalendarCategory> visiblePlus(Iterable<String> keep) {
+    if (_visible.length == _ordered.length) return _visible;
+    final kept = keep is Set<String> ? keep : keep.toSet();
+    if (kept.isEmpty) return _visible;
+    final extra = [
+      for (final c in _ordered)
+        if (c.isHidden && kept.contains(c.id)) c,
+    ];
+    if (extra.isEmpty) return _visible;
+    return List.unmodifiable([
+      for (final c in _ordered)
+        if (!c.isHidden || kept.contains(c.id)) c,
+    ]);
+  }
 
   /// O(1) lookup; null when unknown.
   static CalendarCategory? byId(String id) => _byId[id];

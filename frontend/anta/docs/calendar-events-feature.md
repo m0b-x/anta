@@ -18,8 +18,9 @@ linked.
 > `suppressed` flag on `public_holidays`; **v18** inverted the stored
 > priority scale (data-only: `p -> 6 - p`, see the Addendum); **v24** added
 > the sparse `calendar_event_occurrences` table (per-occurrence description
-> overrides, §6.6). The recurrence **interval** ("every N …") shipped without
-> a migration — it rides inside the existing `rule_payload`.
+> overrides, §6.6); **v33** added `calendar_categories.is_hidden` (§2.3). The
+> recurrence **interval** ("every N …") shipped without a migration — it rides
+> inside the existing `rule_payload`.
 
 ---
 
@@ -104,6 +105,60 @@ One built-in carries editor behavior: selecting **Birthday**
 (`kBirthdayCategoryId`, a cake-iconed yearly category) on a still-one-time
 event pre-fills a `YearlyRecurrence` so birthdays repeat every year with no
 extra taps. It never overrides a recurrence the user already configured.
+
+### 2.3 Hiding a category (v33) — archiving, not filtering
+
+`calendar_categories.is_hidden` retires a category the user has stopped using
+without deleting it. A hidden category is dropped from the pickers, the
+calendar filter sheet and the agenda chips, but **events already carrying it
+still render on the calendar in their own colour**. Deleting stays the way to
+remove data, and it is what reassigns events to `other`.
+
+That behaviour is a consequence of the shape rather than a special case:
+`CalendarCategories.updateCache` builds `visible` as a **second** unmodifiable
+list beside `all`, which keeps every row. Narrowing `all` instead would make
+`resolve()` fall through to `fallback` and repaint the category's entire
+history grey — the exact opposite of what hiding is for.
+
+Three rules follow:
+
+- **Choosing surfaces render `visible`.** Anything that offers a category to
+  pick or to filter by.
+- **Any surface holding a selection renders `visiblePlus(keep)`** — `visible`
+  plus its own selected ids — through that one helper, never a per-surface
+  re-derivation. The event editor must still list the category its event
+  already carries, or opening an old event quietly offers to reassign it; the
+  agenda's allowlist chips must still show a hidden id sitting in
+  `UpcomingAgendaFilters.categoryIds`, or the user cannot un-select a filter
+  they can no longer see. It returns `visible` itself when nothing hidden is
+  kept, so the common case allocates nothing and stays identity-stable for
+  widget memos.
+- **The management page shows everything**, hidden rows dimmed.
+
+Hiding leaves `sort_order` untouched, so **unhiding restores the category to
+the position it held** — the behavioural edge hiding has over deleting and
+re-creating. Built-ins can be hidden; they still cannot be deleted.
+
+`is_hidden` is **not** `CalendarPageLoaded.hiddenCategoryIds`. The latter is
+transient bloc state that resets to `{}` on every load and is render-time only
+by design (the deliberate inverse of skips — see the v30 addendum). It is never seeded from
+the persisted flag: two sources of truth for "hidden" that can disagree leave
+no way to tell which the user meant. If "hidden also means off the grid" is
+ever wanted, it ships as its own persisted **filter** setting.
+
+The migration is one `ALTER TABLE … ADD COLUMN` with a `PRAGMA table_info`
+guard, and the column is deliberately **plain**: `calendar_categories` carries
+no CRDT fields, and giving it `hlc_timestamp` / `device_id` / `version` belongs
+to the cloud-sync roadmap's category phase rather than riding in on a hide
+flag. Backup gains an additive `isHidden` key with **no version bump** (the v19
+/ v20 precedent) — a pre-v33 archive cannot describe a hidden category because
+none existed, so restoring everything visible is exactly what it recorded. The
+flag is read by *type test* rather than a cast, so a junk value costs the flag
+rather than the whole category row.
+
+Design record: `docs/category-scaling-roadmap.md`, which also owns the wider
+plan for keeping the set usable at ~40 categories (searchable icon picker,
+persisted reorder, search, usage counts, bounded filter surfaces).
 
 ---
 
@@ -1123,6 +1178,12 @@ adds a `calendarCategories` array alongside the existing `calendarEvents` and
 `publicHolidays`. Categories are imported **before** events on restore so each
 event's `categoryId` resolves. A v3 (or earlier) backup imports cleanly — the
 missing `calendarCategories` key just leaves the seeded built-ins in place.
+
+Each category row gained an additive `isHidden` boolean with schema v33 and
+**no backup version bump** — an archive written before the flag existed cannot
+describe a hidden category, so its absence correctly restores everything
+visible (§2.3). It is read by type test rather than a cast, so a junk value
+costs the flag rather than the whole row.
 
 **Backup version 3** includes:
 

@@ -5593,6 +5593,21 @@ class $CalendarCategoriesTable extends CalendarCategories
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _isHiddenMeta = const VerificationMeta(
+    'isHidden',
+  );
+  @override
+  late final GeneratedColumn<bool> isHidden = GeneratedColumn<bool>(
+    'is_hidden',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_hidden" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -5623,6 +5638,7 @@ class $CalendarCategoriesTable extends CalendarCategories
     iconKey,
     sortOrder,
     isBuiltIn,
+    isHidden,
     createdAt,
     updatedAt,
   ];
@@ -5679,6 +5695,12 @@ class $CalendarCategoriesTable extends CalendarCategories
         isBuiltIn.isAcceptableOrUnknown(data['is_built_in']!, _isBuiltInMeta),
       );
     }
+    if (data.containsKey('is_hidden')) {
+      context.handle(
+        _isHiddenMeta,
+        isHidden.isAcceptableOrUnknown(data['is_hidden']!, _isHiddenMeta),
+      );
+    }
     if (data.containsKey('created_at')) {
       context.handle(
         _createdAtMeta,
@@ -5728,6 +5750,10 @@ class $CalendarCategoriesTable extends CalendarCategories
         DriftSqlType.bool,
         data['${effectivePrefix}is_built_in'],
       )!,
+      isHidden: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_hidden'],
+      )!,
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -5757,6 +5783,12 @@ class CalendarCategoryRow extends DataClass
   final String iconKey;
   final int sortOrder;
   final bool isBuiltIn;
+
+  /// Archived: dropped from the pickers and the filter surfaces, but still
+  /// resolvable, so events already carrying it keep their own colour instead
+  /// of falling through to `other`. Distinct from the calendar page's
+  /// transient `hiddenCategoryIds` render filter, which is not persisted.
+  final bool isHidden;
   final DateTime createdAt;
   final DateTime updatedAt;
   const CalendarCategoryRow({
@@ -5766,6 +5798,7 @@ class CalendarCategoryRow extends DataClass
     required this.iconKey,
     required this.sortOrder,
     required this.isBuiltIn,
+    required this.isHidden,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -5778,6 +5811,7 @@ class CalendarCategoryRow extends DataClass
     map['icon_key'] = Variable<String>(iconKey);
     map['sort_order'] = Variable<int>(sortOrder);
     map['is_built_in'] = Variable<bool>(isBuiltIn);
+    map['is_hidden'] = Variable<bool>(isHidden);
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
     return map;
@@ -5791,6 +5825,7 @@ class CalendarCategoryRow extends DataClass
       iconKey: Value(iconKey),
       sortOrder: Value(sortOrder),
       isBuiltIn: Value(isBuiltIn),
+      isHidden: Value(isHidden),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
     );
@@ -5808,6 +5843,7 @@ class CalendarCategoryRow extends DataClass
       iconKey: serializer.fromJson<String>(json['iconKey']),
       sortOrder: serializer.fromJson<int>(json['sortOrder']),
       isBuiltIn: serializer.fromJson<bool>(json['isBuiltIn']),
+      isHidden: serializer.fromJson<bool>(json['isHidden']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
     );
@@ -5822,6 +5858,7 @@ class CalendarCategoryRow extends DataClass
       'iconKey': serializer.toJson<String>(iconKey),
       'sortOrder': serializer.toJson<int>(sortOrder),
       'isBuiltIn': serializer.toJson<bool>(isBuiltIn),
+      'isHidden': serializer.toJson<bool>(isHidden),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
     };
@@ -5834,6 +5871,7 @@ class CalendarCategoryRow extends DataClass
     String? iconKey,
     int? sortOrder,
     bool? isBuiltIn,
+    bool? isHidden,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) => CalendarCategoryRow(
@@ -5843,6 +5881,7 @@ class CalendarCategoryRow extends DataClass
     iconKey: iconKey ?? this.iconKey,
     sortOrder: sortOrder ?? this.sortOrder,
     isBuiltIn: isBuiltIn ?? this.isBuiltIn,
+    isHidden: isHidden ?? this.isHidden,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
   );
@@ -5856,6 +5895,7 @@ class CalendarCategoryRow extends DataClass
       iconKey: data.iconKey.present ? data.iconKey.value : this.iconKey,
       sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
       isBuiltIn: data.isBuiltIn.present ? data.isBuiltIn.value : this.isBuiltIn,
+      isHidden: data.isHidden.present ? data.isHidden.value : this.isHidden,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
     );
@@ -5870,6 +5910,7 @@ class CalendarCategoryRow extends DataClass
           ..write('iconKey: $iconKey, ')
           ..write('sortOrder: $sortOrder, ')
           ..write('isBuiltIn: $isBuiltIn, ')
+          ..write('isHidden: $isHidden, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
@@ -5884,6 +5925,7 @@ class CalendarCategoryRow extends DataClass
     iconKey,
     sortOrder,
     isBuiltIn,
+    isHidden,
     createdAt,
     updatedAt,
   );
@@ -5897,6 +5939,7 @@ class CalendarCategoryRow extends DataClass
           other.iconKey == this.iconKey &&
           other.sortOrder == this.sortOrder &&
           other.isBuiltIn == this.isBuiltIn &&
+          other.isHidden == this.isHidden &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt);
 }
@@ -5908,6 +5951,7 @@ class CalendarCategoriesCompanion extends UpdateCompanion<CalendarCategoryRow> {
   final Value<String> iconKey;
   final Value<int> sortOrder;
   final Value<bool> isBuiltIn;
+  final Value<bool> isHidden;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   final Value<int> rowid;
@@ -5918,6 +5962,7 @@ class CalendarCategoriesCompanion extends UpdateCompanion<CalendarCategoryRow> {
     this.iconKey = const Value.absent(),
     this.sortOrder = const Value.absent(),
     this.isBuiltIn = const Value.absent(),
+    this.isHidden = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -5929,6 +5974,7 @@ class CalendarCategoriesCompanion extends UpdateCompanion<CalendarCategoryRow> {
     required String iconKey,
     this.sortOrder = const Value.absent(),
     this.isBuiltIn = const Value.absent(),
+    this.isHidden = const Value.absent(),
     required DateTime createdAt,
     required DateTime updatedAt,
     this.rowid = const Value.absent(),
@@ -5945,6 +5991,7 @@ class CalendarCategoriesCompanion extends UpdateCompanion<CalendarCategoryRow> {
     Expression<String>? iconKey,
     Expression<int>? sortOrder,
     Expression<bool>? isBuiltIn,
+    Expression<bool>? isHidden,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
     Expression<int>? rowid,
@@ -5956,6 +6003,7 @@ class CalendarCategoriesCompanion extends UpdateCompanion<CalendarCategoryRow> {
       if (iconKey != null) 'icon_key': iconKey,
       if (sortOrder != null) 'sort_order': sortOrder,
       if (isBuiltIn != null) 'is_built_in': isBuiltIn,
+      if (isHidden != null) 'is_hidden': isHidden,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (rowid != null) 'rowid': rowid,
@@ -5969,6 +6017,7 @@ class CalendarCategoriesCompanion extends UpdateCompanion<CalendarCategoryRow> {
     Value<String>? iconKey,
     Value<int>? sortOrder,
     Value<bool>? isBuiltIn,
+    Value<bool>? isHidden,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
     Value<int>? rowid,
@@ -5980,6 +6029,7 @@ class CalendarCategoriesCompanion extends UpdateCompanion<CalendarCategoryRow> {
       iconKey: iconKey ?? this.iconKey,
       sortOrder: sortOrder ?? this.sortOrder,
       isBuiltIn: isBuiltIn ?? this.isBuiltIn,
+      isHidden: isHidden ?? this.isHidden,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       rowid: rowid ?? this.rowid,
@@ -6007,6 +6057,9 @@ class CalendarCategoriesCompanion extends UpdateCompanion<CalendarCategoryRow> {
     if (isBuiltIn.present) {
       map['is_built_in'] = Variable<bool>(isBuiltIn.value);
     }
+    if (isHidden.present) {
+      map['is_hidden'] = Variable<bool>(isHidden.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -6028,6 +6081,7 @@ class CalendarCategoriesCompanion extends UpdateCompanion<CalendarCategoryRow> {
           ..write('iconKey: $iconKey, ')
           ..write('sortOrder: $sortOrder, ')
           ..write('isBuiltIn: $isBuiltIn, ')
+          ..write('isHidden: $isHidden, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('rowid: $rowid')
@@ -13294,6 +13348,7 @@ typedef $$CalendarCategoriesTableCreateCompanionBuilder =
       required String iconKey,
       Value<int> sortOrder,
       Value<bool> isBuiltIn,
+      Value<bool> isHidden,
       required DateTime createdAt,
       required DateTime updatedAt,
       Value<int> rowid,
@@ -13306,6 +13361,7 @@ typedef $$CalendarCategoriesTableUpdateCompanionBuilder =
       Value<String> iconKey,
       Value<int> sortOrder,
       Value<bool> isBuiltIn,
+      Value<bool> isHidden,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
       Value<int> rowid,
@@ -13347,6 +13403,11 @@ class $$CalendarCategoriesTableFilterComposer
 
   ColumnFilters<bool> get isBuiltIn => $composableBuilder(
     column: $table.isBuiltIn,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isHidden => $composableBuilder(
+    column: $table.isHidden,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -13400,6 +13461,11 @@ class $$CalendarCategoriesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<bool> get isHidden => $composableBuilder(
+    column: $table.isHidden,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -13439,6 +13505,9 @@ class $$CalendarCategoriesTableAnnotationComposer
 
   GeneratedColumn<bool> get isBuiltIn =>
       $composableBuilder(column: $table.isBuiltIn, builder: (column) => column);
+
+  GeneratedColumn<bool> get isHidden =>
+      $composableBuilder(column: $table.isHidden, builder: (column) => column);
 
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
@@ -13493,6 +13562,7 @@ class $$CalendarCategoriesTableTableManager
                 Value<String> iconKey = const Value.absent(),
                 Value<int> sortOrder = const Value.absent(),
                 Value<bool> isBuiltIn = const Value.absent(),
+                Value<bool> isHidden = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
@@ -13503,6 +13573,7 @@ class $$CalendarCategoriesTableTableManager
                 iconKey: iconKey,
                 sortOrder: sortOrder,
                 isBuiltIn: isBuiltIn,
+                isHidden: isHidden,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 rowid: rowid,
@@ -13515,6 +13586,7 @@ class $$CalendarCategoriesTableTableManager
                 required String iconKey,
                 Value<int> sortOrder = const Value.absent(),
                 Value<bool> isBuiltIn = const Value.absent(),
+                Value<bool> isHidden = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime updatedAt,
                 Value<int> rowid = const Value.absent(),
@@ -13525,6 +13597,7 @@ class $$CalendarCategoriesTableTableManager
                 iconKey: iconKey,
                 sortOrder: sortOrder,
                 isBuiltIn: isBuiltIn,
+                isHidden: isHidden,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 rowid: rowid,

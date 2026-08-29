@@ -28,21 +28,6 @@ class IconPickerSheet extends StatelessWidget {
     );
   }
 
-  String _groupLabel(AppLocalizations l10n, IconGroupId id) {
-    return switch (id) {
-      IconGroupId.strength => l10n.iconGroupStrength,
-      IconGroupId.cardio => l10n.iconGroupCardio,
-      IconGroupId.sports => l10n.iconGroupSports,
-      IconGroupId.recovery => l10n.iconGroupRecovery,
-      IconGroupId.body => l10n.iconGroupBody,
-      IconGroupId.measurement => l10n.iconGroupMeasurement,
-      IconGroupId.achievements => l10n.iconGroupAchievements,
-      IconGroupId.travel => l10n.iconGroupTravel,
-      IconGroupId.time => l10n.iconGroupTime,
-      IconGroupId.generic => l10n.iconGroupGeneric,
-    };
-  }
-
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -85,7 +70,7 @@ class IconPickerSheet extends StatelessWidget {
                         vertical: 4,
                       ),
                       child: Text(
-                        _groupLabel(l10n, group.id),
+                        CalendarIcons.groupLabel(group.id, l10n),
                         style: theme.textTheme.labelLarge?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
@@ -96,12 +81,12 @@ class IconPickerSheet extends StatelessWidget {
                       spacing: 8,
                       runSpacing: 8,
                       children: [
-                        for (final key in group.iconKeys)
+                        for (final entry in group.entries)
                           _IconTile(
-                            iconKey: key,
-                            selected: key == initialKey,
+                            iconKey: entry.key,
+                            selected: entry.key == initialKey,
                             tint: tint,
-                            onTap: () => Navigator.of(context).pop(key),
+                            onTap: () => Navigator.of(context).pop(entry.key),
                           ),
                       ],
                     ),

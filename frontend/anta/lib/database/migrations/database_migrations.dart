@@ -166,6 +166,11 @@ class DatabaseMigrations {
       toVersion: DatabaseSchema.v32Vocabularies,
       migrate: _migrateV31ToV32,
     ),
+    Migration(
+      fromVersion: DatabaseSchema.v32Vocabularies,
+      toVersion: DatabaseSchema.v33CategoryHidden,
+      migrate: _migrateV32ToV33,
+    ),
   ];
 
   Future<void> runMigrations(Migrator m, int from, int to) async {
@@ -1208,5 +1213,36 @@ class DatabaseMigrations {
         deleted_at INTEGER NULL
       )
     ''');
+  }
+
+  /// v32 → v33: `calendar_categories.is_hidden`, the archive flag behind
+  /// retiring a category without deleting it.
+  ///
+  /// One `ALTER TABLE … ADD COLUMN` with a default, guarded by
+  /// `PRAGMA table_info` so a partial-upgrade re-run cannot fail — the v19 /
+  /// v26 shape, and no `CHECK` clause for the same reason those omit one.
+  /// The create path comes from the Drift declaration via `createAll`, which
+  /// `schema_parity_test` is what keeps honest.
+  ///
+  /// Deliberately a plain column: `calendar_categories` carries no CRDT
+  /// fields today, and giving it `hlc_timestamp` / `device_id` / `version`
+  /// belongs to the cloud-sync roadmap's category phase rather than riding in
+  /// on a hide flag. One concern per migration.
+  ///
+  /// Existing rows default to visible, which is what they were, so there is
+  /// no backfill and an older backup restores everything visible.
+  Future<void> _migrateV32ToV33(Migrator m, GeneratedDatabase db) async {
+    final existing = <String>{
+      for (final row
+          in await _db
+              .customSelect('PRAGMA table_info(calendar_categories)')
+              .get())
+        row.read<String>('name'),
+    };
+    if (!existing.contains('is_hidden')) {
+      await _db.customStatement(
+        'ALTER TABLE calendar_categories ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0',
+      );
+    }
   }
 }

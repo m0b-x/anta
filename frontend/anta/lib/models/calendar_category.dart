@@ -31,6 +31,14 @@ class CalendarCategory extends Equatable {
   /// fully user-editable and shown by their stored [name].
   final bool isBuiltIn;
 
+  /// Archived. Hidden categories are dropped from the pickers and the filter
+  /// surfaces (`CalendarCategories.visible`) but stay in
+  /// `CalendarCategories.all`, so events already carrying one still resolve
+  /// to it and keep their own colour. Built-ins can be hidden; they still
+  /// cannot be deleted. Defaults to `false` — the flag is additive, and
+  /// hiding is the exceptional state.
+  final bool isHidden;
+
   const CalendarCategory({
     required this.id,
     required this.name,
@@ -38,6 +46,7 @@ class CalendarCategory extends Equatable {
     required this.iconKey,
     required this.sortOrder,
     required this.isBuiltIn,
+    this.isHidden = false,
   });
 
   Color get color => Color(colorValue);
@@ -47,6 +56,7 @@ class CalendarCategory extends Equatable {
     int? colorValue,
     String? iconKey,
     int? sortOrder,
+    bool? isHidden,
   }) {
     return CalendarCategory(
       id: id,
@@ -55,6 +65,7 @@ class CalendarCategory extends Equatable {
       iconKey: iconKey ?? this.iconKey,
       sortOrder: sortOrder ?? this.sortOrder,
       isBuiltIn: isBuiltIn,
+      isHidden: isHidden ?? this.isHidden,
     );
   }
 
@@ -66,5 +77,6 @@ class CalendarCategory extends Equatable {
     iconKey,
     sortOrder,
     isBuiltIn,
+    isHidden,
   ];
 }

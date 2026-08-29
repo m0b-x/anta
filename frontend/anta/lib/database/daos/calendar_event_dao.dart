@@ -102,6 +102,36 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
     });
   }
 
+  /// Live event count per category id, as one `GROUP BY`.
+  ///
+  /// **One statement for the whole page, never a count-per-row loop** — the
+  /// categories page renders this figure on every row, which is exactly the
+  /// shape `query_count_test` exists to catch: forty individually-fast
+  /// `SELECT COUNT(*)` statements look fine in a query plan and only the count
+  /// gives them away.
+  ///
+  /// A category with no live events is simply absent from the map rather than
+  /// present at zero — callers read it with `?? 0`, which is also what makes
+  /// an id the map has never heard of (a stale allowlist entry) free.
+  ///
+  /// `is_deleted = 0` is the same literal predicate [getAll] uses, for the
+  /// same reason: a bound parameter is not reliably proven to imply the
+  /// partial index's own `WHERE is_deleted = 0` on the SQLite version shipping
+  /// to Android.
+  Future<Map<String, int>> countByCategory() async {
+    final total = calendarEvents.id.count();
+    final rows =
+        await (selectOnly(calendarEvents)
+              ..addColumns([calendarEvents.category, total])
+              ..where(const CustomExpression<bool>('is_deleted = 0'))
+              ..groupBy([calendarEvents.category]))
+            .get();
+    return {
+      for (final row in rows)
+        row.read(calendarEvents.category)!: row.read(total) ?? 0,
+    };
+  }
+
   /// The hard counterpart to [softDeleteById], the [NoteDao.hardDeleteNote]
   /// precedent: retained and currently caller-less, because the delete the app
   /// performs is the tombstoning one.

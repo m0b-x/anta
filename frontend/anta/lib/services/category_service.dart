@@ -30,13 +30,33 @@ class CategoryService {
   late CalendarCategoryDao _dao;
   List<CalendarCategory> _cache = const [];
 
+  /// Tail of the serialized reorder chain — see [reorder].
+  Future<void> _reorderChain = Future<void>.value();
+
   CategoryService._();
 
   static Future<CategoryService> getInstance() async {
     if (_instance != null) return _instance!;
+    return _create(await AppDatabase.getInstance());
+  }
+
+  /// Binds the singleton to an arbitrary [AppDatabase], bypassing
+  /// [AppDatabase.getInstance]'s `path_provider` lookup and device-id file.
+  ///
+  /// Exists so tests can exercise the real DAO and the real facade against
+  /// `NativeDatabase.memory()`, the way the other calendar services already
+  /// do. Never use it in app code — the singleton is what the
+  /// [DatabaseLifecycle] reset contract is built on.
+  @visibleForTesting
+  static Future<CategoryService> forTesting(AppDatabase db) async {
+    if (_instance != null) return _instance!;
+    return _create(db);
+  }
+
+  static Future<CategoryService> _create(AppDatabase db) async {
     final service = CategoryService._();
-    service._db = await AppDatabase.getInstance();
-    service._dao = service._db.calendarCategoryDao;
+    service._db = db;
+    service._dao = db.calendarCategoryDao;
     await service._seedBuiltIns();
     await service._load();
     _instance = service;
@@ -153,10 +173,51 @@ class CategoryService {
         iconKey: Value(category.iconKey),
         sortOrder: Value(category.sortOrder),
         isBuiltIn: Value(category.isBuiltIn),
+        isHidden: Value(category.isHidden),
         updatedAt: Value(DateTime.now()),
       ),
     );
     await _load();
+  }
+
+  /// Persists a new display order, given every id in the order it should
+  /// appear. Republishes the facade, so the picker, the calendar filter sheet,
+  /// the agenda chips and the templates page all follow at once — every one of
+  /// them reads `CalendarCategories.all`.
+  ///
+  /// **Writes are serialized.** Two quick drags start two async reorders, and
+  /// nothing about `await` guarantees they land in the order they were issued;
+  /// the loser would resurrect the earlier arrangement, which reads as the
+  /// second drag having been ignored. Each write is chained onto the previous
+  /// one's future, so the last one enqueued is the last one applied — and
+  /// because callers pass their *current* full local order rather than a
+  /// delta, that last write is the whole truth regardless.
+  ///
+  /// A failed link is swallowed *for the chain only* (the caller's future
+  /// still surfaces it), so one error cannot poison every later drag.
+  Future<void> reorder(List<String> idsInOrder) {
+    final next = _reorderChain.then((_) => _persistReorder(idsInOrder));
+    _reorderChain = next.catchError((_) {});
+    return next;
+  }
+
+  Future<void> _persistReorder(List<String> idsInOrder) async {
+    await _dao.reorder(idsInOrder);
+    await _load();
+  }
+
+  /// Archives or restores a category. Built-ins can be hidden; they still
+  /// cannot be deleted.
+  ///
+  /// `sort_order` is deliberately left untouched, so unhiding restores the
+  /// category to the position it held — the behavioural edge hiding has over
+  /// deleting and re-creating. No-op for unknown ids and for a category
+  /// already in the requested state, so a repeated tap cannot churn
+  /// `updated_at` or the facade revision.
+  Future<void> setHidden(String id, bool hidden) async {
+    final category = CalendarCategories.byId(id);
+    if (category == null || category.isHidden == hidden) return;
+    await updateCategory(category.copyWith(isHidden: hidden));
   }
 
   /// Deletes a custom category and reassigns its events to the built-in
@@ -185,6 +246,7 @@ class CategoryService {
           'iconKey': row.iconKey,
           'sortOrder': row.sortOrder,
           'isBuiltIn': row.isBuiltIn,
+          'isHidden': row.isHidden,
           'createdAtMs': row.createdAt.millisecondsSinceEpoch,
           'updatedAtMs': row.updatedAt.millisecondsSinceEpoch,
         },
@@ -194,6 +256,13 @@ class CategoryService {
   /// Replaces every category with [data], then re-seeds built-ins so the
   /// catalog is always complete even if the backup predates a built-in.
   /// Malformed rows are skipped.
+  ///
+  /// `isHidden` defaults to visible and the backup version is deliberately
+  /// **not** bumped: the key is additive, and a pre-v33 archive — which cannot
+  /// describe a hidden category because none existed — restores everything
+  /// visible, which is exactly what it recorded. Same precedent as v19 / v20.
+  /// It is read by *type test* rather than a cast, so a junk value costs the
+  /// flag rather than the whole category row.
   Future<void> importData(List<dynamic> data) async {
     await _dao.deleteAll();
     for (final raw in data) {
@@ -226,6 +295,7 @@ class CategoryService {
               map['sortOrder'] is int ? map['sortOrder'] as int : 0,
             ),
             isBuiltIn: Value(map['isBuiltIn'] as bool? ?? false),
+            isHidden: Value(map['isHidden'] is bool && map['isHidden'] as bool),
             createdAt: Value(
               DateTime.fromMillisecondsSinceEpoch(createdMs, isUtc: true),
             ),
@@ -252,6 +322,7 @@ class CategoryService {
       iconKey: row.iconKey,
       sortOrder: row.sortOrder,
       isBuiltIn: row.isBuiltIn,
+      isHidden: row.isHidden,
     );
   }
 }

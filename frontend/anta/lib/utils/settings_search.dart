@@ -143,12 +143,27 @@ SettingsMatch? matchSettingsEntry(
 
 /// True when [query] matches any of [fields] — the shape used by list
 /// filters that render their own rows and need no spans.
-bool matchesSettingsQuery(SettingsQuery query, Iterable<String> fields) {
+///
+/// Pass [preFolded] when the caller hands over strings that have already been
+/// through [normalizeForSearch] — a static index built once rather than
+/// re-derived per keystroke, as `CalendarIcons.searchTextOf` is. It skips the
+/// fold rather than changing the grammar, so an indexed surface and an ad-hoc
+/// one cannot answer the same query differently. The claim is asserted in
+/// debug, in the register of [FoldedText]'s own drift assert.
+bool matchesSettingsQuery(
+  SettingsQuery query,
+  Iterable<String> fields, {
+  bool preFolded = false,
+}) {
   if (query.isEmpty) return true;
-  final folded = fields
-      .where((f) => f.isNotEmpty)
-      .map(normalizeForSearch)
-      .toList();
+  assert(
+    !preFolded || fields.every((f) => f == normalizeForSearch(f)),
+    'matchesSettingsQuery: preFolded fields must already be normalized',
+  );
+  final folded = [
+    for (final field in fields)
+      if (field.isNotEmpty) preFolded ? field : normalizeForSearch(field),
+  ];
   if (folded.isEmpty) return false;
   return query.tokens.every((t) => folded.any((f) => f.contains(t)));
 }
