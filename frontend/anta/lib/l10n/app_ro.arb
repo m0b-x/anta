@@ -94,6 +94,7 @@
   "deleteCategory": "Șterge categoria",
   "deleteCategoryConfirm": "Ștergi „{name}”? Evenimentele care o folosesc vor trece la „Altele”.",
   "categoryDeleted": "Categorie ștearsă",
+  "categorySaveFailed": "Categoria nu a putut fi salvată",
   "deleteCategoryConfirmWithEvents": "{count, plural, =1{Muți 1 eveniment la „Altele” și ștergi „{name}”?} few{Muți {count} evenimente la „Altele” și ștergi „{name}”?} other{Muți {count} de evenimente la „Altele” și ștergi „{name}”?}}",
   "deleteCategoryHideHint": "Ascunderea păstrează aceste evenimente în culoarea lor.",
   "categoryEventCount": "{count, plural, =0{Niciun eveniment} =1{1 eveniment} few{{count} evenimente} other{{count} de evenimente}}",

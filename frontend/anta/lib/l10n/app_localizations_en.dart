@@ -299,6 +299,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get categoryDeleted => 'Category deleted';
 
   @override
+  String get categorySaveFailed => 'Couldn\'t save the category';
+
+  @override
   String deleteCategoryConfirmWithEvents(int count, String name) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

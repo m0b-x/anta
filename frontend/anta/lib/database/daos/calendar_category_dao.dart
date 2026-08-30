@@ -18,14 +18,39 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
         .get();
   }
 
-  /// Insert-if-not-exists. Used to seed built-ins idempotently so user edits
-  /// to a built-in's color/icon are never clobbered on a later launch.
-  /// Returns true when the row was actually inserted.
-  Future<bool> insertIfMissing(CalendarCategoriesCompanion entry) async {
-    final inserted = await into(
-      calendarCategories,
-    ).insert(entry, mode: InsertMode.insertOrIgnore);
-    return inserted > 0;
+  /// Seeds the built-in catalog: insert-if-not-exists for every entry, so a
+  /// user's edits to a built-in's colour, icon, order or archive flag are
+  /// never clobbered on a later launch.
+  ///
+  /// One `batch` — which drift runs as a single transaction and a single
+  /// commit — rather than one awaited insert per seed. This runs on the first
+  /// `CategoryService.getInstance()` of a session and again after every backup
+  /// import, and `injection.dart` already records the nine-statement version
+  /// as part of why the calendar services left the pre-`runApp` path.
+  Future<void> seedMissing(List<CalendarCategoriesCompanion> entries) {
+    if (entries.isEmpty) return Future.value();
+    return batch((b) {
+      for (final entry in entries) {
+        b.insert(calendarCategories, entry, mode: InsertMode.insertOrIgnore);
+      }
+    });
+  }
+
+  /// Restores a backup's rows in one `batch` — the shape
+  /// `EventTemplateDao.importAll` established: parsed first, written once, so
+  /// a restore costs one commit rather than one per archived category, and a
+  /// row that fails to parse cannot leave the table half-written.
+  ///
+  /// `insertOrReplace` because `CategoryService.importData` wipes the table
+  /// first: an archive carrying the same id twice must cost the duplicate,
+  /// never the whole restore.
+  Future<void> importAll(List<CalendarCategoriesCompanion> entries) {
+    if (entries.isEmpty) return Future.value();
+    return batch((b) {
+      for (final entry in entries) {
+        b.insert(calendarCategories, entry, mode: InsertMode.insertOrReplace);
+      }
+    });
   }
 
   Future<void> insertCategory(CalendarCategoriesCompanion entry) {

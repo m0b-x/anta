@@ -62,7 +62,7 @@ immutable; mutation is done through `copyWith`.
 | `time`          | `EventTime?`               | Optional time-of-day annotation (start minute + optional duration). `null` = all-day.             |
 | `description`   | `String?`                  | **v12**. Free-form markdown, length capped by the `eventDescriptionLimit` setting (§6.6). `null`/empty = none. Stored verbatim. |
 | `noteId`        | `String?`                  | **v14**. Optional link to a workout note (`notes.id`). Folder resolved at navigation time.        |
-| `iconKey`       | `String?`                  | Key into `CalendarIcons.palette`. `null` = use category default.                                  |
+| `iconKey`       | `String?`                  | Key into the `CalendarIcons` catalog. `null` = use category default.                                  |
 | `allDay`        | `bool` (derived)           | Computed as `time == null`. The persisted `all_day` column mirrors this on write only.            |
 
 `CalendarEvent.occursOn(day)` is the central query. It:
@@ -176,9 +176,11 @@ to on return.
   can republish out of order even when both land. The page therefore does the
   optimistic `setState` and hands over its *current* full local order, never a
   second chain and never a delta. Two details that are load-bearing rather than
-  incidental: `updateCategory` leaves `sort_order` and `is_built_in` **absent**
-  (callers hold a model captured earlier, and order belongs to the drag — a
-  stale value undoes it and breaks the dense `0..N-1` ordering), and the chain's
+  incidental: `updateCategory` leaves `sort_order`, `is_built_in` and
+  `is_hidden` **absent** (callers hold a model captured earlier; order belongs
+  to the drag and the archive flag to `setHidden` — a stale value undoes the
+  drag and breaks the dense `0..N-1` ordering, or silently un-archives a
+  category the user just retired from the un-awaited menu write), and the chain's
   tail starts **null** rather than a completed `Future`, because a
   `Future.value()` built in a field initializer schedules its continuations on
   the zone it was born in and would deadlock every widget test that awaits a
@@ -275,9 +277,13 @@ CategoryPickerSheet.pickSingle(context, selectedId:)  → String?
 CategoryPickerSheet.pickMulti (context, selected:)    → Set<String>?
 ```
 
-Both render `visiblePlus(selection)` — a hidden category the selection already
-carries stays listed, subtitled *Hidden* so it does not read as an ordinary
-row — and both search through the shared `rankCategories`, above
+Both render `visiblePlus(initialSelection)` — a hidden category the selection
+already carries stays listed, subtitled *Hidden* so it does not read as an
+ordinary row. The kept set is the selection the sheet **opened with**, not the
+live one: keyed to the live set, un-ticking an archived row deleted it from the
+list in the very next build, so the user could not change their mind and the
+offered count could fall back under the search threshold mid-query. Both search
+through the shared `rankCategories`, above
 `AppConstants.listSearchThreshold` (12). There is **no autofocus**: the sheet's
 job is picking, and raising the keyboard on every open pushes the list up and
 costs a tap to dismiss. `heightFactor` is 0.85 now that a search field sits

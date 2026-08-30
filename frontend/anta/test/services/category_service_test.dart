@@ -250,6 +250,36 @@ void main() {
       expect(CalendarCategories.byId('rest')!.isHidden, isTrue);
     });
 
+    test('updateCategory ignores a stale isHidden on the model', () async {
+      await service.setHidden('gym', true);
+      // The shape the editor sheet produces: `widget.initial` was captured
+      // before the hide landed, and the sheet has no control for the flag, so
+      // all it can do is echo the value it read.
+      final stale = CalendarCategory(
+        id: 'gym',
+        name: 'Gym',
+        colorValue: 0xFF123456,
+        iconKey: 'fitness_center',
+        sortOrder: 0,
+        isBuiltIn: true,
+      );
+
+      await service.updateCategory(stale);
+
+      expect(CalendarCategories.byId('gym')!.colorValue, 0xFF123456);
+      expect(
+        CalendarCategories.byId('gym')!.isHidden,
+        isTrue,
+        reason:
+            'the archive flag belongs to setHidden; a colour edit saved over '
+            'a stale model must not silently un-archive the category',
+      );
+      expect(
+        CalendarCategories.visible.map((c) => c.id),
+        isNot(contains('gym')),
+      );
+    });
+
     test('updateCategory cannot flip isBuiltIn', () async {
       final builtIn = CalendarCategories.byId('gym')!;
       await service.updateCategory(

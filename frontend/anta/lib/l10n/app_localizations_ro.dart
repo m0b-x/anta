@@ -301,6 +301,9 @@ class AppLocalizationsRo extends AppLocalizations {
   String get categoryDeleted => 'Categorie ștearsă';
 
   @override
+  String get categorySaveFailed => 'Categoria nu a putut fi salvată';
+
+  @override
   String deleteCategoryConfirmWithEvents(int count, String name) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

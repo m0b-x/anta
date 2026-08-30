@@ -710,8 +710,51 @@ reasoning demand.
 | Wave 3b | `flutter gen-l10n`, `dart analyze lib`, `flutter test test/widgets/` then `flutter test` |
 | Wave 4 | `flutter gen-l10n`, `dart analyze lib`, `flutter test`, and a **release** build for the A3 spike (`flutter build apk --release --target-platform android-arm64` is enough — the spike needs `--tree-shake-icons`, not `build_release.bat`'s clean/obfuscate steps) |
 
-Last full run, 2026-08-29: `dart analyze lib` clean, `flutter test` **1476
-passed / 2 skipped**, release build exit 0.
+Last full run, 2026-08-30: `dart analyze lib` clean, `flutter test` **1480
+passed / 2 skipped**. Release build last verified 2026-08-29 (the A3 spike);
+nothing since has touched the letter mechanism.
+
+## Whole-system review, 2026-08-30
+
+A read of the finished subsystem rather than of any one wave's diff — the
+question being which invariants above are *enforced* rather than merely
+asserted, and what four passes over the same files left behind. Seven changes,
+all applied:
+
+- **`updateCategory` was still writing `is_hidden`** from a caller-captured
+  model. Invariant 13's argument applied to it verbatim and the flag is
+  `setHidden`'s alone; the shipped `updateCategory cannot flip isBuiltIn` test
+  was one line from proving it. Fixed, and invariant 13 now names all three
+  columns.
+- **`CategoryEditorSheet._onSave` had no failure path** — `_saving` gates Save,
+  so a throw left the button dead for the life of the sheet with the edit
+  unsaved and the error escaping as an unhandled async error. It now has the
+  sheet's counterpart to the page's `_guarded`, plus `categorySaveFailed` ×3.
+- **The seed and the restore were one awaited insert per row.** Both are
+  batches now (`CalendarCategoryDao.seedMissing` / `importAll`), which is the
+  shape `EventTemplateService` established and what invariant 9 above now says.
+  The restore also became atomic: a row that fails to parse can no longer leave
+  the table half-written.
+- **The picker's offered set was keyed to the *live* selection**, so un-ticking
+  an archived row deleted it from the list in the next build — un-recoverable
+  without dismissing the sheet. It is keyed to the opening selection now.
+- **The backup round-trip test never touched categories.** It is the one test
+  driving the real `BackupService` path, its own docstring says the wipe is
+  what makes it a round trip, and `calendar_categories` was neither wiped nor
+  asserted — so losing the `calendarCategories` key entirely would have left it
+  green. It now seeds an archived custom category, wipes the table and asserts
+  the whole row back.
+- **Invariant 6 was comment-only.** `test/widgets/calendar_categories_page_test`
+  now asserts the list's element finds no `Scrollable` above its own, which is
+  the shrink-wrap trap stated as an assertion instead of a warning.
+- `_duplicateOf` re-folded the whole catalog on every build (every keystroke,
+  every colour tap); memoized on `(term, revision, locale)`. The delete dialog
+  names its category through `labelOf` like every other surface. Two stale
+  references to a `CalendarIcons.palette` that no longer exists, corrected.
+
+One thing deliberately left: `CategoryService.reload()` has no caller in `lib/`
+or `test/`. It is kept because all seven calendar services expose it and the
+cloud-sync category phase will want it — not because anything reads it today.
 
 ## Invariants — do not break
 
@@ -733,8 +776,12 @@ passed / 2 skipped**, release build exit 0.
 8. Any surface holding a selection renders `visible` **plus its own selected
    ids**, through the one `visiblePlus` helper — never a per-surface
    re-derivation.
-9. Whole-page data comes from single statements — one `GROUP BY` for counts, one
-   batch for reorder. `query_count_test` is the guard.
+9. Whole-table work is one statement or one batch — one `GROUP BY` for counts,
+   one batch for reorder, one `seedMissing` batch for the built-in seed and one
+   `importAll` batch for a restore. `query_count_test` is the guard for the
+   first two; the other two are the `EventTemplateService` shape (parse first,
+   write once), and they are the paths that run on the calendar's first touch
+   of every session and on every backup restore.
 10. Ranked lists sort on `(band, sortOrder)` — `List.sort` is not stable in Dart.
 11. **No surface renders one chip per category over the full set.** A bounded
     summary (`Categories (3)`) plus a sub-sheet is the pattern; a `Wrap` over
@@ -747,9 +794,16 @@ passed / 2 skipped**, release build exit 0.
     a field initializer schedules its continuations on the zone it was born in,
     so a chain seeded during a widget test's `setUp` never advances under the
     `FakeAsync` the test body runs in, and the first write hangs forever.
-13. **`updateCategory` writes no `sort_order` and no `is_built_in`.** Callers
-    hand over a model captured earlier; order belongs to the drag, and a stale
-    value undoes it *and* breaks the dense `0..N-1` invariant.
+13. **`updateCategory` writes no `sort_order`, no `is_built_in` and no
+    `is_hidden`.** Callers hand over a model captured earlier; order belongs to
+    the drag, and a stale value undoes it *and* breaks the dense `0..N-1`
+    invariant. **The archive flag belongs to `setHidden`, by exactly the same
+    argument** (added 2026-08-30, one line from being proved by the existing
+    `updateCategory cannot flip isBuiltIn` test): the categories page fires its
+    hide un-awaited from a menu, so a save that started before that write
+    landed carries `isHidden: false` and silently un-archives the category. The
+    editor sheet has no control for the flag, so it can only ever echo a value
+    it read — never one it was told.
 14. **`IconGroupId` is exactly the groups `groups` declares** — a value with no
     entries is a heading the picker can never render. "Recently used" is a
     picker section with its own string, not a catalog group.

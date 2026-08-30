@@ -896,7 +896,11 @@ void main() {
         onFiltersChanged: (f) => captured = f,
       );
 
-      expect(find.byType(InputChip), findsOneWidget);
+      // Addressed by the summary chip's own delete tooltip, not by "the only
+      // InputChip on screen": `midYear` is a fixed past date, so the header's
+      // *anchor* chip (tooltip `upcomingResetAnchor`) is showing too from the
+      // day after this test was written onwards.
+      expect(removeFilter, findsOneWidget);
       expect(find.text('This year'), findsOneWidget);
 
       await tester.tap(removeFilter);

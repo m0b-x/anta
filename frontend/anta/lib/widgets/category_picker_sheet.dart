@@ -17,10 +17,11 @@ enum CategoryPickerMode { single, multi }
 /// `CalendarDatePickerSheet` established: [pickSingle] returns one id, and
 /// [pickMulti] edits a whole set in one pass.
 ///
-/// Rows come from `CalendarCategories.visiblePlus(selection)` — the archive
-/// flag hides a category from every choosing surface, but a selection that
-/// already carries a hidden id must still list it or the user cannot
-/// un-select what they can no longer see.
+/// Rows come from `CalendarCategories.visiblePlus(initialSelection)` — the
+/// archive flag hides a category from every choosing surface, but a selection
+/// that already carries a hidden id must still list it or the user cannot
+/// un-select what they can no longer see. The *opening* selection, not the
+/// live one, so a row cannot vanish the moment it is un-ticked.
 ///
 /// Search runs on the shared `rankCategories`, so this sheet and the
 /// management page can never answer the same query differently. There is
@@ -159,8 +160,18 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     // Read on every build so a database switch (which clears the facade)
-    // cannot leave a stale list here.
-    final categories = CalendarCategories.visiblePlus(_selected);
+    // cannot leave a stale list here, and so a category created from this
+    // sheet appears the moment the facade republishes.
+    //
+    // The kept set is the selection the sheet **opened with**, not the live
+    // one: an archived category is listed because the selection carries it,
+    // and de-selecting it mid-pass must not delete the row out from under the
+    // finger that just un-ticked it — leaving the user unable to change their
+    // mind, and shrinking the offered set (and with it the search field's
+    // threshold) mid-interaction. Invariant 8 is "visible plus its own
+    // selected ids"; for a sheet that edits a selection, those are the ids it
+    // was handed.
+    final categories = CalendarCategories.visiblePlus(widget.initialSelection);
     final rows = _isFiltering
         ? [
             for (final ranked in rankCategories(_query, categories, l10n))
@@ -168,10 +179,10 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
           ]
         : categories;
     // Short lists carry no search chrome; the threshold trips on its own as
-    // the set grows. `_isFiltering` holds the field open once it is in use —
-    // the offered set can shrink under the threshold while a query is live
-    // (an archived id leaves the list when it is de-selected here), and
-    // retracting the field would strand the list filtered.
+    // the set grows. `_isFiltering` holds the field open once it is in use,
+    // the same rule the management page follows: a list that is filtered with
+    // no field left to clear it is stranded, and the two searchable category
+    // surfaces must not disagree about when the field is there.
     final showSearch =
         _isFiltering || categories.length > AppConstants.listSearchThreshold;
     // `useSafeArea: true` on the modal route avoids the status bar but has

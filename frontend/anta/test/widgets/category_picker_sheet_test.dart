@@ -62,12 +62,14 @@ void main() {
     matching: find.text('Apply'),
   );
 
-  testWidgets('the search field survives the offered set shrinking', (
-    tester,
-  ) async {
+  testWidgets('un-ticking an archived row leaves it on screen', (tester) async {
     // 12 visible plus one archived-but-selected id: `visiblePlus` offers 13,
-    // one over the threshold, so the field is showing. De-selecting the
-    // archived row drops it back to 12 in the very next build.
+    // one over the threshold, so the search field is showing too.
+    //
+    // The offered set is keyed to the selection the sheet **opened with**, not
+    // the live one. Keyed to the live set, un-ticking the archived row deletes
+    // it from the list in the very next build — the user cannot change their
+    // mind, and the offered count drops back under the threshold mid-query.
     seed(13, hidden: {'c12'});
     await openSheet<Set<String>>(
       tester,
@@ -78,8 +80,28 @@ void main() {
     await tester.enterText(find.byType(TextField), 'cat1');
     await tester.pumpAndSettle();
 
+    Checkbox archivedBox() => tester.widget<Checkbox>(
+      find.descendant(
+        of: find.widgetWithText(ListTile, 'Cat12'),
+        matching: find.byType(Checkbox),
+      ),
+    );
+
+    expect(archivedBox().value, isTrue);
     await tester.tap(find.text('Cat12'));
     await tester.pumpAndSettle();
+
+    expect(
+      find.text('Cat12'),
+      findsOneWidget,
+      reason: 'the row it was just un-ticked from must still be there',
+    );
+    expect(archivedBox().value, isFalse);
+
+    // And re-tickable, which is the whole point of it staying.
+    await tester.tap(find.text('Cat12'));
+    await tester.pumpAndSettle();
+    expect(archivedBox().value, isTrue);
 
     expect(
       find.byType(TextField),

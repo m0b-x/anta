@@ -390,6 +390,10 @@
   "@categoryDeleted": {
     "description": "Snackbar shown after a custom category is deleted"
   },
+  "categorySaveFailed": "Couldn't save the category",
+  "@categorySaveFailed": {
+    "description": "Snackbar shown when saving a category from the editor sheet fails"
+  },
   "deleteCategoryConfirmWithEvents": "{count, plural, =1{Move 1 event to Other and delete \"{name}\"?} other{Move {count} events to Other and delete \"{name}\"?}}",
   "@deleteCategoryConfirmWithEvents": {
     "description": "Confirmation message when deleting a category that still has events",

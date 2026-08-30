@@ -206,7 +206,7 @@ class CalendarEvent extends Equatable {
   /// the note is viewed in code-editing or markdown-preview mode.
   final String? noteId;
 
-  /// Optional explicit icon override (a key into `CalendarIcons.palette`).
+  /// Optional explicit icon override (a key into the `CalendarIcons` catalog).
   /// When `null`, the icon falls back to the category default.
   final String? iconKey;
 

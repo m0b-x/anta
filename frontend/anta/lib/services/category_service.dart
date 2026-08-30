@@ -110,34 +110,36 @@ class CategoryService {
   Future<void> _seedBuiltIns() async {
     final now = DateTime.now();
     try {
-      await _db.transaction(() async {
-        for (var i = 0; i < CalendarCategories.builtInSeeds.length; i++) {
-          final seed = CalendarCategories.builtInSeeds[i];
-          // Insert-if-missing only: never rewrite an existing built-in's
-          // sort order. On a fresh install every built-in seeds at its
-          // catalog index. On an upgrade that inserts a built-in mid-catalog
-          // (e.g. `birthday` before `other`), the new row shares an index
-          // with the previously-last built-in; the deterministic
-          // `(sortOrder, id)` tie-break — applied identically by
-          // `CalendarCategoryDao.getAll` and `CalendarCategories._byOrder` —
-          // keeps `birthday` ahead of `other`, and customs (always seeded
-          // above every built-in index) stay after both. Rewriting orders
-          // here would instead collide a re-indexed built-in with existing
-          // customs, so we deliberately don't.
-          await _dao.insertIfMissing(
-            CalendarCategoriesCompanion(
-              id: Value(seed.id),
-              name: Value(CalendarCategories.builtInSeedName(seed.kind)),
-              colorValue: Value(seed.colorValue),
-              iconKey: Value(seed.iconKey),
-              sortOrder: Value(i),
-              isBuiltIn: const Value(true),
-              createdAt: Value(now),
-              updatedAt: Value(now),
+      // Insert-if-missing only: never rewrite an existing built-in's sort
+      // order. On a fresh install every built-in seeds at its catalog index.
+      // On an upgrade that inserts a built-in mid-catalog (e.g. `birthday`
+      // before `other`), the new row shares an index with the previously-last
+      // built-in; the deterministic `(sortOrder, id)` tie-break — applied
+      // identically by `CalendarCategoryDao.getAll` and
+      // `CalendarCategories._byOrder` — keeps `birthday` ahead of `other`,
+      // and customs (always seeded above every built-in index) stay after
+      // both. Rewriting orders here would instead collide a re-indexed
+      // built-in with existing customs, so we deliberately don't.
+      //
+      // One batch, not one awaited insert per seed: this runs on the calendar's
+      // first touch of every session and again after every backup import.
+      await _dao.seedMissing([
+        for (var i = 0; i < CalendarCategories.builtInSeeds.length; i++)
+          CalendarCategoriesCompanion(
+            id: Value(CalendarCategories.builtInSeeds[i].id),
+            name: Value(
+              CalendarCategories.builtInSeedName(
+                CalendarCategories.builtInSeeds[i].kind,
+              ),
             ),
-          );
-        }
-      });
+            colorValue: Value(CalendarCategories.builtInSeeds[i].colorValue),
+            iconKey: Value(CalendarCategories.builtInSeeds[i].iconKey),
+            sortOrder: Value(i),
+            isBuiltIn: const Value(true),
+            createdAt: Value(now),
+            updatedAt: Value(now),
+          ),
+      ]);
     } catch (e) {
       debugPrint('[CategoryService] Seed error: $e');
     }
@@ -237,14 +239,23 @@ class CategoryService {
   /// Persists edits to an existing category (color/icon for built-ins; also
   /// name for customs). `created_at` is preserved by the DAO.
   ///
-  /// **`sort_order` and `is_built_in` are deliberately left absent**, so this
-  /// path writes only what an editor can actually change. Callers hand over a
-  /// whole model captured at some earlier moment — the editor sheet's when it
-  /// opened, [setHidden]'s when the menu was tapped — and order is not theirs
-  /// to carry: a drag that lands between the capture and the save would be
-  /// undone by a stale `sortOrder` riding along, which also breaks the dense
-  /// `0..N-1` invariant `reorder` maintains and lets unrelated rows shuffle on
-  /// `_byOrder`'s id tie-break. `is_built_in` is immutable by definition.
+  /// **`sort_order`, `is_built_in` and `is_hidden` are deliberately left
+  /// absent**, so this path writes only what an editor can actually change.
+  /// Callers hand over a whole model captured at some earlier moment — the
+  /// editor sheet's when it opened — and the three fields it does not own are
+  /// not theirs to carry back:
+  ///
+  ///   * order belongs to the drag. A reorder landing between the capture and
+  ///     the save would be undone by a stale `sortOrder` riding along, which
+  ///     also breaks the dense `0..N-1` invariant `reorder` maintains and lets
+  ///     unrelated rows shuffle on `_byOrder`'s id tie-break.
+  ///   * the archive flag belongs to [setHidden], for exactly the same reason
+  ///     and by exactly the same route: the categories page fires its hide
+  ///     un-awaited from a menu, so a save that started before that write
+  ///     landed carries `isHidden: false` and silently un-archives a category
+  ///     the user just retired. The editor sheet has no control for the flag,
+  ///     so it can only ever echo a value it read — never one it was told.
+  ///   * `is_built_in` is immutable by definition.
   Future<void> updateCategory(CalendarCategory category) {
     return _serialize(() => _persistUpdate(category));
   }
@@ -256,7 +267,6 @@ class CategoryService {
         name: Value(category.name.trim()),
         colorValue: Value(category.colorValue),
         iconKey: Value(category.iconKey),
-        isHidden: Value(category.isHidden),
         updatedAt: Value(DateTime.now()),
       ),
     );
@@ -368,18 +378,24 @@ class CategoryService {
 
   Future<void> _persistImport(List<dynamic> data) async {
     await _dao.deleteAll();
+    // Parsed first, written once — the shape `EventTemplateService.importData`
+    // established. The per-row `try` still costs a malformed row and nothing
+    // else, but the write is one batched commit rather than one awaited insert
+    // per archived category, and a throw while parsing can no longer leave the
+    // table half-restored.
+    final companions = <CalendarCategoriesCompanion>[];
     for (final raw in data) {
       if (raw is! Map) continue;
       final map = raw.cast<String, dynamic>();
       try {
-        final id = map['id'] as String?;
-        final name = map['name'] as String?;
+        final id = map['id'];
+        final name = map['name'];
         final colorValue = map['colorValue'];
-        final iconKey = map['iconKey'] as String?;
-        if (id == null ||
-            name == null ||
+        final iconKey = map['iconKey'];
+        if (id is! String ||
+            name is! String ||
             colorValue is! int ||
-            iconKey == null) {
+            iconKey is! String) {
           continue;
         }
         final createdMs = map['createdAtMs'] is int
@@ -388,7 +404,7 @@ class CategoryService {
         final updatedMs = map['updatedAtMs'] is int
             ? map['updatedAtMs'] as int
             : createdMs;
-        await _dao.insertCategory(
+        companions.add(
           CalendarCategoriesCompanion(
             id: Value(id),
             name: Value(name),
@@ -397,7 +413,11 @@ class CategoryService {
             sortOrder: Value(
               map['sortOrder'] is int ? map['sortOrder'] as int : 0,
             ),
-            isBuiltIn: Value(map['isBuiltIn'] as bool? ?? false),
+            // Every flag is read by *type test* rather than a cast, so a junk
+            // value costs the flag and not the whole category row.
+            isBuiltIn: Value(
+              map['isBuiltIn'] is bool && map['isBuiltIn'] as bool,
+            ),
             isHidden: Value(map['isHidden'] is bool && map['isHidden'] as bool),
             createdAt: Value(
               DateTime.fromMillisecondsSinceEpoch(createdMs, isUtc: true),
@@ -411,6 +431,7 @@ class CategoryService {
         debugPrint('[CategoryService] Import row error: $e');
       }
     }
+    await _dao.importAll(companions);
     await _seedBuiltIns();
     await _load();
   }

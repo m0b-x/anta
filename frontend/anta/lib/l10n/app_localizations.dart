@@ -670,6 +670,12 @@ abstract class AppLocalizations {
   /// **'Category deleted'**
   String get categoryDeleted;
 
+  /// Snackbar shown when saving a category from the editor sheet fails
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t save the category'**
+  String get categorySaveFailed;
+
   /// Confirmation message when deleting a category that still has events
   ///
   /// In en, this message translates to:

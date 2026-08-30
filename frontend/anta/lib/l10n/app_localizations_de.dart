@@ -300,6 +300,9 @@ class AppLocalizationsDe extends AppLocalizations {
   String get categoryDeleted => 'Kategorie gelöscht';
 
   @override
+  String get categorySaveFailed => 'Kategorie konnte nicht gespeichert werden';
+
+  @override
   String deleteCategoryConfirmWithEvents(int count, String name) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

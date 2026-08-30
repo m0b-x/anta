@@ -159,13 +159,18 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   Future<void> _delete(CalendarCategory category) async {
     final l10n = AppLocalizations.of(context)!;
     final count = _counts[category.id] ?? 0;
+    // Named through `labelOf` like every other surface, not through the raw
+    // `name` column: only customs are deletable and the two agree for them,
+    // but a dialog that names a category differently from the row that opened
+    // it is one built-in away from reading in English.
+    final label = CalendarCategories.labelOf(category, l10n);
     // A nonzero count makes the consequence concrete — and earns the sentence
     // pointing at hiding, which keeps the events in their own colour instead
     // of repainting that whole history grey.
     final content = count > 0
-        ? '${l10n.deleteCategoryConfirmWithEvents(count, category.name)}'
+        ? '${l10n.deleteCategoryConfirmWithEvents(count, label)}'
               '\n\n${l10n.deleteCategoryHideHint}'
-        : l10n.deleteCategoryConfirm(category.name);
+        : l10n.deleteCategoryConfirm(label);
     final confirmed = await AppDialogs.confirm(
       context,
       title: l10n.deleteCategory,

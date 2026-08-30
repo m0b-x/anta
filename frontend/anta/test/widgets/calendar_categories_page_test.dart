@@ -215,6 +215,44 @@ void main() {
     expect(find.text('Cardio'), findsOneWidget);
   });
 
+  testWidgets('the reorderable list owns the nearest enclosing Scrollable', (
+    tester,
+  ) async {
+    await addCustoms(4);
+    await pumpPage(tester);
+
+    // Invariant 6, and until now only a comment.
+    // `SliverReorderableListState.didChangeDependencies` binds its
+    // `EdgeDraggingAutoScroller` to `Scrollable.of(context)` — the *nearest*
+    // one. Wrapping this page's list in an outer scroll view with
+    // `shrinkWrap: true` hands that lookup the list's own inner viewport,
+    // which then has no scroll extent, and dragging a row to the edge
+    // silently stops scrolling past the fold. Nothing about that failure is
+    // visible in a static tree or an analyzer run, so it is asserted here:
+    // the list's element must find no `Scrollable` above its own.
+    final listContext = tester.element(find.byType(ReorderableListView));
+    final own = Scrollable.of(
+      tester.element(
+        find.descendant(
+          of: find.byType(ReorderableListView),
+          matching: find.byType(Card).first,
+        ),
+      ),
+    );
+    expect(
+      Scrollable.maybeOf(listContext),
+      isNull,
+      reason:
+          'a Scrollable above the list is the shrink-wrap trap: edge '
+          'auto-scroll would bind to a viewport with no extent',
+    );
+    expect(
+      own.position.maxScrollExtent >= 0,
+      isTrue,
+      reason: 'the list must own a real scroll position to auto-scroll into',
+    );
+  });
+
   testWidgets('an icon keyword reaches a category its name does not', (
     tester,
   ) async {

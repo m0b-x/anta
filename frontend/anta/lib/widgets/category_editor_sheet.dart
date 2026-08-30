@@ -7,6 +7,7 @@ import '../l10n/app_localizations.dart';
 import '../models/calendar_category.dart';
 import '../services/category_service.dart';
 import '../services/folder_search_service.dart' show normalizeForSearch;
+import '../utils/custom_snackbar.dart';
 import 'icon_picker_sheet.dart';
 
 const int _defaultCategoryColor = 0xFFFB8C00;
@@ -38,10 +39,7 @@ class CategoryEditorSheet extends StatefulWidget {
       showDragHandle: true,
       builder: (_) => FractionallySizedBox(
         heightFactor: 0.85,
-        child: CategoryEditorSheet(
-          initial: initial,
-          initialName: initialName,
-        ),
+        child: CategoryEditorSheet(initial: initial, initialName: initialName),
       ),
     );
   }
@@ -55,6 +53,13 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   late int _colorValue;
   late String _iconKey;
   bool _saving = false;
+
+  /// Memo behind [_duplicateOf]: the folded term it last scanned for, the
+  /// catalog revision and locale it scanned under, and what it found.
+  String? _duplicateTerm;
+  int _duplicateRevision = -1;
+  String? _duplicateLocale;
+  CalendarCategory? _duplicate;
 
   bool get _isEditing => widget.initial != null;
   bool get _isBuiltIn => widget.initial?.isBuiltIn ?? false;
@@ -83,10 +88,28 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   /// to forty entries, and a hidden duplicate is usually where a user first
   /// learns hiding exists. It never blocks Save — a custom *Cardio* beside the
   /// built-in one may be exactly what someone wants.
+  ///
+  /// Memoized on the folded text and the catalog revision, because `build`
+  /// runs on every keystroke *and* on every colour tap and icon pick, and the
+  /// scan folds two strings per category over the whole set. The revision is
+  /// what keeps a category created from another sheet from going unnoticed.
   CalendarCategory? _duplicateOf(AppLocalizations l10n) {
     if (_isBuiltIn) return null;
     final typed = normalizeForSearch(_nameController.text.trim());
-    if (typed.isEmpty) return null;
+    final revision = CalendarCategories.revision;
+    if (typed == _duplicateTerm &&
+        revision == _duplicateRevision &&
+        l10n.localeName == _duplicateLocale) {
+      return _duplicate;
+    }
+    _duplicateTerm = typed;
+    _duplicateRevision = revision;
+    _duplicateLocale = l10n.localeName;
+    _duplicate = typed.isEmpty ? null : _scanForDuplicate(typed, l10n);
+    return _duplicate;
+  }
+
+  CalendarCategory? _scanForDuplicate(String typed, AppLocalizations l10n) {
     final selfId = widget.initial?.id;
     for (final category in CalendarCategories.all) {
       if (category.id == selfId) continue;
@@ -116,29 +139,46 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
     setState(() => _iconKey = picked);
   }
 
+  /// Persists and pops with the saved category.
+  ///
+  /// The failure path is the point of the `try`: `_saving` gates Save, so a
+  /// throw that escaped here would leave the button disabled for the life of
+  /// the sheet with nothing said and the edit unsaved — and the error would
+  /// surface as an unhandled async error rather than as anything the user can
+  /// act on. Everything else in this subsystem that fires a write from a
+  /// callback goes through the categories page's `_guarded`; this is that
+  /// wrapper's counterpart for the one write the sheet owns.
   Future<void> _onSave() async {
     if (!_canSave) return;
     setState(() => _saving = true);
-    final service = await CategoryService.getInstance();
-    CalendarCategory saved;
-    final initial = widget.initial;
-    if (initial == null) {
-      saved = await service.create(
-        name: _nameController.text.trim(),
-        colorValue: _colorValue,
-        iconKey: _iconKey,
-      );
-    } else {
-      final updated = initial.copyWith(
-        name: _isBuiltIn ? initial.name : _nameController.text.trim(),
-        colorValue: _colorValue,
-        iconKey: _iconKey,
-      );
-      await service.updateCategory(updated);
-      saved = updated;
+    final l10n = AppLocalizations.of(context)!;
+    try {
+      final service = await CategoryService.getInstance();
+      CalendarCategory saved;
+      final initial = widget.initial;
+      if (initial == null) {
+        saved = await service.create(
+          name: _nameController.text.trim(),
+          colorValue: _colorValue,
+          iconKey: _iconKey,
+        );
+      } else {
+        final updated = initial.copyWith(
+          name: _isBuiltIn ? initial.name : _nameController.text.trim(),
+          colorValue: _colorValue,
+          iconKey: _iconKey,
+        );
+        await service.updateCategory(updated);
+        saved = updated;
+      }
+      if (!mounted) return;
+      Navigator.of(context).pop(saved);
+    } catch (e) {
+      debugPrint('[CategoryEditorSheet] Save failed: $e');
+      if (!mounted) return;
+      setState(() => _saving = false);
+      CustomSnackbar.showError(context, l10n.categorySaveFailed);
     }
-    if (!mounted) return;
-    Navigator.of(context).pop(saved);
   }
 
   @override

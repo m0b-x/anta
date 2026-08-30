@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/event_presence.dart';
 import 'package:anta/constants/event_skips.dart';
 import 'package:anta/constants/occurrence_descriptions.dart';
@@ -83,6 +84,15 @@ void main() {
     await db.folderDao.createFolder(name: 'Errands');
     final categories = await CategoryService.getInstance();
     final categoryId = categories.categories.first.id;
+    // A custom category carrying every field the archive has to preserve, and
+    // archived on top of it — `is_hidden` is the newest column here (v33) and
+    // the one nothing but this path exercises end to end.
+    final archived = await categories.create(
+      name: 'Retired',
+      colorValue: 0xFF123456,
+      iconKey: 'savings',
+    );
+    await categories.setHidden(archived.id, true);
 
     final missedDay = DateTime.utc(2026, 8, 3);
     final skippedDay = DateTime.utc(2026, 8, 10);
@@ -142,6 +152,7 @@ void main() {
     await db.eventSkipDao.deleteAll();
     await db.eventTemplateDao.deleteAll();
     await db.publicHolidayDao.deleteAll();
+    await db.calendarCategoryDao.deleteAll();
     DatabaseLifecycle.notifyDatabaseSwitching();
 
     expect(
@@ -167,6 +178,39 @@ void main() {
           'A false here with no thrown exception means one of the migrated '
           'getInstance() calls failed and was swallowed. error: '
           '${result.error}',
+    );
+
+    // Categories import *before* events, and a restore that lost one would
+    // leave every event on it falling through to `other` — grey, permanently,
+    // with nothing to say it happened. `is_hidden` rides the same key with no
+    // backup version bump, so this is the only end-to-end proof it survives.
+    final restoredCategories = await CategoryService.getInstance();
+    final restoredArchived = restoredCategories.categories
+        .where((c) => c.id == archived.id)
+        .toList();
+    expect(
+      restoredArchived,
+      hasLength(1),
+      reason: 'the custom category must come back from the archive, by id',
+    );
+    expect(restoredArchived.single.name, 'Retired');
+    expect(restoredArchived.single.colorValue, 0xFF123456);
+    expect(restoredArchived.single.iconKey, 'savings');
+    expect(restoredArchived.single.sortOrder, archived.sortOrder);
+    expect(
+      restoredArchived.single.isHidden,
+      isTrue,
+      reason: 'an archived category restores archived, not visible',
+    );
+    expect(
+      CalendarCategories.visible.map((c) => c.id),
+      isNot(contains(archived.id)),
+      reason: 'the facade must be republished from the restored rows',
+    );
+    expect(
+      CalendarCategories.byId(categoryId),
+      isNotNull,
+      reason: 'the built-in the restored event points at must resolve',
     );
 
     final restoredEvents = await CalendarEventService.getInstance();
