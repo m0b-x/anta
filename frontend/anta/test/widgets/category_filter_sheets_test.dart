@@ -237,6 +237,130 @@ void main() {
       expect(find.byType(CategoryFilterTile), findsNothing);
     });
 
+    /// An empty allowlist means "all", and the reset that clears it would then
+    /// be a no-op — so it is offered only once there is something to clear.
+    /// Its label is a **verb**: worded as the state it produces it was byte-
+    /// identical to `categoriesAllSelected`, the tile's own "nothing filtered"
+    /// line, so the same words sat twice in 100dp meaning two different things.
+    testWidgets('the clear button appears only with a selection', (
+      tester,
+    ) async {
+      seed(15);
+      UpcomingAgendaFilters? applied;
+      await pumpHost(tester, (context) async {
+        applied = await AgendaFiltersSheet.show(
+          context,
+          filters: const UpcomingAgendaFilters(categoryIds: {'c1', 'c4'}),
+        );
+      });
+
+      await scrollToCategories(tester);
+      expect(find.text('Cat1, Cat4'), findsOneWidget);
+
+      await tester.tap(find.text('Show all categories'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('All categories'), findsOneWidget);
+      expect(find.text('Show all categories'), findsNothing);
+
+      await tester.tap(find.text('Apply'));
+      await tester.pumpAndSettle();
+
+      expect(applied?.categoryIds, isEmpty);
+    });
+
+    /// Fifty rows open already checked, because an empty allowlist means
+    /// "all" — so narrowing to two costs forty-eight taps without these.
+    testWidgets('Select none clears every listed row in one tap', (
+      tester,
+    ) async {
+      seed(15);
+      UpcomingAgendaFilters? applied;
+      await pumpHost(tester, (context) async {
+        applied = await AgendaFiltersSheet.show(
+          context,
+          filters: const UpcomingAgendaFilters(),
+        );
+      });
+
+      await scrollToCategories(tester);
+      await tester.tap(find.byType(CategoryFilterTile));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Select none'));
+      await tester.pumpAndSettle();
+      await tester.tap(pickerRow('Cat3'));
+      await tester.pumpAndSettle();
+      await tester.tap(pickerApply());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Apply'));
+      await tester.pumpAndSettle();
+
+      expect(applied?.categoryIds, {'c3'});
+    });
+
+    /// Enabled tint on a no-op promises a change that costs a tap to discover
+    /// is not there — and an empty allowlist opens every row checked, so the
+    /// picker's very first state is the one where Select all does nothing.
+    testWidgets('each bulk button is disabled where it would do nothing', (
+      tester,
+    ) async {
+      seed(15);
+      await pumpHost(
+        tester,
+        (context) => AgendaFiltersSheet.show(
+          context,
+          filters: const UpcomingAgendaFilters(),
+        ),
+      );
+
+      await scrollToCategories(tester);
+      await tester.tap(find.byType(CategoryFilterTile));
+      await tester.pumpAndSettle();
+
+      TextButton buttonWith(String label) => tester.widget<TextButton>(
+        find.ancestor(of: find.text(label), matching: find.byType(TextButton)),
+      );
+
+      expect(buttonWith('Select all').onPressed, isNull);
+      expect(buttonWith('Select none').onPressed, isNotNull);
+
+      await tester.tap(find.text('Select none'));
+      await tester.pumpAndSettle();
+
+      expect(buttonWith('Select all').onPressed, isNotNull);
+      expect(buttonWith('Select none').onPressed, isNull);
+      // The row also names how much is selected; fifty identical ticked
+      // checkboxes say nothing on their own.
+      expect(pickerRow('No categories'), findsOneWidget);
+    });
+
+    testWidgets('Select all re-checks every listed row', (tester) async {
+      seed(15);
+      UpcomingAgendaFilters? applied;
+      await pumpHost(tester, (context) async {
+        applied = await AgendaFiltersSheet.show(
+          context,
+          filters: const UpcomingAgendaFilters(categoryIds: {'c1'}),
+        );
+      });
+
+      await scrollToCategories(tester);
+      await tester.tap(find.byType(CategoryFilterTile));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Select all'));
+      await tester.pumpAndSettle();
+      await tester.tap(pickerApply());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Apply'));
+      await tester.pumpAndSettle();
+
+      // Covering everything on offer collapses back to the empty set rather
+      // than freezing today's catalog into a list.
+      expect(applied?.categoryIds, isEmpty);
+    });
+
     testWidgets('an empty allowlist opens the picker with every row checked', (
       tester,
     ) async {
@@ -324,6 +448,10 @@ void main() {
       await scrollToCategories(tester);
       // A non-empty allowlist seeds itself, so this adds rather than removes.
       await tester.tap(find.byType(CategoryFilterTile));
+      await tester.pumpAndSettle();
+      // The Select all / none row costs the list a row of height, so the
+      // fifth entry can sit under the pinned footer on a small surface.
+      await tester.ensureVisible(pickerRow('Cat4'));
       await tester.pumpAndSettle();
       await tester.tap(pickerRow('Cat4'));
       await tester.pumpAndSettle();

@@ -313,10 +313,24 @@ Above the same threshold both
 [`agenda_filters_sheet.dart`](../lib/widgets/agenda_filters_sheet.dart) and
 [`calendar_filter_sheet.dart`](../lib/widgets/calendar_filter_sheet.dart) swap
 their per-category `FilterChip` `Wrap` for one shared `CategoryFilterTile`
-(leading `category_rounded`, title *Categories*, subtitle *All categories* or
-the first names plus *+N more*, trailing chevron) that opens the sub-sheet.
-Below it they keep today's chips — short sets are genuinely better as chips,
-one tap and no navigation, and a user on the nine built-ins sees zero change.
+(leading an overlapping cluster of up to three category colour discs, title
+*All categories* or the first names plus *+N more*, trailing chevron) that
+opens the sub-sheet. Below it they keep today's chips — short sets are
+genuinely better as chips, one tap and no navigation, and a user on the nine
+built-ins sees zero change.
+
+Two things about that row are deliberate, both from a 2026-08-30 pass over
+device screenshots. **It does not repeat the section label above it**: the
+callers already head the section (*Categories* / *Event categories*), and a
+card titled the same thing 35dp below was the one place in either sheet that
+named itself twice — it read as a rendering bug. The label says what the
+section is; the row's title line says what it is *set to*, and there is no
+subtitle. And the **leading is a colour cluster, not `category_rounded`**:
+every other category surface in the app identifies a category by a coloured
+disc, so a lone monochrome glyph made this the one row that looked like
+generic settings furniture. The cluster draws from the selection, or from the
+whole offered set when `selectsAll` holds (they are all selected, so it is
+honest), falling back to the glyph only when nothing is selected at all.
 **No surface re-adds a chip row for the selection beneath the tile**: twenty
 allowlisted categories would rebuild the exact wall the tile removes, the
 subtitle already names them, and the agenda panel's removable
@@ -336,6 +350,26 @@ denial: `_hidden` never empties, the toggle never flips back, and the button
 becomes a permanent no-op. (The union is in fact unreachable through the button
 — Clear all only appears once `_hidden` is empty — but it is the correct
 defensive shape and costs nothing.)
+
+**Bulk selection in the picker (2026-08-30).** Multi mode carries a row under
+the search field: `categoriesNSelected` over the whole selection on the left,
+**Select all / Select none** on the right, each operating on the *listed* rows
+— the filtered set while a query is live, since bulk-editing rows the search
+has hidden would change what the user cannot see. Without it, narrowing fifty
+categories to two costs forty-eight taps: the allowlist inversion opens every
+row already checked, so the picker's very first state is a column of identical
+ticked boxes with no count and no way out but one tap per row. Each button is
+**disabled where it would be a no-op** (which is exactly Select all in that
+opening state), or the enabled tint promises a change that costs a tap to
+discover is absent. The agenda's own reset under the tile is worded as a
+**verb** — `upcomingClearCategories` is *Show all categories*, not *All
+categories*, which was byte-identical to `categoriesAllSelected`, the line the
+tile shows when nothing is filtered; the same words sat twice within 100dp
+meaning both "your current state" and "tap to return to that state".
+
+Every one of these sheets also carries a `Divider` above its pinned footer.
+Content previously bled under the button with no edge, divider or fade, so the
+last row was simply sliced and nothing said the list continued.
 
 **Each caller owns both halves of its own inversion.** The agenda's allowlist
 seeds the sub-sheet with every offered id when `categoryIds` is empty (empty

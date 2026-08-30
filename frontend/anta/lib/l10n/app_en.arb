@@ -470,6 +470,14 @@
       "count": { "type": "int", "example": "3" }
     }
   },
+  "categoriesSelectAll": "Select all",
+  "@categoriesSelectAll": {
+    "description": "Button in the category picker sheet that checks every listed row"
+  },
+  "categoriesSelectNone": "Select none",
+  "@categoriesSelectNone": {
+    "description": "Button in the category picker sheet that unchecks every listed row"
+  },
   "sortCategoriesAlphabetically": "Sort A–Z",
   "@sortCategoriesAlphabetically": {
     "description": "Overflow menu action sorting categories alphabetically"
@@ -4585,7 +4593,7 @@
   "@upcomingClearRange": {
     "description": "Tooltip of the delete button on the Custom period chip that clears the custom date range in the upcoming agenda"
   },
-  "upcomingClearCategories": "All categories",
+  "upcomingClearCategories": "Show all categories",
   "@upcomingClearCategories": {
     "description": "Reset action/tooltip for the agenda category filter — clears the allowlist so every category shows"
   },

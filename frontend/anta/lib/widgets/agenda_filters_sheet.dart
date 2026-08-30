@@ -276,8 +276,11 @@ class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
               ),
             ),
           ),
+          // The body scrolls under a pinned footer; without an edge the last
+          // row bleeds into the button with nothing to say the list continues.
+          const Divider(height: 1),
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
             child: FilledButton(
               onPressed: () => Navigator.of(context).pop(_draft),
               child: Text(l10n.apply),
@@ -484,6 +487,7 @@ class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
         // it collapses to one row plus a sub-sheet.
         if (categories.length > AppConstants.listSearchThreshold)
           CategoryFilterTile(
+            offered: categories,
             selected: selectedCategories,
             selectsAll:
                 _draft.categoryIds.isEmpty ||

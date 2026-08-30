@@ -263,6 +263,7 @@ void main() {
           locale: const Locale('en'),
           home: Scaffold(
             body: CategoryFilterTile(
+              offered: CalendarCategories.visible,
               selected: selected,
               selectsAll: selectsAll,
               onTap: () {},

@@ -125,6 +125,27 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
     _onQueryChanged('');
   }
 
+  /// Selects or clears every row **currently listed**, which is the filtered
+  /// set while a query is live. Bulk-editing rows the search has hidden would
+  /// change what the user cannot see; bulk-editing what is on screen is the
+  /// only reading the buttons can honestly carry.
+  ///
+  /// Multi mode only — there is nothing to select all *of* when the answer is
+  /// one category. Without these, narrowing fifty categories down to two
+  /// costs forty-eight taps, because the allowlist inversion opens every row
+  /// already checked.
+  void _setAll(List<CalendarCategory> rows, bool selected) {
+    setState(() {
+      for (final category in rows) {
+        if (selected) {
+          _selected.add(category.id);
+        } else {
+          _selected.remove(category.id);
+        }
+      }
+    });
+  }
+
   void _onTapCategory(CalendarCategory category) {
     if (!_isMulti) {
       Navigator.of(context).pop({category.id});
@@ -229,6 +250,40 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
               onChanged: _onQueryChanged,
             ),
           ),
+        if (_isMulti && rows.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 12, 4),
+            child: Row(
+              children: [
+                // Fifty identical ticked checkboxes say nothing about how much
+                // is selected, and this row was empty on its left half. The
+                // count is of the whole selection, not of the listed rows —
+                // it is what Apply will return.
+                Expanded(
+                  child: Text(
+                    l10n.categoriesNSelected(_selected.length),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+                // Disabled where they would be no-ops, or the enabled tint
+                // promises a change that costs a tap to discover is absent.
+                TextButton(
+                  onPressed: rows.every((c) => _selected.contains(c.id))
+                      ? null
+                      : () => _setAll(rows, true),
+                  child: Text(l10n.categoriesSelectAll),
+                ),
+                TextButton(
+                  onPressed: rows.every((c) => !_selected.contains(c.id))
+                      ? null
+                      : () => _setAll(rows, false),
+                  child: Text(l10n.categoriesSelectNone),
+                ),
+              ],
+            ),
+          ),
         Expanded(
           child: rows.isEmpty
               ? _buildEmptyState(context)
@@ -251,15 +306,19 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
                   },
                 ),
         ),
-        if (_isMulti)
+        if (_isMulti) ...[
+          // Fifty rows scroll under a pinned footer; without an edge the last
+          // one is sliced by the button with nothing to say the list goes on.
+          const Divider(height: 1),
           Padding(
-            padding: EdgeInsets.fromLTRB(20, 4, 20, 16 + bottomClearance),
+            padding: EdgeInsets.fromLTRB(20, 8, 20, 16 + bottomClearance),
             child: FilledButton(
               // Pops the set as-is, empty included — see [pickMulti].
               onPressed: () => Navigator.of(context).pop({..._selected}),
               child: Text(l10n.apply),
             ),
           ),
+        ],
       ],
     );
   }
@@ -306,8 +365,8 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
   }
 }
 
-/// The bounded stand-in for a per-category chip `Wrap`, shared by the two
-/// filter sheets so they cannot describe a selection differently.
+/// The stand-in for a per-category chip `Wrap`, shared by the two filter
+/// sheets so they cannot describe a selection differently.
 ///
 /// One row naming what is included — *All categories*, or the first names
 /// plus *+N more* — opening [CategoryPickerSheet.pickMulti]. It is the
@@ -315,7 +374,19 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
 /// wall of chips over the whole set is what breaks at forty categories, and
 /// re-adding a chip row for the *selection* beneath this tile would rebuild
 /// exactly the wall it removes.
+///
+/// **The row does not repeat the section label above it.** Both callers head
+/// the section with one (*Categories* / *Event categories*), and a card
+/// titled the same thing 35dp below reads as a rendering bug — it was the
+/// only section in either sheet that named itself twice. So the *state* is
+/// the title line here, and there is no subtitle: the label says what the
+/// section is, the row says what it is set to.
 class CategoryFilterTile extends StatelessWidget {
+  /// Every category the filter is choosing among, in display order — the
+  /// denominator [selectsAll] is measured against, and the avatars shown when
+  /// it holds.
+  final List<CalendarCategory> offered;
+
   /// The included categories, in display order. Empty means the filter
   /// currently excludes every one of them.
   final List<CalendarCategory> selected;
@@ -326,12 +397,13 @@ class CategoryFilterTile extends StatelessWidget {
 
   final VoidCallback onTap;
 
-  /// How many names the subtitle spells out before folding the rest into
+  /// How many names the label spells out before folding the rest into
   /// *+N more*. Two keeps it to one line at typical name lengths.
   static const int namedLimit = 2;
 
   const CategoryFilterTile({
     super.key,
+    required this.offered,
     required this.selected,
     required this.selectsAll,
     required this.onTap,
@@ -340,13 +412,24 @@ class CategoryFilterTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    // Everything included means every offered category is what the avatars
+    // stand for; an explicit subset shows its own. Both are honest, and both
+    // keep the row in the colour-coded language every other category surface
+    // speaks — a lone monochrome glyph made this the one place categories
+    // looked like generic settings furniture.
+    final shown = selectsAll ? offered : selected;
 
     return Card(
       margin: EdgeInsets.zero,
       child: ListTile(
-        leading: const Icon(Icons.category_rounded),
-        title: Text(l10n.calendarCategories),
-        subtitle: Text(_subtitle(l10n), maxLines: 2),
+        leading: shown.isEmpty
+            ? const Icon(Icons.category_rounded)
+            : _CategoryAvatarCluster(categories: shown),
+        title: Text(
+          _subtitle(l10n),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
         trailing: const Icon(Icons.chevron_right_rounded),
         onTap: onTap,
       ),
@@ -365,6 +448,59 @@ class CategoryFilterTile extends StatelessWidget {
       names.join(', '),
       if (rest > 0) l10n.categoriesMore(rest),
     ].join(' ');
+  }
+}
+
+/// The first few categories of a selection as overlapping colour discs.
+///
+/// Painted back-to-front so the leading category sits on top, and ringed in
+/// the surface colour so two adjacent discs of similar hue still read as two.
+class _CategoryAvatarCluster extends StatelessWidget {
+  final List<CalendarCategory> categories;
+
+  static const int maxShown = 3;
+  static const double _diameter = 24;
+  static const double _step = 13;
+
+  const _CategoryAvatarCluster({required this.categories});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final shown = categories.take(maxShown).toList();
+
+    return SizedBox(
+      width: _diameter + _step * (shown.length - 1),
+      height: 40,
+      child: Stack(
+        alignment: AlignmentDirectional.centerStart,
+        children: [
+          for (var i = shown.length - 1; i >= 0; i--)
+            PositionedDirectional(
+              start: i * _step,
+              child: Container(
+                width: _diameter,
+                height: _diameter,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Color.alphaBlend(
+                    shown[i].color.withValues(alpha: 0.18),
+                    theme.colorScheme.surfaceContainerLow,
+                  ),
+                  border: Border.all(color: theme.colorScheme.surface,
+                      width: 1.5),
+                ),
+                child: Icon(
+                  CalendarIcons.forKey(shown[i].iconKey) ??
+                      Icons.event_rounded,
+                  size: 14,
+                  color: shown[i].color,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }
 

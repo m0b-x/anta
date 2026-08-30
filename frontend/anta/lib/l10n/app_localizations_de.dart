@@ -375,6 +375,12 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String get categoriesSelectAll => 'Alle auswählen';
+
+  @override
+  String get categoriesSelectNone => 'Keine auswählen';
+
+  @override
   String get sortCategoriesAlphabetically => 'A–Z sortieren';
 
   @override
@@ -3628,7 +3634,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get upcomingClearRange => 'Eigenen Zeitraum löschen';
 
   @override
-  String get upcomingClearCategories => 'Alle Kategorien';
+  String get upcomingClearCategories => 'Alle Kategorien anzeigen';
 
   @override
   String get upcomingEventDisplayTitle => 'Termin-Zeilen';

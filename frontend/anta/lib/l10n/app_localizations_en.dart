@@ -373,6 +373,12 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get categoriesSelectAll => 'Select all';
+
+  @override
+  String get categoriesSelectNone => 'Select none';
+
+  @override
   String get sortCategoriesAlphabetically => 'Sort A–Z';
 
   @override
@@ -3600,7 +3606,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get upcomingClearRange => 'Clear custom range';
 
   @override
-  String get upcomingClearCategories => 'All categories';
+  String get upcomingClearCategories => 'Show all categories';
 
   @override
   String get upcomingEventDisplayTitle => 'Event rows';

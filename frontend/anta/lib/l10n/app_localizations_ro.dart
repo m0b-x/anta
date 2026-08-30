@@ -378,6 +378,12 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
+  String get categoriesSelectAll => 'Selectează tot';
+
+  @override
+  String get categoriesSelectNone => 'Deselectează tot';
+
+  @override
   String get sortCategoriesAlphabetically => 'Sortează A–Z';
 
   @override
@@ -3655,7 +3661,7 @@ class AppLocalizationsRo extends AppLocalizations {
   String get upcomingClearRange => 'Șterge intervalul personalizat';
 
   @override
-  String get upcomingClearCategories => 'Toate categoriile';
+  String get upcomingClearCategories => 'Arată toate categoriile';
 
   @override
   String get upcomingEventDisplayTitle => 'Rânduri de evenimente';

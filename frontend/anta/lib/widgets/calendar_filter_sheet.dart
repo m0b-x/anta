@@ -222,6 +222,7 @@ class _CalendarFilterSheetState extends State<CalendarFilterSheet> {
                 // never needs the sub-sheet.
                 if (categories.length > AppConstants.listSearchThreshold)
                   CategoryFilterTile(
+                    offered: categories,
                     selected: shown,
                     selectsAll: shown.length == categories.length,
                     onTap: () => _pickCategories(categories),
@@ -251,8 +252,11 @@ class _CalendarFilterSheetState extends State<CalendarFilterSheet> {
               ],
             ),
           ),
+          // The list scrolls under a pinned footer; without an edge the last
+          // row bleeds into the buttons with nothing to say it continues.
+          const Divider(height: 1),
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
             child: Row(
               children: [
                 Expanded(

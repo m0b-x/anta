@@ -748,6 +748,18 @@ abstract class AppLocalizations {
   /// **'+{count} more'**
   String categoriesMore(int count);
 
+  /// Button in the category picker sheet that checks every listed row
+  ///
+  /// In en, this message translates to:
+  /// **'Select all'**
+  String get categoriesSelectAll;
+
+  /// Button in the category picker sheet that unchecks every listed row
+  ///
+  /// In en, this message translates to:
+  /// **'Select none'**
+  String get categoriesSelectNone;
+
   /// Overflow menu action sorting categories alphabetically
   ///
   /// In en, this message translates to:
@@ -6367,7 +6379,7 @@ abstract class AppLocalizations {
   /// Reset action/tooltip for the agenda category filter — clears the allowlist so every category shows
   ///
   /// In en, this message translates to:
-  /// **'All categories'**
+  /// **'Show all categories'**
   String get upcomingClearCategories;
 
   /// Agenda display control label: how events are listed
