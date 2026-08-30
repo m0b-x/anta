@@ -16,6 +16,7 @@ import '../constants/calendar_bounds.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_colors.dart';
 import '../constants/calendar_templates.dart';
+import '../constants/calendar_weekend.dart';
 import '../constants/event_skips.dart';
 import '../constants/fasting_calendar.dart';
 import '../constants/public_holidays.dart';
@@ -1165,8 +1166,7 @@ class _CalendarTable extends StatelessWidget {
       isToday: isSameDay(day, now),
       isSelected: isSameDay(day, state.selectedDay),
       isOutside: isOutside,
-      isWeekend:
-          day.weekday == DateTime.saturday || day.weekday == DateTime.sunday,
+      isWeekend: CalendarWeekend.isWeekend(day),
       todayStyle: appearance.todayStyle,
       highlightWeekends: appearance.highlightWeekends,
       accent: accent,
@@ -1202,6 +1202,7 @@ class _CalendarTable extends StatelessWidget {
       formatAnimationDuration: const Duration(milliseconds: 1),
       eventLoader: calendarBloc.eventsForDay,
       startingDayOfWeek: _startingDayOfWeek,
+      weekendDays: CalendarWeekend.days,
       weekNumbersVisible: appearance.showWeekNumbers,
       rowHeight: _rowHeight,
       daysOfWeekHeight: 24,

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_colors.dart';
+import '../constants/calendar_weekend.dart';
 import '../constants/event_presence.dart';
 import '../constants/fasting_calendar.dart';
 import '../constants/occurrence_descriptions.dart';
@@ -40,9 +41,7 @@ class WeekendSummaryProvider implements DaySummaryProvider {
     DateTime day,
     List<CalendarEvent> events,
   ) {
-    if (day.weekday != DateTime.saturday && day.weekday != DateTime.sunday) {
-      return const [];
-    }
+    if (!CalendarWeekend.isWeekend(day)) return const [];
     return [
       DaySummaryEntry(
         key: 'weekend',

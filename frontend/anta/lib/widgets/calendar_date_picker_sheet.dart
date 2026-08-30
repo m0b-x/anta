@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 
+import '../constants/calendar_weekend.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import 'calendar_day_bars.dart';
@@ -306,13 +307,13 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
                   selectedDayPredicate: _isSelected,
                   calendarFormat: CalendarFormat.month,
                   startingDayOfWeek: _startingDayOfWeek,
+                  weekendDays: CalendarWeekend.days,
                   weekNumbersVisible: _appearance.showWeekNumbers,
                   rowHeight: _rowHeight,
                   daysOfWeekHeight: 24,
                   locale: l10n.localeName,
                   availableGestures: AvailableGestures.horizontalSwipe,
                   headerStyle: HeaderStyle(
-                    titleCentered: true,
                     formatButtonVisible: false,
                     leftChevronIcon: Icon(
                       Icons.chevron_left_rounded,
@@ -430,8 +431,7 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
       isToday: isSameDay(day, now),
       isSelected: _isSelected(day),
       isOutside: isOutside,
-      isWeekend:
-          day.weekday == DateTime.saturday || day.weekday == DateTime.sunday,
+      isWeekend: CalendarWeekend.isWeekend(day),
       todayStyle: _appearance.todayStyle,
       highlightWeekends: _appearance.highlightWeekends,
       accent: accent,
