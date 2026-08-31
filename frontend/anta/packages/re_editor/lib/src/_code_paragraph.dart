@@ -491,8 +491,9 @@ class _CodeParagraphProvider {
       String? keptText;
       if (text != null) {
         final int remainingLength = maxLength - currentLength;
-        keptText =
-            text.length > remainingLength ? text.substring(0, remainingLength) : text;
+        keptText = text.length > remainingLength
+            ? text.substring(0, remainingLength)
+            : text;
         currentLength += keptText.length;
       }
       List<InlineSpan>? children;

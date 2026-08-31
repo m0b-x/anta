@@ -97,9 +97,8 @@ class _CodeSelectionGestureDetectorState
     if (tapped == null) {
       return false;
     }
-    final double slop = kind == PointerDeviceKind.mouse
-        ? kPrecisePointerHitSlop
-        : kTouchSlop;
+    final double slop =
+        kind == PointerDeviceKind.mouse ? kPrecisePointerHitSlop : kTouchSlop;
     if (downOffset != null && (position - downOffset).distance > slop) {
       return true;
     }

@@ -113,9 +113,7 @@ abstract class CodeInlinePaintSpan extends PlaceholderSpan {
     if (identical(this, other)) {
       return RenderComparison.identical;
     }
-    return this == other
-        ? RenderComparison.identical
-        : RenderComparison.layout;
+    return this == other ? RenderComparison.identical : RenderComparison.layout;
   }
 
   // [PlaceholderSpan]'s base implementation unconditionally asserts
