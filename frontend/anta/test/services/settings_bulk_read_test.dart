@@ -108,11 +108,24 @@ void main() {
     await settings.setCalendarMissedDisplay(CalendarMissedDisplay.hidden);
     await settings.setCalendarEventTint(true);
     await settings.setCalendarTintConflict(CalendarTintConflict.both);
+    await settings.setCalendarDayRailStyle(DayRailStyle.dot);
+    await settings.setCalendarMaxDayRailMarks(5);
     await settings.setFastingOrthodoxGreatFasts(false);
 
     final bundle = await settings.getCalendarPageSettings();
 
     expect(bundle.appearance, await settings.getCalendarAppearance());
+    // Against the *single-row* getters, not just the other bulk path: both
+    // bulk reads share `_calendarAppearanceKeys`, so a key missing from that
+    // list would leave them agreeing on the same stale default.
+    expect(
+      bundle.appearance.dayRailStyle,
+      await settings.getCalendarDayRailStyle(),
+    );
+    expect(
+      bundle.appearance.maxDayRailMarks,
+      await settings.getCalendarMaxDayRailMarks(),
+    );
     expect(bundle.palette, same(await settings.getColorPalette()));
     expect(bundle.fastingTraditions, await settings.getFastingTraditions());
     expect(bundle.fastingAppearance, await settings.getFastingAppearance());
@@ -179,6 +192,46 @@ void main() {
         bundle.fastingAppearance,
         isNot(equals(FastingAppearance.decode(null))),
       );
+    });
+
+    test('an out-of-range rail cap is clamped, never trusted', () async {
+      // The rail draws a fixed number of slots; a hand-edited or
+      // future-written value asking for twelve would silently overflow the
+      // cell, so both the setter and the decoder clamp.
+      await db.userSettingsDao.setValue(
+        SettingsKeys.calendarMaxDayRailMarks,
+        '12',
+      );
+
+      final bundle = await settings.getCalendarPageSettings();
+
+      expect(
+        bundle.appearance.maxDayRailMarks,
+        SettingsKeys.maxCalendarMaxDayRailMarks,
+      );
+      expect(
+        await settings.getCalendarMaxDayRailMarks(),
+        SettingsKeys.maxCalendarMaxDayRailMarks,
+      );
+
+      await settings.setCalendarMaxDayRailMarks(0);
+      expect(
+        await settings.getCalendarMaxDayRailMarks(),
+        SettingsKeys.minCalendarMaxDayRailMarks,
+      );
+    });
+
+    test('an unknown rail style falls back to off', () async {
+      // Forward compatibility, and the direction matters: a style this build
+      // cannot draw must leave the grid exactly as it was, not paint garbage.
+      await db.userSettingsDao.setValue(
+        SettingsKeys.calendarDayRailStyle,
+        'chevron',
+      );
+
+      final bundle = await settings.getCalendarPageSettings();
+
+      expect(bundle.appearance.dayRailStyle, DayRailStyle.none);
     });
   });
 }

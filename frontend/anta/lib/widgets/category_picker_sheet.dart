@@ -487,12 +487,13 @@ class _CategoryAvatarCluster extends StatelessWidget {
                     shown[i].color.withValues(alpha: 0.18),
                     theme.colorScheme.surfaceContainerLow,
                   ),
-                  border: Border.all(color: theme.colorScheme.surface,
-                      width: 1.5),
+                  border: Border.all(
+                    color: theme.colorScheme.surface,
+                    width: 1.5,
+                  ),
                 ),
                 child: Icon(
-                  CalendarIcons.forKey(shown[i].iconKey) ??
-                      Icons.event_rounded,
+                  CalendarIcons.forKey(shown[i].iconKey) ?? Icons.event_rounded,
                   size: 14,
                   color: shown[i].color,
                 ),

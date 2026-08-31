@@ -279,10 +279,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(applied.value!.periodMode, AgendaPeriodMode.rollingDays);
-      expect(
-        applied.value!.rangeDays,
-        UpcomingAgendaFilters.defaultRangeDays,
-      );
+      expect(applied.value!.rangeDays, UpcomingAgendaFilters.defaultRangeDays);
     });
   });
 }

@@ -31,10 +31,9 @@ void main() {
   }
 
   Future<List<VocabularyItemRow>> allItems() {
-    return (db.select(db.vocabularyItems)..orderBy([
-          (t) => OrderingTerm(expression: t.sortOrder),
-        ]))
-        .get();
+    return (db.select(
+      db.vocabularyItems,
+    )..orderBy([(t) => OrderingTerm(expression: t.sortOrder)])).get();
   }
 
   group('stamping', () {
@@ -54,20 +53,23 @@ void main() {
       },
     );
 
-    test('an edit bumps the version, keeps createdAt and moves the HLC', () async {
-      await db.vocabularyDao.upsertVocabulary(_entry('v1', 'Exercises'));
-      final before = await vocabularyFor('v1');
+    test(
+      'an edit bumps the version, keeps createdAt and moves the HLC',
+      () async {
+        await db.vocabularyDao.upsertVocabulary(_entry('v1', 'Exercises'));
+        final before = await vocabularyFor('v1');
 
-      await db.vocabularyDao.upsertVocabulary(
-        _entry('v1', 'Lifts', createdAt: DateTime.utc(2030, 1, 1)),
-      );
-      final after = await vocabularyFor('v1');
+        await db.vocabularyDao.upsertVocabulary(
+          _entry('v1', 'Lifts', createdAt: DateTime.utc(2030, 1, 1)),
+        );
+        final after = await vocabularyFor('v1');
 
-      expect(after.name, 'Lifts');
-      expect(after.version, before.version + 1);
-      expect(after.createdAt, before.createdAt);
-      expect(after.hlcTimestamp, isNot(before.hlcTimestamp));
-    });
+        expect(after.name, 'Lifts');
+        expect(after.version, before.version + 1);
+        expect(after.createdAt, before.createdAt);
+        expect(after.hlcTimestamp, isNot(before.hlcTimestamp));
+      },
+    );
 
     test('a delete tombstones the list and every term in it', () async {
       await db.vocabularyDao.upsertVocabulary(_entry('v1', 'Exercises'));
@@ -103,41 +105,47 @@ void main() {
       expect(await db.select(db.vocabularies).get(), isEmpty);
     });
 
-    test('writing a tombstoned id resurrects it instead of colliding', () async {
-      await db.vocabularyDao.upsertVocabulary(_entry('v1', 'Exercises'));
-      await db.vocabularyDao.softDeleteVocabularyById('v1');
+    test(
+      'writing a tombstoned id resurrects it instead of colliding',
+      () async {
+        await db.vocabularyDao.upsertVocabulary(_entry('v1', 'Exercises'));
+        await db.vocabularyDao.softDeleteVocabularyById('v1');
 
-      await db.vocabularyDao.upsertVocabulary(_entry('v1', 'Exercises v2'));
+        await db.vocabularyDao.upsertVocabulary(_entry('v1', 'Exercises v2'));
 
-      final row = await vocabularyFor('v1');
-      expect(row.isDeleted, isFalse);
-      expect(row.deletedAt, isNull);
-      expect(row.name, 'Exercises v2');
-      expect(await db.vocabularyDao.getAllVocabularies(), hasLength(1));
-    });
+        final row = await vocabularyFor('v1');
+        expect(row.isDeleted, isFalse);
+        expect(row.deletedAt, isNull);
+        expect(row.name, 'Exercises v2');
+        expect(await db.vocabularyDao.getAllVocabularies(), hasLength(1));
+      },
+    );
 
-    test('an import stamps fresh identity but keeps the audit fields', () async {
-      final created = DateTime.utc(2020, 5, 4);
+    test(
+      'an import stamps fresh identity but keeps the audit fields',
+      () async {
+        final created = DateTime.utc(2020, 5, 4);
 
-      await db.vocabularyDao.importVocabulary(
-        _entry('v1', 'Exercises', createdAt: created).copyWith(
-          hlcTimestamp: const Value('foreign-hlc'),
-          deviceId: const Value('other-device'),
-          version: const Value(9),
-          isDeleted: const Value(true),
-        ),
-      );
+        await db.vocabularyDao.importVocabulary(
+          _entry('v1', 'Exercises', createdAt: created).copyWith(
+            hlcTimestamp: const Value('foreign-hlc'),
+            deviceId: const Value('other-device'),
+            version: const Value(9),
+            isDeleted: const Value(true),
+          ),
+        );
 
-      final row = await vocabularyFor('v1');
-      expect(
-        row.createdAt.millisecondsSinceEpoch,
-        created.millisecondsSinceEpoch,
-      );
-      expect(row.hlcTimestamp, isNot('foreign-hlc'));
-      expect(row.deviceId, 'test-device');
-      expect(row.version, 1);
-      expect(row.isDeleted, isFalse);
-    });
+        final row = await vocabularyFor('v1');
+        expect(
+          row.createdAt.millisecondsSinceEpoch,
+          created.millisecondsSinceEpoch,
+        );
+        expect(row.hlcTimestamp, isNot('foreign-hlc'));
+        expect(row.deviceId, 'test-device');
+        expect(row.version, 1);
+        expect(row.isDeleted, isFalse);
+      },
+    );
   });
 
   group('saving a term list', () {
@@ -152,11 +160,10 @@ void main() {
       );
 
       final items = await db.vocabularyDao.getAllItems();
-      expect([for (final item in items) item.term], [
-        'Bench Press',
-        'Deadlift',
-        'Squat',
-      ]);
+      expect(
+        [for (final item in items) item.term],
+        ['Bench Press', 'Deadlift', 'Squat'],
+      );
       expect([for (final item in items) item.sortOrder], [0, 1, 2]);
     });
 
@@ -173,12 +180,14 @@ void main() {
       );
       final after = await allItems();
 
-      expect([for (final item in after) item.version], [
-        for (final item in before) item.version,
-      ]);
-      expect([for (final item in after) item.hlcTimestamp], [
-        for (final item in before) item.hlcTimestamp,
-      ]);
+      expect(
+        [for (final item in after) item.version],
+        [for (final item in before) item.version],
+      );
+      expect(
+        [for (final item in after) item.hlcTimestamp],
+        [for (final item in before) item.hlcTimestamp],
+      );
     });
 
     test('a surviving term keeps its id when a neighbour is added', () async {
@@ -262,10 +271,10 @@ void main() {
       );
 
       final items = await db.vocabularyDao.getAllItems();
-      expect([for (final item in items) item.term], [
-        'Deadlift',
-        'Bench Press',
-      ]);
+      expect(
+        [for (final item in items) item.term],
+        ['Deadlift', 'Bench Press'],
+      );
       expect(items.first.id, idsByTerm['Deadlift']);
       expect(items.last.id, idsByTerm['Bench Press']);
     });
@@ -304,7 +313,10 @@ void main() {
       );
 
       final items = await db.vocabularyDao.getAllItems();
-      expect(items.map((item) => item.term), containsAll(['Oats', 'Bench Press']));
+      expect(
+        items.map((item) => item.term),
+        containsAll(['Oats', 'Bench Press']),
+      );
     });
   });
 
@@ -313,7 +325,9 @@ void main() {
       await db.vocabularyDao.upsertVocabulary(
         _entry('zzz', 'Later', sortOrder: 0),
       );
-      await db.vocabularyDao.upsertVocabulary(_entry('aaa', 'Tie', sortOrder: 0));
+      await db.vocabularyDao.upsertVocabulary(
+        _entry('aaa', 'Tie', sortOrder: 0),
+      );
       await db.vocabularyDao.upsertVocabulary(
         _entry('mmm', 'First', sortOrder: -1),
       );
@@ -340,26 +354,29 @@ void main() {
       expect(await db.vocabularyDao.nextSortOrder(), 0);
     });
 
-    test('reorder rewrites positions and skips rows already in place', () async {
-      await db.vocabularyDao.upsertVocabulary(
-        _entry('v1', 'Exercises', sortOrder: 0),
-      );
-      await db.vocabularyDao.upsertVocabulary(
-        _entry('v2', 'Meals', sortOrder: 1),
-      );
-      await db.vocabularyDao.upsertVocabulary(
-        _entry('v3', 'Clients', sortOrder: 2),
-      );
-      final untouched = await vocabularyFor('v3');
+    test(
+      'reorder rewrites positions and skips rows already in place',
+      () async {
+        await db.vocabularyDao.upsertVocabulary(
+          _entry('v1', 'Exercises', sortOrder: 0),
+        );
+        await db.vocabularyDao.upsertVocabulary(
+          _entry('v2', 'Meals', sortOrder: 1),
+        );
+        await db.vocabularyDao.upsertVocabulary(
+          _entry('v3', 'Clients', sortOrder: 2),
+        );
+        final untouched = await vocabularyFor('v3');
 
-      await db.vocabularyDao.reorderVocabularies(['v2', 'v1', 'v3']);
+        await db.vocabularyDao.reorderVocabularies(['v2', 'v1', 'v3']);
 
-      final ids = [
-        for (final row in await db.vocabularyDao.getAllVocabularies()) row.id,
-      ];
-      expect(ids, ['v2', 'v1', 'v3']);
-      expect((await vocabularyFor('v3')).version, untouched.version);
-    });
+        final ids = [
+          for (final row in await db.vocabularyDao.getAllVocabularies()) row.id,
+        ];
+        expect(ids, ['v2', 'v1', 'v3']);
+        expect((await vocabularyFor('v3')).version, untouched.version);
+      },
+    );
   });
 
   group('the v32 migration', () {
@@ -430,10 +447,9 @@ void main() {
       expect(vocabulary.read<int>('version'), 1);
       expect(vocabulary.read<int>('is_deleted'), 0);
 
-      final item = (await db
-              .customSelect('SELECT * FROM vocabulary_items')
-              .get())
-          .single;
+      final item =
+          (await db.customSelect('SELECT * FROM vocabulary_items').get())
+              .single;
       expect(item.read<int>('sort_order'), 0);
       expect(item.read<int>('version'), 1);
       expect(item.read<int>('is_deleted'), 0);

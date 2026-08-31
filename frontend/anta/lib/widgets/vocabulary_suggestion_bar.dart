@@ -130,7 +130,9 @@ class _SuggestionPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final radius = BorderRadius.circular(VocabularySuggestionBar._pillHeight / 2);
+    final radius = BorderRadius.circular(
+      VocabularySuggestionBar._pillHeight / 2,
+    );
 
     return Material(
       color: theme.colorScheme.secondaryContainer,

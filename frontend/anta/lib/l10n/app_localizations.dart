@@ -262,6 +262,12 @@ abstract class AppLocalizations {
   /// **'Public holiday'**
   String get dayBarPublicHoliday;
 
+  /// Semantics label for a missed occurrence on the day-cell rail, so the missed state is announced and not carried by colour alone
+  ///
+  /// In en, this message translates to:
+  /// **'{title}, missed'**
+  String calendarRailMarkMissedLabel(String title);
+
   /// Public holiday name shown in the calendar day summary
   ///
   /// In en, this message translates to:
@@ -1305,6 +1311,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Mark the days you skip.'**
   String get eventTrackPresenceDesc;
+
+  /// Label for the three-way day-rail membership control in the event editor
+  ///
+  /// In en, this message translates to:
+  /// **'Day rail'**
+  String get eventShowInDayRail;
+
+  /// Day rail membership: follow presence tracking
+  ///
+  /// In en, this message translates to:
+  /// **'Auto'**
+  String get eventShowInDayRailAuto;
+
+  /// Day rail membership: always show on the rail
+  ///
+  /// In en, this message translates to:
+  /// **'Always'**
+  String get eventShowInDayRailAlways;
+
+  /// Day rail membership: never show on the rail
+  ///
+  /// In en, this message translates to:
+  /// **'Never'**
+  String get eventShowInDayRailNever;
+
+  /// Hint under the day-rail membership control
+  ///
+  /// In en, this message translates to:
+  /// **'Auto follows presence tracking.'**
+  String get eventShowInDayRailHint;
 
   /// Presence toggle option in the event detail sheet: this occurrence was attended
   ///
@@ -4575,6 +4611,48 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Dots'**
   String get markerStyleDots;
+
+  /// Label for the day-rail style selector in calendar settings
+  ///
+  /// In en, this message translates to:
+  /// **'Day rail'**
+  String get calendarDayRailStyleTitle;
+
+  /// Description for the day-rail style selector
+  ///
+  /// In en, this message translates to:
+  /// **'A vertical rail on the left of each day, one mark per tracked commitment — so a day carrying three of them stops reading as one. Rail events leave the bottom markers.'**
+  String get calendarDayRailStyleDesc;
+
+  /// Day rail style: no rail
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get dayRailStyleNone;
+
+  /// Day rail style: stacked vertical segments
+  ///
+  /// In en, this message translates to:
+  /// **'Lines'**
+  String get dayRailStyleLine;
+
+  /// Day rail style: stacked circles
+  ///
+  /// In en, this message translates to:
+  /// **'Dots'**
+  String get dayRailStyleDot;
+
+  /// Label for the day-rail capacity slider
+  ///
+  /// In en, this message translates to:
+  /// **'Maximum rail marks per day'**
+  String get calendarMaxDayRailMarks;
+
+  /// Description for the day-rail capacity slider
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Show one rail mark per day. The rest collapse into one neutral mark.} other{Show up to {count} rail marks per day. The rest collapse into one neutral mark.}}'**
+  String calendarMaxDayRailMarksDesc(int count);
 
   /// Switch title for weekend day-number tinting
   ///

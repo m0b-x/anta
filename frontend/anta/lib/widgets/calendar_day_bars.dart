@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/calendar_appearance.dart';
 import '../models/day_bar.dart';
+import '../utils/marker_contrast.dart';
 
 /// Renders the per-day event markers inside a calendar day cell, either as a
 /// vertical stack of thin colored bars or as a centered row of colored dots
@@ -22,6 +23,16 @@ class CalendarDayBars extends StatelessWidget {
   final double spacing;
   final double horizontalInset;
 
+  /// How far the strip insets from the cell's edges when nothing overrides it.
+  ///
+  /// Named because it is **narrower than the rail's lane**: the strip and
+  /// `CalendarDayRail` both start inside the cell's left gutter, and since the
+  /// strip is built in table_calendar's `markerBuilder` — a sibling subtree
+  /// painted after the cell — it wins wherever they meet. `CalendarDayCell`
+  /// keeps them apart vertically via `railBottomInset`; see the test that
+  /// pins the clearance.
+  static const double defaultHorizontalInset = 6;
+
   /// Alpha multiplier applied to every painted colour, used by the grid to
   /// fade the markers of days belonging to an adjacent month.
   ///
@@ -38,7 +49,7 @@ class CalendarDayBars extends StatelessWidget {
     this.style = CalendarMarkerStyle.bars,
     this.barHeight = 3,
     this.spacing = 1.5,
-    this.horizontalInset = 6,
+    this.horizontalInset = defaultHorizontalInset,
     this.opacity = 1.0,
   });
 
@@ -57,42 +68,6 @@ class CalendarDayBars extends StatelessWidget {
     };
   }
 
-  /// Minimum contrast **ratio** between a marker and the cell surface before
-  /// it gets a hairline outline so it stays visible.
-  ///
-  /// A ratio — `(L+0.05)/(L'+0.05)` — and deliberately not the raw luminance
-  /// *delta* this replaced (2026-08-23). A delta means opposite things at the
-  /// two ends of the scale: against white (lum 0.948) a gap of 0.09 is an
-  /// invisible 1.05:1, while against a dark surface (lum 0.007) the same gap
-  /// is a perfectly readable 2.06:1. Tuned on white, the old 0.22 delta
-  /// therefore outlined **six of the twelve** built-in marker colours in dark
-  /// mode — every saturated colour sits low on the luminance scale — and none
-  /// in light mode, which is exactly backwards from what it was for.
-  static const double _minContrastRatio = 1.6;
-
-  /// Memoized `Color.computeLuminance()`: three `pow()` calls per invocation,
-  /// and the grid asks for one per marker per cell on every rebuild. Bounded
-  /// and cleared wholesale like `FastingCalendar`'s per-year maps — the key
-  /// space is the set of category colours, so it never approaches the cap.
-  static final Map<int, double> _luminanceCache = {};
-  static const int _luminanceCacheCap = 64;
-
-  static double _luminanceOf(Color color) {
-    final key = color.toARGB32();
-    final cached = _luminanceCache[key];
-    if (cached != null) return cached;
-    if (_luminanceCache.length >= _luminanceCacheCap) _luminanceCache.clear();
-    return _luminanceCache[key] = color.computeLuminance();
-  }
-
-  /// WCAG relative-contrast ratio between two already-resolved luminances,
-  /// matching `MarkdownColorPalette._contrastRatio`.
-  static double _contrastRatio(double a, double b) {
-    final hi = a > b ? a : b;
-    final lo = a > b ? b : a;
-    return (hi + 0.05) / (lo + 0.05);
-  }
-
   Color _fade(Color color) =>
       opacity == 1.0 ? color : color.withValues(alpha: color.a * opacity);
 
@@ -107,26 +82,16 @@ class CalendarDayBars extends StatelessWidget {
     final hiddenCount = hasOverflow ? bars.length - visibleCount : 0;
     // Reference luminance of the calendar cell background, resolved once per
     // cell and shared by every marker in it.
-    final surfaceLum = _luminanceOf(theme.colorScheme.surface);
+    final surfaceLum = MarkerContrast.luminanceOf(theme.colorScheme.surface);
     final outlineColor = _fade(
       theme.colorScheme.onSurface.withValues(alpha: 0.4),
     );
 
-    Border? outlineFor(Color color) {
-      if (_contrastRatio(_luminanceOf(color), surfaceLum) >=
-          _minContrastRatio) {
-        return null;
-      }
-      // 1px centred, never the old 0.5px inset. Half a logical pixel is half a
-      // *device* pixel at dpr 1.0 (desktop), which paints as a washed-out grey
-      // smear rather than a line — and being inset it also ate a third of a
-      // 3px bar's fill. Centred keeps the fill intact and stays inside the
-      // 1.5px inter-bar gap (0.5px of overhang per side).
-      return Border.all(
-        color: outlineColor,
-        strokeAlign: BorderSide.strokeAlignCenter,
-      );
-    }
+    Border? outlineFor(Color color) => MarkerContrast.outlineFor(
+      color,
+      surfaceLuminance: surfaceLum,
+      outlineColor: outlineColor,
+    );
 
     // One semantics node for the whole strip, not one per marker (**5.6**).
     //

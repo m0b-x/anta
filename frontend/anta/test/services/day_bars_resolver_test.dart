@@ -30,6 +30,8 @@ void main() {
     int priority = kDefaultEventPriority,
     EventTime? time,
     bool tracksPresence = false,
+    bool? showInDayRail,
+    RecurrenceRule rule = const DailyRecurrence(),
     int? colorValue,
   }) {
     return CalendarEvent(
@@ -37,15 +39,16 @@ void main() {
       title: title,
       categoryId: 'gym',
       startDate: DateTime.utc(2026, 8, 1),
-      rule: const DailyRecurrence(),
+      rule: rule,
       priority: priority,
       time: time,
       tracksPresence: tracksPresence,
+      showInDayRail: showInDayRail,
       colorValue: colorValue,
     );
   }
 
-  List<String> barIds(List<DayBar> bars) => [
+  List<String> barIds(Iterable<DayBar> bars) => [
     for (final bar in bars) bar.key.replaceFirst('event:', ''),
   ];
 
@@ -190,6 +193,86 @@ void main() {
     });
   });
 
+  group('rail exclusion', () {
+    // D8: while the rail renders, each channel means one thing — the rail
+    // carries recurring commitments and their presence, the bars carry
+    // everything else — and the freed `maxDayBars` slots go to the events
+    // nothing else shows. With the rail off the bars must be byte-for-byte
+    // what they always were, so turning the rail off can never silently drop
+    // an event from the grid.
+    test('a rail event vanishes from the bars while the rail is active', () {
+      final events = [event('tracked', tracksPresence: true), event('plain')];
+
+      final bars = const EventDayBarProvider(
+        railActive: true,
+      ).barsFor(day, events);
+
+      expect(barIds(bars), ['plain']);
+    });
+
+    test('an event forced out of the rail keeps its bar', () {
+      final events = [
+        event('forcedOut', tracksPresence: true, showInDayRail: false),
+      ];
+
+      final bars = const EventDayBarProvider(
+        railActive: true,
+      ).barsFor(day, events);
+
+      expect(barIds(bars), ['forcedOut']);
+    });
+
+    test('an event forced into the rail loses its bar', () {
+      final events = [event('forcedIn', showInDayRail: true)];
+
+      final bars = const EventDayBarProvider(
+        railActive: true,
+      ).barsFor(day, events);
+
+      expect(bars, isEmpty);
+    });
+
+    test('a tracked one-time event keeps its bar — it is never railed', () {
+      final events = [
+        event(
+          'once',
+          tracksPresence: true,
+          showInDayRail: true,
+          rule: const OneTimeRecurrence(),
+        ),
+      ];
+
+      final bars = const EventDayBarProvider(
+        railActive: true,
+      ).barsFor(day, events);
+
+      expect(barIds(bars), ['once']);
+    });
+
+    test('the default is inert — every event keeps its bar', () {
+      final events = [
+        event('tracked', tracksPresence: true),
+        event('forcedIn', showInDayRail: true),
+        event('plain'),
+      ];
+
+      final bars = const EventDayBarProvider().barsFor(day, events);
+
+      expect(barIds(bars), ['tracked', 'forcedIn', 'plain']);
+    });
+
+    test('DayBarsResolver.defaults threads railActive through', () {
+      final l10n = AppLocalizationsEn();
+      final events = [event('tracked', tracksPresence: true), event('plain')];
+
+      final withRail = DayBarsResolver.defaults(l10n, railActive: true);
+      final withoutRail = DayBarsResolver.defaults(l10n);
+
+      expect(barIds(withRail.resolve(day, events)), ['plain']);
+      expect(barIds(withoutRail.resolve(day, events)), ['tracked', 'plain']);
+    });
+  });
+
   group('colour', () {
     test('an explicit override wins over the category colour', () {
       const override = 0xFF123456;
@@ -235,20 +318,14 @@ void main() {
       expect(saturday.weekday, DateTime.saturday);
       final l10n = AppLocalizationsEn();
       final resolver = DayBarsResolver(
-        providers: [
-          const EventDayBarProvider(),
-          WeekendDayBarProvider(l10n),
-        ],
+        providers: [const EventDayBarProvider(), WeekendDayBarProvider(l10n)],
       );
 
       final bars = resolver.resolve(saturday, [
         event('weekend', title: 'Impersonator'),
       ]);
 
-      expect(
-        bars.map((b) => b.key).toSet(),
-        {'event:weekend', 'weekend'},
-      );
+      expect(bars.map((b) => b.key).toSet(), {'event:weekend', 'weekend'});
     });
 
     test('cannot collide with the money key', () {

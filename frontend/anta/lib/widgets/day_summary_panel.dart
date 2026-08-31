@@ -230,9 +230,7 @@ class DaySummaryPanel extends StatelessWidget {
                 // pass needed. Mirrors _AgendaCard in agenda_list_view.dart,
                 // which renders this same accent-stripe design.
                 child: Opacity(
-                  opacity: entry.missed
-                      ? CalendarColors.missedEventAlpha
-                      : 1.0,
+                  opacity: entry.missed ? CalendarColors.missedEventAlpha : 1.0,
                   child: Stack(
                     children: [
                       // Accent stripe echoing the day-cell marker color, so
@@ -289,8 +287,7 @@ class DaySummaryPanel extends StatelessWidget {
                                             icon: const Icon(
                                               Icons.sticky_note_2_outlined,
                                             ),
-                                            onPressed: () =>
-                                                onOpenNote!(event),
+                                            onPressed: () => onOpenNote!(event),
                                           ),
                                           tail,
                                         ],

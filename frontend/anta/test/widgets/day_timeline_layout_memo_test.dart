@@ -177,9 +177,7 @@ void main() {
     },
   );
 
-  testWidgets('rendered output is unchanged across a memo hit', (
-    tester,
-  ) async {
+  testWidgets('rendered output is unchanged across a memo hit', (tester) async {
     final events = [
       event('a', time: const EventTime(startMinute: 540, durationMinutes: 60)),
       event('b', time: const EventTime(startMinute: 600, durationMinutes: 30)),

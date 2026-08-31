@@ -88,10 +88,10 @@ void main() {
       );
 
       final candidates = Vocabularies.candidates;
-      expect([for (final c in candidates) c.term], [
-        'Împins la piept',
-        'Deadlift',
-      ]);
+      expect(
+        [for (final c in candidates) c.term],
+        ['Împins la piept', 'Deadlift'],
+      );
       expect(candidates.first.foldedTerm, 'impins la piept');
       expect(candidates.first.vocabularyName, 'Exercises');
       expect(Vocabularies.hasCandidates, isTrue);
@@ -110,10 +110,10 @@ void main() {
 
       // But they are structure, not content.
       expect(stored.termCount, 2);
-      expect([for (final c in Vocabularies.candidates) c.term], [
-        'Bench Press',
-        'Squat',
-      ]);
+      expect(
+        [for (final c in Vocabularies.candidates) c.term],
+        ['Bench Press', 'Squat'],
+      );
     });
 
     test('a list of only headers offers nothing', () async {
@@ -127,32 +127,38 @@ void main() {
       expect(service.vocabularies.single.termCount, 0);
     });
 
-    test('a disabled list contributes no candidates but stays listed', () async {
-      final created = await service.createVocabulary(
-        name: 'Exercises',
-        terms: const ['Bench Press'],
-      );
+    test(
+      'a disabled list contributes no candidates but stays listed',
+      () async {
+        final created = await service.createVocabulary(
+          name: 'Exercises',
+          terms: const ['Bench Press'],
+        );
 
-      await service.setEnabled(created.id, false);
+        await service.setEnabled(created.id, false);
 
-      expect(Vocabularies.candidates, isEmpty);
-      expect(Vocabularies.all, hasLength(1));
-      expect(Vocabularies.all.single.isEnabled, isFalse);
-      expect(Vocabularies.all.single.items, hasLength(1));
-    });
+        expect(Vocabularies.candidates, isEmpty);
+        expect(Vocabularies.all, hasLength(1));
+        expect(Vocabularies.all.single.isEnabled, isFalse);
+        expect(Vocabularies.all.single.items, hasLength(1));
+      },
+    );
 
-    test('resolves a placeholder name, tolerating singular and plural', () async {
-      await service.createVocabulary(
-        name: 'Exercises',
-        terms: const ['Bench Press'],
-      );
+    test(
+      'resolves a placeholder name, tolerating singular and plural',
+      () async {
+        await service.createVocabulary(
+          name: 'Exercises',
+          terms: const ['Bench Press'],
+        );
 
-      expect(Vocabularies.byName('Exercises')?.name, 'Exercises');
-      expect(Vocabularies.byName('exercise')?.name, 'Exercises');
-      expect(Vocabularies.byName('  EXERCISES  ')?.name, 'Exercises');
-      expect(Vocabularies.byName('meals'), isNull);
-      expect(Vocabularies.byName(''), isNull);
-    });
+        expect(Vocabularies.byName('Exercises')?.name, 'Exercises');
+        expect(Vocabularies.byName('exercise')?.name, 'Exercises');
+        expect(Vocabularies.byName('  EXERCISES  ')?.name, 'Exercises');
+        expect(Vocabularies.byName('meals'), isNull);
+        expect(Vocabularies.byName(''), isNull);
+      },
+    );
 
     test('a disabled list never resolves by name', () async {
       final created = await service.createVocabulary(
@@ -187,31 +193,34 @@ void main() {
       expect(Vocabularies.idsForScopeTokens(['exercises']), {created.id});
     });
 
-    test('several tokens union, and one token may name several lists', () async {
-      final exercises = await service.createVocabulary(
-        name: 'Exercises',
-        terms: const ['Bench Press'],
-      );
-      final meals = await service.createVocabulary(
-        name: 'Meals',
-        terms: const ['Oats'],
-      );
-      final everyone = await service.createVocabulary(
-        name: 'Everyone',
-        terms: const ['Ana'],
-      );
+    test(
+      'several tokens union, and one token may name several lists',
+      () async {
+        final exercises = await service.createVocabulary(
+          name: 'Exercises',
+          terms: const ['Bench Press'],
+        );
+        final meals = await service.createVocabulary(
+          name: 'Meals',
+          terms: const ['Oats'],
+        );
+        final everyone = await service.createVocabulary(
+          name: 'Everyone',
+          terms: const ['Ana'],
+        );
 
-      expect(Vocabularies.idsForScopeTokens(['exercises', 'meals']), {
-        exercises.id,
-        meals.id,
-      });
-      // "e" is a prefix of both "Exercises" and "Everyone" — the union is the
-      // scope, not an ambiguity to reject.
-      expect(Vocabularies.idsForScopeTokens(['e']), {
-        exercises.id,
-        everyone.id,
-      });
-    });
+        expect(Vocabularies.idsForScopeTokens(['exercises', 'meals']), {
+          exercises.id,
+          meals.id,
+        });
+        // "e" is a prefix of both "Exercises" and "Everyone" — the union is the
+        // scope, not an ambiguity to reject.
+        expect(Vocabularies.idsForScopeTokens(['e']), {
+          exercises.id,
+          everyone.id,
+        });
+      },
+    );
 
     test('a scope resolves to nothing rather than guessing', () async {
       final created = await service.createVocabulary(
@@ -286,10 +295,10 @@ void main() {
 
       await service.reorder([second.id, first.id]);
 
-      expect([for (final v in service.vocabularies) v.name], [
-        'Meals',
-        'Exercises',
-      ]);
+      expect(
+        [for (final v in service.vocabularies) v.name],
+        ['Meals', 'Exercises'],
+      );
       expect(Vocabularies.candidates.first.vocabularyName, 'Meals');
     });
   });

@@ -31,9 +31,7 @@ void main() {
   late CalendarBloc bloc;
 
   setUpAll(() async {
-    tempDir = await Directory.systemTemp.createTemp(
-      'anta_day_cache_eviction',
-    );
+    tempDir = await Directory.systemTemp.createTemp('anta_day_cache_eviction');
     SharedPreferences.setMockInitialValues({});
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(

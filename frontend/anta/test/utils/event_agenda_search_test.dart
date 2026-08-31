@@ -70,17 +70,20 @@ void main() {
     );
   }
 
-  Set<String> idsFor(String query, {Map<String, String> categoryLabels = labels}) {
-    return scan(query, categoryLabels: categoryLabels)
-        .map((o) => o.event.id)
-        .toSet();
+  Set<String> idsFor(
+    String query, {
+    Map<String, String> categoryLabels = labels,
+  }) {
+    return scan(
+      query,
+      categoryLabels: categoryLabels,
+    ).map((o) => o.event.id).toSet();
   }
 
   Set<DateTime> daysFor(String query, String eventId) {
-    return scan(query)
-        .where((o) => o.event.id == eventId)
-        .map((o) => o.day)
-        .toSet();
+    return scan(
+      query,
+    ).where((o) => o.event.id == eventId).map((o) => o.day).toSet();
   }
 
   setUp(() {
@@ -163,10 +166,9 @@ void main() {
         rule: const OneTimeRecurrence(),
       );
       expect(idsFor('orphan'), isEmpty);
-      expect(
-        scan('orphan', only: [orphan]).map((o) => o.event.id).toSet(),
-        {'orphan'},
-      );
+      expect(scan('orphan', only: [orphan]).map((o) => o.event.id).toSet(), {
+        'orphan',
+      });
     });
   });
 
@@ -204,7 +206,10 @@ void main() {
     });
 
     test('a day the query excludes drops out of a daily event', () {
-      expect(daysFor('aug 26', 'gym'), isNot(contains(DateTime.utc(2026, 8, 25))));
+      expect(
+        daysFor('aug 26', 'gym'),
+        isNot(contains(DateTime.utc(2026, 8, 25))),
+      );
     });
 
     test('narrowing by date costs no extra occursOn call', () {

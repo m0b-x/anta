@@ -26,10 +26,12 @@ import '../models/calendar_event.dart';
 import '../models/calendar_selection_source.dart';
 import '../models/day_bar.dart';
 import '../models/day_cell_tint.dart';
+import '../models/day_rail_mark.dart';
 import '../repositories/note_repository.dart';
 import '../services/app_navigator.dart';
 import '../services/cell_tint_resolver.dart';
 import '../services/day_bars_resolver.dart';
+import '../services/day_rail_resolver.dart';
 import '../services/note_money_ledger_service.dart';
 import '../services/public_holiday_service.dart';
 import '../services/settings_service.dart';
@@ -153,16 +155,62 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   AppLocalizations? _barsL10n;
   CalendarMissedDisplay? _barsMissedDisplay;
 
+  bool? _barsRailActive;
+
   DayBarsResolver _resolverFor(AppLocalizations l10n) {
     final missed = _appearance.missedDisplay;
+    // A rail event is excluded from the bottom strip, but only while the rail
+    // renders — turning the rail off must never silently drop events from the
+    // grid — so the style is part of how the bars resolver is built, and
+    // therefore part of its memo key.
+    final railActive = _railStyle != DayRailStyle.none;
     if (_barsResolver == null ||
         _barsL10n != l10n ||
-        _barsMissedDisplay != missed) {
-      _barsResolver = DayBarsResolver.defaults(l10n, missedDisplay: missed);
+        _barsMissedDisplay != missed ||
+        _barsRailActive != railActive) {
+      _barsResolver = DayBarsResolver.defaults(
+        l10n,
+        missedDisplay: missed,
+        railActive: railActive,
+      );
       _barsL10n = l10n;
       _barsMissedDisplay = missed;
+      _barsRailActive = railActive;
     }
     return _barsResolver!;
+  }
+
+  DayRailStyle get _railStyle => _appearance.dayRailStyle;
+
+  int get _maxRailMarks => _appearance.maxDayRailMarks;
+
+  /// Memoized rail resolver, on the same terms as [_resolverFor]: its one
+  /// provider is stateless and reads only the localization and the
+  /// missed-display setting. Rail *style* and *max* are paint-side widget
+  /// parameters, deliberately not resolver inputs, so neither one reaches
+  /// this memo key.
+  ///
+  /// That is not the same as saying they never clear [_railOutputCache]: both
+  /// live in `CalendarAppearance.props`, so with `eventTint` on — the branch
+  /// where `CellTintResolver.defaults` allocates rather than returning a
+  /// canonicalized `const` — changing the rail's max rebuilds the *tint*
+  /// resolver, which is part of the generation record, and all three caches
+  /// clear together. One extra recompute on a settings return; not a
+  /// correctness problem, and not an invariant to rely on.
+  DayRailResolver? _railResolver;
+  AppLocalizations? _railL10n;
+  CalendarMissedDisplay? _railMissedDisplay;
+
+  DayRailResolver _railResolverFor(AppLocalizations l10n) {
+    final missed = _appearance.missedDisplay;
+    if (_railResolver == null ||
+        _railL10n != l10n ||
+        _railMissedDisplay != missed) {
+      _railResolver = DayRailResolver.defaults(l10n, missedDisplay: missed);
+      _railL10n = l10n;
+      _railMissedDisplay = missed;
+    }
+    return _railResolver!;
   }
 
   /// Memoized cell-wash resolver, rebuilt only when the appearance changes.
@@ -185,8 +233,9 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   /// — see [_syncResolverOutputCache].
   final Map<DateTime, List<DayBar>> _barsOutputCache = {};
   final Map<DateTime, DayCellTint> _tintOutputCache = {};
+  final Map<DateTime, List<DayRailMark>> _railOutputCache = {};
 
-  /// Generation the two output caches above were last built against, or
+  /// Generation the three output caches above were last built against, or
   /// `null` before the first grid build.
   ///
   /// One int folding every input a cell's bars/tint can depend on —
@@ -221,6 +270,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     int? ledgerRevision,
     Object barsResolver,
     Object tintResolver,
+    Object railResolver,
   })?
   _outputGeneration;
 
@@ -228,6 +278,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     CalendarPageLoaded state,
     DayBarsResolver barsResolver,
     CellTintResolver tintResolver,
+    DayRailResolver railResolver,
   ) {
     final generation = (
       allEvents: state.allEvents,
@@ -240,11 +291,13 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
       ledgerRevision: NoteMoneyLedgerService.instanceOrNull?.revision,
       barsResolver: barsResolver,
       tintResolver: tintResolver,
+      railResolver: railResolver,
     );
     if (_outputGeneration == generation) return;
     _outputGeneration = generation;
     _barsOutputCache.clear();
     _tintOutputCache.clear();
+    _railOutputCache.clear();
   }
 
   @override
@@ -561,10 +614,14 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
                                       }
                                       final barsResolver = _resolverFor(l10n);
                                       final tintResolver = _cellTintResolver;
+                                      final railResolver = _railResolverFor(
+                                        l10n,
+                                      );
                                       _syncResolverOutputCache(
                                         state,
                                         barsResolver,
                                         tintResolver,
+                                        railResolver,
                                       );
                                       return _CalendarTable(
                                         state: state,
@@ -575,8 +632,12 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
                                         appearance: _appearance,
                                         barsResolver: barsResolver,
                                         tintResolver: tintResolver,
+                                        railResolver: railResolver,
+                                        railStyle: _railStyle,
+                                        maxRailMarks: _maxRailMarks,
                                         barsOutputCache: _barsOutputCache,
                                         tintOutputCache: _tintOutputCache,
+                                        railOutputCache: _railOutputCache,
                                         onDayLongPressed: (day) =>
                                             _quickAddFromTemplate(context, day),
                                       );
@@ -1061,6 +1122,13 @@ class _CalendarTable extends StatelessWidget {
   /// appearance, which the page already reloads when settings change.
   final CellTintResolver tintResolver;
 
+  /// And for the left-edge rail. [railStyle] and [maxRailMarks] are paint-side
+  /// parameters the resolver never sees, so changing either repaints without
+  /// dropping [railOutputCache].
+  final DayRailResolver railResolver;
+  final DayRailStyle railStyle;
+  final int maxRailMarks;
+
   /// Per-day memo of [barsResolver]/[tintResolver] **output**, owned by
   /// [_CalendarViewState] and kept valid by its
   /// `_syncResolverOutputCache` — this widget only reads and populates it,
@@ -1069,6 +1137,7 @@ class _CalendarTable extends StatelessWidget {
   /// memo needs to survive across builds whose generation has not changed.
   final Map<DateTime, List<DayBar>> barsOutputCache;
   final Map<DateTime, DayCellTint> tintOutputCache;
+  final Map<DateTime, List<DayRailMark>> railOutputCache;
 
   /// Long-press quick-add. The grid only reports the day; deciding what to do
   /// with it (pick a template, create, undo) belongs to the page, which owns
@@ -1082,8 +1151,12 @@ class _CalendarTable extends StatelessWidget {
     required this.appearance,
     required this.barsResolver,
     required this.tintResolver,
+    required this.railResolver,
+    required this.railStyle,
+    required this.maxRailMarks,
     required this.barsOutputCache,
     required this.tintOutputCache,
+    required this.railOutputCache,
     required this.onDayLongPressed,
   });
 
@@ -1100,6 +1173,23 @@ class _CalendarTable extends StatelessWidget {
     final height = CalendarDayCell.chipZoneHeight + strip + 6;
     return height < 52 ? 52 : height.ceilToDouble();
   }
+
+  /// The lane the left-edge rail gets: the row, less its 4px top inset and the
+  /// space the marker strip takes at the bottom (its own height plus the 4px
+  /// the `markerBuilder` pads it by).
+  ///
+  /// The strip is a *sibling* subtree painted after the cell and insets only
+  /// `CalendarDayBars.defaultHorizontalInset` — which is inside the rail's
+  /// lane — so without this subtraction it paints straight over the rail's
+  /// bottom segment. Passing the height also spares the rail a `LayoutBuilder`
+  /// per visible cell.
+  double get _railHeight =>
+      _rowHeight -
+      8 -
+      CalendarDayBars.stripHeight(
+        appearance.maxDayBars,
+        appearance.markerStyle,
+      );
 
   /// Jumps to a date picked from the header title. The picker's wheels
   /// carry a day too, so this both focuses the month and selects the day —
@@ -1161,6 +1251,16 @@ class _CalendarTable extends StatelessWidget {
       day,
       bloc.eventsForDay(day),
     );
+    // The rail renders inside the cell, so it resolves here rather than in
+    // `markerBuilder` where the bars do. With the rail off it never runs at
+    // all — the resolver's cost is not worth paying for a channel that paints
+    // nothing.
+    final railMarks = railStyle == DayRailStyle.none
+        ? const <DayRailMark>[]
+        : railOutputCache[key] ??= railResolver.resolve(
+            day,
+            bloc.eventsForDay(day),
+          );
     return CalendarDayCell(
       day: day,
       isToday: isSameDay(day, now),
@@ -1172,6 +1272,10 @@ class _CalendarTable extends StatelessWidget {
       accent: accent,
       tint: tint,
       fastingNumberColor: fasting.numberColor,
+      railMarks: railMarks,
+      railStyle: railStyle,
+      maxRailMarks: maxRailMarks,
+      railHeight: _railHeight,
     );
   }
 

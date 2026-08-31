@@ -1,15 +1,18 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter/painting.dart';
 
+import 'chain_item.dart';
+
 /// A single colored bar to draw inside a calendar day cell.
 ///
 /// Bars are produced by `DayBarProvider`s and composed by `DayBarsResolver`.
 /// Lower [priority] values are drawn first (top of the stack); higher values
 /// sink to the bottom. The default ordering places context bars (weekend /
 /// holiday) below event bars so events stay visually dominant.
-class DayBar extends Equatable {
+class DayBar extends Equatable implements ChainItem {
   /// Stable identifier used for deduplication across providers.
   /// e.g. `"weekend"`, `"holiday"`, `"event:gym"`.
+  @override
   final String key;
 
   final Color color;
@@ -18,6 +21,7 @@ class DayBar extends Equatable {
   ///   *   0..99   events (most important)
   ///   * 100..199  public holiday
   ///   * 200..299  weekend / contextual
+  @override
   final int priority;
 
   /// Used as a tooltip / semantics label.

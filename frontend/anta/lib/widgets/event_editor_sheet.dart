@@ -94,6 +94,26 @@ enum _RepeatMode { oneTime, recurring }
 /// shows [allDays].
 enum _DescriptionScope { allDays, thisDay }
 
+/// The three positions of the day-rail control, mapping onto the nullable
+/// `CalendarEvent.showInDayRail` column. A `SegmentedButton` needs a
+/// non-nullable value type, and `null` — *auto* — is a real choice here, not
+/// the absence of one.
+enum _DayRailChoice {
+  auto(null),
+  always(true),
+  never(false);
+
+  final bool? value;
+
+  const _DayRailChoice(this.value);
+
+  static _DayRailChoice of(bool? value) => switch (value) {
+    null => auto,
+    true => always,
+    false => never,
+  };
+}
+
 /// Recurring frequency choices. Maps 1:1 onto a concrete [RecurrenceRule]
 /// at save time (Weekly carries the user-selected weekday set).
 enum _RecurrenceKind {
@@ -267,6 +287,26 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   /// fires once has no attendance to keep — which is exactly the set
   /// [_ruleHasManyOccurrences] describes, so specific-dates participates.
   bool _tracksPresence = false;
+
+  /// Whether the event shows on the day-cell rail: `null` = auto (follow
+  /// [_tracksPresence]), `true` = always, `false` = never.
+  ///
+  /// Tri-state on purpose — auto is what makes the column need no backfill and
+  /// what keeps a newly tracked event on the rail without a second tap. Gated
+  /// by [_ruleHasManyOccurrences] like [_tracksPresence]: the membership
+  /// predicate excludes one-time events whatever this says, so the control
+  /// must not offer a choice that cannot take effect.
+  bool? _showInDayRail;
+
+  /// Whether the calendar is actually drawing a rail, read once with the
+  /// sheet's other settings.
+  ///
+  /// The control is gated on this as well as on [_ruleHasManyOccurrences], for
+  /// the same reason: the rail is off by default, so without it every editor
+  /// would carry a labelled tri-state plus a hint for a channel that paints
+  /// nothing anywhere in the app. A stored override survives the rail being
+  /// switched off — it is simply not offered while it cannot take effect.
+  bool _dayRailEnabled = false;
 
   /// The cancelled days the user is editing (**v30**), or `null` while they
   /// have not opened the picker.
@@ -468,6 +508,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     _retroactive = initial?.retroactive ?? false;
     _countOccurrences = initial?.countOccurrences ?? false;
     _tracksPresence = initial?.tracksPresence ?? false;
+    _showInDayRail = initial?.showInDayRail;
     _perOccurrenceDescriptions = initial?.perOccurrenceDescriptions ?? false;
     _initRecurrenceFrom(initial?.rule ?? const OneTimeRecurrence());
     // Only a saved event that was actually counting carries a style the user
@@ -1042,6 +1083,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     final palette = await settings.getColorPalette();
     final liveRendering = await settings.getLiveMarkdownRendering();
     final descriptionLimit = await settings.getEventDescriptionLimit();
+    final railStyle = await settings.getCalendarDayRailStyle();
     if (!mounted) return;
     // Both reach the editor surface non-destructively: the span memos are
     // cleared and re_editor is nudged to rebuild its display paragraphs.
@@ -1055,6 +1097,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
       _colorPalette = palette;
       _liveMarkdownRendering = liveRendering;
       _descriptionLimit = descriptionLimit;
+      _dayRailEnabled = railStyle != DayRailStyle.none;
     });
     if (rerender) _descriptionController.forceRepaint();
   }
@@ -1216,6 +1259,13 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     // the opt-in, exactly as the two flags above do. The absence rows survive
     // untouched, so re-ticking the switch restores every mark.
     final effectiveTracksPresence = _ruleHasManyOccurrences && _tracksPresence;
+    // The rail override follows the same gate, but resolves to NULL rather
+    // than `false` when it closes: NULL is *auto*, so an event edited down to
+    // one day and back again returns to following its presence flag instead of
+    // carrying a "never" nobody chose.
+    final effectiveShowInDayRail = _ruleHasManyOccurrences
+        ? _showInDayRail
+        : null;
     // Same shape for the per-day descriptions opt-in, and the same guarantee:
     // editing the event down to a single day clears the flag while the
     // occurrence rows survive, so re-ticking the switch brings every day's
@@ -1249,6 +1299,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             countOccurrences: effectiveCountOccurrences,
             countStyle: _countStyle,
             tracksPresence: effectiveTracksPresence,
+            showInDayRail: effectiveShowInDayRail,
             perOccurrenceDescriptions: effectivePerOccurrenceDescriptions,
             time: effectiveTime,
             description: effectiveDescription,
@@ -1268,6 +1319,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             countOccurrences: effectiveCountOccurrences,
             countStyle: _countStyle,
             tracksPresence: effectiveTracksPresence,
+            showInDayRail: effectiveShowInDayRail,
             perOccurrenceDescriptions: effectivePerOccurrenceDescriptions,
             time: effectiveTime,
             description: effectiveDescription,
@@ -1276,6 +1328,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             colorValue: _colorValue,
             tintIcon: _tintIcon,
             priority: _priority,
+            clearShowInDayRail: effectiveShowInDayRail == null,
             clearEndDate: effectiveEnd == null,
             clearTime: effectiveTime == null,
             clearDescription: effectiveDescription == null,
@@ -1945,6 +1998,51 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                         subtitle: Text(l10n.eventTrackPresenceDesc),
                       ),
                     ),
+                    // Two gates, and both are the same argument: do not offer
+                    // a choice that cannot take effect. Inside the presence
+                    // gate because the membership predicate excludes one-time
+                    // rules whatever this says; behind [_dayRailEnabled]
+                    // because the rail is opt-in and off by default, so on a
+                    // stock install this control would steer a channel that
+                    // paints nothing.
+                    if (_dayRailEnabled) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        l10n.eventShowInDayRail,
+                        style: theme.textTheme.labelLarge,
+                      ),
+                      const SizedBox(height: 4),
+                      SegmentedButton<_DayRailChoice>(
+                        segments: [
+                          ButtonSegment(
+                            value: _DayRailChoice.auto,
+                            label: Text(l10n.eventShowInDayRailAuto),
+                          ),
+                          ButtonSegment(
+                            value: _DayRailChoice.always,
+                            label: Text(l10n.eventShowInDayRailAlways),
+                          ),
+                          ButtonSegment(
+                            value: _DayRailChoice.never,
+                            label: Text(l10n.eventShowInDayRailNever),
+                          ),
+                        ],
+                        selected: {_DayRailChoice.of(_showInDayRail)},
+                        showSelectedIcon: false,
+                        style: const ButtonStyle(
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        onSelectionChanged: (sel) =>
+                            setState(() => _showInDayRail = sel.first.value),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        l10n.eventShowInDayRailHint,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
                   ],
                   // Management only: a day is normally cancelled from the
                   // detail sheet, one occurrence at a time. This is where they

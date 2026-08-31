@@ -26,6 +26,12 @@
   "apply": "Aplică",
   "dayBarWeekend": "Weekend",
   "dayBarPublicHoliday": "Sărbătoare legală",
+  "calendarRailMarkMissedLabel": "{title}, ratat",
+  "@calendarRailMarkMissedLabel": {
+    "placeholders": {
+      "title": { "type": "String" }
+    }
+  },
   "publicHolidayNewYear": "Anul Nou",
   "publicHolidayLabourDay": "Ziua Muncii",
   "publicHolidayChristmasDay": "Crăciun",
@@ -199,6 +205,11 @@
   "recurrenceScopeHint": "Apare și în zilele potrivite dinaintea datei de început",
   "eventTrackPresence": "Urmărește prezența",
   "eventTrackPresenceDesc": "Marchează zilele sărite.",
+  "eventShowInDayRail": "Bara zilei",
+  "eventShowInDayRailAuto": "Automat",
+  "eventShowInDayRailAlways": "Întotdeauna",
+  "eventShowInDayRailNever": "Niciodată",
+  "eventShowInDayRailHint": "Automat urmează urmărirea prezenței.",
   "eventPresencePresent": "Prezent",
   "eventPresenceMissed": "Ratat",
   "eventMarkMissed": "Marchează ca ratat",
@@ -760,6 +771,20 @@
   "calendarMarkerStyleTitle": "Marcaje evenimente",
   "markerStyleBars": "Bare",
   "markerStyleDots": "Puncte",
+  "calendarDayRailStyleTitle": "Bara zilei",
+  "calendarDayRailStyleDesc": "O bară verticală în stânga fiecărei zile, câte un semn pentru fiecare angajament urmărit — ca o zi cu trei să nu mai arate ca una singură. Evenimentele din bară ies din marcajele de jos.",
+  "dayRailStyleNone": "Oprită",
+  "dayRailStyleLine": "Linii",
+  "dayRailStyleDot": "Puncte",
+  "calendarMaxDayRailMarks": "Numărul maxim de semne pe zi",
+  "calendarMaxDayRailMarksDesc": "{count, plural, =1{Afișează un semn pe zi. Restul sunt grupate într-un semn neutru.} few{Afișează până la {count} semne pe zi. Restul sunt grupate într-un semn neutru.} other{Afișează până la {count} de semne pe zi. Restul sunt grupate într-un semn neutru.}}",
+  "@calendarMaxDayRailMarksDesc": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "calendarHighlightWeekends": "Colorează weekendurile",
   "calendarHighlightWeekendsDesc": "Afișează sâmbăta și duminica într-o culoare distinctă",
   "calendarShowWeekNumbers": "Numerele săptămânilor",

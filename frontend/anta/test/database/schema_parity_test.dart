@@ -312,9 +312,7 @@ void main() {
     // only nullable. Both tables are asserted together because a term is
     // meaningless without its list, and the two must tombstone alike.
     for (final table in ['vocabularies', 'vocabulary_items']) {
-      final columns = await db
-          .customSelect('PRAGMA table_info($table)')
-          .get();
+      final columns = await db.customSelect('PRAGMA table_info($table)').get();
       final byName = {for (final row in columns) row.read<String>('name'): row};
 
       expect(byName.keys.toSet(), {
@@ -394,6 +392,9 @@ void main() {
         // the Drift declaration on fresh installs — the same two paths this
         // file exists to hold together.
         'per_occurrence_descriptions',
+        // v34's day-rail override. Same two paths, and the one column here
+        // whose *nullability* is the feature — see below.
+        'show_in_day_rail',
       ]),
     );
     expect(byName['per_occurrence_descriptions']!.read<int>('notnull'), 1);
@@ -401,6 +402,15 @@ void main() {
     expect(
       byName['per_occurrence_descriptions']!.read<String>('dflt_value'),
       '0',
+    );
+    // The schema's first nullable bool, and it must stay one: NULL is the
+    // *auto* state, distinct from both an explicit `true` and an explicit
+    // `false`. A `NOT NULL DEFAULT 0` on either path would collapse auto into
+    // "never" for every event that never opted in.
+    expect(byName['show_in_day_rail']!.read<int>('notnull'), 0);
+    expect(
+      byName['show_in_day_rail']!.readNullable<String>('dflt_value'),
+      isNull,
     );
     for (final name in [
       'hlc_timestamp',

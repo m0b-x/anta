@@ -37,12 +37,8 @@ void main() {
   });
 
   group('commentLabel', () {
-    VocabularyItem itemFor(String term) => VocabularyItem(
-      id: 'i1',
-      vocabularyId: 'v1',
-      term: term,
-      sortOrder: 0,
-    );
+    VocabularyItem itemFor(String term) =>
+        VocabularyItem(id: 'i1', vocabularyId: 'v1', term: term, sortOrder: 0);
 
     test('strips the marker and the space after it', () {
       expect(itemFor(';; Chest').commentLabel, 'Chest');

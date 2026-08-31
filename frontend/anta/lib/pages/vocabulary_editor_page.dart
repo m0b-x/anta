@@ -194,9 +194,8 @@ class _VocabularyEditorPageState extends State<VocabularyEditorPage> {
                           ? Icons.expand_less_rounded
                           : Icons.expand_more_rounded,
                     ),
-                    onPressed: () => setState(
-                      () => _detailsExpanded = !_detailsExpanded,
-                    ),
+                    onPressed: () =>
+                        setState(() => _detailsExpanded = !_detailsExpanded),
                   ),
                 ],
               ),

@@ -41,9 +41,7 @@ void main() {
   Slider slider(WidgetTester tester) =>
       tester.widget<Slider>(find.byType(Slider));
 
-  testWidgets('dragging updates the caption but never commits', (
-    tester,
-  ) async {
+  testWidgets('dragging updates the caption but never commits', (tester) async {
     final commits = <int>[];
     await pumpRow(tester, value: 3, commits: commits);
     final row = slider(tester);
@@ -78,25 +76,24 @@ void main() {
     expect(find.textContaining('draft caption'), findsNothing);
   });
 
-  testWidgets(
-    'a debounce timer commits once when onChangeEnd never arrives',
-    (tester) async {
-      final commits = <int>[];
-      await pumpRow(tester, value: 3, commits: commits);
-      final row = slider(tester);
+  testWidgets('a debounce timer commits once when onChangeEnd never arrives', (
+    tester,
+  ) async {
+    final commits = <int>[];
+    await pumpRow(tester, value: 3, commits: commits);
+    final row = slider(tester);
 
-      row.onChanged!(6);
-      await tester.pump();
-      expect(commits, isEmpty);
+    row.onChanged!(6);
+    await tester.pump();
+    expect(commits, isEmpty);
 
-      // Past the ~350ms fallback debounce; onChangeEnd is never called,
-      // simulating an accessibility-driven change.
-      await tester.pump(const Duration(milliseconds: 500));
+    // Past the ~350ms fallback debounce; onChangeEnd is never called,
+    // simulating an accessibility-driven change.
+    await tester.pump(const Duration(milliseconds: 500));
 
-      expect(commits, [6]);
-      expect(find.text('idle caption'), findsOneWidget);
-    },
-  );
+    expect(commits, [6]);
+    expect(find.text('idle caption'), findsOneWidget);
+  });
 
   testWidgets(
     'a timer commit followed by a late onChangeEnd does not double-commit',

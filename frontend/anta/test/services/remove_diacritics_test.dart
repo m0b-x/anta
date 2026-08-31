@@ -54,7 +54,8 @@ void main() {
     });
 
     test('surrogate-pair-heavy text mixed with diacritics', () {
-      const text = '\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467} Ïñtérnâtiônàlizætiøn \u{1F30D}';
+      const text =
+          '\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467} Ïñtérnâtiônàlizætiøn \u{1F30D}';
       expect(removeDiacritics(text), _oldRemoveDiacritics(text));
     });
 

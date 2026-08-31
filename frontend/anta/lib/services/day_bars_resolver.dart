@@ -11,6 +11,8 @@ import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../models/day_bar.dart';
 import '../models/fasting_appearance.dart';
+import 'day_rail_resolver.dart';
+import 'resolver_chain.dart';
 import 'note_money_ledger_service.dart';
 
 /// Contract for anything that contributes bars to a calendar day cell.
@@ -110,10 +112,23 @@ class FastingDayBarProvider implements DayBarProvider {
 /// cell's `maxDayBars` slots. Both branches cost two static map probes, which
 /// keeps the provider contract (pure & cheap, called for every visible cell
 /// on every rebuild) intact.
+///
+/// When the day-cell rail is on, an event the rail already shows is skipped
+/// here: each channel then means one thing (rail = recurring commitments and
+/// whether they were kept; bars = everything else on the day), and the freed
+/// `maxDayBars` slots go to the events nothing else renders. Membership comes
+/// from the single shared [eventInDayRail] predicate — never a second copy, or
+/// the two channels could disagree and drop an event from the grid entirely.
+/// [railActive] defaults to `false`, so with the rail off the bars are exactly
+/// what they always were: turning the rail off never silently hides an event.
 class EventDayBarProvider implements DayBarProvider {
   final CalendarMissedDisplay missedDisplay;
+  final bool railActive;
 
-  const EventDayBarProvider({this.missedDisplay = CalendarMissedDisplay.faded});
+  const EventDayBarProvider({
+    this.missedDisplay = CalendarMissedDisplay.faded,
+    this.railActive = false,
+  });
 
   @override
   Iterable<DayBar> barsFor(DateTime day, List<CalendarEvent> events) {
@@ -127,6 +142,7 @@ class EventDayBarProvider implements DayBarProvider {
     // order instead of copying and re-sorting on every cell, every frame.
     final bars = <DayBar>[];
     for (final event in events) {
+      if (railActive && eventInDayRail(event)) continue;
       final missed =
           EventPresence.appliesTo(event) &&
           EventPresence.isMissed(event.id, day);
@@ -221,10 +237,14 @@ class DayBarsResolver {
   factory DayBarsResolver.defaults(
     AppLocalizations l10n, {
     CalendarMissedDisplay missedDisplay = CalendarMissedDisplay.faded,
+    bool railActive = false,
   }) {
     return DayBarsResolver(
       providers: [
-        EventDayBarProvider(missedDisplay: missedDisplay),
+        EventDayBarProvider(
+          missedDisplay: missedDisplay,
+          railActive: railActive,
+        ),
         PublicHolidayDayBarProvider(l10n),
         FastingDayBarProvider(l10n),
         WeekendDayBarProvider(l10n),
@@ -233,24 +253,6 @@ class DayBarsResolver {
     );
   }
 
-  List<DayBar> resolve(DateTime day, List<CalendarEvent> events) {
-    final byKey = <String, DayBar>{};
-    for (final provider in providers) {
-      for (final bar in provider.barsFor(day, events)) {
-        byKey.putIfAbsent(bar.key, () => bar);
-      }
-    }
-    // Stable sort by priority, mirroring `DaySummaryResolver.resolve`:
-    // `List.sort` is unstable, so ties break by insertion index instead of
-    // by key — providers control the order of their own equal-priority
-    // bars (events arrive pre-sorted by `EventAgenda.compareWithinDay`,
-    // which a key sort on `event:<uuid>` used to scramble into id order).
-    final bars = byKey.values.toList();
-    final order = [for (var i = 0; i < bars.length; i++) (i, bars[i])]
-      ..sort((a, b) {
-        final byPriority = a.$2.priority.compareTo(b.$2.priority);
-        return byPriority != 0 ? byPriority : a.$1.compareTo(b.$1);
-      });
-    return [for (final (_, bar) in order) bar];
-  }
+  List<DayBar> resolve(DateTime day, List<CalendarEvent> events) =>
+      resolveChain(providers.map((p) => p.barsFor(day, events)));
 }

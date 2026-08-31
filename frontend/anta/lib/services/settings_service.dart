@@ -666,6 +666,48 @@ class SettingsService {
     );
   }
 
+  // Calendar appearance - the left-edge day rail.
+  static DayRailStyle _decodeCalendarDayRailStyle(String? raw) =>
+      DayRailStyle.fromName(raw ?? SettingsKeys.defaultCalendarDayRailStyle);
+
+  Future<DayRailStyle> getCalendarDayRailStyle() async {
+    return _decodeCalendarDayRailStyle(
+      await _db.userSettingsDao.getValue(SettingsKeys.calendarDayRailStyle),
+    );
+  }
+
+  Future<void> setCalendarDayRailStyle(DayRailStyle style) async {
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.calendarDayRailStyle,
+      style.name,
+    );
+  }
+
+  // Calendar appearance - rail capacity. Clamped on read so a hand-edited or
+  // future-written value can never ask the rail for a count it cannot draw.
+  static int _decodeCalendarMaxDayRailMarks(String? raw) {
+    return _decodeInt(raw, SettingsKeys.defaultCalendarMaxDayRailMarks).clamp(
+      SettingsKeys.minCalendarMaxDayRailMarks,
+      SettingsKeys.maxCalendarMaxDayRailMarks,
+    );
+  }
+
+  Future<int> getCalendarMaxDayRailMarks() async {
+    return _decodeCalendarMaxDayRailMarks(
+      await _db.userSettingsDao.getValue(SettingsKeys.calendarMaxDayRailMarks),
+    );
+  }
+
+  Future<void> setCalendarMaxDayRailMarks(int value) async {
+    await _setInt(
+      SettingsKeys.calendarMaxDayRailMarks,
+      value.clamp(
+        SettingsKeys.minCalendarMaxDayRailMarks,
+        SettingsKeys.maxCalendarMaxDayRailMarks,
+      ),
+    );
+  }
+
   /// Loads every upcoming-agenda filter in one call.
   Future<UpcomingAgendaFilters> getUpcomingAgendaFilters() async {
     final rangeDays = await _getInt(
@@ -1034,6 +1076,8 @@ class SettingsService {
     SettingsKeys.calendarMissedDisplay,
     SettingsKeys.calendarEventTint,
     SettingsKeys.calendarTintConflict,
+    SettingsKeys.calendarDayRailStyle,
+    SettingsKeys.calendarMaxDayRailMarks,
   ];
 
   static const List<String> _calendarPageKeys = [
@@ -1088,6 +1132,12 @@ class SettingsService {
       ),
       tintConflict: _decodeCalendarTintConflict(
         values[SettingsKeys.calendarTintConflict],
+      ),
+      dayRailStyle: _decodeCalendarDayRailStyle(
+        values[SettingsKeys.calendarDayRailStyle],
+      ),
+      maxDayRailMarks: _decodeCalendarMaxDayRailMarks(
+        values[SettingsKeys.calendarMaxDayRailMarks],
       ),
     );
   }

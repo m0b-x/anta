@@ -38,6 +38,34 @@ enum CalendarMarkerStyle {
   }
 }
 
+/// How the vertical rail along a day cell's left edge is drawn.
+///
+/// The rail is the calendar's second, **multi-source** presence channel: the
+/// cell wash picks exactly one event per day by design, so a day carrying
+/// three tracked commitments reads as one. The rail shows every one of them.
+///
+/// Off by default, like every other opt-in appearance option
+/// (`eventTint`, `highlightWeekends`, `showWeekNumbers`).
+enum DayRailStyle {
+  /// No rail; the grid is exactly what it was before the feature existed.
+  none,
+
+  /// Stacked vertical segments filling the rail's height.
+  line,
+
+  /// Stacked small circles, vertically centred. The only style that renders a
+  /// missed mark hollow as well as faded.
+  dot;
+
+  /// Forward-compatible parsing: unknown/null values fall back to [none].
+  static DayRailStyle fromName(String? name) {
+    for (final style in values) {
+      if (style.name == name) return style;
+    }
+    return none;
+  }
+}
+
 /// How an occurrence the user marked as missed is drawn (**v26**).
 ///
 /// Applies to the grid markers, the agenda and the timeline. The day summary
@@ -155,6 +183,17 @@ class CalendarAppearance extends Equatable {
   /// when [eventTint] is on.
   final CalendarTintConflict tintConflict;
 
+  /// How the left-edge rail is drawn, or [DayRailStyle.none] for no rail.
+  ///
+  /// Off by default, like every other opt-in appearance option. Turning it on
+  /// also moves rail-eligible events out of the bottom marker strip, freeing
+  /// [maxDayBars] slots — the second face of the same complaint.
+  final DayRailStyle dayRailStyle;
+
+  /// Maximum rail marks per day cell before the neutral overflow mark. The
+  /// rail clamps this further against its measured height.
+  final int maxDayRailMarks;
+
   const CalendarAppearance({
     this.todayStyle = CalendarTodayStyle.tonal,
     this.markerStyle = CalendarMarkerStyle.bars,
@@ -167,6 +206,8 @@ class CalendarAppearance extends Equatable {
     this.missedDisplay = CalendarMissedDisplay.faded,
     this.eventTint = false,
     this.tintConflict = CalendarTintConflict.eventWins,
+    this.dayRailStyle = DayRailStyle.none,
+    this.maxDayRailMarks = 3,
   });
 
   /// The effective highlight accent: the user's custom color when set,
@@ -189,6 +230,8 @@ class CalendarAppearance extends Equatable {
     CalendarMissedDisplay? missedDisplay,
     bool? eventTint,
     CalendarTintConflict? tintConflict,
+    DayRailStyle? dayRailStyle,
+    int? maxDayRailMarks,
   }) {
     return CalendarAppearance(
       todayStyle: todayStyle ?? this.todayStyle,
@@ -204,6 +247,8 @@ class CalendarAppearance extends Equatable {
       missedDisplay: missedDisplay ?? this.missedDisplay,
       eventTint: eventTint ?? this.eventTint,
       tintConflict: tintConflict ?? this.tintConflict,
+      dayRailStyle: dayRailStyle ?? this.dayRailStyle,
+      maxDayRailMarks: maxDayRailMarks ?? this.maxDayRailMarks,
     );
   }
 
@@ -220,5 +265,7 @@ class CalendarAppearance extends Equatable {
     missedDisplay,
     eventTint,
     tintConflict,
+    dayRailStyle,
+    maxDayRailMarks,
   ];
 }

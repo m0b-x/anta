@@ -8,7 +8,11 @@ import 'package:anta/utils/vocabulary_trigger.dart';
 /// make the trigger character unusable in ordinary text, so most of this file
 /// is about what does **not** start a session.
 void main() {
-  VocabularyTriggerMatch? matchAt(String line, int caret, {String trigger = '@'}) {
+  VocabularyTriggerMatch? matchAt(
+    String line,
+    int caret, {
+    String trigger = '@',
+  }) {
     return VocabularyTrigger.matchAt(line, caret, trigger: trigger);
   }
 

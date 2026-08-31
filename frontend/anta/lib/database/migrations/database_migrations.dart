@@ -171,6 +171,11 @@ class DatabaseMigrations {
       toVersion: DatabaseSchema.v33CategoryHidden,
       migrate: _migrateV32ToV33,
     ),
+    Migration(
+      fromVersion: DatabaseSchema.v33CategoryHidden,
+      toVersion: DatabaseSchema.v34EventShowInDayRail,
+      migrate: _migrateV33ToV34,
+    ),
   ];
 
   Future<void> runMigrations(Migrator m, int from, int to) async {
@@ -1242,6 +1247,38 @@ class DatabaseMigrations {
     if (!existing.contains('is_hidden')) {
       await _db.customStatement(
         'ALTER TABLE calendar_categories ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+  }
+
+  /// v33 → v34: `calendar_events.show_in_day_rail`, the per-event override for
+  /// membership in the day-cell rail.
+  ///
+  /// The one column in this schema that is a **nullable** bool, and
+  /// deliberately so: the feature is tri-state. NULL means *auto* — the event
+  /// is in the rail exactly when presence tracking applies to it — while
+  /// `1` forces it in and `0` forces it out. A `NOT NULL DEFAULT 0` would
+  /// collapse auto into "never" and force a backfill that has no correct
+  /// answer, so the column ships without a default and every pre-v34 row keeps
+  /// reading as auto. No backfill for the same reason.
+  ///
+  /// `PRAGMA table_info` guard, one `ALTER TABLE`, no `CHECK` — the v19 / v26 /
+  /// v33 shape, re-runnable after a partial upgrade. The create path comes
+  /// from the Drift declaration via `createAll`, which `schema_parity_test`
+  /// holds to the same nullable/no-default shape.
+  ///
+  /// `calendar_event_templates` deliberately does **not** get the column: a
+  /// template-stamped event lands on NULL = auto, which is the right default,
+  /// and the template DDL stays frozen at its v29 shape.
+  Future<void> _migrateV33ToV34(Migrator m, GeneratedDatabase db) async {
+    final existing = <String>{
+      for (final row
+          in await _db.customSelect('PRAGMA table_info(calendar_events)').get())
+        row.read<String>('name'),
+    };
+    if (!existing.contains('show_in_day_rail')) {
+      await _db.customStatement(
+        'ALTER TABLE calendar_events ADD COLUMN show_in_day_rail INTEGER',
       );
     }
   }

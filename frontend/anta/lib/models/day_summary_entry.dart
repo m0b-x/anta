@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
 
 import 'calendar_event.dart';
+import 'chain_item.dart';
 
 /// A single entry rendered in the calendar's bottom "day summary" panel.
 ///
@@ -10,9 +11,10 @@ import 'calendar_event.dart';
 ///   *   0..99   events
 ///   * 100..199  public holiday
 ///   * 200..299  weekend / contextual
-class DaySummaryEntry extends Equatable {
+class DaySummaryEntry extends Equatable implements ChainItem {
   /// Stable identifier used for deduplication (e.g. `"weekend"`,
   /// `"holiday"`, `"event:<id>"`).
+  @override
   final String key;
 
   final IconData icon;
@@ -26,6 +28,7 @@ class DaySummaryEntry extends Equatable {
   /// demand, so nothing derived is stored or persisted.
   final String? description;
 
+  @override
   final int priority;
 
   /// Optional payload for callers that want to act on a tap (e.g. the

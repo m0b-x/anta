@@ -479,7 +479,10 @@ void main() {
 
     test('an unconfigured calendar is empty either way', () {
       FastingCalendar.resetConfiguration();
-      expect(FastingCalendar.cellStyleForUtcDay(_d(2026, 1, 14)).isEmpty, isTrue);
+      expect(
+        FastingCalendar.cellStyleForUtcDay(_d(2026, 1, 14)).isEmpty,
+        isTrue,
+      );
       expect(FastingCalendar.cellStyleFor(_d(2026, 1, 14)).isEmpty, isTrue);
     });
   });

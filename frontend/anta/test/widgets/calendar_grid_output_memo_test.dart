@@ -42,6 +42,12 @@ void main() {
   late Directory tempDir;
   late CalendarBloc bloc;
   late ImportExportBloc importExportBloc;
+
+  /// One database per test, shared by the settings facade and the repositories
+  /// the page-level `ImportExportBloc` needs. Opening a second `AppDatabase`
+  /// over the same executor is what drift warns can corrupt a database, and
+  /// nothing here needs the two to be separate.
+  late AppDatabase testDb;
   late DateTime today;
 
   setUpAll(() async {
@@ -77,7 +83,8 @@ void main() {
     // `calendar_bottom_panel_anchor_test.dart`'s setup.
     DatabaseLifecycle.notifyDatabaseSwitching();
     SettingsService.reset();
-    SettingsService.forTesting(await openTestDatabase());
+    testDb = await openTestDatabase();
+    SettingsService.forTesting(testDb);
 
     final service = await CalendarEventService.getInstance();
     await service.deleteAll();
@@ -105,9 +112,8 @@ void main() {
     // A second, throwaway in-memory database purely so `ImportExportBloc`
     // exists in the tree — `CalendarPage` reads it but this test never
     // triggers export, so what it is wired to does not matter.
-    final importDb = await openTestDatabase();
-    final noteRepository = NoteRepository(database: importDb);
-    final folderRepository = FolderRepository(database: importDb);
+    final noteRepository = NoteRepository(database: testDb);
+    final folderRepository = FolderRepository(database: testDb);
     importExportBloc = ImportExportBloc(
       service: ImportExportService(
         noteStorage: NoteStorageService(repository: noteRepository),
@@ -121,6 +127,7 @@ void main() {
     await bloc.close();
     await importExportBloc.close();
     SettingsService.reset();
+    await testDb.close();
   });
 
   /// Dispatches [event] and waits for the bloc's next emission before

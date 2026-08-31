@@ -90,6 +90,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get dayBarPublicHoliday => 'Public holiday';
 
   @override
+  String calendarRailMarkMissedLabel(String title) {
+    return '$title, missed';
+  }
+
+  @override
   String get publicHolidayNewYear => 'New Year\'s Day';
 
   @override
@@ -756,6 +761,21 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get eventTrackPresenceDesc => 'Mark the days you skip.';
+
+  @override
+  String get eventShowInDayRail => 'Day rail';
+
+  @override
+  String get eventShowInDayRailAuto => 'Auto';
+
+  @override
+  String get eventShowInDayRailAlways => 'Always';
+
+  @override
+  String get eventShowInDayRailNever => 'Never';
+
+  @override
+  String get eventShowInDayRailHint => 'Auto follows presence tracking.';
 
   @override
   String get eventPresencePresent => 'Present';
@@ -2595,6 +2615,38 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get markerStyleDots => 'Dots';
+
+  @override
+  String get calendarDayRailStyleTitle => 'Day rail';
+
+  @override
+  String get calendarDayRailStyleDesc =>
+      'A vertical rail on the left of each day, one mark per tracked commitment — so a day carrying three of them stops reading as one. Rail events leave the bottom markers.';
+
+  @override
+  String get dayRailStyleNone => 'Off';
+
+  @override
+  String get dayRailStyleLine => 'Lines';
+
+  @override
+  String get dayRailStyleDot => 'Dots';
+
+  @override
+  String get calendarMaxDayRailMarks => 'Maximum rail marks per day';
+
+  @override
+  String calendarMaxDayRailMarksDesc(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Show up to $count rail marks per day. The rest collapse into one neutral mark.',
+      one:
+          'Show one rail mark per day. The rest collapse into one neutral mark.',
+    );
+    return '$_temp0';
+  }
 
   @override
   String get calendarHighlightWeekends => 'Tint weekends';

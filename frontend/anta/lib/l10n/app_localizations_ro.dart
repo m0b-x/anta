@@ -90,6 +90,11 @@ class AppLocalizationsRo extends AppLocalizations {
   String get dayBarPublicHoliday => 'Sărbătoare legală';
 
   @override
+  String calendarRailMarkMissedLabel(String title) {
+    return '$title, ratat';
+  }
+
+  @override
   String get publicHolidayNewYear => 'Anul Nou';
 
   @override
@@ -771,6 +776,21 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get eventTrackPresenceDesc => 'Marchează zilele sărite.';
+
+  @override
+  String get eventShowInDayRail => 'Bara zilei';
+
+  @override
+  String get eventShowInDayRailAuto => 'Automat';
+
+  @override
+  String get eventShowInDayRailAlways => 'Întotdeauna';
+
+  @override
+  String get eventShowInDayRailNever => 'Niciodată';
+
+  @override
+  String get eventShowInDayRailHint => 'Automat urmează urmărirea prezenței.';
 
   @override
   String get eventPresencePresent => 'Prezent';
@@ -2631,6 +2651,39 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get markerStyleDots => 'Puncte';
+
+  @override
+  String get calendarDayRailStyleTitle => 'Bara zilei';
+
+  @override
+  String get calendarDayRailStyleDesc =>
+      'O bară verticală în stânga fiecărei zile, câte un semn pentru fiecare angajament urmărit — ca o zi cu trei să nu mai arate ca una singură. Evenimentele din bară ies din marcajele de jos.';
+
+  @override
+  String get dayRailStyleNone => 'Oprită';
+
+  @override
+  String get dayRailStyleLine => 'Linii';
+
+  @override
+  String get dayRailStyleDot => 'Puncte';
+
+  @override
+  String get calendarMaxDayRailMarks => 'Numărul maxim de semne pe zi';
+
+  @override
+  String calendarMaxDayRailMarksDesc(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Afișează până la $count de semne pe zi. Restul sunt grupate într-un semn neutru.',
+      few:
+          'Afișează până la $count semne pe zi. Restul sunt grupate într-un semn neutru.',
+      one: 'Afișează un semn pe zi. Restul sunt grupate într-un semn neutru.',
+    );
+    return '$_temp0';
+  }
 
   @override
   String get calendarHighlightWeekends => 'Colorează weekendurile';

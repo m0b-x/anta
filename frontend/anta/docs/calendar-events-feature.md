@@ -18,7 +18,9 @@ linked.
 > `suppressed` flag on `public_holidays`; **v18** inverted the stored
 > priority scale (data-only: `p -> 6 - p`, see the Addendum); **v24** added
 > the sparse `calendar_event_occurrences` table (per-occurrence description
-> overrides, §6.6); **v33** added `calendar_categories.is_hidden` (§2.3). The
+> overrides, §6.6); **v33** added `calendar_categories.is_hidden` (§2.3);
+> **v34** added the nullable `calendar_events.show_in_day_rail` (per-event
+> day-rail override, NULL = auto — see the v34 addendum). The
 > recurrence **interval** ("every N …") shipped without a migration — it rides
 > inside the existing `rule_payload`.
 
@@ -2622,3 +2624,169 @@ text finds the row.**
   window's holidays, offering the top three as chips that replace the query.
   Kept strictly separate from the filtering grammar, which stays exact
   substring: fuzziness suggests, it never decides what matches.
+
+## Addendum (schema v34): day rail markers
+
+The cell wash picks **exactly one** event per day, deliberately — averaging a
+day's colours yields a hue that belongs to no event on it. That is fine for a
+day with one presence-tracked commitment and useless for a day with three,
+which is precisely the shape recurring commitments (gym, physio, language
+class) take. The **day rail** is a second channel that is multi-source by
+construction: a vertical rail on the left edge of the cell, one mark per
+commitment, each mark carrying whether it was kept. Design record:
+[day-rail-markers-roadmap.md](day-rail-markers-roadmap.md).
+
+### Schema
+
+`calendar_events.show_in_day_rail INTEGER` — **nullable, no default**, the
+schema's first nullable bool. Migration `_migrateV33ToV34` is the usual
+`PRAGMA table_info` guard + `ALTER TABLE`, with **no backfill**: NULL is a
+meaningful value, not a missing one. `ImportExportService.archiveVersion`
+stays **1** and the backup version stays **7** — the column is additive, and an
+older archive imports as NULL, which is the pre-feature behaviour exactly.
+`calendar_event_templates` deliberately did **not** get the column: a
+template-created event defaults to NULL = auto, which is already right.
+
+### Membership: one predicate, three states
+
+`eventInDayRail` (`lib/services/day_rail_resolver.dart`) is **the** definition,
+read by both the rail provider and the bar provider's exclusion:
+
+```dart
+event.rule is! OneTimeRecurrence && (event.showInDayRail ?? event.tracksPresence)
+```
+
+- `NULL` (default, and every pre-v34 row) — **auto**: presence-tracked
+  recurring events are in, nothing else. No event changed behaviour.
+- `true` — force in. The recurrence guard is part of the predicate, so a
+  one-time event can never enter the rail whatever the column says.
+- `false` — force out.
+
+The editor's control is a three-way `SegmentedButton` (Auto / Always / Never)
+inside the same `_ruleHasManyOccurrences` gate as the presence switch — the
+predicate excludes one-time rules, so offering the choice there would be
+offering a no-op. Auto persists as **NULL**, via `copyWith`'s
+`clearShowInDayRail` flag; a plain `copyWith` cannot express "set this nullable
+field back to null", and writing `false` instead would freeze today's auto
+answer into an explicit one.
+
+### The third provider chain
+
+`DayRailProvider` / `DayRailResolver` mirror `DayBarProvider` /
+`DayBarsResolver` and `CellTintProvider` / `CellTintResolver`, purity contract
+included: `marksFor` runs for every visible cell on every rebuild, so static
+facade probes only. One provider ships, `EventDayRailProvider`.
+
+- **Model.** `DayRailMark` = `DayBar` plus `bool missed`, same field names, so
+  the two provider suites share fixture builders. It shares the `event:<uuid>`
+  keyspace on purpose — the mark that survives the cap is then the same event
+  that wins the wash.
+- **Ordering.** Events arrive pre-sorted by `EventAgenda.compareWithinDay`;
+  the provider never re-sorts, and `resolve` is `DayBarsResolver.resolve`'s
+  body with the type changed — `putIfAbsent` dedup, stable priority sort with
+  the insertion-index tie-break.
+- **The resolver does not cap.** `CalendarDayRail` caps, exactly as
+  `CalendarDayBars` does, and additionally clamps the visible count against its
+  measured height at paint time so a short row can never overflow.
+- **Missed.** `CalendarMissedDisplay` is reused with no rail-specific setting.
+  `hidden` is filtered at the **top** of the per-event loop, before any add, so
+  a hidden miss never consumes a rail slot. `faded` dims by
+  `CalendarColors.missedEventAlpha` and, in `dot` style, additionally draws the
+  mark hollow. Missed state also rides the mark's `semanticLabel`
+  (`calendarRailMarkMissedLabel`, "{title}, missed") — colour is never the only
+  carrier.
+
+### A rail event leaves the bottom strip — but only while the rail renders
+
+`EventDayBarProvider` gains `final bool railActive` (default `false`) and skips
+events for which `eventInDayRail` is true. Each channel then means one thing —
+rail = recurring commitments and whether you kept them, bars = everything else
+today — and it frees the `maxDayBars` slots tracked events used to burn, which
+is the second face of the same complaint. `railActive` is threaded from
+`DayBarsResolver.defaults` and comes from
+`appearance.dayRailStyle != DayRailStyle.none`, so **turning the rail off never
+silently drops events from the grid**.
+
+### Geometry, and where it lives in the cell
+
+Two fixed lanes share the cell's left gutter. Lane 0 is the tint edge stripe
+(`left: 0, width: 3` **inside** the tinted container's 1.5px margin, so it
+really ends at x = 4.5). Lane 1 is the rail at `CalendarDayCell.railLeft` (5),
+`top: 4, bottom: 4`. Both sit at a fixed x whether or not the other is
+present: a rail that slid left when the stripe is absent would shift under the
+user across months.
+
+Lane width comes from `CalendarDayRail.railWidth(style)` — 3 for `line`, 5 for
+`dot`. A `Positioned` gives tight constraints, and a 5px circle (with 1px of it
+spent on a hollow missed outline) cannot be drawn 3px wide. Only the **right**
+edge moves; the left edge is fixed, which is what the stability rule protects.
+
+The rail cannot join the tint `Stack` — that one is built only when the day is
+tinted. `CalendarDayCell.build` instead wraps whatever the cell turned out to
+be in an **outer** `Stack`, and only when `railMarks.isNotEmpty && railStyle !=
+none`, so an untinted day with no marks stays the single bare `Align` it has
+always been.
+
+`_rowHeight` is unchanged — the rail is vertical. Capacity depends on the row
+height, so `CalendarDayRail` measures it (`LayoutBuilder`) and clamps: at the
+44px usable height of a 52px minimum row, `dot` fits five.
+
+### Styles, cap, overflow
+
+`DayRailStyle { none, line, dot }`, default **`none`** — opt-in like
+`eventTint`, `highlightWeekends` and `showWeekNumbers`; no first-run nudge, no
+conditional default. `line` is `n` stacked segments dividing the rail height
+(2px gaps, 1.5px radius); `dot` is stacked 5px circles with 3px gaps, centred.
+
+`calendar_max_day_rail_marks` is its **own** setting (1–5, default 3), not a
+share of `maxDayBars` (1–6): different geometry, different capacity, different
+content. It is clamped in the setter *and* the decoder. Overflow renders
+`n - 1` marks plus a neutral `onSurfaceVariant` last mark — a half-height
+segment for `line`, a smaller hollow dot for `dot`. The exact `+N` goes into
+the **semantics label only**; there is no room beside a 3px rail to draw a
+number, which makes that label the only place the count exists at all.
+
+### Accessibility
+
+One merged `Semantics(container: true)` over `ExcludeSemantics(child: strip)`,
+never a node per mark — mirroring `CalendarDayBars`. A day therefore announces
+at most two marker nodes (rail, bars), each meaningful; the problem that
+motivated the merge was per-sliver *unlabelled* nodes, not labelled merged
+ones. The two cannot share one node: the strip is built in table_calendar's
+`markerBuilder` and the cell in `cellBuilder`, separate subtrees.
+
+### Perf
+
+A third per-day output memo, `_railOutputCache`, beside `_barsOutputCache` and
+`_tintOutputCache`, cleared by the same `_outputGeneration` record — which
+gains a `railResolver` identity field. The rail renders inside the cell, so it
+resolves in `_buildDayCell` beside the tint lookup, not in `markerBuilder`
+where the bars do. With the rail off the resolver is not called at all.
+
+Rail **style** and **max** are paint-side widget parameters, deliberately not
+resolver inputs, so changing either repaints without dropping the mark caches.
+`_resolverFor`'s memo key gained `railActive`, because the bar exclusion above
+changes how that resolver is constructed.
+
+### Shared contrast helper
+
+`MarkerContrast` (`lib/utils/marker_contrast.dart`) now owns the 1.6:1 ratio,
+the bounded luminance memo and `outlineFor`, extracted from `CalendarDayBars`
+and consumed by both marker surfaces. It was retuned once already (2026-08-23,
+ratio not delta); a second copy would silently keep the version that was wrong.
+
+### Settings surface
+
+Calendar settings → Appearance, with the marker options rather than the tint
+options: a `SegmentedButton` for the style and, revealed only when the style is
+not `none`, the capacity slider. `_AppearancePreview` composes its sample cells
+by hand, so it was extended manually — the "overflowing" sample carries one
+mark over the cap and a missed one, because faded-and-hollow is the part that
+cannot be pictured from the setting's copy.
+
+### Known gap (pre-existing, not introduced here)
+
+`BackupService._exportSettings` is a hardcoded allowlist with **zero**
+`calendar_*` entries, so no calendar appearance setting round-trips through a
+JSON backup today — the rail's two keys included. Matching the existing
+behaviour is correct for this feature; closing the gap is its own change.

@@ -231,6 +231,7 @@ class CalendarEventService {
           'countStyle': row.countStyle,
           'tracksPresence': row.tracksPresence,
           'perOccurrenceDescriptions': row.perOccurrenceDescriptions,
+          'showInDayRail': row.showInDayRail,
           'createdAtMs': row.createdAt.millisecondsSinceEpoch,
           'updatedAtMs': row.updatedAt.millisecondsSinceEpoch,
         },
@@ -336,6 +337,13 @@ class CalendarEventService {
             perOccurrenceDescriptions: map['perOccurrenceDescriptions'] is bool
                 ? Value(map['perOccurrenceDescriptions'] as bool)
                 : const Value.absent(),
+            // Absent in pre-v34 backups, and absent is exactly right: the
+            // column is nullable and NULL means *auto*, so a v33 archive
+            // restores every event to the rail membership its presence flag
+            // already implied. Only an explicit override round-trips.
+            showInDayRail: map['showInDayRail'] is bool
+                ? Value(map['showInDayRail'] as bool)
+                : const Value.absent(),
             createdAt: Value(
               DateTime.fromMillisecondsSinceEpoch(createdMs, isUtc: true),
             ),
@@ -374,6 +382,7 @@ class CalendarEventService {
       countStyle: OccurrenceCountStyle.fromName(row.countStyle),
       tracksPresence: row.tracksPresence,
       perOccurrenceDescriptions: row.perOccurrenceDescriptions,
+      showInDayRail: row.showInDayRail,
       rule: _decodeRule(row.ruleKind, row.rulePayload),
     );
   }
@@ -436,6 +445,7 @@ class CalendarEventService {
       countStyle: Value(event.countStyle.name),
       tracksPresence: Value(event.tracksPresence),
       perOccurrenceDescriptions: Value(event.perOccurrenceDescriptions),
+      showInDayRail: Value(event.showInDayRail),
       createdAt: Value(updatedAt),
       updatedAt: Value(updatedAt),
     );

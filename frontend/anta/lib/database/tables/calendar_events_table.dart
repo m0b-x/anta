@@ -42,6 +42,14 @@ import 'package:drift/drift.dart';
 /// `OccurrenceDescriptions.appliesTo`. Defaults to 0, which renders one shared
 /// description exactly as a global-off install did.
 ///
+/// [showInDayRail] (added in schema v34) is the per-event override for
+/// membership in the day-cell rail — the second, multi-source presence
+/// channel next to the single-event tint. It is the schema's first nullable
+/// bool on purpose: NULL (the default) means *auto* — the event is in the
+/// rail exactly when `EventPresence.appliesTo` holds; `true` forces it in,
+/// `false` forces it out. The recurrence guard lives in the shared predicate
+/// (`eventInDayRail`), so `true` on a one-time event still stays out.
+///
 /// [colorValue] / [tintIcon] / [priority] (added in schema v16) drive
 /// per-event presentation. [colorValue] is an optional 32-bit ARGB override
 /// (NULL = use the category color); [tintIcon] decides whether that color
@@ -88,6 +96,7 @@ class CalendarEvents extends Table {
       boolean().withDefault(const Constant(false))();
   BoolColumn get perOccurrenceDescriptions =>
       boolean().withDefault(const Constant(false))();
+  BoolColumn get showInDayRail => boolean().nullable()();
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
 

@@ -11,6 +11,7 @@ import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../models/day_bar.dart';
 import '../models/day_cell_tint.dart';
+import '../models/day_rail_mark.dart';
 import '../models/fasting_appearance.dart';
 import '../models/fasting_schedule.dart';
 import '../widgets/fasting_schedule_sheet.dart';
@@ -543,13 +544,92 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
             onCommit: (value) async {
               _onHapticFeedback();
               setState(
-                () =>
-                    _appearance = _appearance.copyWith(maxDayBars: value),
+                () => _appearance = _appearance.copyWith(maxDayBars: value),
               );
               await _settings?.setCalendarMaxDayBars(value);
             },
           ),
         ),
+        SettingsEntry(
+          title: l10n.calendarDayRailStyleTitle,
+          description: l10n.calendarDayRailStyleDesc,
+          // Neither word appears in the copy, but the rail is the answer to
+          // "several tracked events on one day" and that is what someone
+          // looking for it would type.
+          keywords: [l10n.eventTrackPresence, l10n.eventPresenceMissed],
+          builder: (context, title, description) => Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                title,
+                const SizedBox(height: 4),
+                ?description,
+                const SizedBox(height: 8),
+                SegmentedButton<DayRailStyle>(
+                  segments: [
+                    ButtonSegment(
+                      value: DayRailStyle.none,
+                      label: Text(l10n.dayRailStyleNone),
+                    ),
+                    ButtonSegment(
+                      value: DayRailStyle.line,
+                      label: Text(l10n.dayRailStyleLine),
+                    ),
+                    ButtonSegment(
+                      value: DayRailStyle.dot,
+                      label: Text(l10n.dayRailStyleDot),
+                    ),
+                  ],
+                  selected: {_appearance.dayRailStyle},
+                  showSelectedIcon: false,
+                  onSelectionChanged: (sel) async {
+                    _onHapticFeedback();
+                    setState(
+                      () => _appearance = _appearance.copyWith(
+                        dayRailStyle: sel.first,
+                      ),
+                    );
+                    await _settings?.setCalendarDayRailStyle(sel.first);
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+        // Only reachable with the rail on, like the tint-conflict row: there
+        // is nothing to cap while nothing is drawn.
+        if (_appearance.dayRailStyle != DayRailStyle.none)
+          SettingsEntry(
+            title: l10n.calendarMaxDayRailMarks,
+            description: l10n.calendarMaxDayRailMarksDesc(
+              _appearance.maxDayRailMarks,
+            ),
+            builder: (context, title, description) => SliderSettingRow(
+              title: title,
+              description: description,
+              value: _appearance.maxDayRailMarks,
+              min: SettingsKeys.minCalendarMaxDayRailMarks,
+              max: SettingsKeys.maxCalendarMaxDayRailMarks,
+              divisions:
+                  SettingsKeys.maxCalendarMaxDayRailMarks -
+                  SettingsKeys.minCalendarMaxDayRailMarks,
+              captionStyle: TextStyle(
+                fontSize: 12,
+                color: colorScheme.onSurfaceVariant,
+              ),
+              draftCaption: (draft) => l10n.calendarMaxDayRailMarksDesc(draft),
+              onCommit: (value) async {
+                _onHapticFeedback();
+                setState(
+                  () => _appearance = _appearance.copyWith(
+                    maxDayRailMarks: value,
+                  ),
+                );
+                await _settings?.setCalendarMaxDayRailMarks(value);
+              },
+            ),
+          ),
         SettingsEntry(
           title: l10n.calendarHighlightWeekends,
           description: l10n.calendarHighlightWeekendsDesc,
@@ -982,6 +1062,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
   Future<void> _resetToDefaults() async {
     const defaults = CalendarAppearance(
       maxDayBars: SettingsKeys.defaultCalendarMaxDayBars,
+      maxDayRailMarks: SettingsKeys.defaultCalendarMaxDayRailMarks,
     );
     await _settings?.setCalendarMaxDayBars(defaults.maxDayBars);
     await _settings?.setCalendarTodayStyle(defaults.todayStyle);
@@ -996,6 +1077,13 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     await _settings?.setCalendarMissedDisplay(defaults.missedDisplay);
     await _settings?.setCalendarEventTint(defaults.eventTint);
     await _settings?.setCalendarTintConflict(defaults.tintConflict);
+    // Through `SettingsKeys`, like `maxDayBars` above: the model's field
+    // initializers and the settings defaults are two sources for one value,
+    // and reset is where they would silently drift apart.
+    await _settings?.setCalendarDayRailStyle(
+      DayRailStyle.fromName(SettingsKeys.defaultCalendarDayRailStyle),
+    );
+    await _settings?.setCalendarMaxDayRailMarks(defaults.maxDayRailMarks);
     await _settings?.setEventDescriptionLimit(
       SettingsKeys.defaultEventDescriptionLimit,
     );
@@ -1052,13 +1140,27 @@ class _AppearancePreview extends StatelessWidget {
       for (var i = 0; i <= appearance.maxDayBars; i++)
         _previewBar('overflow$i', palette[(i * 3) % palette.length]),
     ];
-    final cellHeight =
-        CalendarDayCell.chipZoneHeight +
-        CalendarDayBars.stripHeight(
-          appearance.maxDayBars,
-          appearance.markerStyle,
-        ) +
-        6;
+    // One over the cap, so the overflow affordance previews too — the same
+    // trick `overflowBars` plays for the marker strip. The **first** mark is
+    // the missed one, because hollow-vs-filled is the part of the rail that
+    // is hard to picture from the setting's copy alone, and at a cap of 1 the
+    // first mark is the only one drawn.
+    final overflowRailMarks = [
+      for (var i = 0; i <= appearance.maxDayRailMarks; i++)
+        _previewRailMark(
+          'railOverflow$i',
+          palette[(i * 5) % palette.length],
+          missed: i == 0,
+        ),
+    ];
+    // Mirrors `_CalendarTable._rowHeight` / `_railHeight` exactly, including
+    // the 52px floor — the preview's whole job is to be the grid.
+    final previewStripHeight = CalendarDayBars.stripHeight(
+      appearance.maxDayBars,
+      appearance.markerStyle,
+    );
+    final cellHeight = CalendarDayCell.chipZoneHeight + previewStripHeight + 6;
+    final previewCellHeight = cellHeight < 52 ? 52.0 : cellHeight;
 
     // Samples the real alpha ramp rather than picked-by-eye values, so the
     // preview cannot drift from the grid. `priority` is 1-based like the
@@ -1100,10 +1202,11 @@ class _AppearancePreview extends StatelessWidget {
       bool isWeekend = false,
       List<DayBar> bars = const [],
       DayCellTint tint = DayCellTint.empty,
+      List<DayRailMark> railMarks = const [],
     }) {
       return Expanded(
         child: SizedBox(
-          height: cellHeight < 52 ? 52 : cellHeight,
+          height: previewCellHeight,
           child: Stack(
             children: [
               Positioned.fill(
@@ -1117,6 +1220,14 @@ class _AppearancePreview extends StatelessWidget {
                   highlightWeekends: appearance.highlightWeekends,
                   accent: accent,
                   tint: tint,
+                  railMarks: railMarks,
+                  railStyle: appearance.dayRailStyle,
+                  maxRailMarks: appearance.maxDayRailMarks,
+                  // The same lane the grid computes: the preview stacks its
+                  // strip in a sibling `Align` at the same 4px offset, so the
+                  // rail must stop above it here too, and previewing a
+                  // capacity the grid does not have would be a lie.
+                  railHeight: previewCellHeight - 8 - previewStripHeight,
                 ),
               ),
               if (bars.isNotEmpty)
@@ -1159,14 +1270,23 @@ class _AppearancePreview extends StatelessWidget {
             isToday: true,
             bars: [_previewBar('a', palette[0])],
             tint: previewTint(palette[0], priority: kMinEventPriority),
+            railMarks: [_previewRailMark('rail1', palette[2])],
           ),
           cell(
             today.add(const Duration(days: 1)),
             isSelected: true,
             bars: [_previewBar('b', palette[3]), _previewBar('c', palette[7])],
             tint: previewTint(palette[3], priority: kMaxEventPriority),
+            railMarks: [
+              _previewRailMark('rail2', palette[2]),
+              _previewRailMark('rail3', palette[6]),
+            ],
           ),
-          cell(today.add(const Duration(days: 2)), bars: overflowBars),
+          cell(
+            today.add(const Duration(days: 2)),
+            bars: overflowBars,
+            railMarks: overflowRailMarks,
+          ),
         ],
       ),
     );
@@ -1174,6 +1294,20 @@ class _AppearancePreview extends StatelessWidget {
 
   static DayBar _previewBar(String key, Color color) {
     return DayBar(key: key, color: color, priority: 0, semanticLabel: '');
+  }
+
+  static DayRailMark _previewRailMark(
+    String key,
+    Color color, {
+    bool missed = false,
+  }) {
+    return DayRailMark(
+      key: key,
+      color: color,
+      priority: 0,
+      missed: missed,
+      semanticLabel: '',
+    );
   }
 }
 

@@ -110,7 +110,11 @@ class VocabularyTrigger {
   /// the vocabulary cache. A run whose scope segment holds nothing usable
   /// (`@:ben`) is an ordinary query for what follows the colon — an
   /// unresolvable scope must never cost the user a keystroke.
-  static VocabularyTriggerMatch _split(int triggerOffset, int caret, String run) {
+  static VocabularyTriggerMatch _split(
+    int triggerOffset,
+    int caret,
+    String run,
+  ) {
     final colon = run.indexOf(':');
     if (colon < 0) {
       return VocabularyTriggerMatch(

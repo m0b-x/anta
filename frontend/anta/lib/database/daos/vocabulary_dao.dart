@@ -143,7 +143,9 @@ class VocabularyDao extends DatabaseAccessor<AppDatabase>
         kept.add(row.id);
         if (!row.isDeleted && row.sortOrder == sortOrder) continue;
 
-        await (update(vocabularyItems)..where((t) => t.id.equals(row.id))).write(
+        await (update(
+          vocabularyItems,
+        )..where((t) => t.id.equals(row.id))).write(
           VocabularyItemsCompanion(
             sortOrder: Value(sortOrder),
             updatedAt: Value(now),
@@ -184,12 +186,11 @@ class VocabularyDao extends DatabaseAccessor<AppDatabase>
         ),
       );
 
-      final items = await (select(vocabularyItems)
-            ..where(
-              (t) =>
-                  t.vocabularyId.equals(id) & t.isDeleted.equals(false),
-            ))
-          .get();
+      final items =
+          await (select(vocabularyItems)..where(
+                (t) => t.vocabularyId.equals(id) & t.isDeleted.equals(false),
+              ))
+              .get();
       for (final item in items) {
         await _tombstoneItem(item, now);
       }

@@ -224,10 +224,7 @@ void main() {
     test('defaults to the rolling window that shipped', () {
       const filters = UpcomingAgendaFilters();
       expect(filters.periodMode, AgendaPeriodMode.rollingDays);
-      expect(filters.presetWindow(anchor), (
-        anchor,
-        DateTime.utc(2026, 9, 27),
-      ));
+      expect(filters.presetWindow(anchor), (anchor, DateTime.utc(2026, 9, 27)));
     });
 
     test('rollingDays counts rangeDays inclusive of the anchor', () {
@@ -273,7 +270,10 @@ void main() {
       const filters = UpcomingAgendaFilters(
         periodMode: AgendaPeriodMode.restOfYear,
       );
-      expect(filters.presetWindow(anchor), (anchor, DateTime.utc(2026, 12, 31)));
+      expect(filters.presetWindow(anchor), (
+        anchor,
+        DateTime.utc(2026, 12, 31),
+      ));
     });
 
     test('restOfYear degenerates to a single day on 31 December', () {

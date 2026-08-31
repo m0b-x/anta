@@ -79,11 +79,7 @@ class ReorderLockedHint extends StatelessWidget {
 /// a shadow that fade in with the drag animation. Matches
 /// `ReorderItemProxyDecorator`, so it can be passed straight as
 /// `proxyDecorator`.
-Widget reorderDragProxy(
-  Widget child,
-  int index,
-  Animation<double> animation,
-) {
+Widget reorderDragProxy(Widget child, int index, Animation<double> animation) {
   return AnimatedBuilder(
     animation: animation,
     builder: (context, _) {

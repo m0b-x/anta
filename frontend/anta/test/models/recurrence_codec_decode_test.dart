@@ -96,12 +96,7 @@ void main() {
   });
 
   group('malformed payload lets the kind through', () {
-    const garbagePayloads = [
-      'not json',
-      '{',
-      '[]',
-      '{"weekdays": "nope"}',
-    ];
+    const garbagePayloads = ['not json', '{', '[]', '{"weekdays": "nope"}'];
 
     for (final entry in expectedKindOnMalformed.entries) {
       final kind = entry.key;
@@ -157,7 +152,11 @@ void main() {
           RecurrenceCodec.kSpecificDates,
           garbage,
         );
-        expect(decoded, const OneTimeRecurrence(), reason: 'payload was `$garbage`');
+        expect(
+          decoded,
+          const OneTimeRecurrence(),
+          reason: 'payload was `$garbage`',
+        );
       }
     });
   });
@@ -176,30 +175,34 @@ void main() {
       });
     }
 
-    test('daily/weekly/monthly/yearly default interval to 1 on null payload', () {
-      expect(
-        (RecurrenceCodec.decode(RecurrenceCodec.kDaily, null) as DailyRecurrence)
-            .interval,
-        1,
-      );
-      final weekly =
-          RecurrenceCodec.decode(RecurrenceCodec.kWeekly, null)
-              as WeeklyRecurrence;
-      expect(weekly.interval, 1);
-      expect(weekly.weekdays, isEmpty);
-      expect(
-        (RecurrenceCodec.decode(RecurrenceCodec.kMonthly, null)
-                as MonthlyRecurrence)
-            .interval,
-        1,
-      );
-      expect(
-        (RecurrenceCodec.decode(RecurrenceCodec.kYearly, null)
-                as YearlyRecurrence)
-            .interval,
-        1,
-      );
-    });
+    test(
+      'daily/weekly/monthly/yearly default interval to 1 on null payload',
+      () {
+        expect(
+          (RecurrenceCodec.decode(RecurrenceCodec.kDaily, null)
+                  as DailyRecurrence)
+              .interval,
+          1,
+        );
+        final weekly =
+            RecurrenceCodec.decode(RecurrenceCodec.kWeekly, null)
+                as WeeklyRecurrence;
+        expect(weekly.interval, 1);
+        expect(weekly.weekdays, isEmpty);
+        expect(
+          (RecurrenceCodec.decode(RecurrenceCodec.kMonthly, null)
+                  as MonthlyRecurrence)
+              .interval,
+          1,
+        );
+        expect(
+          (RecurrenceCodec.decode(RecurrenceCodec.kYearly, null)
+                  as YearlyRecurrence)
+              .interval,
+          1,
+        );
+      },
+    );
   });
 
   group('legacy payloads with no interval key', () {

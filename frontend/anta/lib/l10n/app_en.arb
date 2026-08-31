@@ -107,6 +107,15 @@
   "@dayBarPublicHoliday": {
     "description": "Tooltip/semantics label for the public holiday bar in a calendar day cell"
   },
+  "calendarRailMarkMissedLabel": "{title}, missed",
+  "@calendarRailMarkMissedLabel": {
+    "description": "Semantics label for a missed occurrence on the day-cell rail, so the missed state is announced and not carried by colour alone",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "publicHolidayNewYear": "New Year's Day",
   "@publicHolidayNewYear": {
     "description": "Public holiday name shown in the calendar day summary"
@@ -904,6 +913,26 @@
   "eventTrackPresenceDesc": "Mark the days you skip.",
   "@eventTrackPresenceDesc": {
     "description": "Explanation under the track-presence switch"
+  },
+  "eventShowInDayRail": "Day rail",
+  "@eventShowInDayRail": {
+    "description": "Label for the three-way day-rail membership control in the event editor"
+  },
+  "eventShowInDayRailAuto": "Auto",
+  "@eventShowInDayRailAuto": {
+    "description": "Day rail membership: follow presence tracking"
+  },
+  "eventShowInDayRailAlways": "Always",
+  "@eventShowInDayRailAlways": {
+    "description": "Day rail membership: always show on the rail"
+  },
+  "eventShowInDayRailNever": "Never",
+  "@eventShowInDayRailNever": {
+    "description": "Day rail membership: never show on the rail"
+  },
+  "eventShowInDayRailHint": "Auto follows presence tracking.",
+  "@eventShowInDayRailHint": {
+    "description": "Hint under the day-rail membership control"
   },
   "eventPresencePresent": "Present",
   "@eventPresencePresent": {
@@ -3266,6 +3295,39 @@
   "markerStyleDots": "Dots",
   "@markerStyleDots": {
     "description": "Event marker style: row of dots"
+  },
+  "calendarDayRailStyleTitle": "Day rail",
+  "@calendarDayRailStyleTitle": {
+    "description": "Label for the day-rail style selector in calendar settings"
+  },
+  "calendarDayRailStyleDesc": "A vertical rail on the left of each day, one mark per tracked commitment — so a day carrying three of them stops reading as one. Rail events leave the bottom markers.",
+  "@calendarDayRailStyleDesc": {
+    "description": "Description for the day-rail style selector"
+  },
+  "dayRailStyleNone": "Off",
+  "@dayRailStyleNone": {
+    "description": "Day rail style: no rail"
+  },
+  "dayRailStyleLine": "Lines",
+  "@dayRailStyleLine": {
+    "description": "Day rail style: stacked vertical segments"
+  },
+  "dayRailStyleDot": "Dots",
+  "@dayRailStyleDot": {
+    "description": "Day rail style: stacked circles"
+  },
+  "calendarMaxDayRailMarks": "Maximum rail marks per day",
+  "@calendarMaxDayRailMarks": {
+    "description": "Label for the day-rail capacity slider"
+  },
+  "calendarMaxDayRailMarksDesc": "{count, plural, =1{Show one rail mark per day. The rest collapse into one neutral mark.} other{Show up to {count} rail marks per day. The rest collapse into one neutral mark.}}",
+  "@calendarMaxDayRailMarksDesc": {
+    "description": "Description for the day-rail capacity slider",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   },
   "calendarHighlightWeekends": "Tint weekends",
   "@calendarHighlightWeekends": {

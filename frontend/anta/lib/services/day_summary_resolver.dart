@@ -15,6 +15,7 @@ import '../utils/event_agenda.dart';
 import 'note_money_ledger_service.dart';
 import 'recurrence_formatter.dart';
 import 'event_time_formatter.dart';
+import 'resolver_chain.dart';
 
 /// Contract for anything that contributes entries to the calendar's bottom
 /// "day summary" panel.
@@ -319,24 +320,6 @@ class DaySummaryResolver {
     );
   }
 
-  List<DaySummaryEntry> resolve(DateTime day, List<CalendarEvent> events) {
-    final byKey = <String, DaySummaryEntry>{};
-    for (final provider in providers) {
-      for (final entry in provider.summaryFor(day, events)) {
-        byKey.putIfAbsent(entry.key, () => entry);
-      }
-    }
-    // Stable sort by priority: `List.sort` is unstable, so ties are broken
-    // by insertion index instead of the old key comparison — providers
-    // control the order of their own equal-priority entries (events arrive
-    // pre-sorted by `EventAgenda.compareWithinDay`, which a key sort on
-    // `event:<uuid>` used to scramble into id order).
-    final entries = byKey.values.toList();
-    final order = [for (var i = 0; i < entries.length; i++) (i, entries[i])]
-      ..sort((a, b) {
-        final byPriority = a.$2.priority.compareTo(b.$2.priority);
-        return byPriority != 0 ? byPriority : a.$1.compareTo(b.$1);
-      });
-    return [for (final (_, entry) in order) entry];
-  }
+  List<DaySummaryEntry> resolve(DateTime day, List<CalendarEvent> events) =>
+      resolveChain(providers.map((p) => p.summaryFor(day, events)));
 }

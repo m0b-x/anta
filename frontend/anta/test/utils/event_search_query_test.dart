@@ -106,8 +106,14 @@ void main() {
       final query = EventSearchQuery.parse('august');
       expect(query.hasDateClauses, isTrue);
       expect(hits(query, 'Nothing relevant', DateTime.utc(2026, 8, 3)), isTrue);
-      expect(hits(query, 'Nothing relevant', DateTime.utc(2027, 8, 31)), isTrue);
-      expect(hits(query, 'Nothing relevant', DateTime.utc(2026, 9, 1)), isFalse);
+      expect(
+        hits(query, 'Nothing relevant', DateTime.utc(2027, 8, 31)),
+        isTrue,
+      );
+      expect(
+        hits(query, 'Nothing relevant', DateTime.utc(2026, 9, 1)),
+        isFalse,
+      );
     });
 
     test('an abbreviated month works too', () {

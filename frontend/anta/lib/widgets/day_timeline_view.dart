@@ -124,7 +124,8 @@ class _DayTimelineViewState extends State<DayTimelineView> {
 
   /// Whether this occurrence carries a presence mark. Two static map probes,
   /// resolved through the same facade every other surface uses.
-  bool _isMissed(CalendarEvent event) => EventPresence.appliesTo(event) &&
+  bool _isMissed(CalendarEvent event) =>
+      EventPresence.appliesTo(event) &&
       EventPresence.isMissed(event.id, widget.day);
 
   /// Minutes since midnight of "now", or `null` when [DayTimelineView.day] is

@@ -50,6 +50,12 @@ void main() {
   late Directory tempDir;
   late CalendarBloc bloc;
   late ImportExportBloc importExportBloc;
+
+  /// One database per test, shared by the settings facade and the repositories
+  /// the page-level `ImportExportBloc` needs. Opening a second `AppDatabase`
+  /// over the same executor is what drift warns can corrupt a database, and
+  /// nothing here needs the two to be separate.
+  late AppDatabase testDb;
   late DateTime today;
 
   setUpAll(() async {
@@ -82,7 +88,8 @@ void main() {
     // controls.
     DatabaseLifecycle.notifyDatabaseSwitching();
     SettingsService.reset();
-    SettingsService.forTesting(await openTestDatabase());
+    testDb = await openTestDatabase();
+    SettingsService.forTesting(testDb);
 
     final service = await CalendarEventService.getInstance();
     await service.deleteAll();
@@ -102,9 +109,8 @@ void main() {
       ),
     );
 
-    final importDb = await openTestDatabase();
-    final noteRepository = NoteRepository(database: importDb);
-    final folderRepository = FolderRepository(database: importDb);
+    final noteRepository = NoteRepository(database: testDb);
+    final folderRepository = FolderRepository(database: testDb);
     importExportBloc = ImportExportBloc(
       service: ImportExportService(
         noteStorage: NoteStorageService(repository: noteRepository),
@@ -118,6 +124,7 @@ void main() {
     await bloc.close();
     await importExportBloc.close();
     SettingsService.reset();
+    await testDb.close();
   });
 
   /// A phone-width surface tall enough to hold a month grid plus a keyboard.

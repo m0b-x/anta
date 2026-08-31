@@ -193,6 +193,18 @@ class CalendarEvent extends Equatable {
   /// flag.
   final bool perOccurrenceDescriptions;
 
+  /// Per-event override for membership in the day-cell rail — the calendar's
+  /// second presence channel, which unlike the single-event tint can show
+  /// every tracked commitment on a day at once.
+  ///
+  /// Tri-state on purpose. `null` (the default) means *auto*: the event is in
+  /// the rail exactly when `EventPresence.appliesTo` holds, so no existing
+  /// event changes behaviour and nothing needed a backfill. `true` forces it
+  /// in, `false` forces it out. The recurrence guard lives in the shared
+  /// `eventInDayRail` predicate rather than here, so `true` on a one-time
+  /// event still stays out.
+  final bool? showInDayRail;
+
   /// Optional free-form description / notes for the event (e.g., "focus on
   /// hamstrings, drop sets on the third exercise"). `null` or empty means
   /// no description. Stored verbatim as markdown source — rendering happens
@@ -240,6 +252,7 @@ class CalendarEvent extends Equatable {
     this.countStyle = OccurrenceCountStyle.numbered,
     this.tracksPresence = false,
     this.perOccurrenceDescriptions = false,
+    this.showInDayRail,
     this.time,
     this.description,
     this.noteId,
@@ -266,6 +279,7 @@ class CalendarEvent extends Equatable {
     OccurrenceCountStyle? countStyle,
     bool? tracksPresence,
     bool? perOccurrenceDescriptions,
+    bool? showInDayRail,
     EventTime? time,
     String? description,
     String? noteId,
@@ -279,6 +293,7 @@ class CalendarEvent extends Equatable {
     bool clearNoteId = false,
     bool clearIconKey = false,
     bool clearColorValue = false,
+    bool clearShowInDayRail = false,
   }) {
     return CalendarEvent(
       id: id ?? this.id,
@@ -293,6 +308,9 @@ class CalendarEvent extends Equatable {
       tracksPresence: tracksPresence ?? this.tracksPresence,
       perOccurrenceDescriptions:
           perOccurrenceDescriptions ?? this.perOccurrenceDescriptions,
+      showInDayRail: clearShowInDayRail
+          ? null
+          : (showInDayRail ?? this.showInDayRail),
       time: clearTime ? null : (time ?? this.time),
       description: clearDescription ? null : (description ?? this.description),
       noteId: clearNoteId ? null : (noteId ?? this.noteId),
@@ -410,6 +428,7 @@ class CalendarEvent extends Equatable {
     countStyle,
     tracksPresence,
     perOccurrenceDescriptions,
+    showInDayRail,
     time,
     description,
     noteId,

@@ -90,6 +90,11 @@ class AppLocalizationsDe extends AppLocalizations {
   String get dayBarPublicHoliday => 'Feiertag';
 
   @override
+  String calendarRailMarkMissedLabel(String title) {
+    return '$title, verpasst';
+  }
+
+  @override
   String get publicHolidayNewYear => 'Neujahr';
 
   @override
@@ -758,6 +763,21 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get eventTrackPresenceDesc => 'Markiere ausgelassene Tage.';
+
+  @override
+  String get eventShowInDayRail => 'Tagesleiste';
+
+  @override
+  String get eventShowInDayRailAuto => 'Auto';
+
+  @override
+  String get eventShowInDayRailAlways => 'Immer';
+
+  @override
+  String get eventShowInDayRailNever => 'Nie';
+
+  @override
+  String get eventShowInDayRailHint => 'Auto folgt der Anwesenheitserfassung.';
 
   @override
   String get eventPresencePresent => 'Anwesend';
@@ -2610,6 +2630,38 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get markerStyleDots => 'Punkte';
+
+  @override
+  String get calendarDayRailStyleTitle => 'Tagesleiste';
+
+  @override
+  String get calendarDayRailStyleDesc =>
+      'Eine senkrechte Leiste links an jedem Tag, eine Marke je erfasstem Termin — damit ein Tag mit dreien nicht wie einer aussieht. Leisten-Termine verlassen die unteren Markierungen.';
+
+  @override
+  String get dayRailStyleNone => 'Aus';
+
+  @override
+  String get dayRailStyleLine => 'Striche';
+
+  @override
+  String get dayRailStyleDot => 'Punkte';
+
+  @override
+  String get calendarMaxDayRailMarks => 'Maximale Leistenmarken pro Tag';
+
+  @override
+  String calendarMaxDayRailMarksDesc(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Zeige bis zu $count Leistenmarken pro Tag. Der Rest wird zu einer neutralen Marke.',
+      one:
+          'Zeige eine Leistenmarke pro Tag. Der Rest wird zu einer neutralen Marke.',
+    );
+    return '$_temp0';
+  }
 
   @override
   String get calendarHighlightWeekends => 'Wochenenden einfärben';

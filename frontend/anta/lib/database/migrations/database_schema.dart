@@ -1,7 +1,7 @@
 import 'package:drift/drift.dart';
 
 abstract class DatabaseSchema {
-  static const int currentVersion = 33;
+  static const int currentVersion = 34;
 
   static const int v1Initial = 1;
   static const int v2UserSettings = 2;
@@ -36,6 +36,7 @@ abstract class DatabaseSchema {
   static const int v31CalendarDeltaIndexes = 31;
   static const int v32Vocabularies = 32;
   static const int v33CategoryHidden = 33;
+  static const int v34EventShowInDayRail = 34;
 }
 
 typedef MigrationStep = Future<void> Function(Migrator m, GeneratedDatabase db);

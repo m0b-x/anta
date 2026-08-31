@@ -88,7 +88,10 @@ void main() {
     });
 
     test('ignores diacritics in both directions', () {
-      final candidates = [candidate('Împins la piept'), candidate('Genuflexiuni')];
+      final candidates = [
+        candidate('Împins la piept'),
+        candidate('Genuflexiuni'),
+      ];
 
       expect(terms(VocabularyMatcher.match(candidates, 'impins')), [
         'Împins la piept',
@@ -133,7 +136,11 @@ void main() {
     test('a vocabulary id narrows the result to that list', () {
       final candidates = [
         candidate('Bench Press', vocabularyId: 'v1'),
-        candidate('Bench Sandwich', vocabularyId: 'v2', vocabularyName: 'Meals'),
+        candidate(
+          'Bench Sandwich',
+          vocabularyId: 'v2',
+          vocabularyName: 'Meals',
+        ),
       ];
 
       expect(terms(VocabularyMatcher.match(candidates, 'bench')), [
@@ -151,8 +158,16 @@ void main() {
     test('several ids scope to their union, in candidate order', () {
       final candidates = [
         candidate('Bench Press', vocabularyId: 'v1'),
-        candidate('Bench Sandwich', vocabularyId: 'v2', vocabularyName: 'Meals'),
-        candidate('Bench Client', vocabularyId: 'v3', vocabularyName: 'Clients'),
+        candidate(
+          'Bench Sandwich',
+          vocabularyId: 'v2',
+          vocabularyName: 'Meals',
+        ),
+        candidate(
+          'Bench Client',
+          vocabularyId: 'v3',
+          vocabularyName: 'Clients',
+        ),
       ];
 
       expect(

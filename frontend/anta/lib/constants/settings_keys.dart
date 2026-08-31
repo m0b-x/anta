@@ -213,6 +213,15 @@ class SettingsKeys {
   /// `CalendarTintConflict.fromName`.
   static const String calendarTintConflict = 'calendar_tint_conflict';
 
+  /// How the left-edge day rail is drawn (`none` / `line` / `dot`). Parsed
+  /// with a forward-compatible fallback by `DayRailStyle.fromName`.
+  static const String calendarDayRailStyle = 'calendar_day_rail_style';
+
+  /// Maximum rail marks per day cell before the neutral overflow mark. Its
+  /// own key rather than a share of [calendarMaxDayBars]: different geometry,
+  /// different capacity, different content.
+  static const String calendarMaxDayRailMarks = 'calendar_max_day_rail_marks';
+
   /// CSV of enabled [FastingTradition] names ('' or absent = fasting off).
   /// Unknown names are dropped on read for forward compatibility.
   static const String calendarFastingTraditions = 'calendar_fasting_traditions';
@@ -370,6 +379,16 @@ class SettingsKeys {
   /// competes with the marker strip the user already reads.
   static const bool defaultCalendarEventTint = false;
   static const String defaultCalendarTintConflict = 'eventWins';
+
+  /// The rail is opt-in like every other appearance option; there is no
+  /// first-run nudge and no conditional default.
+  static const String defaultCalendarDayRailStyle = 'none';
+
+  /// Rail capacity runs 1-5, not the marker strip's 1-6: at the 44px usable
+  /// height of a minimum row, five 5px dots and their gaps are what fits.
+  static const int defaultCalendarMaxDayRailMarks = 3;
+  static const int minCalendarMaxDayRailMarks = 1;
+  static const int maxCalendarMaxDayRailMarks = 5;
 
   /// Default look-ahead window of the upcoming events sheet, in days.
   static const int defaultCalendarUpcomingRangeDays = 30;

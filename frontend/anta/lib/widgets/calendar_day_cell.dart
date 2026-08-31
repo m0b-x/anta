@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../models/calendar_appearance.dart';
 import '../models/day_cell_tint.dart';
+import '../models/day_rail_mark.dart';
+import 'calendar_day_rail.dart';
 
 /// Day-number cell for the calendar grid.
 ///
@@ -15,8 +17,36 @@ class CalendarDayCell extends StatelessWidget {
   /// Diameter of the day-number chip.
   static const double chipSize = 34;
 
+  /// Diameter of that chip while the left-edge rail is on.
+  ///
+  /// The gutter the rail needs does not exist at phone widths: on a 360dp
+  /// screen the cell is 51.43 wide, so a 34px chip `Align(topCenter)`-centred
+  /// puts the circle's leftmost point at x = 8.71 — and the `dot` lane runs to
+  /// x = 10. Rather than move the day number (which the whole grid, and the
+  /// weekday header above it, align to) the *decoration* yields: 4px off the
+  /// diameter buys 2px of clearance on each side, enough for both styles at
+  /// 360dp and up. Below ~340dp the `dot` lane still overlaps; nothing that
+  /// keeps a legible chip fixes that, and it is one or two cells per screen.
+  ///
+  /// Applied per *style*, never per cell — a chip that shrank only on days
+  /// carrying marks would make today's circle a different size from
+  /// yesterday's.
+  static const double railChipSize = 30;
+
+  static double chipDiameterFor(DayRailStyle railStyle) =>
+      railStyle == DayRailStyle.none ? chipSize : railChipSize;
+
   /// Vertical space reserved above the marker strip: top inset + chip + gap.
+  ///
+  /// Deliberately **not** a function of [chipDiameterFor]: a smaller chip is
+  /// re-centred inside the same zone, so enabling the rail cannot change the
+  /// row height and resize the whole grid.
   static const double chipZoneHeight = 4 + chipSize + 2;
+
+  /// Rail height in a default row — a 62px row less the 4px top inset and the
+  /// 20px a three-bar marker strip takes. Only a fallback: both call sites
+  /// that actually draw a rail compute it from the row they are building.
+  static const double defaultRailHeight = 38;
 
   final DateTime day;
   final bool isToday;
@@ -40,6 +70,29 @@ class CalendarDayCell extends StatelessWidget {
   /// job — so it stays a separate parameter.
   final Color? fastingNumberColor;
 
+  /// Marks for the left-edge rail, already resolved by `DayRailResolver`.
+  ///
+  /// A separate channel from [tint], not a third slot on it: the tint edge
+  /// stripe means "a second tint source applies here and lost the wash", a
+  /// rail mark means "this commitment is on this day, and here is whether you
+  /// kept it". Merging them would destroy the attribution the tint conflict
+  /// setting exists to protect.
+  final List<DayRailMark> railMarks;
+  final DayRailStyle railStyle;
+  final int maxRailMarks;
+
+  /// The rail lane's height, measured from 4px below the cell's top.
+  ///
+  /// Supplied rather than measured: the rail would otherwise need a
+  /// `LayoutBuilder` per visible cell to learn a number the grid already
+  /// computed. Callers subtract whatever else occupies the cell — chiefly the
+  /// bottom marker strip, which is **not** part of this cell (table_calendar
+  /// builds it in `markerBuilder`, a sibling subtree painted *after* the cell)
+  /// and insets only `CalendarDayBars.defaultHorizontalInset` (6), which is
+  /// inside the rail's lane. Get this wrong and the strip paints straight over
+  /// the rail's bottom segment.
+  final double railHeight;
+
   const CalendarDayCell({
     super.key,
     required this.day,
@@ -52,11 +105,24 @@ class CalendarDayCell extends StatelessWidget {
     required this.accent,
     this.tint = DayCellTint.empty,
     this.fastingNumberColor,
+    this.railMarks = const [],
+    this.railStyle = DayRailStyle.none,
+    this.maxRailMarks = 3,
+    this.railHeight = defaultRailHeight,
   });
 
   /// Alpha multiplier for a day belonging to an adjacent month. Shared with
   /// the marker strip so the cell and its bars fade by the same amount.
   static const double outsideAlpha = 0.35;
+
+  /// Left inset of the rail lane, measured from the cell edge.
+  ///
+  /// Two fixed lanes share the cell's left gutter: the tint edge stripe
+  /// (`left: 0, width: 3` inside the tinted container's 1.5px margin, so it
+  /// really ends at 4.5) and the rail. Both sit at a fixed x whether or not
+  /// the other is present — a rail that slid left when the stripe is absent
+  /// would shift under the user across months.
+  static const double railLeft = 5;
 
   /// Text color that stays legible on top of [accent], whatever the user
   /// picked (the accent is customizable, so `onPrimary` is not enough).
@@ -119,21 +185,23 @@ class CalendarDayCell extends StatelessWidget {
       height: 1.0,
     );
 
+    final diameter = chipDiameterFor(railStyle);
+
     Widget chip;
     if (isSelected && isToday) {
       // Filled selection core plus a detached ring: "selected, and it is
       // today" reads at a glance without a second color.
       chip = Container(
-        width: chipSize,
-        height: chipSize,
+        width: diameter,
+        height: diameter,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           border: Border.all(color: chipAccent, width: 1.6),
         ),
         alignment: Alignment.center,
         child: Container(
-          width: chipSize - 7,
-          height: chipSize - 7,
+          width: diameter - 7,
+          height: diameter - 7,
           decoration: BoxDecoration(shape: BoxShape.circle, color: chipAccent),
           alignment: Alignment.center,
           child: Text('${day.day}', style: numberStyle),
@@ -159,8 +227,8 @@ class CalendarDayCell extends StatelessWidget {
             }
           : null;
       chip = Container(
-        width: chipSize,
-        height: chipSize,
+        width: diameter,
+        height: diameter,
         decoration: decoration,
         alignment: Alignment.center,
         child: Text('${day.day}', style: numberStyle),
@@ -173,7 +241,13 @@ class CalendarDayCell extends StatelessWidget {
 
     Widget cell = Align(
       alignment: Alignment.topCenter,
-      child: Padding(padding: const EdgeInsets.only(top: 4), child: chip),
+      child: Padding(
+        // The rail's smaller chip is re-centred in the zone the full-size one
+        // occupies, so turning the rail on shrinks the circle without moving
+        // the digit inside it. With the rail off this is exactly `top: 4`.
+        padding: EdgeInsets.only(top: 4 + (chipSize - diameter) / 2),
+        child: chip,
+      ),
     );
     final rawWash = tint.wash;
     final rawEdge = tint.edge;
@@ -209,6 +283,28 @@ class CalendarDayCell extends StatelessWidget {
               ),
       );
     }
-    return cell;
+    // The rail cannot join the tint `Stack` above — that one only exists when
+    // the day is tinted — so it wraps whatever the cell turned out to be. An
+    // untinted day with no marks stays the single bare `Align` it has always
+    // been.
+    if (railMarks.isEmpty || railStyle == DayRailStyle.none) return cell;
+    return Stack(
+      children: [
+        cell,
+        Positioned(
+          left: railLeft,
+          top: 4,
+          height: railHeight,
+          width: CalendarDayRail.railWidth(railStyle),
+          child: CalendarDayRail(
+            marks: railMarks,
+            style: railStyle,
+            maxMarks: maxRailMarks,
+            height: railHeight,
+            opacity: isOutside ? outsideAlpha : 1.0,
+          ),
+        ),
+      ],
+    );
   }
 }

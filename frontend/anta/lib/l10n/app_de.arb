@@ -29,6 +29,12 @@
   "apply": "Übernehmen",
   "dayBarWeekend": "Wochenende",
   "dayBarPublicHoliday": "Feiertag",
+  "calendarRailMarkMissedLabel": "{title}, verpasst",
+  "@calendarRailMarkMissedLabel": {
+    "placeholders": {
+      "title": { "type": "String" }
+    }
+  },
   "publicHolidayNewYear": "Neujahr",
   "publicHolidayLabourDay": "Tag der Arbeit",
   "publicHolidayChristmasDay": "Weihnachten",
@@ -208,6 +214,11 @@
   },
   "eventTrackPresence": "Anwesenheit erfassen",
   "eventTrackPresenceDesc": "Markiere ausgelassene Tage.",
+  "eventShowInDayRail": "Tagesleiste",
+  "eventShowInDayRailAuto": "Auto",
+  "eventShowInDayRailAlways": "Immer",
+  "eventShowInDayRailNever": "Nie",
+  "eventShowInDayRailHint": "Auto folgt der Anwesenheitserfassung.",
   "eventPresencePresent": "Anwesend",
   "eventPresenceMissed": "Verpasst",
   "eventMarkMissed": "Als verpasst markieren",
@@ -1815,6 +1826,20 @@
   "calendarMarkerStyleTitle": "Ereignis-Markierungen",
   "markerStyleBars": "Balken",
   "markerStyleDots": "Punkte",
+  "calendarDayRailStyleTitle": "Tagesleiste",
+  "calendarDayRailStyleDesc": "Eine senkrechte Leiste links an jedem Tag, eine Marke je erfasstem Termin — damit ein Tag mit dreien nicht wie einer aussieht. Leisten-Termine verlassen die unteren Markierungen.",
+  "dayRailStyleNone": "Aus",
+  "dayRailStyleLine": "Striche",
+  "dayRailStyleDot": "Punkte",
+  "calendarMaxDayRailMarks": "Maximale Leistenmarken pro Tag",
+  "calendarMaxDayRailMarksDesc": "{count, plural, =1{Zeige eine Leistenmarke pro Tag. Der Rest wird zu einer neutralen Marke.} other{Zeige bis zu {count} Leistenmarken pro Tag. Der Rest wird zu einer neutralen Marke.}}",
+  "@calendarMaxDayRailMarksDesc": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "calendarHighlightWeekends": "Wochenenden einfärben",
   "calendarHighlightWeekendsDesc": "Samstag und Sonntag in eigener Farbe anzeigen",
   "calendarShowWeekNumbers": "Kalenderwochen",

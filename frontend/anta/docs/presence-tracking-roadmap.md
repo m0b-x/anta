@@ -3,7 +3,18 @@
 **Status: shipped (2026-08-16).** Everything below is implemented; this file
 is the design record. Running behaviour:
 `docs/calendar-events-feature.md` (schema-v26 addendum) and the calendar
-bullets in `COPILOT_CONTEXT.md`. Verified at ship time: `dart analyze lib`
+bullets in `COPILOT_CONTEXT.md`.
+
+> **Presence has a second render surface since 2026-08-30 (schema v34).** The
+> **day rail** — a vertical rail on the left edge of a day cell — draws one
+> mark per rail-eligible event and encodes missed/kept on each. Membership is
+> `eventInDayRail`, which defaults to exactly `EventPresence.appliesTo` and is
+> overridable per event via the nullable `show_in_day_rail` column. It reuses
+> `CalendarMissedDisplay` with no rail-specific setting, filtering `hidden`
+> before a mark can consume a slot. Design record:
+> `docs/day-rail-markers-roadmap.md`; behaviour: the v34 addendum in
+> `docs/calendar-events-feature.md`. Nothing in §5 (Rendering) or §8
+> (Settings) below changed — the rail is additive. Verified at ship time: `dart analyze lib`
 clean, full `flutter test` suite green (benchmarks skipped),
 `flutter gen-l10n` clean with all ten keys in en/de/ro.
 

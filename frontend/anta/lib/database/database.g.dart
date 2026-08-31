@@ -3852,6 +3852,20 @@ class $CalendarEventsTable extends CalendarEvents
         ),
         defaultValue: const Constant(false),
       );
+  static const VerificationMeta _showInDayRailMeta = const VerificationMeta(
+    'showInDayRail',
+  );
+  @override
+  late final GeneratedColumn<bool> showInDayRail = GeneratedColumn<bool>(
+    'show_in_day_rail',
+    aliasedName,
+    true,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("show_in_day_rail" IN (0, 1))',
+    ),
+  );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -3959,6 +3973,7 @@ class $CalendarEventsTable extends CalendarEvents
     countStyle,
     tracksPresence,
     perOccurrenceDescriptions,
+    showInDayRail,
     createdAt,
     updatedAt,
     hlcTimestamp,
@@ -4136,6 +4151,15 @@ class $CalendarEventsTable extends CalendarEvents
         ),
       );
     }
+    if (data.containsKey('show_in_day_rail')) {
+      context.handle(
+        _showInDayRailMeta,
+        showInDayRail.isAcceptableOrUnknown(
+          data['show_in_day_rail']!,
+          _showInDayRailMeta,
+        ),
+      );
+    }
     if (data.containsKey('created_at')) {
       context.handle(
         _createdAtMeta,
@@ -4278,6 +4302,10 @@ class $CalendarEventsTable extends CalendarEvents
         DriftSqlType.bool,
         data['${effectivePrefix}per_occurrence_descriptions'],
       )!,
+      showInDayRail: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}show_in_day_rail'],
+      ),
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -4338,6 +4366,7 @@ class CalendarEventRow extends DataClass
   final String countStyle;
   final bool tracksPresence;
   final bool perOccurrenceDescriptions;
+  final bool? showInDayRail;
   final DateTime createdAt;
   final DateTime updatedAt;
   final String hlcTimestamp;
@@ -4367,6 +4396,7 @@ class CalendarEventRow extends DataClass
     required this.countStyle,
     required this.tracksPresence,
     required this.perOccurrenceDescriptions,
+    this.showInDayRail,
     required this.createdAt,
     required this.updatedAt,
     required this.hlcTimestamp,
@@ -4417,6 +4447,9 @@ class CalendarEventRow extends DataClass
     map['per_occurrence_descriptions'] = Variable<bool>(
       perOccurrenceDescriptions,
     );
+    if (!nullToAbsent || showInDayRail != null) {
+      map['show_in_day_rail'] = Variable<bool>(showInDayRail);
+    }
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
     map['hlc_timestamp'] = Variable<String>(hlcTimestamp);
@@ -4468,6 +4501,9 @@ class CalendarEventRow extends DataClass
       countStyle: Value(countStyle),
       tracksPresence: Value(tracksPresence),
       perOccurrenceDescriptions: Value(perOccurrenceDescriptions),
+      showInDayRail: showInDayRail == null && nullToAbsent
+          ? const Value.absent()
+          : Value(showInDayRail),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
       hlcTimestamp: Value(hlcTimestamp),
@@ -4509,6 +4545,7 @@ class CalendarEventRow extends DataClass
       perOccurrenceDescriptions: serializer.fromJson<bool>(
         json['perOccurrenceDescriptions'],
       ),
+      showInDayRail: serializer.fromJson<bool?>(json['showInDayRail']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
       hlcTimestamp: serializer.fromJson<String>(json['hlcTimestamp']),
@@ -4545,6 +4582,7 @@ class CalendarEventRow extends DataClass
       'perOccurrenceDescriptions': serializer.toJson<bool>(
         perOccurrenceDescriptions,
       ),
+      'showInDayRail': serializer.toJson<bool?>(showInDayRail),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
       'hlcTimestamp': serializer.toJson<String>(hlcTimestamp),
@@ -4577,6 +4615,7 @@ class CalendarEventRow extends DataClass
     String? countStyle,
     bool? tracksPresence,
     bool? perOccurrenceDescriptions,
+    Value<bool?> showInDayRail = const Value.absent(),
     DateTime? createdAt,
     DateTime? updatedAt,
     String? hlcTimestamp,
@@ -4609,6 +4648,9 @@ class CalendarEventRow extends DataClass
     tracksPresence: tracksPresence ?? this.tracksPresence,
     perOccurrenceDescriptions:
         perOccurrenceDescriptions ?? this.perOccurrenceDescriptions,
+    showInDayRail: showInDayRail.present
+        ? showInDayRail.value
+        : this.showInDayRail,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     hlcTimestamp: hlcTimestamp ?? this.hlcTimestamp,
@@ -4660,6 +4702,9 @@ class CalendarEventRow extends DataClass
       perOccurrenceDescriptions: data.perOccurrenceDescriptions.present
           ? data.perOccurrenceDescriptions.value
           : this.perOccurrenceDescriptions,
+      showInDayRail: data.showInDayRail.present
+          ? data.showInDayRail.value
+          : this.showInDayRail,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       hlcTimestamp: data.hlcTimestamp.present
@@ -4696,6 +4741,7 @@ class CalendarEventRow extends DataClass
           ..write('countStyle: $countStyle, ')
           ..write('tracksPresence: $tracksPresence, ')
           ..write('perOccurrenceDescriptions: $perOccurrenceDescriptions, ')
+          ..write('showInDayRail: $showInDayRail, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('hlcTimestamp: $hlcTimestamp, ')
@@ -4730,6 +4776,7 @@ class CalendarEventRow extends DataClass
     countStyle,
     tracksPresence,
     perOccurrenceDescriptions,
+    showInDayRail,
     createdAt,
     updatedAt,
     hlcTimestamp,
@@ -4763,6 +4810,7 @@ class CalendarEventRow extends DataClass
           other.countStyle == this.countStyle &&
           other.tracksPresence == this.tracksPresence &&
           other.perOccurrenceDescriptions == this.perOccurrenceDescriptions &&
+          other.showInDayRail == this.showInDayRail &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt &&
           other.hlcTimestamp == this.hlcTimestamp &&
@@ -4794,6 +4842,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
   final Value<String> countStyle;
   final Value<bool> tracksPresence;
   final Value<bool> perOccurrenceDescriptions;
+  final Value<bool?> showInDayRail;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   final Value<String> hlcTimestamp;
@@ -4824,6 +4873,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     this.countStyle = const Value.absent(),
     this.tracksPresence = const Value.absent(),
     this.perOccurrenceDescriptions = const Value.absent(),
+    this.showInDayRail = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.hlcTimestamp = const Value.absent(),
@@ -4855,6 +4905,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     this.countStyle = const Value.absent(),
     this.tracksPresence = const Value.absent(),
     this.perOccurrenceDescriptions = const Value.absent(),
+    this.showInDayRail = const Value.absent(),
     required DateTime createdAt,
     required DateTime updatedAt,
     this.hlcTimestamp = const Value.absent(),
@@ -4892,6 +4943,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     Expression<String>? countStyle,
     Expression<bool>? tracksPresence,
     Expression<bool>? perOccurrenceDescriptions,
+    Expression<bool>? showInDayRail,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
     Expression<String>? hlcTimestamp,
@@ -4924,6 +4976,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
       if (tracksPresence != null) 'tracks_presence': tracksPresence,
       if (perOccurrenceDescriptions != null)
         'per_occurrence_descriptions': perOccurrenceDescriptions,
+      if (showInDayRail != null) 'show_in_day_rail': showInDayRail,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (hlcTimestamp != null) 'hlc_timestamp': hlcTimestamp,
@@ -4957,6 +5010,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     Value<String>? countStyle,
     Value<bool>? tracksPresence,
     Value<bool>? perOccurrenceDescriptions,
+    Value<bool?>? showInDayRail,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
     Value<String>? hlcTimestamp,
@@ -4989,6 +5043,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
       tracksPresence: tracksPresence ?? this.tracksPresence,
       perOccurrenceDescriptions:
           perOccurrenceDescriptions ?? this.perOccurrenceDescriptions,
+      showInDayRail: showInDayRail ?? this.showInDayRail,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       hlcTimestamp: hlcTimestamp ?? this.hlcTimestamp,
@@ -5068,6 +5123,9 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
         perOccurrenceDescriptions.value,
       );
     }
+    if (showInDayRail.present) {
+      map['show_in_day_rail'] = Variable<bool>(showInDayRail.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -5119,6 +5177,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
           ..write('countStyle: $countStyle, ')
           ..write('tracksPresence: $tracksPresence, ')
           ..write('perOccurrenceDescriptions: $perOccurrenceDescriptions, ')
+          ..write('showInDayRail: $showInDayRail, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('hlcTimestamp: $hlcTimestamp, ')
@@ -12478,6 +12537,7 @@ typedef $$CalendarEventsTableCreateCompanionBuilder =
       Value<String> countStyle,
       Value<bool> tracksPresence,
       Value<bool> perOccurrenceDescriptions,
+      Value<bool?> showInDayRail,
       required DateTime createdAt,
       required DateTime updatedAt,
       Value<String> hlcTimestamp,
@@ -12510,6 +12570,7 @@ typedef $$CalendarEventsTableUpdateCompanionBuilder =
       Value<String> countStyle,
       Value<bool> tracksPresence,
       Value<bool> perOccurrenceDescriptions,
+      Value<bool?> showInDayRail,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
       Value<String> hlcTimestamp,
@@ -12631,6 +12692,11 @@ class $$CalendarEventsTableFilterComposer
 
   ColumnFilters<bool> get perOccurrenceDescriptions => $composableBuilder(
     column: $table.perOccurrenceDescriptions,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get showInDayRail => $composableBuilder(
+    column: $table.showInDayRail,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -12784,6 +12850,11 @@ class $$CalendarEventsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<bool> get showInDayRail => $composableBuilder(
+    column: $table.showInDayRail,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -12912,6 +12983,11 @@ class $$CalendarEventsTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<bool> get showInDayRail => $composableBuilder(
+    column: $table.showInDayRail,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
 
@@ -12994,6 +13070,7 @@ class $$CalendarEventsTableTableManager
                 Value<String> countStyle = const Value.absent(),
                 Value<bool> tracksPresence = const Value.absent(),
                 Value<bool> perOccurrenceDescriptions = const Value.absent(),
+                Value<bool?> showInDayRail = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<String> hlcTimestamp = const Value.absent(),
@@ -13024,6 +13101,7 @@ class $$CalendarEventsTableTableManager
                 countStyle: countStyle,
                 tracksPresence: tracksPresence,
                 perOccurrenceDescriptions: perOccurrenceDescriptions,
+                showInDayRail: showInDayRail,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 hlcTimestamp: hlcTimestamp,
@@ -13056,6 +13134,7 @@ class $$CalendarEventsTableTableManager
                 Value<String> countStyle = const Value.absent(),
                 Value<bool> tracksPresence = const Value.absent(),
                 Value<bool> perOccurrenceDescriptions = const Value.absent(),
+                Value<bool?> showInDayRail = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime updatedAt,
                 Value<String> hlcTimestamp = const Value.absent(),
@@ -13086,6 +13165,7 @@ class $$CalendarEventsTableTableManager
                 countStyle: countStyle,
                 tracksPresence: tracksPresence,
                 perOccurrenceDescriptions: perOccurrenceDescriptions,
+                showInDayRail: showInDayRail,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 hlcTimestamp: hlcTimestamp,
