@@ -1165,12 +1165,15 @@ class _CalendarTable extends StatelessWidget {
 
   /// Row height that guarantees the day-number chip zone and the marker
   /// strip never overlap, whatever the marker style and density.
-  double get _rowHeight {
-    final strip = CalendarDayBars.stripHeight(
-      appearance.maxDayBars,
-      appearance.markerStyle,
-    );
-    final height = CalendarDayCell.chipZoneHeight + strip + 6;
+  /// Row height for a grid whose marker strip is [stripHeight] tall.
+  ///
+  /// Takes the strip rather than computing it, because [build] needs the same
+  /// number twice — once for the row and once for the rail's lane — and
+  /// `_buildDayCell` runs 42 times per rebuild. Deriving it in both getters
+  /// meant recomputing it per cell on the very path that dropping the rail's
+  /// `LayoutBuilder` was meant to lighten.
+  static double _rowHeightFor(double stripHeight) {
+    final height = CalendarDayCell.chipZoneHeight + stripHeight + 6;
     return height < 52 ? 52 : height.ceilToDouble();
   }
 
@@ -1183,13 +1186,8 @@ class _CalendarTable extends StatelessWidget {
   /// lane — so without this subtraction it paints straight over the rail's
   /// bottom segment. Passing the height also spares the rail a `LayoutBuilder`
   /// per visible cell.
-  double get _railHeight =>
-      _rowHeight -
-      8 -
-      CalendarDayBars.stripHeight(
-        appearance.maxDayBars,
-        appearance.markerStyle,
-      );
+  static double _railHeightFor(double rowHeight, double stripHeight) =>
+      rowHeight - 8 - stripHeight;
 
   /// Jumps to a date picked from the header title. The picker's wheels
   /// carry a day too, so this both focuses the month and selects the day —
@@ -1235,6 +1233,7 @@ class _CalendarTable extends StatelessWidget {
     required DateTime now,
     required Color accent,
     required CalendarBloc bloc,
+    required double railHeight,
   }) {
     // Both lookups are O(1): the fasting style is memoized inside the engine
     // and the day's events come from the bloc's day cache — the same
@@ -1275,7 +1274,7 @@ class _CalendarTable extends StatelessWidget {
       railMarks: railMarks,
       railStyle: railStyle,
       maxRailMarks: maxRailMarks,
-      railHeight: _railHeight,
+      railHeight: railHeight,
     );
   }
 
@@ -1287,6 +1286,15 @@ class _CalendarTable extends StatelessWidget {
     final calendarBloc = context.read<CalendarBloc>();
     final now = DateTime.now();
     final accent = appearance.accentOr(colorScheme.primary);
+    // Once per build, not once per cell: the row and the rail's lane are two
+    // views of the same marker-strip height, and `_buildDayCell` runs 42
+    // times per rebuild.
+    final stripHeight = CalendarDayBars.stripHeight(
+      appearance.maxDayBars,
+      appearance.markerStyle,
+    );
+    final rowHeight = _rowHeightFor(stripHeight);
+    final railHeight = _railHeightFor(rowHeight, stripHeight);
     final dowStyle = theme.textTheme.labelMedium!.copyWith(
       fontWeight: FontWeight.w600,
       color: colorScheme.onSurfaceVariant,
@@ -1308,7 +1316,7 @@ class _CalendarTable extends StatelessWidget {
       startingDayOfWeek: _startingDayOfWeek,
       weekendDays: CalendarWeekend.days,
       weekNumbersVisible: appearance.showWeekNumbers,
-      rowHeight: _rowHeight,
+      rowHeight: rowHeight,
       daysOfWeekHeight: 24,
       locale: l10n.localeName,
       availableCalendarFormats: {
@@ -1365,6 +1373,7 @@ class _CalendarTable extends StatelessWidget {
           now: now,
           accent: accent,
           bloc: calendarBloc,
+          railHeight: railHeight,
         ),
         todayBuilder: (context, day, focusedDay) => _buildDayCell(
           day,
@@ -1372,6 +1381,7 @@ class _CalendarTable extends StatelessWidget {
           now: now,
           accent: accent,
           bloc: calendarBloc,
+          railHeight: railHeight,
         ),
         selectedBuilder: (context, day, focusedDay) => _buildDayCell(
           day,
@@ -1379,6 +1389,7 @@ class _CalendarTable extends StatelessWidget {
           now: now,
           accent: accent,
           bloc: calendarBloc,
+          railHeight: railHeight,
         ),
         outsideBuilder: (context, day, focusedDay) => _buildDayCell(
           day,
@@ -1386,6 +1397,7 @@ class _CalendarTable extends StatelessWidget {
           now: now,
           accent: accent,
           bloc: calendarBloc,
+          railHeight: railHeight,
         ),
         headerTitleBuilder: (context, day) {
           final title = DateFormat.yMMMM(l10n.localeName).format(day);

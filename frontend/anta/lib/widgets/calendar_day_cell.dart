@@ -91,7 +91,14 @@ class CalendarDayCell extends StatelessWidget {
   /// and insets only `CalendarDayBars.defaultHorizontalInset` (6), which is
   /// inside the rail's lane. Get this wrong and the strip paints straight over
   /// the rail's bottom segment.
-  final double railHeight;
+  ///
+  /// `null` means "this cell draws no rail", which is what the date picker —
+  /// the one call site that passes no [railMarks] — leaves it at. Supplying
+  /// marks without a height is a caller bug: capacity would quietly fall back
+  /// to [defaultRailHeight], so an assert catches it in debug rather than
+  /// letting a wrong mark count ship. Trading the `LayoutBuilder` away means
+  /// nothing self-corrects here any more.
+  final double? railHeight;
 
   const CalendarDayCell({
     super.key,
@@ -108,7 +115,7 @@ class CalendarDayCell extends StatelessWidget {
     this.railMarks = const [],
     this.railStyle = DayRailStyle.none,
     this.maxRailMarks = 3,
-    this.railHeight = defaultRailHeight,
+    this.railHeight,
   });
 
   /// Alpha multiplier for a day belonging to an adjacent month. Shared with
@@ -288,19 +295,26 @@ class CalendarDayCell extends StatelessWidget {
     // untinted day with no marks stays the single bare `Align` it has always
     // been.
     if (railMarks.isEmpty || railStyle == DayRailStyle.none) return cell;
+    assert(
+      railHeight != null,
+      'CalendarDayCell got railMarks but no railHeight. The rail sizes itself '
+      'from this number instead of measuring, so it would silently fall back '
+      'to defaultRailHeight and show the wrong number of marks.',
+    );
+    final laneHeight = railHeight ?? defaultRailHeight;
     return Stack(
       children: [
         cell,
         Positioned(
           left: railLeft,
           top: 4,
-          height: railHeight,
+          height: laneHeight,
           width: CalendarDayRail.railWidth(railStyle),
           child: CalendarDayRail(
             marks: railMarks,
             style: railStyle,
             maxMarks: maxRailMarks,
-            height: railHeight,
+            height: laneHeight,
             opacity: isOutside ? outsideAlpha : 1.0,
           ),
         ),

@@ -363,6 +363,7 @@ void main() {
       tint: tint,
       railMarks: marks,
       railStyle: style,
+      railHeight: CalendarDayCell.defaultRailHeight,
     );
 
     Future<void> pumpCell(WidgetTester tester, CalendarDayCell child) {
@@ -564,6 +565,39 @@ void main() {
         CalendarDayCell.railLeft + CalendarDayRail.lineWidth,
         greaterThan(CalendarDayBars.defaultHorizontalInset),
       );
+    });
+
+    testWidgets('marks without a height are a loud caller bug', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: SizedBox.square(
+                dimension: 52,
+                child: CalendarDayCell(
+                  day: DateTime.utc(2026, 8, 30),
+                  isToday: false,
+                  isSelected: false,
+                  isOutside: false,
+                  isWeekend: false,
+                  todayStyle: CalendarTodayStyle.tonal,
+                  highlightWeekends: false,
+                  accent: const Color(0xFF1A73E8),
+                  railMarks: [mark('a', red)],
+                  railStyle: DayRailStyle.line,
+                  // railHeight deliberately omitted.
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // The rail sizes itself from the number it is given rather than
+      // measuring its box, so a missing height is not a crash — it is a
+      // silently wrong mark count. The assert is what keeps that from
+      // shipping now that the `LayoutBuilder` no longer self-corrects.
+      expect(tester.takeException(), isAssertionError);
     });
 
     testWidgets('an outside day fades its rail by the cell alpha', (

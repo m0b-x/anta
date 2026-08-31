@@ -14,6 +14,14 @@ headers). All file/line claims were verified against the working tree on
 2026-08-30; corrections from that verification are folded in and marked
 *(verified)* where the draft had them wrong.
 
+> **Superseded in places.** A post-ship review on 2026-08-31 found four defects
+> and showed that D4's gutter budget, D6's missed-dot rendering, D7's overflow
+> rule and reuse obligation 4 were each wrong or harmful as written. The
+> corrections are inline below, but
+> [day-rail-markers-review-2026-08-31.md](day-rail-markers-review-2026-08-31.md)
+> is the fuller account — real measured cell geometry, what was rejected and
+> why, and what is still open. Read it before trusting any number in this file.
+
 **Deviations from the plan as written** (both in phase 3, both geometric):
 
 1. **The rail lane sits at x = 5, not 4.** D4 read the tint edge stripe as
