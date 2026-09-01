@@ -1341,6 +1341,26 @@ class AppLocalizationsEn extends AppLocalizations {
   String get eventDescriptionHint => 'Add notes (focus, technique, intensity…)';
 
   @override
+  String get eventDescriptionEdit => 'Edit description';
+
+  @override
+  String get eventDescriptionAdd => 'Add description';
+
+  @override
+  String get eventDescriptionExpand => 'Open full editor';
+
+  @override
+  String get eventDescriptionDone => 'Done';
+
+  @override
+  String get eventDescriptionAppliesAllOccurrences =>
+      'Applies to every occurrence';
+
+  @override
+  String get eventDescriptionTickAllOccurrences =>
+      'Ticking here would apply to every occurrence. Turn on per-day descriptions to tick just this one.';
+
+  @override
   String get eventLinkedNote => 'Linked note';
 
   @override

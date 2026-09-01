@@ -1365,6 +1365,26 @@ class AppLocalizationsRo extends AppLocalizations {
       'Adaugă note (focus, tehnică, intensitate…)';
 
   @override
+  String get eventDescriptionEdit => 'Editează descrierea';
+
+  @override
+  String get eventDescriptionAdd => 'Adaugă descriere';
+
+  @override
+  String get eventDescriptionExpand => 'Deschide editorul complet';
+
+  @override
+  String get eventDescriptionDone => 'Gata';
+
+  @override
+  String get eventDescriptionAppliesAllOccurrences =>
+      'Se aplică la fiecare apariție';
+
+  @override
+  String get eventDescriptionTickAllOccurrences =>
+      'Bifarea aici se aplică la fiecare apariție. Activează „Descriere separată pentru fiecare zi” ca să bifezi doar ziua aceasta.';
+
+  @override
   String get eventLinkedNote => 'Notă asociată';
 
   @override

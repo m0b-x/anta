@@ -15,12 +15,17 @@ import '../models/recurrence_rule.dart';
 import '../services/event_time_formatter.dart';
 import '../services/recurrence_formatter.dart';
 import '../utils/markdown_color_syntax.dart';
+import '../utils/markdown_list_syntax.dart';
 import '../utils/money_display_config.dart';
 import '../utils/presence_stats.dart';
 import 'simple_markdown_preview.dart';
 
 /// What the user chose to do from the detail sheet.
-enum EventDetailAction { edit, openNote, skipOccurrence }
+///
+/// [editDescription] carries no payload on purpose: the caller re-resolves
+/// which text is being edited, using exactly the rule a checkbox tick uses, so
+/// a quick edit and a tick can never write to different places.
+enum EventDetailAction { edit, editDescription, openNote, skipOccurrence }
 
 /// Read-only view of a single [CalendarEvent].
 ///
@@ -62,6 +67,19 @@ class EventDetailSheet extends StatefulWidget {
 
   final MarkdownColorPalette colorPalette;
 
+  /// This day's text as a just-dispatched write left it, when that write may
+  /// not have reached the database yet. Null means "read the facade".
+  ///
+  /// Closes the same race the editor sheet's `pendingOccurrenceDescription`
+  /// closes, in the other direction: the page reopens this sheet in the same
+  /// turn it dispatches an occurrence write, so reading the facade here would
+  /// show the pre-edit text.
+  ///
+  /// Only meaningful while the event separates its days — the caller drops it
+  /// once `OccurrenceDescriptions.appliesTo` is false, because a dormant row
+  /// must not render as if it were the template.
+  final String? pendingOccurrenceDescription;
+
   /// Receives the event with its description rewritten after a checkbox
   /// toggle, for events whose description is shared. Null makes the boxes
   /// inert — the caller opts in by wiring the persistence. Called at most once
@@ -87,6 +105,7 @@ class EventDetailSheet extends StatefulWidget {
     required this.event,
     required this.day,
     this.colorPalette = MarkdownColorPalette.presets,
+    this.pendingOccurrenceDescription,
     this.onEventChanged,
     this.onOccurrenceChanged,
     this.onPresenceChanged,
@@ -97,6 +116,7 @@ class EventDetailSheet extends StatefulWidget {
     required CalendarEvent event,
     required DateTime day,
     MarkdownColorPalette colorPalette = MarkdownColorPalette.presets,
+    String? pendingOccurrenceDescription,
     ValueChanged<CalendarEvent>? onEventChanged,
     void Function(DateTime day, String description)? onOccurrenceChanged,
     void Function(DateTime day, bool missed)? onPresenceChanged,
@@ -115,6 +135,7 @@ class EventDetailSheet extends StatefulWidget {
           event: event,
           day: day,
           colorPalette: colorPalette,
+          pendingOccurrenceDescription: pendingOccurrenceDescription,
           onEventChanged: onEventChanged,
           onOccurrenceChanged: onOccurrenceChanged,
           onPresenceChanged: onPresenceChanged,
@@ -139,9 +160,12 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
   /// bracket by the leading whitespace.
   ///
   /// Resolved for [widget.day], so a per-occurrence event shows its override
-  /// and every other event shows the shared description.
+  /// and every other event shows the shared description. A write still in
+  /// flight beats the facade — see [EventDetailSheet.pendingOccurrenceDescription].
   late String _description =
-      OccurrenceDescriptions.descriptionFor(widget.event, widget.day)?.trim() ??
+      (widget.pendingOccurrenceDescription ??
+              OccurrenceDescriptions.descriptionFor(widget.event, widget.day))
+          ?.trim() ??
       '';
 
   Timer? _writeTimer;
@@ -199,6 +223,16 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
     return widget.onEventChanged != null &&
         widget.event.rule is OneTimeRecurrence;
   }
+
+  /// Whether the description contains at least one task box, so the caption
+  /// explaining why the boxes are inert only appears where there is something
+  /// to tick. Read through the shared list grammar — never a second scan for a
+  /// construct that already has one.
+  bool get _hasTaskBox => _description
+      .split('\n')
+      .any(
+        (line) => MarkdownListSyntax.parse(line)?.kind == MarkdownListKind.task,
+      );
 
   @override
   void dispose() {
@@ -515,22 +549,86 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
                     label: Text(l10n.eventSkipOccurrence),
                   ),
                 ),
-              const SizedBox(height: 16),
-              Text(
-                l10n.eventDescription,
-                style: theme.textTheme.labelLarge?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
+              // The pencil makes this label row a 48dp band instead of a line
+              // of text, so the surrounding gaps give back what the button's
+              // own padding already contributes — otherwise "Description" sits
+              // in a visibly looser band than "Next occurrences" below it,
+              // which is the same kind of label.
+              SizedBox(height: description.isEmpty ? 16 : 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      l10n.eventDescription,
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  // On the card it edits, not in the sheet header: that header
+                  // is already `close | title | Edit`, and a fourth control up
+                  // there would say nothing about which field it opens.
+                  //
+                  // Full 48dp tap target with a 20dp glyph rather than a
+                  // compact button: this app is used one-handed mid-session,
+                  // so the target stays standard and the *icon* carries the
+                  // light weight instead.
+                  if (description.isNotEmpty)
+                    IconButton(
+                      tooltip: l10n.eventDescriptionEdit,
+                      icon: const Icon(Icons.edit_note_rounded),
+                      iconSize: 20,
+                      color: colorScheme.onSurfaceVariant,
+                      onPressed: () =>
+                          _close(EventDetailAction.editDescription),
+                    ),
+                ],
               ),
-              const SizedBox(height: 4),
+              SizedBox(height: description.isEmpty ? 4 : 0),
               if (description.isEmpty)
-                Text(
-                  l10n.eventDetailsNoDescription,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
+                // One tap from nothing to a full-height editor. Replaces the
+                // old "no notes for this event" line, which named the state
+                // without offering the obvious way out of it.
+                InkWell(
+                  onTap: () => _close(EventDetailAction.editDescription),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 14,
+                    ),
+                    // The same tonal fill the filled description card uses, so
+                    // this reads as that card waiting to be filled rather than
+                    // as a disabled input — which is what a bare outline on a
+                    // full-width row looks like. A dashed border would say it
+                    // better still; Flutter has no dashed border and the app
+                    // has no painter for one.
+                    decoration: BoxDecoration(
+                      color: colorScheme.surfaceContainerHighest.withValues(
+                        alpha: 0.4,
+                      ),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.edit_note_rounded,
+                          size: 18,
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          l10n.eventDescriptionAdd,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 )
-              else
+              else ...[
                 Container(
                   constraints: const BoxConstraints(maxHeight: 260),
                   decoration: BoxDecoration(
@@ -547,6 +645,21 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
                     onCheckboxTap: _tasksInteractive ? _toggleTask : null,
                   ),
                 ),
+                // With editing gone from this sheet, inert boxes are the only
+                // unresponsive thing left on it — so they get a reason rather
+                // than looking broken. Doubles as discovery for the per-day
+                // switch. The scan only runs in the inert case.
+                if (!_tasksInteractive && _hasTaskBox)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      l10n.eventDescriptionTickAllOccurrences,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+              ],
               if (isRecurring) ...[
                 const SizedBox(height: 20),
                 Text(

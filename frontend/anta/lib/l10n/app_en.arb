@@ -1602,6 +1602,30 @@
   "@eventDescriptionHint": {
     "description": "Hint text for the optional event description field"
   },
+  "eventDescriptionEdit": "Edit description",
+  "@eventDescriptionEdit": {
+    "description": "Tooltip for the pencil button that opens the full description editor"
+  },
+  "eventDescriptionAdd": "Add description",
+  "@eventDescriptionAdd": {
+    "description": "Label on the tappable empty state that opens the full description editor for an event with no description yet"
+  },
+  "eventDescriptionExpand": "Open full editor",
+  "@eventDescriptionExpand": {
+    "description": "Tooltip for the expand button that opens the description in a full-height editor sheet"
+  },
+  "eventDescriptionDone": "Done",
+  "@eventDescriptionDone": {
+    "description": "Confirm button in the full-height description editor sheet"
+  },
+  "eventDescriptionAppliesAllOccurrences": "Applies to every occurrence",
+  "@eventDescriptionAppliesAllOccurrences": {
+    "description": "Caption shown in the description editor when the edit changes the shared description used by every occurrence of a repeating event"
+  },
+  "eventDescriptionTickAllOccurrences": "Ticking here would apply to every occurrence. Turn on per-day descriptions to tick just this one.",
+  "@eventDescriptionTickAllOccurrences": {
+    "description": "Caption under a repeating event's description in the read-only detail sheet, explaining why its task checkboxes cannot be ticked"
+  },
   "eventLinkedNote": "Linked note",
   "@eventLinkedNote": {
     "description": "Section label for the optional workout note linked to a calendar event"

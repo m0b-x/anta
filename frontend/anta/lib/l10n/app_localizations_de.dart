@@ -1346,6 +1346,26 @@ class AppLocalizationsDe extends AppLocalizations {
       'Notizen hinzufügen (Fokus, Technik, Intensität…)';
 
   @override
+  String get eventDescriptionEdit => 'Beschreibung bearbeiten';
+
+  @override
+  String get eventDescriptionAdd => 'Beschreibung hinzufügen';
+
+  @override
+  String get eventDescriptionExpand => 'Vollständigen Editor öffnen';
+
+  @override
+  String get eventDescriptionDone => 'Fertig';
+
+  @override
+  String get eventDescriptionAppliesAllOccurrences =>
+      'Gilt für jedes Vorkommen';
+
+  @override
+  String get eventDescriptionTickAllOccurrences =>
+      'Ein Häkchen hier gilt für jedes Vorkommen. Aktiviere „Eigene Beschreibung pro Tag“, um nur diesen Tag abzuhaken.';
+
+  @override
   String get eventLinkedNote => 'Verknüpfte Notiz';
 
   @override

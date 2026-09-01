@@ -2266,6 +2266,42 @@ abstract class AppLocalizations {
   /// **'Add notes (focus, technique, intensity…)'**
   String get eventDescriptionHint;
 
+  /// Tooltip for the pencil button that opens the full description editor
+  ///
+  /// In en, this message translates to:
+  /// **'Edit description'**
+  String get eventDescriptionEdit;
+
+  /// Label on the tappable empty state that opens the full description editor for an event with no description yet
+  ///
+  /// In en, this message translates to:
+  /// **'Add description'**
+  String get eventDescriptionAdd;
+
+  /// Tooltip for the expand button that opens the description in a full-height editor sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Open full editor'**
+  String get eventDescriptionExpand;
+
+  /// Confirm button in the full-height description editor sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get eventDescriptionDone;
+
+  /// Caption shown in the description editor when the edit changes the shared description used by every occurrence of a repeating event
+  ///
+  /// In en, this message translates to:
+  /// **'Applies to every occurrence'**
+  String get eventDescriptionAppliesAllOccurrences;
+
+  /// Caption under a repeating event's description in the read-only detail sheet, explaining why its task checkboxes cannot be ticked
+  ///
+  /// In en, this message translates to:
+  /// **'Ticking here would apply to every occurrence. Turn on per-day descriptions to tick just this one.'**
+  String get eventDescriptionTickAllOccurrences;
+
   /// Section label for the optional workout note linked to a calendar event
   ///
   /// In en, this message translates to:

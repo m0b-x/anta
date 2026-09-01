@@ -1088,8 +1088,12 @@ day and so must agree — opens the **read-only**
 [`EventDetailSheet`](../lib/widgets/event_detail_sheet.dart):
 title, category, date/time, recurrence (with scope), priority, the fully
 rendered description, the linked-note button, and the next 5 occurrences.
-Editing is one button away (`EventDetailAction.edit` → the editor sheet);
-opening the linked note routes through the page's existing resolver.
+Editing is one button away: `EventDetailAction.edit` opens the full editor
+sheet and `.editDescription` opens a dedicated full-screen sheet for just
+that field (§6.6 and the 2026-08-31 addendum) — both reopen this sheet on
+return, so a follow-up glance costs no extra tap. `.skipOccurrence` cancels
+the occurrence with Undo, and opening the linked note routes through the
+page's existing resolver.
 "Read-only" has one exception: description checkboxes on **single-occurrence**
 events toggle in place and write back through `onEventChanged` (§6.6).
 
@@ -1130,8 +1134,11 @@ per-field `_SectionLabel`s stay inside each zone):
 6. **Description** — markdown source in a real `ModernEditorWrapper` /
    re_editor surface, live-rendered Obsidian-style by the note editor's own
    `MarkdownEditorSpanBuilder` (see §6.6), with a `count / limit` counter
-   above it. The eye/pencil preview toggle survives only for users who turned
-   live rendering off. Money is disabled throughout (see §6.6).
+   above it and an expand icon that opens the same text full-screen in
+   `EventDescriptionSheet` (§6.6, 2026-08-31 addendum) — shown in preview
+   mode too, since expanding is itself an edit action. The eye/pencil
+   preview toggle survives only for users who turned live rendering off.
+   Money is disabled throughout (see §6.6).
 7. **Icon** — icon picker with reset-to-default action.
 8. **Color / priority / linked note** — appearance override, P1–P5 chips,
    note link.
@@ -1139,8 +1146,14 @@ per-field `_SectionLabel`s stay inside each zone):
 **(if editing) Delete** — destructive button with a confirmation dialog,
 last in the scroll.
 
-Header: inline cancel + save in the same row as the title — no detached
-bottom action bar.
+Header: one leading icon + centered title + save in the same row — no
+detached bottom action bar, and never two leading icons. The icon is cancel
+(`close`) normally; opened from the detail sheet's edit loop it is
+**replaced** by `back` instead (`showBack`, §6.2, 2026-08-31), since the two
+discard identically with no dirty tracking in this sheet and a second icon
+would only mark where the user lands. Secondary whole-form actions —
+Delete, Save-as-template — stay out of the header and sit at the bottom of
+the scroll body.
 
 `_canSave` requires a non-empty title and, for weekly, at least one weekday.
 
@@ -1274,6 +1287,26 @@ Nothing pre-rendered is persisted or cached in the database.
   `CodeEditor` owns its own scroller and cannot be unbounded inside the
   sheet's `SingleChildScrollView`; taking focus scrolls it into view, since a
   `CodeEditor` is not an `EditableText` and nothing does that automatically.
+- **`EventDescriptionSheet` (2026-08-31) reuses that exact stack full-screen**,
+  away from the 120–260 px box and the form's own `SingleChildScrollView` —
+  two nested scrollers fighting a drag is what made writing there feel bad,
+  not any gap in markdown capability. The editor is `Expanded`, the sheet's
+  only scrollable. Two entry points re-resolve which text they are editing
+  rather than carrying a payload, so a quick edit and a checkbox tick can
+  never target different places: the editor sheet's expand icon (seeded
+  from the **active scope only** — `_scope` stays behind in the form, which
+  keeps the sheet pure and the copy-on-write logic in one place) and the
+  detail sheet's description-card pencil (`EventDetailAction
+  .editDescription`). Its markdown bar is **permanently docked, not
+  focus-gated** like the inline field below — the description is the whole
+  screen, so a stable footer beats a vanishing one — which is why its
+  `max(viewInsets.bottom, viewPadding.bottom)` clearance wraps the **whole
+  sheet** rather than a scrollable, the `CalendarFilterSheet` shape of that
+  rule. Money stays disabled **by omission**: neither `ModernEditorWrapper`
+  nor the span builder constructor takes a money parameter here, so never
+  add one by copying the note editor's wiring. See the 2026-08-31 addendum
+  for the full mechanics (quick-edit routing, the back-button reopen loop,
+  the blank-vs-reset distinction).
 - **The markdown bar appears on description focus**, below the sheet's scroll
   view (so the form never shifts), reduced to `splitEnabled: false`, no
   settings / reorder, and undo+redo+paste as its only utility buttons.
@@ -1285,12 +1318,22 @@ Nothing pre-rendered is persisted or cached in the database.
   extracted from the note editor so both surfaces keep one implementation.
 - **Checkboxes toggle only where "checked" has one meaning.** In the editor
   sheet, tapping a task box edits the buffer and persists on Save like any
-  other keystroke. In the read-only detail sheet, tapping is enabled **only
-  for `OneTimeRecurrence` events**: the description is a single string on a
-  single row, so a checked box on a repeating (or specific-dates) event would
-  read as checked on every occurrence — per-occurrence state would need an
-  occurrence-keyed table. Those events keep inert boxes and are edited through
-  the pencil. Detail-sheet toggles update local state immediately and coalesce
+  other keystroke. In the read-only detail sheet, tapping is enabled when
+  `event.rule is OneTimeRecurrence` (the tick edits the event directly) **or**
+  per-occurrence descriptions are on (the tick materialises `widget.day` and
+  leaves every other day alone) — a repeating event with the setting off is
+  the one case left with no unambiguous target, since the description is one
+  shared string and a checked box would read as checked on every occurrence.
+  Those events keep inert boxes; a one-line caption
+  (`eventDescriptionTickAllOccurrences`, 2026-08-31) renders under the
+  description **only when it actually contains a task box**, pointing at the
+  quick-edit pencil (§6.2) and per-occurrence descriptions as the way to
+  affect one day instead of the whole series — otherwise the dead boxes
+  would be the only unresponsive thing left on a sheet that is read-only
+  apart from them. The task-box test goes through
+  `MarkdownListSyntax.parse(line)?.kind == MarkdownListKind.task`, the
+  shared grammar, never a second regex, and only runs in that inert case.
+  Detail-sheet toggles update local state immediately and coalesce
   into **one** `UpdateCalendarEvent` after 600 ms (flushed on close, on
   routing to edit, and in `dispose` so a drag-dismiss never loses a tap),
   because every write invalidates the bloc's day cache. The sheet renders and
@@ -1321,6 +1364,10 @@ Nothing pre-rendered is persisted or cached in the database.
   grandfather** (`_initialTemplateLength` / `_initialDayLength`), and
   `_canSave` checks both — reading only the live controller would let
   over-limit day text through while the template view is on screen.
+  `EventDescriptionSheet` (2026-08-31) takes the limit and the grandfathered
+  length as plain parameters (`SettingsService.getEventDescriptionLimit()`
+  and the seed's own length, read at open time), so the same rule holds one
+  level removed from the form.
 - **Descriptions can be per-occurrence (v24; opted into per event since
   v28).** `CalendarEvent.perOccurrenceDescriptions` — an editor switch above
   the description field; the v24 global setting is gone (see the v28
@@ -1343,7 +1390,10 @@ Nothing pre-rendered is persisted or cached in the database.
     missing one — that is what keeps a deliberately blanked day blank instead
     of falling back. "Reset this day" **tombstones** the row (since v28); it
     never writes `''`. This also makes the notes-icon badge per-day-correct
-    for free.
+    for free. The quick-edit sheet's Done follows the same rule (2026-08-31
+    addendum): emptying a per-occurrence description writes `''`, a
+    deliberate blank that still beats the template, never a tombstone —
+    that stays the editor's "reset this day" alone.
   - **Reversible in both directions.** Turning the setting on moves nothing;
     turning it off leaves rows dormant rather than deleting them. Rules that
     change so a day no longer occurs keep their row — a stored delta is the
@@ -2174,7 +2224,8 @@ a day stamps out a `CalendarEvent` anchored there.
   template whose weekday set excludes it) the snackbar names the day it will
   actually land on instead of letting it look like nothing happened. Secondary:
   **"Save as template"** at the bottom of the event editor's scroll body, above
-  Delete — the inline header stays `close | title | Save`.
+  Delete — the inline header keeps one leading icon (`close`, or `back` on
+  the detail-sheet reopen loop, 2026-08-31 — see §6.3) | title | Save.
 - **Backups**: additive key `eventTemplates`, version stays 7. Strand rule
   keyed to **categories**, not events: an absent key alongside a present
   `calendarCategories` clears the table, because the category import just wiped
@@ -2790,3 +2841,243 @@ cannot be pictured from the setting's copy.
 `calendar_*` entries, so no calendar appearance setting round-trips through a
 JSON backup today — the rail's two keys included. Matching the existing
 behaviour is correct for this feature; closing the gap is its own change.
+
+## Addendum (2026-08-31): editing event descriptions
+
+The editor sheet's description was a `ModernEditorWrapper` bounded to
+120–260 px **inside** the form's own `SingleChildScrollView` — two nested
+scrollers fighting one drag, which is what made writing there feel bad. Not
+a markdown-capability gap: the description already rendered through the same
+`MarkdownEditorSpanBuilder` the note editor uses, at full syntax parity. The
+fix is a dedicated full-height sheet that gives the editor the only
+scrollable on screen, reached from two places that previously had none or
+only the full form.
+
+### `EventDescriptionSheet` — pure text-in/text-out
+
+[`lib/widgets/event_description_sheet.dart`](../lib/widgets/event_description_sheet.dart),
+`FractionallySizedBox(heightFactor: 0.92)`:
+
+```dart
+static Future<String?> show(
+  BuildContext context, {
+  required String initialText,
+  required String heading,
+  required int limit,
+  required int grandfatheredLength,
+  String? scopeCaption,
+  MarkdownColorPalette colorPalette = MarkdownColorPalette.presets,
+})
+```
+
+Returns the edited text, `null` when cancelled. It never touches a service,
+never persists, and knows nothing about scope, occurrences or events — the
+caller resolves which text it is and dispatches the result. Header:
+`[✕] <event title over "Description"> [Done]` — stacked, not a
+`title · Description` breadcrumb, because a phone leaves ~180 dp between the
+close icon and Done and a one-line breadcrumb ellipsises away the half that
+names the sheet; stacked, the event title truncates and the label never does,
+and the pair still fits inside the row's existing button height. Below it a
+**height-reserved status band** carries the optional scope caption on the left
+and the live `eventDescriptionCount` on the right (red + w600 over budget);
+over budget `eventDescriptionTooLong` takes the caption's slot rather than
+adding a row. The band reserves two `bodySmall` lines, scaled with the user's
+text size, so that swap never resizes the editor — a status line that reflows
+the text under the caret at exactly the moment the user is fighting the limit
+is the worst time to move it. The editor fills the rest of the height with
+**no border** (see below); the markdown bar docks at the bottom.
+
+- **The bar is permanently docked, not focus-gated** — the editor sheet
+  gates its inline bar on focus so the form never shifts, but here the
+  description is the entire content, so a stable bar beats a vanishing one.
+  It is the same reduced bar as the editor sheet's: `splitEnabled: false`, no
+  settings/reorder, undo+redo+paste, counter-bound shortcuts filtered
+  (`s.effectiveCounters.isEmpty`), shortcuts through
+  `MarkdownShortcutInserter` + `ShortcutApplier` inside `runRevocableOp` with
+  a post-frame `makeCursorVisible()`.
+- **Because the bar is a fixed footer, the clearance wraps the whole sheet.**
+  `max(viewInsets.bottom, viewPadding.bottom)` pads the sheet itself rather
+  than a scrollable — the `CalendarFilterSheet` variant of the rule §6.6 and
+  the hard rules describe, not the scrollable-padding one every other
+  calendar sheet uses.
+- **The editor carries no border, deliberately.** A bounded 120–260 px field
+  inside a form earns an outline; a full-height writing surface does not — it
+  reads as a form field, nests a box inside the sheet's own box, and spends
+  horizontal room on a sheet whose entire purpose is room. The note editor,
+  this app's other full-height editor, has no border either. The editor's own
+  `AppSpacing.lg` text padding does the insetting; the 4 dp outer pad exists
+  only to line that 16 dp up with the sheet's 20 dp gutter.
+- **Traps carried over from the editor sheet's inline field, all
+  load-bearing**:
+  `ListAwarePasteController(delegate: CodeLineEditingController(spanBuilder:))`;
+  `clearHistory()` after the seeding write; a `ValueNotifier<int>` relay
+  (`_revision`) with post-frame deferral instead of any `ListenableBuilder`
+  on the controller directly — the bar's undo/redo enablement rides that
+  relay too, not just the counter and Done; a late-resolving setting applied
+  with `forceRepaint()`, never a remount.
+- **Money is disabled by omission, and that is worth stating as a rule of
+  its own**: there is no money parameter on `ModernEditorWrapper` or on the
+  span builder constructor here. The builder defaults to
+  `MoneyDisplayConfig.disabled` and stays there only as long as nobody calls
+  `configureMoney` on it. Copying the note editor's money wiring into a
+  description surface is exactly how that invariant gets broken.
+- **The palette arrives already resolved** — the page holds a current copy —
+  and is applied with `configureColors` in `initState`; unlike the editor
+  sheet there is no late colour swap to repaint for, only
+  `liveMarkdownRendering` resolves async.
+- **It focuses the editor itself in a post-frame callback.**
+  `ModernEditorWrapper` hardcodes `CodeEditor(autofocus: false)` with no
+  parameter to change it, and a `CodeEditor` is not an `EditableText`, so
+  nothing focuses it automatically.
+- **Deliberately no placeholder text.** `eventDescriptionHint` was never
+  wired to anything — it is an unused ARB key — and there is no hint
+  mechanism on a `CodeEditor`; rendering one needs a hand-aligned overlay,
+  and a misaligned placeholder is worse than none.
+
+### Entry point A — the detail sheet's quick edit
+
+[`lib/widgets/event_detail_sheet.dart`](../lib/widgets/event_detail_sheet.dart):
+
+- `EventDetailAction` gains `editDescription` (now `edit`, `editDescription`,
+  `openNote`, `skipOccurrence`). It carries **no payload** on purpose: the
+  page re-resolves which text is being edited using exactly the rule a
+  checkbox tick uses, so a quick edit and a tick can never write to
+  different places.
+- The affordance is a pencil `IconButton` on the **description card's own
+  header row**, not the sheet header (which stays
+  `close | centred title | Edit`) — a fourth control up there would say
+  nothing about which field it opens. It keeps a full 48 dp tap target with a
+  20 dp glyph rather than going `visualDensity: compact`: this app is used
+  one-handed mid-session, so the *icon* carries the light weight, not the
+  target. The gaps around that label row are trimmed (16→8 above, 4→0 below)
+  to give back what the button's own padding already contributes — otherwise
+  "Description" sits in a visibly looser band than "Next occurrences", which
+  is the same kind of label.
+- The empty state changed: the old inert `eventDetailsNoDescription` text
+  ("No notes for this event") is replaced by a **tappable row** reading
+  `eventDescriptionAdd` ("Add description") that fires the same action, filled
+  with the same tonal wash the populated description card uses so it reads as
+  that card waiting to be filled rather than as a disabled input — which is
+  what a bare outline on a full-width row looks like. (A dashed border would
+  say it better still; Flutter has none and the app has no painter for one.)
+  `eventDetailsNoDescription` is now an unused ARB key, left in place.
+- A new caption, `eventDescriptionTickAllOccurrences`, renders under the
+  description when the task boxes are inert (repeating event, per-occurrence
+  descriptions off, §6.6) **and** the description actually contains a task
+  box — with editing gone from this sheet the dead boxes were otherwise the
+  only unresponsive thing on it; it doubles as discovery for the v28 switch.
+  The task-box test goes through
+  `MarkdownListSyntax.parse(line)?.kind == MarkdownListKind.task` — the
+  shared grammar, never a second regex — and only runs in the inert case.
+- A new parameter, `pendingOccurrenceDescription` (`String?`), mirrors the
+  editor sheet's: the page reopens this sheet in the same turn it dispatches
+  an occurrence write, so reading the facade would still show pre-edit text.
+  It beats `OccurrenceDescriptions.descriptionFor` when set, and the caller
+  drops it once `OccurrenceDescriptions.appliesTo` goes false, so a dormant
+  row can never render as if it were the template.
+
+### Entry point B — expand from the editor sheet
+
+[`lib/widgets/event_editor_sheet.dart`](../lib/widgets/event_editor_sheet.dart):
+
+- The description header row gains an expand `IconButton`
+  (`Icons.open_in_full_rounded`, `eventDescriptionExpand`), shown in preview
+  mode too — expanding is itself an edit action and always opens the
+  editing surface.
+- Seeded from `_descriptionController.text` — **the active scope only**. The
+  `_scope` control stays behind in the form and the sheet never sees it,
+  which is what keeps the sheet pure and the two-buffer copy-on-write logic
+  in exactly one place (§6.6). `grandfatheredLength` is the active scope's
+  own (`_initialDayLength` / `_initialTemplateLength`); the caption reuses
+  `eventDescriptionScopeThisDayHint` / `eventDescriptionScopeAllDaysHint`.
+- On return: `text = result; clearHistory();` inside a `setState` — the
+  active scope's buffer *is* the controller, so there is nothing to mirror;
+  `clearHistory()` for the same reason a scope swap needs it (§6.6). Cancel
+  changes nothing. **The expanded sheet does not save the event** — it edits
+  the in-flight controller and the form still saves; nothing about
+  `_resolveOccurrenceOutcome`'s copy-on-write contract changes.
+
+### Navigation — back button and the reopen loop
+
+- `EventEditorResult` gains a third sealed variant, `EventEditorBack`,
+  alongside `EventEditorSaved` / `EventEditorDeleted`.
+- `EventEditorSheet` gains `final bool showBack` (default `false`), set only
+  on the detail-sheet path. **Back replaces close rather than joining it** —
+  the header stays one leading icon (§6.3's `close | title | Save` shape is
+  structurally unchanged; only the leading icon and its tooltip, `l10n.back`
+  vs `l10n.cancel`, differ). Back and close **discard identically** — there
+  is no dirty tracking in this sheet — so two adjacent buttons differing
+  only in where you land is a distinction too fine for a second icon.
+- A `PopScope` (net-new here) maps the Android system back gesture to the
+  same `EventEditorBack`, only while `showBack` holds. Drag-dismiss bypasses
+  `PopScope` entirely and still pops `null`, which closes the whole
+  stack — the deliberate escape hatch out of the loop.
+- `calendar_page.dart`'s `_openDetailSheet` is now a **loop**: `edit` and
+  `editDescription` re-enter it; `openNote`, `skipOccurrence`, a delete, and
+  dismissing the sheet all exit. `_openEditorSheet` now returns
+  `Future<EventEditorResult?>` instead of `Future<void>` (it still dispatches
+  everything itself; only the loop reads the value) and gained `showBack`;
+  of its five callers, only the detail-sheet path passes `showBack: true`.
+- Two static rules on the page are worth stating as invariants:
+  - **`_pendingAfterSave`** decides what the day's text is for the reopened
+    sheet. `null` once `OccurrenceDescriptions.appliesTo(saved)` goes false
+    (the row went dormant, the template governs again); the previous
+    pending when the editor left the table alone (`occurrenceDay == null`);
+    otherwise `result.occurrenceDescription ?? saved.description ?? ''` —
+    because a non-null day paired with a **null** description is a reset
+    that *deleted* the row, so the day now follows the template, and
+    carrying stale text there would show text the user just deleted.
+  - **`_occurrenceSurvives`** decides whether `day` still has an occurrence
+    after the save. The form can move the date, change the rule, pull in
+    `endDate`, or cancel that very day from its own skip picker; reopening
+    on any of those would describe an occurrence that is gone. It reads the
+    skip set **from the result** (`result.skippedDays?.contains(day)`)
+    rather than from `EventSkips`, because the skip dispatch is async and
+    the facade may not carry it yet, then falls back to
+    `saved.occursOn(day)`. `CalendarBloc.eventsForDay` is the wrong call
+    here — it applies the hidden-category filter and would report a
+    filtered-out event as gone.
+
+### Quick-edit routing (`_quickEditDescription`)
+
+- Seeded from the **raw** text —
+  `pending ?? OccurrenceDescriptions.descriptionFor(...) ?? ''`, or
+  `event.description ?? ''` — never the detail sheet's trimmed render, so an
+  unedited Done can compare equal.
+- **An unchanged Done writes nothing.** On a day with no row of its own it
+  would otherwise materialise one identical to the template, forking that
+  day forever; on the event it would bump `version` and the HLC for nothing.
+- Per-occurrence goes through `SetOccurrenceDescription`; otherwise
+  `UpdateCalendarEvent` with `clearDescription: edited.isEmpty` — the same
+  two branches a checkbox tick uses.
+- **Emptying a per-occurrence quick edit writes `''` — a deliberately
+  blanked day — and is not a reset.** The row stays and keeps winning over
+  the template; returning to the template is what the editor's "reset this
+  day" (which tombstones, §6.6) is for. This is the one place the two
+  operations are easy to confuse, so it is worth stating plainly here too.
+- No scope picker, deliberately: a per-occurrence event edits *this day*
+  here, and its template only in the full editor — which is what the
+  caption under the field says out loud.
+- The limit comes from `SettingsService.getEventDescriptionLimit()` read at
+  tap time; the grandfathered length is the seed's own length, so the text
+  is always confirmable at a length it already had (§6.6's grandfather
+  rule, one level removed from the form). Cancel is never disabled.
+
+### Localization
+
+Six new keys, present in en/de/ro: `eventDescriptionEdit`,
+`eventDescriptionAdd`, `eventDescriptionExpand`, `eventDescriptionDone`,
+`eventDescriptionAppliesAllOccurrences`, `eventDescriptionTickAllOccurrences`.
+Reused as-is: `eventDescription`, `eventDescriptionCount`,
+`eventDescriptionTooLong`, `eventDescriptionScopeThisDayHint`,
+`eventDescriptionScopeAllDaysHint`, `back`, `close`.
+
+### Unchanged, and it has to stay that way
+
+The detail sheet stays read-only apart from checkbox toggling — no editor is
+mounted in it. Checkbox gating (§6.6) is untouched.
+`OccurrenceDescriptions.descriptionFor` stays the one resolution entry
+point. A present occurrence row always wins, including when empty, and
+"reset this day" tombstones rather than writing `''`. Occurrence writes bump
+`occurrenceRevision` and never invalidate the day cache.
+`SimpleMarkdownPreview.onCheckboxTap` stays `null` on read-only surfaces.
