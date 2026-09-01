@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -23,6 +25,7 @@ import '../constants/occurrence_descriptions.dart';
 import '../constants/public_holidays.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
+import '../models/calendar_grid_filters.dart';
 import '../models/calendar_event.dart';
 import '../models/calendar_selection_source.dart';
 import '../models/day_bar.dart';
@@ -46,7 +49,9 @@ import '../widgets/calendar_add_fab.dart';
 import '../widgets/calendar_bottom_panel.dart';
 import '../widgets/calendar_day_bars.dart';
 import '../widgets/calendar_day_cell.dart';
+import '../widgets/calendar_filter_chips.dart';
 import '../widgets/calendar_filter_sheet.dart';
+import '../widgets/filter_preset_sheet.dart';
 import '../widgets/event_description_sheet.dart';
 import '../widgets/event_detail_sheet.dart';
 import '../widgets/event_editor_sheet.dart';
@@ -130,6 +135,10 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   /// "the calendar disappeared", so every visit starts with the grid shown.
   bool _panelExpanded = false;
 
+  /// Whether the persisted filter set has been pushed into the bloc. See
+  /// [_loadSettings] for why this is once-only.
+  bool _filtersRestored = false;
+
   /// Whether the add button shows its day label. Driven by the panel's scroll
   /// through a notifier rather than `setState`, because the only widget that
   /// cares is the button: a page-level rebuild on every scroll tick would
@@ -160,25 +169,44 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
 
   bool? _barsRailActive;
 
-  DayBarsResolver _resolverFor(AppLocalizations l10n) {
+  /// The three layer flags the bar/tint/summary resolvers are composed from.
+  /// A record so one comparison covers all three in every memo key.
+  ({bool holidays, bool fasting, bool money})? _barsLayers;
+
+  static ({bool holidays, bool fasting, bool money}) _layersOf(
+    CalendarGridFilters filters,
+  ) => (
+    holidays: filters.showHolidays,
+    fasting: filters.showFasting,
+    money: filters.showMoney,
+  );
+
+  DayBarsResolver _resolverFor(AppLocalizations l10n, CalendarGridFilters f) {
     final missed = _appearance.missedDisplay;
     // A rail event is excluded from the bottom strip, but only while the rail
     // renders — turning the rail off must never silently drop events from the
     // grid — so the style is part of how the bars resolver is built, and
-    // therefore part of its memo key.
+    // therefore part of its memo key. The layer flags are in it for the same
+    // reason: they decide which providers exist.
     final railActive = _railStyle != DayRailStyle.none;
+    final layers = _layersOf(f);
     if (_barsResolver == null ||
         _barsL10n != l10n ||
         _barsMissedDisplay != missed ||
-        _barsRailActive != railActive) {
+        _barsRailActive != railActive ||
+        _barsLayers != layers) {
       _barsResolver = DayBarsResolver.defaults(
         l10n,
         missedDisplay: missed,
         railActive: railActive,
+        showHolidays: layers.holidays,
+        showFasting: layers.fasting,
+        showMoney: layers.money,
       );
       _barsL10n = l10n;
       _barsMissedDisplay = missed;
       _barsRailActive = railActive;
+      _barsLayers = layers;
     }
     return _barsResolver!;
   }
@@ -216,14 +244,24 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     return _railResolver!;
   }
 
-  /// Memoized cell-wash resolver, rebuilt only when the appearance changes.
+  /// Memoized cell-wash resolver, rebuilt only when the appearance or the
+  /// fasting layer changes — the wash has no holiday or money source, so the
+  /// other two flags are not inputs here.
   CellTintResolver? _tintResolver;
   CalendarAppearance? _tintAppearance;
+  bool? _tintShowFasting;
 
-  CellTintResolver get _cellTintResolver {
-    if (_tintResolver == null || _tintAppearance != _appearance) {
-      _tintResolver = CellTintResolver.defaults(_appearance);
+  CellTintResolver _cellTintResolverFor(CalendarGridFilters filters) {
+    final showFasting = filters.showFasting;
+    if (_tintResolver == null ||
+        _tintAppearance != _appearance ||
+        _tintShowFasting != showFasting) {
+      _tintResolver = CellTintResolver.defaults(
+        _appearance,
+        showFasting: showFasting,
+      );
       _tintAppearance = _appearance;
+      _tintShowFasting = showFasting;
     }
     return _tintResolver!;
   }
@@ -264,7 +302,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   /// already relies on while being exact.
   ({
     Object allEvents,
-    Object hiddenCategoryIds,
+    Object filters,
     int membershipRevision,
     int presenceRevision,
     int holidayRevision,
@@ -285,7 +323,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   ) {
     final generation = (
       allEvents: state.allEvents,
-      hiddenCategoryIds: state.hiddenCategoryIds,
+      filters: state.filters,
       membershipRevision: state.membershipRevision,
       presenceRevision: state.presenceRevision,
       holidayRevision: PublicHolidays.revision,
@@ -381,10 +419,44 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
       orthodoxGreatFasts: loaded.fastingGreatFasts,
       schedule: loaded.fastingSchedule,
     );
+    // Restored **once**, on the first load only. `_loadSettings` also runs on
+    // every settings return, and re-applying the stored set there would race
+    // an in-session change whose write has not landed yet — undoing a chip the
+    // user just removed. The bloc records the filters even while it is still
+    // `CalendarPageInitial`, so this can fire before the first load finishes.
+    if (!_filtersRestored) {
+      _filtersRestored = true;
+      if (!loaded.filters.isEmpty || loaded.filters.panelShowsAll) {
+        context.read<CalendarBloc>().add(
+          ChangeCalendarFilters(filters: loaded.filters),
+        );
+      }
+    }
     setState(() {
       _appearance = loaded.appearance;
       _colorPalette = loaded.palette;
     });
+  }
+
+  /// The one funnel for a filter change: the bloc renders it, and it is
+  /// written back so the next app open sees it. Every surface that can change
+  /// a filter — the sheet's Apply and each summary chip's `x` — goes through
+  /// here, or the two would drift.
+  void _applyFilters(BuildContext context, CalendarGridFilters filters) {
+    context.read<CalendarBloc>().add(ChangeCalendarFilters(filters: filters));
+    unawaited(_persistFilters(filters));
+  }
+
+  Future<void> _persistFilters(CalendarGridFilters filters) async {
+    try {
+      final settings = await SettingsService.getInstance();
+      await settings.setCalendarGridFilters(filters);
+    } catch (e) {
+      // A preference that failed to save is not worth interrupting the user
+      // over: the filter is already applied, it just will not survive a
+      // restart.
+      debugPrint('[CalendarPage] Filter persist failed: $e');
+    }
   }
 
   /// Shows an event read-only first, then routes whatever the user chose
@@ -619,8 +691,11 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   /// the day panel.
   static bool _isLoaded(CalendarPageState state) => state is CalendarPageLoaded;
 
-  static bool _hasHiddenCategories(CalendarPageState state) =>
-      state is CalendarPageLoaded && state.hiddenCategoryIds.isNotEmpty;
+  /// How many filters are narrowing the grid — the app-bar badge's count, and
+  /// the signal its `buildWhen` watches. Zero means the icon shows unfilled
+  /// and no chip row is mounted.
+  static int _activeFilterCount(CalendarPageState state) =>
+      state is CalendarPageLoaded ? state.filters.activeCount : 0;
 
   static bool _hasEvents(CalendarPageState state) =>
       state is CalendarPageLoaded && state.allEvents.isNotEmpty;
@@ -637,29 +712,60 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
       appBar: AppBar(
         title: Text(l10n.calendar),
         actions: [
+          // Saved filters sit **left of** the filter button, in reading order:
+          // you reach for a filter you already have before you build a new
+          // one. It has no badge — a saved filter is not itself a restriction,
+          // and a second count beside the filter badge would only compete
+          // with it.
+          BlocBuilder<CalendarBloc, CalendarPageState>(
+            buildWhen: (previous, current) =>
+                _isLoaded(previous) != _isLoaded(current),
+            builder: (context, state) {
+              return IconButton(
+                tooltip: l10n.filterPresetsTitle,
+                icon: const Icon(Icons.bookmarks_outlined),
+                onPressed: !_isLoaded(state)
+                    ? null
+                    : () {
+                        // Read at press time: this buildWhen tracks only
+                        // whether the page has loaded, so a captured state
+                        // would carry stale filters.
+                        final current = context.read<CalendarBloc>().state;
+                        if (current is! CalendarPageLoaded) return;
+                        _openPresetSheet(context, current);
+                      },
+              );
+            },
+          ),
           BlocBuilder<CalendarBloc, CalendarPageState>(
             buildWhen: (previous, current) =>
                 _isLoaded(previous) != _isLoaded(current) ||
-                _hasHiddenCategories(previous) != _hasHiddenCategories(current),
+                _activeFilterCount(previous) != _activeFilterCount(current),
             builder: (context, state) {
               final isLoaded = _isLoaded(state);
-              return IconButton(
-                tooltip: l10n.filterCalendar,
-                icon: Icon(
-                  _hasHiddenCategories(state)
-                      ? Icons.filter_alt_rounded
-                      : Icons.filter_alt_outlined,
+              final active = _activeFilterCount(state);
+              return Badge.count(
+                count: active,
+                isLabelVisible: active > 0,
+                child: IconButton(
+                  tooltip: l10n.filterCalendar,
+                  isSelected: active > 0,
+                  icon: Icon(
+                    active > 0
+                        ? Icons.filter_alt_rounded
+                        : Icons.filter_alt_outlined,
+                  ),
+                  onPressed: !isLoaded
+                      ? null
+                      : () {
+                          // Read at press time, not from the builder's state:
+                          // this buildWhen ignores `format`, which the sheet
+                          // needs, so a captured state could be stale.
+                          final current = context.read<CalendarBloc>().state;
+                          if (current is! CalendarPageLoaded) return;
+                          _openFilterSheet(context, current);
+                        },
                 ),
-                onPressed: !isLoaded
-                    ? null
-                    : () {
-                        // Read at press time, not from the builder's state:
-                        // this buildWhen ignores `format`, which the sheet
-                        // needs, so a captured state could be stale.
-                        final current = context.read<CalendarBloc>().state;
-                        if (current is! CalendarPageLoaded) return;
-                        _openFilterSheet(context, current);
-                      },
               );
             },
           ),
@@ -734,6 +840,37 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
             }
             return Column(
               children: [
+                // Its own builder, gated on the filter set alone: the row is
+                // mounted only while something is being hidden, and neither
+                // the grid nor the panel rebuilds when a chip is removed —
+                // that reaches them through the bloc, as any other filter
+                // change does. The grid's height is fixed (rows are sized
+                // from the cell metrics, not from what is left over), so the
+                // row costs the bottom panel a few pixels and shifts nothing
+                // above it.
+                BlocBuilder<CalendarBloc, CalendarPageState>(
+                  buildWhen: (previous, current) =>
+                      previous is! CalendarPageLoaded ||
+                      current is! CalendarPageLoaded ||
+                      !identical(previous.filters, current.filters),
+                  builder: (context, state) {
+                    if (state is! CalendarPageLoaded) {
+                      return const SizedBox.shrink();
+                    }
+                    return CalendarFilterChips(
+                      filters: state.filters,
+                      onChanged: (filters) => _applyFilters(context, filters),
+                      // Read at press time for the same reason the app-bar
+                      // button does: this buildWhen ignores `format`, which
+                      // the sheet needs.
+                      onOpenFilters: () {
+                        final current = context.read<CalendarBloc>().state;
+                        if (current is! CalendarPageLoaded) return;
+                        _openFilterSheet(context, current);
+                      },
+                    );
+                  },
+                ),
                 // AnimatedSize collapses the grid to zero height when the
                 // panel is expanded — the grid keeps its own state either way
                 // and no manual layout math is involved.
@@ -760,8 +897,10 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
                                           width: double.infinity,
                                         );
                                       }
-                                      final barsResolver = _resolverFor(l10n);
-                                      final tintResolver = _cellTintResolver;
+                                      final barsResolver = _resolverFor(l10n, state.filters);
+                                      final tintResolver = _cellTintResolverFor(
+                                          state.filters,
+                                        );
                                       final railResolver = _railResolverFor(
                                         l10n,
                                       );
@@ -1188,16 +1327,31 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     final result = await CalendarFilterSheet.show(
       context,
       format: state.format,
-      hiddenCategoryIds: state.hiddenCategoryIds,
+      filters: state.filters,
     );
     if (result == null || !context.mounted) return;
-    final bloc = context.read<CalendarBloc>();
     if (result.format != state.format) {
-      bloc.add(ChangeCalendarFormat(format: result.format));
+      context.read<CalendarBloc>().add(
+        ChangeCalendarFormat(format: result.format),
+      );
     }
-    bloc.add(
-      ChangeHiddenCategories(hiddenCategoryIds: result.hiddenCategoryIds),
+    _applyFilters(context, result.filters);
+  }
+
+  /// Opens the saved-filter list. Applying one goes through the same
+  /// [_applyFilters] funnel a sheet Apply does, so a preset is persisted as
+  /// the live filter exactly like any other change — pick it today, reopen the
+  /// app tomorrow, still filtered.
+  Future<void> _openPresetSheet(
+    BuildContext context,
+    CalendarPageLoaded state,
+  ) async {
+    final picked = await FilterPresetSheet.show(
+      context,
+      current: state.filters,
     );
+    if (picked == null || !context.mounted) return;
+    _applyFilters(context, picked);
   }
 
   Future<void> _openSettings(BuildContext context) async {
@@ -1406,7 +1560,15 @@ class _CalendarTable extends StatelessWidget {
     final key = DateTime.utc(day.year, day.month, day.day);
     // The normalized key is needed for the output memo below anyway, so the
     // fasting lookup takes it directly rather than re-deriving it (**5.4**).
-    final fasting = FastingCalendar.cellStyleForUtcDay(key);
+    //
+    // The filter's fasting layer gates it here as well as in the three
+    // resolver factories: the strong display style paints the **day number**,
+    // which reaches the cell down this path rather than through a provider, so
+    // composing the providers out does not silence it. Skipping the lookup
+    // outright rather than discarding its result also spares the probe.
+    final fastingNumberColor = state.filters.showFasting
+        ? FastingCalendar.cellStyleForUtcDay(key).numberColor
+        : null;
     // Resolver output memo (3.3): valid for as long as `_outputGeneration`
     // says it is, so a rebuild the generation is unaffected by (a day tap, a
     // format toggle) serves this from cache instead of re-running
@@ -1435,7 +1597,7 @@ class _CalendarTable extends StatelessWidget {
       highlightWeekends: appearance.highlightWeekends,
       accent: accent,
       tint: tint,
-      fastingNumberColor: fasting.numberColor,
+      fastingNumberColor: fastingNumberColor,
       railMarks: railMarks,
       railStyle: railStyle,
       railBasePosition: railBasePosition,

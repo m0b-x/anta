@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/models/calendar_grid_filters.dart';
 import 'package:anta/models/calendar_panel_mode.dart';
 import 'package:anta/models/calendar_selection_source.dart';
 import 'package:anta/services/calendar_event_service.dart';
@@ -59,10 +60,14 @@ void main() {
     SettingsService.reset();
   });
 
-  CalendarPageLoaded stateFor(DateTime selectedDay) => CalendarPageLoaded(
+  CalendarPageLoaded stateFor(
+    DateTime selectedDay, {
+    CalendarGridFilters filters = CalendarGridFilters.none,
+  }) => CalendarPageLoaded(
     allEvents: const [],
     focusedDay: selectedDay,
     selectedDay: selectedDay,
+    filters: filters,
     selectionSource: CalendarSelectionSource.grid,
   );
 
@@ -131,6 +136,33 @@ void main() {
 
     // The new value is now the memo's key, so it stays put.
     await pumpPanel(tester, stateFor(later), showRecurrenceLabels: false);
+    expect(DaySummaryResolver.debugDefaultsBuilds, 1);
+  });
+
+  /// The filter's annotation layers **compose the provider list**, so they are
+  /// inputs to the same memo — a layer flipped while the resolver was reused
+  /// would leave the panel listing an annotation the grid has already dropped.
+  testWidgets('an annotation layer rebuilds it, once', (tester) async {
+    await pumpPanel(tester, stateFor(selected), showRecurrenceLabels: true);
+    DaySummaryResolver.debugDefaultsBuilds = 0;
+
+    await pumpPanel(
+      tester,
+      stateFor(
+        selected,
+        filters: const CalendarGridFilters(showHolidays: false),
+      ),
+      showRecurrenceLabels: true,
+    );
+    expect(DaySummaryResolver.debugDefaultsBuilds, 1);
+
+    // Same layers on a different day: the memo key is the flags, not the
+    // filter instance, so an unrelated emission must not rebuild it.
+    await pumpPanel(
+      tester,
+      stateFor(later, filters: const CalendarGridFilters(showHolidays: false)),
+      showRecurrenceLabels: true,
+    );
     expect(DaySummaryResolver.debugDefaultsBuilds, 1);
   });
 }

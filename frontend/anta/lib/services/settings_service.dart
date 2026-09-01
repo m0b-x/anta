@@ -10,6 +10,7 @@ import '../models/fasting_schedule.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
 import '../models/calendar_appearance.dart';
+import '../models/calendar_grid_filters.dart';
 import '../models/calendar_panel_mode.dart';
 import '../models/upcoming_agenda_filters.dart';
 import '../models/utility_button_config.dart';
@@ -1133,6 +1134,7 @@ class SettingsService {
 
   static const List<String> _calendarPageKeys = [
     ..._calendarAppearanceKeys,
+    SettingsKeys.calendarGridFilters,
     SettingsKeys.markdownCustomColors,
     SettingsKeys.calendarFastingTraditions,
     SettingsKeys.calendarFastingAppearance,
@@ -1216,6 +1218,7 @@ class SettingsService {
   Future<
     ({
       CalendarAppearance appearance,
+      CalendarGridFilters filters,
       MarkdownColorPalette palette,
       Set<FastingTradition> fastingTraditions,
       FastingAppearance fastingAppearance,
@@ -1227,6 +1230,9 @@ class SettingsService {
     final values = await _db.userSettingsDao.getValuesFor(_calendarPageKeys);
     return (
       appearance: _decodeCalendarAppearance(values),
+      filters: CalendarGridFilters.decode(
+        values[SettingsKeys.calendarGridFilters],
+      ),
       palette: _decodeColorPalette(values[SettingsKeys.markdownCustomColors]),
       fastingTraditions: _decodeFastingTraditions(
         values[SettingsKeys.calendarFastingTraditions],
@@ -1243,6 +1249,32 @@ class SettingsService {
         values[SettingsKeys.calendarFastingSchedule],
         values[SettingsKeys.calendarFastingWeekdays],
       ),
+    );
+  }
+
+  /// Persists the calendar grid's filter set.
+  ///
+  /// Deletes the row outright when nothing is set rather than storing `{}`, so
+  /// "never filtered" and "filtered then cleared" leave the same absence
+  /// behind and the decoder has one less shape to understand.
+  Future<void> setCalendarGridFilters(CalendarGridFilters filters) async {
+    final encoded = filters.encode();
+    if (encoded.isEmpty) {
+      await _db.userSettingsDao.deleteValue(SettingsKeys.calendarGridFilters);
+      return;
+    }
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.calendarGridFilters,
+      encoded,
+    );
+  }
+
+  /// The stored filter set on its own, for callers outside the page's bulk
+  /// read. Shares [CalendarGridFilters.decode] with the bulk path, so the two
+  /// cannot drift.
+  Future<CalendarGridFilters> getCalendarGridFilters() async {
+    return CalendarGridFilters.decode(
+      await _db.userSettingsDao.getValue(SettingsKeys.calendarGridFilters),
     );
   }
 

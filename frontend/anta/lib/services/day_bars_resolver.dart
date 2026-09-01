@@ -234,10 +234,20 @@ class DayBarsResolver {
   const DayBarsResolver({required this.providers});
 
   /// Default resolver bundling weekend + public holiday + event categories.
+  ///
+  /// The three layer flags **compose the provider list** rather than gating
+  /// anything downstream: a layer turned off is a provider that was never
+  /// built, so the bar it would have emitted costs nothing to leave out. They
+  /// come from `CalendarGridFilters`, and the day panel's
+  /// `DaySummaryResolver.defaults` takes the same three, so an annotation
+  /// hidden on the grid is hidden in the panel too.
   factory DayBarsResolver.defaults(
     AppLocalizations l10n, {
     CalendarMissedDisplay missedDisplay = CalendarMissedDisplay.faded,
     bool railActive = false,
+    bool showHolidays = true,
+    bool showFasting = true,
+    bool showMoney = true,
   }) {
     return DayBarsResolver(
       providers: [
@@ -245,10 +255,10 @@ class DayBarsResolver {
           missedDisplay: missedDisplay,
           railActive: railActive,
         ),
-        PublicHolidayDayBarProvider(l10n),
-        FastingDayBarProvider(l10n),
+        if (showHolidays) PublicHolidayDayBarProvider(l10n),
+        if (showFasting) FastingDayBarProvider(l10n),
         WeekendDayBarProvider(l10n),
-        MoneyDayBarProvider(l10n),
+        if (showMoney) MoneyDayBarProvider(l10n),
       ],
     );
   }

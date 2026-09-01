@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:table_calendar/table_calendar.dart';
 
 import '../../models/calendar_event.dart';
+import '../../models/calendar_grid_filters.dart';
 import '../../models/calendar_selection_source.dart';
 
 sealed class CalendarPageEvent extends Equatable {
@@ -52,13 +53,13 @@ final class ChangeCalendarFormat extends CalendarPageEvent {
   List<Object?> get props => [format];
 }
 
-final class ChangeHiddenCategories extends CalendarPageEvent {
-  final Set<String> hiddenCategoryIds;
+final class ChangeCalendarFilters extends CalendarPageEvent {
+  final CalendarGridFilters filters;
 
-  const ChangeHiddenCategories({required this.hiddenCategoryIds});
+  const ChangeCalendarFilters({required this.filters});
 
   @override
-  List<Object?> get props => [hiddenCategoryIds];
+  List<Object?> get props => [filters];
 }
 
 final class CreateCalendarEvent extends CalendarPageEvent {

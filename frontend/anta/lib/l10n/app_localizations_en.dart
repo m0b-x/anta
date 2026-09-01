@@ -75,6 +75,100 @@ class AppLocalizationsEn extends AppLocalizations {
   String get calendarClearAll => 'Clear';
 
   @override
+  String get calendarFilterRepeat => 'Repeat';
+
+  @override
+  String get calendarFilterTiming => 'Time of day';
+
+  @override
+  String get calendarFilterTimed => 'Timed';
+
+  @override
+  String get calendarFilterOnlyShow => 'Only show';
+
+  @override
+  String get calendarFilterTracked => 'Tracked';
+
+  @override
+  String get calendarFilterHideEnded => 'Hide ended';
+
+  @override
+  String get calendarFilterWithDescription => 'With description';
+
+  @override
+  String get calendarFilterWithMoney => 'With money';
+
+  @override
+  String get calendarFilterCounted => 'Counted';
+
+  @override
+  String get calendarFilterMoneyLayer => 'Money';
+
+  @override
+  String calendarFilterLayerHidden(String layer) {
+    return 'Without $layer';
+  }
+
+  @override
+  String get calendarFilterPanelShowsAll => 'Keep the day panel unfiltered';
+
+  @override
+  String get calendarFilterPanelShowsAllDesc =>
+      'The month stays filtered; tapping a day still lists everything on it';
+
+  @override
+  String get calendarFilterShowsEverything => 'Shows everything';
+
+  @override
+  String get calendarFilterNoCategories => 'No categories';
+
+  @override
+  String get filterPresetsTitle => 'Saved filters';
+
+  @override
+  String get filterPresetSearchHint => 'Search saved filters';
+
+  @override
+  String get filterPresetEmpty =>
+      'No saved filters yet. Set up a filter, then tap the bookmark in the filter sheet to save it.';
+
+  @override
+  String get filterPresetNoMatches => 'No saved filter matches your search';
+
+  @override
+  String get filterPresetSave => 'Save filter';
+
+  @override
+  String filterPresetSaved(String name) {
+    return 'Saved as \"$name\"';
+  }
+
+  @override
+  String get filterPresetName => 'Name';
+
+  @override
+  String get filterPresetRename => 'Rename';
+
+  @override
+  String get filterPresetUpdate => 'Update to current filter';
+
+  @override
+  String get filterPresetDelete => 'Delete saved filter';
+
+  @override
+  String filterPresetDeleteConfirm(String name) {
+    return 'Delete \"$name\"? The events it hides are untouched.';
+  }
+
+  @override
+  String get filterPresetActions => 'Saved filter options';
+
+  @override
+  String filterPresetLimitReached(int count) {
+    return 'You can save up to $count filters';
+  }
+
+  @override
   String get filterCalendar => 'Filter calendar';
 
   @override

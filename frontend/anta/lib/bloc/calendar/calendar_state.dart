@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:table_calendar/table_calendar.dart';
 
 import '../../models/calendar_event.dart';
+import '../../models/calendar_grid_filters.dart';
 import '../../models/calendar_selection_source.dart';
 
 sealed class CalendarPageState extends Equatable {
@@ -25,11 +26,15 @@ final class CalendarPageLoaded extends CalendarPageState {
   final DateTime selectedDay;
   final CalendarFormat format;
 
-  /// Ids of categories the user has hidden from the calendar. Empty means
-  /// "show everything". Stored as a hidden set (rather than a visible set) so
-  /// newly created categories are visible by default and deleting a category
-  /// leaves at most a harmless stale id behind.
-  final Set<String> hiddenCategoryIds;
+  /// What the user has narrowed the grid to — categories, priorities,
+  /// recurrence, timing and the boolean traits. [CalendarGridFilters.none]
+  /// means "show everything", which is what every fresh load starts on:
+  /// filters are a lens, deliberately transient, so a restart can never open
+  /// on a calendar that looks empty.
+  ///
+  /// Applied once per change by `CalendarBloc`, never per day — see
+  /// [CalendarGridFilters.apply].
+  final CalendarGridFilters filters;
 
   /// Bumped whenever per-occurrence overlay data — a description (v24) or a
   /// presence mark (v26) — is written or cleared.
@@ -86,7 +91,7 @@ final class CalendarPageLoaded extends CalendarPageState {
     required this.focusedDay,
     required this.selectedDay,
     this.format = CalendarFormat.month,
-    this.hiddenCategoryIds = const {},
+    this.filters = CalendarGridFilters.none,
     this.occurrenceRevision = 0,
     this.membershipRevision = 0,
     this.presenceRevision = 0,
@@ -108,14 +113,14 @@ final class CalendarPageLoaded extends CalendarPageState {
       focusedDay == other.focusedDay &&
       selectedDay == other.selectedDay &&
       format == other.format &&
-      identical(hiddenCategoryIds, other.hiddenCategoryIds) &&
+      identical(filters, other.filters) &&
       membershipRevision == other.membershipRevision &&
       presenceRevision == other.presenceRevision;
 
   /// True when nothing the bottom panel renders from has changed.
   ///
   /// Drives the panel's `buildWhen`. The panel consumes the selected day, the
-  /// event list, the category filter and **all three** overlay revisions —
+  /// event list, the filter set and **all three** overlay revisions —
   /// descriptions and presence feed the day/timeline panels, a skip feeds the
   /// agenda — but **not** [focusedDay] or [format], which only move the grid.
   /// So month paging and a format toggle no longer rebuild the panel or re-run
@@ -125,7 +130,7 @@ final class CalendarPageLoaded extends CalendarPageState {
   bool samePanelInputs(CalendarPageLoaded other) =>
       identical(allEvents, other.allEvents) &&
       selectedDay == other.selectedDay &&
-      identical(hiddenCategoryIds, other.hiddenCategoryIds) &&
+      identical(filters, other.filters) &&
       occurrenceRevision == other.occurrenceRevision &&
       membershipRevision == other.membershipRevision &&
       presenceRevision == other.presenceRevision;
@@ -135,7 +140,7 @@ final class CalendarPageLoaded extends CalendarPageState {
     DateTime? focusedDay,
     DateTime? selectedDay,
     CalendarFormat? format,
-    Set<String>? hiddenCategoryIds,
+    CalendarGridFilters? filters,
     int? occurrenceRevision,
     int? membershipRevision,
     int? presenceRevision,
@@ -146,7 +151,7 @@ final class CalendarPageLoaded extends CalendarPageState {
       focusedDay: focusedDay ?? this.focusedDay,
       selectedDay: selectedDay ?? this.selectedDay,
       format: format ?? this.format,
-      hiddenCategoryIds: hiddenCategoryIds ?? this.hiddenCategoryIds,
+      filters: filters ?? this.filters,
       occurrenceRevision: occurrenceRevision ?? this.occurrenceRevision,
       membershipRevision: membershipRevision ?? this.membershipRevision,
       presenceRevision: presenceRevision ?? this.presenceRevision,
@@ -160,7 +165,7 @@ final class CalendarPageLoaded extends CalendarPageState {
     focusedDay,
     selectedDay,
     format,
-    hiddenCategoryIds,
+    filters,
     occurrenceRevision,
     membershipRevision,
     presenceRevision,

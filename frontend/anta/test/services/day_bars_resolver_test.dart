@@ -271,6 +271,35 @@ void main() {
       expect(barIds(withRail.resolve(day, events)), ['plain']);
       expect(barIds(withoutRail.resolve(day, events)), ['tracked', 'plain']);
     });
+
+    /// The grid filter's annotation layers are **provider composition**, not a
+    /// gate downstream: a layer that is off is a provider that was never
+    /// built. Asserted structurally because the holiday/fasting/money
+    /// providers emit nothing with their facades unconfigured, so an output
+    /// comparison could not tell "absent" from "silent".
+    test('the layer flags compose providers out', () {
+      final l10n = AppLocalizationsEn();
+
+      final all = DayBarsResolver.defaults(l10n);
+      final none = DayBarsResolver.defaults(
+        l10n,
+        showHolidays: false,
+        showFasting: false,
+        showMoney: false,
+      );
+
+      expect(all.providers.whereType<PublicHolidayDayBarProvider>(), isNotEmpty);
+      expect(all.providers.whereType<FastingDayBarProvider>(), isNotEmpty);
+      expect(all.providers.whereType<MoneyDayBarProvider>(), isNotEmpty);
+
+      expect(none.providers.whereType<PublicHolidayDayBarProvider>(), isEmpty);
+      expect(none.providers.whereType<FastingDayBarProvider>(), isEmpty);
+      expect(none.providers.whereType<MoneyDayBarProvider>(), isEmpty);
+      // Events and weekends are not layers — nothing the filter offers can
+      // compose them out.
+      expect(none.providers.whereType<EventDayBarProvider>(), hasLength(1));
+      expect(none.providers.whereType<WeekendDayBarProvider>(), hasLength(1));
+    });
   });
 
   group('colour', () {

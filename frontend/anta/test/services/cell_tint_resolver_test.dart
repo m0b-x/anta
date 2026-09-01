@@ -242,6 +242,50 @@ void main() {
       expect(resolver.layerRunnerUp, isFalse);
     });
 
+    /// The grid filter's fasting layer composes the fasting provider out —
+    /// which is also what takes the day rail's base band with it, since that
+    /// band *is* the runner-up wash.
+    test('the fasting layer composes the fasting provider out', () {
+      final resolver = CellTintResolver.defaults(
+        const CalendarAppearance(eventTint: true),
+        showFasting: false,
+      );
+
+      expect(resolver.providers.whereType<FastingCellTintProvider>(), isEmpty);
+      expect(resolver.providers.whereType<EventCellTintProvider>(), hasLength(1));
+    });
+
+    /// With the event wash off too there is no source left, so the resolver
+    /// collapses to the canonical empty one rather than an instance holding an
+    /// empty provider list.
+    test('no event tint and no fasting layer leaves nothing to resolve', () {
+      final resolver = CellTintResolver.defaults(
+        const CalendarAppearance(),
+        showFasting: false,
+      );
+
+      expect(resolver.providers, isEmpty);
+      expect(resolver.resolve(day, const []), DayCellTint.empty);
+    });
+
+    /// The lone survivor still wins its own band: `resolve` picks the lowest
+    /// priority *present*, not an absolute one, so composing out the provider
+    /// that held `winnerPriority` must not leave the cell unwashed.
+    test('fastingWins with the layer off still washes the event', () {
+      final resolver = CellTintResolver.defaults(
+        const CalendarAppearance(
+          eventTint: true,
+          tintConflict: CalendarTintConflict.fastingWins,
+        ),
+        showFasting: false,
+      );
+
+      expect(
+        resolver.providers.whereType<EventCellTintProvider>().single.priority,
+        CellTintResolver.runnerUpPriority,
+      );
+    });
+
     test('eventWins puts the event in the winning band', () {
       final resolver = CellTintResolver.defaults(
         const CalendarAppearance(eventTint: true),

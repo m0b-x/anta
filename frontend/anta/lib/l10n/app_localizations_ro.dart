@@ -75,6 +75,101 @@ class AppLocalizationsRo extends AppLocalizations {
   String get calendarClearAll => 'Șterge';
 
   @override
+  String get calendarFilterRepeat => 'Repetare';
+
+  @override
+  String get calendarFilterTiming => 'Ora din zi';
+
+  @override
+  String get calendarFilterTimed => 'Cu oră';
+
+  @override
+  String get calendarFilterOnlyShow => 'Afișează doar';
+
+  @override
+  String get calendarFilterTracked => 'Cu prezență';
+
+  @override
+  String get calendarFilterHideEnded => 'Ascunde încheiate';
+
+  @override
+  String get calendarFilterWithDescription => 'Cu descriere';
+
+  @override
+  String get calendarFilterWithMoney => 'Cu bani';
+
+  @override
+  String get calendarFilterCounted => 'Numărate';
+
+  @override
+  String get calendarFilterMoneyLayer => 'Bani';
+
+  @override
+  String calendarFilterLayerHidden(String layer) {
+    return 'Fără $layer';
+  }
+
+  @override
+  String get calendarFilterPanelShowsAll => 'Lasă panoul zilei nefiltrat';
+
+  @override
+  String get calendarFilterPanelShowsAllDesc =>
+      'Luna rămâne filtrată; o zi afișează în continuare tot';
+
+  @override
+  String get calendarFilterShowsEverything => 'Arată tot';
+
+  @override
+  String get calendarFilterNoCategories => 'Nicio categorie';
+
+  @override
+  String get filterPresetsTitle => 'Filtre salvate';
+
+  @override
+  String get filterPresetSearchHint => 'Caută filtre salvate';
+
+  @override
+  String get filterPresetEmpty =>
+      'Niciun filtru salvat încă. Configurează un filtru, apoi atinge semnul de carte din fereastra de filtre ca să-l salvezi.';
+
+  @override
+  String get filterPresetNoMatches =>
+      'Niciun filtru salvat nu se potrivește căutării';
+
+  @override
+  String get filterPresetSave => 'Salvează filtrul';
+
+  @override
+  String filterPresetSaved(String name) {
+    return 'Salvat ca „$name”';
+  }
+
+  @override
+  String get filterPresetName => 'Nume';
+
+  @override
+  String get filterPresetRename => 'Redenumește';
+
+  @override
+  String get filterPresetUpdate => 'Actualizează la filtrul curent';
+
+  @override
+  String get filterPresetDelete => 'Șterge filtrul salvat';
+
+  @override
+  String filterPresetDeleteConfirm(String name) {
+    return 'Ștergi „$name”? Evenimentele ascunse rămân neatinse.';
+  }
+
+  @override
+  String get filterPresetActions => 'Opțiuni pentru filtrul salvat';
+
+  @override
+  String filterPresetLimitReached(int count) {
+    return 'Poți salva până la $count filtre';
+  }
+
+  @override
   String get filterCalendar => 'Filtrează calendarul';
 
   @override

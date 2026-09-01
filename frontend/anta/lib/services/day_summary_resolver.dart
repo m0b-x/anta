@@ -304,6 +304,9 @@ class DaySummaryResolver {
   factory DaySummaryResolver.defaults(
     AppLocalizations l10n, {
     bool showRecurrence = true,
+    bool showHolidays = true,
+    bool showFasting = true,
+    bool showMoney = true,
   }) {
     assert(() {
       debugDefaultsBuilds++;
@@ -312,10 +315,13 @@ class DaySummaryResolver {
     return DaySummaryResolver(
       providers: [
         EventSummaryProvider(l10n, showRecurrence: showRecurrence),
-        PublicHolidaySummaryProvider(l10n),
-        FastingSummaryProvider(l10n),
+        // The layer flags compose the provider list, exactly as they do in
+        // `DayBarsResolver.defaults` — the grid and this panel must hide the
+        // same annotations, so they read the same three flags.
+        if (showHolidays) PublicHolidaySummaryProvider(l10n),
+        if (showFasting) FastingSummaryProvider(l10n),
         WeekendSummaryProvider(l10n),
-        MoneyDaySummaryProvider(l10n),
+        if (showMoney) MoneyDaySummaryProvider(l10n),
       ],
     );
   }

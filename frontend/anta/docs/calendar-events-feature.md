@@ -100,7 +100,7 @@ reassigns those events to `other` in a transaction. Built-ins cannot be
 deleted. CRUD lives in `CategoryService`; the UI is `CategoryEditorSheet`
 (name + icon + color) and `CalendarCategoriesPage` (§2.4), plus the add button
 and the create-what-you-typed empty state in `CategoryPickerSheet` (§2.5). The calendar filter is a
-hidden-id set (`CalendarPageLoaded.hiddenCategoryIds`), so new categories are
+hidden-id set (`CalendarPageLoaded.filters.hiddenCategoryIds`), so new categories are
 visible by default.
 
 One built-in carries editor behavior: selecting **Birthday**
@@ -141,7 +141,7 @@ Hiding leaves `sort_order` untouched, so **unhiding restores the category to
 the position it held** — the behavioural edge hiding has over deleting and
 re-creating. Built-ins can be hidden; they still cannot be deleted.
 
-`is_hidden` is **not** `CalendarPageLoaded.hiddenCategoryIds`. The latter is
+`is_hidden` is **not** `CalendarGridFilters.hiddenCategoryIds`. The latter is
 transient bloc state that resets to `{}` on every load and is render-time only
 by design (the deliberate inverse of skips — see the v30 addendum). It is never seeded from
 the persisted flag: two sources of truth for "hidden" that can disagree leave
@@ -999,7 +999,7 @@ then stores the result in a bounded per-day map (`_dayCache`, cap 512
 entries — cleared wholesale on overflow). The cache is invalidated **only**
 by the handlers that change the inputs to the expansion —
 `LoadCalendarEvents`, `CreateCalendarEvent`, `UpdateCalendarEvent`,
-`DeleteCalendarEvent`, and `ChangeHiddenCategories`. Day-selection, focus,
+`DeleteCalendarEvent`, and `ChangeCalendarFilters`. Day-selection, focus,
 and format changes deliberately keep the cache warm, so the common case
 (tapping around a month, toggling month/2-week/week) is an O(1) map lookup
 per cell instead of an O(N) recurrence scan. The same cached path also feeds
@@ -1687,7 +1687,7 @@ The area under the grid is now a mode-switched panel owned by
   over `CalendarCategories.all` (read on every build so a database switch cannot
   leave it stale), with an "All categories" reset. Applied in the scan's
   candidate pre-filter (`categoryIds.isNotEmpty && !contains`), **composed on top
-  of** the inherited calendar-global `hiddenCategoryIds` — both apply, so a
+  of** the inherited calendar-global `filters.hiddenCategoryIds` — both apply, so a
   globally-hidden category stays hidden even if allowlisted. O(events), same tier
   as the priority/hidden checks; a stale allowlisted id (deleted category) is
   harmless since no event carries it.
@@ -3214,3 +3214,336 @@ finds what it found before.
 the count only while shut, toggling reports the id, a fold never swallows a
 search hit, no chevron while filtering, the fold returns when the query
 clears, and both "cannot fold" paths (no callback, no `id`).
+
+---
+
+## Addendum (2026-09-01): grid filters
+
+**Status: shipped.** The calendar's filter grew from one axis (a
+category denylist) to seven, in one value object —
+[`CalendarGridFilters`](../lib/models/calendar_grid_filters.dart) — replacing
+`CalendarPageLoaded.hiddenCategoryIds`. `ChangeHiddenCategories` is gone;
+`ChangeCalendarFilters` carries the whole set.
+
+### The axes
+
+Three **kinds** of axis, and the difference is load-bearing.
+
+**Event-level narrowing** — a property of the event alone, so it is applied
+once per filter change (see below):
+
+| Axis | Field | Off value |
+| --- | --- | --- |
+| Categories | `hiddenCategoryIds` | `{}` (denylist — empty shows all) |
+| Priority | `priorities` | `{}` (allowlist — **empty means every priority**) |
+| Repeat | `eventType` (`AgendaEventType`, shared with the agenda) | `all` |
+| Time of day | `timing` (`CalendarEventTiming`) | `all` |
+| Tracked | `trackedOnly` (`EventPresence.appliesTo`) | `false` |
+| Linked note | `linkedNotesOnly` (`noteId != null`) | `false` |
+| With money | `moneyOnly` (linked note carries ledger entries) | `false` |
+| With description | `withDescriptionOnly` | `false` |
+| Counted | `countedOnly` (`countOccurrences`) | `false` |
+| Ended | `hideEnded` (`endDateUtc` before today) | `false` |
+
+**Occurrence-level narrowing** — needs the day too, so it can only run inside
+`eventsForDay`, per day, on a cache miss:
+
+| Axis | Field | Off value |
+| --- | --- | --- |
+| Missed | `missedOnly` (`EventPresence.isMissed`) | `false` |
+
+**Layers** — not event filters at all. Each **composes the provider list** of
+`DayBarsResolver.defaults` / `DaySummaryResolver.defaults` /
+`CellTintResolver.defaults`, so turning one off removes the annotation from
+the grid and the day panel together, and costs nothing to leave out:
+
+| Layer | Field | Default |
+| --- | --- | --- |
+| Holidays | `showHolidays` | `true` |
+| Fasting | `showFasting` (also takes the day rail's base band, which *is* the runner-up wash) | `true` |
+| Money | `showMoney` (bar + day-panel row, **and the header's month total** — that total is the sum of exactly what the cells show) | `true` |
+
+**Provider composition is not the whole story for fasting.** The `strong`
+display style paints the **day number**, which reaches `CalendarDayCell`
+through `_buildDayCell`'s own `FastingCalendar.cellStyleForUtcDay` lookup
+rather than through any provider — so composing the three providers out left
+a fourth fasting cue shouting on every fasting day. `_buildDayCell` gates that
+lookup on `showFasting` as well (and skips the probe entirely when the layer
+is off). Any future annotation that reaches a cell outside the resolver chain
+needs the same treatment.
+
+Plus one control that **widens** rather than narrows: `panelShowsAll` exempts
+the day and timeline panels from every axis above, so the month can stay
+narrowed while tapping a day still lists everything on it. It is deliberately
+absent from `activeCount` and gets no summary chip — it can never be the
+reason something is missing. `cleared()` (the sheet's Reset) keeps it for the
+same reason.
+
+`eventType` reuses the agenda's enum rather than declaring a second one: both
+name the same question, and `SpecificDatesRecurrence` must count as recurring
+on both surfaces. Its agenda-only `none` value is unreachable from this sheet
+but is handled (it hides every event), so adding a fourth segment later needs
+no model change.
+
+### Why it costs the grid nothing
+
+**Every axis reads the event alone — never the `(event, day)` pair.** That is
+the whole design constraint, and it is what lets `CalendarBloc._visibleEvents`
+apply the filter **once per change** instead of once per candidate per day:
+the day cache *and* `EventAgenda.partitionForWindow`'s split are both built
+over the narrowed list, so an active filter leaves the 42-cell path with fewer
+candidates than an inactive one. The category check that used to run per
+candidate inside `eventsForDay` is gone from that loop entirely.
+
+`CalendarGridFilters.apply` returns **the same list instance** when nothing is
+active, so with no filter on, nothing downstream — the partition's `identical`
+guard, `sameGridInputs`, `samePanelInputs` — can tell the method is in the
+path.
+
+The memo is invalidated by `_invalidateDayCache()` alongside the others, and
+`_onChangeCalendarFilters` **value-compares** before emitting: the sheet hands
+back a fresh instance on every Apply, and an unchanged one must not throw away
+five memos and repaint the grid.
+
+Its key is `(allEvents, filters, todayUtc)`, and the third field is not
+decoration: `hideEnded` reads the wall clock, **nothing dispatches at
+midnight**, and a key of the first two alone would keep serving a list
+computed against yesterday until some unrelated mutation happened to
+invalidate. The date enters the key only while `hideEnded` is on — otherwise
+`_dateIndependent` stands in, so the common case pays neither a clock read nor
+a rollover rebuild.
+
+### The occurrence tier, and the presence trap
+
+`missedOnly` is the one axis that needs the day, so it runs inside
+`eventsForDay` through `CalendarGridFilters.allowsOccurrence` — and **only**
+when `hasOccurrenceAxis` holds, so the common case keeps the plain
+`occursOnUtcDay` loop it has always had. `monthNetFor` re-tests the same
+predicate on the event's start day, because the header sums what the cells
+show.
+
+**The trap it walks into:** the two presence handlers deliberately do *not*
+invalidate the day cache — presence changes painting, not membership, and
+wiping 512 memoized days on every checkbox tick is exactly what that decision
+avoids. `missedOnly` makes presence a membership question, so both handlers now
+call `_invalidateIfPresenceIsMembership`, which invalidates **only while an
+occurrence axis is active**. A future day-dependent axis (cancelled-only, say)
+must extend `hasOccurrenceAxis`, or it ships a permanently stale grid.
+
+### The panel opt-out
+
+`CalendarBottomPanel._panelEvents` picks between `CalendarBloc.eventsForDay`
+and `allEventsForDay` on `panelShowsAll`, and both panel modes call it — a
+timeline showing an event the day list omits would be the two disagreeing about
+what is on the day.
+
+`allEventsForDay` has its own memo (`_unfilteredDayCache`) and **delegates
+outright when nothing is filtered**, so the second map stays empty in the
+common case. It deliberately skips the window partition: it is asked for one
+day (the selected one), and alternating two source lists through the
+partition's single slot would rebuild it twice a frame to save a scan that runs
+once.
+
+### Persistence
+
+**Persisted**, under one key — `SettingsKeys.calendarGridFilters`, a JSON blob,
+the shape `calendar_fasting_schedule` already established for a compound
+setting rather than fifteen rows. Only non-default fields are written, so an
+absent field reads as its default (a layer's default being **on**) and a build
+that adds an axis still understands an older blob; anything malformed decodes
+to "nothing filtered" rather than throwing, because a corrupt preference must
+never stop the calendar from painting. Clearing every axis deletes the row, so
+"never filtered" and "filtered then cleared" leave the same absence behind.
+
+Two things make it survive:
+
+- **The bloc holds `_filters` as a field**, not only in the state. `_onLoad`
+  emits a *fresh* `CalendarPageLoaded`, so without it a backup restore or a
+  database switch would silently clear the filter; and the page's restore can
+  land while the bloc is still `CalendarPageInitial`, where a
+  state-only handler would drop it. `_onChangeCalendarFilters` therefore
+  records the filters **before** its loaded-state guard.
+- **`CalendarPage` restores once**, in `_loadSettings`, behind
+  `_filtersRestored`. That method also runs on every settings return, and
+  re-applying the stored set there would race an in-session change whose write
+  has not landed — undoing a chip the user just removed.
+
+Writes funnel through `CalendarPage._applyFilters`, which both dispatches and
+persists; the sheet's Apply and every summary chip's `x` go through it, or the
+rendered filter and the stored one would drift.
+
+### UI
+
+- **Sheet** ([`calendar_filter_sheet.dart`](../lib/widgets/calendar_filter_sheet.dart)):
+  the `AgendaFiltersSheet` shape — a header with a Reset that is disabled
+  while nothing is active, a scrolling body of labelled sections, a pinned
+  Cancel/Apply footer, and a **local draft** so a chip tap cannot re-filter
+  the grid behind it. Section order is View range → **Categories** →
+  Priority → Repeat → Time of day → Only show: categories stay second, where
+  they have always been, so the new axes never push the familiar one below
+  the fold. "Only show" is a chip per trait; "Show" is a chip per layer, each
+  **on** by default (the fasting chip appears only while
+  `FastingCalendar.isEnabled`, matching the agenda sheet); the panel opt-out is
+  a `SwitchListTile` last, because it is the one control that hands a surface
+  back rather than hiding one. The two category header resets keep their
+  documented asymmetry (Select all empties the denylist, Clear all unions the
+  visible ids in).
+- **Badge**: the app-bar filter button is a `Badge.count` over
+  `CalendarGridFilters.activeCount` — the same "count only the restrictions"
+  definition `UpcomingAgendaFilters.restrictiveFilterCount` uses.
+- **Chip row** ([`calendar_filter_chips.dart`](../lib/widgets/calendar_filter_chips.dart)):
+  one removable `InputChip` per active axis, between the app bar and the grid,
+  mounted **only** while something is hidden. It answers "why is my event
+  missing" without opening anything, and each `x` undoes one axis. Its own
+  `BlocBuilder` gates on the filter set alone, and the grid's row height is
+  computed from the cell metrics rather than from leftover space, so the row
+  costs the bottom panel a few pixels and shifts nothing above it. Labels and
+  icons come from `CalendarFilterSheet`'s statics — never a second switch, or
+  a chip could name an axis differently from the sheet that set it. A **layer**
+  chip exists only while its layer is off and reads `"Without {layer}"`, since
+  a chip wearing the layer's bare name would say the opposite of what it means.
+  The fasting chip is rendered here **regardless** of
+  `FastingCalendar.isEnabled`, unlike the sheet's: turning every tradition off
+  while the layer is hidden would otherwise strand a denial that still counts
+  toward the badge with no control left to clear it — the same stranding hazard
+  the category header's Select all exists to avoid.
+
+### Tests
+
+[`test/models/calendar_grid_filters_test.dart`](../test/models/calendar_grid_filters_test.dart)
+pins the pure rules — each axis, the AND composition, the empty-means-all
+reading of `priorities`, the `appliesTo` gate on `trackedOnly`, "ending today
+is not ended", the identity-preserving `apply` (including that layers and
+`missedOnly` never touch the event list), that a layer counts only while it is
+off and `panelShowsAll` never counts, `cleared()` keeping the panel opt-out,
+and the codec: a full round trip, an absent field taking its default, junk and
+wrong-typed fields degrading to `none`, and out-of-range priorities dropped on
+read. [`test/bloc/calendar_filter_test.dart`](../test/bloc/calendar_filter_test.dart)
+pins the grid side: every axis reaching `eventsForDay` on **both** its paths
+(the window partition and the full-list fallback, anchored on the clock so the
+window's three-month reach is not a literal), a warm day recomputed after a
+filter change, an equal filter set neither re-emitting nor breaking the
+identity `sameGridInputs` relies on, **both halves of the presence gate** (a
+mark reaching a warm day while `missedOnly` is on, and leaving the memo
+untouched otherwise), `allEventsForDay` ignoring every axis and delegating
+outright when nothing is filtered, and the filters surviving both a reload and
+a dispatch that beats the first load.
+
+---
+
+## Addendum (2026-09-01): saved filters (schema v35)
+
+**Status: shipped.** A filter combination can be named and kept. The calendar's
+app bar gained a bookmarks button **left of** the filter button — reading
+order: you reach for a filter you already have before you build a new one —
+which opens a searchable list of saved filters; the filter sheet gained a save
+action beside its Reset.
+
+### Storage: a table, not a settings list
+
+`calendar_filter_presets` ([table](../lib/database/tables/calendar_filter_presets_table.dart),
+[DAO](../lib/database/daos/filter_preset_dao.dart)) is the
+`calendar_event_templates` (v29) shape, for the same reason: a preset is a
+named, ordered, individually editable record with its own audit trail, not a
+preference. That is also what makes it back up and restore like every other
+user-created row. The five CRDT columns are the v29 block byte-for-byte,
+present from birth — no `DEFAULT ''` deviation, because a table that starts
+empty has no existing row to satisfy — and all stamping lives in the DAO.
+
+**The whole filter set is one `filters` TEXT column**, holding exactly the
+string `CalendarGridFilters.encode()` already writes to
+`SettingsKeys.calendarGridFilters`. Fifteen columns would grow with every new
+axis and duplicate a codec that already exists and is already tested; a blob
+costs one decode per preset on a table holding a handful of rows. The codec is
+forward- and backward-compatible by construction (absent field ⇒ that field's
+default), so a preset saved by an older build still applies after an axis is
+added, and one saved by a **newer** build degrades rather than throwing.
+
+Two consequences worth keeping:
+
+- **Export is verbatim.** `exportData` copies the stored blob rather than
+  re-encoding a decoded model — a decode/re-encode round trip would silently
+  drop any axis the running build does not know about, which is exactly what
+  the forward-compatible codec exists to preserve. Pinned by a test.
+- **An unparseable blob keeps its row.** It decodes to "nothing filtered" and
+  the named preset survives, rather than being deleted on the user's behalf.
+
+No strand rule on import: a preset's only foreign reference is the category ids
+inside its blob, and an id no category answers to already hides nothing
+wherever the filter is read. So the backup key (`calendarFilterPresets`,
+additive, **no version bump**) behaves like `vocabularies` — an absent key
+leaves existing presets in place.
+
+`FilterPresetService` deliberately publishes **no static facade**: nothing
+renders a preset during someone else's build, so the calendar's
+lazily-constructed-services rule is satisfied by awaiting the owner, and the
+two surfaces that need presets (the preset sheet, the filter sheet's save
+button) both do. It keeps a cache anyway, so a reopen costs no query.
+`maxPresets` (50) is a findability cap, not a storage one, and `create`
+**refuses** past it rather than throwing on a path the user reached by tapping
+Save.
+
+### One description, three surfaces
+
+[`CalendarFilterSummary`](../lib/utils/calendar_filter_summary.dart) is now the
+single grammar for naming an active axis. `facetsOf` returns one
+`CalendarFilterFacet` per active axis — icon, label, and the filter set *with
+that axis removed*, precomputed rather than a callback — and three surfaces
+consume it:
+
+- the summary chip row above the grid (label + the `x`'s target),
+- a saved preset's subtitle (`describe`, " · " joined),
+- the name the save dialog opens on (`suggestName`, the first two axes).
+
+The icon/label statics moved off `CalendarFilterSheet` into this util, so the
+dependency runs widget → util rather than widget → widget, and a chip can no
+longer name an axis differently from the sheet that set it or clear a
+different one than it names. The category facet **names** the categories while
+there are one or two of them and counts past that, which is what makes an
+auto-suggested name read like "Gym · Tracked" rather than "Categories (1) ·
+Tracked".
+
+### UI
+
+- **Save** is an `IconButton` beside Reset in the filter sheet's header — both
+  are whole-draft actions, and a save button in the scroll body is one the
+  user has to go looking for. It saves the **draft**, not the applied filters
+  (making someone Apply before they could save would be a step with no reason
+  behind it), and it is disabled both while nothing is filtered and once this
+  exact set already has a name. The icon carries that state:
+  `bookmark_add_outlined` → `bookmark_added_rounded`, with the preset's name
+  in the tooltip. `_savedName` is re-resolved on **every** draft edit, so a
+  draft that drifts back onto a saved combination shows as saved again.
+- **The naming dialog** is shared by save and rename, so the two cannot
+  disagree about what a legal name is. It opens with the suggestion
+  **selected**, so typing replaces it and Save keeps it.
+- **The sheet** ([filter_preset_sheet.dart](../lib/widgets/filter_preset_sheet.dart))
+  is a search field over rows of *name + what it filters*. Search matches the
+  name **and** the description, folded through the note search's
+  `normalizeForSearch` — so a preset is findable by what it does ("tracked")
+  as well as by what it was called — and the field is never autofocused, the
+  rule every searchable sheet here follows. Rename / "Update to current
+  filter" / Delete live in a per-row menu and **never pop the sheet**: it stays
+  open while you tidy the list and closes only when you actually pick
+  something. The row holding exactly the current filters is marked in use
+  (check icon, primary tint) by **value** equality, not by id.
+- Applying a preset goes through `CalendarPage._applyFilters`, the same funnel
+  a sheet Apply uses, so picking one persists it as the live filter.
+
+### Tests
+
+[`test/database/filter_preset_test.dart`](../test/database/filter_preset_test.dart)
+pins the migration (fresh install has it, an upgrader gets it, re-running is
+safe with rows present) and the DAO's CRDT stamping (identity on insert,
+version bump + `created_at` kept on update, tombstone rather than delete,
+double-delete a no-op, an upsert resurrecting a tombstoned id, `nextSortOrder`
+counting tombstones).
+[`test/services/filter_preset_service_test.dart`](../test/services/filter_preset_service_test.dart)
+pins the blob round trip, `matching` answering on value (including that the
+panel opt-out is part of a preset's identity), the limit refusing rather than
+throwing, and the backup cases — replace-not-merge, an unknown axis surviving
+a restore, a malformed row skipped, an unparseable blob keeping its row.
+[`test/widgets/filter_preset_sheet_test.dart`](../test/widgets/filter_preset_sheet_test.dart)
+pins the sheet: the empty state, search by name and by description, the
+no-hits state, tapping popping **filters** (not a row), dismissing popping
+nothing, and the in-use marker.

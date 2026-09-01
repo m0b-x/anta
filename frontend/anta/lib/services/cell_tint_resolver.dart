@@ -131,14 +131,23 @@ class CellTintResolver {
   /// outside the grid (the date pickers).
   static const CellTintResolver none = CellTintResolver(providers: []);
 
-  factory CellTintResolver.defaults(CalendarAppearance appearance) {
+  /// [showFasting] is the grid filter's fasting layer. Turning it off drops
+  /// the fasting provider outright, which also takes the day rail's base band
+  /// with it — the band *is* the runner-up wash, so there is no second place
+  /// to suppress it.
+  factory CellTintResolver.defaults(
+    CalendarAppearance appearance, {
+    bool showFasting = true,
+  }) {
     // With event tinting off the fasting wash is the only source, and the
     // conflict setting is unreachable — rendering stays exactly as it was
     // before the feature existed.
     if (!appearance.eventTint) {
-      return const CellTintResolver(
-        providers: [FastingCellTintProvider(priority: winnerPriority)],
-      );
+      return showFasting
+          ? const CellTintResolver(
+              providers: [FastingCellTintProvider(priority: winnerPriority)],
+            )
+          : none;
     }
     final eventFirst =
         appearance.tintConflict != CalendarTintConflict.fastingWins;
@@ -148,9 +157,10 @@ class CellTintResolver {
           priority: eventFirst ? winnerPriority : runnerUpPriority,
           missedDisplay: appearance.missedDisplay,
         ),
-        FastingCellTintProvider(
-          priority: eventFirst ? runnerUpPriority : winnerPriority,
-        ),
+        if (showFasting)
+          FastingCellTintProvider(
+            priority: eventFirst ? runnerUpPriority : winnerPriority,
+          ),
       ],
       layerRunnerUp: appearance.tintConflict == CalendarTintConflict.both,
     );

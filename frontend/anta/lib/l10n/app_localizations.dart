@@ -232,6 +232,174 @@ abstract class AppLocalizations {
   /// **'Clear'**
   String get calendarClearAll;
 
+  /// Section label for the calendar filter that keeps only repeating or only one-time events
+  ///
+  /// In en, this message translates to:
+  /// **'Repeat'**
+  String get calendarFilterRepeat;
+
+  /// Section label for the calendar filter that keeps only timed or only all-day events
+  ///
+  /// In en, this message translates to:
+  /// **'Time of day'**
+  String get calendarFilterTiming;
+
+  /// Calendar filter option keeping only events that carry a time of day
+  ///
+  /// In en, this message translates to:
+  /// **'Timed'**
+  String get calendarFilterTimed;
+
+  /// Section label for the calendar filter's on/off traits
+  ///
+  /// In en, this message translates to:
+  /// **'Only show'**
+  String get calendarFilterOnlyShow;
+
+  /// Calendar filter option keeping only events that track presence
+  ///
+  /// In en, this message translates to:
+  /// **'Tracked'**
+  String get calendarFilterTracked;
+
+  /// Calendar filter option dropping events whose end date has passed
+  ///
+  /// In en, this message translates to:
+  /// **'Hide ended'**
+  String get calendarFilterHideEnded;
+
+  /// Calendar filter option keeping only events that carry description text
+  ///
+  /// In en, this message translates to:
+  /// **'With description'**
+  String get calendarFilterWithDescription;
+
+  /// Calendar filter option keeping only events whose linked note has ledger entries
+  ///
+  /// In en, this message translates to:
+  /// **'With money'**
+  String get calendarFilterWithMoney;
+
+  /// Calendar filter option keeping only events that show an occurrence count label
+  ///
+  /// In en, this message translates to:
+  /// **'Counted'**
+  String get calendarFilterCounted;
+
+  /// Calendar filter toggle for the money bar and the day panel's money row
+  ///
+  /// In en, this message translates to:
+  /// **'Money'**
+  String get calendarFilterMoneyLayer;
+
+  /// Chip naming a day-annotation layer the calendar filter has turned off
+  ///
+  /// In en, this message translates to:
+  /// **'Without {layer}'**
+  String calendarFilterLayerHidden(String layer);
+
+  /// Switch that exempts the day and timeline panels from the calendar filters
+  ///
+  /// In en, this message translates to:
+  /// **'Keep the day panel unfiltered'**
+  String get calendarFilterPanelShowsAll;
+
+  /// Explains what the keep-the-day-panel-unfiltered switch does
+  ///
+  /// In en, this message translates to:
+  /// **'The month stays filtered; tapping a day still lists everything on it'**
+  String get calendarFilterPanelShowsAllDesc;
+
+  /// Summary shown for a saved filter that hides nothing
+  ///
+  /// In en, this message translates to:
+  /// **'Shows everything'**
+  String get calendarFilterShowsEverything;
+
+  /// Summary label when every event category is hidden
+  ///
+  /// In en, this message translates to:
+  /// **'No categories'**
+  String get calendarFilterNoCategories;
+
+  /// Title of the saved-filters sheet and the tooltip of the button that opens it
+  ///
+  /// In en, this message translates to:
+  /// **'Saved filters'**
+  String get filterPresetsTitle;
+
+  /// Hint text of the saved-filter search field
+  ///
+  /// In en, this message translates to:
+  /// **'Search saved filters'**
+  String get filterPresetSearchHint;
+
+  /// Empty state of the saved-filters sheet
+  ///
+  /// In en, this message translates to:
+  /// **'No saved filters yet. Set up a filter, then tap the bookmark in the filter sheet to save it.'**
+  String get filterPresetEmpty;
+
+  /// Shown when a saved-filter search returns nothing
+  ///
+  /// In en, this message translates to:
+  /// **'No saved filter matches your search'**
+  String get filterPresetNoMatches;
+
+  /// Tooltip and dialog title for saving the current filter
+  ///
+  /// In en, this message translates to:
+  /// **'Save filter'**
+  String get filterPresetSave;
+
+  /// Confirmation after saving a filter, and the tooltip once the current filter is already saved
+  ///
+  /// In en, this message translates to:
+  /// **'Saved as \"{name}\"'**
+  String filterPresetSaved(String name);
+
+  /// Label of the saved-filter name field
+  ///
+  /// In en, this message translates to:
+  /// **'Name'**
+  String get filterPresetName;
+
+  /// Menu item and dialog title for renaming a saved filter
+  ///
+  /// In en, this message translates to:
+  /// **'Rename'**
+  String get filterPresetRename;
+
+  /// Menu item that re-points a saved filter at what the calendar shows now
+  ///
+  /// In en, this message translates to:
+  /// **'Update to current filter'**
+  String get filterPresetUpdate;
+
+  /// Menu item and confirmation title for deleting a saved filter
+  ///
+  /// In en, this message translates to:
+  /// **'Delete saved filter'**
+  String get filterPresetDelete;
+
+  /// Confirmation body for deleting a saved filter
+  ///
+  /// In en, this message translates to:
+  /// **'Delete \"{name}\"? The events it hides are untouched.'**
+  String filterPresetDeleteConfirm(String name);
+
+  /// Tooltip of the per-row menu in the saved-filters sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Saved filter options'**
+  String get filterPresetActions;
+
+  /// Shown when the saved-filter limit is reached
+  ///
+  /// In en, this message translates to:
+  /// **'You can save up to {count} filters'**
+  String filterPresetLimitReached(int count);
+
   /// Tooltip for the calendar filter button
   ///
   /// In en, this message translates to:

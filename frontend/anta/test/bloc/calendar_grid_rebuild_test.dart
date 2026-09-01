@@ -149,10 +149,7 @@ void main() {
     // sameGridInputs compares the two collections by identity, which is only
     // sound because copyWith passes the same instances through.
     expect(identical(before.allEvents, after.allEvents), isTrue);
-    expect(
-      identical(before.hiddenCategoryIds, after.hiddenCategoryIds),
-      isTrue,
-    );
+    expect(identical(before.filters, after.filters), isTrue);
   });
 
   test('a day tap records which surface selected it', () async {

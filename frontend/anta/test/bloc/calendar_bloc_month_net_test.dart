@@ -9,6 +9,7 @@ import 'package:anta/bloc/calendar/calendar_bloc.dart';
 import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/calendar_event.dart';
+import 'package:anta/models/calendar_grid_filters.dart';
 import 'package:anta/models/calendar_selection_source.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/repositories/note_repository.dart';
@@ -163,8 +164,32 @@ void main() {
   test('excludes events whose category is hidden', () async {
     expect(bloc.monthNetFor(month), 1000);
 
-    await dispatch(const ChangeHiddenCategories(hiddenCategoryIds: {'gym'}));
+    await dispatch(
+      const ChangeCalendarFilters(
+        filters: CalendarGridFilters(hiddenCategoryIds: {'gym'}),
+      ),
+    );
 
     expect(bloc.monthNetFor(month), 0);
+  });
+
+  /// The header total is the sum of what the cells show, and the money layer
+  /// removes the cells' money bar — so it has to remove the total too.
+  test('the money layer takes the header total with it', () async {
+    expect(bloc.monthNetFor(month), 1000);
+
+    await dispatch(
+      const ChangeCalendarFilters(
+        filters: CalendarGridFilters(showMoney: false),
+      ),
+    );
+
+    expect(bloc.monthNetFor(month), 0);
+
+    await dispatch(
+      const ChangeCalendarFilters(filters: CalendarGridFilters()),
+    );
+
+    expect(bloc.monthNetFor(month), 1000);
   });
 }

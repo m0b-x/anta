@@ -1,0 +1,179 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:anta/database/database.dart';
+import 'package:anta/database/database_lifecycle.dart';
+import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/models/calendar_grid_filters.dart';
+import 'package:anta/services/filter_preset_service.dart';
+import 'package:anta/widgets/filter_preset_sheet.dart';
+
+import '../database/support/db_test_support.dart';
+
+/// The saved-filter sheet is the one surface where a preset is *chosen*, so
+/// what it must get right is: finding one by what it does as well as by what
+/// it was called, saying which one is currently in use, and handing back the
+/// filters rather than the preset (the page applies filters, not rows).
+void main() {
+  late AppDatabase db;
+  late FilterPresetService service;
+
+  const tracked = CalendarGridFilters(trackedOnly: true);
+  const missed = CalendarGridFilters(missedOnly: true);
+
+  setUp(() async {
+    DatabaseLifecycle.notifyDatabaseSwitching();
+    FilterPresetService.reset();
+    db = await openTestDatabase();
+    service = await FilterPresetService.forTesting(db);
+  });
+
+  tearDown(() async {
+    FilterPresetService.reset();
+    await db.close();
+  });
+
+  /// Collects what the sheet popped. A holder rather than a return value:
+  /// [pumpSheet] returns while the sheet is still open, so the result only
+  /// exists after the test body has tapped something.
+  late List<CalendarGridFilters?> popped;
+
+  /// Hosts the sheet as a route so `Navigator.pop` has somewhere to go.
+  Future<void> pumpSheet(
+    WidgetTester tester, {
+    CalendarGridFilters current = CalendarGridFilters.none,
+  }) async {
+    popped = [];
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: const Locale('en'),
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: ElevatedButton(
+                onPressed: () async {
+                  popped.add(
+                    await FilterPresetSheet.show(context, current: current),
+                  );
+                },
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    // The sheet resolves the service in initState; the instance is already
+    // bound, so one settle is enough to get past the spinner.
+    await tester.pumpAndSettle();
+    expect(find.byType(FilterPresetSheet), findsOneWidget);
+  }
+
+  testWidgets('an empty database shows the empty state, not a search field', (
+    tester,
+  ) async {
+    await pumpSheet(tester);
+
+    expect(find.byType(TextField), findsNothing);
+    expect(find.textContaining('No saved filters yet'), findsOneWidget);
+  });
+
+  testWidgets('saved filters are listed with what they filter', (tester) async {
+    await service.create(name: 'Training', filters: tracked);
+
+    await pumpSheet(tester);
+
+    expect(find.text('Training'), findsOneWidget);
+    // The subtitle is the shared description, not the raw blob.
+    expect(find.text('Tracked'), findsOneWidget);
+  });
+
+  testWidgets('the search field matches the name', (tester) async {
+    await service.create(name: 'Training', filters: tracked);
+    await service.create(name: 'Skipped days', filters: missed);
+
+    await pumpSheet(tester);
+    await tester.enterText(find.byType(TextField), 'train');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Training'), findsOneWidget);
+    expect(find.text('Skipped days'), findsNothing);
+  });
+
+  /// Findable by what it does, not only by what it was called — the reason
+  /// the description is part of the match.
+  testWidgets('the search field also matches the description', (tester) async {
+    await service.create(name: 'Zebra', filters: tracked);
+    await service.create(name: 'Aardvark', filters: missed);
+
+    await pumpSheet(tester);
+    await tester.enterText(find.byType(TextField), 'tracked');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Zebra'), findsOneWidget);
+    expect(find.text('Aardvark'), findsNothing);
+  });
+
+  testWidgets('a search with no hits says so', (tester) async {
+    await service.create(name: 'Training', filters: tracked);
+
+    await pumpSheet(tester);
+    await tester.enterText(find.byType(TextField), 'nothing matches this');
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('No saved filter matches'), findsOneWidget);
+  });
+
+  /// The sheet hands back **filters**, not the preset row: the page applies a
+  /// filter set, and giving it a row would make it unwrap one.
+  testWidgets('tapping a preset pops its filters', (tester) async {
+    await service.create(name: 'Training', filters: tracked);
+
+    await pumpSheet(tester);
+    await tester.tap(find.text('Training'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(FilterPresetSheet), findsNothing);
+    expect(popped, [tracked]);
+  });
+
+  testWidgets('dismissing pops nothing to apply', (tester) async {
+    await service.create(name: 'Training', filters: tracked);
+
+    await pumpSheet(tester);
+    // The scrim, not a row.
+    await tester.tapAt(const Offset(20, 20));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(FilterPresetSheet), findsNothing);
+    expect(popped, [null]);
+  });
+
+  /// Value equality on the filters, not the id: what makes a preset "the one
+  /// in use" is that the calendar shows exactly what it saves.
+  testWidgets('the preset holding the current filters is marked in use', (
+    tester,
+  ) async {
+    await service.create(name: 'Training', filters: tracked);
+    await service.create(name: 'Skipped days', filters: missed);
+
+    await pumpSheet(tester, current: tracked);
+
+    expect(find.byIcon(Icons.check_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.bookmark_rounded), findsOneWidget);
+  });
+
+  testWidgets('with nothing applied, no preset is marked in use', (
+    tester,
+  ) async {
+    await service.create(name: 'Training', filters: tracked);
+
+    await pumpSheet(tester);
+
+    expect(find.byIcon(Icons.check_rounded), findsNothing);
+    expect(find.byIcon(Icons.bookmark_rounded), findsOneWidget);
+  });
+}

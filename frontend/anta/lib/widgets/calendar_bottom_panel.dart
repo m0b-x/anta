@@ -265,20 +265,46 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
   AppLocalizations? _summaryL10n;
   bool? _summaryShowRecurrence;
 
+  /// The filter's three annotation layers, which compose the resolver's
+  /// provider list and are therefore part of its memo key.
+  ({bool holidays, bool fasting, bool money})? _summaryLayers;
+
   DaySummaryResolver _summaryResolverFor(AppLocalizations l10n) {
     final showRecurrence = widget.showRecurrenceLabels;
+    final filters = widget.loaded.filters;
+    final layers = (
+      holidays: filters.showHolidays,
+      fasting: filters.showFasting,
+      money: filters.showMoney,
+    );
     if (_summaryResolver == null ||
         _summaryL10n != l10n ||
-        _summaryShowRecurrence != showRecurrence) {
+        _summaryShowRecurrence != showRecurrence ||
+        _summaryLayers != layers) {
       _summaryResolver = DaySummaryResolver.defaults(
         l10n,
         showRecurrence: showRecurrence,
+        showHolidays: layers.holidays,
+        showFasting: layers.fasting,
+        showMoney: layers.money,
       );
       _summaryL10n = l10n;
       _summaryShowRecurrence = showRecurrence;
+      _summaryLayers = layers;
     }
     return _summaryResolver!;
   }
+
+  /// The selected day's events for the day and timeline panels — the filtered
+  /// set, unless the user has asked the panels to keep showing the whole day.
+  ///
+  /// Both panels render the same day, so both must ask the same question: a
+  /// timeline showing an event the day list omits would be the two disagreeing
+  /// about what is on the day.
+  List<CalendarEvent> _panelEvents(CalendarBloc bloc, DateTime day) =>
+      widget.loaded.filters.panelShowsAll
+      ? bloc.allEventsForDay(day)
+      : bloc.eventsForDay(day);
 
   /// Builds the active panel. Day and timeline both render the selected day
   /// through the bloc's memoized `eventsForDay`; upcoming works off the
@@ -291,7 +317,7 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
       case CalendarPanelMode.day:
         final entries = _summaryResolverFor(
           l10n,
-        ).resolve(loaded.selectedDay, bloc.eventsForDay(loaded.selectedDay));
+        ).resolve(loaded.selectedDay, _panelEvents(bloc, loaded.selectedDay));
         return DaySummaryPanel(
           day: loaded.selectedDay,
           entries: entries,
@@ -308,7 +334,7 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
       case CalendarPanelMode.timeline:
         return DayTimelineView(
           day: loaded.selectedDay,
-          events: bloc.eventsForDay(loaded.selectedDay),
+          events: _panelEvents(bloc, loaded.selectedDay),
           // Same tap semantics as the day panel: show first, edit from
           // there. Both render the same day's events, so they must agree.
           onEventTap: (event) => widget.onShowEvent(event, loaded.selectedDay),
@@ -320,7 +346,7 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
           events: loaded.allEvents,
           anchorDay: _agendaAnchor,
           onResetAnchor: _resetAnchor,
-          hiddenCategoryIds: loaded.hiddenCategoryIds,
+          hiddenCategoryIds: loaded.filters.hiddenCategoryIds,
           filters: _filters,
           onFiltersChanged: _onFiltersChanged,
           // Tagged so the anchor sync can tell this apart from a grid tap: it

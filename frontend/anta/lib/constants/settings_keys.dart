@@ -228,6 +228,14 @@ class SettingsKeys {
   static const String calendarDayRailBasePosition =
       'calendar_day_rail_base_position';
 
+  /// JSON blob holding the calendar grid's filter set (`CalendarGridFilters`),
+  /// one key rather than fifteen rows — the shape
+  /// [calendarFastingSchedule] already uses for a compound setting. Only
+  /// non-default fields are written, so an absent field reads as its default
+  /// and a build that adds an axis still understands an older blob. Absent or
+  /// malformed decodes to "nothing filtered".
+  static const String calendarGridFilters = 'calendar_grid_filters';
+
   /// CSV of enabled [FastingTradition] names ('' or absent = fasting off).
   /// Unknown names are dropped on read for forward compatibility.
   static const String calendarFastingTraditions = 'calendar_fasting_traditions';

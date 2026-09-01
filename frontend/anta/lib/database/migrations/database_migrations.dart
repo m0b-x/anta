@@ -176,6 +176,11 @@ class DatabaseMigrations {
       toVersion: DatabaseSchema.v34EventShowInDayRail,
       migrate: _migrateV33ToV34,
     ),
+    Migration(
+      fromVersion: DatabaseSchema.v34EventShowInDayRail,
+      toVersion: DatabaseSchema.v35CalendarFilterPresets,
+      migrate: _migrateV34ToV35,
+    ),
   ];
 
   Future<void> runMigrations(Migrator m, int from, int to) async {
@@ -1281,5 +1286,39 @@ class DatabaseMigrations {
         'ALTER TABLE calendar_events ADD COLUMN show_in_day_rail INTEGER',
       );
     }
+  }
+
+  /// v34 → v35: adds `calendar_filter_presets`, the saved calendar filters.
+  ///
+  /// A brand-new table, so the v29/v30 shape applies unchanged: the five CRDT
+  /// columns with no `DEFAULT ''` deviation on the identity columns (nothing
+  /// existing has to be satisfied, so every insert must stamp them or fail),
+  /// and no backfill — every install upgrades to "no saved filters", which is
+  /// exactly what was true before the feature existed.
+  ///
+  /// No index. The table holds a handful of rows, is read wholesale by
+  /// `FilterPresetService`, and its only lookups are by primary key — the same
+  /// reasoning `calendar_event_templates` records.
+  ///
+  /// The whole filter set lives in one `filters` TEXT column rather than a
+  /// column per axis; see the table declaration for why. The DDL is frozen at
+  /// this version and must never be re-derived from the live Drift
+  /// declaration. Idempotent by `CREATE TABLE IF NOT EXISTS`.
+  Future<void> _migrateV34ToV35(Migrator m, GeneratedDatabase db) async {
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS calendar_filter_presets (
+        id TEXT NOT NULL PRIMARY KEY,
+        name TEXT NOT NULL,
+        filters TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        hlc_timestamp TEXT NOT NULL,
+        device_id TEXT NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        deleted_at INTEGER NULL
+      )
+    ''');
   }
 }

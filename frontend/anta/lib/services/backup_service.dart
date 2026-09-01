@@ -12,6 +12,7 @@ import 'event_occurrence_service.dart';
 import 'event_presence_service.dart';
 import 'event_skip_service.dart';
 import 'event_template_service.dart';
+import 'filter_preset_service.dart';
 import 'vocabulary_service.dart';
 import 'category_service.dart';
 import 'counter_service.dart';
@@ -99,6 +100,8 @@ class BackupService {
         .exportData();
     final eventTemplates = await (await EventTemplateService.getInstance())
         .exportData();
+    final filterPresets = await (await FilterPresetService.getInstance())
+        .exportData();
     final vocabularies = await (await VocabularyService.getInstance())
         .exportData();
 
@@ -136,6 +139,11 @@ class BackupService {
       // Purely additive (v29): an absent key on an older backup is a database
       // with no templates, which is what those installs had.
       'eventTemplates': eventTemplates,
+      // Purely additive (v35): an absent key is an install with no saved
+      // filters. Self-contained — a preset's only foreign reference is the
+      // category ids inside its blob, and a stale one already hides nothing
+      // wherever the filter is read — so this key needs no strand rule.
+      'calendarFilterPresets': filterPresets,
       // Purely additive (v32): an absent key is an install with no suggestion
       // lists. Each entry nests its own terms, so a vocabulary and its items
       // can never be restored apart.
@@ -383,6 +391,17 @@ class BackupService {
         } else {
           await templates.clearAllForImport();
         }
+      }
+      // Saved calendar filters (v35+ backups). Self-contained for the same
+      // reason vocabularies are: a preset's only foreign reference is the
+      // category ids inside its filter blob, and an id no category answers to
+      // simply hides nothing — so an absent key leaves existing presets in
+      // place rather than stranding anything.
+      final filterPresets = data['calendarFilterPresets'] as List?;
+      if (filterPresets != null) {
+        await (await FilterPresetService.getInstance()).importData(
+          filterPresets,
+        );
       }
       // Vocabularies (v32+ backups). Self-contained — no foreign reference to
       // strand — so an absent key simply leaves existing lists in place.

@@ -87,6 +87,142 @@
   "@calendarClearAll": {
     "description": "Button to deselect every event category"
   },
+  "calendarFilterRepeat": "Repeat",
+  "@calendarFilterRepeat": {
+    "description": "Section label for the calendar filter that keeps only repeating or only one-time events"
+  },
+  "calendarFilterTiming": "Time of day",
+  "@calendarFilterTiming": {
+    "description": "Section label for the calendar filter that keeps only timed or only all-day events"
+  },
+  "calendarFilterTimed": "Timed",
+  "@calendarFilterTimed": {
+    "description": "Calendar filter option keeping only events that carry a time of day"
+  },
+  "calendarFilterOnlyShow": "Only show",
+  "@calendarFilterOnlyShow": {
+    "description": "Section label for the calendar filter's on/off traits"
+  },
+  "calendarFilterTracked": "Tracked",
+  "@calendarFilterTracked": {
+    "description": "Calendar filter option keeping only events that track presence"
+  },
+  "calendarFilterHideEnded": "Hide ended",
+  "@calendarFilterHideEnded": {
+    "description": "Calendar filter option dropping events whose end date has passed"
+  },
+  "calendarFilterWithDescription": "With description",
+  "@calendarFilterWithDescription": {
+    "description": "Calendar filter option keeping only events that carry description text"
+  },
+  "calendarFilterWithMoney": "With money",
+  "@calendarFilterWithMoney": {
+    "description": "Calendar filter option keeping only events whose linked note has ledger entries"
+  },
+  "calendarFilterCounted": "Counted",
+  "@calendarFilterCounted": {
+    "description": "Calendar filter option keeping only events that show an occurrence count label"
+  },
+  "calendarFilterMoneyLayer": "Money",
+  "@calendarFilterMoneyLayer": {
+    "description": "Calendar filter toggle for the money bar and the day panel's money row"
+  },
+  "calendarFilterLayerHidden": "Without {layer}",
+  "@calendarFilterLayerHidden": {
+    "description": "Chip naming a day-annotation layer the calendar filter has turned off",
+    "placeholders": {
+      "layer": {
+        "type": "String",
+        "example": "Holidays"
+      }
+    }
+  },
+  "calendarFilterPanelShowsAll": "Keep the day panel unfiltered",
+  "@calendarFilterPanelShowsAll": {
+    "description": "Switch that exempts the day and timeline panels from the calendar filters"
+  },
+  "calendarFilterPanelShowsAllDesc": "The month stays filtered; tapping a day still lists everything on it",
+  "@calendarFilterPanelShowsAllDesc": {
+    "description": "Explains what the keep-the-day-panel-unfiltered switch does"
+  },
+  "calendarFilterShowsEverything": "Shows everything",
+  "@calendarFilterShowsEverything": {
+    "description": "Summary shown for a saved filter that hides nothing"
+  },
+  "calendarFilterNoCategories": "No categories",
+  "@calendarFilterNoCategories": {
+    "description": "Summary label when every event category is hidden"
+  },
+  "filterPresetsTitle": "Saved filters",
+  "@filterPresetsTitle": {
+    "description": "Title of the saved-filters sheet and the tooltip of the button that opens it"
+  },
+  "filterPresetSearchHint": "Search saved filters",
+  "@filterPresetSearchHint": {
+    "description": "Hint text of the saved-filter search field"
+  },
+  "filterPresetEmpty": "No saved filters yet. Set up a filter, then tap the bookmark in the filter sheet to save it.",
+  "@filterPresetEmpty": {
+    "description": "Empty state of the saved-filters sheet"
+  },
+  "filterPresetNoMatches": "No saved filter matches your search",
+  "@filterPresetNoMatches": {
+    "description": "Shown when a saved-filter search returns nothing"
+  },
+  "filterPresetSave": "Save filter",
+  "@filterPresetSave": {
+    "description": "Tooltip and dialog title for saving the current filter"
+  },
+  "filterPresetSaved": "Saved as \"{name}\"",
+  "@filterPresetSaved": {
+    "description": "Confirmation after saving a filter, and the tooltip once the current filter is already saved",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Gym · Tracked"
+      }
+    }
+  },
+  "filterPresetName": "Name",
+  "@filterPresetName": {
+    "description": "Label of the saved-filter name field"
+  },
+  "filterPresetRename": "Rename",
+  "@filterPresetRename": {
+    "description": "Menu item and dialog title for renaming a saved filter"
+  },
+  "filterPresetUpdate": "Update to current filter",
+  "@filterPresetUpdate": {
+    "description": "Menu item that re-points a saved filter at what the calendar shows now"
+  },
+  "filterPresetDelete": "Delete saved filter",
+  "@filterPresetDelete": {
+    "description": "Menu item and confirmation title for deleting a saved filter"
+  },
+  "filterPresetDeleteConfirm": "Delete \"{name}\"? The events it hides are untouched.",
+  "@filterPresetDeleteConfirm": {
+    "description": "Confirmation body for deleting a saved filter",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Gym · Tracked"
+      }
+    }
+  },
+  "filterPresetActions": "Saved filter options",
+  "@filterPresetActions": {
+    "description": "Tooltip of the per-row menu in the saved-filters sheet"
+  },
+  "filterPresetLimitReached": "You can save up to {count} filters",
+  "@filterPresetLimitReached": {
+    "description": "Shown when the saved-filter limit is reached",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "50"
+      }
+    }
+  },
   "filterCalendar": "Filter calendar",
   "@filterCalendar": {
     "description": "Tooltip for the calendar filter button"

@@ -5,6 +5,7 @@ import 'package:table_calendar/table_calendar.dart';
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_category.dart';
+import 'package:anta/models/calendar_grid_filters.dart';
 import 'package:anta/models/upcoming_agenda_filters.dart';
 import 'package:anta/widgets/agenda_filters_sheet.dart';
 import 'package:anta/widgets/calendar_filter_sheet.dart';
@@ -62,6 +63,14 @@ void main() {
     matching: find.text('Apply'),
   );
 
+  /// The calendar filter sheet's category chips only — the priority and trait
+  /// chips beside them are `FilterChip`s too, so a bare type finder counts all
+  /// three sections.
+  Finder categoryChips() => find.descendant(
+    of: find.byKey(CalendarFilterSheet.categoryChipsKey),
+    matching: find.byType(FilterChip),
+  );
+
   /// One row inside the sub-sheet. The tile behind it names the selection too,
   /// so a bare text finder is ambiguous while the picker is open.
   Finder pickerRow(String label) => find.descendant(
@@ -77,11 +86,11 @@ void main() {
         (context) => CalendarFilterSheet.show(
           context,
           format: CalendarFormat.month,
-          hiddenCategoryIds: const {},
+          filters: CalendarGridFilters.none,
         ),
       );
 
-      expect(find.byType(FilterChip), findsNWidgets(6));
+      expect(categoryChips(), findsNWidgets(6));
       expect(find.byType(CategoryFilterTile), findsNothing);
     });
 
@@ -94,11 +103,11 @@ void main() {
         (context) => CalendarFilterSheet.show(
           context,
           format: CalendarFormat.month,
-          hiddenCategoryIds: const {},
+          filters: CalendarGridFilters.none,
         ),
       );
 
-      expect(find.byType(FilterChip), findsNothing);
+      expect(categoryChips(), findsNothing);
       expect(find.byType(CategoryFilterTile), findsOneWidget);
       expect(find.text('All categories'), findsOneWidget);
     });
@@ -112,7 +121,7 @@ void main() {
         applied = await CalendarFilterSheet.show(
           context,
           format: CalendarFormat.month,
-          hiddenCategoryIds: const {},
+          filters: CalendarGridFilters.none,
         );
       });
 
@@ -129,7 +138,7 @@ void main() {
       await tester.tap(find.text('Apply'));
       await tester.pumpAndSettle();
 
-      expect(applied?.hiddenCategoryIds, {'c2'});
+      expect(applied?.filters.hiddenCategoryIds, {'c2'});
     });
 
     /// The header is one toggle, so its two halves are only ever reachable in
@@ -162,7 +171,7 @@ void main() {
         applied = await CalendarFilterSheet.show(
           context,
           format: CalendarFormat.month,
-          hiddenCategoryIds: const {'arch', 'c2'},
+          filters: const CalendarGridFilters(hiddenCategoryIds: {'arch', 'c2'}),
         );
       });
 
@@ -181,8 +190,8 @@ void main() {
       // Clear all denied every visible id; `arch` was already un-denied by
       // Select all and is not re-added, because Clear all unions the *visible*
       // set and `arch` is not in it.
-      expect(applied?.hiddenCategoryIds, hasLength(15));
-      expect(applied?.hiddenCategoryIds, isNot(contains('arch')));
+      expect(applied?.filters.hiddenCategoryIds, hasLength(15));
+      expect(applied?.filters.hiddenCategoryIds, isNot(contains('arch')));
     });
 
     testWidgets('clearing every row in the picker hides every category', (
@@ -197,7 +206,9 @@ void main() {
           // Starts with everything already hidden, so the picker opens with an
           // empty selection and Apply returns that empty set unchanged — the
           // case its date twin would have collapsed to a dismissal.
-          hiddenCategoryIds: {for (final c in CalendarCategories.visible) c.id},
+          filters: CalendarGridFilters(
+            hiddenCategoryIds: {for (final c in CalendarCategories.visible) c.id},
+          ),
         );
       });
 
@@ -210,7 +221,7 @@ void main() {
       await tester.tap(find.text('Apply'));
       await tester.pumpAndSettle();
 
-      expect(applied?.hiddenCategoryIds.length, 15);
+      expect(applied?.filters.hiddenCategoryIds.length, 15);
     });
   });
 

@@ -75,6 +75,101 @@ class AppLocalizationsDe extends AppLocalizations {
   String get calendarClearAll => 'Leeren';
 
   @override
+  String get calendarFilterRepeat => 'Wiederholung';
+
+  @override
+  String get calendarFilterTiming => 'Tageszeit';
+
+  @override
+  String get calendarFilterTimed => 'Mit Uhrzeit';
+
+  @override
+  String get calendarFilterOnlyShow => 'Nur anzeigen';
+
+  @override
+  String get calendarFilterTracked => 'Mit Anwesenheit';
+
+  @override
+  String get calendarFilterHideEnded => 'Beendete ausblenden';
+
+  @override
+  String get calendarFilterWithDescription => 'Mit Beschreibung';
+
+  @override
+  String get calendarFilterWithMoney => 'Mit Geld';
+
+  @override
+  String get calendarFilterCounted => 'Gezählt';
+
+  @override
+  String get calendarFilterMoneyLayer => 'Geld';
+
+  @override
+  String calendarFilterLayerHidden(String layer) {
+    return 'Ohne $layer';
+  }
+
+  @override
+  String get calendarFilterPanelShowsAll => 'Tagesbereich ungefiltert lassen';
+
+  @override
+  String get calendarFilterPanelShowsAllDesc =>
+      'Der Monat bleibt gefiltert; ein Tag zeigt weiterhin alles';
+
+  @override
+  String get calendarFilterShowsEverything => 'Zeigt alles';
+
+  @override
+  String get calendarFilterNoCategories => 'Keine Kategorien';
+
+  @override
+  String get filterPresetsTitle => 'Gespeicherte Filter';
+
+  @override
+  String get filterPresetSearchHint => 'Gespeicherte Filter suchen';
+
+  @override
+  String get filterPresetEmpty =>
+      'Noch keine gespeicherten Filter. Stelle einen Filter ein und tippe im Filterfenster auf das Lesezeichen, um ihn zu speichern.';
+
+  @override
+  String get filterPresetNoMatches =>
+      'Kein gespeicherter Filter passt zur Suche';
+
+  @override
+  String get filterPresetSave => 'Filter speichern';
+
+  @override
+  String filterPresetSaved(String name) {
+    return 'Als \"$name\" gespeichert';
+  }
+
+  @override
+  String get filterPresetName => 'Name';
+
+  @override
+  String get filterPresetRename => 'Umbenennen';
+
+  @override
+  String get filterPresetUpdate => 'Auf aktuellen Filter aktualisieren';
+
+  @override
+  String get filterPresetDelete => 'Gespeicherten Filter löschen';
+
+  @override
+  String filterPresetDeleteConfirm(String name) {
+    return '\"$name\" löschen? Die ausgeblendeten Ereignisse bleiben unberührt.';
+  }
+
+  @override
+  String get filterPresetActions => 'Optionen für gespeicherte Filter';
+
+  @override
+  String filterPresetLimitReached(int count) {
+    return 'Du kannst bis zu $count Filter speichern';
+  }
+
+  @override
   String get filterCalendar => 'Kalender filtern';
 
   @override
