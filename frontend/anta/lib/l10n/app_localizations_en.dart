@@ -144,6 +144,9 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get filterPresetSaveCurrent => 'Save the current filter';
+
+  @override
   String get filterPresetName => 'Name';
 
   @override

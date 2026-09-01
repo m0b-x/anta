@@ -176,4 +176,86 @@ void main() {
     expect(find.byIcon(Icons.check_rounded), findsNothing);
     expect(find.byIcon(Icons.bookmark_rounded), findsOneWidget);
   });
+
+  group('saving the live filter from here', () {
+    /// The row exists for the one state it means something in: a filter is
+    /// applied, and it is not already in the list.
+    testWidgets('is offered for an applied filter nobody saved', (
+      tester,
+    ) async {
+      await pumpSheet(tester, current: tracked);
+
+      expect(find.text('Save the current filter'), findsOneWidget);
+      // It says what it would save, through the shared description.
+      expect(find.text('Tracked'), findsOneWidget);
+    });
+
+    testWidgets('is not offered when nothing is filtered', (tester) async {
+      await service.create(name: 'Training', filters: tracked);
+
+      await pumpSheet(tester);
+
+      expect(find.text('Save the current filter'), findsNothing);
+    });
+
+    testWidgets('is not offered once that filter is saved', (tester) async {
+      await service.create(name: 'Training', filters: tracked);
+
+      await pumpSheet(tester, current: tracked);
+
+      expect(find.text('Save the current filter'), findsNothing);
+    });
+
+    /// A query is a find, not a create — an action row among the results is
+    /// noise, and it would sit there unmatched by the query that produced it.
+    testWidgets('is hidden while searching', (tester) async {
+      await service.create(name: 'Training', filters: missed);
+
+      await pumpSheet(tester, current: tracked);
+      expect(find.text('Save the current filter'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField), 'train');
+      await tester.pumpAndSettle();
+
+      expect(find.text('Save the current filter'), findsNothing);
+    });
+
+    testWidgets('saves without closing the sheet', (tester) async {
+      await pumpSheet(tester, current: tracked);
+
+      await tester.tap(find.text('Save the current filter'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, 'From here');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(service.presets.single.name, 'From here');
+      expect(service.presets.single.filters, tracked);
+      // Still open, and the new row now reads as the one in use.
+      expect(find.byType(FilterPresetSheet), findsOneWidget);
+      expect(find.text('From here'), findsOneWidget);
+      expect(find.byIcon(Icons.check_rounded), findsOneWidget);
+      // And the offer is gone, because the filter is saved now.
+      expect(find.text('Save the current filter'), findsNothing);
+    });
+  });
+
+  /// Soft, never blocking — the category editor's rule. Presets are keyed by
+  /// id, so a duplicate name is confusing rather than corrupting.
+  testWidgets('a duplicate name warns but still saves', (tester) async {
+    await service.create(name: 'Training', filters: missed);
+
+    await pumpSheet(tester, current: tracked);
+    await tester.tap(find.text('Save the current filter'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'Training');
+    await tester.pumpAndSettle();
+
+    expect(find.text('"Training" already exists'), findsOneWidget);
+
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(service.presets.map((p) => p.name), ['Training', 'Training']);
+  });
 }

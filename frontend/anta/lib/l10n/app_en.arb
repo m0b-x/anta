@@ -183,6 +183,10 @@
       }
     }
   },
+  "filterPresetSaveCurrent": "Save the current filter",
+  "@filterPresetSaveCurrent": {
+    "description": "Row in the saved-filters sheet that saves the filter currently applied to the calendar"
+  },
   "filterPresetName": "Name",
   "@filterPresetName": {
     "description": "Label of the saved-filter name field"

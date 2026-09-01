@@ -3439,6 +3439,38 @@ order: you reach for a filter you already have before you build a new one —
 which opens a searchable list of saved filters; the filter sheet gained a save
 action beside its Reset.
 
+### The app bar now carries four actions
+
+Saved filters, filters, settings, overflow. Four fixed 48dp buttons squeeze the
+title to an ellipsis on a narrow phone, and the usual remedy — folding one into
+the overflow — would bury a button that exists precisely to be one tap away.
+
+[`ScrollableAppBarActions`](../lib/widgets/scrollable_app_bar_actions.dart)
+gives the three **icon buttons** a width budget (`reservedForTitle` = 152, what
+is kept back for the leading button and a readable title) and scrolls them
+inside it when they do not fit. At 360dp — the width this app is designed
+against — the budget exceeds the content, so it renders exactly as a plain
+`Row` would with nothing to scroll; below that it scrolls instead of
+overflowing.
+
+Two details that are the design, not incidental:
+
+- **The overflow menu is not one of its children.** It sits after the widget,
+  so the `⋮` stays flush against the trailing edge where every platform puts
+  it, and never moves when the group is dragged.
+- **`reverse` is off**, so the group rests showing its leading buttons — saved
+  filters and filters, the two quick-loop actions. The **settings gear is last
+  and is what scrolls out of sight**, which is the right thing to lose: it
+  opens a page rather than a sheet and is not part of any repeated loop.
+
+The page's `NotificationListener<UserScrollNotification>` sees this scroller,
+but `fabExtendedFor` ignores horizontal ones — so dragging the actions cannot
+collapse the add button. Any page reusing this widget needs the same guard.
+Pinned by [`test/widgets/scrollable_app_bar_actions_test.dart`](../test/widgets/scrollable_app_bar_actions_test.dart):
+nothing to scroll at 800dp or 360dp, a real scroll extent at 280dp with the
+budget (not the screen) as the viewport, the trailing action reachable by
+dragging, and the overflow neither moving nor being inside the group.
+
 ### Storage: a table, not a settings list
 
 `calendar_filter_presets` ([table](../lib/database/tables/calendar_filter_presets_table.dart),
@@ -3516,7 +3548,32 @@ Tracked".
   draft that drifts back onto a saved combination shows as saved again.
 - **The naming dialog** is shared by save and rename, so the two cannot
   disagree about what a legal name is. It opens with the suggestion
-  **selected**, so typing replaces it and Save keeps it.
+  **selected**, so typing replaces it and Save keeps it. A name already in use
+  raises a **soft warning that never blocks Save** — the category editor's
+  rule, reused deliberately: presets are keyed by id, so a duplicate name is
+  confusing rather than corrupting, and blocking would break "rename A, then
+  reuse A's old name". Both save paths pass the existing names, or the warning
+  would be a property of which sheet you happened to save from. It reuses
+  `categoryNameExists` rather than adding a fourth translation of the same
+  sentence, with the error colour overridden so a non-blocking remark does not
+  paint the field red.
+- **The sheet can save the live filter itself**, as a row at the top of the
+  list. The other way to save is three steps away (close, open the filter
+  sheet, find the bookmark), and this sheet is exactly where a user notices
+  "the filter I am using is not in this list". It is offered only when the
+  live filter is **non-empty and unsaved** — the same two conditions the
+  filter sheet's bookmark enforces — and hidden while a query is active, since
+  a search is a find and an action row among its results is noise. Saving from
+  here does **not** close the sheet: the filter is already applied, so there
+  is nothing to pick, and the new row appearing marked in use is the
+  confirmation. **The row keeps the list alive on its own**: with no presets
+  yet and a filter applied, falling through to the empty state would hide the
+  one action that state is asking for (a bug the widget test caught).
+- **"Update to current filter" is disabled when the live filter is empty**, as
+  well as when the preset already holds it. The filter sheet's bookmark
+  already rules that an empty set is not a preset; letting Update turn a
+  working preset into one would be that same rule disagreeing with itself, and
+  the action's only outcome would be silently destroying a preset.
 - **The sheet** ([filter_preset_sheet.dart](../lib/widgets/filter_preset_sheet.dart))
   is a search field over rows of *name + what it filters*. Search matches the
   name **and** the description, folded through the note search's
@@ -3546,4 +3603,7 @@ a restore, a malformed row skipped, an unparseable blob keeping its row.
 [`test/widgets/filter_preset_sheet_test.dart`](../test/widgets/filter_preset_sheet_test.dart)
 pins the sheet: the empty state, search by name and by description, the
 no-hits state, tapping popping **filters** (not a row), dismissing popping
-nothing, and the in-use marker.
+nothing, the in-use marker, all four states of the save-the-live-filter row
+(offered, not offered while empty, not offered once saved, hidden while
+searching), that saving from it does not close the sheet, and that a duplicate
+name warns but still saves.

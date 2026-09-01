@@ -358,6 +358,12 @@ abstract class AppLocalizations {
   /// **'Saved as \"{name}\"'**
   String filterPresetSaved(String name);
 
+  /// Row in the saved-filters sheet that saves the filter currently applied to the calendar
+  ///
+  /// In en, this message translates to:
+  /// **'Save the current filter'**
+  String get filterPresetSaveCurrent;
+
   /// Label of the saved-filter name field
   ///
   /// In en, this message translates to:

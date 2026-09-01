@@ -42,6 +42,7 @@
   "filterPresetNoMatches": "Niciun filtru salvat nu se potrivește căutării",
   "filterPresetSave": "Salvează filtrul",
   "filterPresetSaved": "Salvat ca „{name}”",
+  "filterPresetSaveCurrent": "Salvează filtrul curent",
   "filterPresetName": "Nume",
   "filterPresetRename": "Redenumește",
   "filterPresetUpdate": "Actualizează la filtrul curent",

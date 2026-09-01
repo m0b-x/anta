@@ -145,6 +145,9 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
+  String get filterPresetSaveCurrent => 'Salvează filtrul curent';
+
+  @override
   String get filterPresetName => 'Nume';
 
   @override

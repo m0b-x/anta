@@ -12,6 +12,7 @@ import '../models/calendar_event.dart';
 import '../models/calendar_grid_filters.dart';
 import '../models/upcoming_agenda_filters.dart';
 import '../services/filter_preset_service.dart';
+import '../services/folder_search_service.dart' show normalizeForSearch;
 import '../utils/calendar_filter_summary.dart';
 import '../utils/custom_snackbar.dart';
 import 'category_picker_sheet.dart';
@@ -135,6 +136,12 @@ class _CalendarFilterSheetState extends State<CalendarFilterSheet> {
       context,
       title: l10n.filterPresetSave,
       initialName: CalendarFilterSummary.suggestName(_draft, l10n),
+      // Both save paths warn on a duplicate name, or the warning would be a
+      // property of which sheet you happened to save from.
+      existingNames: {
+        for (final preset in service.presets)
+          normalizeForSearch(preset.name),
+      },
     );
     if (name == null || !mounted) return;
     final saved = await service.create(name: name, filters: _draft);

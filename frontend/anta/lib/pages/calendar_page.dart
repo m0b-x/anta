@@ -52,6 +52,7 @@ import '../widgets/calendar_day_cell.dart';
 import '../widgets/calendar_filter_chips.dart';
 import '../widgets/calendar_filter_sheet.dart';
 import '../widgets/filter_preset_sheet.dart';
+import '../widgets/scrollable_app_bar_actions.dart';
 import '../widgets/event_description_sheet.dart';
 import '../widgets/event_detail_sheet.dart';
 import '../widgets/event_editor_sheet.dart';
@@ -712,6 +713,11 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
       appBar: AppBar(
         title: Text(l10n.calendar),
         actions: [
+          // The three icon buttons scroll as a group on a narrow screen; the
+          // overflow menu after them never does — it stays flush at the trailing
+          // edge. The gear is last because it is the one worth losing first.
+          ScrollableAppBarActions(
+            children: [
           // Saved filters sit **left of** the filter button, in reading order:
           // you reach for a filter you already have before you build a new
           // one. It has no badge — a saved filter is not itself a restriction,
@@ -769,10 +775,12 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
               );
             },
           ),
-          IconButton(
-            tooltip: l10n.calendarSettings,
-            icon: const Icon(Icons.settings_outlined),
-            onPressed: () => _openSettings(context),
+              IconButton(
+                tooltip: l10n.calendarSettings,
+                icon: const Icon(Icons.settings_outlined),
+                onPressed: () => _openSettings(context),
+              ),
+            ],
           ),
           BlocBuilder<CalendarBloc, CalendarPageState>(
             buildWhen: (previous, current) =>

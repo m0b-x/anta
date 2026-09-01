@@ -45,6 +45,7 @@
   "filterPresetNoMatches": "Kein gespeicherter Filter passt zur Suche",
   "filterPresetSave": "Filter speichern",
   "filterPresetSaved": "Als \"{name}\" gespeichert",
+  "filterPresetSaveCurrent": "Aktuellen Filter speichern",
   "filterPresetName": "Name",
   "filterPresetRename": "Umbenennen",
   "filterPresetUpdate": "Auf aktuellen Filter aktualisieren",

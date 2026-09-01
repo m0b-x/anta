@@ -306,6 +306,59 @@ void main() {
     expect(byName['id']!.read<int>('pk'), 1);
   });
 
+  test('the filter preset table matches its frozen migration DDL', () async {
+    // Frozen at v35. Born with the CRDT block like the template table above,
+    // so the same distinction applies: **no** DEFAULT on the identity columns,
+    // or an insert could silently store an unidentified row.
+    final columns = await db
+        .customSelect('PRAGMA table_info(calendar_filter_presets)')
+        .get();
+    final byName = {for (final row in columns) row.read<String>('name'): row};
+
+    expect(byName.keys.toSet(), {
+      'id',
+      'name',
+      'filters',
+      'sort_order',
+      'created_at',
+      'updated_at',
+      'hlc_timestamp',
+      'device_id',
+      'version',
+      'is_deleted',
+      'deleted_at',
+    });
+
+    for (final name in byName.keys) {
+      // `deleted_at` is the single nullable column. `filters` in particular is
+      // NOT NULL: an empty string is a legal encoding ("nothing filtered"), so
+      // a null would be a second way to say the same thing.
+      expect(
+        byName[name]!.read<int>('notnull'),
+        name == 'deleted_at' ? 0 : 1,
+        reason: name == 'deleted_at'
+            ? 'deleted_at must stay nullable'
+            : '$name should be NOT NULL',
+      );
+    }
+
+    expect(byName['id']!.read<String>('type'), 'TEXT');
+    expect(byName['name']!.read<String>('type'), 'TEXT');
+    // The whole filter set as one JSON blob — see the table declaration for
+    // why this is not a column per axis.
+    expect(byName['filters']!.read<String>('type'), 'TEXT');
+    expect(byName['hlc_timestamp']!.read<String>('type'), 'TEXT');
+    expect(byName['device_id']!.read<String>('type'), 'TEXT');
+
+    expect(byName['sort_order']!.read<String>('dflt_value'), '0');
+    expect(byName['version']!.read<String>('dflt_value'), '1');
+    expect(byName['is_deleted']!.read<String>('dflt_value'), '0');
+    expect(byName['hlc_timestamp']!.readNullable<String>('dflt_value'), isNull);
+    expect(byName['device_id']!.readNullable<String>('dflt_value'), isNull);
+
+    expect(byName['id']!.read<int>('pk'), 1);
+  });
+
   test('the vocabulary tables match their frozen migration DDL', () async {
     // Frozen at v32, born with the CRDT block — so the v29 template shape, not
     // the v27/v28 one: no DEFAULT on the identity columns, `deleted_at` the
