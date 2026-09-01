@@ -240,6 +240,54 @@ void main() {
     });
   });
 
+  group('showing everything again', () {
+    /// The one answer the sheet could not give before: "no lens". Clearing
+    /// otherwise meant closing, opening the filter sheet, Reset, Apply.
+    testWidgets('pops a cleared filter set', (tester) async {
+      await service.create(name: 'Training', filters: tracked);
+
+      await pumpSheet(tester, current: tracked);
+      await tester.tap(find.text('Show everything'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(FilterPresetSheet), findsNothing);
+      expect(popped.single?.isEmpty, isTrue);
+    });
+
+    /// `cleared()`, not `CalendarGridFilters.none`: the panel opt-out is a
+    /// preference about the day panel, not something being hidden, and the
+    /// filter sheet's Reset keeps it for the same reason.
+    testWidgets('keeps the panel opt-out', (tester) async {
+      const withPanelOptOut = CalendarGridFilters(
+        trackedOnly: true,
+        panelShowsAll: true,
+      );
+
+      await pumpSheet(tester, current: withPanelOptOut);
+      await tester.tap(find.text('Show everything'));
+      await tester.pumpAndSettle();
+
+      expect(popped.single?.isEmpty, isTrue);
+      expect(popped.single?.panelShowsAll, isTrue);
+    });
+
+    /// Disabled rather than hidden, so the header cannot change height between
+    /// two openings of the same sheet.
+    testWidgets('is disabled when nothing is filtered', (tester) async {
+      await service.create(name: 'Training', filters: tracked);
+
+      await pumpSheet(tester);
+
+      final button = tester.widget<TextButton>(
+        find.ancestor(
+          of: find.text('Show everything'),
+          matching: find.byType(TextButton),
+        ),
+      );
+      expect(button.onPressed, isNull);
+    });
+  });
+
   /// Soft, never blocking — the category editor's rule. Presets are keyed by
   /// id, so a duplicate name is confusing rather than corrupting.
   testWidgets('a duplicate name warns but still saves', (tester) async {

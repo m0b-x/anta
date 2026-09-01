@@ -145,6 +145,10 @@
   "@calendarFilterPanelShowsAllDesc": {
     "description": "Explains what the keep-the-day-panel-unfiltered switch does"
   },
+  "calendarFilterShowAll": "Show everything",
+  "@calendarFilterShowAll": {
+    "description": "Button in the saved-filters sheet that clears every filter. Imperative, unlike calendarFilterShowsEverything, which describes a filter set that hides nothing."
+  },
   "calendarFilterShowsEverything": "Shows everything",
   "@calendarFilterShowsEverything": {
     "description": "Summary shown for a saved filter that hides nothing"

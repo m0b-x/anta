@@ -216,10 +216,38 @@ class _FilterPresetSheetState extends State<FilterPresetSheet> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-          child: Text(
-            l10n.filterPresetsTitle,
-            style: theme.textTheme.titleMedium,
+          padding: const EdgeInsets.fromLTRB(20, 0, 12, 0),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  l10n.filterPresetsTitle,
+                  style: theme.textTheme.titleMedium,
+                ),
+              ),
+              // The most common answer to "which lens am I using" is *none*,
+              // and until this button it was the one answer the sheet could
+              // not give: clearing meant closing, opening the filter sheet,
+              // Reset, Apply. It lives in the header rather than as a list row
+              // so the list keeps meaning "things you saved", mirroring the
+              // filter sheet's own title + Reset.
+              //
+              // Labelled "Show everything" rather than "Clear" or "Reset" on
+              // purpose: in a sheet full of saved filters, either of those
+              // reads as an offer to delete them.
+              TextButton(
+                // Disabled rather than hidden, so the header cannot change
+                // height between two openings of the same sheet.
+                onPressed: widget.current.isEmpty
+                    ? null
+                    // `cleared()`, never `CalendarGridFilters.none`:
+                    // `panelShowsAll` is a preference about the day panel, not
+                    // something being hidden, and the filter sheet's Reset
+                    // keeps it for the same reason.
+                    : () => Navigator.of(context).pop(widget.current.cleared()),
+                child: Text(l10n.calendarFilterShowAll),
+              ),
+            ],
           ),
         ),
         // The field is the point of this sheet, so it is always present once

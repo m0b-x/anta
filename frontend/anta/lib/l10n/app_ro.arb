@@ -34,6 +34,7 @@
   "calendarFilterLayerHidden": "Fără {layer}",
   "calendarFilterPanelShowsAll": "Lasă panoul zilei nefiltrat",
   "calendarFilterPanelShowsAllDesc": "Luna rămâne filtrată; o zi afișează în continuare tot",
+  "calendarFilterShowAll": "Arată tot",
   "calendarFilterShowsEverything": "Arată tot",
   "calendarFilterNoCategories": "Nicio categorie",
   "filterPresetsTitle": "Filtre salvate",

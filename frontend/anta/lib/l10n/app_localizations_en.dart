@@ -117,6 +117,9 @@ class AppLocalizationsEn extends AppLocalizations {
       'The month stays filtered; tapping a day still lists everything on it';
 
   @override
+  String get calendarFilterShowAll => 'Show everything';
+
+  @override
   String get calendarFilterShowsEverything => 'Shows everything';
 
   @override

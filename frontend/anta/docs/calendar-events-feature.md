@@ -3569,6 +3569,21 @@ Tracked".
   confirmation. **The row keeps the list alive on its own**: with no presets
   yet and a filter applied, falling through to the empty state would hide the
   one action that state is asking for (a bug the widget test caught).
+- **The header carries "Show everything"**, which clears every filter and
+  closes. The most common answer to "which lens am I using" is *none*, and
+  until this it was the one answer the sheet could not give: clearing meant
+  closing, opening the filter sheet, Reset, Apply — the same out-of-reach
+  argument the inline save row rests on. It sits in the **header** rather than
+  as a list row so the list keeps meaning "things you saved", mirroring the
+  filter sheet's own title + Reset, and it is **disabled rather than hidden**
+  when nothing is filtered so the header cannot change height between two
+  openings. Two things it must keep: the label is **"Show everything"**, not
+  "Clear" or "Reset" — in a sheet full of saved filters either of those reads
+  as an offer to delete them — and it pops **`current.cleared()`, never
+  `CalendarGridFilters.none`**, because `panelShowsAll` is a preference about
+  the day panel rather than something being hidden. A separate imperative
+  string (`calendarFilterShowAll`) exists for it; `calendarFilterShowsEverything`
+  stays the *descriptive* form used for a filter set that hides nothing.
 - **"Update to current filter" is disabled when the live filter is empty**, as
   well as when the preset already holds it. The filter sheet's bookmark
   already rules that an empty set is not a preset; letting Update turn a

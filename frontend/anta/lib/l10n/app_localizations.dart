@@ -310,6 +310,12 @@ abstract class AppLocalizations {
   /// **'The month stays filtered; tapping a day still lists everything on it'**
   String get calendarFilterPanelShowsAllDesc;
 
+  /// Button in the saved-filters sheet that clears every filter. Imperative, unlike calendarFilterShowsEverything, which describes a filter set that hides nothing.
+  ///
+  /// In en, this message translates to:
+  /// **'Show everything'**
+  String get calendarFilterShowAll;
+
   /// Summary shown for a saved filter that hides nothing
   ///
   /// In en, this message translates to:

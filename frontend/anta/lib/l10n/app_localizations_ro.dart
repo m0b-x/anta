@@ -117,6 +117,9 @@ class AppLocalizationsRo extends AppLocalizations {
       'Luna rămâne filtrată; o zi afișează în continuare tot';
 
   @override
+  String get calendarFilterShowAll => 'Arată tot';
+
+  @override
   String get calendarFilterShowsEverything => 'Arată tot';
 
   @override

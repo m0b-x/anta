@@ -37,6 +37,7 @@
   "calendarFilterLayerHidden": "Ohne {layer}",
   "calendarFilterPanelShowsAll": "Tagesbereich ungefiltert lassen",
   "calendarFilterPanelShowsAllDesc": "Der Monat bleibt gefiltert; ein Tag zeigt weiterhin alles",
+  "calendarFilterShowAll": "Alles anzeigen",
   "calendarFilterShowsEverything": "Zeigt alles",
   "calendarFilterNoCategories": "Keine Kategorien",
   "filterPresetsTitle": "Gespeicherte Filter",
