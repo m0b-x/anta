@@ -6940,6 +6940,12 @@ abstract class AppLocalizations {
   /// **'Search settings'**
   String get searchSettings;
 
+  /// Trailing hint on a collapsed settings section header, saying how many rows it is hiding
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 option} other{{count} options}}'**
+  String settingsSectionCollapsedCount(int count);
+
   /// Comma-separated hidden search synonyms for the haptic feedback setting. Translate to words users of this locale would actually type; they are matched but never displayed.
   ///
   /// In en, this message translates to:

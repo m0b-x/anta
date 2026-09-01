@@ -3139,3 +3139,78 @@ point. A present occurrence row always wins, including when empty, and
 "reset this day" tombstones rather than writing `''`. Occurrence writes bump
 `occurrenceRevision` and never invalidate the day cache.
 `SimpleMarkdownPreview.onCheckboxTap` stays `null` on read-only surfaces.
+
+## Addendum (2026-09-01): folding the calendar settings page
+
+The page had grown to five cards and 22 rows, twelve of them in Appearance
+alone, and there is no jumping between them — reaching Events means scrolling
+past every appearance control. Two changes, one shared and one local.
+
+### Sections fold, and remember it
+
+[`lib/widgets/settings_section_list.dart`](../lib/widgets/settings_section_list.dart)
+grew an optional fold. `SettingsSectionData` takes an `id`; `SettingsSectionList`
+takes `collapsedSections` (a `Set<String>` the page owns) and
+`onToggleSection`. A section folds only when it has an `id` **and** the list was
+given a callback, so `controls_settings_page`, `developer_options_page` and
+`sync_settings_page` render byte-identically — they pass neither.
+
+Three invariants worth keeping:
+
+- **A fold may never swallow a search hit.** While `query` is non-empty every
+  surviving section renders open and drops its chevron. The stored fold is not
+  touched, so it returns when the query is cleared. A row that matched but sat
+  inside a shut card would make the search field lie.
+- **A folded section builds nothing below its header** — not `Opacity`, not
+  `Offstage`, not `AnimatedCrossFade` (which builds both children and would
+  keep `_AppearancePreview` and every slider alive). The point is to stop
+  paying for the rows, not just to hide them.
+- **The `id` is persisted, so it is frozen.** Never derive it from the
+  localized title or from the list index; renaming or reordering a section
+  must not reopen a card the user shut.
+
+Chrome: the header becomes an `InkWell` clipped to the card's top corners,
+with `Semantics(button: true, expanded: …)`, a chevron on `AnimatedRotation`
+(0 → 0.5 turns, 180 ms) and — **only while shut** — a muted
+`settingsSectionCollapsedCount` ("4 options"), because a folded title alone
+says nothing about how much is behind it. The body sits in an `AnimatedSize`
+(180 ms, `easeOutCubic`, `alignment: topCenter`) so the cards below slide
+rather than jump.
+
+Persistence is `SettingsKeys.calendarSettingsCollapsedSections`
+(`calendar_settings_collapsed_sections`, CSV of ids) through
+`SettingsService.getCalendarSettingsCollapsedSections` /
+`set…`. It is deliberately **not** in `_calendarPageKeys` or
+`_calendarAppearanceKeys`: it changes nothing the calendar draws, and the
+grid's pre-first-frame bulk read should not carry a settings-page view
+preference. `_resetToDefaults` clears it — the page ships open, and leaving a
+card shut after a reset hides rows the user just asked to see restored. Ids:
+`calendar`, `categories`, `appearance`, `fasting`, `events`.
+
+### Rows moved to the section they belong to
+
+- **Section order** is now Calendar → **Categories** → Appearance → Fasting →
+  Events. What the calendar *is* comes before how it *looks*; categories used
+  to sit behind a dozen appearance rows, a long way down for the one row that
+  opens a page of its own.
+- **Event templates** moved from Categories to **Events**, first row. A
+  template is a saved event, not a category — it only ever lived next to the
+  categories row because both navigate. Its `addFromTemplate` keyword moved
+  with it, so settings search is unchanged.
+- **Missed events (faded / hidden)** moved from Events to **Appearance**,
+  between the day-bar cap and the day-rail rows. It is a drawing rule for the
+  markers above it and the rail below it — both resolvers read
+  `EventPresence.isMissed` — not a property of an event, and it is read
+  together with the two rows it now sits between.
+
+Nothing else changed: no setting gained or lost a key, no default moved, and
+every row keeps its title, description and keywords, so a saved search still
+finds what it found before.
+
+### Tests
+
+[`test/widgets/settings_section_fold_test.dart`](../test/widgets/settings_section_fold_test.dart)
+— nine cases over the shared widget: open/shut rendering including the intro,
+the count only while shut, toggling reports the id, a fold never swallows a
+search hit, no chevron while filtering, the fold returns when the query
+clears, and both "cannot fold" paths (no callback, no `id`).

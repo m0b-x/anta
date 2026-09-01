@@ -284,9 +284,12 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
           const SizedBox(width: 4),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _buildBody(context),
+      body: SafeArea(
+        top: false,
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : _buildBody(context),
+      ),
     );
   }
 

@@ -2304,6 +2304,7 @@
   "searchUtilityButtons": "Schaltflächen suchen",
   "noMatchesFound": "Keine Treffer",
   "searchSettings": "Einstellungen suchen",
+  "settingsSectionCollapsedCount": "{count, plural, =1{1 Option} other{{count} Optionen}}",
   "hapticFeedbackKeywords": "Vibration, Summen, Rütteln",
   "autoSaveKeywords": "Sicherung, Speichern, Backup",
   "wordWrapKeywords": "Zeile, Überlauf, Umbruch",

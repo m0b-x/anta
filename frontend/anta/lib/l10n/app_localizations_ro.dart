@@ -4022,6 +4022,18 @@ class AppLocalizationsRo extends AppLocalizations {
   String get searchSettings => 'Caută în setări';
 
   @override
+  String settingsSectionCollapsedCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de opțiuni',
+      few: '$count opțiuni',
+      one: '1 opțiune',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get hapticFeedbackKeywords => 'vibrație, bâzâit, tremur';
 
   @override

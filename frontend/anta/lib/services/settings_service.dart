@@ -973,6 +973,32 @@ class SettingsService {
     );
   }
 
+  // Calendar settings page - which sections are folded shut.
+  static Set<String> _decodeCollapsedSections(String? raw) {
+    if (raw == null || raw.isEmpty) return const {};
+    final ids = <String>{};
+    for (final part in raw.split(',')) {
+      final id = part.trim();
+      if (id.isNotEmpty) ids.add(id);
+    }
+    return ids;
+  }
+
+  Future<Set<String>> getCalendarSettingsCollapsedSections() async {
+    return _decodeCollapsedSections(
+      await _db.userSettingsDao.getValue(
+        SettingsKeys.calendarSettingsCollapsedSections,
+      ),
+    );
+  }
+
+  Future<void> setCalendarSettingsCollapsedSections(Set<String> ids) async {
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.calendarSettingsCollapsedSections,
+      ids.join(','),
+    );
+  }
+
   // Calendar - Enabled religious-fasting traditions (empty set = off).
   static Set<FastingTradition> _decodeFastingTraditions(String? raw) {
     if (raw == null || raw.isEmpty) return const {};

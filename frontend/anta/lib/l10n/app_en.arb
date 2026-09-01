@@ -5022,6 +5022,15 @@
   "@searchSettings": {
     "description": "Hint text of the search field on settings pages"
   },
+  "settingsSectionCollapsedCount": "{count, plural, =1{1 option} other{{count} options}}",
+  "@settingsSectionCollapsedCount": {
+    "description": "Trailing hint on a collapsed settings section header, saying how many rows it is hiding",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "hapticFeedbackKeywords": "vibration, buzz, rumble",
   "@hapticFeedbackKeywords": {
     "description": "Comma-separated hidden search synonyms for the haptic feedback setting. Translate to words users of this locale would actually type; they are matched but never displayed."

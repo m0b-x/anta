@@ -66,79 +66,87 @@ class _DeveloperOptionsPageState extends State<DeveloperOptionsPage> {
     return Scaffold(
       appBar: SettingsAppBar(title: l10n.developerOptions),
       drawer: const AppDrawer(),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : ListenableBuilder(
-              listenable: devOptions,
-              builder: (context, _) {
-                return Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                      child: SettingsSearchField(
-                        controller: _searchController,
-                        hint: l10n.searchSettings,
-                        onChanged: (value) =>
-                            setState(() => _query = SettingsQuery.parse(value)),
-                      ),
-                    ),
-                    Expanded(
-                      child: SettingsSectionList(
-                        query: _query,
-                        style: SettingsSectionStyle.compact,
-                        sections: _buildSections(l10n, devOptions),
-                        header: [_buildWarningBanner(l10n, colorScheme)],
-                        footer: [
-                          OutlinedButton.icon(
-                            onPressed: () async {
-                              _onHapticFeedback();
-                              await _service?.resetOptions();
-                              if (context.mounted) {
-                                CustomSnackbar.showSuccess(
-                                  context,
-                                  l10n.developerOptionsReset,
-                                );
-                              }
-                            },
-                            icon: const Icon(Icons.refresh_rounded),
-                            label: Text(l10n.resetToDefaults),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                            ),
+      body: SafeArea(
+        top: false,
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : ListenableBuilder(
+                listenable: devOptions,
+                builder: (context, _) {
+                  return Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                        child: SettingsSearchField(
+                          controller: _searchController,
+                          hint: l10n.searchSettings,
+                          onChanged: (value) => setState(
+                            () => _query = SettingsQuery.parse(value),
                           ),
-                          const SizedBox(height: 12),
-                          FilledButton.icon(
-                            onPressed: () async {
-                              _onHapticFeedback();
-                              devOptions.lockDeveloperMode();
-                              await _service?.saveOptions();
-                              if (context.mounted) {
-                                CustomSnackbar.showSuccess(
-                                  context,
-                                  l10n.developerModeLocked,
-                                );
-                                AppNavigator.pop(
-                                  context,
-                                  SettingsResult.openDrawer,
-                                );
-                              }
-                            },
-                            icon: const Icon(Icons.lock_rounded),
-                            label: Text(l10n.lockDeveloperMode),
-                            style: FilledButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              backgroundColor: colorScheme.error,
-                              foregroundColor: colorScheme.onError,
-                            ),
-                          ),
-                          const SizedBox(height: 32),
-                        ],
+                        ),
                       ),
-                    ),
-                  ],
-                );
-              },
-            ),
+                      Expanded(
+                        child: SettingsSectionList(
+                          query: _query,
+                          style: SettingsSectionStyle.compact,
+                          sections: _buildSections(l10n, devOptions),
+                          header: [_buildWarningBanner(l10n, colorScheme)],
+                          footer: [
+                            OutlinedButton.icon(
+                              onPressed: () async {
+                                _onHapticFeedback();
+                                await _service?.resetOptions();
+                                if (context.mounted) {
+                                  CustomSnackbar.showSuccess(
+                                    context,
+                                    l10n.developerOptionsReset,
+                                  );
+                                }
+                              },
+                              icon: const Icon(Icons.refresh_rounded),
+                              label: Text(l10n.resetToDefaults),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            FilledButton.icon(
+                              onPressed: () async {
+                                _onHapticFeedback();
+                                devOptions.lockDeveloperMode();
+                                await _service?.saveOptions();
+                                if (context.mounted) {
+                                  CustomSnackbar.showSuccess(
+                                    context,
+                                    l10n.developerModeLocked,
+                                  );
+                                  AppNavigator.pop(
+                                    context,
+                                    SettingsResult.openDrawer,
+                                  );
+                                }
+                              },
+                              icon: const Icon(Icons.lock_rounded),
+                              label: Text(l10n.lockDeveloperMode),
+                              style: FilledButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                ),
+                                backgroundColor: colorScheme.error,
+                                foregroundColor: colorScheme.onError,
+                              ),
+                            ),
+                            const SizedBox(height: 32),
+                          ],
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+      ),
     );
   }
 

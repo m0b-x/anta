@@ -1461,562 +1461,579 @@ class _ShortcutEditorPageState extends State<ShortcutEditorPage> {
               icon: const Icon(Icons.save_rounded),
               label: Text(l10n.save),
             ),
-      body: Column(
-        children: [
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 140),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(l10n.icon),
-                  const SizedBox(height: 8),
-                  InkWell(
-                    onTap: _showIconPicker,
-                    child: Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.onSurface.withValues(alpha: 0.3),
-                        ),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(_selectedIcon, size: 32),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Text(
-                              l10n.tapToChangeIcon,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: _labelController,
-                    focusNode: _labelFocusNode,
-                    onTapOutside: (_) => _labelFocusNode.unfocus(),
-                    onChanged: (_) {
-                      if (_labelError != null) {
-                        setState(() => _labelError = null);
-                      }
-                    },
-                    decoration: InputDecoration(
-                      labelText: l10n.label,
-                      hintText: l10n.labelHint,
-                      border: const OutlineInputBorder(),
-                      errorText: _labelError,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(l10n.insertType),
-                  const SizedBox(height: 8),
-                  DropdownButtonFormField<String>(
-                    initialValue: _insertType,
-                    decoration: const InputDecoration(
-                      border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                    ),
-                    items: [
-                      DropdownMenuItem(
-                        value: 'wrap',
-                        child: Text(l10n.wrapSelectedText),
-                      ),
-                      DropdownMenuItem(
-                        value: 'date',
-                        child: Text(l10n.insertCurrentDate),
-                      ),
-                      DropdownMenuItem(
-                        value: 'counter',
-                        child: Text(l10n.insertCounter),
-                      ),
-                    ],
-                    onChanged: (value) {
-                      setState(() {
-                        _insertType = value ?? 'wrap';
-                        if (_insertType == 'date') {
-                          _beforeController.text = '';
-                          _afterController.text = '';
-                        }
-                      });
-                    },
-                  ),
-                  if (_insertType == 'counter') ...[
-                    const SizedBox(height: 16),
-                    Text(l10n.selectCounter),
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 140),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(l10n.icon),
                     const SizedBox(height: 8),
-                    if (_availableCounters.isEmpty)
-                      Container(
-                        padding: const EdgeInsets.all(12),
+                    InkWell(
+                      onTap: _showIconPicker,
+                      child: Container(
+                        padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .secondaryContainer
-                              .withValues(alpha: 0.4),
-                          borderRadius: BorderRadius.circular(8),
                           border: Border.all(
                             color: Theme.of(
                               context,
-                            ).colorScheme.secondary.withValues(alpha: 0.4),
+                            ).colorScheme.onSurface.withValues(alpha: 0.3),
                           ),
+                          borderRadius: BorderRadius.circular(8),
                         ),
                         child: Row(
                           children: [
-                            Icon(
-                              Icons.info_outline,
-                              size: 18,
-                              color: Theme.of(context).colorScheme.secondary,
-                            ),
-                            const SizedBox(width: 10),
+                            Icon(_selectedIcon, size: 32),
+                            const SizedBox(width: 16),
                             Expanded(
                               child: Text(
-                                l10n.noCountersYetHint,
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.onSecondaryContainer,
-                                ),
+                                l10n.tapToChangeIcon,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                           ],
                         ),
-                      )
-                    else
-                      DropdownButtonFormField<String>(
-                        initialValue:
-                            _counterBindings.isNotEmpty &&
-                                _availableCounters.any(
-                                  (c) =>
-                                      c.id == _counterBindings.first.counterId,
-                                )
-                            ? _counterBindings.first.counterId
-                            : null,
-                        decoration: const InputDecoration(
-                          border: OutlineInputBorder(),
-                          contentPadding: EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
-                        ),
-                        hint: Text(l10n.selectCounter),
-                        items: _availableCounters.map((c) {
-                          final scopeLabel = c.scope == CounterScope.global
-                              ? l10n.global
-                              : l10n.perNote;
-                          return DropdownMenuItem(
-                            value: c.id,
-                            child: Text('${c.name} ($scopeLabel)'),
-                          );
-                        }).toList(),
-                        onChanged: (value) {
-                          setState(() {
-                            if (value == null) return;
-                            if (_counterBindings.isEmpty) {
-                              _counterBindings = [
-                                CounterBinding(counterId: value),
-                              ];
-                            } else {
-                              _counterBindings = [
-                                _counterBindings.first.copyWith(
-                                  counterId: value,
-                                ),
-                                ..._counterBindings.skip(1),
-                              ];
-                            }
-                          });
-                        },
                       ),
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      onPressed: _showCreateCounterDialog,
-                      icon: const Icon(Icons.add, size: 18),
-                      label: Text(l10n.addCounter),
                     ),
-                  ],
-                  if (_insertType == 'date') ...[
                     const SizedBox(height: 16),
-                    Text(l10n.dateFormatSettings),
-                    const SizedBox(height: 8),
-                    Container(
-                      height: 180,
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: Theme.of(context).colorScheme.outline,
-                        ),
-                        borderRadius: BorderRadius.circular(8),
+                    TextField(
+                      controller: _labelController,
+                      focusNode: _labelFocusNode,
+                      onTapOutside: (_) => _labelFocusNode.unfocus(),
+                      onChanged: (_) {
+                        if (_labelError != null) {
+                          setState(() => _labelError = null);
+                        }
+                      },
+                      decoration: InputDecoration(
+                        labelText: l10n.label,
+                        hintText: l10n.labelHint,
+                        border: const OutlineInputBorder(),
+                        errorText: _labelError,
                       ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: Material(
-                          color: Colors.transparent,
-                          child: ListView.separated(
-                            padding: EdgeInsets.zero,
-                            itemCount: _dateFormats.length,
-                            separatorBuilder: (context, index) => Divider(
-                              height: 1,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(l10n.insertType),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      initialValue: _insertType,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                      ),
+                      items: [
+                        DropdownMenuItem(
+                          value: 'wrap',
+                          child: Text(l10n.wrapSelectedText),
+                        ),
+                        DropdownMenuItem(
+                          value: 'date',
+                          child: Text(l10n.insertCurrentDate),
+                        ),
+                        DropdownMenuItem(
+                          value: 'counter',
+                          child: Text(l10n.insertCounter),
+                        ),
+                      ],
+                      onChanged: (value) {
+                        setState(() {
+                          _insertType = value ?? 'wrap';
+                          if (_insertType == 'date') {
+                            _beforeController.text = '';
+                            _afterController.text = '';
+                          }
+                        });
+                      },
+                    ),
+                    if (_insertType == 'counter') ...[
+                      const SizedBox(height: 16),
+                      Text(l10n.selectCounter),
+                      const SizedBox(height: 8),
+                      if (_availableCounters.isEmpty)
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .secondaryContainer
+                                .withValues(alpha: 0.4),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
                               color: Theme.of(
                                 context,
-                              ).colorScheme.outlineVariant,
+                              ).colorScheme.secondary.withValues(alpha: 0.4),
                             ),
-                            itemBuilder: (context, index) {
-                              final format = _dateFormats[index];
-                              final isSelected = format == _selectedDateFormat;
-                              final formattedDate = DateFormat(
-                                format,
-                              ).format(DateTime.now());
-                              return ListTile(
-                                dense: true,
-                                visualDensity: VisualDensity.compact,
-                                selected: isSelected,
-                                selectedTileColor: Theme.of(context)
-                                    .colorScheme
-                                    .primaryContainer
-                                    .withValues(alpha: 0.3),
-                                leading: Icon(
-                                  isSelected
-                                      ? Icons.radio_button_checked
-                                      : Icons.radio_button_off,
-                                  color: isSelected
-                                      ? Theme.of(context).colorScheme.primary
-                                      : Theme.of(context).colorScheme.outline,
-                                  size: 20,
-                                ),
-                                title: Text(
-                                  formattedDate,
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.info_outline,
+                                size: 18,
+                                color: Theme.of(context).colorScheme.secondary,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  l10n.noCountersYetHint,
                                   style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: isSelected
-                                        ? FontWeight.w600
-                                        : FontWeight.normal,
-                                    color: isSelected
-                                        ? Theme.of(context).colorScheme.primary
-                                        : null,
-                                  ),
-                                ),
-                                subtitle: Text(
-                                  format,
-                                  style: TextStyle(
-                                    fontSize: 11,
+                                    fontSize: 13,
                                     color: Theme.of(
                                       context,
-                                    ).colorScheme.onSurfaceVariant,
+                                    ).colorScheme.onSecondaryContainer,
                                   ),
                                 ),
-                                onTap: () {
-                                  HapticFeedback.selectionClick();
-                                  setState(() => _selectedDateFormat = format);
-                                },
-                              );
-                            },
+                              ),
+                            ],
+                          ),
+                        )
+                      else
+                        DropdownButtonFormField<String>(
+                          initialValue:
+                              _counterBindings.isNotEmpty &&
+                                  _availableCounters.any(
+                                    (c) =>
+                                        c.id ==
+                                        _counterBindings.first.counterId,
+                                  )
+                              ? _counterBindings.first.counterId
+                              : null,
+                          decoration: const InputDecoration(
+                            border: OutlineInputBorder(),
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                          ),
+                          hint: Text(l10n.selectCounter),
+                          items: _availableCounters.map((c) {
+                            final scopeLabel = c.scope == CounterScope.global
+                                ? l10n.global
+                                : l10n.perNote;
+                            return DropdownMenuItem(
+                              value: c.id,
+                              child: Text('${c.name} ($scopeLabel)'),
+                            );
+                          }).toList(),
+                          onChanged: (value) {
+                            setState(() {
+                              if (value == null) return;
+                              if (_counterBindings.isEmpty) {
+                                _counterBindings = [
+                                  CounterBinding(counterId: value),
+                                ];
+                              } else {
+                                _counterBindings = [
+                                  _counterBindings.first.copyWith(
+                                    counterId: value,
+                                  ),
+                                  ..._counterBindings.skip(1),
+                                ];
+                              }
+                            });
+                          },
+                        ),
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: _showCreateCounterDialog,
+                        icon: const Icon(Icons.add, size: 18),
+                        label: Text(l10n.addCounter),
+                      ),
+                    ],
+                    if (_insertType == 'date') ...[
+                      const SizedBox(height: 16),
+                      Text(l10n.dateFormatSettings),
+                      const SizedBox(height: 8),
+                      Container(
+                        height: 180,
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: Theme.of(context).colorScheme.outline,
+                          ),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: ListView.separated(
+                              padding: EdgeInsets.zero,
+                              itemCount: _dateFormats.length,
+                              separatorBuilder: (context, index) => Divider(
+                                height: 1,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.outlineVariant,
+                              ),
+                              itemBuilder: (context, index) {
+                                final format = _dateFormats[index];
+                                final isSelected =
+                                    format == _selectedDateFormat;
+                                final formattedDate = DateFormat(
+                                  format,
+                                ).format(DateTime.now());
+                                return ListTile(
+                                  dense: true,
+                                  visualDensity: VisualDensity.compact,
+                                  selected: isSelected,
+                                  selectedTileColor: Theme.of(context)
+                                      .colorScheme
+                                      .primaryContainer
+                                      .withValues(alpha: 0.3),
+                                  leading: Icon(
+                                    isSelected
+                                        ? Icons.radio_button_checked
+                                        : Icons.radio_button_off,
+                                    color: isSelected
+                                        ? Theme.of(context).colorScheme.primary
+                                        : Theme.of(context).colorScheme.outline,
+                                    size: 20,
+                                  ),
+                                  title: Text(
+                                    formattedDate,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: isSelected
+                                          ? FontWeight.w600
+                                          : FontWeight.normal,
+                                      color: isSelected
+                                          ? Theme.of(
+                                              context,
+                                            ).colorScheme.primary
+                                          : null,
+                                    ),
+                                  ),
+                                  subtitle: Text(
+                                    format,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                  onTap: () {
+                                    HapticFeedback.selectionClick();
+                                    setState(
+                                      () => _selectedDateFormat = format,
+                                    );
+                                  },
+                                );
+                              },
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
-                  // Advanced mode toggle
-                  const SizedBox(height: 16),
-                  _buildAdvancedModeToggle(),
-                  // Advanced features (date offset and repeat)
-                  if (_isAdvancedMode) ...[
-                    // Date offset section (only for date insert type)
-                    if (_insertType == 'date') ...[
+                    ],
+                    // Advanced mode toggle
+                    const SizedBox(height: 16),
+                    _buildAdvancedModeToggle(),
+                    // Advanced features (date offset and repeat)
+                    if (_isAdvancedMode) ...[
+                      // Date offset section (only for date insert type)
+                      if (_insertType == 'date') ...[
+                        const SizedBox(height: 16),
+                        _buildSectionHeader(
+                          l10n.dateOffset,
+                          Icons.calendar_today,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          l10n.dateOffsetDescription,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        _buildDateOffsetRow(),
+                      ],
+                      // Repeat section (for all insert types)
                       const SizedBox(height: 16),
-                      _buildSectionHeader(
-                        l10n.dateOffset,
-                        Icons.calendar_today,
-                      ),
+                      _buildSectionHeader(l10n.repeatSettings, Icons.repeat),
                       const SizedBox(height: 8),
                       Text(
-                        l10n.dateOffsetDescription,
+                        l10n.repeatDescription,
                         style: TextStyle(
                           fontSize: 12,
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                       ),
                       const SizedBox(height: 12),
-                      _buildDateOffsetRow(),
-                    ],
-                    // Repeat section (for all insert types)
-                    const SizedBox(height: 16),
-                    _buildSectionHeader(l10n.repeatSettings, Icons.repeat),
-                    const SizedBox(height: 8),
-                    Text(
-                      l10n.repeatDescription,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    _buildRepeatCountRow(),
-                    if (_repeatCount > 1) ...[
-                      const SizedBox(height: 12),
-                      _buildSeparatorSelector(),
-                      const SizedBox(height: 12),
-                      _buildRepeatWrapperTextFields(),
-                      if (_insertType == 'date') ...[
+                      _buildRepeatCountRow(),
+                      if (_repeatCount > 1) ...[
                         const SizedBox(height: 12),
-                        _buildDateIncrementSection(),
+                        _buildSeparatorSelector(),
+                        const SizedBox(height: 12),
+                        _buildRepeatWrapperTextFields(),
+                        if (_insertType == 'date') ...[
+                          const SizedBox(height: 12),
+                          _buildDateIncrementSection(),
+                        ],
                       ],
-                    ],
-                    // Counter bindings section (always available in
-                    // advanced mode, regardless of insertType — lets users
-                    // combine date + counter, two counters, etc.).
-                    const SizedBox(height: 16),
-                    _buildSectionHeader(l10n.counterBindingsTitle, Icons.tag),
-                    const SizedBox(height: 8),
-                    Text(
-                      l10n.counterBindingsDescription,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      // Counter bindings section (always available in
+                      // advanced mode, regardless of insertType — lets users
+                      // combine date + counter, two counters, etc.).
+                      const SizedBox(height: 16),
+                      _buildSectionHeader(l10n.counterBindingsTitle, Icons.tag),
+                      const SizedBox(height: 8),
+                      Text(
+                        l10n.counterBindingsDescription,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    _buildCounterBindingsList(),
-                  ],
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.primaryContainer.withValues(alpha: 0.3),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
+                      const SizedBox(height: 12),
+                      _buildCounterBindingsList(),
+                    ],
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
                         color: Theme.of(
                           context,
-                        ).colorScheme.primary.withValues(alpha: 0.3),
+                        ).colorScheme.primaryContainer.withValues(alpha: 0.3),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.primary.withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.info_outline,
+                            size: 20,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              l10n.markdownSpaceWarning,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurface.withValues(alpha: 0.8),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    child: Row(
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _beforeController,
+                      focusNode: _beforeFocusNode,
+                      onTapOutside: (_) => _beforeFocusNode.unfocus(),
+                      maxLines: null,
+                      minLines: 3,
+                      keyboardType: TextInputType.multiline,
+                      textInputAction: TextInputAction.newline,
+                      maxLength: _maxChars,
+                      maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                      decoration: InputDecoration(
+                        labelText: _insertType == 'date'
+                            ? l10n.beforeDate
+                            : l10n.markdownStart,
+                        hintText: _insertType == 'date'
+                            ? l10n.optionalTextBeforeDate
+                            : l10n.markdownStartHint,
+                        border: const OutlineInputBorder(),
+                        alignLabelWithHint: true,
+                        counterText: '',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        l10n.charactersCount(
+                          _beforeController.text.length,
+                          _maxChars,
+                        ),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onSurface.withValues(alpha: 0.6),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    TextField(
+                      controller: _afterController,
+                      focusNode: _afterFocusNode,
+                      onTapOutside: (_) => _afterFocusNode.unfocus(),
+                      maxLines: null,
+                      minLines: 3,
+                      keyboardType: TextInputType.multiline,
+                      textInputAction: TextInputAction.newline,
+                      maxLength: _maxChars,
+                      maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                      decoration: InputDecoration(
+                        labelText: _insertType == 'date'
+                            ? l10n.afterDate
+                            : l10n.markdownEnd,
+                        hintText: _insertType == 'date'
+                            ? l10n.optionalTextAfterDate
+                            : l10n.markdownStartHint,
+                        border: const OutlineInputBorder(),
+                        alignLabelWithHint: true,
+                        counterText: '',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        l10n.charactersCount(
+                          _afterController.text.length,
+                          _maxChars,
+                        ),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onSurface.withValues(alpha: 0.6),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
                       children: [
                         Icon(
-                          Icons.info_outline,
-                          size: 20,
+                          Icons.visibility_outlined,
+                          size: 16,
                           color: Theme.of(context).colorScheme.primary,
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            l10n.markdownSpaceWarning,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.onSurface.withValues(alpha: 0.8),
+                        const SizedBox(width: 6),
+                        Text(
+                          l10n.preview,
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
+                        const Spacer(),
+                        InkWell(
+                          borderRadius: BorderRadius.circular(8),
+                          onTap: () => setState(
+                            () => _isPreviewExpanded = !_isPreviewExpanded,
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  _isPreviewExpanded ? l10n.hide : l10n.show,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                AnimatedRotation(
+                                  turns: _isPreviewExpanded ? 0.5 : 0,
+                                  duration: const Duration(milliseconds: 200),
+                                  child: Icon(
+                                    Icons.expand_more_rounded,
+                                    size: 18,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
                       ],
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: _beforeController,
-                    focusNode: _beforeFocusNode,
-                    onTapOutside: (_) => _beforeFocusNode.unfocus(),
-                    maxLines: null,
-                    minLines: 3,
-                    keyboardType: TextInputType.multiline,
-                    textInputAction: TextInputAction.newline,
-                    maxLength: _maxChars,
-                    maxLengthEnforcement: MaxLengthEnforcement.enforced,
-                    decoration: InputDecoration(
-                      labelText: _insertType == 'date'
-                          ? l10n.beforeDate
-                          : l10n.markdownStart,
-                      hintText: _insertType == 'date'
-                          ? l10n.optionalTextBeforeDate
-                          : l10n.markdownStartHint,
-                      border: const OutlineInputBorder(),
-                      alignLabelWithHint: true,
-                      counterText: '',
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      l10n.charactersCount(
-                        _beforeController.text.length,
-                        _maxChars,
-                      ),
-                      style: TextStyle(
-                        fontSize: 12,
+                    const SizedBox(height: 4),
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 250),
+                      curve: Curves.easeInOut,
+                      width: double.infinity,
+                      height: _isPreviewExpanded ? 480 : 200,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
                         color: Theme.of(
                           context,
-                        ).colorScheme.onSurface.withValues(alpha: 0.6),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  TextField(
-                    controller: _afterController,
-                    focusNode: _afterFocusNode,
-                    onTapOutside: (_) => _afterFocusNode.unfocus(),
-                    maxLines: null,
-                    minLines: 3,
-                    keyboardType: TextInputType.multiline,
-                    textInputAction: TextInputAction.newline,
-                    maxLength: _maxChars,
-                    maxLengthEnforcement: MaxLengthEnforcement.enforced,
-                    decoration: InputDecoration(
-                      labelText: _insertType == 'date'
-                          ? l10n.afterDate
-                          : l10n.markdownEnd,
-                      hintText: _insertType == 'date'
-                          ? l10n.optionalTextAfterDate
-                          : l10n.markdownStartHint,
-                      border: const OutlineInputBorder(),
-                      alignLabelWithHint: true,
-                      counterText: '',
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      l10n.charactersCount(
-                        _afterController.text.length,
-                        _maxChars,
-                      ),
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.onSurface.withValues(alpha: 0.6),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.visibility_outlined,
-                        size: 16,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        l10n.preview,
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                      ),
-                      const Spacer(),
-                      InkWell(
+                        ).colorScheme.surfaceContainerHighest,
                         borderRadius: BorderRadius.circular(8),
-                        onTap: () => setState(
-                          () => _isPreviewExpanded = !_isPreviewExpanded,
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                _isPreviewExpanded ? l10n.hide : l10n.show,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Theme.of(context).colorScheme.primary,
-                                ),
-                              ),
-                              const SizedBox(width: 4),
-                              AnimatedRotation(
-                                turns: _isPreviewExpanded ? 0.5 : 0,
-                                duration: const Duration(milliseconds: 200),
-                                child: Icon(
-                                  Icons.expand_more_rounded,
-                                  size: 18,
-                                  color: Theme.of(context).colorScheme.primary,
-                                ),
-                              ),
-                            ],
-                          ),
+                        border: Border.all(
+                          color: Theme.of(context).colorScheme.outlineVariant,
                         ),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 250),
-                    curve: Curves.easeInOut,
-                    width: double.infinity,
-                    height: _isPreviewExpanded ? 480 : 200,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
+                      child: SimpleMarkdownPreview(
+                        data: _generatePreviewText(),
+                        fontSize: 14,
+                        moneyConfig: _moneyConfig,
+                        colorPalette: _colorPalette,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (showToolbar && _shortcuts.isNotEmpty)
+              // TextFieldTapRegion marks the MarkdownBar as belonging to the
+              // text-field tap group. This means: (a) any current/future
+              // TextField.onTapOutside callback in this tree will NOT fire
+              // when the user taps a markdown shortcut button, and (b) the
+              // focused TextField won't be unfocused, so _resolveActiveField()
+              // continues to return the correct controller in _handleShortcut.
+              TextFieldTapRegion(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerHighest,
+                    border: Border(
+                      top: BorderSide(
                         color: Theme.of(context).colorScheme.outlineVariant,
+                        width: 1,
                       ),
                     ),
-                    child: SimpleMarkdownPreview(
-                      data: _generatePreviewText(),
-                      fontSize: 14,
-                      moneyConfig: _moneyConfig,
-                      colorPalette: _colorPalette,
-                    ),
                   ),
-                ],
-              ),
-            ),
-          ),
-          if (showToolbar && _shortcuts.isNotEmpty)
-            // TextFieldTapRegion marks the MarkdownBar as belonging to the
-            // text-field tap group. This means: (a) any current/future
-            // TextField.onTapOutside callback in this tree will NOT fire
-            // when the user taps a markdown shortcut button, and (b) the
-            // focused TextField won't be unfocused, so _resolveActiveField()
-            // continues to return the correct controller in _handleShortcut.
-            TextFieldTapRegion(
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                  border: Border(
-                    top: BorderSide(
-                      color: Theme.of(context).colorScheme.outlineVariant,
-                      width: 1,
-                    ),
+                  child: MarkdownBar(
+                    shortcuts: _shortcuts.where((s) => s.isVisible).toList(),
+                    isPreviewMode: false,
+                    canUndo: false,
+                    canRedo: false,
+                    previewFontSize: 16,
+                    onUndo: () {},
+                    onRedo: () {},
+                    onDecreaseFontSize: () {},
+                    onIncreaseFontSize: () {},
+                    onSettings: () {},
+                    onShortcutPressed: _handleShortcut,
+                    showSettings: false,
+                    showBackground: false,
+                    showReorder: false,
                   ),
                 ),
-                child: MarkdownBar(
-                  shortcuts: _shortcuts.where((s) => s.isVisible).toList(),
-                  isPreviewMode: false,
-                  canUndo: false,
-                  canRedo: false,
-                  previewFontSize: 16,
-                  onUndo: () {},
-                  onRedo: () {},
-                  onDecreaseFontSize: () {},
-                  onIncreaseFontSize: () {},
-                  onSettings: () {},
-                  onShortcutPressed: _handleShortcut,
-                  showSettings: false,
-                  showBackground: false,
-                  showReorder: false,
-                ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }

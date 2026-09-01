@@ -49,11 +49,18 @@ class SettingsSectionData {
   /// Shown whenever the section itself is visible, never filtered on its own.
   final Widget? intro;
 
+  /// Stable, unlocalized identity used to remember whether the section is
+  /// folded. It is persisted, so it must outlive title rewrites and
+  /// reordering — never derive it from [title] or from the list index. A
+  /// section without one simply cannot fold.
+  final String? id;
+
   const SettingsSectionData({
     required this.icon,
     required this.title,
     required this.entries,
     this.intro,
+    this.id,
   });
 }
 
@@ -90,6 +97,16 @@ class SettingsSectionList extends StatelessWidget {
 
   final SettingsSectionStyle style;
 
+  /// Ids of the sections currently folded shut. Held by the page, which also
+  /// persists it — the list itself is stateless so a rebuild can never lose
+  /// or invent a fold.
+  final Set<String> collapsedSections;
+
+  /// Called with a section's id when its header is tapped. Folding is off
+  /// entirely while this is null, which is what keeps the pages that never
+  /// asked for it rendering exactly as before.
+  final ValueChanged<String>? onToggleSection;
+
   const SettingsSectionList({
     super.key,
     required this.sections,
@@ -98,6 +115,8 @@ class SettingsSectionList extends StatelessWidget {
     this.header = const [],
     this.padding = const EdgeInsets.all(16),
     this.style = SettingsSectionStyle.standard,
+    this.collapsedSections = const {},
+    this.onToggleSection,
   });
 
   @override
@@ -121,11 +140,20 @@ class SettingsSectionList extends StatelessWidget {
       }
       if (visible.isEmpty) continue;
 
+      final id = section.id;
+      final foldable = onToggleSection != null && id != null;
+      // A fold may never swallow a search hit: while filtering, every
+      // surviving section renders open and loses its chevron. The stored
+      // fold is untouched, so it comes back when the query is cleared.
+      final canFold = foldable && query.isEmpty;
+
       cards.add(
         _SectionCard(
           section: section,
           entries: visible,
           style: style,
+          collapsed: canFold && collapsedSections.contains(id),
+          onToggle: canFold ? () => onToggleSection!(id) : null,
           titleSpans: sectionMatched && query.isNotEmpty
               ? (matchSettingsEntry(query, title: section.title)?.titleSpans ??
                     const [])
@@ -185,6 +213,10 @@ class SettingsSectionList extends StatelessWidget {
   }
 }
 
+/// Long enough to read as one motion, short enough that a fold never feels
+/// like waiting for the row you were reaching for.
+const Duration _foldDuration = Duration(milliseconds: 180);
+
 class _VisibleEntry {
   final SettingsEntry entry;
   final SettingsMatch match;
@@ -197,12 +229,19 @@ class _SectionCard extends StatelessWidget {
   final List<_VisibleEntry> entries;
   final List<TextRange> titleSpans;
   final SettingsSectionStyle style;
+  final bool collapsed;
+
+  /// Null when this section cannot fold — no chevron, no ink, header not a
+  /// button.
+  final VoidCallback? onToggle;
 
   const _SectionCard({
     required this.section,
     required this.entries,
     required this.titleSpans,
     required this.style,
+    this.collapsed = false,
+    this.onToggle,
   });
 
   bool get _isCompact => style == SettingsSectionStyle.compact;
@@ -210,6 +249,100 @@ class _SectionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final l10n = AppLocalizations.of(context)!;
+    final radius = _isCompact ? 12.0 : 16.0;
+
+    Widget header = Padding(
+      padding: _isCompact
+          ? const EdgeInsets.fromLTRB(16, 16, 16, 8)
+          : const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          if (_isCompact)
+            Icon(section.icon, size: 20, color: colorScheme.primary)
+          else
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(section.icon, size: 20, color: colorScheme.primary),
+            ),
+          SizedBox(width: _isCompact ? 8 : 12),
+          Expanded(
+            child: HighlightedText(
+              text: section.title,
+              spans: titleSpans,
+              style: _isCompact
+                  ? TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: colorScheme.primary,
+                    )
+                  : TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: colorScheme.onSurface,
+                    ),
+            ),
+          ),
+          if (onToggle != null) ...[
+            // Only while shut: a folded title says nothing about how much is
+            // behind it, an open one is already showing you.
+            if (collapsed)
+              Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: Text(
+                  l10n.settingsSectionCollapsedCount(entries.length),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            AnimatedRotation(
+              turns: collapsed ? 0.0 : 0.5,
+              duration: _foldDuration,
+              curve: Curves.easeOutCubic,
+              child: Icon(
+                Icons.expand_more_rounded,
+                size: 22,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+
+    if (onToggle != null) {
+      header = Semantics(
+        button: true,
+        expanded: !collapsed,
+        child: InkWell(
+          onTap: onToggle,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(radius)),
+          child: header,
+        ),
+      );
+    }
+
+    // A folded section builds nothing below its header — the point is to get
+    // the rows out of the way, not to hide them while still paying for the
+    // previews and sliders inside.
+    final Widget body = collapsed
+        ? const SizedBox(width: double.infinity)
+        : Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ?section.intro,
+              for (var i = 0; i < entries.length; i++) ...[
+                if (i > 0) const Divider(height: 1),
+                _buildRow(context, entries[i], colorScheme),
+              ],
+              if (_isCompact) const SizedBox(height: 8),
+            ],
+          );
 
     return Card(
       elevation: 0,
@@ -217,7 +350,7 @@ class _SectionCard extends StatelessWidget {
           ? colorScheme.surfaceContainerHigh
           : colorScheme.surfaceContainer,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(_isCompact ? 12 : 16),
+        borderRadius: BorderRadius.circular(radius),
         side: _isCompact
             ? BorderSide(
                 color: colorScheme.outlineVariant.withValues(alpha: 0.5),
@@ -227,53 +360,16 @@ class _SectionCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Padding(
-            padding: _isCompact
-                ? const EdgeInsets.fromLTRB(16, 16, 16, 8)
-                : const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                if (_isCompact)
-                  Icon(section.icon, size: 20, color: colorScheme.primary)
-                else
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: colorScheme.primaryContainer,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Icon(
-                      section.icon,
-                      size: 20,
-                      color: colorScheme.primary,
-                    ),
-                  ),
-                SizedBox(width: _isCompact ? 8 : 12),
-                Expanded(
-                  child: HighlightedText(
-                    text: section.title,
-                    spans: titleSpans,
-                    style: _isCompact
-                        ? TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: colorScheme.primary,
-                          )
-                        : TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: colorScheme.onSurface,
-                          ),
-                  ),
-                ),
-              ],
+          header,
+          if (onToggle == null)
+            body
+          else
+            AnimatedSize(
+              duration: _foldDuration,
+              curve: Curves.easeOutCubic,
+              alignment: Alignment.topCenter,
+              child: body,
             ),
-          ),
-          ?section.intro,
-          for (var i = 0; i < entries.length; i++) ...[
-            if (i > 0) const Divider(height: 1),
-            _buildRow(context, entries[i], colorScheme),
-          ],
-          if (_isCompact) const SizedBox(height: 8),
         ],
       ),
     );

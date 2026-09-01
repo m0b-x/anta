@@ -3958,6 +3958,17 @@ class AppLocalizationsEn extends AppLocalizations {
   String get searchSettings => 'Search settings';
 
   @override
+  String settingsSectionCollapsedCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count options',
+      one: '1 option',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get hapticFeedbackKeywords => 'vibration, buzz, rumble';
 
   @override

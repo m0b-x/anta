@@ -159,34 +159,37 @@ class _MarkdownColorsPageState extends State<MarkdownColorsPage> {
 
     return Scaffold(
       appBar: SettingsAppBar(title: l10n.markdownColorsTitle),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.only(bottom: 88),
-              children: [
-                _buildSyntaxCard(theme, l10n, isDark),
-                _buildSectionHeader(theme, l10n.markdownColorsCustom),
-                if (_custom.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.md,
-                      vertical: AppSpacing.sm,
-                    ),
-                    child: Text(
-                      l10n.markdownColorsEmpty,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+      body: SafeArea(
+        top: false,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : ListView(
+                padding: const EdgeInsets.only(bottom: 88),
+                children: [
+                  _buildSyntaxCard(theme, l10n, isDark),
+                  _buildSectionHeader(theme, l10n.markdownColorsCustom),
+                  if (_custom.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.md,
+                        vertical: AppSpacing.sm,
                       ),
-                    ),
-                  )
-                else
-                  ..._custom.keys.map(_buildCustomRow),
-                _buildSectionHeader(theme, l10n.markdownColorsPresets),
-                ...MarkdownColorPalette.presetNames.map(
-                  (name) => _buildPresetRow(name, isDark),
-                ),
-              ],
-            ),
+                      child: Text(
+                        l10n.markdownColorsEmpty,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    )
+                  else
+                    ..._custom.keys.map(_buildCustomRow),
+                  _buildSectionHeader(theme, l10n.markdownColorsPresets),
+                  ...MarkdownColorPalette.presetNames.map(
+                    (name) => _buildPresetRow(name, isDark),
+                  ),
+                ],
+              ),
+      ),
       floatingActionButton: FloatingActionButton(
         onPressed: _loading ? null : _addColor,
         child: const Icon(Icons.add),

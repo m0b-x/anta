@@ -43,8 +43,18 @@ class CalendarSettingsPage extends StatefulWidget {
 }
 
 class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
+  // Persisted fold state is keyed on these, so they are frozen strings, not
+  // titles and not positions — renaming or reordering a section must not
+  // reopen a card the user folded shut.
+  static const String _sectionCalendar = 'calendar';
+  static const String _sectionCategories = 'categories';
+  static const String _sectionAppearance = 'appearance';
+  static const String _sectionFasting = 'fasting';
+  static const String _sectionEvents = 'events';
+
   SettingsService? _settings;
   bool _isLoading = true;
+  Set<String> _collapsedSections = const {};
 
   final TextEditingController _searchController = TextEditingController();
   SettingsQuery _query = SettingsQuery.empty;
@@ -86,10 +96,13 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     final fastingGreatFasts = await settings.getFastingOrthodoxGreatFasts();
     final fastingSchedule = await settings.getFastingSchedule();
     final descriptionLimit = await settings.getEventDescriptionLimit();
+    final collapsedSections = await settings
+        .getCalendarSettingsCollapsedSections();
 
     if (!mounted) return;
     setState(() {
       _settings = settings;
+      _collapsedSections = collapsedSections;
       _appearance = appearance;
       _hapticFeedback = haptic;
       _holidayService = holidayService;
@@ -103,6 +116,16 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
       _fastingSchedule = fastingSchedule;
       _isLoading = false;
     });
+  }
+
+  /// Optimistic like every other row on this page: the fold is a view
+  /// preference, so a failed write costs nothing worth blocking the tap for.
+  Future<void> _toggleSection(String id) async {
+    _onHapticFeedback();
+    final next = {..._collapsedSections};
+    if (!next.remove(id)) next.add(id);
+    setState(() => _collapsedSections = next);
+    await _settings?.setCalendarSettingsCollapsedSections(next);
   }
 
   Future<void> _toggleFastingTradition(
@@ -225,39 +248,49 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
         title: l10n.calendarSettings,
         showMenuButton: false,
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                  child: SettingsSearchField(
-                    controller: _searchController,
-                    hint: l10n.searchSettings,
-                    onChanged: (value) =>
-                        setState(() => _query = SettingsQuery.parse(value)),
+      body: SafeArea(
+        top: false,
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                    child: SettingsSearchField(
+                      controller: _searchController,
+                      hint: l10n.searchSettings,
+                      onChanged: (value) =>
+                          setState(() => _query = SettingsQuery.parse(value)),
+                    ),
                   ),
-                ),
-                Expanded(
-                  child: SettingsSectionList(
-                    query: _query,
-                    sections: _buildSections(context, theme, colorScheme, l10n),
-                    footer: [
-                      Center(
-                        child: TextButton.icon(
-                          onPressed: _showResetConfirmation,
-                          icon: const Icon(Icons.refresh_rounded),
-                          label: Text(l10n.resetToDefaults),
-                          style: TextButton.styleFrom(
-                            foregroundColor: colorScheme.error,
+                  Expanded(
+                    child: SettingsSectionList(
+                      query: _query,
+                      sections: _buildSections(
+                        context,
+                        theme,
+                        colorScheme,
+                        l10n,
+                      ),
+                      collapsedSections: _collapsedSections,
+                      onToggleSection: _toggleSection,
+                      footer: [
+                        Center(
+                          child: TextButton.icon(
+                            onPressed: _showResetConfirmation,
+                            icon: const Icon(Icons.refresh_rounded),
+                            label: Text(l10n.resetToDefaults),
+                            style: TextButton.styleFrom(
+                              foregroundColor: colorScheme.error,
+                            ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
+      ),
     );
   }
 
@@ -267,10 +300,13 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     ColorScheme colorScheme,
     AppLocalizations l10n,
   ) {
+    // What the calendar *is* (grid, categories) before how it *looks*:
+    // categories used to sit behind a dozen appearance rows, which is a long
+    // way down for the one row that opens a page of its own.
     return [
       _buildCalendarSection(colorScheme, l10n),
-      _buildAppearanceSection(colorScheme, l10n),
       _buildCategoriesSection(colorScheme, l10n),
+      _buildAppearanceSection(colorScheme, l10n),
       _buildFastingSection(theme, colorScheme, l10n),
       _buildEventsSection(colorScheme, l10n),
     ];
@@ -281,6 +317,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     AppLocalizations l10n,
   ) {
     return SettingsSectionData(
+      id: _sectionCalendar,
       icon: Icons.calendar_month_rounded,
       title: l10n.calendarSection,
       entries: [
@@ -374,6 +411,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     AppLocalizations l10n,
   ) {
     return SettingsSectionData(
+      id: _sectionAppearance,
       icon: Icons.palette_rounded,
       title: l10n.calendarAppearanceSection,
       intro: Padding(
@@ -548,6 +586,53 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
               );
               await _settings?.setCalendarMaxDayBars(value);
             },
+          ),
+        ),
+        // A drawing rule for the markers above and the rail below, not an
+        // event property: it decides whether a missed one is dimmed or gone,
+        // and it is read together with the two rows it sits between.
+        SettingsEntry(
+          title: l10n.calendarMissedDisplayTitle,
+          description: l10n.calendarMissedDisplayDesc,
+          // The visible title says nothing about presence, so the words the
+          // user would actually search for are declared here.
+          keywords: [l10n.eventTrackPresence, l10n.eventPresenceMissed],
+          builder: (context, title, description) => Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                title,
+                const SizedBox(height: 4),
+                ?description,
+                const SizedBox(height: 8),
+                SegmentedButton<CalendarMissedDisplay>(
+                  segments: [
+                    ButtonSegment(
+                      value: CalendarMissedDisplay.faded,
+                      icon: const Icon(Icons.opacity_rounded),
+                      label: Text(l10n.calendarMissedDisplayFaded),
+                    ),
+                    ButtonSegment(
+                      value: CalendarMissedDisplay.hidden,
+                      icon: const Icon(Icons.visibility_off_outlined),
+                      label: Text(l10n.calendarMissedDisplayHidden),
+                    ),
+                  ],
+                  selected: {_appearance.missedDisplay},
+                  showSelectedIcon: false,
+                  onSelectionChanged: (sel) async {
+                    _onHapticFeedback();
+                    setState(
+                      () => _appearance = _appearance.copyWith(
+                        missedDisplay: sel.first,
+                      ),
+                    );
+                    await _settings?.setCalendarMissedDisplay(sel.first);
+                  },
+                ),
+              ],
+            ),
           ),
         ),
         SettingsEntry(
@@ -820,6 +905,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     AppLocalizations l10n,
   ) {
     return SettingsSectionData(
+      id: _sectionCategories,
       icon: Icons.category_rounded,
       title: l10n.calendarCategories,
       entries: [
@@ -832,24 +918,6 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
             subtitle: description,
             trailing: const Icon(Icons.chevron_right_rounded),
             onTap: () => AppNavigator.toCalendarCategories(context),
-          ),
-        ),
-        SettingsEntry(
-          title: l10n.eventTemplates,
-          description: l10n.eventTemplatesDesc,
-          // The page is reached from here, but the feature is used by
-          // long-pressing a day — declare that word so settings search finds
-          // it either way.
-          keywords: [l10n.addFromTemplate],
-          builder: (context, title, description) => ListTile(
-            leading: Icon(
-              Icons.bookmark_border_rounded,
-              color: colorScheme.primary,
-            ),
-            title: title,
-            subtitle: description,
-            trailing: const Icon(Icons.chevron_right_rounded),
-            onTap: () => AppNavigator.toEventTemplates(context),
           ),
         ),
       ],
@@ -963,6 +1031,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     }
 
     return SettingsSectionData(
+      id: _sectionFasting,
       icon: Icons.restaurant_menu_rounded,
       title: l10n.fastingSectionTitle,
       intro: Padding(
@@ -983,51 +1052,28 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     AppLocalizations l10n,
   ) {
     return SettingsSectionData(
+      id: _sectionEvents,
       icon: Icons.event_note_rounded,
       title: l10n.calendarEventsSection,
       entries: [
+        // A template is a saved event, not a category — it only ever lived
+        // next to the categories row because both open a page.
         SettingsEntry(
-          title: l10n.calendarMissedDisplayTitle,
-          description: l10n.calendarMissedDisplayDesc,
-          // The visible title says nothing about presence, so the words the
-          // user would actually search for are declared here.
-          keywords: [l10n.eventTrackPresence, l10n.eventPresenceMissed],
-          builder: (context, title, description) => Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                title,
-                const SizedBox(height: 4),
-                ?description,
-                const SizedBox(height: 8),
-                SegmentedButton<CalendarMissedDisplay>(
-                  segments: [
-                    ButtonSegment(
-                      value: CalendarMissedDisplay.faded,
-                      icon: const Icon(Icons.opacity_rounded),
-                      label: Text(l10n.calendarMissedDisplayFaded),
-                    ),
-                    ButtonSegment(
-                      value: CalendarMissedDisplay.hidden,
-                      icon: const Icon(Icons.visibility_off_outlined),
-                      label: Text(l10n.calendarMissedDisplayHidden),
-                    ),
-                  ],
-                  selected: {_appearance.missedDisplay},
-                  showSelectedIcon: false,
-                  onSelectionChanged: (sel) async {
-                    _onHapticFeedback();
-                    setState(
-                      () => _appearance = _appearance.copyWith(
-                        missedDisplay: sel.first,
-                      ),
-                    );
-                    await _settings?.setCalendarMissedDisplay(sel.first);
-                  },
-                ),
-              ],
+          title: l10n.eventTemplates,
+          description: l10n.eventTemplatesDesc,
+          // The page is reached from here, but the feature is used by
+          // long-pressing a day — declare that word so settings search finds
+          // it either way.
+          keywords: [l10n.addFromTemplate],
+          builder: (context, title, description) => ListTile(
+            leading: Icon(
+              Icons.bookmark_border_rounded,
+              color: colorScheme.primary,
             ),
+            title: title,
+            subtitle: description,
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => AppNavigator.toEventTemplates(context),
           ),
         ),
         SettingsEntry(
@@ -1147,6 +1193,9 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     await _settings?.setEventDescriptionLimit(
       SettingsKeys.defaultEventDescriptionLimit,
     );
+    // The page resets to how it ships, and it ships open — leaving a section
+    // folded after a reset hides rows the user just asked to see restored.
+    await _settings?.setCalendarSettingsCollapsedSections(const {});
     await _settings?.setFastingTraditions(const {});
     await _settings?.setFastingAppearance(const FastingAppearance());
     await _settings?.setFastingOrthodoxGreatFasts(true);
@@ -1167,6 +1216,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
       _fastingGreatFasts = true;
       _fastingSchedule = const FastingSchedule();
       _descriptionLimit = SettingsKeys.defaultEventDescriptionLimit;
+      _collapsedSections = const {};
     });
 
     if (!mounted) return;

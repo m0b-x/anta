@@ -435,4 +435,12 @@ class SettingsKeys {
 
   /// Maximum number of recently-used custom event colors to remember.
   static const int maxRecentEventColors = 6;
+
+  /// CSV of folded section ids on the calendar settings page. A view
+  /// preference of that page only — it changes nothing the calendar draws,
+  /// which is why it stays out of [SettingsService.getCalendarPageSettings].
+  /// Absent means every section is open, and an id that no longer matches a
+  /// section is inert rather than an error.
+  static const String calendarSettingsCollapsedSections =
+      'calendar_settings_collapsed_sections';
 }

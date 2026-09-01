@@ -93,54 +93,57 @@ class _EventTemplatesPageState extends State<EventTemplatesPage> {
         icon: const Icon(Icons.add_rounded),
         label: Text(l10n.createTemplate),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _templates.isEmpty
-          ? _EmptyState(
-              title: l10n.noEventTemplates,
-              body: l10n.noEventTemplatesDesc,
-            )
-          : ListView.separated(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
-              itemCount: _templates.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 4),
-              itemBuilder: (context, index) {
-                final template = _templates[index];
-                final color = CalendarTemplates.colorFor(template);
-                return Card(
-                  margin: EdgeInsets.zero,
-                  elevation: 0,
-                  color: theme.colorScheme.surfaceContainer,
-                  child: ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: color.withValues(alpha: 0.18),
-                      foregroundColor: color,
-                      child: Icon(CalendarTemplates.iconFor(template)),
-                    ),
-                    title: Text(
-                      template.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    subtitle: Text(
-                      templateSummary(template, l10n, l10n.localeName),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    isThreeLine: false,
-                    trailing: IconButton(
-                      tooltip: l10n.deleteTemplate,
-                      icon: Icon(
-                        Icons.delete_outline_rounded,
-                        color: theme.colorScheme.error,
+      body: SafeArea(
+        top: false,
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : _templates.isEmpty
+            ? _EmptyState(
+                title: l10n.noEventTemplates,
+                body: l10n.noEventTemplatesDesc,
+              )
+            : ListView.separated(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
+                itemCount: _templates.length,
+                separatorBuilder: (_, _) => const SizedBox(height: 4),
+                itemBuilder: (context, index) {
+                  final template = _templates[index];
+                  final color = CalendarTemplates.colorFor(template);
+                  return Card(
+                    margin: EdgeInsets.zero,
+                    elevation: 0,
+                    color: theme.colorScheme.surfaceContainer,
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: color.withValues(alpha: 0.18),
+                        foregroundColor: color,
+                        child: Icon(CalendarTemplates.iconFor(template)),
                       ),
-                      onPressed: () => _delete(template),
+                      title: Text(
+                        template.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: Text(
+                        templateSummary(template, l10n, l10n.localeName),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      isThreeLine: false,
+                      trailing: IconButton(
+                        tooltip: l10n.deleteTemplate,
+                        icon: Icon(
+                          Icons.delete_outline_rounded,
+                          color: theme.colorScheme.error,
+                        ),
+                        onPressed: () => _delete(template),
+                      ),
+                      onTap: () => _edit(template),
                     ),
-                    onTap: () => _edit(template),
-                  ),
-                );
-              },
-            ),
+                  );
+                },
+              ),
+      ),
     );
   }
 }

@@ -3988,6 +3988,17 @@ class AppLocalizationsDe extends AppLocalizations {
   String get searchSettings => 'Einstellungen suchen';
 
   @override
+  String settingsSectionCollapsedCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Optionen',
+      one: '1 Option',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get hapticFeedbackKeywords => 'Vibration, Summen, Rütteln';
 
   @override

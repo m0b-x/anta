@@ -1173,6 +1173,7 @@
   "searchUtilityButtons": "Caută butoane",
   "noMatchesFound": "Niciun rezultat",
   "searchSettings": "Caută în setări",
+  "settingsSectionCollapsedCount": "{count, plural, =1{1 opțiune} few{{count} opțiuni} other{{count} de opțiuni}}",
   "hapticFeedbackKeywords": "vibrație, bâzâit, tremur",
   "autoSaveKeywords": "salvare, copie, backup",
   "wordWrapKeywords": "linie, rând, încadrare",
