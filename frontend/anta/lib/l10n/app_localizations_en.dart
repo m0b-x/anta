@@ -2669,6 +2669,19 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get calendarDayRailBasePositionTitle => 'Fasting half of the rail';
+
+  @override
+  String get calendarDayRailBasePositionDesc =>
+      'On a day that is both, the rail splits in two equal halves — your marks and the fast. This picks which end the fast takes.';
+
+  @override
+  String get dayRailBasePositionTop => 'Top';
+
+  @override
+  String get dayRailBasePositionBottom => 'Bottom';
+
+  @override
   String get calendarHighlightWeekends => 'Tint weekends';
 
   @override

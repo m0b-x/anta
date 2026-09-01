@@ -782,6 +782,8 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
                                         tintResolver: tintResolver,
                                         railResolver: railResolver,
                                         railStyle: _railStyle,
+                                        railBasePosition:
+                                            _appearance.dayRailBasePosition,
                                         maxRailMarks: _maxRailMarks,
                                         barsOutputCache: _barsOutputCache,
                                         tintOutputCache: _tintOutputCache,
@@ -1280,11 +1282,13 @@ class _CalendarTable extends StatelessWidget {
   /// appearance, which the page already reloads when settings change.
   final CellTintResolver tintResolver;
 
-  /// And for the left-edge rail. [railStyle] and [maxRailMarks] are paint-side
+  /// And for the left-edge rail. [railStyle], [railBasePosition] and
+  /// [maxRailMarks] are paint-side
   /// parameters the resolver never sees, so changing either repaints without
   /// dropping [railOutputCache].
   final DayRailResolver railResolver;
   final DayRailStyle railStyle;
+  final DayRailBasePosition railBasePosition;
   final int maxRailMarks;
 
   /// Per-day memo of [barsResolver]/[tintResolver] **output**, owned by
@@ -1311,6 +1315,7 @@ class _CalendarTable extends StatelessWidget {
     required this.tintResolver,
     required this.railResolver,
     required this.railStyle,
+    required this.railBasePosition,
     required this.maxRailMarks,
     required this.barsOutputCache,
     required this.tintOutputCache,
@@ -1335,17 +1340,19 @@ class _CalendarTable extends StatelessWidget {
     return height < 52 ? 52 : height.ceilToDouble();
   }
 
-  /// The lane the left-edge rail gets: the row, less its 4px top inset and the
-  /// space the marker strip takes at the bottom (its own height plus the 4px
-  /// the `markerBuilder` pads it by).
-  ///
-  /// The strip is a *sibling* subtree painted after the cell and insets only
-  /// `CalendarDayBars.defaultHorizontalInset` — which is inside the rail's
-  /// lane — so without this subtraction it paints straight over the rail's
-  /// bottom segment. Passing the height also spares the rail a `LayoutBuilder`
+  /// The lane the left-edge rail gets, which differs per style — see
+  /// [CalendarDayCell.railLaneHeight], the one definition the settings
+  /// preview shares. Passing it down also spares the rail a `LayoutBuilder`
   /// per visible cell.
-  static double _railHeightFor(double rowHeight, double stripHeight) =>
-      rowHeight - 8 - stripHeight;
+  static double _railHeightFor(
+    double rowHeight,
+    double stripHeight,
+    DayRailStyle railStyle,
+  ) => CalendarDayCell.railLaneHeight(
+    rowHeight: rowHeight,
+    stripHeight: stripHeight,
+    railStyle: railStyle,
+  );
 
   /// Jumps to a date picked from the header title. The picker's wheels
   /// carry a day too, so this both focuses the month and selects the day —
@@ -1431,6 +1438,7 @@ class _CalendarTable extends StatelessWidget {
       fastingNumberColor: fasting.numberColor,
       railMarks: railMarks,
       railStyle: railStyle,
+      railBasePosition: railBasePosition,
       maxRailMarks: maxRailMarks,
       railHeight: railHeight,
     );
@@ -1452,7 +1460,7 @@ class _CalendarTable extends StatelessWidget {
       appearance.markerStyle,
     );
     final rowHeight = _rowHeightFor(stripHeight);
-    final railHeight = _railHeightFor(rowHeight, stripHeight);
+    final railHeight = _railHeightFor(rowHeight, stripHeight, railStyle);
     final dowStyle = theme.textTheme.labelMedium!.copyWith(
       fontWeight: FontWeight.w600,
       color: colorScheme.onSurfaceVariant,

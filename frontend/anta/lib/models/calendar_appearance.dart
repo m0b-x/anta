@@ -50,11 +50,12 @@ enum DayRailStyle {
   /// No rail; the grid is exactly what it was before the feature existed.
   none,
 
-  /// Stacked vertical segments filling the rail's height.
+  /// One unbroken bar in the cell's edge lane, banded by colour — one band
+  /// per mark, plus the tint runner-up's half on days that carry one.
   line,
 
-  /// Stacked small circles, vertically centred. The only style that renders a
-  /// missed mark hollow as well as faded.
+  /// Stacked small circles in their own inset lane, vertically centred. The
+  /// only style that renders a missed mark hollow as well as faded.
   dot;
 
   /// Forward-compatible parsing: unknown/null values fall back to [none].
@@ -63,6 +64,34 @@ enum DayRailStyle {
       if (style.name == name) return style;
     }
     return none;
+  }
+}
+
+/// Which end of the [DayRailStyle.line] rail the tint runner-up's band takes
+/// on a day that carries both it and marks.
+///
+/// The two shares are **equal** whichever end is chosen — this setting moves
+/// the split, it does not resize it — so the rail always answers "is this a
+/// fasting day" and "what is on it" with the same weight, and only the reading
+/// order changes.
+///
+/// Reachable only with the `line` rail on: `dot` keeps its own inset lane and
+/// leaves the stripe to the cell, so it has no band to place.
+enum DayRailBasePosition {
+  /// Below the marks (default). Commitments lead, reading downward from the
+  /// day number; the fast is the condition underneath them.
+  bottom,
+
+  /// Above the marks. Puts the day's standing condition first, which is what
+  /// someone reading the calendar *for* the fast wants.
+  top;
+
+  /// Forward-compatible parsing: unknown/null values fall back to [bottom].
+  static DayRailBasePosition fromName(String? name) {
+    for (final position in values) {
+      if (position.name == name) return position;
+    }
+    return bottom;
   }
 }
 
@@ -194,6 +223,11 @@ class CalendarAppearance extends Equatable {
   /// rail clamps this further against its measured height.
   final int maxDayRailMarks;
 
+  /// Which end of the `line` rail the tint runner-up's band takes on a day
+  /// that carries both it and marks. The two shares stay equal; this only
+  /// moves the split.
+  final DayRailBasePosition dayRailBasePosition;
+
   const CalendarAppearance({
     this.todayStyle = CalendarTodayStyle.tonal,
     this.markerStyle = CalendarMarkerStyle.bars,
@@ -208,6 +242,7 @@ class CalendarAppearance extends Equatable {
     this.tintConflict = CalendarTintConflict.eventWins,
     this.dayRailStyle = DayRailStyle.none,
     this.maxDayRailMarks = 3,
+    this.dayRailBasePosition = DayRailBasePosition.bottom,
   });
 
   /// The effective highlight accent: the user's custom color when set,
@@ -232,6 +267,7 @@ class CalendarAppearance extends Equatable {
     CalendarTintConflict? tintConflict,
     DayRailStyle? dayRailStyle,
     int? maxDayRailMarks,
+    DayRailBasePosition? dayRailBasePosition,
   }) {
     return CalendarAppearance(
       todayStyle: todayStyle ?? this.todayStyle,
@@ -249,6 +285,7 @@ class CalendarAppearance extends Equatable {
       tintConflict: tintConflict ?? this.tintConflict,
       dayRailStyle: dayRailStyle ?? this.dayRailStyle,
       maxDayRailMarks: maxDayRailMarks ?? this.maxDayRailMarks,
+      dayRailBasePosition: dayRailBasePosition ?? this.dayRailBasePosition,
     );
   }
 
@@ -267,5 +304,6 @@ class CalendarAppearance extends Equatable {
     tintConflict,
     dayRailStyle,
     maxDayRailMarks,
+    dayRailBasePosition,
   ];
 }

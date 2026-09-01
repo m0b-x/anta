@@ -791,6 +791,10 @@
       }
     }
   },
+  "calendarDayRailBasePositionTitle": "Jumătatea de post a barei",
+  "calendarDayRailBasePositionDesc": "Într-o zi cu amândouă, bara se împarte în două jumătăți egale — semnele tale și postul. Aici alegi ce capăt îi revine postului.",
+  "dayRailBasePositionTop": "Sus",
+  "dayRailBasePositionBottom": "Jos",
   "calendarHighlightWeekends": "Colorează weekendurile",
   "calendarHighlightWeekendsDesc": "Afișează sâmbăta și duminica într-o culoare distinctă",
   "calendarShowWeekNumbers": "Numerele săptămânilor",

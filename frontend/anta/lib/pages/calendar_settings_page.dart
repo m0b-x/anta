@@ -630,6 +630,61 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
               },
             ),
           ),
+        // Revealed only where the band can actually exist, which takes all
+        // three: `line` (the one style that shares its lane with the tint
+        // stripe — `dot` keeps its own and leaves the stripe to the cell),
+        // `eventTint` (with it off, fasting wins the wash outright and
+        // `CellTintResolver` has no runner-up to hand over) and `both` (the
+        // only conflict setting that paints a runner-up at all). In any other
+        // configuration this control would move a band nothing draws, and a
+        // switch that visibly does nothing is worse than one you have to turn
+        // something else on to reach. The preview below is showing the band
+        // whenever this row is visible, for exactly the same reason.
+        if (_appearance.dayRailStyle == DayRailStyle.line &&
+            _appearance.eventTint &&
+            _appearance.tintConflict == CalendarTintConflict.both)
+          SettingsEntry(
+            title: l10n.calendarDayRailBasePositionTitle,
+            description: l10n.calendarDayRailBasePositionDesc,
+            keywords: [l10n.calendarTintConflictFasting],
+            builder: (context, title, description) => Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  title,
+                  const SizedBox(height: 4),
+                  ?description,
+                  const SizedBox(height: 8),
+                  SegmentedButton<DayRailBasePosition>(
+                    segments: [
+                      ButtonSegment(
+                        value: DayRailBasePosition.top,
+                        label: Text(l10n.dayRailBasePositionTop),
+                      ),
+                      ButtonSegment(
+                        value: DayRailBasePosition.bottom,
+                        label: Text(l10n.dayRailBasePositionBottom),
+                      ),
+                    ],
+                    selected: {_appearance.dayRailBasePosition},
+                    showSelectedIcon: false,
+                    onSelectionChanged: (sel) async {
+                      _onHapticFeedback();
+                      setState(
+                        () => _appearance = _appearance.copyWith(
+                          dayRailBasePosition: sel.first,
+                        ),
+                      );
+                      await _settings?.setCalendarDayRailBasePosition(
+                        sel.first,
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
         SettingsEntry(
           title: l10n.calendarHighlightWeekends,
           description: l10n.calendarHighlightWeekendsDesc,
@@ -1084,6 +1139,11 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
       DayRailStyle.fromName(SettingsKeys.defaultCalendarDayRailStyle),
     );
     await _settings?.setCalendarMaxDayRailMarks(defaults.maxDayRailMarks);
+    await _settings?.setCalendarDayRailBasePosition(
+      DayRailBasePosition.fromName(
+        SettingsKeys.defaultCalendarDayRailBasePosition,
+      ),
+    );
     await _settings?.setEventDescriptionLimit(
       SettingsKeys.defaultEventDescriptionLimit,
     );
@@ -1223,11 +1283,16 @@ class _AppearancePreview extends StatelessWidget {
                   railMarks: railMarks,
                   railStyle: appearance.dayRailStyle,
                   maxRailMarks: appearance.maxDayRailMarks,
-                  // The same lane the grid computes: the preview stacks its
-                  // strip in a sibling `Align` at the same 4px offset, so the
-                  // rail must stop above it here too, and previewing a
-                  // capacity the grid does not have would be a lie.
-                  railHeight: previewCellHeight - 8 - previewStripHeight,
+                  railBasePosition: appearance.dayRailBasePosition,
+                  // The same lane the grid computes, through the same helper:
+                  // the preview stacks its strip in a sibling `Align` at the
+                  // same 4px offset, so previewing a capacity the grid does
+                  // not have would be a lie.
+                  railHeight: CalendarDayCell.railLaneHeight(
+                    rowHeight: previewCellHeight,
+                    stripHeight: previewStripHeight,
+                    railStyle: appearance.dayRailStyle,
+                  ),
                 ),
               ),
               if (bars.isNotEmpty)

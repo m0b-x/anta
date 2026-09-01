@@ -12,6 +12,19 @@ Read this before touching `CalendarDayRail`, `CalendarDayCell`'s chip geometry,
 or the three provider chains — several of the roadmap's stated justifications
 turned out to be arithmetically wrong, and this is where the real numbers live.
 
+> **Superseded for `DayRailStyle.line` (2026-09-01).** The rail was reworked
+> into a single edge lane shared with the tint stripe: `line` moved to x
+> 1.5–4.5, stopped shrinking the day chip, gained the row's full height, lost
+> its inter-mark gaps, and took over drawing the fasting stripe as a bottom
+> band. Defects 1, 2 and 4 below therefore describe geometry that no longer
+> exists in that style — **defect 2's strip collision and defect 6's preview
+> drift are structurally gone**, not just fixed. Defects 3, 5, 7 and 8, and
+> everything about `dot`, still stand. The replacement numbers and the reasons
+> are the addendum at the end of
+> [day-rail-markers-roadmap.md](day-rail-markers-roadmap.md). What survives
+> intact from this file is the *method* in the next section — it is what caught
+> the collisions the tests could not see, and it is what was used again.
+
 ---
 
 ## How the defects were found

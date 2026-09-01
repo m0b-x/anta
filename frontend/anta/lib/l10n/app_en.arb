@@ -3353,6 +3353,22 @@
       }
     }
   },
+  "calendarDayRailBasePositionTitle": "Fasting half of the rail",
+  "@calendarDayRailBasePositionTitle": {
+    "description": "Label for the day-rail fasting band position picker"
+  },
+  "calendarDayRailBasePositionDesc": "On a day that is both, the rail splits in two equal halves — your marks and the fast. This picks which end the fast takes.",
+  "@calendarDayRailBasePositionDesc": {
+    "description": "Description for the day-rail fasting band position picker"
+  },
+  "dayRailBasePositionTop": "Top",
+  "@dayRailBasePositionTop": {
+    "description": "Day-rail fasting band sits above the marks"
+  },
+  "dayRailBasePositionBottom": "Bottom",
+  "@dayRailBasePositionBottom": {
+    "description": "Day-rail fasting band sits below the marks"
+  },
   "calendarHighlightWeekends": "Tint weekends",
   "@calendarHighlightWeekends": {
     "description": "Switch title for weekend day-number tinting"

@@ -708,6 +708,30 @@ class SettingsService {
     );
   }
 
+  // Calendar appearance - which end of the `line` rail the tint runner-up's
+  // band takes.
+  static DayRailBasePosition _decodeCalendarDayRailBasePosition(String? raw) =>
+      DayRailBasePosition.fromName(
+        raw ?? SettingsKeys.defaultCalendarDayRailBasePosition,
+      );
+
+  Future<DayRailBasePosition> getCalendarDayRailBasePosition() async {
+    return _decodeCalendarDayRailBasePosition(
+      await _db.userSettingsDao.getValue(
+        SettingsKeys.calendarDayRailBasePosition,
+      ),
+    );
+  }
+
+  Future<void> setCalendarDayRailBasePosition(
+    DayRailBasePosition position,
+  ) async {
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.calendarDayRailBasePosition,
+      position.name,
+    );
+  }
+
   /// Loads every upcoming-agenda filter in one call.
   Future<UpcomingAgendaFilters> getUpcomingAgendaFilters() async {
     final rangeDays = await _getInt(
@@ -1078,6 +1102,7 @@ class SettingsService {
     SettingsKeys.calendarTintConflict,
     SettingsKeys.calendarDayRailStyle,
     SettingsKeys.calendarMaxDayRailMarks,
+    SettingsKeys.calendarDayRailBasePosition,
   ];
 
   static const List<String> _calendarPageKeys = [
@@ -1138,6 +1163,9 @@ class SettingsService {
       ),
       maxDayRailMarks: _decodeCalendarMaxDayRailMarks(
         values[SettingsKeys.calendarMaxDayRailMarks],
+      ),
+      dayRailBasePosition: _decodeCalendarDayRailBasePosition(
+        values[SettingsKeys.calendarDayRailBasePosition],
       ),
     );
   }

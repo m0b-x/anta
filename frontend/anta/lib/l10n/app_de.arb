@@ -1846,6 +1846,10 @@
       }
     }
   },
+  "calendarDayRailBasePositionTitle": "Fasten-Hälfte der Leiste",
+  "calendarDayRailBasePositionDesc": "An einem Tag mit beidem teilt sich die Leiste in zwei gleiche Hälften — deine Marken und das Fasten. Hier wählst du, welches Ende das Fasten bekommt.",
+  "dayRailBasePositionTop": "Oben",
+  "dayRailBasePositionBottom": "Unten",
   "calendarHighlightWeekends": "Wochenenden einfärben",
   "calendarHighlightWeekendsDesc": "Samstag und Sonntag in eigener Farbe anzeigen",
   "calendarShowWeekNumbers": "Kalenderwochen",

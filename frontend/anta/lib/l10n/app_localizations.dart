@@ -4690,6 +4690,30 @@ abstract class AppLocalizations {
   /// **'{count, plural, =1{Show one rail mark per day. The rest collapse into one neutral mark.} other{Show up to {count} rail marks per day. The rest collapse into one neutral mark.}}'**
   String calendarMaxDayRailMarksDesc(int count);
 
+  /// Label for the day-rail fasting band position picker
+  ///
+  /// In en, this message translates to:
+  /// **'Fasting half of the rail'**
+  String get calendarDayRailBasePositionTitle;
+
+  /// Description for the day-rail fasting band position picker
+  ///
+  /// In en, this message translates to:
+  /// **'On a day that is both, the rail splits in two equal halves — your marks and the fast. This picks which end the fast takes.'**
+  String get calendarDayRailBasePositionDesc;
+
+  /// Day-rail fasting band sits above the marks
+  ///
+  /// In en, this message translates to:
+  /// **'Top'**
+  String get dayRailBasePositionTop;
+
+  /// Day-rail fasting band sits below the marks
+  ///
+  /// In en, this message translates to:
+  /// **'Bottom'**
+  String get dayRailBasePositionBottom;
+
   /// Switch title for weekend day-number tinting
   ///
   /// In en, this message translates to:

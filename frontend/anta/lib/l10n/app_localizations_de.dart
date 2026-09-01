@@ -2684,6 +2684,19 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String get calendarDayRailBasePositionTitle => 'Fasten-Hälfte der Leiste';
+
+  @override
+  String get calendarDayRailBasePositionDesc =>
+      'An einem Tag mit beidem teilt sich die Leiste in zwei gleiche Hälften — deine Marken und das Fasten. Hier wählst du, welches Ende das Fasten bekommt.';
+
+  @override
+  String get dayRailBasePositionTop => 'Oben';
+
+  @override
+  String get dayRailBasePositionBottom => 'Unten';
+
+  @override
   String get calendarHighlightWeekends => 'Wochenenden einfärben';
 
   @override

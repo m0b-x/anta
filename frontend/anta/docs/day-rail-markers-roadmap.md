@@ -650,3 +650,173 @@ phases 2 and 4; full `flutter test` green after each phase; a manual pass
 and 6 rail-eligible events, in both styles, both themes, `eventTint` on and
 off, `CalendarMissedDisplay` both values, and the settings preview + date
 picker sheet unchanged when the rail is `none`.
+
+---
+
+# Addendum — the unified edge lane (2026-09-01)
+
+**Status: shipped.** This supersedes every geometry claim above and in
+`docs/day-rail-markers-review-2026-08-31.md` for `DayRailStyle.line`. The
+review's *method* still stands (measure the grid; render a PNG and look at it);
+its numbers for the `line` lane do not. `dot` is untouched by everything here.
+
+## The problem
+
+The rail shipped correct and went unused, because correct was not the bar. Two
+things made it read as clutter rather than signal:
+
+1. **It was a second vertical line inside the cell.** The tint edge stripe
+   already occupied the cell's left edge at x 1.5–4.5; the rail opened a
+   *separate* lane beside it at `railLeft` = 5. On a fasting day with tracked
+   commitments the cell grew two parallel lines 0.5px apart.
+2. **It taxed the day number.** Clearing that inset lane cost 4px of chip
+   diameter (34 → 30) on every cell of the grid, for a channel most days do not
+   use.
+
+Under the `both` tint conflict the fasting stripe already sat in the *right*
+place — hard against the edge, out of the number's way. That was the fix.
+
+## The design
+
+**One lane at the cell's edge, shared.** `line` moves into the stripe's lane
+and the stripe becomes the lane's bottom band.
+
+| | before | after |
+| --- | --- | --- |
+| `line` lane x | 5 → 8 | **1.5 → 4.5** (the stripe's own) |
+| `line` lane height | `row - 8 - strip` (38) | **`row - 11`** (51) |
+| chip with `line` on | 30 | **34** (unchanged from rail-off) |
+| fasting under `both` | separate 3px stripe | **an equal half of the lane**, either end |
+| chip / lane with `dot` on | 30 / x 5 → 10 | unchanged |
+
+Three things fall out of the move:
+
+- **The chip stops shrinking.** The lane ends at 4.5; a 34px chip's leftmost
+  point is 8.71 at 360dp and 5.86 at 320dp. `chipDiameterFor` is now
+  `railStyle == dot ? railChipSize : chipSize` — the 320dp degradation the
+  review documented is a `dot`-only problem now.
+- **The lane gets the whole row.** The bottom marker strip insets 6px, so the
+  edge lane never meets it — the vertical clearance defect #2 fixed exists only
+  for the inset lane. 51px against 38 is what makes an equal split affordable:
+  the marks' half is 25.5px, still six slots deep at `minLineSegment`, so a
+  fasting day never shows one fewer commitment than the same day without a fast.
+- **`railLaneHeight(rowHeight:, stripHeight:, railStyle:)`** on `CalendarDayCell`
+  is now the one definition of that height, because the answer stopped being one
+  subtraction. The grid and the settings preview both call it; defect #6 was
+  exactly this pair drifting.
+
+**The lane is one unbroken bar.** Marks are colour bands butted against each
+other with no gap — the user's words were "the vertical line should be one, not
+multiple separated lines". `lineGap` is gone and `capacityFor` counts `line`
+against gap 0. Two mechanics follow from wanting that without paying for it:
+
+- Only the lane's **outer ends** are rounded, via `BorderRadius.vertical` on the
+  first and last band. A `ClipRRect` around the column would round the same
+  shape and cost a clip layer on a path tuned across five perf phases.
+- A low-contrast band outlines **the whole lane**, through one
+  `Container(foregroundDecoration:)`, not itself. A per-band `Border` draws a
+  horizontal hairline at every boundary — precisely the separated look the
+  single bar exists to avoid. This is a deliberate loosening of `MarkerContrast`'s
+  per-marker rule: the a11y intent (a pale mark on a pale surface stays visible)
+  survives, the per-band attribution of the outline does not.
+
+**Fasting takes an equal half, and either end.** `CalendarDayRail.baseColor`
+takes `baseBandFor(height)` = `height * baseShare` where `baseShare` is **0.5**;
+the marks subdivide the other half among themselves. `DayRailBasePosition`
+(`bottom` default / `top`) picks which end it takes — the setting moves the
+split, never resizes it.
+
+A fixed 12px band shipped first, on the reasoning that a season-long fast is
+less specific than a dated commitment and should read smaller. Alex rejected
+that proportion the same day, and he was right: the two are **one question
+each** — "is this a fasting day" and "what is on it" — and neither is a
+sub-answer of the other, so neither gets the smaller half. What makes the equal
+split work rather than flatten is that hierarchy moved to **weight**: the band
+paints at `CalendarColors.cellEdgeAlpha` (0.55) against marks at full alpha, so
+commitments still read first at equal size. Equal area, unequal ink.
+
+Two alternatives stay rejected, and neither is what shipped:
+
+- *An equal **slot** in the stack* (fasting as one of `n + 1` bands). That is a
+  different thing from an equal **half**: it makes the fast shrink as the day
+  gets busier — a quarter of the lane at three marks — and it would consume one
+  of the user's `maxDayRailMarks`. The base is still not a slot; capacity is
+  computed against the marks' half, so a fasting day never shows one fewer
+  commitment than the same day without a fast.
+- *A faint full-height track under the marks.* Two colours in one region is the
+  blend `CalendarTintConflict` exists to prevent; the rejection is already
+  written down under `DayCellTint`.
+
+With **no** marks the band takes the whole lane, so a plain fasting day is
+pixel-identical to the stripe it replaces — turning the rail on cannot change
+how most of the month looks. And with no *band*, the marks take the whole lane,
+so the position setting can never cost a day that has no fast.
+
+**The position setting is revealed on all three of its preconditions** —
+`dayRailStyle == line`, `eventTint`, and `tintConflict == both` — because that
+is exactly when a band exists to place. `line` is the only style that shares its
+lane with the stripe; with `eventTint` off, fasting wins the wash outright and
+`CellTintResolver` has no runner-up to hand over; and `both` is the only
+conflict setting that paints a runner-up at all. In any other configuration the
+control would move a band nothing draws. A three-condition reveal is deep, but a
+switch that visibly does nothing is worse than one you have to turn something
+else on to reach — and the same three conditions are what make the settings
+preview show the band whenever the row is visible.
+
+## Invariants this adds
+
+- **`edgeLaneLeft` / `edgeLaneWidth` / `edgeLaneInset` are the stripe's numbers
+  restated in cell coordinates.** The stripe is positioned inside the tinted
+  container's 1.5px margin; the rail is positioned by the outer `Stack`, which
+  has none. Change one without the other and the lane splits in half the moment
+  a fasting day also carries marks.
+- **Exactly one of the two draws the fasting colour.** `CalendarDayCell` keeps
+  its `Positioned` stripe only while `railStyle != line`; in `line` style the
+  colour goes to the rail as `baseColor` and the cell's `edge` local resolves to
+  `null`. Both would paint it twice, the cell's at full height straight through
+  the marks.
+- **`baseColor` arrives unfaded.** The rail's `opacity` fades the whole lane
+  once. Fading it in the cell as well compounds to 0.35 × 0.35 = 0.12 on an
+  adjacent-month day — the same multiplication that made missed dots vanish
+  (review defect #3).
+- **The cell draws a lane when it has marks *or* a base.** The old condition was
+  `railMarks.isEmpty → return`; keeping it would have deleted the fasting cue
+  from every day without commitments the moment the rail was switched on.
+- **`dot` drops a `baseColor` rather than drawing it.** A 5px circle cannot fit a
+  3px lane, so that style keeps its own; a band there would paint the fasting
+  colour in the wrong place.
+
+## Not changed
+
+`DayRailResolver` and its providers, `eventInDayRail`, the `show_in_day_rail`
+column, `_railOutputCache` and the generation record, the bar-exclusion rule,
+the semantics contract (one merged node; `+N` in the label only; a base-only
+lane contributes no node, exactly as the stripe never did), and the rail-style
+and capacity copy. No schema and no migration.
+
+**Added** by the equal-split pass: `DayRailBasePosition`,
+`CalendarAppearance.dayRailBasePosition`,
+`SettingsKeys.calendarDayRailBasePosition` (`calendar_day_rail_base_position`,
+default `bottom`) with its decoder registered in `_calendarAppearanceKeys`, one
+settings row, its line in `_resetToDefaults` (routed through `SettingsKeys`, per
+review defect 5), and four ARB keys in each of en/de/ro. It is a calendar
+appearance setting, so it inherits the known gap below: no `calendar_*` key
+round-trips through a JSON backup.
+
+The overflow band also moved from a hand-picked 0.45 alpha to `cellEdgeAlpha`,
+so the lane now has exactly two levels of emphasis — marks at full alpha,
+everything that is context behind them at 0.55.
+
+## Verification
+
+```powershell
+dart analyze lib          # clean
+flutter gen-l10n          # untranslated.txt is {}
+flutter test              # 1627 pass, 2 skipped (benchmarks)
+```
+
+Rendered at pixelRatio 8 in both styles, `railStyle: none`, and both base
+positions, over twelve sample cells (plain / 1 mark / 3 marks / missed + bar /
+fasting wash only / fasting edge only / edge + 1 mark + bar / edge + 2 marks /
+edge + 3 marks + today / 6 marks over the cap + edge / outside-month + edge /
+selected). Still not done: a pass on a real device.

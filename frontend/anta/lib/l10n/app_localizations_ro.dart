@@ -2706,6 +2706,19 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
+  String get calendarDayRailBasePositionTitle => 'Jumătatea de post a barei';
+
+  @override
+  String get calendarDayRailBasePositionDesc =>
+      'Într-o zi cu amândouă, bara se împarte în două jumătăți egale — semnele tale și postul. Aici alegi ce capăt îi revine postului.';
+
+  @override
+  String get dayRailBasePositionTop => 'Sus';
+
+  @override
+  String get dayRailBasePositionBottom => 'Jos';
+
+  @override
   String get calendarHighlightWeekends => 'Colorează weekendurile';
 
   @override

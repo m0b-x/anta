@@ -222,6 +222,12 @@ class SettingsKeys {
   /// different capacity, different content.
   static const String calendarMaxDayRailMarks = 'calendar_max_day_rail_marks';
 
+  /// Which end of the `line` rail the tint runner-up's band takes (`bottom` /
+  /// `top`). Parsed with a forward-compatible fallback by
+  /// `DayRailBasePosition.fromName`.
+  static const String calendarDayRailBasePosition =
+      'calendar_day_rail_base_position';
+
   /// CSV of enabled [FastingTradition] names ('' or absent = fasting off).
   /// Unknown names are dropped on read for forward compatibility.
   static const String calendarFastingTraditions = 'calendar_fasting_traditions';
@@ -389,6 +395,10 @@ class SettingsKeys {
   static const int defaultCalendarMaxDayRailMarks = 3;
   static const int minCalendarMaxDayRailMarks = 1;
   static const int maxCalendarMaxDayRailMarks = 5;
+
+  /// Commitments lead by default: the marks read downward from the day number
+  /// and the fast is the condition underneath them.
+  static const String defaultCalendarDayRailBasePosition = 'bottom';
 
   /// Default look-ahead window of the upcoming events sheet, in days.
   static const int defaultCalendarUpcomingRangeDays = 30;

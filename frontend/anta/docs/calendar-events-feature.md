@@ -2760,40 +2760,94 @@ silently drops events from the grid**.
 
 ### Geometry, and where it lives in the cell
 
-Two fixed lanes share the cell's left gutter. Lane 0 is the tint edge stripe
-(`left: 0, width: 3` **inside** the tinted container's 1.5px margin, so it
-really ends at x = 4.5). Lane 1 is the rail at `CalendarDayCell.railLeft` (5),
-`top: 4, bottom: 4`. Both sit at a fixed x whether or not the other is
-present: a rail that slid left when the stripe is absent would shift under the
-user across months.
+**Reworked 2026-09-01 — the unified edge lane.** The rail shipped with two
+parallel lanes in the cell's left gutter and went unused because that read as
+clutter; `line` now lives *in* the tint edge stripe's lane and the stripe
+becomes the lane's bottom band. The design record is the addendum at the end of
+[day-rail-markers-roadmap.md](day-rail-markers-roadmap.md); this is the running
+behaviour.
 
-Lane width comes from `CalendarDayRail.railWidth(style)` — 3 for `line`, 5 for
-`dot`. A `Positioned` gives tight constraints, and a 5px circle (with 1px of it
-spent on a hollow missed outline) cannot be drawn 3px wide. Only the **right**
-edge moves; the left edge is fixed, which is what the stability rule protects.
+**`line` — the edge lane.** `CalendarDayCell.edgeLaneLeft` (1.5) /
+`edgeLaneWidth` (3) / `edgeLaneInset` (5.5). Those are the tint stripe's own
+numbers (`left: 0, top: 4, bottom: 4, width: 3` inside the tinted container's
+1.5px margin) restated in **cell** coordinates, because the rail is positioned
+by the outer `Stack`, which has no margin. The two must agree to the pixel or
+the lane splits in half the moment a fasting day also carries marks.
 
-The rail cannot join the tint `Stack` — that one is built only when the day is
-tinted. `CalendarDayCell.build` instead wraps whatever the cell turned out to
-be in an **outer** `Stack`, and only when `railMarks.isNotEmpty && railStyle !=
-none`, so an untinted day with no marks stays the single bare `Align` it has
-always been.
+**`dot` — the inset lane, unchanged.** `CalendarDayCell.railLeft` (5),
+`top: 4`, width 5. A 5px circle (1px of it spent on the hollow missed outline)
+cannot be drawn 3px wide, so that style cannot share the stripe's lane and the
+cell goes on drawing the stripe itself.
 
-`_rowHeight` is unchanged — the rail is vertical. Capacity depends on the row
-height, so `CalendarDayRail` measures it (`LayoutBuilder`) and clamps: at the
-44px usable height of a 52px minimum row, `dot` fits five.
+Three consequences of the move, all `line`-only:
+
+- **The chip stops shrinking.** The edge lane ends at 4.5 and a 34px chip's
+  leftmost point is 8.71 at 360dp (5.86 at 320dp), so `chipDiameterFor` is
+  `railStyle == dot ? railChipSize : chipSize`. The rail's default style no
+  longer costs the day number 4px on every cell.
+- **The lane gets the whole row.** The bottom marker strip insets 6px, so it
+  never reaches the edge lane — `line` takes `rowHeight - edgeLaneInset * 2`
+  (~51px) where the inset lane still owes the strip its clearance
+  (`rowHeight - 8 - stripHeight`, ~38px). `CalendarDayCell.railLaneHeight` is
+  the one definition of both, shared by the grid and the settings preview.
+- **The fasting stripe becomes `CalendarDayRail.baseColor`**, taking an **equal
+  half** of the lane (`baseShare` = 0.5, via `baseBandFor`) while the marks
+  subdivide the other half. Equal because the two are one question each — "is
+  this a fasting day" and "what is on it" — and neither is a sub-answer of the
+  other; hierarchy is carried by **weight** instead, the band at
+  `CalendarColors.cellEdgeAlpha` (0.55) against marks at full alpha. It is
+  **not a slot**: capacity is computed against the marks' half, so a fasting day
+  never shows one fewer commitment than the same day without a fast. With no
+  marks at all it takes the whole lane and is pixel-identical to the stripe it
+  replaces. Exactly one of the cell and the rail draws that colour — the cell's
+  `Positioned` stripe survives only while `railStyle != line` — and it reaches
+  the rail **unfaded**, so the lane's outside-month fade applies once.
+- **`DayRailBasePosition { bottom, top }` picks which end it takes**
+  (`CalendarAppearance.dayRailBasePosition`, key
+  `calendar_day_rail_base_position`, default `bottom` — commitments lead,
+  reading downward from the day number). The setting **moves the split, never
+  resizes it**, and the marks keep their priority order within their own half at
+  either end; reversing them with the band would make the rail's first mark
+  denote a different event depending on a purely visual choice. With no band the
+  marks take the whole lane, so the setting can never cost a day that has no
+  fast. Its settings row is revealed on all three preconditions —
+  `dayRailStyle == line`, `eventTint`, `tintConflict == both` — because that is
+  exactly when a band exists to place.
+
+The rail still cannot join the tint `Stack` (that one is built only when the day
+is tinted, and the lane needs cell coordinates). `CalendarDayCell.build` wraps
+whatever the cell turned out to be in an **outer** `Stack`, now when
+`railStyle != none && (railMarks.isNotEmpty || laneBase != null)` — the second
+clause matters: without it, switching the rail on would delete the fasting cue
+from every day that carries no marks. An untinted day with no marks stays the
+single bare `Align` it has always been.
+
+`_rowHeight` is unchanged — the rail is vertical. Capacity depends on the lane
+height, which the caller passes (no `LayoutBuilder`), and `CalendarDayRail`
+clamps the visible count against it: at the 44px usable height of a 52px
+minimum row, `dot` fits five.
 
 ### Styles, cap, overflow
 
 `DayRailStyle { none, line, dot }`, default **`none`** — opt-in like
 `eventTint`, `highlightWeekends` and `showWeekNumbers`; no first-run nudge, no
-conditional default. `line` is `n` stacked segments dividing the rail height
-(2px gaps, 1.5px radius); `dot` is stacked 5px circles with 3px gaps, centred.
+conditional default. `line` is **one unbroken bar**: colour bands butted against
+each other with no gap, dividing the lane height, and only the lane's two outer
+ends rounded (1.5px radius, carried on the first and last band rather than by a
+`ClipRRect`, which would cost a clip layer on a 42-cell path). A low-contrast
+band outlines **the whole lane** through one `Container(foregroundDecoration:)`,
+because a per-band border would draw a horizontal hairline at every boundary —
+the separated look the single bar exists to avoid. `dot` is stacked 5px circles
+with 3px gaps, centred, unchanged.
 
 `calendar_max_day_rail_marks` is its **own** setting (1–5, default 3), not a
 share of `maxDayBars` (1–6): different geometry, different capacity, different
 content. It is clamped in the setter *and* the decoder. Overflow renders
-`n - 1` marks plus a neutral `onSurfaceVariant` last mark — a half-height
-segment for `line`, a smaller hollow dot for `dot`. The exact `+N` goes into
+`n - 1` marks plus a neutral `onSurfaceVariant` last mark — for `line`, a full
+band at `cellEdgeAlpha`: it lost the half-height cue when the bands closed up,
+and stepping it back to the base band's weight gives the lane exactly two levels
+of emphasis (marks at full alpha, everything that is context behind them at
+0.55). For `dot`, a smaller hollow dot. The exact `+N` goes into
 the **semantics label only**; there is no room beside a 3px rail to draw a
 number, which makes that label the only place the count exists at all.
 
@@ -2829,11 +2883,15 @@ ratio not delta); a second copy would silently keep the version that was wrong.
 ### Settings surface
 
 Calendar settings → Appearance, with the marker options rather than the tint
-options: a `SegmentedButton` for the style and, revealed only when the style is
-not `none`, the capacity slider. `_AppearancePreview` composes its sample cells
-by hand, so it was extended manually — the "overflowing" sample carries one
-mark over the cap and a missed one, because faded-and-hollow is the part that
-cannot be pictured from the setting's copy.
+options: a `SegmentedButton` for the style; revealed when the style is not
+`none`, the capacity slider; and revealed on all three of `line` + `eventTint` +
+`tintConflict == both`, the `DayRailBasePosition` `SegmentedButton`.
+`_AppearancePreview` composes its sample cells by hand, so it was extended
+manually — the "overflowing" sample carries one mark over the cap and a missed
+one, because faded-and-hollow is the part that cannot be pictured from the
+setting's copy, and the two tinted samples carry rail marks, so under those same
+three conditions the preview is already showing the split the position row
+moves.
 
 ### Known gap (pre-existing, not introduced here)
 
