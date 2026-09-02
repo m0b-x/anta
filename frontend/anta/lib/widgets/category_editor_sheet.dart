@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../constants/calendar_categories.dart';
-import '../constants/calendar_colors.dart';
 import '../constants/calendar_icons.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_category.dart';
 import '../services/category_service.dart';
 import '../services/folder_search_service.dart' show normalizeForSearch;
 import '../utils/custom_snackbar.dart';
+import 'color_swatch_picker.dart';
 import 'icon_picker_sheet.dart';
 
 const int _defaultCategoryColor = 0xFFFB8C00;
@@ -300,17 +300,13 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
                     ),
                   ),
                   _SectionLabel(text: l10n.categoryColor),
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: [
-                      for (final swatch in CalendarColors.swatchPalette)
-                        _ColorSwatch(
-                          color: Color(swatch),
-                          selected: swatch == _colorValue,
-                          onTap: () => setState(() => _colorValue = swatch),
-                        ),
-                    ],
+                  // No "default" dot: a category *is* the colour everything
+                  // else falls back to, so there is nothing behind it to
+                  // inherit.
+                  ColorSwatchPicker(
+                    value: _colorValue,
+                    onChanged: (value) =>
+                        setState(() => _colorValue = value ?? _colorValue),
                   ),
                 ],
               ),
@@ -336,41 +332,6 @@ class _SectionLabel extends StatelessWidget {
         style: theme.textTheme.labelLarge?.copyWith(
           color: theme.colorScheme.onSurfaceVariant,
         ),
-      ),
-    );
-  }
-}
-
-class _ColorSwatch extends StatelessWidget {
-  final Color color;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _ColorSwatch({
-    required this.color,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return InkWell(
-      onTap: onTap,
-      customBorder: const CircleBorder(),
-      child: Container(
-        width: 44,
-        height: 44,
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-          border: selected
-              ? Border.all(color: theme.colorScheme.onSurface, width: 3)
-              : null,
-        ),
-        child: selected
-            ? const Icon(Icons.check_rounded, color: Colors.white, size: 22)
-            : null,
       ),
     );
   }

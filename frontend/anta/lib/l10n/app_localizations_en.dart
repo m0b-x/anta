@@ -4290,4 +4290,132 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get pairingErrorUnknown => 'Pairing failed';
+
+  @override
+  String get colorPaletteTitle => 'Colors';
+
+  @override
+  String get colorPaletteDesc =>
+      'Every color the calendar\'s pickers offer. Colors you add show up in all of them.';
+
+  @override
+  String get colorPaletteDefaultsLabel => 'Built-in colors';
+
+  @override
+  String get colorPaletteCustomLabel => 'Your colors';
+
+  @override
+  String get colorPaletteBuiltIn => 'Built-in color';
+
+  @override
+  String get colorPaletteEmpty =>
+      'No colors of your own yet. Add one and it appears in every picker.';
+
+  @override
+  String get colorPaletteEditHint =>
+      'Tap a color to change it. Anything already using it keeps its color.';
+
+  @override
+  String get colorPaletteReset => 'Reset colors';
+
+  @override
+  String get colorPaletteResetConfirm =>
+      'Delete all the colors you added and keep only the built-in ones?';
+
+  @override
+  String get colorPaletteFull =>
+      'Your palette is full. Delete a color to add another.';
+
+  @override
+  String get colorAlreadyInPalette => 'That color is already in the palette';
+
+  @override
+  String colorPaletteCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count colors of your own',
+      one: '1 color of your own',
+      zero: 'No colors of your own',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get addColor => 'Add color';
+
+  @override
+  String get editColor => 'Edit color';
+
+  @override
+  String get deleteColor => 'Delete color';
+
+  @override
+  String get deleteColorConfirm =>
+      'Remove this color from the palette? Anything already using it keeps its color.';
+
+  @override
+  String get manageColors => 'Manage colors';
+
+  @override
+  String get colorHexLabel => 'Hex';
+
+  @override
+  String get colorHexInvalid => 'Enter a color like #3A7BDE';
+
+  @override
+  String get colorCopyHex => 'Copy hex code';
+
+  @override
+  String get colorHexCopied => 'Copied';
+
+  @override
+  String get colorPickerCurrent => 'Current color, tap to restore';
+
+  @override
+  String get colorPickerNew => 'New color';
+
+  @override
+  String get colorHue => 'Hue';
+
+  @override
+  String get colorSaturationBrightness => 'Saturation and brightness';
+
+  @override
+  String colorSaturationBrightnessValue(int saturation, int brightness) {
+    return 'Saturation $saturation%, brightness $brightness%';
+  }
+
+  @override
+  String get colorReorder => 'Drag to reorder';
+
+  @override
+  String colorPaletteCapCount(int count, int max) {
+    return '$count of $max';
+  }
+
+  @override
+  String get colorModeSquare => 'Square';
+
+  @override
+  String get colorModeWheel => 'Wheel';
+
+  @override
+  String get colorBrightness => 'Brightness';
+
+  @override
+  String get colorHueSaturation => 'Hue and saturation';
+
+  @override
+  String colorHueSaturationValue(int hue, int saturation) {
+    return 'Hue $hue°, saturation $saturation%';
+  }
+
+  @override
+  String colorShowAll(int count) {
+    return 'Show $count more colors';
+  }
+
+  @override
+  String get eventColorCategoryDefault => 'Category color';
 }

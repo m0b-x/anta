@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../constants/calendar_colors.dart';
+import '../constants/calendar_palette.dart';
 import '../constants/fasting_calendar.dart';
 import '../constants/public_holidays.dart';
 import '../constants/settings_keys.dart';
@@ -18,6 +19,7 @@ import '../widgets/fasting_schedule_sheet.dart';
 import '../widgets/fasting_style_sheet.dart';
 import '../services/app_navigator.dart';
 import '../services/calendar_event_service.dart';
+import '../services/calendar_palette_service.dart';
 import '../services/public_holiday_service.dart';
 import '../services/recurrence_formatter.dart';
 import '../services/settings_service.dart';
@@ -26,7 +28,8 @@ import '../utils/settings_search.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/calendar_day_bars.dart';
 import '../widgets/calendar_day_cell.dart';
-import '../widgets/color_wheel_picker.dart';
+import '../widgets/color_palette_sheet.dart';
+import '../widgets/color_swatch_picker.dart';
 import '../widgets/removed_holidays_sheet.dart';
 import '../widgets/settings_search_field.dart';
 import '../widgets/settings_section_list.dart';
@@ -98,6 +101,10 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     final descriptionLimit = await settings.getEventDescriptionLimit();
     final collapsedSections = await settings
         .getCalendarSettingsCollapsedSections();
+    // Publishes the palette facade the accent row and the palette row both
+    // read synchronously; without it a settings page opened before any picker
+    // would count zero colours the user does have.
+    await CalendarPaletteService.getInstance();
 
     if (!mounted) return;
     setState(() {
@@ -224,17 +231,18 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     return toBeginningOfSentenceCase(name, localeName) ?? name;
   }
 
-  Future<void> _pickCustomAccent() async {
-    final picked = await ColorWheelDialog.show(
-      context,
-      initialColor: _appearance.accentColorValue,
-    );
-    if (picked == null || !mounted) return;
+  /// One handler for every dot in the accent row: a swatch, a colour just
+  /// mixed on the wheel, and "follow the theme" all land here, because
+  /// [ColorSwatchPicker] reports the *result* rather than which affordance
+  /// produced it.
+  Future<void> _onAccentChanged(int? value) async {
     _onHapticFeedback();
     setState(
-      () => _appearance = _appearance.copyWith(accentColorValue: picked),
+      () => _appearance = value == null
+          ? _appearance.copyWith(clearAccentColor: true)
+          : _appearance.copyWith(accentColorValue: value),
     );
-    await _settings?.setCalendarAccentColor(picked);
+    await _settings?.setCalendarAccentColor(value);
   }
 
   @override
@@ -471,59 +479,43 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
                 const SizedBox(height: 4),
                 ?description,
                 const SizedBox(height: 12),
-                Wrap(
+                ColorSwatchPicker(
+                  value: _appearance.accentColorValue,
+                  onChanged: _onAccentChanged,
                   spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    _AccentColorDot(
-                      color: colorScheme.primary,
-                      icon: Icons.format_color_reset_rounded,
-                      tooltip: l10n.calendarAccentThemeDefault,
-                      selected: _appearance.accentColorValue == null,
-                      onTap: () async {
-                        _onHapticFeedback();
-                        setState(
-                          () => _appearance = _appearance.copyWith(
-                            clearAccentColor: true,
-                          ),
-                        );
-                        await _settings?.setCalendarAccentColor(null);
-                      },
-                    ),
-                    for (final swatch in CalendarColors.swatchPalette)
-                      _AccentColorDot(
-                        color: Color(swatch),
-                        selected: _appearance.accentColorValue == swatch,
-                        onTap: () async {
-                          _onHapticFeedback();
-                          setState(
-                            () => _appearance = _appearance.copyWith(
-                              accentColorValue: swatch,
-                            ),
-                          );
-                          await _settings?.setCalendarAccentColor(swatch);
-                        },
-                      ),
-                    if (_appearance.accentColorValue != null &&
-                        !CalendarColors.swatchPalette.contains(
-                          _appearance.accentColorValue,
-                        ))
-                      _AccentColorDot(
-                        color: Color(_appearance.accentColorValue!),
-                        selected: true,
-                        onTap: _pickCustomAccent,
-                      ),
-                    _AccentColorDot(
-                      color: colorScheme.surfaceContainerHighest,
-                      icon: Icons.colorize_rounded,
-                      tooltip: l10n.eventColorCustomTitle,
-                      selected: false,
-                      onTap: _pickCustomAccent,
-                    ),
-                  ],
+                  defaultOption: ColorSwatchDefault(
+                    color: colorScheme.primary,
+                    icon: Icons.format_color_reset_rounded,
+                    tooltip: l10n.calendarAccentThemeDefault,
+                  ),
                 ),
               ],
             ),
+          ),
+        ),
+        // Sits under the accent row because that is where a user first meets
+        // the palette; the sheet it opens is the same one every picker in the
+        // app reaches through its palette dot.
+        SettingsEntry(
+          title: l10n.colorPaletteTitle,
+          // The subtitle is the count, so the count is what `description`
+          // carries: `SettingsEntry` pre-renders that text with the search
+          // query highlighted, and rendering a different string in the
+          // builder would leave a matched row with nothing highlighted.
+          description: l10n.colorPaletteCount(CalendarPalette.custom.length),
+          keywords: [l10n.colorPaletteDesc, l10n.addColor, l10n.manageColors],
+          builder: (context, title, description) => ListTile(
+            leading: Icon(Icons.palette_outlined, color: colorScheme.primary),
+            title: title,
+            subtitle: description,
+            trailing: const Icon(Icons.chevron_right_rounded),
+            // The row reports a count, so it has to be rebuilt when the
+            // sheet has finished changing one — the entry text is resolved
+            // once per page build, not per palette revision.
+            onTap: () async {
+              await ColorPaletteSheet.show(context);
+              if (mounted) setState(() {});
+            },
           ),
         ),
         SettingsEntry(
@@ -1423,57 +1415,5 @@ class _AppearancePreview extends StatelessWidget {
       missed: missed,
       semanticLabel: '',
     );
-  }
-}
-
-/// Tappable color swatch used by the accent-color picker row. Mirrors the
-/// event editor's color dots for a consistent picking experience.
-class _AccentColorDot extends StatelessWidget {
-  final Color color;
-  final IconData? icon;
-  final String? tooltip;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _AccentColorDot({
-    required this.color,
-    this.icon,
-    this.tooltip,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final onColor =
-        ThemeData.estimateBrightnessForColor(color) == Brightness.dark
-        ? Colors.white
-        : Colors.black87;
-    final dot = InkWell(
-      onTap: onTap,
-      customBorder: const CircleBorder(),
-      child: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: selected
-                ? colorScheme.onSurface
-                : colorScheme.outlineVariant,
-            width: selected ? 2 : 1,
-          ),
-        ),
-        child: selected && icon == null
-            ? Icon(Icons.check_rounded, size: 20, color: onColor)
-            : icon != null
-            ? Icon(icon, size: 20, color: onColor)
-            : null,
-      ),
-    );
-    if (tooltip == null) return dot;
-    return Tooltip(message: tooltip!, child: dot);
   }
 }

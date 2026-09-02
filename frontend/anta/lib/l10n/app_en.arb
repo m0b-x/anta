@@ -5474,5 +5474,163 @@
   "pairingErrorUnknown": "Pairing failed",
   "@pairingErrorUnknown": {
     "description": "Pairing error: fallback for an unrecognised failure"
+  },
+  "colorPaletteTitle": "Colors",
+  "@colorPaletteTitle": {
+    "description": "Title of the shared colour palette sheet and of the settings row that opens it"
+  },
+  "colorPaletteDesc": "Every color the calendar's pickers offer. Colors you add show up in all of them.",
+  "@colorPaletteDesc": {
+    "description": "Intro line of the colour palette sheet"
+  },
+  "colorPaletteDefaultsLabel": "Built-in colors",
+  "@colorPaletteDefaultsLabel": {
+    "description": "Section label above the swatches that ship with the app"
+  },
+  "colorPaletteCustomLabel": "Your colors",
+  "@colorPaletteCustomLabel": {
+    "description": "Section label above the swatches the user added"
+  },
+  "colorPaletteBuiltIn": "Built-in color",
+  "@colorPaletteBuiltIn": {
+    "description": "Tooltip on a built-in swatch, which cannot be edited or deleted"
+  },
+  "colorPaletteEmpty": "No colors of your own yet. Add one and it appears in every picker.",
+  "@colorPaletteEmpty": {
+    "description": "Empty state when the user has added no colours"
+  },
+  "colorPaletteEditHint": "Tap a color to change it. Anything already using it keeps its color.",
+  "@colorPaletteEditHint": {
+    "description": "Hint above the editable list of the user's own colours"
+  },
+  "colorPaletteReset": "Reset colors",
+  "@colorPaletteReset": {
+    "description": "Button that removes every colour the user added"
+  },
+  "colorPaletteResetConfirm": "Delete all the colors you added and keep only the built-in ones?",
+  "@colorPaletteResetConfirm": {
+    "description": "Confirmation for resetting the colour palette"
+  },
+  "colorPaletteFull": "Your palette is full. Delete a color to add another.",
+  "@colorPaletteFull": {
+    "description": "Error shown when the custom colour cap is reached"
+  },
+  "colorAlreadyInPalette": "That color is already in the palette",
+  "@colorAlreadyInPalette": {
+    "description": "Error shown when the picked colour duplicates an existing swatch"
+  },
+  "colorPaletteCount": "{count, plural, =0{No colors of your own} =1{1 color of your own} other{{count} colors of your own}}",
+  "@colorPaletteCount": {
+    "description": "How many colours the user added, shown under the palette settings row",
+    "placeholders": {
+      "count": { "type": "int", "example": "3" }
+    }
+  },
+  "addColor": "Add color",
+  "@addColor": {
+    "description": "Opens the colour wheel and adds the picked colour to the palette"
+  },
+  "editColor": "Edit color",
+  "@editColor": {
+    "description": "Recolours one of the user's own swatches"
+  },
+  "deleteColor": "Delete color",
+  "@deleteColor": {
+    "description": "Removes one of the user's own swatches from the palette"
+  },
+  "deleteColorConfirm": "Remove this color from the palette? Anything already using it keeps its color.",
+  "@deleteColorConfirm": {
+    "description": "Confirmation for deleting a custom swatch"
+  },
+  "manageColors": "Manage colors",
+  "@manageColors": {
+    "description": "Opens the colour palette sheet from a colour picker row"
+  },
+  "colorHexLabel": "Hex",
+  "@colorHexLabel": {
+    "description": "Label of the hex code field in the colour picker"
+  },
+  "colorHexInvalid": "Enter a color like #3A7BDE",
+  "@colorHexInvalid": {
+    "description": "Inline error when the typed hex code is not six valid digits"
+  },
+  "colorCopyHex": "Copy hex code",
+  "@colorCopyHex": {
+    "description": "Tooltip on the button copying the picked colour's hex code"
+  },
+  "colorHexCopied": "Copied",
+  "@colorHexCopied": {
+    "description": "Snackbar confirming the hex code went to the clipboard"
+  },
+  "colorPickerCurrent": "Current color, tap to restore",
+  "@colorPickerCurrent": {
+    "description": "Tooltip on the before swatch, which reverts the picker to the colour being replaced"
+  },
+  "colorPickerNew": "New color",
+  "@colorPickerNew": {
+    "description": "Tooltip on the after swatch, showing what Select would return"
+  },
+  "colorHue": "Hue",
+  "@colorHue": {
+    "description": "Accessibility label of the hue slider"
+  },
+  "colorSaturationBrightness": "Saturation and brightness",
+  "@colorSaturationBrightness": {
+    "description": "Accessibility label of the colour picker's square"
+  },
+  "colorSaturationBrightnessValue": "Saturation {saturation}%, brightness {brightness}%",
+  "@colorSaturationBrightnessValue": {
+    "description": "Accessibility value read out for the colour picker's square",
+    "placeholders": {
+      "saturation": { "type": "int", "example": "70" },
+      "brightness": { "type": "int", "example": "90" }
+    }
+  },
+  "colorReorder": "Drag to reorder",
+  "@colorReorder": {
+    "description": "Tooltip on the drag handle of a custom colour row"
+  },
+  "colorPaletteCapCount": "{count} of {max}",
+  "@colorPaletteCapCount": {
+    "description": "How many custom colours are used against the maximum",
+    "placeholders": {
+      "count": { "type": "int", "example": "3" },
+      "max": { "type": "int", "example": "24" }
+    }
+  },
+  "colorModeSquare": "Square",
+  "@colorModeSquare": {
+    "description": "Name of the saturation/brightness square geometry in the colour picker"
+  },
+  "colorModeWheel": "Wheel",
+  "@colorModeWheel": {
+    "description": "Name of the hue/saturation wheel geometry in the colour picker"
+  },
+  "colorBrightness": "Brightness",
+  "@colorBrightness": {
+    "description": "Accessibility label of the brightness slider in wheel mode"
+  },
+  "colorHueSaturation": "Hue and saturation",
+  "@colorHueSaturation": {
+    "description": "Accessibility label of the colour picker's wheel"
+  },
+  "colorHueSaturationValue": "Hue {hue}°, saturation {saturation}%",
+  "@colorHueSaturationValue": {
+    "description": "Accessibility value read out for the colour picker's wheel",
+    "placeholders": {
+      "hue": { "type": "int", "example": "210" },
+      "saturation": { "type": "int", "example": "70" }
+    }
+  },
+  "colorShowAll": "Show {count} more colors",
+  "@colorShowAll": {
+    "description": "Expands a colour row that is showing only its first few rows of swatches",
+    "placeholders": {
+      "count": { "type": "int", "example": "12" }
+    }
+  },
+  "eventColorCategoryDefault": "Category color",
+  "@eventColorCategoryDefault": {
+    "description": "Tooltip on the swatch meaning: use the colour of the chosen category"
   }
 }

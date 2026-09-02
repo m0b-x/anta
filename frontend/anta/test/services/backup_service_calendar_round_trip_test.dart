@@ -7,9 +7,11 @@ import 'package:get_it/get_it.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/constants/calendar_palette.dart';
 import 'package:anta/constants/event_presence.dart';
 import 'package:anta/constants/event_skips.dart';
 import 'package:anta/constants/occurrence_descriptions.dart';
+import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/models/calendar_event.dart';
@@ -17,6 +19,7 @@ import 'package:anta/models/event_template.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/backup_service.dart';
 import 'package:anta/services/calendar_event_service.dart';
+import 'package:anta/services/calendar_palette_service.dart';
 import 'package:anta/services/category_service.dart';
 import 'package:anta/services/counter_service.dart';
 import 'package:anta/services/event_occurrence_service.dart';
@@ -137,6 +140,8 @@ void main() {
       holidayDay,
       'Company day',
     );
+    const paletteColor = 0xFF0FF00F;
+    await (await CalendarPaletteService.getInstance()).add(paletteColor);
 
     final backup = await BackupService.getInstance();
     final exported = await backup.exportAllData();
@@ -153,6 +158,10 @@ void main() {
     await db.eventTemplateDao.deleteAll();
     await db.publicHolidayDao.deleteAll();
     await db.calendarCategoryDao.deleteAll();
+    // The palette lives in user_settings, so the table wipe above cannot
+    // reach it — clearing the row is what makes its assertion prove the
+    // import restored it rather than that it was never gone.
+    await db.userSettingsDao.setValue(SettingsKeys.calendarCustomColors, '');
     DatabaseLifecycle.notifyDatabaseSwitching();
 
     expect(
@@ -240,5 +249,11 @@ void main() {
       (await PublicHolidayService.getInstance()).cache[holidayDay]?.customLabel,
       'Company day',
     );
+
+    // The palette rides in the settings map rather than a table of its own, so
+    // nothing above would notice it being dropped from the export allow-list —
+    // and a lost swatch is silent: every picker just stops offering a colour
+    // the user mixed.
+    expect(CalendarPalette.custom, [paletteColor]);
   });
 }

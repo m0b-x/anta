@@ -14,6 +14,7 @@ import '../database/database_lifecycle.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_grid_filters.dart';
 import '../models/calendar_panel_mode.dart';
+import '../models/color_picker_mode.dart';
 import '../models/upcoming_agenda_filters.dart';
 import '../models/utility_button_config.dart';
 import '../utils/markdown_color_syntax.dart';
@@ -1304,17 +1305,39 @@ class SettingsService {
     return raw.split(',').map(int.tryParse).whereType<int>().toList();
   }
 
-  /// Pushes [color] to the front of the recent list (dedup, capped to
-  /// [SettingsKeys.maxRecentEventColors]).
-  Future<void> addRecentEventColor(int color) async {
-    final current = await getRecentEventColors();
-    final next = <int>[
-      color,
-      ...current.where((c) => c != color),
-    ].take(SettingsKeys.maxRecentEventColors).toList();
+  /// Drops the retired recent-colors row once `CalendarPaletteService` has
+  /// folded it into the permanent palette, so the fold runs exactly once.
+  Future<void> clearRecentEventColors() async {
+    await _db.userSettingsDao.setValue(SettingsKeys.recentEventColors, '');
+  }
+
+  // Colour picker - which geometry the custom-colour sheet opens with.
+  Future<ColorPickerMode> getColorPickerMode() async {
+    final raw = await _db.userSettingsDao.getValue(
+      SettingsKeys.colorPickerMode,
+    );
+    return ColorPickerMode.fromName(raw ?? SettingsKeys.defaultColorPickerMode);
+  }
+
+  Future<void> setColorPickerMode(ColorPickerMode mode) async {
+    await _db.userSettingsDao.setValue(SettingsKeys.colorPickerMode, mode.name);
+  }
+
+  // Calendar - The user's own swatches, appended to the built-in palette.
+  Future<List<int>> getCustomCalendarColors() async {
+    final raw = await _db.userSettingsDao.getValue(
+      SettingsKeys.calendarCustomColors,
+    );
+    if (raw == null || raw.isEmpty) return const [];
+    return raw.split(',').map(int.tryParse).whereType<int>().toList();
+  }
+
+  /// Replaces the whole custom set. The service owns ordering, dedup and the
+  /// cap; this is the raw write it commits through.
+  Future<void> setCustomCalendarColors(List<int> colors) async {
     await _db.userSettingsDao.setValue(
-      SettingsKeys.recentEventColors,
-      next.join(','),
+      SettingsKeys.calendarCustomColors,
+      colors.join(','),
     );
   }
 

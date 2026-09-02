@@ -10,7 +10,6 @@ import '../bloc/markdown_bar/markdown_bar_bloc.dart';
 import '../constants/calendar_bounds.dart';
 import '../constants/event_skips.dart';
 import '../constants/calendar_categories.dart';
-import '../constants/calendar_colors.dart';
 import '../constants/calendar_icons.dart';
 import '../constants/event_priorities.dart';
 import '../constants/font_constants.dart';
@@ -38,7 +37,7 @@ import 'calendar_date_picker_sheet.dart';
 import 'category_picker_sheet.dart';
 import 'event_description_sheet.dart';
 import 'event_template_editor_sheet.dart';
-import 'color_wheel_picker.dart';
+import 'color_swatch_picker.dart';
 import 'icon_picker_sheet.dart';
 import 'markdown_bar.dart';
 import 'modern_editor_wrapper.dart';
@@ -413,10 +412,6 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   /// containing [_date]). When non-empty, the event saves as a
   /// [SpecificDatesRecurrence] covering [_date] plus these dates.
   late List<DateTime> _additionalDates;
-
-  /// Recently-used custom (non-palette) colors, most-recent-first. Loaded
-  /// from settings on open and updated when the user picks a wheel color.
-  List<int> _recentColors = const [];
 
   /// Whether the description field is showing its rendered markdown instead
   /// of the raw source. View-only state — the stored value is always source.
@@ -890,12 +885,6 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     _descriptionController.clearHistory();
   }
 
-  /// Whether the chosen color is a freeform value not present in the swatch
-  /// palette (so the "custom" dot reflects it instead of a palette dot).
-  bool get _isCustomColor =>
-      _colorValue != null &&
-      !CalendarColors.swatchPalette.contains(_colorValue);
-
   /// Label for the retroactive scope chip. Yearly rules read naturally as
   /// "Every year"; the others fall back to "Always". Resolved through the
   /// built rule so the wording follows one switch, not two.
@@ -1089,26 +1078,8 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     setState(() => _iconKey = picked);
   }
 
-  Future<void> _pickCustomColor() async {
-    final picked = await ColorWheelDialog.show(
-      context,
-      initialColor: _colorValue,
-    );
-    if (picked == null || !mounted) return;
-    setState(() {
-      _colorValue = picked;
-      _recentColors = <int>{
-        picked,
-        ..._recentColors,
-      }.take(SettingsKeys.maxRecentEventColors).toList();
-    });
-    final settings = await SettingsService.getInstance();
-    await settings.addRecentEventColor(picked);
-  }
-
   Future<void> _loadSheetSettings() async {
     final settings = await SettingsService.getInstance();
-    final colors = await settings.getRecentEventColors();
     final palette = await settings.getColorPalette();
     final liveRendering = await settings.getLiveMarkdownRendering();
     final descriptionLimit = await settings.getEventDescriptionLimit();
@@ -1122,7 +1093,6 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     final rerender =
         palette != _colorPalette || liveRendering != _liveMarkdownRendering;
     setState(() {
-      _recentColors = colors;
       _colorPalette = palette;
       _liveMarkdownRendering = liveRendering;
       _descriptionLimit = descriptionLimit;
@@ -1753,12 +1723,6 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     // All one-time dates (anchor + extras) as one uniform, sorted list.
     final oneTimeDates = <DateTime>{_date, ..._additionalDates}.toList()
       ..sort();
-    // Custom (non-palette) color dots: the current custom color first, then
-    // recently used ones, deduped and capped.
-    final customColorDots = <int>{
-      if (_isCustomColor) _colorValue!,
-      ..._recentColors.where((c) => !CalendarColors.swatchPalette.contains(c)),
-    }.take(SettingsKeys.maxRecentEventColors).toList();
     final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
     final viewPadding = MediaQuery.viewPaddingOf(context).bottom;
     final bottomClearance = viewInsets > viewPadding ? viewInsets : viewPadding;
@@ -2305,37 +2269,18 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                               ),
                             ),
                           ),
-                          Wrap(
-                            spacing: 12,
-                            runSpacing: 12,
-                            children: [
-                              _EventColorDot(
-                                color: categoryColor,
-                                icon:
-                                    CalendarIcons.forKey(category.iconKey) ??
-                                    Icons.event_rounded,
-                                selected: _colorValue == null,
-                                onTap: () => setState(() => _colorValue = null),
-                              ),
-                              for (final swatch in CalendarColors.swatchPalette)
-                                _EventColorDot(
-                                  color: Color(swatch),
-                                  selected: _colorValue == swatch,
-                                  onTap: () =>
-                                      setState(() => _colorValue = swatch),
-                                ),
-                              for (final c in customColorDots)
-                                _EventColorDot(
-                                  color: Color(c),
-                                  selected: _colorValue == c,
-                                  onTap: () => setState(() => _colorValue = c),
-                                ),
-                              _EventColorDot(
-                                icon: Icons.colorize_rounded,
-                                selected: false,
-                                onTap: _pickCustomColor,
-                              ),
-                            ],
+                          ColorSwatchPicker(
+                            value: _colorValue,
+                            onChanged: (value) =>
+                                setState(() => _colorValue = value),
+
+                            defaultOption: ColorSwatchDefault(
+                              color: categoryColor,
+                              icon:
+                                  CalendarIcons.forKey(category.iconKey) ??
+                                  Icons.event_rounded,
+                              tooltip: l10n.eventColorCategoryDefault,
+                            ),
                           ),
                           if (_colorValue != null)
                             Padding(
@@ -2608,65 +2553,6 @@ class _PickerTile extends StatelessWidget {
         subtitle: subtitle == null ? null : Text(subtitle!),
         trailing: trailing ?? const Icon(Icons.chevron_right_rounded),
         onTap: onTap,
-      ),
-    );
-  }
-}
-
-/// A circular color choice used in the event editor's color picker. A `null`
-/// [color] paints a rainbow sweep to represent the "custom" entry; a non-null
-/// [color] fills the dot. Shows a check when [selected], otherwise [icon].
-class _EventColorDot extends StatelessWidget {
-  final Color? color;
-  final bool selected;
-  final VoidCallback onTap;
-  final IconData? icon;
-
-  const _EventColorDot({
-    required this.selected,
-    required this.onTap,
-    this.color,
-    this.icon,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final fill = color;
-    final foreground = fill == null
-        ? Colors.white
-        : (ThemeData.estimateBrightnessForColor(fill) == Brightness.dark
-              ? Colors.white
-              : Colors.black);
-    return InkWell(
-      onTap: onTap,
-      customBorder: const CircleBorder(),
-      child: Container(
-        width: 44,
-        height: 44,
-        decoration: BoxDecoration(
-          color: fill,
-          gradient: fill == null
-              ? const SweepGradient(
-                  colors: [
-                    Color(0xFFE53935),
-                    Color(0xFFFFB300),
-                    Color(0xFF43A047),
-                    Color(0xFF00ACC1),
-                    Color(0xFF3949AB),
-                    Color(0xFF8E24AA),
-                    Color(0xFFE53935),
-                  ],
-                )
-              : null,
-          shape: BoxShape.circle,
-          border: selected
-              ? Border.all(color: theme.colorScheme.onSurface, width: 3)
-              : Border.all(color: theme.colorScheme.outlineVariant),
-        ),
-        child: selected
-            ? Icon(Icons.check_rounded, color: foreground, size: 22)
-            : (icon != null ? Icon(icon, color: foreground, size: 20) : null),
       ),
     );
   }

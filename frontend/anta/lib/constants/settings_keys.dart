@@ -103,8 +103,17 @@ class SettingsKeys {
   static const String calendarShowWeekNumbers = 'calendar_show_week_numbers';
 
   /// Recently used custom event colors (comma-separated ARGB ints,
-  /// most-recent-first).
+  /// most-recent-first). **Retired** in favour of [calendarCustomColors]:
+  /// `CalendarPaletteService` reads it once to fold the colors a user had
+  /// already reached for into the permanent palette, then clears it. Never
+  /// written again.
   static const String recentEventColors = 'recent_event_colors';
+
+  /// The user's own calendar swatches (comma-separated ARGB ints, in the
+  /// order they were added). Rendered after the built-in swatches on every
+  /// colour surface; built-ins are never stored here, so a change to
+  /// `CalendarColors.swatchPalette` still reaches existing installs.
+  static const String calendarCustomColors = 'calendar_custom_colors';
 
   /// Which window the upcoming agenda covers (`AgendaPeriodMode` name):
   /// rollingDays / wholeYear / restOfYear. Parsed with a forward-compatible
@@ -460,7 +469,20 @@ class SettingsKeys {
   static const String defaultCalendarPanelMode = 'day';
 
   /// Maximum number of recently-used custom event colors to remember.
+  ///
+  /// Only the retired [recentEventColors] key is bounded by it; it caps how
+  /// many colors the one-time fold into [calendarCustomColors] can carry.
   static const int maxRecentEventColors = 6;
+
+  /// Which geometry the custom-colour picker opens with (a
+  /// `ColorPickerMode` name). A standing preference, not a per-pick one.
+  static const String colorPickerMode = 'color_picker_mode';
+  static const String defaultColorPickerMode = 'square';
+
+  /// Ceiling on the user's own swatches. A picker is a `Wrap` the user scans,
+  /// not a list they search, so an unbounded palette would quietly turn every
+  /// colour row into a wall of dots.
+  static const int maxCustomCalendarColors = 24;
 
   /// CSV of folded section ids on the calendar settings page. A view
   /// preference of that page only — it changes nothing the calendar draws,

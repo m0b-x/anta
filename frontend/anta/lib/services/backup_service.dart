@@ -12,6 +12,7 @@ import 'event_occurrence_service.dart';
 import 'event_presence_service.dart';
 import 'event_skip_service.dart';
 import 'event_template_service.dart';
+import 'calendar_palette_service.dart';
 import 'filter_preset_service.dart';
 import 'vocabulary_service.dart';
 import 'category_service.dart';
@@ -212,6 +213,13 @@ class BackupService {
       'money_currency_symbol',
       'money_currency_suffix',
       'markdown_custom_colors',
+      // The user's own calendar swatches: authored content like the markdown
+      // palette above it, so it travels with the backup rather than being
+      // rebuilt by hand on the next install.
+      SettingsKeys.calendarCustomColors,
+      // Which picker geometry they prefer — a display preference, carried
+      // for the same reason `theme_mode` and `word_wrap` are.
+      SettingsKeys.colorPickerMode,
     ];
 
     final settings = <String, dynamic>{};
@@ -364,6 +372,13 @@ class BackupService {
 
       // Reset MarkdownBarService so it picks up restored data
       MarkdownBarService.reset();
+
+      // The colour palette is a settings-derived cache like the bar above.
+      // Reset drops the pre-restore swatches; re-initialising right away
+      // republishes the restored ones, so a picker left open repaints once
+      // and correctly instead of falling back to the built-ins.
+      CalendarPaletteService.reset();
+      await CalendarPaletteService.getInstance();
 
       final counterData = data['counterData'] as Map<String, dynamic>?;
       if (counterData != null) {

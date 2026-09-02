@@ -7527,6 +7527,216 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Pairing failed'**
   String get pairingErrorUnknown;
+
+  /// Title of the shared colour palette sheet and of the settings row that opens it
+  ///
+  /// In en, this message translates to:
+  /// **'Colors'**
+  String get colorPaletteTitle;
+
+  /// Intro line of the colour palette sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Every color the calendar\'s pickers offer. Colors you add show up in all of them.'**
+  String get colorPaletteDesc;
+
+  /// Section label above the swatches that ship with the app
+  ///
+  /// In en, this message translates to:
+  /// **'Built-in colors'**
+  String get colorPaletteDefaultsLabel;
+
+  /// Section label above the swatches the user added
+  ///
+  /// In en, this message translates to:
+  /// **'Your colors'**
+  String get colorPaletteCustomLabel;
+
+  /// Tooltip on a built-in swatch, which cannot be edited or deleted
+  ///
+  /// In en, this message translates to:
+  /// **'Built-in color'**
+  String get colorPaletteBuiltIn;
+
+  /// Empty state when the user has added no colours
+  ///
+  /// In en, this message translates to:
+  /// **'No colors of your own yet. Add one and it appears in every picker.'**
+  String get colorPaletteEmpty;
+
+  /// Hint above the editable list of the user's own colours
+  ///
+  /// In en, this message translates to:
+  /// **'Tap a color to change it. Anything already using it keeps its color.'**
+  String get colorPaletteEditHint;
+
+  /// Button that removes every colour the user added
+  ///
+  /// In en, this message translates to:
+  /// **'Reset colors'**
+  String get colorPaletteReset;
+
+  /// Confirmation for resetting the colour palette
+  ///
+  /// In en, this message translates to:
+  /// **'Delete all the colors you added and keep only the built-in ones?'**
+  String get colorPaletteResetConfirm;
+
+  /// Error shown when the custom colour cap is reached
+  ///
+  /// In en, this message translates to:
+  /// **'Your palette is full. Delete a color to add another.'**
+  String get colorPaletteFull;
+
+  /// Error shown when the picked colour duplicates an existing swatch
+  ///
+  /// In en, this message translates to:
+  /// **'That color is already in the palette'**
+  String get colorAlreadyInPalette;
+
+  /// How many colours the user added, shown under the palette settings row
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{No colors of your own} =1{1 color of your own} other{{count} colors of your own}}'**
+  String colorPaletteCount(int count);
+
+  /// Opens the colour wheel and adds the picked colour to the palette
+  ///
+  /// In en, this message translates to:
+  /// **'Add color'**
+  String get addColor;
+
+  /// Recolours one of the user's own swatches
+  ///
+  /// In en, this message translates to:
+  /// **'Edit color'**
+  String get editColor;
+
+  /// Removes one of the user's own swatches from the palette
+  ///
+  /// In en, this message translates to:
+  /// **'Delete color'**
+  String get deleteColor;
+
+  /// Confirmation for deleting a custom swatch
+  ///
+  /// In en, this message translates to:
+  /// **'Remove this color from the palette? Anything already using it keeps its color.'**
+  String get deleteColorConfirm;
+
+  /// Opens the colour palette sheet from a colour picker row
+  ///
+  /// In en, this message translates to:
+  /// **'Manage colors'**
+  String get manageColors;
+
+  /// Label of the hex code field in the colour picker
+  ///
+  /// In en, this message translates to:
+  /// **'Hex'**
+  String get colorHexLabel;
+
+  /// Inline error when the typed hex code is not six valid digits
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a color like #3A7BDE'**
+  String get colorHexInvalid;
+
+  /// Tooltip on the button copying the picked colour's hex code
+  ///
+  /// In en, this message translates to:
+  /// **'Copy hex code'**
+  String get colorCopyHex;
+
+  /// Snackbar confirming the hex code went to the clipboard
+  ///
+  /// In en, this message translates to:
+  /// **'Copied'**
+  String get colorHexCopied;
+
+  /// Tooltip on the before swatch, which reverts the picker to the colour being replaced
+  ///
+  /// In en, this message translates to:
+  /// **'Current color, tap to restore'**
+  String get colorPickerCurrent;
+
+  /// Tooltip on the after swatch, showing what Select would return
+  ///
+  /// In en, this message translates to:
+  /// **'New color'**
+  String get colorPickerNew;
+
+  /// Accessibility label of the hue slider
+  ///
+  /// In en, this message translates to:
+  /// **'Hue'**
+  String get colorHue;
+
+  /// Accessibility label of the colour picker's square
+  ///
+  /// In en, this message translates to:
+  /// **'Saturation and brightness'**
+  String get colorSaturationBrightness;
+
+  /// Accessibility value read out for the colour picker's square
+  ///
+  /// In en, this message translates to:
+  /// **'Saturation {saturation}%, brightness {brightness}%'**
+  String colorSaturationBrightnessValue(int saturation, int brightness);
+
+  /// Tooltip on the drag handle of a custom colour row
+  ///
+  /// In en, this message translates to:
+  /// **'Drag to reorder'**
+  String get colorReorder;
+
+  /// How many custom colours are used against the maximum
+  ///
+  /// In en, this message translates to:
+  /// **'{count} of {max}'**
+  String colorPaletteCapCount(int count, int max);
+
+  /// Name of the saturation/brightness square geometry in the colour picker
+  ///
+  /// In en, this message translates to:
+  /// **'Square'**
+  String get colorModeSquare;
+
+  /// Name of the hue/saturation wheel geometry in the colour picker
+  ///
+  /// In en, this message translates to:
+  /// **'Wheel'**
+  String get colorModeWheel;
+
+  /// Accessibility label of the brightness slider in wheel mode
+  ///
+  /// In en, this message translates to:
+  /// **'Brightness'**
+  String get colorBrightness;
+
+  /// Accessibility label of the colour picker's wheel
+  ///
+  /// In en, this message translates to:
+  /// **'Hue and saturation'**
+  String get colorHueSaturation;
+
+  /// Accessibility value read out for the colour picker's wheel
+  ///
+  /// In en, this message translates to:
+  /// **'Hue {hue}°, saturation {saturation}%'**
+  String colorHueSaturationValue(int hue, int saturation);
+
+  /// Expands a colour row that is showing only its first few rows of swatches
+  ///
+  /// In en, this message translates to:
+  /// **'Show {count} more colors'**
+  String colorShowAll(int count);
+
+  /// Tooltip on the swatch meaning: use the colour of the chosen category
+  ///
+  /// In en, this message translates to:
+  /// **'Category color'**
+  String get eventColorCategoryDefault;
 }
 
 class _AppLocalizationsDelegate

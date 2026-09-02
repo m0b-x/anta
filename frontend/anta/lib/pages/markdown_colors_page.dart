@@ -6,7 +6,7 @@ import '../services/settings_service.dart';
 import '../utils/markdown_color_syntax.dart';
 import '../widgets/app_dialogs.dart';
 import '../utils/custom_snackbar.dart';
-import '../widgets/color_wheel_picker.dart';
+import '../widgets/color_picker_sheet.dart';
 import '../widgets/unified_app_bars.dart';
 
 /// Settings page for the markdown colour palette shared by coloured
@@ -73,18 +73,18 @@ class _MarkdownColorsPageState extends State<MarkdownColorsPage> {
     }
     final name = await _promptName();
     if (name == null || !mounted) return;
-    final argb = await ColorWheelDialog.show(context);
-    if (argb == null) return;
+    final argb = await ColorPickerSheet.show(context);
+    if (argb == null || !mounted) return;
     setState(() => _custom[name] = Color(argb));
     await _persist();
   }
 
   Future<void> _recolor(String name) async {
-    final argb = await ColorWheelDialog.show(
+    final argb = await ColorPickerSheet.show(
       context,
       initialColor: _custom[name]?.toARGB32(),
     );
-    if (argb == null) return;
+    if (argb == null || !mounted) return;
     setState(() => _custom[name] = Color(argb));
     await _persist();
   }

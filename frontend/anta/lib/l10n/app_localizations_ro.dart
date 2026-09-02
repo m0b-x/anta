@@ -4356,4 +4356,133 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get pairingErrorUnknown => 'Împerecherea a eșuat';
+
+  @override
+  String get colorPaletteTitle => 'Culori';
+
+  @override
+  String get colorPaletteDesc =>
+      'Toate culorile oferite de selectoarele calendarului. Culorile adăugate apar peste tot.';
+
+  @override
+  String get colorPaletteDefaultsLabel => 'Culori implicite';
+
+  @override
+  String get colorPaletteCustomLabel => 'Culorile tale';
+
+  @override
+  String get colorPaletteBuiltIn => 'Culoare implicită';
+
+  @override
+  String get colorPaletteEmpty =>
+      'Încă nu ai culori proprii. Adaugă una și va apărea în fiecare selector.';
+
+  @override
+  String get colorPaletteEditHint =>
+      'Atinge o culoare pentru a o schimba. Tot ce o folosește deja își păstrează culoarea.';
+
+  @override
+  String get colorPaletteReset => 'Resetează culorile';
+
+  @override
+  String get colorPaletteResetConfirm =>
+      'Ștergi toate culorile adăugate și păstrezi doar cele implicite?';
+
+  @override
+  String get colorPaletteFull =>
+      'Paleta ta este plină. Șterge o culoare pentru a adăuga alta.';
+
+  @override
+  String get colorAlreadyInPalette => 'Culoarea există deja în paletă';
+
+  @override
+  String colorPaletteCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de culori proprii',
+      few: '$count culori proprii',
+      one: '1 culoare proprie',
+      zero: 'Nicio culoare proprie',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get addColor => 'Adaugă culoare';
+
+  @override
+  String get editColor => 'Editează culoarea';
+
+  @override
+  String get deleteColor => 'Șterge culoarea';
+
+  @override
+  String get deleteColorConfirm =>
+      'Elimini această culoare din paletă? Tot ce o folosește deja își păstrează culoarea.';
+
+  @override
+  String get manageColors => 'Gestionează culorile';
+
+  @override
+  String get colorHexLabel => 'Hex';
+
+  @override
+  String get colorHexInvalid => 'Introdu o culoare precum #3A7BDE';
+
+  @override
+  String get colorCopyHex => 'Copiază codul hex';
+
+  @override
+  String get colorHexCopied => 'Copiat';
+
+  @override
+  String get colorPickerCurrent => 'Culoarea actuală, atinge pentru a reveni';
+
+  @override
+  String get colorPickerNew => 'Culoare nouă';
+
+  @override
+  String get colorHue => 'Nuanță';
+
+  @override
+  String get colorSaturationBrightness => 'Saturație și luminozitate';
+
+  @override
+  String colorSaturationBrightnessValue(int saturation, int brightness) {
+    return 'Saturație $saturation%, luminozitate $brightness%';
+  }
+
+  @override
+  String get colorReorder => 'Trage pentru reordonare';
+
+  @override
+  String colorPaletteCapCount(int count, int max) {
+    return '$count din $max';
+  }
+
+  @override
+  String get colorModeSquare => 'Pătrat';
+
+  @override
+  String get colorModeWheel => 'Roată';
+
+  @override
+  String get colorBrightness => 'Luminozitate';
+
+  @override
+  String get colorHueSaturation => 'Nuanță și saturație';
+
+  @override
+  String colorHueSaturationValue(int hue, int saturation) {
+    return 'Nuanță $hue°, saturație $saturation%';
+  }
+
+  @override
+  String colorShowAll(int count) {
+    return 'Arată încă $count culori';
+  }
+
+  @override
+  String get eventColorCategoryDefault => 'Culoarea categoriei';
 }

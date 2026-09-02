@@ -51,7 +51,13 @@ class DatabaseLifecycle {
   ///
   /// Services should call this from their `getInstance()` first-time path so
   /// the handler is re-registered alongside each fresh singleton.
+  ///
+  /// Registering the same handler twice is a no-op. A service that resets and
+  /// re-initializes *within* one database lifetime — a backup restore does
+  /// exactly that, so the restored rows reach its cache — would otherwise
+  /// leave a duplicate behind on every pass.
   static void registerResetHandler(VoidCallback handler) {
+    if (_resetHandlers.contains(handler)) return;
     _resetHandlers.add(handler);
   }
 

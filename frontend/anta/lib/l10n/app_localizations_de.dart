@@ -4322,4 +4322,132 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get pairingErrorUnknown => 'Kopplung fehlgeschlagen';
+
+  @override
+  String get colorPaletteTitle => 'Farben';
+
+  @override
+  String get colorPaletteDesc =>
+      'Alle Farben, die die Kalender-Auswahlen anbieten. Hinzugefügte Farben erscheinen überall.';
+
+  @override
+  String get colorPaletteDefaultsLabel => 'Vorgegebene Farben';
+
+  @override
+  String get colorPaletteCustomLabel => 'Deine Farben';
+
+  @override
+  String get colorPaletteBuiltIn => 'Vorgegebene Farbe';
+
+  @override
+  String get colorPaletteEmpty =>
+      'Noch keine eigenen Farben. Füge eine hinzu und sie erscheint in jeder Auswahl.';
+
+  @override
+  String get colorPaletteEditHint =>
+      'Tippe auf eine Farbe, um sie zu ändern. Alles, was sie bereits nutzt, behält seine Farbe.';
+
+  @override
+  String get colorPaletteReset => 'Farben zurücksetzen';
+
+  @override
+  String get colorPaletteResetConfirm =>
+      'Alle hinzugefügten Farben löschen und nur die vorgegebenen behalten?';
+
+  @override
+  String get colorPaletteFull =>
+      'Deine Palette ist voll. Lösche eine Farbe, um eine weitere hinzuzufügen.';
+
+  @override
+  String get colorAlreadyInPalette => 'Diese Farbe ist bereits in der Palette';
+
+  @override
+  String colorPaletteCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count eigene Farben',
+      one: '1 eigene Farbe',
+      zero: 'Keine eigenen Farben',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get addColor => 'Farbe hinzufügen';
+
+  @override
+  String get editColor => 'Farbe bearbeiten';
+
+  @override
+  String get deleteColor => 'Farbe löschen';
+
+  @override
+  String get deleteColorConfirm =>
+      'Diese Farbe aus der Palette entfernen? Alles, was sie bereits nutzt, behält seine Farbe.';
+
+  @override
+  String get manageColors => 'Farben verwalten';
+
+  @override
+  String get colorHexLabel => 'Hex';
+
+  @override
+  String get colorHexInvalid => 'Gib eine Farbe wie #3A7BDE ein';
+
+  @override
+  String get colorCopyHex => 'Hex-Code kopieren';
+
+  @override
+  String get colorHexCopied => 'Kopiert';
+
+  @override
+  String get colorPickerCurrent => 'Aktuelle Farbe, tippen zum Zurücksetzen';
+
+  @override
+  String get colorPickerNew => 'Neue Farbe';
+
+  @override
+  String get colorHue => 'Farbton';
+
+  @override
+  String get colorSaturationBrightness => 'Sättigung und Helligkeit';
+
+  @override
+  String colorSaturationBrightnessValue(int saturation, int brightness) {
+    return 'Sättigung $saturation %, Helligkeit $brightness %';
+  }
+
+  @override
+  String get colorReorder => 'Zum Umsortieren ziehen';
+
+  @override
+  String colorPaletteCapCount(int count, int max) {
+    return '$count von $max';
+  }
+
+  @override
+  String get colorModeSquare => 'Quadrat';
+
+  @override
+  String get colorModeWheel => 'Farbkreis';
+
+  @override
+  String get colorBrightness => 'Helligkeit';
+
+  @override
+  String get colorHueSaturation => 'Farbton und Sättigung';
+
+  @override
+  String colorHueSaturationValue(int hue, int saturation) {
+    return 'Farbton $hue°, Sättigung $saturation %';
+  }
+
+  @override
+  String colorShowAll(int count) {
+    return '$count weitere Farben anzeigen';
+  }
+
+  @override
+  String get eventColorCategoryDefault => 'Kategoriefarbe';
 }

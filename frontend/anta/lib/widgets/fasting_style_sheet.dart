@@ -8,7 +8,7 @@ import '../constants/calendar_icons.dart';
 import '../constants/fasting_calendar.dart';
 import '../l10n/app_localizations.dart';
 import '../models/fasting_appearance.dart';
-import 'color_wheel_picker.dart';
+import 'color_swatch_picker.dart';
 import 'icon_picker_sheet.dart';
 
 /// Per-tradition fasting look & feel editor: grid style, colour, icon and
@@ -130,15 +130,6 @@ class _FastingStyleSheetState extends State<FastingStyleSheet> {
     _apply(_style.copyWith(iconKey: picked));
   }
 
-  Future<void> _pickCustomColor() async {
-    final picked = await ColorWheelDialog.show(
-      context,
-      initialColor: _style.colorValue,
-    );
-    if (picked == null || !mounted) return;
-    _apply(_style.copyWith(colorValue: picked));
-  }
-
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -204,29 +195,17 @@ class _FastingStyleSheetState extends State<FastingStyleSheet> {
                   ],
                 ),
                 _label(theme, l10n.eventColor),
-                Wrap(
-                  spacing: AppSpacing.md,
-                  runSpacing: AppSpacing.md,
-                  children: [
-                    _ColorDot(
-                      color: CalendarColors.fasting,
-                      selected: _style.colorValue == null,
-                      tooltip: l10n.fastingColorDefault,
-                      onTap: () => _apply(_style.copyWith(clearColor: true)),
-                    ),
-                    for (final swatch in CalendarColors.swatchPalette)
-                      _ColorDot(
-                        color: Color(swatch),
-                        selected: _style.colorValue == swatch,
-                        onTap: () =>
-                            _apply(_style.copyWith(colorValue: swatch)),
-                      ),
-                    _ColorDot(
-                      icon: Icons.colorize_rounded,
-                      selected: false,
-                      onTap: _pickCustomColor,
-                    ),
-                  ],
+                ColorSwatchPicker(
+                  value: _style.colorValue,
+                  onChanged: (value) => _apply(
+                    value == null
+                        ? _style.copyWith(clearColor: true)
+                        : _style.copyWith(colorValue: value),
+                  ),
+                  defaultOption: ColorSwatchDefault(
+                    color: CalendarColors.fasting,
+                    tooltip: l10n.fastingColorDefault,
+                  ),
                 ),
                 _label(theme, l10n.iconLabel),
                 Card(
@@ -480,56 +459,6 @@ class _Preview extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-/// Selectable colour swatch, mirroring the event editor's dots.
-class _ColorDot extends StatelessWidget {
-  final Color? color;
-  final IconData? icon;
-  final bool selected;
-  final String? tooltip;
-  final VoidCallback onTap;
-
-  const _ColorDot({
-    this.color,
-    this.icon,
-    this.tooltip,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final fill = color ?? theme.colorScheme.surfaceContainerHighest;
-    final onFill = color == null
-        ? theme.colorScheme.onSurfaceVariant
-        : (ThemeData.estimateBrightnessForColor(fill) == Brightness.dark
-              ? Colors.white
-              : Colors.black87);
-    Widget dot = Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: fill,
-        shape: BoxShape.circle,
-        border: selected
-            ? Border.all(color: theme.colorScheme.onSurface, width: 2.5)
-            : null,
-      ),
-      child: icon != null
-          ? Icon(icon, size: 20, color: onFill)
-          : (selected
-                ? Icon(Icons.check_rounded, size: 20, color: onFill)
-                : null),
-    );
-    if (tooltip != null) dot = Tooltip(message: tooltip!, child: dot);
-    return InkWell(
-      borderRadius: BorderRadius.circular(20),
-      onTap: onTap,
-      child: dot,
     );
   }
 }

@@ -818,7 +818,7 @@ rather than gating behind Save — it is a settings surface, so dismissing
 must never mean "discard". It leads with a preview showing both halves at
 once: a sample day cell carrying the grid treatment next to the day-panel
 row it produces, title/description included. Colour and icon reuse the app's
-existing `ColorWheelDialog` / `IconPickerSheet`; the preview resolves its
+existing colour picker (`ColorSwatchPicker`, see the 2026-09-02 addenda) / `IconPickerSheet`; the preview resolves its
 icon from the sheet's own draft, because the engine only learns about a
 change after the page has persisted and reconfigured it, and it renders the
 description as plain text — pulling the markdown builder into a settings
@@ -2353,7 +2353,8 @@ system rather than a single hardcoded fasting wash.
   are memoized on `_CalendarViewState`.
 - `CalendarColors.moneyPositive` / `moneyNegative` replace the literals
   duplicated across three money surfaces, and `category_editor_sheet.dart` now
-  reads `CalendarColors.swatchPalette` instead of its own copy.
+  stopped keeping its own swatch copy; it now renders `ColorSwatchPicker` (see
+  the 2026-09-02 addendum).
 
 ## Addendum (2026-08-24): keyboard-aware grid, agenda card layout
 
@@ -3624,3 +3625,303 @@ nothing, the in-use marker, all four states of the save-the-live-filter row
 (offered, not offered while empty, not offered once saved, hidden while
 searching), that saving from it does not close the sheet, and that a duplicate
 name warns but still saves.
+
+## Addendum (2026-09-02): one colour palette, and one picker
+
+Five surfaces each carried their own colour row — the accent picker in
+[`calendar_settings_page.dart`](../lib/pages/calendar_settings_page.dart), the
+[category editor](../lib/widgets/category_editor_sheet.dart), the
+[fasting style sheet](../lib/widgets/fasting_style_sheet.dart), the
+[template editor](../lib/widgets/event_template_editor_sheet.dart) and the
+[event editor](../lib/widgets/event_editor_sheet.dart) — with five private
+`_ColorDot`-shaped widgets between them (`_ColorSwatch`, two `_ColorDot`s,
+`_EventColorDot` and `_AccentColorDot`: 40px here, 44px there, three
+different selected-border treatments) and the same
+`for (final swatch in CalendarColors.swatchPalette)` loop copied five times. A
+colour mixed on the wheel was kept in exactly one of them, as a capped
+most-recent-first list under `recent_event_colors` that only the event editor
+read; picking the same shade for a category meant mixing it again.
+
+### The palette
+
+`CalendarColors.swatchPalette` (18 built-ins) is unchanged and stays const:
+built-ins are **never stored**, so editing that list still reaches every
+existing install. The user's own swatches live beside it in
+`SettingsKeys.calendarCustomColors` — comma-separated ARGB ints, insertion
+order, capped at `SettingsKeys.maxCustomCalendarColors` (24).
+
+[`CalendarPalette`](../lib/constants/calendar_palette.dart) is the synchronous
+facade over the two halves, the `CalendarCategories` pattern again: `defaults`,
+`custom`, `all` (built-ins first), `isDefault`, `contains`, and a
+`ValueNotifier<int> listenable` that doubles as the revision counter. The
+notifier is what lets a colour added inside a bottom sheet repaint the row that
+opened it and every other picker already on screen, with no caller plumbing a
+reload.
+
+[`CalendarPaletteService`](../lib/services/calendar_palette_service.dart) owns
+the writes. It holds **no database reference** — it goes through
+`SettingsService`, which is what keeps it correct across a database switch,
+like `NavigationHistoryService` — serializes every mutation onto one chain so
+two taps from two sheets cannot land out of order, and republishes the facade
+after each. `add`/`update`/`remove`/`resetToDefaults` all return a bool saying
+whether anything changed, so the caller can explain a refusal (duplicate,
+built-in, palette full) instead of silently doing nothing.
+
+**Deleting a swatch removes it from the palette, never from what is painted
+with it.** Events, categories, templates and fasting styles store raw ARGB
+ints; a deleted colour keeps rendering wherever it was chosen and simply stops
+being offered. The picker still shows it, selected, as an orphan dot.
+
+`recent_event_colors` is retired. `_foldLegacyRecents` reads it once on first
+load, folds its non-built-in entries into the palette, and clears the row —
+so a colour the user mixed last week is waiting for them, and one they then
+delete cannot come back on the next launch.
+
+### The picker
+
+[`ColorSwatchPicker`](../lib/widgets/color_swatch_picker.dart) is the one
+colour row: an optional leading `ColorSwatchDefault` dot (the theme accent, the
+category colour, the fasting default — each surface says what "no colour of my
+own" means there), the palette, the orphan dot when the current value is in
+neither half, a wheel dot that **adds what it picks to the palette
+permanently** and selects it, and a palette dot that opens the management
+sheet. Long-pressing one of the user's own swatches offers recolour, delete and
+manage in place; built-ins have no long-press. `onChanged` reports the result,
+never which affordance produced it, so each surface has one handler instead of
+four.
+
+[`ColorPaletteSheet`](../lib/widgets/color_palette_sheet.dart) is the
+management surface — add, recolour, delete (confirmed), and *Reset colors*,
+which drops the custom half only. It applies live like the other settings
+sheets: every tap persists and republishes, so there is nothing to save and
+dismissing is never a discard. Reached from any picker's palette dot and from
+the **Colors** row under the accent picker in calendar settings, whose subtitle
+counts the user's own swatches off the same facade.
+
+The calendar settings page's own *Reset to defaults* deliberately leaves the
+palette alone: those swatches are shared with categories, templates and events,
+so a page-scoped reset must not delete them. The palette has its own reset,
+next to the colours it removes.
+
+### Persistence and backup
+
+The key rides the backup settings allow-list (next to
+`markdown_custom_colors`, and for the same reason: authored content, not a
+device preference). `importFromJson` resets and immediately re-initialises the
+service after writing the settings map, the way it already resets
+`MarkdownBarService`, so an open picker repaints once with the restored
+palette rather than falling back to the built-ins.
+
+Not to be confused with `MarkdownColorPalette` (`markdown_custom_colors`),
+which is name→colour pairs for `{name:text}` syntax and shares nothing with
+this beyond the word "palette".
+
+### Tests
+
+[`test/services/calendar_palette_service_test.dart`](../test/services/calendar_palette_service_test.dart)
+pins the parts that are not just a list: a built-in can never be stored or
+deleted, the cap refuses rather than evicting, concurrent adds all land,
+`update` keeps the swatch's position, reset drops only the user half, and the
+legacy fold runs exactly once — including that a colour deleted after the fold
+stays deleted across a reopen.
+[`test/widgets/color_swatch_picker_test.dart`](../test/widgets/color_swatch_picker_test.dart)
+pins what the five hand-rolled rows used to each own: the default dot carries
+the selection while the value is null, a value outside the palette still
+renders selected, only custom swatches offer the long-press menu, and an
+add/delete anywhere repaints a picker already on screen.
+[`test/services/backup_service_calendar_round_trip_test.dart`](../test/services/backup_service_calendar_round_trip_test.dart)
+gained a swatch and clears its settings row with the table wipe — verified to
+fail when the key is dropped from the export list, since nothing else in that
+test would notice a colour going missing.
+
+### Addendum (2026-09-02, later the same day): the picker itself
+
+`ColorWheelDialog` is gone; [`ColorPickerSheet`](../lib/widgets/color_picker_sheet.dart)
+replaces it, same `static Future<int?> show(context, {initialColor})` contract,
+so the swatch picker, the palette sheet and `markdown_colors_page.dart` changed
+only the name they call.
+
+**Square + hue slider, not a wheel.** On a wheel hue and saturation are
+polar-coupled — a drag toward "less saturated" drifts the hue — and full
+saturation lives in a thin rim, which is exactly where people aim. The
+saturation/brightness square gives two independent Cartesian axes over its
+whole area, and the hue axis is a real Material `Slider` over a spectrum track
+(`_SpectrumTrackShape`), which is what buys keyboard arrows, focus and slider
+semantics without re-implementing them on a painted strip.
+
+**A sheet, not a dialog.** The hex field summons the keyboard, which covers a
+centred `AlertDialog`; a sheet rises with it. It also retires the
+`IntrinsicWidth`/`LayoutBuilder` conflict the old dialog sized its wheel
+around — sheet content gets real width constraints, so the square is sized
+from `LayoutBuilder` instead of MediaQuery arithmetic.
+
+Controls, top to bottom: square → hue → (before · after · hex · copy) →
+Cancel/Select. Coarse controls high, the keyboard-summoning field lowest, the
+actions at the thumb. The **before/after pair only exists when replacing a
+colour**, and tapping the "current" dot reverts the edit in progress. The hex
+field takes `#RRGGBB` or `RRGGBB`, applies live on six valid digits, and shows
+an inline error otherwise; its `maxLength` is **9, not 7**, deliberately — the
+length formatter rejects an over-long paste wholesale with no keystroke and no
+explanation, so the field has to be long enough to *accept* a pasted 8-digit
+ARGB in order to explain that this picker has no alpha.
+
+**No alpha, ever.** Day-cell washes, stripes and missed-state fades each apply
+their own `withValues(alpha:)`; a user opacity would multiply into those and
+the rendered day would disagree with the swatch. Six digits in, `0xFF` out.
+
+Rejected on the way in: RGB/HSV numeric fields (hex already is the precise
+path), a shade ramp (spatially duplicates the square's left edge and bottom
+row), and a "recently picked" row — the palette *is* the recents now, which is
+what `_foldLegacyRecents` was for.
+
+**Palette sheet reorder.** Custom rows live in a `SliverReorderableList` inside
+a `CustomScrollView` — slivers rather than a `shrinkWrap` list inside another
+scroll view, which silently kills drag auto-scroll (the trap the categories
+page documents). Order is persisted by `CalendarPaletteService.move`, which is
+just the CSV order, so **no format change** and the cap cannot be breached by a
+reorder. Row order is picker-dot order, which is the point: the colours reached
+for most can be moved to where the thumb lands first. The section label now
+carries an `n / 24` counter, because the cap was previously invisible until it
+refused an add.
+
+Two traps found by the tests here, both worth keeping:
+- `Semantics` with `onIncrease` **must** also declare `increasedValue` and
+  `decreasedValue`, or the framework asserts on every frame of the picker.
+- A `Tooltip` on a drag handle adds a long-press recognizer that wins the
+  gesture arena against the immediate drag listener — hold still, then drag,
+  and the reorder is dead. The handle carries a `Semantics(label:)` instead,
+  which is also why the app's other three reorderable lists have bare handles.
+
+Tests: [`test/widgets/color_picker_sheet_test.dart`](../test/widgets/color_picker_sheet_test.dart)
+pins the hex paths (typed, hash-less, 8-digit refused, unparseable changing
+nothing), cancel returning null, the before/after pair and its revert, the hue
+drag moving the hex, clipboard copy, and a 360×640 layout that must not
+overflow. The reorder is pinned in
+[`test/widgets/color_palette_sheet_test.dart`](../test/widgets/color_palette_sheet_test.dart)
+by a real incremental drag, and `move`'s no-op/out-of-range/set-preserving
+behaviour in the service suite.
+
+### Addendum (2026-09-02): the wheel comes back, as an option
+
+The square stays the default; the hue/saturation **wheel** returns as an
+opt-in second geometry inside the same `ColorPickerSheet`, because a lot of
+people have used a wheel for years and reach for one by habit. Both live in
+one sheet — the preview pair, the hex field, the copy button and the actions
+are a single implementation shared by both shapes.
+
+- **The switch** is a two-segment icon-only `SegmentedButton` at the trailing
+  end of the title row (`Icons.gradient_rounded` / `Icons.donut_large_rounded`,
+  tooltips carrying the localized names, which are also their semantics
+  labels). It sits in the title row because it is a view control, not a colour
+  control, and because that costs the sheet no vertical space — which matters
+  at 360×640. The title `Text` is `Expanded` with an ellipsis: without that,
+  the added segments overflow the row in German.
+- **The choice persists** (`ColorPickerMode` in `lib/models/`,
+  `SettingsKeys.colorPickerMode`, default `square`) — "some people prefer the
+  wheel" is a standing preference, not a per-pick one — and rides the backup
+  allow-list next to the other display preferences. `show()` resolves it
+  **before** presenting the sheet, so the picker can never open square and
+  flip to wheel a frame later; the read and the write are both totally
+  guarded, since no settings failure is worth turning a colour pick into a
+  sheet that will not open.
+- **The wheel owns hue, so its slider carries brightness.** One slider row in
+  both modes with identical metrics (`trackHeight: 20`, thumb 11, overlay 22):
+  square mode's track is the hue spectrum with a degree formatter, wheel
+  mode's is `black → HSV(hue, sat, 1)` with a percent formatter, so the track
+  previews exactly what dragging it does. `_SpectrumTrackShape` generalized
+  into `_GradientTrackShape(colors)` to serve both.
+- **No layout jump.** `_GeometryBox` computes one height from the square's
+  existing formula — `(width / 1.5).clamp(140, 240)` — and both shapes render
+  inside it, the disc taking the short side and centred. The hex row and the
+  actions do not move by a pixel across a switch, which
+  `test/widgets/color_picker_sheet_test.dart` pins by comparing rects. Only
+  the geometry cross-fades (150 ms, `AnimatedSwitcher` with a stacking
+  `layoutBuilder` so no size can interpolate); the slider row swaps instantly,
+  because animating a control someone is reaching for is disorientation rather
+  than polish.
+- **Wheel interaction:** a drag past the rim keeps tracking with saturation
+  pegged at 100% rather than dropping the gesture — an overshooting finger is
+  still pointing at a hue. A touch within half a pixel of the centre sets
+  saturation 0 and **leaves the hue alone**, since `atan2` is undefined there
+  and a snap to 0° would visibly jump the slider track and the hex. The thumb
+  is the square's ring, not the old wheel's filled dot, which hid the colour
+  it pointed at. Arrow keys are polar: left/right walk the hue, up/down the
+  saturation, Shift ×5.
+- **Semantics:** the wheel's increase/decrease actions step **saturation**,
+  not hue — hue wraps, and a value that rolls 359 → 0 reads as broken to a
+  screen reader. `increasedValue`/`decreasedValue` are declared alongside, the
+  trap already documented for the square.
+
+Unchanged on purpose, and worth not "improving" by accident: the square's
+formula, painter, thumb, focus ring and arrow-key mapping; the whole hex-field
+contract including `maxLength: 9`; no alpha anywhere; the before/after pair and
+its revert; `show()`'s `Future<int?>` contract, so none of the three call sites
+changed.
+
+### Addendum (2026-09-02): review fixes
+
+A deep review of the three layers above found seventeen items; the ones that
+changed behaviour, and the invariants they leave behind:
+
+- **A failed read must never look like an empty palette.** `_load` used to
+  collapse any error — including one thrown by the legacy fold *after* a
+  successful read — into `_custom = []`, and `_commit` rewrites the whole row
+  from memory, so the next colour the user picked would persist that emptiness
+  over their real swatches. The service now carries `_loaded`, every mutation
+  refuses while it is false, and `_commit` asserts on it. The two guards in
+  `_load` are separate for the same reason: a fold that fails must not discard
+  a set that was read.
+- **The legacy fold writes the destination before clearing the source.** The
+  other order loses the colours outright if the write fails between the two,
+  and the fold is once-only by design, so nothing would ever recover them.
+- **`getInstance()` holds an in-flight future.** Two callers racing the first
+  initialization each built a service and each published it, and the loser's
+  writes — full-row rewrites from its own copy — silently dropped the winner's
+  colours. Every other service in the app caches a read model where a second
+  instance is merely stale; this one owns a list.
+- **No widget holds the service.** Both the picker row and the management
+  sheet cached the singleton for their lifetime, which outlives it: a backup
+  restore and a database switch both replace the service, and a write through
+  the stale one either targeted a closed database or overwrote the restored
+  palette. They resolve it per use now, and `DatabaseLifecycle.registerResetHandler`
+  is idempotent so the restore's reset-and-re-init cannot stack duplicate
+  handlers.
+- **A recolour made in the management sheet moves the selection too.**
+  `CalendarPalette.updateCache` takes an optional `(previous, next)` and
+  publishes it as `lastRecolor` for exactly that revision; the picker row
+  listens and follows. Before, editing a swatch from the sheet — reachable
+  from inside the row via the palette dot — left the event on a shade the
+  palette no longer offered.
+- **The gradient slider's tinted thumb actually renders.** `Slider` resolves
+  `widget.thumbColor ?? widget.activeColor ?? theme.thumbColor`, so passing an
+  `activeColor` shadowed the tint and painted the app accent over the hue
+  spectrum. The tint is passed on the widget now; the custom track shape
+  ignores active/inactive colours anyway.
+- **The hex field is validated by an anchored pattern**, not by stripping a
+  `#` and trusting `int.tryParse` — which takes a sign, so `-12345` and
+  `12#3456` both applied a colour. **Typing a grey keeps the hue in force**:
+  `HSVColor.fromColor` reports hue 0 for anything achromatic, so typing
+  `000000` used to swing the wheel to red.
+- **A drag takes focus from the hex field**, not just a tap: `onTapDown` only
+  fires past the 100 ms tap deadline, so a quick flick left the field
+  mirroring a stale colour until the keyboard was dismissed.
+- **Tap targets and names.** `ColorSwatchDot` lays out at 48 with a 44 circle
+  centred in it (a 44 target is under Material's floor and a colour row is a
+  field of small round things), every swatch carries its hex as an accessible
+  name — a screen reader read eighteen identical "button, not selected"
+  before — and the per-call `dotSize` is gone, so all five surfaces match.
+- **A long palette collapses.** 18 built-ins plus up to 24 of the user's own
+  is nine runs of circles in the middle of a form; the row measures its width,
+  shows three runs, and offers the rest behind one tap — with the selected
+  swatch always among the visible ones, since a control must not hide the
+  thing it is reporting. Nothing collapses when everything fits.
+- `eventColorCategoryDefault` replaced `categoryDefault` as the "use the
+  category's colour" tooltip in both editors — that key reads "Built-in
+  category", which described nothing on a colour row and was also the dot's
+  only accessible name.
+
+The review also confirmed clean: `_serialize` survives a throwing action,
+`_normalize` cannot leak a built-in or a duplicate into storage, the reorder
+index semantics match `onReorderItem`, the legacy fold is genuinely once-only,
+`% 360` is safe for negative hues, `Select` always returns what the preview dot
+painted, and the `AnimatedSwitcher` cross-fade cannot swallow a hit test.

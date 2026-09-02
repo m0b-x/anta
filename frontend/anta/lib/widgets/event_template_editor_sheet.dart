@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../constants/calendar_categories.dart';
-import '../constants/calendar_colors.dart';
 import '../constants/calendar_icons.dart';
 import '../constants/event_priorities.dart';
 import '../l10n/app_localizations.dart';
@@ -10,6 +9,7 @@ import '../models/event_template.dart';
 import '../models/recurrence_rule.dart';
 import '../services/event_template_service.dart';
 import 'category_picker_sheet.dart';
+import 'color_swatch_picker.dart';
 import 'icon_picker_sheet.dart';
 
 /// Repeat shape a template can capture. `SpecificDatesRecurrence` is
@@ -481,26 +481,16 @@ class _EventTemplateEditorSheetState extends State<EventTemplateEditorSheet> {
                   ),
 
                   _SectionLabel(text: l10n.eventColor),
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: [
-                      // The category default reads as a swatch of its own, so
-                      // "no override" is a choice rather than a missing one.
-                      _ColorDot(
-                        color: category.color,
-                        icon: Icons.auto_awesome_rounded,
-                        tooltip: l10n.categoryDefault,
-                        selected: _colorValue == null,
-                        onTap: () => setState(() => _colorValue = null),
-                      ),
-                      for (final swatch in CalendarColors.swatchPalette)
-                        _ColorDot(
-                          color: Color(swatch),
-                          selected: _colorValue == swatch,
-                          onTap: () => setState(() => _colorValue = swatch),
-                        ),
-                    ],
+                  ColorSwatchPicker(
+                    value: _colorValue,
+                    onChanged: (value) => setState(() => _colorValue = value),
+                    // The category default reads as a swatch of its own, so
+                    // "no override" is a choice rather than a missing one.
+                    defaultOption: ColorSwatchDefault(
+                      color: category.color,
+                      icon: Icons.auto_awesome_rounded,
+                      tooltip: l10n.eventColorCategoryDefault,
+                    ),
                   ),
                   if (_colorValue != null)
                     SwitchListTile(
@@ -707,55 +697,5 @@ class _WeekdaySelector extends StatelessWidget {
           ),
       ],
     );
-  }
-}
-
-/// Tappable colour dot, mirroring the event editor's swatch row.
-class _ColorDot extends StatelessWidget {
-  final Color color;
-  final IconData? icon;
-  final String? tooltip;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _ColorDot({
-    required this.color,
-    required this.selected,
-    required this.onTap,
-    this.icon,
-    this.tooltip,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final onColor =
-        ThemeData.estimateBrightnessForColor(color) == Brightness.dark
-        ? Colors.white
-        : Colors.black87;
-    final dot = InkWell(
-      onTap: onTap,
-      customBorder: const CircleBorder(),
-      child: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: selected
-                ? theme.colorScheme.onSurface
-                : theme.colorScheme.outlineVariant,
-            width: selected ? 2.5 : 1,
-          ),
-        ),
-        child: Icon(
-          selected ? Icons.check_rounded : icon,
-          size: 20,
-          color: onColor,
-        ),
-      ),
-    );
-    return tooltip == null ? dot : Tooltip(message: tooltip!, child: dot);
   }
 }
