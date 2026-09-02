@@ -112,7 +112,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   CalendarGridFilters _filters = CalendarGridFilters.none;
 
   /// Half-width, in months, of the window [_evictColdDayCacheEntries] keeps
-  /// warm around the focused month — [_dayCacheWindowFor]'s single
+  /// warm around the focused month — [dayCacheWindowFor]'s single
   /// definition, shared with `_CalendarViewState`'s neighbour-month prewarm
   /// *and* [_partitionFor]. The prewarm only ever fills the month immediately
   /// before/after (radius 1), strictly inside this radius, so nothing it just
@@ -121,7 +121,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   static const int _dayCacheWindowMonths = 3;
 
   /// Cached [EventAgenda.partitionForWindow] split of the current
-  /// [_dayCacheWindowFor] window, consulted by [_dayCandidates] on a
+  /// [dayCacheWindowFor] window, consulted by [_dayCandidates] on a
   /// [_dayCache] miss for a day inside that window. `null` before the first
   /// such miss, and whenever anything it depends on changes.
   ///
@@ -357,7 +357,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   /// for every candidate this returns; nothing here reads
   /// `event.rule.occursOn`.
   ///
-  /// Inside [_dayCacheWindowFor]'s current window this is
+  /// Inside [dayCacheWindowFor]'s current window this is
   /// [EventAgenda.partitionForWindow]'s `dense` list plus its [key]-keyed
   /// sparse and one-time buckets — the same events a full scan would have
   /// reached, minus the ones whose rule provably cannot fire on [key]
@@ -368,7 +368,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   /// was never built to cover that day.
   List<CalendarEvent> _dayCandidates(CalendarPageLoaded current, DateTime key) {
     final source = _visibleEvents(current);
-    final (start, endExclusive) = _dayCacheWindowFor(current.focusedDay);
+    final (start, endExclusive) = dayCacheWindowFor(current.focusedDay);
     if (key.isBefore(start) || !key.isBefore(endExclusive)) {
       return source;
     }
@@ -515,7 +515,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   /// would trade a cache that already survives a multi-year paging session
   /// for one that forgets everything past three months, with no matching bug
   /// to justify it.
-  static (DateTime start, DateTime endExclusive) _dayCacheWindowFor(
+  static (DateTime start, DateTime endExclusive) dayCacheWindowFor(
     DateTime focusedDay,
   ) {
     final start = DateTime.utc(
@@ -529,7 +529,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     return (start, endExclusive);
   }
 
-  /// Evicts [_dayCache] entries outside [_dayCacheWindowFor] — eviction, not
+  /// Evicts [_dayCache] entries outside [dayCacheWindowFor] — eviction, not
   /// invalidation: the entries kept are still correct, just unlikely to be
   /// read again soon, whereas [_invalidateDayCache] drops everything because
   /// the event set itself changed. Called only from [_onChangeFocusedDay],
@@ -543,7 +543,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   /// cache is still over the cap afterwards, and — like the prune — only
   /// from here, never from the lookup.
   void _evictColdDayCacheEntries(DateTime focusedDay) {
-    final (start, endExclusive) = _dayCacheWindowFor(focusedDay);
+    final (start, endExclusive) = dayCacheWindowFor(focusedDay);
     bool cold(DateTime day, Object? _) =>
         day.isBefore(start) || !day.isBefore(endExclusive);
     _dayCache.removeWhere(cold);
@@ -706,7 +706,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     }
     emit(
       current.copyWith(
-        allEvents: List.unmodifiable(service.events),
+        allEvents: service.events,
         selectedDay: normalized.startDate,
         focusedDay: normalized.startDate,
       ),
@@ -738,7 +738,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     } catch (e) {
       debugPrint('[CalendarBloc] Money ledger refresh error: $e');
     }
-    emit(current.copyWith(allEvents: List.unmodifiable(service.events)));
+    emit(current.copyWith(allEvents: service.events));
   }
 
   Future<void> _onDeleteEvent(
@@ -758,7 +758,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       return;
     }
     _invalidateDayCache();
-    emit(current.copyWith(allEvents: List.unmodifiable(service.events)));
+    emit(current.copyWith(allEvents: service.events));
   }
 
   /// Writes one occurrence's description override.

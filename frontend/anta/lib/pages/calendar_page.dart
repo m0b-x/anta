@@ -49,6 +49,7 @@ import '../widgets/calendar_add_fab.dart';
 import '../widgets/calendar_bottom_panel.dart';
 import '../widgets/calendar_day_bars.dart';
 import '../widgets/calendar_day_cell.dart';
+import '../widgets/calendar_day_rail.dart';
 import '../widgets/calendar_filter_chips.dart';
 import '../widgets/calendar_filter_sheet.dart';
 import '../widgets/filter_preset_sheet.dart';
@@ -160,6 +161,8 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   final ValueNotifier<double?> _collapseProgress = ValueNotifier(null);
 
   final KeyboardInsetTracker _insetTracker = KeyboardInsetTracker();
+
+  bool _routeCovered = false;
 
   /// Memoized day-bar resolver. Its providers are stateless and depend only
   /// on the localization and the missed-display setting, both of which change
@@ -342,6 +345,15 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     _railOutputCache.clear();
   }
 
+  void _evictColdResolverOutputs(DateTime focusedDay) {
+    final (start, endExclusive) = CalendarBloc.dayCacheWindowFor(focusedDay);
+    bool cold(DateTime day, Object? _) =>
+        day.isBefore(start) || !day.isBefore(endExclusive);
+    _barsOutputCache.removeWhere(cold);
+    _tintOutputCache.removeWhere(cold);
+    _railOutputCache.removeWhere(cold);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -354,6 +366,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   /// flip rebuilds the grid subtree alone, and the progress goes straight to
   /// a render object.
   void _handleKeyboardInset() {
+    if (_routeCovered) return;
     _insetTracker.update(_keyboardInset.value);
     _collapseProgress.value = _insetTracker.progress;
     _gridCollapsed.value = _insetTracker.collapsed;
@@ -380,6 +393,11 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     super.dispose();
   }
 
+  @override
+  void didPushNext() {
+    _routeCovered = true;
+  }
+
   /// Called when a route pushed above the calendar is popped.
   ///
   /// `RouteObserver<PageRoute>` only fires between two page routes, so the
@@ -387,6 +405,8 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   /// reach here. Settings, backup and database pages do.
   @override
   void didPopNext() {
+    _routeCovered = false;
+    _handleKeyboardInset();
     _loadSettings();
     _reloadIfStale();
   }
@@ -718,63 +738,65 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
           // edge. The gear is last because it is the one worth losing first.
           ScrollableAppBarActions(
             children: [
-          // Saved filters sit **left of** the filter button, in reading order:
-          // you reach for a filter you already have before you build a new
-          // one. It has no badge — a saved filter is not itself a restriction,
-          // and a second count beside the filter badge would only compete
-          // with it.
-          BlocBuilder<CalendarBloc, CalendarPageState>(
-            buildWhen: (previous, current) =>
-                _isLoaded(previous) != _isLoaded(current),
-            builder: (context, state) {
-              return IconButton(
-                tooltip: l10n.filterPresetsTitle,
-                icon: const Icon(Icons.bookmarks_outlined),
-                onPressed: !_isLoaded(state)
-                    ? null
-                    : () {
-                        // Read at press time: this buildWhen tracks only
-                        // whether the page has loaded, so a captured state
-                        // would carry stale filters.
-                        final current = context.read<CalendarBloc>().state;
-                        if (current is! CalendarPageLoaded) return;
-                        _openPresetSheet(context, current);
-                      },
-              );
-            },
-          ),
-          BlocBuilder<CalendarBloc, CalendarPageState>(
-            buildWhen: (previous, current) =>
-                _isLoaded(previous) != _isLoaded(current) ||
-                _activeFilterCount(previous) != _activeFilterCount(current),
-            builder: (context, state) {
-              final isLoaded = _isLoaded(state);
-              final active = _activeFilterCount(state);
-              return Badge.count(
-                count: active,
-                isLabelVisible: active > 0,
-                child: IconButton(
-                  tooltip: l10n.filterCalendar,
-                  isSelected: active > 0,
-                  icon: Icon(
-                    active > 0
-                        ? Icons.filter_alt_rounded
-                        : Icons.filter_alt_outlined,
-                  ),
-                  onPressed: !isLoaded
-                      ? null
-                      : () {
-                          // Read at press time, not from the builder's state:
-                          // this buildWhen ignores `format`, which the sheet
-                          // needs, so a captured state could be stale.
-                          final current = context.read<CalendarBloc>().state;
-                          if (current is! CalendarPageLoaded) return;
-                          _openFilterSheet(context, current);
-                        },
-                ),
-              );
-            },
-          ),
+              // Saved filters sit **left of** the filter button, in reading order:
+              // you reach for a filter you already have before you build a new
+              // one. It has no badge — a saved filter is not itself a restriction,
+              // and a second count beside the filter badge would only compete
+              // with it.
+              BlocBuilder<CalendarBloc, CalendarPageState>(
+                buildWhen: (previous, current) =>
+                    _isLoaded(previous) != _isLoaded(current),
+                builder: (context, state) {
+                  return IconButton(
+                    tooltip: l10n.filterPresetsTitle,
+                    icon: const Icon(Icons.bookmarks_outlined),
+                    onPressed: !_isLoaded(state)
+                        ? null
+                        : () {
+                            // Read at press time: this buildWhen tracks only
+                            // whether the page has loaded, so a captured state
+                            // would carry stale filters.
+                            final current = context.read<CalendarBloc>().state;
+                            if (current is! CalendarPageLoaded) return;
+                            _openPresetSheet(context, current);
+                          },
+                  );
+                },
+              ),
+              BlocBuilder<CalendarBloc, CalendarPageState>(
+                buildWhen: (previous, current) =>
+                    _isLoaded(previous) != _isLoaded(current) ||
+                    _activeFilterCount(previous) != _activeFilterCount(current),
+                builder: (context, state) {
+                  final isLoaded = _isLoaded(state);
+                  final active = _activeFilterCount(state);
+                  return Badge.count(
+                    count: active,
+                    isLabelVisible: active > 0,
+                    child: IconButton(
+                      tooltip: l10n.filterCalendar,
+                      isSelected: active > 0,
+                      icon: Icon(
+                        active > 0
+                            ? Icons.filter_alt_rounded
+                            : Icons.filter_alt_outlined,
+                      ),
+                      onPressed: !isLoaded
+                          ? null
+                          : () {
+                              // Read at press time, not from the builder's state:
+                              // this buildWhen ignores `format`, which the sheet
+                              // needs, so a captured state could be stale.
+                              final current = context
+                                  .read<CalendarBloc>()
+                                  .state;
+                              if (current is! CalendarPageLoaded) return;
+                              _openFilterSheet(context, current);
+                            },
+                    ),
+                  );
+                },
+              ),
               IconButton(
                 tooltip: l10n.calendarSettings,
                 icon: const Icon(Icons.settings_outlined),
@@ -907,10 +929,13 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
                                           width: double.infinity,
                                         );
                                       }
-                                      final barsResolver = _resolverFor(l10n, state.filters);
+                                      final barsResolver = _resolverFor(
+                                        l10n,
+                                        state.filters,
+                                      );
                                       final tintResolver = _cellTintResolverFor(
-                                          state.filters,
-                                        );
+                                        state.filters,
+                                      );
                                       final railResolver = _railResolverFor(
                                         l10n,
                                       );
@@ -1016,11 +1041,11 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
       ),
     );
 
-    // Export feedback and the neighbour-month prewarm each funnel through
+    // Export feedback and the focused-month cache upkeep each funnel through
     // their own listener: the first so the menu action only has to dispatch
     // (guarded on the calendar operation, since the bloc is app-wide and also
     // serves note/folder exports), the second so the grid never has to know
-    // it is being kept warm.
+    // its caches are being warmed and trimmed around it.
     return MultiBlocListener(
       listeners: [
         BlocListener<ImportExportBloc, ImportExportState>(
@@ -1037,6 +1062,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
                   previous.focusedDay.month != current.focusedDay.month),
           listener: (context, state) {
             if (state is CalendarPageLoaded) {
+              _evictColdResolverOutputs(state.focusedDay);
               _schedulePrewarm(state.focusedDay);
             }
           },
@@ -1432,6 +1458,8 @@ class _CalendarTable extends StatelessWidget {
   static final DateTime _firstDay = CalendarBounds.earliest;
   static final DateTime _lastDay = CalendarBounds.latest;
 
+  static final Map<String, DateFormat> _monthYearFormatCache = {};
+
   final CalendarPageLoaded state;
   final CalendarFormat format;
   final bool formatLocked;
@@ -1587,8 +1615,9 @@ class _CalendarTable extends StatelessWidget {
       day,
       bloc.eventsForDay(day),
     );
-    // The rail renders inside the cell, so it resolves here rather than in
-    // `markerBuilder` where the bars do. With the rail off it never runs at
+    // The rail renders inside the cell, but `markerBuilder` runs first and
+    // already filled this memo to build the rail's half of the marker node's
+    // label, so this is a cache hit. With the rail off neither side runs at
     // all — the resolver's cost is not worth paying for a channel that paints
     // nothing.
     final railMarks = railStyle == DayRailStyle.none
@@ -1738,7 +1767,10 @@ class _CalendarTable extends StatelessWidget {
           railHeight: railHeight,
         ),
         headerTitleBuilder: (context, day) {
-          final title = DateFormat.yMMMM(l10n.localeName).format(day);
+          final title =
+              (_monthYearFormatCache[l10n.localeName] ??= DateFormat.yMMMM(
+                l10n.localeName,
+              )).format(day);
           final ledger = NoteMoneyLedgerService.instanceOrNull;
           final monthNet = calendarBloc.monthNetFor(day);
           // Today sits to the left of the title, and the whole cluster
@@ -1814,7 +1846,26 @@ class _CalendarTable extends StatelessWidget {
             day,
             events,
           );
-          if (bars.isEmpty) return const SizedBox.shrink();
+          final railLabel = railStyle == DayRailStyle.none
+              ? null
+              : CalendarDayRail.semanticsLabelFor(
+                  marks: railOutputCache[key] ??= railResolver.resolve(
+                    day,
+                    events,
+                  ),
+                  style: railStyle,
+                  maxMarks: maxRailMarks,
+                  height: railHeight,
+                  hasBase:
+                      (tintOutputCache[key] ??= tintResolver.resolve(
+                        day,
+                        events,
+                      )).edge !=
+                      null,
+                );
+          if (bars.isEmpty && railLabel == null) {
+            return const SizedBox.shrink();
+          }
           // Outside-month fading only applies to the month format; week and
           // two-week rows show every day at full strength.
           final isOutside =
@@ -1830,6 +1881,7 @@ class _CalendarTable extends StatelessWidget {
                 maxBars: appearance.maxDayBars,
                 style: appearance.markerStyle,
                 opacity: isOutside ? CalendarDayCell.outsideAlpha : 1.0,
+                railLabel: railLabel,
               ),
             ),
           );

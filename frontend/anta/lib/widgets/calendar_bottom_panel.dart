@@ -235,7 +235,6 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     return Column(
       children: [
         _PanelModeBar(
@@ -247,9 +246,7 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
         // SafeArea keeps the panel's content above the device's system
         // navigation bar (gesture pill / 3-button bar) — without it the
         // last rows render underneath and can't be tapped.
-        Expanded(
-          child: SafeArea(top: false, child: _buildPanel(context, bottomInset)),
-        ),
+        Expanded(child: SafeArea(top: false, child: _buildPanel(context))),
       ],
     );
   }
@@ -309,7 +306,7 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
   /// Builds the active panel. Day and timeline both render the selected day
   /// through the bloc's memoized `eventsForDay`; upcoming works off the
   /// whole event list and does its own range scan.
-  Widget _buildPanel(BuildContext context, double bottomInset) {
+  Widget _buildPanel(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final loaded = widget.loaded;
     final bloc = context.read<CalendarBloc>();
@@ -329,7 +326,6 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
           onToggleMissed: (event, missed) =>
               widget.onToggleMissed(event, loaded.selectedDay, missed),
           colorPalette: widget.colorPalette,
-          bottomInset: bottomInset,
         );
       case CalendarPanelMode.timeline:
         return DayTimelineView(
@@ -339,7 +335,6 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
           // there. Both render the same day's events, so they must agree.
           onEventTap: (event) => widget.onShowEvent(event, loaded.selectedDay),
           missedDisplay: widget.missedDisplay,
-          bottomInset: bottomInset,
         );
       case CalendarPanelMode.upcoming:
         return UpcomingAgendaView(
@@ -366,7 +361,6 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
           occurrenceRevision: loaded.occurrenceRevision,
           membershipRevision: loaded.membershipRevision,
           missedDisplay: widget.missedDisplay,
-          bottomInset: bottomInset,
         );
     }
   }

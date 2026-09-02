@@ -92,8 +92,6 @@ class UpcomingAgendaView extends StatefulWidget {
   /// agenda keeps listing a day that no longer exists.
   final int membershipRevision;
 
-  final double bottomInset;
-
   const UpcomingAgendaView({
     super.key,
     required this.events,
@@ -110,7 +108,6 @@ class UpcomingAgendaView extends StatefulWidget {
     this.occurrenceRevision = 0,
     this.membershipRevision = 0,
     this.missedDisplay = CalendarMissedDisplay.faded,
-    this.bottomInset = 0,
   });
 
   @override
@@ -1012,25 +1009,30 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
                     },
                   ),
                 ),
-              AgendaListView(
-                rows: rows,
-                sliver: true,
-                onDaySelected: widget.onDaySelected,
-                onEditEvent: widget.onEditEvent,
-                onOpenNote: widget.onOpenNote,
-                onShowDayList: _showDayList,
-                emptyTitle: l10n.upcomingNoEvents,
-                emptyHint: l10n.upcomingNoEventsHint,
-                // The page's FAB floats over this list, so the last row's edit
-                // and open-note buttons would sit under it without the reserved
-                // clearance. Short content just leaves the space empty.
-                padding: EdgeInsets.fromLTRB(
-                  16,
-                  4,
-                  16,
-                  16 + AppSpacing.fabClearance + widget.bottomInset,
+              Builder(
+                builder: (context) => AgendaListView(
+                  rows: rows,
+                  sliver: true,
+                  onDaySelected: widget.onDaySelected,
+                  onEditEvent: widget.onEditEvent,
+                  onOpenNote: widget.onOpenNote,
+                  onShowDayList: _showDayList,
+                  emptyTitle: l10n.upcomingNoEvents,
+                  emptyHint: l10n.upcomingNoEventsHint,
+                  // The page's FAB floats over this list, so the last row's
+                  // edit and open-note buttons would sit under it without the
+                  // reserved clearance. Short content just leaves the space
+                  // empty.
+                  padding: EdgeInsets.fromLTRB(
+                    16,
+                    4,
+                    16,
+                    16 +
+                        AppSpacing.fabClearance +
+                        MediaQuery.viewInsetsOf(context).bottom,
+                  ),
+                  colorPalette: widget.colorPalette,
                 ),
-                colorPalette: widget.colorPalette,
               ),
             ],
           ),

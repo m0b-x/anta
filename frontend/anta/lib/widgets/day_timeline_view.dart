@@ -33,15 +33,12 @@ class DayTimelineView extends StatefulWidget {
   /// neither a block nor an all-day chip nor a column in the overlap solver.
   final CalendarMissedDisplay missedDisplay;
 
-  final double bottomInset;
-
   const DayTimelineView({
     super.key,
     required this.day,
     required this.events,
     required this.onEventTap,
     this.missedDisplay = CalendarMissedDisplay.faded,
-    this.bottomInset = 0,
   });
 
   /// Vertical scale of the grid: logical pixels per hour.
@@ -197,74 +194,78 @@ class _DayTimelineViewState extends State<DayTimelineView> {
             ),
           ),
         Expanded(
-          child: SingleChildScrollView(
-            // Clears the page's floating add button — see AppSpacing.
-            padding: EdgeInsets.fromLTRB(
-              0,
-              8,
-              16,
-              24 + AppSpacing.fabClearance + widget.bottomInset,
-            ),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final trackWidth =
-                    constraints.maxWidth - DayTimelineView.gutterWidth;
-                return SizedBox(
-                  height: totalHeight + DayTimelineView._topInset * 2,
-                  child: Stack(
-                    children: [
-                      for (
-                        var hour = layout.startHour;
-                        hour <= layout.endHour;
-                        hour++
-                      )
-                        Positioned(
-                          top:
-                              _offsetOf(layout, hour * 60) -
-                              DayTimelineView._hourRowHeight / 2,
-                          height: DayTimelineView._hourRowHeight,
-                          left: 0,
-                          right: 0,
-                          child: _HourRow(
-                            label: _hourLabel(context, hour),
-                            gutterWidth: DayTimelineView.gutterWidth,
-                          ),
-                        ),
-                      for (final block in layout.blocks)
-                        Positioned(
-                          top: _offsetOf(layout, block.startMinute),
-                          left:
-                              DayTimelineView.gutterWidth +
-                              block.column * (trackWidth / block.columnCount),
-                          width:
-                              (trackWidth / block.columnCount) -
-                              DayTimelineView.columnGap,
-                          height: _blockHeight(block),
-                          child: Opacity(
-                            opacity: _isMissed(block.event)
-                                ? CalendarColors.missedEventAlpha
-                                : 1.0,
-                            child: _TimelineBlockCard(
-                              block: block,
-                              color: _colorFor(block.event),
-                              onTap: () => widget.onEventTap(block.event),
+          child: Builder(
+            builder: (context) => SingleChildScrollView(
+              // Clears the page's floating add button — see AppSpacing.
+              padding: EdgeInsets.fromLTRB(
+                0,
+                8,
+                16,
+                24 +
+                    AppSpacing.fabClearance +
+                    MediaQuery.viewInsetsOf(context).bottom,
+              ),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final trackWidth =
+                      constraints.maxWidth - DayTimelineView.gutterWidth;
+                  return SizedBox(
+                    height: totalHeight + DayTimelineView._topInset * 2,
+                    child: Stack(
+                      children: [
+                        for (
+                          var hour = layout.startHour;
+                          hour <= layout.endHour;
+                          hour++
+                        )
+                          Positioned(
+                            top:
+                                _offsetOf(layout, hour * 60) -
+                                DayTimelineView._hourRowHeight / 2,
+                            height: DayTimelineView._hourRowHeight,
+                            left: 0,
+                            right: 0,
+                            child: _HourRow(
+                              label: _hourLabel(context, hour),
+                              gutterWidth: DayTimelineView.gutterWidth,
                             ),
                           ),
-                        ),
-                      if (nowMinute != null &&
-                          nowMinute >= layout.startHour * 60 &&
-                          nowMinute <= layout.endHour * 60)
-                        Positioned(
-                          top: _offsetOf(layout, nowMinute) - 4,
-                          height: 8,
-                          left: DayTimelineView.gutterWidth - 6,
-                          right: 0,
-                          child: _NowIndicator(color: colorScheme.error),
-                        ),
-                    ],
-                  ),
-                );
-              },
+                        for (final block in layout.blocks)
+                          Positioned(
+                            top: _offsetOf(layout, block.startMinute),
+                            left:
+                                DayTimelineView.gutterWidth +
+                                block.column * (trackWidth / block.columnCount),
+                            width:
+                                (trackWidth / block.columnCount) -
+                                DayTimelineView.columnGap,
+                            height: _blockHeight(block),
+                            child: Opacity(
+                              opacity: _isMissed(block.event)
+                                  ? CalendarColors.missedEventAlpha
+                                  : 1.0,
+                              child: _TimelineBlockCard(
+                                block: block,
+                                color: _colorFor(block.event),
+                                onTap: () => widget.onEventTap(block.event),
+                              ),
+                            ),
+                          ),
+                        if (nowMinute != null &&
+                            nowMinute >= layout.startHour * 60 &&
+                            nowMinute <= layout.endHour * 60)
+                          Positioned(
+                            top: _offsetOf(layout, nowMinute) - 4,
+                            height: 8,
+                            left: DayTimelineView.gutterWidth - 6,
+                            right: 0,
+                            child: _NowIndicator(color: colorScheme.error),
+                          ),
+                      ],
+                    ),
+                  );
+                },
+              ),
             ),
           ),
         ),

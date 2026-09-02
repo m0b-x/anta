@@ -28,6 +28,7 @@ import '../utils/settings_search.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/calendar_day_bars.dart';
 import '../widgets/calendar_day_cell.dart';
+import '../widgets/calendar_day_rail.dart';
 import '../widgets/color_palette_sheet.dart';
 import '../widgets/color_swatch_picker.dart';
 import '../widgets/removed_holidays_sheet.dart';
@@ -1302,6 +1303,14 @@ class _AppearancePreview extends StatelessWidget {
     );
     final cellHeight = CalendarDayCell.chipZoneHeight + previewStripHeight + 6;
     final previewCellHeight = cellHeight < 52 ? 52.0 : cellHeight;
+    // The same lane the grid computes, through the same helper: the preview
+    // stacks its strip in a sibling `Align` at the same 4px offset, so
+    // previewing a capacity the grid does not have would be a lie.
+    final previewRailHeight = CalendarDayCell.railLaneHeight(
+      rowHeight: previewCellHeight,
+      stripHeight: previewStripHeight,
+      railStyle: appearance.dayRailStyle,
+    );
 
     // Samples the real alpha ramp rather than picked-by-eye values, so the
     // preview cannot drift from the grid. `priority` is 1-based like the
@@ -1345,6 +1354,13 @@ class _AppearancePreview extends StatelessWidget {
       DayCellTint tint = DayCellTint.empty,
       List<DayRailMark> railMarks = const [],
     }) {
+      final railLabel = CalendarDayRail.semanticsLabelFor(
+        marks: railMarks,
+        style: appearance.dayRailStyle,
+        maxMarks: appearance.maxDayRailMarks,
+        height: previewRailHeight,
+        hasBase: tint.edge != null,
+      );
       return Expanded(
         child: SizedBox(
           height: previewCellHeight,
@@ -1365,18 +1381,10 @@ class _AppearancePreview extends StatelessWidget {
                   railStyle: appearance.dayRailStyle,
                   maxRailMarks: appearance.maxDayRailMarks,
                   railBasePosition: appearance.dayRailBasePosition,
-                  // The same lane the grid computes, through the same helper:
-                  // the preview stacks its strip in a sibling `Align` at the
-                  // same 4px offset, so previewing a capacity the grid does
-                  // not have would be a lie.
-                  railHeight: CalendarDayCell.railLaneHeight(
-                    rowHeight: previewCellHeight,
-                    stripHeight: previewStripHeight,
-                    railStyle: appearance.dayRailStyle,
-                  ),
+                  railHeight: previewRailHeight,
                 ),
               ),
-              if (bars.isNotEmpty)
+              if (bars.isNotEmpty || railLabel != null)
                 Align(
                   alignment: Alignment.bottomCenter,
                   child: Padding(
@@ -1385,6 +1393,7 @@ class _AppearancePreview extends StatelessWidget {
                       bars: bars,
                       maxBars: appearance.maxDayBars,
                       style: appearance.markerStyle,
+                      railLabel: railLabel,
                     ),
                   ),
                 ),

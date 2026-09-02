@@ -45,8 +45,6 @@ class DaySummaryPanel extends StatelessWidget {
   /// a row shows the user's custom colours and not just the presets.
   final MarkdownColorPalette colorPalette;
 
-  final double bottomInset;
-
   const DaySummaryPanel({
     super.key,
     required this.day,
@@ -56,8 +54,9 @@ class DaySummaryPanel extends StatelessWidget {
     this.onSuppressHoliday,
     this.onToggleMissed,
     this.colorPalette = MarkdownColorPalette.presets,
-    this.bottomInset = 0,
   });
+
+  static final Map<String, DateFormat> _headerFormatCache = {};
 
   /// Two-line subtitle: the scheduling line (recurrence · time) followed by
   /// the event's description rendered as markdown and clamped to two lines.
@@ -99,7 +98,9 @@ class DaySummaryPanel extends StatelessWidget {
         children: [
           Expanded(
             child: Text(
-              DateFormat.MMMMEEEEd(l10n.localeName).format(day),
+              (_headerFormatCache[l10n.localeName] ??= DateFormat.MMMMEEEEd(
+                l10n.localeName,
+              )).format(day),
               style: theme.textTheme.titleSmall?.copyWith(
                 fontWeight: FontWeight.w600,
               ),
@@ -136,29 +137,31 @@ class DaySummaryPanel extends StatelessWidget {
                       minHeight: constraints.maxHeight,
                     ),
                     child: Center(
-                      child: Padding(
-                        padding: EdgeInsets.fromLTRB(
-                          0,
-                          16,
-                          0,
-                          16 + bottomInset,
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.event_available_rounded,
-                              size: 48,
-                              color: colorScheme.onSurfaceVariant,
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              l10n.calendarNoEventsForDay,
-                              style: theme.textTheme.bodyLarge?.copyWith(
+                      child: Builder(
+                        builder: (context) => Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            0,
+                            16,
+                            0,
+                            16 + MediaQuery.viewInsetsOf(context).bottom,
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.event_available_rounded,
+                                size: 48,
                                 color: colorScheme.onSurfaceVariant,
                               ),
-                            ),
-                          ],
+                              const SizedBox(height: 12),
+                              Text(
+                                l10n.calendarNoEventsForDay,
+                                style: theme.textTheme.bodyLarge?.copyWith(
+                                  color: colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -176,142 +179,149 @@ class DaySummaryPanel extends StatelessWidget {
       children: [
         header,
         Expanded(
-          child: ListView.separated(
-            // Keyed on the day: selecting another one must build a fresh
-            // viewport at offset 0 rather than recycle this day's rows and
-            // its scroll position, which left the previous day's cards
-            // showing faintly through the overscroll correction.
-            key: ValueKey(day),
-            // Clears the page's floating add button — see AppSpacing.
-            padding: EdgeInsets.fromLTRB(
-              16,
-              8,
-              16,
-              16 + AppSpacing.fabClearance + bottomInset,
-            ),
-            itemCount: entries.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 8),
-            itemBuilder: (context, index) {
-              final entry = entries[index];
-              final event = entry.event;
-              final hasLinkedNote = event?.noteId != null;
-              final isHoliday = entry.key == 'holiday';
-              final canToggleMissed =
-                  event != null &&
-                  entry.presenceTracked &&
-                  onToggleMissed != null;
-              // Presence replaces the decorative chevron rather than adding a
-              // third widget: the note button already claims one slot, and a
-              // third would not fit a phone-width trailing strip.
-              final tail = canToggleMissed
-                  ? IconButton(
-                      tooltip: entry.missed
-                          ? l10n.eventMarkPresent
-                          : l10n.eventMarkMissed,
-                      icon: Icon(
-                        entry.missed
-                            ? Icons.event_available_rounded
-                            : Icons.event_busy_rounded,
-                      ),
-                      onPressed: () => onToggleMissed!(event, !entry.missed),
-                    )
-                  : const Icon(Icons.chevron_right_rounded);
-              return Card(
-                // Entry-keyed so a row — and the opacity layer a missed
-                // occurrence puts inside it — is never reused for a
-                // different entry.
-                key: ValueKey(entry.key),
-                margin: EdgeInsets.zero,
-                clipBehavior: Clip.antiAlias,
-                // A Positioned stripe inside a Stack sizes itself off the
-                // Stack's own height instead of a sibling's — so the Stack
-                // can size-to-content (from the Padding/ListTile) and the
-                // stripe still stretches to match, with no IntrinsicHeight
-                // pass needed. Mirrors _AgendaCard in agenda_list_view.dart,
-                // which renders this same accent-stripe design.
-                child: Opacity(
-                  opacity: entry.missed ? CalendarColors.missedEventAlpha : 1.0,
-                  child: Stack(
-                    children: [
-                      // Accent stripe echoing the day-cell marker color, so
-                      // list entries and grid markers read as one system.
-                      Positioned(
-                        left: 0,
-                        top: 0,
-                        bottom: 0,
-                        width: 4,
-                        child: Container(color: entry.color),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.only(left: 4),
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: entry.color.withValues(
-                              alpha: 0.16,
-                            ),
-                            foregroundColor: entry.color,
-                            child: Icon(entry.icon),
-                          ),
-                          title: Row(
-                            children: [
-                              Flexible(
-                                child: Text(
-                                  entry.title,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
+          child: Builder(
+            builder: (context) => ListView.separated(
+              // Keyed on the day: selecting another one must build a fresh
+              // viewport at offset 0 rather than recycle this day's rows and
+              // its scroll position, which left the previous day's cards
+              // showing faintly through the overscroll correction.
+              key: ValueKey(day),
+              // Clears the page's floating add button — see AppSpacing.
+              padding: EdgeInsets.fromLTRB(
+                16,
+                8,
+                16,
+                16 +
+                    AppSpacing.fabClearance +
+                    MediaQuery.viewInsetsOf(context).bottom,
+              ),
+              itemCount: entries.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 8),
+              itemBuilder: (context, index) {
+                final entry = entries[index];
+                final event = entry.event;
+                final hasLinkedNote = event?.noteId != null;
+                final isHoliday = entry.key == 'holiday';
+                final canToggleMissed =
+                    event != null &&
+                    entry.presenceTracked &&
+                    onToggleMissed != null;
+                // Presence replaces the decorative chevron rather than adding a
+                // third widget: the note button already claims one slot, and a
+                // third would not fit a phone-width trailing strip.
+                final tail = canToggleMissed
+                    ? IconButton(
+                        tooltip: entry.missed
+                            ? l10n.eventMarkPresent
+                            : l10n.eventMarkMissed,
+                        icon: Icon(
+                          entry.missed
+                              ? Icons.event_available_rounded
+                              : Icons.event_busy_rounded,
+                        ),
+                        onPressed: () => onToggleMissed!(event, !entry.missed),
+                      )
+                    : const Icon(Icons.chevron_right_rounded);
+                return Card(
+                  // Entry-keyed so a row — and the opacity layer a missed
+                  // occurrence puts inside it — is never reused for a
+                  // different entry.
+                  key: ValueKey(entry.key),
+                  margin: EdgeInsets.zero,
+                  clipBehavior: Clip.antiAlias,
+                  // A Positioned stripe inside a Stack sizes itself off the
+                  // Stack's own height instead of a sibling's — so the Stack
+                  // can size-to-content (from the Padding/ListTile) and the
+                  // stripe still stretches to match, with no IntrinsicHeight
+                  // pass needed. Mirrors _AgendaCard in agenda_list_view.dart,
+                  // which renders this same accent-stripe design.
+                  child: Opacity(
+                    opacity: entry.missed
+                        ? CalendarColors.missedEventAlpha
+                        : 1.0,
+                    child: Stack(
+                      children: [
+                        // Accent stripe echoing the day-cell marker color, so
+                        // list entries and grid markers read as one system.
+                        Positioned(
+                          left: 0,
+                          top: 0,
+                          bottom: 0,
+                          width: 4,
+                          child: Container(color: entry.color),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(left: 4),
+                          child: ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor: entry.color.withValues(
+                                alpha: 0.16,
                               ),
-                              if (entry.description != null) ...[
-                                const SizedBox(width: 6),
-                                Tooltip(
-                                  message: l10n.eventHasDescription,
-                                  child: Icon(
-                                    Icons.notes_rounded,
-                                    size: 14,
-                                    color: colorScheme.onSurfaceVariant,
+                              foregroundColor: entry.color,
+                              child: Icon(entry.icon),
+                            ),
+                            title: Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    entry.title,
+                                    overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
+                                if (entry.description != null) ...[
+                                  const SizedBox(width: 6),
+                                  Tooltip(
+                                    message: l10n.eventHasDescription,
+                                    child: Icon(
+                                      Icons.notes_rounded,
+                                      size: 14,
+                                      color: colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ],
                               ],
-                            ],
-                          ),
-                          subtitle: _buildSubtitle(context, entry),
-                          // The description adds a second subtitle line; the
-                          // tile has to be told, or it clips to one.
-                          isThreeLine: entry.description != null,
-                          trailing: event != null
-                              ? (hasLinkedNote && onOpenNote != null
-                                    ? Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          IconButton(
-                                            tooltip: l10n.eventOpenLinkedNote,
-                                            icon: const Icon(
-                                              Icons.sticky_note_2_outlined,
+                            ),
+                            subtitle: _buildSubtitle(context, entry),
+                            // The description adds a second subtitle line; the
+                            // tile has to be told, or it clips to one.
+                            isThreeLine: entry.description != null,
+                            trailing: event != null
+                                ? (hasLinkedNote && onOpenNote != null
+                                      ? Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            IconButton(
+                                              tooltip: l10n.eventOpenLinkedNote,
+                                              icon: const Icon(
+                                                Icons.sticky_note_2_outlined,
+                                              ),
+                                              onPressed: () =>
+                                                  onOpenNote!(event),
                                             ),
-                                            onPressed: () => onOpenNote!(event),
+                                            tail,
+                                          ],
+                                        )
+                                      : tail)
+                                : (isHoliday && onSuppressHoliday != null
+                                      ? IconButton(
+                                          tooltip: l10n.removeHoliday,
+                                          icon: const Icon(
+                                            Icons.delete_outline_rounded,
                                           ),
-                                          tail,
-                                        ],
-                                      )
-                                    : tail)
-                              : (isHoliday && onSuppressHoliday != null
-                                    ? IconButton(
-                                        tooltip: l10n.removeHoliday,
-                                        icon: const Icon(
-                                          Icons.delete_outline_rounded,
-                                        ),
-                                        onPressed: onSuppressHoliday,
-                                      )
-                                    : null),
-                          onTap: event == null || onEventTap == null
-                              ? null
-                              : () => onEventTap!(event),
+                                          onPressed: onSuppressHoliday,
+                                        )
+                                      : null),
+                            onTap: event == null || onEventTap == null
+                                ? null
+                                : () => onEventTap!(event),
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-              );
-            },
+                );
+              },
+            ),
           ),
         ),
       ],

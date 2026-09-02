@@ -42,6 +42,10 @@ class CalendarDayBars extends StatelessWidget {
   /// colour that already carries alpha keeps its relative weight.
   final double opacity;
 
+  /// The rail's merged label for this day, announced by this node rather than
+  /// by `CalendarDayRail`; `null` when the rail says nothing.
+  final String? railLabel;
+
   const CalendarDayBars({
     super.key,
     required this.bars,
@@ -51,6 +55,7 @@ class CalendarDayBars extends StatelessWidget {
     this.spacing = 1.5,
     this.horizontalInset = defaultHorizontalInset,
     this.opacity = 1.0,
+    this.railLabel,
   });
 
   /// Diameter of a single dot in [CalendarMarkerStyle.dots] mode.
@@ -73,7 +78,14 @@ class CalendarDayBars extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (bars.isEmpty || maxBars <= 0) return const SizedBox.shrink();
+    if (bars.isEmpty || maxBars <= 0) {
+      if (railLabel == null) return const SizedBox.shrink();
+      return Semantics(
+        container: true,
+        label: railLabel,
+        child: SizedBox(width: double.infinity, height: stripHeight(1, style)),
+      );
+    }
 
     final theme = Theme.of(context);
     final hasOverflow = bars.length > maxBars;
@@ -108,6 +120,7 @@ class CalendarDayBars extends StatelessWidget {
     // localizing. [ExcludeSemantics] is what stops that `Text` from also
     // surfacing as a second node inside this one.
     final label = [
+      ?railLabel,
       for (var i = 0; i < visibleCount; i++) bars[i].semanticLabel,
       if (hasOverflow) '+$hiddenCount',
     ].join(', ');

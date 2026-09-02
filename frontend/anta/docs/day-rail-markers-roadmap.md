@@ -345,6 +345,30 @@ each, one list allocation only when the day has marks.
 
 ### D11 — Accessibility: one merged node per channel per cell
 
+> **Superseded (2026-09-02): the two channels now share one node — and the
+> *(verified)* claim below was wrong in the direction that mattered.** The two
+> subtrees are real, but the conclusion drawn from them was backwards: what
+> actually was not structurally possible is a node *inside the cell*.
+> `table_calendar` 3.2.1 wraps every custom-built cell in
+> `Semantics(excludeSemantics: true)` (`cell_content.dart`, both the
+> `prioritizedBuilder` and `defaultBuilder` paths), so the merged node this
+> decision shipped was built and dropped — silent in the real grid — while
+> its test stayed green by pumping the bare widget outside the package. Now
+> `CalendarDayRail` emits no semantics; the static
+> `CalendarDayRail.semanticsLabelFor` composes the label from the same
+> `_split` arithmetic the painter uses, and `CalendarDayBars.railLabel`
+> carries it rail-first on the marker strip's node — built in
+> `markerBuilder`, a sibling of `CellContent` outside the exclusion, a day's
+> **only** marker node. A rail-only day keeps that node alive with a
+> real-rect strip-height `SizedBox`, because a zero-size render object is
+> dropped from the semantics tree.
+> `test/widgets/calendar_day_rail_grid_semantics_test.dart` now runs the real
+> package end-to-end; running behaviour is the rewritten Accessibility
+> section of the v34 addendum in
+> [calendar-events-feature.md](calendar-events-feature.md). The repeats of
+> this decision in the phase briefs below are left as written, per this
+> file's convention.
+
 The draft wanted one node covering both channels; *(verified)* that is not
 structurally possible — `CalendarDayBars` is built in table_calendar's
 `markerBuilder` and the cell in `cellBuilder`, separate subtrees. Final
@@ -793,6 +817,12 @@ column, `_railOutputCache` and the generation record, the bar-exclusion rule,
 the semantics contract (one merged node; `+N` in the label only; a base-only
 lane contributes no node, exactly as the stripe never did), and the rail-style
 and capacity copy. No schema and no migration.
+
+> **Superseded (2026-09-02):** "the semantics contract" no longer belongs in
+> this list. One merged node, the label-only `+N` and the silent base-only
+> lane all survive, but the node moved off the rail entirely — it now rides
+> the marker strip via `CalendarDayBars.railLabel`, and the rail itself
+> announces nothing. See the correction under D11.
 
 **Added** by the equal-split pass: `DayRailBasePosition`,
 `CalendarAppearance.dayRailBasePosition`,

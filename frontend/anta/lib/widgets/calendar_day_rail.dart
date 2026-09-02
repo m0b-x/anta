@@ -29,6 +29,17 @@ import '../utils/marker_contrast.dart';
 /// When [marks] outnumbers the slots that fit, the last slot becomes a neutral
 /// overflow band and the exact `+N` goes into the semantics label only. There
 /// is no room beside a 3px rail for a number.
+///
+/// The rail **paints, it does not announce**. `table_calendar` wraps every
+/// custom-built cell in `Semantics(excludeSemantics: true)` (its
+/// `cell_content.dart`, both builder paths), which drops every node the cell
+/// builds beneath it — and the rail renders inside that cell. A `Semantics`
+/// emitted here would be silent in the real grid, so the label is built by
+/// [semanticsLabelFor] and carried by the day's marker strip
+/// (`CalendarDayBars.railLabel`), whose subtree is a **sibling** of the cell
+/// and therefore outside the exclusion. Nothing below is annotated either:
+/// the lane is `SizedBox`/`DecoratedBox`/`Column` only, so it needs no
+/// `ExcludeSemantics` to stay quiet.
 class CalendarDayRail extends StatelessWidget {
   final List<DayRailMark> marks;
   final DayRailStyle style;
@@ -148,6 +159,72 @@ class CalendarDayRail extends StatelessWidget {
     return slots < 0 ? 0 : slots;
   }
 
+  static ({int visible, int hidden, bool overflow}) _split({
+    required int markCount,
+    required DayRailStyle style,
+    required int maxMarks,
+    required double height,
+    required bool hasBase,
+  }) {
+    const none = (visible: 0, hidden: 0, overflow: false);
+    if (style == DayRailStyle.none) return none;
+    if (markCount <= 0 || maxMarks <= 0) return none;
+    final baseHeight = hasBase && style == DayRailStyle.line
+        ? baseBandFor(height)
+        : 0.0;
+    final capacity = capacityFor(height - baseHeight, style);
+    final slots = maxMarks < capacity ? maxMarks : capacity;
+    if (slots <= 0) return none;
+    final visible = markCount <= slots
+        ? markCount
+        : (slots == 1 ? 1 : slots - 1);
+    final hidden = markCount - visible;
+    return (
+      visible: visible,
+      hidden: hidden,
+      overflow: hidden > 0 && slots > 1,
+    );
+  }
+
+  /// The rail's merged screen-reader label for a day, or `null` when the lane
+  /// announces nothing.
+  ///
+  /// Pure and static because the node that speaks it is not built here: see
+  /// the class doc. Callers hand it the same four numbers they hand the
+  /// widget, plus whether the lane carries a [baseColor] band, and pass the
+  /// result to `CalendarDayBars.railLabel`.
+  ///
+  /// One merged string, never one per mark: a 3px sliver is not a useful focus
+  /// target, and 42 cells of them would be read one at a time with no sense of
+  /// which day they belonged to. Missed state rides the mark's own label
+  /// (`"<title>, missed"`), so colour is never the only carrier, and the
+  /// overflow count — which has nowhere to be *drawn* beside a 3px lane —
+  /// exists only here.
+  ///
+  /// A lane carrying only the base band returns `null`: it is the tint edge
+  /// stripe wearing a different widget, decoration for a wash the day panel
+  /// already spells out, and it never had a node. Only marks earn one.
+  static String? semanticsLabelFor({
+    required List<DayRailMark> marks,
+    required DayRailStyle style,
+    required int maxMarks,
+    required double height,
+    bool hasBase = false,
+  }) {
+    final split = _split(
+      markCount: marks.length,
+      style: style,
+      maxMarks: maxMarks,
+      height: height,
+      hasBase: hasBase,
+    );
+    if (split.visible == 0) return null;
+    return [
+      for (var i = 0; i < split.visible; i++) marks[i].semanticLabel,
+      if (split.hidden > 0) '+${split.hidden}',
+    ].join(', ');
+  }
+
   Color _paint(Color color, {bool missed = false}) {
     final factor = opacity * (missed ? CalendarColors.missedEventAlpha : 1.0);
     return factor == 1.0 ? color : color.withValues(alpha: color.a * factor);
@@ -183,8 +260,6 @@ class CalendarDayRail extends StatelessWidget {
     final baseHeight = base == null
         ? 0.0
         : (hasMarks ? baseBandFor(height) : height);
-    final capacity = hasMarks ? capacityFor(height - baseHeight, style) : 0;
-    final slots = maxMarks < capacity ? maxMarks : capacity;
 
     // The overflow affordance takes the last slot, exactly as the "+N"
     // chip does in the marker strip — except when that is the *only*
@@ -192,16 +267,19 @@ class CalendarDayRail extends StatelessWidget {
     // draws a number; the rail's cannot (a 3px lane has nowhere to put
     // one), so at one slot a neutral blob would replace the day's top
     // commitment with strictly less information than it carried. The
-    // count is not lost either way: it rides the semantics label.
-    final visibleCount = slots <= 0
-        ? 0
-        : (marks.length <= slots
-              ? marks.length
-              : (slots == 1 ? 1 : slots - 1));
-    final hiddenCount = visibleCount == 0 ? 0 : marks.length - visibleCount;
-    final hasOverflow = hiddenCount > 0 && slots > 1;
+    // count is not lost either way: it rides [semanticsLabelFor], which
+    // reads the same [_split] this does.
+    final split = _split(
+      markCount: marks.length,
+      style: style,
+      maxMarks: maxMarks,
+      height: height,
+      hasBase: base != null,
+    );
+    final visibleCount = split.visible;
+    final hasOverflow = split.overflow;
 
-    final strip = style == DayRailStyle.dot
+    return style == DayRailStyle.dot
         ? _dots(
             visibleCount: visibleCount,
             hasOverflow: hasOverflow,
@@ -216,27 +294,6 @@ class CalendarDayRail extends StatelessWidget {
             neutral: neutral,
             outlineFor: outlineFor,
           );
-
-    // A lane carrying only the base band is the tint edge stripe wearing a
-    // different widget: it is decoration for a wash the day panel already
-    // spells out, and it never had a semantics node. Only marks earn one.
-    if (visibleCount == 0) return ExcludeSemantics(child: strip);
-
-    // One merged node for the whole rail, never one per mark: a 3px
-    // sliver is not a useful focus target, and a day already contributes
-    // a second marker node for the bottom strip. Missed state rides the
-    // mark's own label (`"<title>, missed"`), so colour is never the only
-    // carrier.
-    final label = [
-      for (var i = 0; i < visibleCount; i++) marks[i].semanticLabel,
-      if (hiddenCount > 0) '+$hiddenCount',
-    ].join(', ');
-
-    return Semantics(
-      container: true,
-      label: label,
-      child: ExcludeSemantics(child: strip),
-    );
   }
 
   /// One unbroken bar: every band is flush against its neighbour and only the

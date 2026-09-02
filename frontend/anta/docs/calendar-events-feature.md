@@ -2365,37 +2365,50 @@ system rather than a single hardcoded fasting wash.
   `CalendarFormat.week` while the keyboard is up. This is an **ephemeral
   render-time override** — no `ChangeCalendarFormat` is dispatched, so
   `CalendarBloc.state.format` stays the user's pick and the filter sheet keeps
-  showing it.
+  showing it. (Since 2026-09-02 the collapse only runs while the calendar is
+  actually showing: `_handleKeyboardInset` returns early under
+  `_routeCovered`, set in a `didPushNext` override and cleared in
+  `didPopNext`, so a keyboard opened in the note editor no longer collapses
+  the buried grid. The gate covers the keyboard-inset pathway only —
+  BLoC-driven rebuilds still land — and sheets are `PopupRoute`s, which a
+  `RouteObserver<PageRoute>` never reports, so sheet keyboards keep the
+  coupled collapse they exist for.)
 - **The body does not resize for the keyboard.** The page `Scaffold` sets
   `resizeToAvoidBottomInset: false`, so the `Column`'s constraints never
   change when the keyboard opens and overflow is structurally impossible —
   the keyboard covers the bottom of the panel, and the grid's week-collapse
-  progressively reveals agenda content above it. The compensation lives in
-  `CalendarBottomPanel.build`, which reads `MediaQuery.viewInsetsOf` once and
-  threads `bottomInset` into all three panel modes as extra bottom padding on
-  their scrollables (agenda sliver padding, day-summary list, timeline
-  scroll), so scroll extent grows and everything stays reachable. The FAB
-  intentionally gets no inset handling: it sits behind the keyboard, where it
-  was unusable anyway. A short-screen regression test pumps every frame of
-  the collapse and restore — stepped and ramped, both directions — asserting
-  no overflow; it goes red if the resize flag is flipped back.
+  progressively reveals agenda content above it. The compensation is extra
+  bottom padding on the panel modes' scrollables, so scroll extent grows and
+  everything stays reachable. (It lived in `CalendarBottomPanel.build` as one
+  `MediaQuery.viewInsetsOf` read threading `bottomInset` into all three modes
+  until 2026-09-02; now each of the four leaf padding sites — agenda sliver
+  padding, day-summary empty state and list, timeline scroll — reads the
+  inset inside its own `Builder`, so an inset frame rebuilds those subtrees
+  alone, never the mode bar, headers or entry construction. See
+  [calendar-perf-followups-2026-09.md](calendar-perf-followups-2026-09.md).)
+  The FAB intentionally gets no inset handling: it sits behind the keyboard,
+  where it was unusable anyway. A short-screen regression test pumps every
+  frame of the collapse and restore — stepped and ramped, both directions —
+  asserting no overflow; it goes red if the resize flag is flipped back.
 - **`_KeyboardInsetProbe` still sits above the `Scaffold`.** Its original
   reason was that `ScaffoldState.build` strips the bottom inset from the
   body's `MediaQuery` whenever `resizeToAvoidBottomInset` is true — a read
   below it saw `0` forever, and the first implementation silently did
-  nothing. With resize now off, body-level reads work (the panel uses one),
-  but the probe stays: it reads the inset in `didChangeDependencies` and
-  publishes it as a `ValueNotifier<double>` so the **grid** subtree gets its
-  week-collapse signal without depending on `MediaQuery` at all, and the
-  probe's `build` returns `child` unchanged so an inset frame never rebuilds
-  from the top. (It published a thresholded `bool` until the 2026-08-25
+  nothing. With resize now off, body-level reads work (the panel's leaf
+  padding `Builder`s use four), but the probe stays: it reads the inset in
+  `didChangeDependencies` and publishes it as a `ValueNotifier<double>` so
+  the **grid** subtree gets its week-collapse signal without depending on
+  `MediaQuery` at all, and the probe's `build` returns `child` unchanged so
+  an inset frame never rebuilds from the top. (It published a thresholded `bool` until the 2026-08-25
   coupling work below; `didChangeDependencies` always fired once per inset
   frame, and the `> 0` comparison was the only thing throwing the fraction
   away.)
 - **The keyboard rebuilds the panel's padding, never its scan.** An inset
-  frame rebuilds `CalendarBottomPanel` and its mode child (the padding is
-  live), but `sameGridInputs` / `samePanelInputs` are untouched and the
-  agenda's `_rowsFor` memo absorbs the rebuild. Tests assert
+  frame rebuilt `CalendarBottomPanel` and its whole mode child until
+  2026-09-02; now the inset read lives in the leaf padding `Builder`s and
+  only those subtrees rebuild. Either way `sameGridInputs` /
+  `samePanelInputs` are untouched and the agenda's `_rowsFor` memo absorbs
+  what does rebuild. Tests assert
   `CalendarEvent.debugOccursOnCalls == 0`, `identical` `AgendaListView.rows`
   across a show+hide, and `DaySummaryResolver.debugDefaultsBuilds == 0`.
 - **`onFormatChanged` is nulled while collapsed** — table_calendar's own way
@@ -2854,20 +2867,52 @@ number, which makes that label the only place the count exists at all.
 
 ### Accessibility
 
-One merged `Semantics(container: true)` over `ExcludeSemantics(child: strip)`,
-never a node per mark — mirroring `CalendarDayBars`. A day therefore announces
-at most two marker nodes (rail, bars), each meaningful; the problem that
-motivated the merge was per-sliver *unlabelled* nodes, not labelled merged
-ones. The two cannot share one node: the strip is built in table_calendar's
-`markerBuilder` and the cell in `cellBuilder`, separate subtrees.
+**Relocated 2026-09-02 — the label rides the marker strip.** The rail shipped
+emitting its own merged `Semantics(container: true)` over
+`ExcludeSemantics(child: strip)`, mirroring `CalendarDayBars`, and that node
+was silent in the real grid: `table_calendar` 3.2.1 wraps every custom-built
+cell in `Semantics(excludeSemantics: true)` (`cell_content.dart`, both the
+`prioritizedBuilder` and the `defaultBuilder` paths), so a node built inside
+the cell is merged away and dropped. The rail-only semantics test was green
+the whole time because it pumped the bare widget, never the package.
+
+Now `CalendarDayRail` emits **no semantics** at all. The pure static
+`CalendarDayRail.semanticsLabelFor` composes the label from the same `_split`
+arithmetic the painter draws from — one definition, so the label can never
+claim a mark the lane did not paint now that the two live in different
+subtrees — and `CalendarDayBars.railLabel` carries it **rail-first** on the
+marker strip's merged node. That strip is built in `markerBuilder`, a
+**sibling** of `CellContent` in the cell's `Stack` and outside the exclusion,
+which makes it a day's **only** marker node. Still one merged node, never one
+per mark, and the `+N` still exists only in the label. A rail-only day —
+common, because with the rail on `EventDayBarProvider` drops every event the
+rail claimed — keeps the node alive with a real-rect strip-height `SizedBox`
+that paints nothing: a zero-size render object is dropped from the semantics
+tree, so the label would otherwise be built and thrown away all over again. A
+base-only lane still contributes no node (`semanticsLabelFor` returns
+`null`); it is the tint stripe wearing a different widget. Guards:
+`test/widgets/calendar_day_rail_grid_semantics_test.dart` pumps the **real
+package**, so a future `table_calendar` that stops excluding — or starts
+excluding the markers too — fails there instead of in a screen reader, and
+`calendar_day_rail_semantics_test.dart` keeps pinning label content.
 
 ### Perf
 
 A third per-day output memo, `_railOutputCache`, beside `_barsOutputCache` and
 `_tintOutputCache`, cleared by the same `_outputGeneration` record — which
-gains a `railResolver` identity field. The rail renders inside the cell, so it
-resolves in `_buildDayCell` beside the tint lookup, not in `markerBuilder`
-where the bars do. With the rail off the resolver is not called at all.
+gains a `railResolver` identity field. The rail renders inside the cell, but
+since the 2026-09-02 label relocation `markerBuilder` resolves first — it
+runs while table_calendar assembles the cell's `Stack`, before `CellContent`
+builds, and fills the rail and tint memos with `??=` to compose the marker
+node's label — so `_buildDayCell`'s lookups beside the tint one are cache
+hits. With the rail off neither side calls the resolver at all. Also since
+2026-09-02, all three output memos are pruned to ±3 months around the focused
+month on genuine month change (`_evictColdResolverOutputs`, in the same
+`BlocListener` as the neighbour prewarm, mirroring
+`CalendarBloc._evictColdDayCacheEntries`); before that they were only cleared
+wholesale on generation mismatch, so they grew without bound across month
+paging. See
+[calendar-perf-followups-2026-09.md](calendar-perf-followups-2026-09.md).
 
 Rail **style** and **max** are paint-side widget parameters, deliberately not
 resolver inputs, so changing either repaints without dropping the mark caches.

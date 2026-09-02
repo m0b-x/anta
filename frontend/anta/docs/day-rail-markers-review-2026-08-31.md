@@ -24,6 +24,13 @@ turned out to be arithmetically wrong, and this is where the real numbers live.
 > [day-rail-markers-roadmap.md](day-rail-markers-roadmap.md). What survives
 > intact from this file is the *method* in the next section — it is what caught
 > the collisions the tests could not see, and it is what was used again.
+>
+> **And superseded for semantics (2026-09-02).** The rail's merged node was
+> never announced in the real grid — `table_calendar` wraps every custom-built
+> cell in `Semantics(excludeSemantics: true)`, so wherever this file assumes
+> the label was heard, it was built and dropped. The label now rides the
+> marker strip's node via `CalendarDayBars.railLabel`; see the D11 correction
+> in the roadmap.
 
 ---
 
