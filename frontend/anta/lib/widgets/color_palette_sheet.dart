@@ -241,7 +241,15 @@ class _ColorPaletteSheetState extends State<ColorPaletteSheet> {
                     ),
                   ),
                   SliverPadding(
-                    padding: EdgeInsets.fromLTRB(20, AppSpacing.sm, 20, 0),
+                    // The clearance rides the last sliver's padding rather than a
+                    // trailing box, which is where every other sheet in the app
+                    // puts it — and what `sheet_bottom_clearance_test` measures.
+                    padding: EdgeInsets.fromLTRB(
+                      20,
+                      AppSpacing.sm,
+                      20,
+                      24 + bottomClearance,
+                    ),
                     sliver: SliverToBoxAdapter(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -280,7 +288,6 @@ class _ColorPaletteSheetState extends State<ColorPaletteSheet> {
                               ),
                             ),
                           ),
-                          SizedBox(height: 24 + bottomClearance),
                         ],
                       ),
                     ),

@@ -338,12 +338,18 @@ class _ColorPickerSheetState extends State<ColorPickerSheet> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final initial = widget.initialColor;
-    // The sheet, not just the scroll view, clears the keyboard: the actions
-    // sit at its bottom edge and have to stay reachable with the IME up.
+    // The sheet, not just the scroll view, takes the clearance: the actions
+    // sit at its bottom edge and have to stay reachable. It is the **larger**
+    // of the keyboard inset and the system's bottom inset, never just the
+    // keyboard — `useSafeArea: true` wraps the route in `SafeArea(bottom:
+    // false)`, so with no keyboard up this sheet's Cancel/Select row runs
+    // underneath the gesture pill or the three-button bar.
     final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
+    final viewPadding = MediaQuery.viewPaddingOf(context).bottom;
+    final bottomClearance = viewInsets > viewPadding ? viewInsets : viewPadding;
 
     return Padding(
-      padding: EdgeInsets.only(bottom: viewInsets),
+      padding: EdgeInsets.only(bottom: bottomClearance),
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
         child: Column(

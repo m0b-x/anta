@@ -29,6 +29,13 @@ The app began as a training log, and that origin still sets the bar. When changi
 - Do not add tests, new markdown files, broad refactors, or code comments unless explicitly requested.
 - Preserve existing user data semantics: soft deletes, CRDT fields, positions, sort preferences, pinned counters, note assignments, and backup format compatibility.
 - Keep changes focused and consistent with the local style. Avoid introducing new state-management, persistence, or navigation patterns without a strong reason.
+- **Every bottom sheet pads its own bottom, and it is the LARGER of the keyboard inset and the system inset.** `showModalBottomSheet(useSafeArea: true)` wraps the route in `SafeArea(bottom: false)` — it guards the status bar and deliberately **not** the gesture pill / three-button bar — so a sheet that pads by `viewInsets.bottom` alone looks perfect with the keyboard up and runs underneath the navigation bar without it. This has now been shipped-and-fixed **four separate times** (six sheets on 2026-08-25, `EventDescriptionSheet` on 2026-08-31, `ColorPickerSheet` on 2026-09-02), so treat it as a checklist item on any new sheet, not a thing to notice in review:
+  ```dart
+  final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
+  final viewPadding = MediaQuery.viewPaddingOf(context).bottom;
+  final bottomClearance = viewInsets > viewPadding ? viewInsets : viewPadding;
+  ```
+  Apply it to the **scrollable's bottom padding**, or to the **whole sheet** when a fixed footer (an action row, a docked markdown bar) sits below the scroll view. A `const EdgeInsets` can never be right here, which is exactly how the earlier regressions passed review. Then add the sheet to [test/widgets/sheet_bottom_clearance_test.dart](test/widgets/sheet_bottom_clearance_test.dart) — it fakes a 48px nav bar and fails if the padding does not respond, and it is the only thing that has actually caught this.
 
 ## Current Stack
 - Flutter app with Dart SDK `^3.10.4`, Material 3, and `flutter_lints`.

@@ -1,11 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/widgets/agenda_day_list_sheet.dart';
+import 'package:anta/widgets/color_palette_sheet.dart';
+import 'package:anta/widgets/color_picker_sheet.dart';
+import 'package:anta/services/calendar_palette_service.dart';
+import 'package:anta/services/settings_service.dart';
 import 'package:anta/widgets/event_detail_sheet.dart';
+
+import '../database/support/db_test_support.dart';
 
 /// `showModalBottomSheet(useSafeArea: true)` guards the **status bar** only —
 /// its route wraps the sheet in `SafeArea(bottom: false)`. A sheet sitting on
@@ -18,8 +25,30 @@ import 'package:anta/widgets/event_detail_sheet.dart';
 /// padding (or to the whole sheet where a fixed footer sits below the scroll
 /// view). These tests pin that the padding actually responds to the inset,
 /// which a `const EdgeInsets` cannot do.
+///
+/// **Add every new sheet here.** This is the app's most-repeated defect — four
+/// separate rounds of it have shipped — and it is invisible in review because
+/// a sheet padded by `viewInsets` alone looks correct with the keyboard up.
 void main() {
   const navBar = 48.0;
+
+  // The colour sheets resolve settings before presenting (the picker reads
+  // its remembered geometry, the palette warms its service), so they need a
+  // backend bound or they never open inside a widget test.
+  late AppDatabase db;
+
+  setUp(() async {
+    CalendarPaletteService.reset();
+    SettingsService.reset();
+    db = await openTestDatabase();
+    SettingsService.forTesting(db);
+  });
+
+  tearDown(() async {
+    CalendarPaletteService.reset();
+    SettingsService.reset();
+    await db.close();
+  });
 
   /// A device with a three-button navigation bar and no keyboard.
   void sizeSurfaceWithNavBar(WidgetTester tester) {
@@ -145,5 +174,40 @@ void main() {
           'the clearance is additive — with nothing to clear the sheet keeps '
           'exactly its designed padding',
     );
+  });
+
+  testWidgets('the colour picker sheet clears the navigation bar', (
+    tester,
+  ) async {
+    sizeSurfaceWithNavBar(tester);
+    await openFrom(tester, (context) => ColorPickerSheet.show(context));
+    await tester.pumpAndSettle();
+
+    // This sheet ends in a fixed action row rather than a scrollable, so the
+    // clearance is on the whole sheet: the assertion is that Select sits
+    // clear of the bar, not that some padding value exists.
+    final selectBottom = tester
+        .getRect(find.widgetWithText(FilledButton, 'Select'))
+        .bottom;
+    expect(
+      selectBottom,
+      lessThanOrEqualTo(tester.view.physicalSize.height - navBar),
+      reason: 'Cancel and Select ran under the gesture bar',
+    );
+  });
+
+  testWidgets('the colour palette sheet clears the navigation bar', (
+    tester,
+  ) async {
+    sizeSurfaceWithNavBar(tester);
+    await openFrom(tester, (context) => ColorPaletteSheet.show(context));
+
+    final padding = tester
+        .widgetList<SliverPadding>(find.byType(SliverPadding))
+        .last
+        .padding
+        .resolve(TextDirection.ltr)
+        .bottom;
+    expect(padding, greaterThanOrEqualTo(navBar));
   });
 }
