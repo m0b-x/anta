@@ -3152,8 +3152,10 @@ past every appearance control. Two changes, one shared and one local.
 grew an optional fold. `SettingsSectionData` takes an `id`; `SettingsSectionList`
 takes `collapsedSections` (a `Set<String>` the page owns) and
 `onToggleSection`. A section folds only when it has an `id` **and** the list was
-given a callback, so `controls_settings_page`, `developer_options_page` and
-`sync_settings_page` render byte-identically — they pass neither.
+given a callback, so `developer_options_page` and `sync_settings_page` render
+byte-identically — they pass neither. (`settings_page.dart`, the renamed
+controls page, adopted the fold on 2026-09-01 with its own
+`SettingsKeys.appSettingsCollapsedSections`.)
 
 Three invariants worth keeping:
 

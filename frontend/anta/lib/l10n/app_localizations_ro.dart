@@ -2238,13 +2238,10 @@ class AppLocalizationsRo extends AppLocalizations {
   String get moveDown => 'Mută Jos';
 
   @override
-  String get controlsSettings => 'Controale';
+  String get appSettings => 'Setări';
 
   @override
-  String get controlsSettingsDesc => 'Gesturi, feedback haptic și interacțiuni';
-
-  @override
-  String get gesturesSection => 'Gesturi';
+  String get appSettingsDesc => 'Pornire, navigare, editor și previzualizare';
 
   @override
   String get folderSwipeGesture =>
@@ -2262,7 +2259,7 @@ class AppLocalizationsRo extends AppLocalizations {
       'Glisează de la marginea stângă pentru a deschide meniul de navigare când editezi notițe';
 
   @override
-  String get feedbackSection => 'Feedback';
+  String get feedbackSection => 'Feedback și confirmare';
 
   @override
   String get hapticFeedback => 'Feedback haptic';
@@ -2296,7 +2293,29 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
-  String get displaySection => 'Afișare';
+  String get startupSection => 'Pornire';
+
+  @override
+  String get restoreLocation => 'Redeschide ultimul ecran';
+
+  @override
+  String get restoreLocationDesc => 'Ce deschide ANTA la pornire';
+
+  @override
+  String get restoreLocationOff => 'Dezactivat';
+
+  @override
+  String get restoreLocationNotes => 'Foldere și notițe';
+
+  @override
+  String get restoreLocationEverything => 'Tot';
+
+  @override
+  String get restoreLocationKeywords =>
+      'pornire, reluare, memorare, ultimul, ecran';
+
+  @override
+  String get displaySection => 'Foldere și notițe';
 
   @override
   String get showNotePreview => 'Arată previzualizarea notiței';
@@ -2713,9 +2732,6 @@ class AppLocalizationsRo extends AppLocalizations {
   @override
   String get showPreviewScrollbarDesc =>
       'Afișează o bară de derulare interactivă în modul previzualizare (experimental)';
-
-  @override
-  String get previewPerformanceSection => 'Performanță Previzualizare';
 
   @override
   String get previewLinesPerChunk => 'Linii per Bucată';

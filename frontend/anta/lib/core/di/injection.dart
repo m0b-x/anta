@@ -12,6 +12,7 @@ import '../../services/counter_service.dart';
 import '../../services/calendar_event_service.dart';
 import '../../services/mixed_reorder_service.dart';
 import '../../services/move_history_service.dart';
+import '../../services/navigation_history_service.dart';
 import '../../services/move_history_store.dart';
 import '../../services/recent_destinations_service.dart';
 import '../../services/folder_name_index.dart';
@@ -96,6 +97,15 @@ Future<void> _registerServices() async {
 
   getIt.registerSingleton<RecentDestinationsService>(
     RecentDestinationsService(),
+    dispose: (s) => s.dispose(),
+  );
+
+  // Holds no database reference of its own — it writes through
+  // `SettingsService.getInstance()`, which is what keeps it correct across a
+  // database switch. It still joins the `DatabaseLifecycle` contract to drop
+  // the in-memory stack, since those route ids belong to the closed database.
+  getIt.registerSingleton<NavigationHistoryService>(
+    NavigationHistoryService(),
     dispose: (s) => s.dispose(),
   );
 

@@ -275,7 +275,25 @@ class SettingsKeys {
   /// keys are dropped on read, so a retired icon simply stops appearing.
   static const String recentIconKeys = 'recent_icon_keys';
 
-  // Last navigation location (restored on next app launch)
+  /// The navigation stack the user was looking at, bottom-to-top, encoded by
+  /// `NavDestination.encodeStack`. Replayed on the next cold launch so the app
+  /// reopens where it left off — folders, notes, the calendar and its
+  /// sub-pages, and the drawer's settings pages alike.
+  ///
+  /// Lives in `user_settings`, so each local database remembers its own place
+  /// across the restart a database switch prompts.
+  static const String lastLocationStack = 'last_location_stack';
+
+  /// How much of [lastLocationStack] to replay: `off`, `notes`, or
+  /// `everything` (the default), parsed by `RestoreLocationMode.fromName`.
+  /// Filters at replay only — recording never stops, so turning restore back
+  /// on takes effect immediately rather than after the next navigation.
+  static const String restoreLocationMode = 'restore_location_mode';
+
+  /// Retired in favour of [lastLocationStack], which can express a chain of
+  /// any depth instead of one folder plus one note. Kept only so
+  /// `SettingsService` can migrate an existing install's value on first read
+  /// and then delete these rows; nothing writes them any more.
   static const String lastFolderId = 'last_folder_id';
   static const String lastFolderTitle = 'last_folder_title';
   static const String lastNoteId = 'last_note_id';
@@ -451,4 +469,11 @@ class SettingsKeys {
   /// section is inert rather than an error.
   static const String calendarSettingsCollapsedSections =
       'calendar_settings_collapsed_sections';
+
+  /// CSV of folded section ids on the app settings page — the same view-only
+  /// preference as [calendarSettingsCollapsedSections], kept separate so the
+  /// two pages fold independently. Absent means every section is open, and an
+  /// id that no longer matches a section is inert rather than an error.
+  static const String appSettingsCollapsedSections =
+      'app_settings_collapsed_sections';
 }

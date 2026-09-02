@@ -1122,17 +1122,13 @@
   "@tapPlusToCreate": {
     "description": "Hinweis auf den Plus-Button"
   },
-  "controlsSettings": "Steuerung",
-  "@controlsSettings": {
-    "description": "Controls settings menu item"
+  "appSettings": "Einstellungen",
+  "@appSettings": {
+    "description": "App settings menu item and page title"
   },
-  "controlsSettingsDesc": "Gesten, Haptik und Interaktionen",
-  "@controlsSettingsDesc": {
-    "description": "Controls settings description"
-  },
-  "gesturesSection": "Gesten",
-  "@gesturesSection": {
-    "description": "Gestures section title"
+  "appSettingsDesc": "Start, Navigation, Editor und Vorschau",
+  "@appSettingsDesc": {
+    "description": "App settings description"
   },
   "folderSwipeGesture": "Wischen zum Öffnen des Menüs in Ordnern",
   "@folderSwipeGesture": {
@@ -1150,7 +1146,7 @@
   "@noteSwipeGestureDesc": {
     "description": "Note swipe gesture description"
   },
-  "feedbackSection": "Feedback",
+  "feedbackSection": "Feedback & Bestätigung",
   "@feedbackSection": {
     "description": "Feedback section title"
   },
@@ -1195,9 +1191,37 @@
       }
     }
   },
-  "displaySection": "Anzeige",
+  "startupSection": "Start",
+  "@startupSection": {
+    "description": "Startup section title on the controls settings page"
+  },
+  "restoreLocation": "Letzten Bildschirm wieder öffnen",
+  "@restoreLocation": {
+    "description": "Setting that controls how much of the previous navigation stack is restored on launch"
+  },
+  "restoreLocationDesc": "Was ANTA beim Starten öffnet",
+  "@restoreLocationDesc": {
+    "description": "Description for the reopen-last-screen setting"
+  },
+  "restoreLocationOff": "Aus",
+  "@restoreLocationOff": {
+    "description": "Reopen-last-screen option: always start at the home screen"
+  },
+  "restoreLocationNotes": "Ordner und Notizen",
+  "@restoreLocationNotes": {
+    "description": "Reopen-last-screen option: restore only the folder and note the user was in"
+  },
+  "restoreLocationEverything": "Alles",
+  "@restoreLocationEverything": {
+    "description": "Reopen-last-screen option: restore the whole chain, calendar and settings pages included"
+  },
+  "restoreLocationKeywords": "start, fortsetzen, merken, letzter, bildschirm",
+  "@restoreLocationKeywords": {
+    "description": "Comma-separated hidden search synonyms for the reopen-last-screen setting"
+  },
+  "displaySection": "Ordner & Notizen",
   "@displaySection": {
-    "description": "Display section title"
+    "description": "Section title for the folder/note browser settings"
   },
   "showNotePreview": "Notizvorschau anzeigen",
   "@showNotePreview": {
@@ -1822,10 +1846,6 @@
   "showPreviewScrollbarDesc": "Eine interaktive Bildlaufleiste im Vorschaumodus anzeigen (experimentell)",
   "@showPreviewScrollbarDesc": {
     "description": "Description for show preview scrollbar setting"
-  },
-  "previewPerformanceSection": "Vorschau-Leistung",
-  "@previewPerformanceSection": {
-    "description": "Preview performance settings section title"
   },
   "previewLinesPerChunk": "Zeilen pro Block",
   "@previewLinesPerChunk": {

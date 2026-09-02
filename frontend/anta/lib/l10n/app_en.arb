@@ -2754,17 +2754,13 @@
   "@moveDown": {
     "description": "Move item down action"
   },
-  "controlsSettings": "Controls",
-  "@controlsSettings": {
-    "description": "Controls settings menu item"
+  "appSettings": "Settings",
+  "@appSettings": {
+    "description": "App settings menu item and page title"
   },
-  "controlsSettingsDesc": "Gestures, haptics and interactions",
-  "@controlsSettingsDesc": {
-    "description": "Controls settings description"
-  },
-  "gesturesSection": "Gestures",
-  "@gesturesSection": {
-    "description": "Gestures section title"
+  "appSettingsDesc": "Startup, browsing, editor and preview",
+  "@appSettingsDesc": {
+    "description": "App settings description"
   },
   "folderSwipeGesture": "Swipe to open menu in folders",
   "@folderSwipeGesture": {
@@ -2782,7 +2778,7 @@
   "@noteSwipeGestureDesc": {
     "description": "Note swipe gesture description"
   },
-  "feedbackSection": "Feedback",
+  "feedbackSection": "Feedback & confirmation",
   "@feedbackSection": {
     "description": "Feedback section title"
   },
@@ -2827,9 +2823,37 @@
       }
     }
   },
-  "displaySection": "Display",
+  "startupSection": "Startup",
+  "@startupSection": {
+    "description": "Startup section title on the controls settings page"
+  },
+  "restoreLocation": "Reopen last screen",
+  "@restoreLocation": {
+    "description": "Setting that controls how much of the previous navigation stack is restored on launch"
+  },
+  "restoreLocationDesc": "What ANTA opens when you launch it",
+  "@restoreLocationDesc": {
+    "description": "Description for the reopen-last-screen setting"
+  },
+  "restoreLocationOff": "Off",
+  "@restoreLocationOff": {
+    "description": "Reopen-last-screen option: always start at the home screen"
+  },
+  "restoreLocationNotes": "Folders and notes",
+  "@restoreLocationNotes": {
+    "description": "Reopen-last-screen option: restore only the folder and note the user was in"
+  },
+  "restoreLocationEverything": "Everything",
+  "@restoreLocationEverything": {
+    "description": "Reopen-last-screen option: restore the whole chain, calendar and settings pages included"
+  },
+  "restoreLocationKeywords": "launch, resume, remember, last, screen, start",
+  "@restoreLocationKeywords": {
+    "description": "Comma-separated hidden search synonyms for the reopen-last-screen setting"
+  },
+  "displaySection": "Folders & notes",
   "@displaySection": {
-    "description": "Display section title"
+    "description": "Section title for the folder/note browser settings"
   },
   "showNotePreview": "Show note preview",
   "@showNotePreview": {
@@ -3381,10 +3405,6 @@
   "showPreviewScrollbarDesc": "Show an interactive scrollbar in preview mode (experimental)",
   "@showPreviewScrollbarDesc": {
     "description": "Description for show preview scrollbar setting"
-  },
-  "previewPerformanceSection": "Preview Performance",
-  "@previewPerformanceSection": {
-    "description": "Preview performance settings section title"
   },
   "previewLinesPerChunk": "Lines Per Chunk",
   "@previewLinesPerChunk": {

@@ -38,6 +38,7 @@ import '../widgets/source_mapped_markdown_view.dart';
 import '../widgets/note_search_bar.dart';
 import '../widgets/app_drawer.dart';
 import '../services/app_navigator.dart';
+import '../services/drawer_host_registry.dart';
 import '../services/note_storage_service.dart';
 import '../widgets/unified_app_bars.dart';
 import '../utils/editor_width_calculator.dart';
@@ -85,6 +86,9 @@ class OptimizedNoteEditorPage extends StatefulWidget {
 
 class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     with WidgetsBindingObserver {
+  /// Lets a restored settings page raise this page's drawer when it is popped
+  /// — see [DrawerHostRegistry].
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   late TextEditingController _titleController;
   late CodeLineEditingController _contentController;
   final MarkdownEditorSpanBuilder _markdownSpanBuilder =
@@ -210,6 +214,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    DrawerHostRegistry.register(_scaffoldKey);
     _effectiveNoteId = widget.noteId;
     _loadEditorSettings();
     _initDevOptions();
@@ -1113,6 +1118,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   void dispose() {
     _counterBloc.add(const SetNoteContext());
     WidgetsBinding.instance.removeObserver(this);
+    DrawerHostRegistry.unregister(_scaffoldKey);
     DevOptions.instance.removeListener(_onDevOptionsChanged);
     _lineCountDebounceTimer?.cancel();
     _restorePositionTimer?.cancel();
@@ -1649,6 +1655,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
             }
           },
           child: Scaffold(
+            key: _scaffoldKey,
             resizeToAvoidBottomInset: false,
             drawer: const AppDrawer(),
             drawerEnableOpenDragGesture: _noteSwipeEnabled,

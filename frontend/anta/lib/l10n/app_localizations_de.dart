@@ -2221,13 +2221,10 @@ class AppLocalizationsDe extends AppLocalizations {
   String get moveDown => 'Nach unten';
 
   @override
-  String get controlsSettings => 'Steuerung';
+  String get appSettings => 'Einstellungen';
 
   @override
-  String get controlsSettingsDesc => 'Gesten, Haptik und Interaktionen';
-
-  @override
-  String get gesturesSection => 'Gesten';
+  String get appSettingsDesc => 'Start, Navigation, Editor und Vorschau';
 
   @override
   String get folderSwipeGesture => 'Wischen zum Öffnen des Menüs in Ordnern';
@@ -2244,7 +2241,7 @@ class AppLocalizationsDe extends AppLocalizations {
       'Vom linken Rand wischen, um das Navigationsmenü beim Bearbeiten von Notizen zu öffnen';
 
   @override
-  String get feedbackSection => 'Feedback';
+  String get feedbackSection => 'Feedback & Bestätigung';
 
   @override
   String get hapticFeedback => 'Haptisches Feedback';
@@ -2278,7 +2275,29 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
-  String get displaySection => 'Anzeige';
+  String get startupSection => 'Start';
+
+  @override
+  String get restoreLocation => 'Letzten Bildschirm wieder öffnen';
+
+  @override
+  String get restoreLocationDesc => 'Was ANTA beim Starten öffnet';
+
+  @override
+  String get restoreLocationOff => 'Aus';
+
+  @override
+  String get restoreLocationNotes => 'Ordner und Notizen';
+
+  @override
+  String get restoreLocationEverything => 'Alles';
+
+  @override
+  String get restoreLocationKeywords =>
+      'start, fortsetzen, merken, letzter, bildschirm';
+
+  @override
+  String get displaySection => 'Ordner & Notizen';
 
   @override
   String get showNotePreview => 'Notizvorschau anzeigen';
@@ -2693,9 +2712,6 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get showPreviewScrollbarDesc =>
       'Eine interaktive Bildlaufleiste im Vorschaumodus anzeigen (experimentell)';
-
-  @override
-  String get previewPerformanceSection => 'Vorschau-Leistung';
 
   @override
   String get previewLinesPerChunk => 'Zeilen pro Block';

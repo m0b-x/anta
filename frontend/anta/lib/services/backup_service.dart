@@ -195,6 +195,7 @@ class BackupService {
       'show_note_preview',
       'show_stats_bar',
       'haptic_feedback',
+      'restore_location_mode',
       'show_line_numbers',
       'word_wrap',
       'show_cursor_line',

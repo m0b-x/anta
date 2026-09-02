@@ -21,6 +21,7 @@ import 'pages/onboarding_page.dart';
 import 'services/app_navigator.dart';
 import 'services/counter_service.dart';
 import 'services/import_export_service.dart';
+import 'services/navigation_history_service.dart';
 import 'services/settings_service.dart';
 
 void main() async {
@@ -68,6 +69,9 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   bool? _showOnboarding;
   bool _didRestoreLocation = false;
 
+  late final NavigationHistoryObserver _navigationHistoryObserver =
+      NavigationHistoryObserver(getIt<NavigationHistoryService>());
+
   @override
   void initState() {
     super.initState();
@@ -87,6 +91,10 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.detached) {
       getIt<CounterService>().flush();
+      // The remembered location is written on a debounce, and this is the
+      // moment the whole feature exists for: Android kills paused processes,
+      // so a pending stack has to reach SQLite before the window goes away.
+      getIt<NavigationHistoryService>().flush();
     }
     // Close the input connection before the OS suspends us. Android can
     // pause the activity mid keyboard inset-animation, and the bottom
@@ -105,13 +113,19 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     if (mounted) {
       setState(() => _showOnboarding = !completed);
     }
-    // Reopen the last-viewed folder/note exactly once on cold launch, but
-    // only for returning users (skip while onboarding is still showing).
+    // Reopen the chain the user was in exactly once on cold launch, but only
+    // for returning users (skip while onboarding is still showing).
+    //
+    // `restoreLastLocation` is also what unseals recording, so the onboarding
+    // path has to unseal it itself — a first-run user must still have their
+    // navigation remembered from here on.
     if (completed && !_didRestoreLocation) {
       _didRestoreLocation = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         AppNavigator.restoreLastLocation();
       });
+    } else if (!completed) {
+      getIt<NavigationHistoryService>().beginRecording();
     }
   }
 
@@ -143,7 +157,10 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         builder: (context, settingsState) {
           return MaterialApp(
             navigatorKey: AppNavigator.navigatorKey,
-            navigatorObservers: [AppNavigator.routeObserver],
+            navigatorObservers: [
+              AppNavigator.routeObserver,
+              _navigationHistoryObserver,
+            ],
             title: 'ANTA',
             debugShowCheckedModeBanner: false,
             localizationsDelegates: const [

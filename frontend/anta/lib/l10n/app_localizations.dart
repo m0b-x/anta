@@ -3898,23 +3898,17 @@ abstract class AppLocalizations {
   /// **'Move Down'**
   String get moveDown;
 
-  /// Controls settings menu item
+  /// App settings menu item and page title
   ///
   /// In en, this message translates to:
-  /// **'Controls'**
-  String get controlsSettings;
+  /// **'Settings'**
+  String get appSettings;
 
-  /// Controls settings description
+  /// App settings description
   ///
   /// In en, this message translates to:
-  /// **'Gestures, haptics and interactions'**
-  String get controlsSettingsDesc;
-
-  /// Gestures section title
-  ///
-  /// In en, this message translates to:
-  /// **'Gestures'**
-  String get gesturesSection;
+  /// **'Startup, browsing, editor and preview'**
+  String get appSettingsDesc;
 
   /// Folder swipe gesture setting
   ///
@@ -3943,7 +3937,7 @@ abstract class AppLocalizations {
   /// Feedback section title
   ///
   /// In en, this message translates to:
-  /// **'Feedback'**
+  /// **'Feedback & confirmation'**
   String get feedbackSection;
 
   /// Haptic feedback setting
@@ -4000,10 +3994,52 @@ abstract class AppLocalizations {
   /// **'Save every {seconds} seconds'**
   String autoSaveIntervalDesc(int seconds);
 
-  /// Display section title
+  /// Startup section title on the controls settings page
   ///
   /// In en, this message translates to:
-  /// **'Display'**
+  /// **'Startup'**
+  String get startupSection;
+
+  /// Setting that controls how much of the previous navigation stack is restored on launch
+  ///
+  /// In en, this message translates to:
+  /// **'Reopen last screen'**
+  String get restoreLocation;
+
+  /// Description for the reopen-last-screen setting
+  ///
+  /// In en, this message translates to:
+  /// **'What ANTA opens when you launch it'**
+  String get restoreLocationDesc;
+
+  /// Reopen-last-screen option: always start at the home screen
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get restoreLocationOff;
+
+  /// Reopen-last-screen option: restore only the folder and note the user was in
+  ///
+  /// In en, this message translates to:
+  /// **'Folders and notes'**
+  String get restoreLocationNotes;
+
+  /// Reopen-last-screen option: restore the whole chain, calendar and settings pages included
+  ///
+  /// In en, this message translates to:
+  /// **'Everything'**
+  String get restoreLocationEverything;
+
+  /// Comma-separated hidden search synonyms for the reopen-last-screen setting
+  ///
+  /// In en, this message translates to:
+  /// **'launch, resume, remember, last, screen, start'**
+  String get restoreLocationKeywords;
+
+  /// Section title for the folder/note browser settings
+  ///
+  /// In en, this message translates to:
+  /// **'Folders & notes'**
   String get displaySection;
 
   /// Show note preview setting
@@ -4719,12 +4755,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Show an interactive scrollbar in preview mode (experimental)'**
   String get showPreviewScrollbarDesc;
-
-  /// Preview performance settings section title
-  ///
-  /// In en, this message translates to:
-  /// **'Preview Performance'**
-  String get previewPerformanceSection;
 
   /// Setting for number of lines per render chunk in preview
   ///

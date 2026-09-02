@@ -103,6 +103,25 @@ class _AppDrawerState extends State<AppDrawer> {
 
                 const Divider(indent: 16, endIndent: 16),
 
+                // The general settings page leads the group: it holds the rows
+                // most people come here for, and the ones below it are each a
+                // single subsystem.
+                _buildMenuItem(
+                  context: context,
+                  icon: Icons.tune_rounded,
+                  title: AppLocalizations.of(context)!.appSettings,
+                  subtitle: AppLocalizations.of(context)!.appSettingsDesc,
+                  onTap: () {
+                    AppNavigator.pop(context);
+                    AppNavigator.toSettings(context).then((result) {
+                      if (result == SettingsResult.openDrawer &&
+                          context.mounted) {
+                        Scaffold.of(context).openDrawer();
+                      }
+                    });
+                  },
+                ),
+
                 // Database settings
                 _buildMenuItem(
                   context: context,
@@ -112,23 +131,6 @@ class _AppDrawerState extends State<AppDrawer> {
                   onTap: () {
                     AppNavigator.pop(context);
                     AppNavigator.toDatabaseSettings(context).then((result) {
-                      if (result == SettingsResult.openDrawer &&
-                          context.mounted) {
-                        Scaffold.of(context).openDrawer();
-                      }
-                    });
-                  },
-                ),
-
-                // Controls settings
-                _buildMenuItem(
-                  context: context,
-                  icon: Icons.touch_app_rounded,
-                  title: AppLocalizations.of(context)!.controlsSettings,
-                  subtitle: AppLocalizations.of(context)!.controlsSettingsDesc,
-                  onTap: () {
-                    AppNavigator.pop(context);
-                    AppNavigator.toControlsSettings(context).then((result) {
                       if (result == SettingsResult.openDrawer &&
                           context.mounted) {
                         Scaffold.of(context).openDrawer();

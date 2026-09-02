@@ -39,6 +39,7 @@ import '../constants/app_colors.dart';
 import '../constants/folder_card_action.dart';
 import '../constants/note_card_action.dart';
 import '../services/app_navigator.dart';
+import '../services/drawer_host_registry.dart';
 import '../widgets/move_history_sheet.dart';
 
 class OptimizedFolderContentPage extends StatefulWidget {
@@ -56,8 +57,11 @@ class OptimizedFolderContentPage extends StatefulWidget {
       _OptimizedFolderContentPageState();
 }
 
-class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
-    with RouteAware {
+class _OptimizedFolderContentPageState
+    extends State<OptimizedFolderContentPage> {
+  /// Lets a restored settings page raise this page's drawer when it is popped
+  /// — see [DrawerHostRegistry].
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final ScrollController _scrollController = ScrollController();
   NotesSortOrder _notesSortOrder = NotesSortOrder.updatedDesc;
   FoldersSortOrder _foldersSortOrder = FoldersSortOrder.nameAsc;
@@ -124,6 +128,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   @override
   void initState() {
     super.initState();
+    DrawerHostRegistry.register(_scaffoldKey);
     _selectionSub = _selection.changes.listen((_) {
       if (mounted) {
         // Drop optimistic state when leaving selection mode so the next
@@ -185,37 +190,15 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     super.didChangeDependencies();
     FocusManager.instance.primaryFocus?.unfocus();
     _loadSettings();
-    // Every folder page observes route changes so the remembered launch
-    // location stays in sync when the user navigates back onto it (see
-    // didPopNext).
-    final route = ModalRoute.of(context);
-    if (route is PageRoute) {
-      AppNavigator.routeObserver.subscribe(this, route);
-    }
   }
 
   @override
   void dispose() {
-    AppNavigator.routeObserver.unsubscribe(this);
+    DrawerHostRegistry.unregister(_scaffoldKey);
     _selectionSub?.cancel();
     _selection.dispose();
     _scrollController.dispose();
     super.dispose();
-  }
-
-  /// Called when a route pushed on top of this page is popped, making this
-  /// folder page visible again. We keep the remembered last location in sync
-  /// with what the user is now looking at: the root page forgets everything
-  /// (the user navigated "home"), while a nested folder re-asserts itself as
-  /// the last location and drops any remembered note (the user backed out of
-  /// a note/subfolder), so the next cold launch restores this folder rather
-  /// than the note that is no longer on screen.
-  @override
-  void didPopNext() {
-    SettingsService.getInstance().then((s) {
-      if (widget.folderId == null) return s.clearLastLocation();
-      return s.saveLastFolder(widget.folderId!, widget.title);
-    });
   }
 
   // ─── Selection mode helpers ─────────────────────────────────────────────
@@ -533,6 +516,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     final isSelecting = _selection.isActive;
 
     final scaffold = Scaffold(
+      key: _scaffoldKey,
       drawer: isSelecting ? null : const AppDrawer(),
       drawerEnableOpenDragGesture: !isSelecting && _folderSwipeEnabled,
       appBar: isSelecting

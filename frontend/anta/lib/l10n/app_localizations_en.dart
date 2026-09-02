@@ -2208,13 +2208,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get moveDown => 'Move Down';
 
   @override
-  String get controlsSettings => 'Controls';
+  String get appSettings => 'Settings';
 
   @override
-  String get controlsSettingsDesc => 'Gestures, haptics and interactions';
-
-  @override
-  String get gesturesSection => 'Gestures';
+  String get appSettingsDesc => 'Startup, browsing, editor and preview';
 
   @override
   String get folderSwipeGesture => 'Swipe to open menu in folders';
@@ -2231,7 +2228,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'Swipe from left edge to open the navigation menu when editing notes';
 
   @override
-  String get feedbackSection => 'Feedback';
+  String get feedbackSection => 'Feedback & confirmation';
 
   @override
   String get hapticFeedback => 'Haptic feedback';
@@ -2265,7 +2262,29 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get displaySection => 'Display';
+  String get startupSection => 'Startup';
+
+  @override
+  String get restoreLocation => 'Reopen last screen';
+
+  @override
+  String get restoreLocationDesc => 'What ANTA opens when you launch it';
+
+  @override
+  String get restoreLocationOff => 'Off';
+
+  @override
+  String get restoreLocationNotes => 'Folders and notes';
+
+  @override
+  String get restoreLocationEverything => 'Everything';
+
+  @override
+  String get restoreLocationKeywords =>
+      'launch, resume, remember, last, screen, start';
+
+  @override
+  String get displaySection => 'Folders & notes';
 
   @override
   String get showNotePreview => 'Show note preview';
@@ -2677,9 +2696,6 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get showPreviewScrollbarDesc =>
       'Show an interactive scrollbar in preview mode (experimental)';
-
-  @override
-  String get previewPerformanceSection => 'Preview Performance';
 
   @override
   String get previewLinesPerChunk => 'Lines Per Chunk';

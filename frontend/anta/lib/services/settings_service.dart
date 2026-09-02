@@ -7,6 +7,8 @@ import '../constants/fasting_calendar.dart';
 import '../constants/settings_keys.dart';
 import '../models/fasting_appearance.dart';
 import '../models/fasting_schedule.dart';
+import '../models/nav_destination.dart';
+import '../models/restore_location_mode.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
 import '../models/calendar_appearance.dart';
@@ -1000,6 +1002,21 @@ class SettingsService {
     );
   }
 
+  Future<Set<String>> getAppSettingsCollapsedSections() async {
+    return _decodeCollapsedSections(
+      await _db.userSettingsDao.getValue(
+        SettingsKeys.appSettingsCollapsedSections,
+      ),
+    );
+  }
+
+  Future<void> setAppSettingsCollapsedSections(Set<String> ids) async {
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.appSettingsCollapsedSections,
+      ids.join(','),
+    );
+  }
+
   // Calendar - Enabled religious-fasting traditions (empty set = off).
   static Set<FastingTradition> _decodeFastingTraditions(String? raw) {
     if (raw == null || raw.isEmpty) return const {};
@@ -1302,40 +1319,75 @@ class SettingsService {
   }
 
   // ── Last navigation location ─────────────────────────────────────────
-  // Remembers the folder (and optionally the note inside it) the user was
-  // viewing, so the app can reopen that location on the next cold launch.
+  // Remembers the routes the user had stacked above the root folder page, so
+  // the app can reopen that whole chain on the next cold launch.
 
-  Future<String?> getLastFolderId() async {
-    return _db.userSettingsDao.getValue(SettingsKeys.lastFolderId);
-  }
+  /// Reads the remembered stack, migrating the retired three-key format on
+  /// the way through.
+  ///
+  /// The migration is read-through rather than a Drift migration because
+  /// `user_settings` is a key/value table — there is no schema to change. It
+  /// is idempotent by construction: the stack key is written before the legacy
+  /// rows are deleted, and an install that already has a stack row (empty
+  /// envelope included) never consults the legacy keys again.
+  Future<List<NavDestination>> getLastLocationStack() async {
+    final raw = await _db.userSettingsDao.getValue(
+      SettingsKeys.lastLocationStack,
+    );
+    if (raw != null) return NavDestination.decodeStack(raw);
 
-  Future<String?> getLastFolderTitle() async {
-    return _db.userSettingsDao.getValue(SettingsKeys.lastFolderTitle);
-  }
+    final folderId = await _db.userSettingsDao.getValue(
+      SettingsKeys.lastFolderId,
+    );
+    final stack = <NavDestination>[];
+    if (folderId != null && folderId.isNotEmpty) {
+      final title =
+          await _db.userSettingsDao.getValue(SettingsKeys.lastFolderTitle) ??
+          '';
+      stack.add(NavDestination.folder(folderId: folderId, title: title));
+      final noteId = await _db.userSettingsDao.getValue(
+        SettingsKeys.lastNoteId,
+      );
+      if (noteId != null && noteId.isNotEmpty) {
+        stack.add(NavDestination.note(noteId: noteId, folderId: folderId));
+      }
+    }
 
-  Future<String?> getLastNoteId() async {
-    return _db.userSettingsDao.getValue(SettingsKeys.lastNoteId);
-  }
-
-  /// Records the folder the user just opened. Clears any remembered note,
-  /// since entering a folder means we are no longer inside a note.
-  Future<void> saveLastFolder(String folderId, String title) async {
-    await _db.userSettingsDao.setValue(SettingsKeys.lastFolderId, folderId);
-    await _db.userSettingsDao.setValue(SettingsKeys.lastFolderTitle, title);
-    await _db.userSettingsDao.deleteValue(SettingsKeys.lastNoteId);
-  }
-
-  /// Records the note the user just opened. The enclosing folder is already
-  /// stored by the preceding [saveLastFolder] call.
-  Future<void> saveLastNote(String noteId) async {
-    await _db.userSettingsDao.setValue(SettingsKeys.lastNoteId, noteId);
-  }
-
-  /// Forgets the remembered location (e.g. when the target no longer exists).
-  Future<void> clearLastLocation() async {
+    await saveLastLocationStack(stack);
     await _db.userSettingsDao.deleteValue(SettingsKeys.lastFolderId);
     await _db.userSettingsDao.deleteValue(SettingsKeys.lastFolderTitle);
     await _db.userSettingsDao.deleteValue(SettingsKeys.lastNoteId);
+    return stack;
+  }
+
+  /// Persists the stack as it now stands. An empty stack writes the empty
+  /// envelope rather than deleting the row: a healthy "user is at root" state
+  /// must stay distinguishable from a never-migrated install, or the legacy
+  /// migration would run again against long-deleted keys.
+  Future<void> saveLastLocationStack(List<NavDestination> stack) async {
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.lastLocationStack,
+      NavDestination.encodeStack(stack),
+    );
+  }
+
+  /// Forgets the remembered location — used when the stored value cannot be
+  /// parsed at all, not as part of ordinary navigation.
+  Future<void> clearLastLocation() async {
+    await saveLastLocationStack(const []);
+  }
+
+  Future<RestoreLocationMode> getRestoreLocationMode() async {
+    return RestoreLocationMode.fromName(
+      await _db.userSettingsDao.getValue(SettingsKeys.restoreLocationMode),
+    );
+  }
+
+  Future<void> setRestoreLocationMode(RestoreLocationMode mode) async {
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.restoreLocationMode,
+      mode.name,
+    );
   }
 
   // Toolbar settings - Shortcut/utility ratio

@@ -48,7 +48,7 @@ Page/Widget -> BLoC -> Service -> Repository -> DAO -> Drift database
 - Backup: `lib/services/backup_service.dart` — versioned JSON; keep old backups importable when adding persisted fields.
 - Import/export: UI only through `ImportExportBloc`; `createX` stamps timestamps to now, `importX` preserves caller timestamps; archive schema bumps require bumping `ImportExportService.archiveVersion` and accepting the previous version in `_assertSupportedManifest`; exports go through `shareExport` (temp-file cleanup) — never call `SharePlus` directly from pages/blocs.
 - Multi-database: `lib/services/database_manager.dart`. Any DB-backed singleton must follow the `DatabaseLifecycle` reset contract (see the `drift-migrations` skill).
-- Last-location restore: `AppNavigator.restoreLastLocation()` from `main.dart`; keep existence checks — never navigate to a deleted folder/note.
+- Last-location restore: a persisted **stack** of `NavDestination`s (`lib/models/nav_destination.dart`), recorded by `NavigationHistoryObserver`/`NavigationHistoryService` off route stamps that `AppNavigator` puts in `RouteSettings.arguments`, replayed by `AppNavigator.restoreLastLocation()` from `main.dart`. Keep existence checks — never navigate to a deleted folder/note — and never await a push during replay. See the "Navigation And Launch Restore" section of COPILOT_CONTEXT.md before changing any of it.
 - Local editor fork: `packages/re_editor/` — preserve its perf optimizations (2-slot `asString` cache, bounded LRU paragraph cache, binary-search lookups, 50 ms highlight debounce, `cloneShallowDirty()` contract).
 
 ## 5. Validation (PowerShell on Windows)
