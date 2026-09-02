@@ -2850,6 +2850,16 @@ class AppLocalizationsRo extends AppLocalizations {
       'Afișează numărul săptămânii în marginea stângă';
 
   @override
+  String get calendarFilteringSection => 'Filtrare';
+
+  @override
+  String get calendarShowFilterChips => 'Etichete de filtrare';
+
+  @override
+  String get calendarShowFilterChipsDesc =>
+      'Afișează filtrele active pe un rând deasupra grilei';
+
+  @override
   String publicHolidayObserved(String name) {
     return '$name (zi compensatorie)';
   }

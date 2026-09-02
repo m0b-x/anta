@@ -102,6 +102,10 @@ class SettingsKeys {
   static const String calendarHighlightWeekends = 'calendar_highlight_weekends';
   static const String calendarShowWeekNumbers = 'calendar_show_week_numbers';
 
+  /// Whether the removable filter chips row is drawn above the grid while a
+  /// grid filter is active.
+  static const String calendarShowFilterChips = 'calendar_show_filter_chips';
+
   /// Recently used custom event colors (comma-separated ARGB ints,
   /// most-recent-first). **Retired** in favour of [calendarCustomColors]:
   /// `CalendarPaletteService` reads it once to fold the colors a user had
@@ -410,6 +414,7 @@ class SettingsKeys {
   static const String defaultCalendarWeekStart = 'monday';
   static const bool defaultCalendarHighlightWeekends = false;
   static const bool defaultCalendarShowWeekNumbers = false;
+  static const bool defaultCalendarShowFilterChips = false;
   static const bool defaultCalendarShowRecurrenceLabels = true;
 
   /// Missed occurrences stay visible by default: a mark the user just made

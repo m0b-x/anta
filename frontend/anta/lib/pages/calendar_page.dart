@@ -848,37 +848,39 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
             }
             return Column(
               children: [
-                // Its own builder, gated on the filter set alone: the row is
-                // mounted only while something is being hidden, and neither
+                // Opt-in (off by default), then its own builder gated on the
+                // filter set: the row is mounted only while the setting is on
+                // and something is being hidden, and neither
                 // the grid nor the panel rebuilds when a chip is removed —
                 // that reaches them through the bloc, as any other filter
                 // change does. The grid's height is fixed (rows are sized
                 // from the cell metrics, not from what is left over), so the
                 // row costs the bottom panel a few pixels and shifts nothing
                 // above it.
-                BlocBuilder<CalendarBloc, CalendarPageState>(
-                  buildWhen: (previous, current) =>
-                      previous is! CalendarPageLoaded ||
-                      current is! CalendarPageLoaded ||
-                      !identical(previous.filters, current.filters),
-                  builder: (context, state) {
-                    if (state is! CalendarPageLoaded) {
-                      return const SizedBox.shrink();
-                    }
-                    return CalendarFilterChips(
-                      filters: state.filters,
-                      onChanged: (filters) => _applyFilters(context, filters),
-                      // Read at press time for the same reason the app-bar
-                      // button does: this buildWhen ignores `format`, which
-                      // the sheet needs.
-                      onOpenFilters: () {
-                        final current = context.read<CalendarBloc>().state;
-                        if (current is! CalendarPageLoaded) return;
-                        _openFilterSheet(context, current);
-                      },
-                    );
-                  },
-                ),
+                if (_appearance.showFilterChips)
+                  BlocBuilder<CalendarBloc, CalendarPageState>(
+                    buildWhen: (previous, current) =>
+                        previous is! CalendarPageLoaded ||
+                        current is! CalendarPageLoaded ||
+                        !identical(previous.filters, current.filters),
+                    builder: (context, state) {
+                      if (state is! CalendarPageLoaded) {
+                        return const SizedBox.shrink();
+                      }
+                      return CalendarFilterChips(
+                        filters: state.filters,
+                        onChanged: (filters) => _applyFilters(context, filters),
+                        // Read at press time for the same reason the app-bar
+                        // button does: this buildWhen ignores `format`, which
+                        // the sheet needs.
+                        onOpenFilters: () {
+                          final current = context.read<CalendarBloc>().state;
+                          if (current is! CalendarPageLoaded) return;
+                          _openFilterSheet(context, current);
+                        },
+                      );
+                    },
+                  ),
                 // AnimatedSize collapses the grid to zero height when the
                 // panel is expanded — the grid keeps its own state either way
                 // and no manual layout math is involved.

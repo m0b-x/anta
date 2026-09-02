@@ -834,6 +834,9 @@
   "calendarHighlightWeekendsDesc": "Afișează sâmbăta și duminica într-o culoare distinctă",
   "calendarShowWeekNumbers": "Numerele săptămânilor",
   "calendarShowWeekNumbersDesc": "Afișează numărul săptămânii în marginea stângă",
+  "calendarFilteringSection": "Filtrare",
+  "calendarShowFilterChips": "Etichete de filtrare",
+  "calendarShowFilterChipsDesc": "Afișează filtrele active pe un rând deasupra grilei",
   "publicHolidayObserved": "{name} (zi compensatorie)",
   "@publicHolidayObserved": {
     "placeholders": {

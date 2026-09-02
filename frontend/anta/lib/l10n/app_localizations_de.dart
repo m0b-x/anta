@@ -2828,6 +2828,16 @@ class AppLocalizationsDe extends AppLocalizations {
       'Wochennummern am linken Rand anzeigen';
 
   @override
+  String get calendarFilteringSection => 'Filterung';
+
+  @override
+  String get calendarShowFilterChips => 'Filter-Chips';
+
+  @override
+  String get calendarShowFilterChipsDesc =>
+      'Aktive Filter als Zeile über dem Raster anzeigen';
+
+  @override
   String publicHolidayObserved(String name) {
     return '$name (Ersatztag)';
   }

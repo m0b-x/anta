@@ -4948,6 +4948,24 @@ abstract class AppLocalizations {
   /// **'Show week numbers at the left edge'**
   String get calendarShowWeekNumbersDesc;
 
+  /// Calendar settings section holding the filtering options
+  ///
+  /// In en, this message translates to:
+  /// **'Filtering'**
+  String get calendarFilteringSection;
+
+  /// Switch title for the active-filter chips row above the calendar grid
+  ///
+  /// In en, this message translates to:
+  /// **'Filter chips'**
+  String get calendarShowFilterChips;
+
+  /// Switch subtitle for the active-filter chips row
+  ///
+  /// In en, this message translates to:
+  /// **'Show a row of active filters above the grid'**
+  String get calendarShowFilterChipsDesc;
+
   /// Label for a substitute day off given because a holiday fell on a weekend (UK bank holidays, US federal observance)
   ///
   /// In en, this message translates to:

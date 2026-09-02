@@ -609,6 +609,18 @@ class SettingsService {
     await _setBool(SettingsKeys.calendarShowWeekNumbers, value);
   }
 
+  // Calendar appearance - show the active-filter chips row above the grid.
+  Future<bool> getCalendarShowFilterChips() async {
+    return _getBool(
+      SettingsKeys.calendarShowFilterChips,
+      SettingsKeys.defaultCalendarShowFilterChips,
+    );
+  }
+
+  Future<void> setCalendarShowFilterChips(bool value) async {
+    await _setBool(SettingsKeys.calendarShowFilterChips, value);
+  }
+
   Future<bool> getCalendarShowRecurrenceLabels() async {
     return _getBool(
       SettingsKeys.calendarShowRecurrenceLabels,
@@ -1140,6 +1152,7 @@ class SettingsService {
     SettingsKeys.calendarAccentColor,
     SettingsKeys.calendarHighlightWeekends,
     SettingsKeys.calendarShowWeekNumbers,
+    SettingsKeys.calendarShowFilterChips,
     SettingsKeys.calendarMaxDayBars,
     SettingsKeys.calendarShowRecurrenceLabels,
     SettingsKeys.calendarMissedDisplay,
@@ -1185,6 +1198,10 @@ class SettingsService {
       showWeekNumbers: _decodeBool(
         values[SettingsKeys.calendarShowWeekNumbers],
         SettingsKeys.defaultCalendarShowWeekNumbers,
+      ),
+      showFilterChips: _decodeBool(
+        values[SettingsKeys.calendarShowFilterChips],
+        SettingsKeys.defaultCalendarShowFilterChips,
       ),
       maxDayBars: _decodeInt(
         values[SettingsKeys.calendarMaxDayBars],

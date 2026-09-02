@@ -3549,6 +3549,18 @@
   "@calendarShowWeekNumbersDesc": {
     "description": "Switch subtitle for ISO week numbers"
   },
+  "calendarFilteringSection": "Filtering",
+  "@calendarFilteringSection": {
+    "description": "Calendar settings section holding the filtering options"
+  },
+  "calendarShowFilterChips": "Filter chips",
+  "@calendarShowFilterChips": {
+    "description": "Switch title for the active-filter chips row above the calendar grid"
+  },
+  "calendarShowFilterChipsDesc": "Show a row of active filters above the grid",
+  "@calendarShowFilterChipsDesc": {
+    "description": "Switch subtitle for the active-filter chips row"
+  },
   "publicHolidayObserved": "{name} (observed)",
   "@publicHolidayObserved": {
     "description": "Label for a substitute day off given because a holiday fell on a weekend (UK bank holidays, US federal observance)",

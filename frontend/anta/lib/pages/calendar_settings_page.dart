@@ -52,6 +52,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
   static const String _sectionCalendar = 'calendar';
   static const String _sectionCategories = 'categories';
   static const String _sectionAppearance = 'appearance';
+  static const String _sectionFiltering = 'filtering';
   static const String _sectionFasting = 'fasting';
   static const String _sectionEvents = 'events';
 
@@ -315,6 +316,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
       _buildCalendarSection(colorScheme, l10n),
       _buildCategoriesSection(colorScheme, l10n),
       _buildAppearanceSection(colorScheme, l10n),
+      _buildFilteringSection(colorScheme, l10n),
       _buildFastingSection(theme, colorScheme, l10n),
       _buildEventsSection(colorScheme, l10n),
     ];
@@ -892,6 +894,42 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     );
   }
 
+  /// Everything about narrowing what the calendar shows — as opposed to how
+  /// what is shown is drawn, which is the appearance section above.
+  SettingsSectionData _buildFilteringSection(
+    ColorScheme colorScheme,
+    AppLocalizations l10n,
+  ) {
+    return SettingsSectionData(
+      id: _sectionFiltering,
+      icon: Icons.filter_alt_rounded,
+      title: l10n.calendarFilteringSection,
+      entries: [
+        SettingsEntry(
+          title: l10n.calendarShowFilterChips,
+          description: l10n.calendarShowFilterChipsDesc,
+          builder: (context, title, description) => SwitchListTile(
+            value: _appearance.showFilterChips,
+            secondary: Icon(
+              Icons.filter_alt_outlined,
+              color: colorScheme.primary,
+            ),
+            title: title,
+            subtitle: description,
+            onChanged: (value) async {
+              _onHapticFeedback();
+              setState(
+                () =>
+                    _appearance = _appearance.copyWith(showFilterChips: value),
+              );
+              await _settings?.setCalendarShowFilterChips(value);
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
   SettingsSectionData _buildCategoriesSection(
     ColorScheme colorScheme,
     AppLocalizations l10n,
@@ -1164,6 +1202,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     await _settings?.setCalendarAccentColor(defaults.accentColorValue);
     await _settings?.setCalendarHighlightWeekends(defaults.highlightWeekends);
     await _settings?.setCalendarShowWeekNumbers(defaults.showWeekNumbers);
+    await _settings?.setCalendarShowFilterChips(defaults.showFilterChips);
     await _settings?.setCalendarShowRecurrenceLabels(
       defaults.showRecurrenceLabels,
     );

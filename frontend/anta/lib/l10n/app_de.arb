@@ -1904,6 +1904,9 @@
   "calendarHighlightWeekendsDesc": "Samstag und Sonntag in eigener Farbe anzeigen",
   "calendarShowWeekNumbers": "Kalenderwochen",
   "calendarShowWeekNumbersDesc": "Wochennummern am linken Rand anzeigen",
+  "calendarFilteringSection": "Filterung",
+  "calendarShowFilterChips": "Filter-Chips",
+  "calendarShowFilterChipsDesc": "Aktive Filter als Zeile über dem Raster anzeigen",
   "publicHolidayObserved": "{name} (Ersatztag)",
   "@publicHolidayObserved": {
     "placeholders": {

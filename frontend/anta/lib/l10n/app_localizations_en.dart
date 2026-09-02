@@ -2812,6 +2812,16 @@ class AppLocalizationsEn extends AppLocalizations {
       'Show week numbers at the left edge';
 
   @override
+  String get calendarFilteringSection => 'Filtering';
+
+  @override
+  String get calendarShowFilterChips => 'Filter chips';
+
+  @override
+  String get calendarShowFilterChipsDesc =>
+      'Show a row of active filters above the grid';
+
+  @override
   String publicHolidayObserved(String name) {
     return '$name (observed)';
   }

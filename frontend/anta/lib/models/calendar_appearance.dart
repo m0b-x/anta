@@ -190,6 +190,11 @@ class CalendarAppearance extends Equatable {
   /// Show ISO week numbers along the left edge.
   final bool showWeekNumbers;
 
+  /// Show the removable filter chips row above the grid while a grid filter
+  /// is active. Off by default: the filter button already carries an active
+  /// badge, and the row costs the bottom panel height on every filtered view.
+  final bool showFilterChips;
+
   /// Maximum bar/dot markers per day cell before the "+N" overflow chip.
   final int maxDayBars;
 
@@ -235,6 +240,7 @@ class CalendarAppearance extends Equatable {
     this.accentColorValue,
     this.highlightWeekends = false,
     this.showWeekNumbers = false,
+    this.showFilterChips = false,
     this.maxDayBars = 3,
     this.showRecurrenceLabels = true,
     this.missedDisplay = CalendarMissedDisplay.faded,
@@ -260,6 +266,7 @@ class CalendarAppearance extends Equatable {
     bool clearAccentColor = false,
     bool? highlightWeekends,
     bool? showWeekNumbers,
+    bool? showFilterChips,
     int? maxDayBars,
     bool? showRecurrenceLabels,
     CalendarMissedDisplay? missedDisplay,
@@ -278,6 +285,7 @@ class CalendarAppearance extends Equatable {
           : (accentColorValue ?? this.accentColorValue),
       highlightWeekends: highlightWeekends ?? this.highlightWeekends,
       showWeekNumbers: showWeekNumbers ?? this.showWeekNumbers,
+      showFilterChips: showFilterChips ?? this.showFilterChips,
       maxDayBars: maxDayBars ?? this.maxDayBars,
       showRecurrenceLabels: showRecurrenceLabels ?? this.showRecurrenceLabels,
       missedDisplay: missedDisplay ?? this.missedDisplay,
@@ -297,6 +305,7 @@ class CalendarAppearance extends Equatable {
     accentColorValue,
     highlightWeekends,
     showWeekNumbers,
+    showFilterChips,
     maxDayBars,
     showRecurrenceLabels,
     missedDisplay,
