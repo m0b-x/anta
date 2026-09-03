@@ -1,0 +1,393 @@
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:get_it/get_it.dart';
+import 'package:re_editor/re_editor.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:anta/bloc/counter/counter_bloc.dart';
+import 'package:anta/bloc/markdown_bar/markdown_bar_bloc.dart';
+import 'package:anta/bloc/optimized_note/optimized_note_bloc.dart';
+import 'package:anta/bloc/optimized_note/optimized_note_event.dart';
+import 'package:anta/bloc/optimized_note/optimized_note_state.dart';
+import 'package:anta/database/database.dart';
+import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/models/note_metadata.dart';
+import 'package:anta/pages/optimized_note_editor_page.dart';
+import 'package:anta/repositories/note_repository.dart';
+import 'package:anta/services/app_navigator.dart';
+import 'package:anta/services/counter_service.dart';
+import 'package:anta/services/folder_search_service.dart';
+import 'package:anta/services/markdown_bar_service.dart';
+import 'package:anta/services/note_position_service.dart';
+import 'package:anta/services/note_storage_service.dart';
+import 'package:anta/services/settings_service.dart';
+import 'package:anta/widgets/modern_editor_wrapper.dart';
+
+/// The first page-level test in the app.
+///
+/// What it buys: the editor page resolves five ambient async singletons in
+/// `initState` (database, settings, note positions, dev options, vocabulary)
+/// and three BLoCs from the tree, and the interesting bugs live in how those
+/// *land relative to each other* — which is exactly what a unit test of any
+/// one of them cannot see. Two orderings are pinned here (B2: the saved caret
+/// survives whichever of content and position arrives last) plus B3 (editor
+/// settings edited on a page pushed above this one apply on the way back).
+///
+/// Harness notes for reuse:
+/// - `AppDatabase.getInstance()` needs `path_provider` and `SharedPreferences`
+///   mocked; with both in place every singleton binds to the same real
+///   database, so nothing has to be faked below the service layer.
+/// - drift opens that database with `NativeDatabase.createInBackground`, so
+///   its queries complete on a real isolate that `FakeAsync` cannot advance.
+///   [settle] hands the real event loop back and then flushes the resulting
+///   `setState`s into a frame; `pumpAndSettle` alone never gets there.
+/// - The note BLoC is a real one with its `LoadNoteContent` handling
+///   suppressed, so the test decides exactly when the content lands.
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  const folderId = 'folder-1';
+  const noteId = 'note-1';
+  const content = 'first line\nsecond line\nthird line here\nfourth';
+
+  late Directory tempDir;
+  late AppDatabase db;
+  late NotePositionService positions;
+  late SettingsService settings;
+  late NoteStorageService storageService;
+  late FolderSearchService searchService;
+  late _TestNoteBloc noteBloc;
+  late MarkdownBarBloc barBloc;
+  late CounterBloc counterBloc;
+
+  final metadata = NoteMetadata(
+    id: noteId,
+    folderId: folderId,
+    title: 'Training log',
+    preview: 'first line',
+    contentLength: content.length,
+    chunkCount: 1,
+    isCompressed: false,
+    createdAt: DateTime(2026, 9, 1),
+    updatedAt: DateTime(2026, 9, 1),
+  );
+
+  setUpAll(() async {
+    tempDir = await Directory.systemTemp.createTemp('anta_note_editor_page');
+    SharedPreferences.setMockInitialValues({});
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => tempDir.path,
+        );
+    db = await AppDatabase.getInstance();
+    // drift opens lazily; pay for the open (and the device-id file) here
+    // rather than inside a `FakeAsync` test body.
+    await db.customSelect('SELECT 1').get();
+    positions = await NotePositionService.getInstance();
+    settings = await SettingsService.getInstance();
+    storageService = NoteStorageService(
+      repository: NoteRepository(database: db),
+    );
+    await storageService.initialize();
+    searchService = FolderSearchService(storageService: storageService);
+    await searchService.initialize();
+    // Everything the page's BLoCs need is built here, in real async:
+    // inside `testWidgets` the database answers on a background isolate
+    // that `FakeAsync` never lets run, so an `await` on one of these in a
+    // test body deadlocks rather than failing.
+    //
+    // The BLoCs themselves live for the whole file rather than per test:
+    // the page dispatches to two of them from `dispose`, and the binding
+    // unmounts a leftover tree at the *start* of the next test — closing
+    // them between tests turns any earlier failure into a confusing
+    // "cannot add new events after calling close" cascade.
+    noteBloc = _TestNoteBloc(
+      storageService: storageService,
+      searchService: searchService,
+    );
+    barBloc = MarkdownBarBloc(
+      barService: await MarkdownBarService.getInstance(),
+    );
+    counterBloc = CounterBloc(
+      counterService: await CounterService.getInstance(),
+    );
+    GetIt.I.registerSingleton<NoteStorageService>(storageService);
+  });
+
+  tearDownAll(() async {
+    await noteBloc.close();
+    await barBloc.close();
+    await counterBloc.close();
+    await GetIt.I.reset();
+    await db.close();
+    try {
+      await tempDir.delete(recursive: true);
+    } catch (_) {}
+  });
+
+  setUp(() async {
+    // A `BlocListener` only fires on a state *change*, so the shared note
+    // BLoC has to drop back to its initial state between tests or the
+    // second emit of an equal `OptimizedNoteContentLoaded` is a no-op.
+    noteBloc.reset();
+    await positions.deletePosition(noteId);
+    await settings.setShowLineNumbers(false);
+  });
+
+  /// Lets the page's real async work finish, then flushes whatever
+  /// `setState`s it produced into frames. Both halves are needed: the
+  /// database answers on a background isolate (real time only), and the
+  /// widget tree advances only on `pump` (fake time only). One round
+  /// carries roughly one round trip, so a chain of sequential reads —
+  /// `_loadEditorSettings` issues about fifteen — needs many.
+  Future<void> settle(WidgetTester tester, {int rounds = 40}) async {
+    for (var i = 0; i < rounds; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+      await tester.pump(const Duration(milliseconds: 5));
+    }
+  }
+
+  /// [settle], stopping as soon as [ready] holds. Use it whenever the
+  /// assertion is about something the page reaches asynchronously, so the
+  /// test does not depend on a guessed round count.
+  Future<void> settleUntil(WidgetTester tester, bool Function() ready) async {
+    for (var i = 0; i < 200; i++) {
+      if (ready()) return;
+      await settle(tester, rounds: 1);
+    }
+    fail('the awaited condition never held');
+  }
+
+  /// Unmounts the page before the test body ends. The editor keeps a cursor
+  /// blink timer and the page an auto-save interval timer; both are cancelled
+  /// by `dispose`, and leaving either running trips the binding's
+  /// pending-timer check.
+  Future<void> teardownPage(WidgetTester tester) async {
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  }
+
+  /// Seeds the note's stored position. A database *write* is a drift
+  /// transaction on the background isolate, so it can only run through
+  /// [WidgetTester.runAsync] — awaiting one directly inside `testWidgets`
+  /// deadlocks in `FakeAsync` rather than failing.
+  Future<void> savePosition(
+    WidgetTester tester,
+    int lineIndex,
+    int columnOffset,
+  ) {
+    return tester.runAsync(
+      () => positions.savePosition(
+        noteId,
+        NotePositionData(
+          isPreviewMode: false,
+          previewScrollProgress: 0.0,
+          editorLineIndex: lineIndex,
+          editorColumnOffset: columnOffset,
+        ),
+      ),
+    );
+  }
+
+  /// `skipOffstage: false` because pushing a route above the page moves it
+  /// into the overlay's offstage half, which the default finder skips.
+  final editorFinder = find.byType(ModernEditorWrapper, skipOffstage: false);
+
+  ModernEditorWrapper editorOf(WidgetTester tester) =>
+      tester.widget<ModernEditorWrapper>(editorFinder);
+
+  /// The caret's line, or -1 while the page is still on its loading
+  /// placeholder and no editor exists to ask.
+  int caretLine(WidgetTester tester) => editorFinder.evaluate().isEmpty
+      ? -1
+      : editorOf(tester).controller.selection.baseIndex;
+
+  /// Mounts the page over a real navigator (so a route can be pushed above
+  /// it) with the real observer `didPopNext` rides on.
+  Future<void> pumpPage(WidgetTester tester) async {
+    await tester.pumpWidget(
+      MultiBlocProvider(
+        providers: [
+          BlocProvider<OptimizedNoteBloc>.value(value: noteBloc),
+          BlocProvider<MarkdownBarBloc>.value(value: barBloc),
+          BlocProvider<CounterBloc>.value(value: counterBloc),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          navigatorObservers: [AppNavigator.routeObserver],
+          home: const OptimizedNoteEditorPage(
+            folderId: folderId,
+            noteId: noteId,
+          ),
+        ),
+      ),
+    );
+  }
+
+  group('B2 — the saved position survives either load order', () {
+    testWidgets('content lands before the saved position', (tester) async {
+      await savePosition(tester, 2, 6);
+
+      await pumpPage(tester);
+
+      // No `settle` yet: nothing the page awaited has resolved, so the
+      // position is still in flight when the content arrives.
+      noteBloc.emitContentLoaded(metadata, content);
+      await tester.pump();
+      expect(editorOf(tester).controller.text, content);
+
+      await settleUntil(
+        tester,
+        () => caretLine(tester) == 2,
+      );
+
+      final selection = editorOf(tester).controller.selection;
+      expect(selection.baseIndex, 2);
+      expect(selection.baseOffset, 6);
+      await teardownPage(tester);
+    });
+
+    testWidgets('the saved position lands before the content', (tester) async {
+      await savePosition(tester, 3, 4);
+
+      await pumpPage(tester);
+
+      // The position resolves while the page is still on its loading
+      // placeholder — there is no editor yet, so the restore has to wait
+      // for the content rather than clamp itself against an empty
+      // document.
+      await settle(tester);
+      expect(editorFinder, findsNothing);
+
+      noteBloc.emitContentLoaded(metadata, content);
+      await tester.pump();
+      await settleUntil(
+        tester,
+        () => caretLine(tester) == 3,
+      );
+
+      final selection = editorOf(tester).controller.selection;
+      expect(selection.baseIndex, 3);
+      expect(selection.baseOffset, 4);
+      await teardownPage(tester);
+    });
+
+    testWidgets('a restored position is consumed exactly once', (tester) async {
+      await savePosition(tester, 1, 3);
+
+      await pumpPage(tester);
+      noteBloc.emitContentLoaded(metadata, content);
+      await tester.pump();
+      await settleUntil(
+        tester,
+        () => caretLine(tester) == 1,
+      );
+
+      final controller = editorOf(tester).controller;
+      expect(controller.selection.baseIndex, 1);
+
+      // Park the caret somewhere else, then drive the content-loaded
+      // listener a second time (through `reset`, because a BLoC never
+      // re-emits an equal state). `_pendingPosition` was nulled on
+      // consume, so nothing should drag the caret back to line 1.
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 2,
+      );
+      noteBloc.reset();
+      await tester.pump();
+      noteBloc.emitContentLoaded(metadata, content);
+      await tester.pump();
+      await settle(tester);
+
+      expect(controller.selection.baseIndex, isNot(1));
+      expect(controller.selection.baseIndex, 0);
+      await teardownPage(tester);
+    });
+
+    testWidgets('a note with no saved position keeps the caret at the top', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+      noteBloc.emitContentLoaded(metadata, content);
+      await tester.pump();
+      await settle(tester);
+
+      final selection = editorOf(tester).controller.selection;
+      expect(selection.baseIndex, 0);
+      expect(selection.baseOffset, 0);
+      await teardownPage(tester);
+    });
+  });
+
+  group('B3 — editor settings apply on the way back', () {
+    testWidgets('a flag changed under a pushed route lands on pop', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+      noteBloc.emitContentLoaded(metadata, content);
+      await tester.pump();
+      await settle(tester);
+      expect(editorOf(tester).showLineNumbers, isFalse);
+
+      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+      // The editor keeps a cursor-blink timer running, so `pumpAndSettle`
+      // would spin rather than settle: pump the transition by hand.
+      navigator.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('settings stand-in')),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      await tester.runAsync(() => settings.setShowLineNumbers(true));
+      // Still stale while the settings page is up — nothing has re-read.
+      expect(editorOf(tester).showLineNumbers, isFalse);
+
+      navigator.pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      await settleUntil(tester, () => editorOf(tester).showLineNumbers);
+
+      expect(editorOf(tester).showLineNumbers, isTrue);
+      await teardownPage(tester);
+    });
+  });
+}
+
+/// A real [OptimizedNoteBloc] whose content load is inert, so the test owns
+/// the moment the note's text reaches the page. Everything else — the state
+/// classes, the listener wiring, the page's own handling — stays real.
+class _TestNoteBloc extends OptimizedNoteBloc {
+  _TestNoteBloc({required super.storageService, required super.searchService});
+
+  @override
+  void add(OptimizedNoteEvent event) {
+    if (event is LoadNoteContent) return;
+    super.add(event);
+  }
+
+  void reset() => emit(OptimizedNoteInitial());
+
+  void emitContentLoaded(NoteMetadata metadata, String content) {
+    emit(
+      OptimizedNoteContentLoaded(
+        note: LazyNote(
+          metadata: metadata,
+          content: content,
+          isContentLoaded: true,
+        ),
+      ),
+    );
+  }
+}

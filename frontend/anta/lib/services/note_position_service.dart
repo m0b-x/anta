@@ -27,13 +27,20 @@ class NotePositionData {
     'editorColumnOffset': editorColumnOffset,
   };
 
+  /// Reads a stored position, falling back **per field**: a value of the
+  /// wrong type is replaced by that field's default and the rest of the
+  /// record survives. A malformed `isPreviewMode` must never cost the
+  /// user their caret line.
   factory NotePositionData.fromJson(Map<String, dynamic> json) {
+    final isPreviewMode = json['isPreviewMode'];
+    final progress = json['previewScrollOffset'];
+    final lineIndex = json['editorLineIndex'];
+    final columnOffset = json['editorColumnOffset'];
     return NotePositionData(
-      isPreviewMode: json['isPreviewMode'] as bool? ?? false,
-      previewScrollProgress:
-          (json['previewScrollOffset'] as num?)?.toDouble() ?? 0.0,
-      editorLineIndex: json['editorLineIndex'] as int? ?? 0,
-      editorColumnOffset: json['editorColumnOffset'] as int? ?? 0,
+      isPreviewMode: isPreviewMode is bool ? isPreviewMode : false,
+      previewScrollProgress: progress is num ? progress.toDouble() : 0.0,
+      editorLineIndex: lineIndex is num ? lineIndex.toInt() : 0,
+      editorColumnOffset: columnOffset is num ? columnOffset.toInt() : 0,
     );
   }
 

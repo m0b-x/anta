@@ -2224,7 +2224,8 @@ class AppLocalizationsDe extends AppLocalizations {
   String get appSettings => 'Einstellungen';
 
   @override
-  String get appSettingsDesc => 'Start, Navigation, Editor und Vorschau';
+  String get appSettingsDesc =>
+      'Start, Navigation, Editor und automatisches Speichern';
 
   @override
   String get folderSwipeGesture => 'Wischen zum Öffnen des Menüs in Ordnern';
@@ -2675,7 +2676,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get autoBreakLongLinesDesc =>
-      'Bricht lange Zeilen beim Einfügen von Text automatisch um. Kann die Genauigkeit der Suchpositionierung in der Vorschau leicht beeinträchtigen.';
+      'Bricht lange Zeilen beim Einfügen von Text automatisch um.';
 
   @override
   String get previewWhenKeyboardHidden =>
@@ -2704,7 +2705,21 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
-  String get previewSection => 'Vorschau';
+  String get deprecatedSection => 'Veraltete Funktionen';
+
+  @override
+  String get deprecatedSectionIntro =>
+      'Bleiben für alle erhalten, die sie bereits nutzen. Standardmäßig aus und in einer künftigen Version möglicherweise entfernt.';
+
+  @override
+  String get previewModeEnabled => 'Vorschaumodus';
+
+  @override
+  String get previewModeEnabledDesc =>
+      'Holt die separate gerenderte Vorschau und ihre Augen-Schaltfläche zurück. Der Editor stellt Markdown bereits beim Tippen dar.';
+
+  @override
+  String get previewModeKeywords => 'vorschau, rendern, auge, veraltet';
 
   @override
   String get showPreviewScrollbar => 'Vorschau-Bildlaufleiste';
@@ -3127,13 +3142,6 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get showWhitespaceDesc =>
       'Leerzeichen, Tabs und Zeilenumbrüche visualisieren';
-
-  @override
-  String get showPreviewLineNumbers => 'Zeilennummern in Vorschau';
-
-  @override
-  String get showPreviewLineNumbersDesc =>
-      'Quell-Zeilennummern im Vorschaumodus anzeigen';
 
   @override
   String get performanceMonitoring => 'Leistungsüberwachung';

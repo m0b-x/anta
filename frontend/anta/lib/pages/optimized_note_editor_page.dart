@@ -86,7 +86,7 @@ class OptimizedNoteEditorPage extends StatefulWidget {
 }
 
 class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, RouteAware {
   /// Lets a restored settings page raise this page's drawer when it is popped
   /// — see [DrawerHostRegistry].
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
@@ -137,7 +137,23 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   bool _scrollCursorOnKeyboard = false;
 
   // Preview settings
+  bool _previewModeEnabled = SettingsKeys.defaultPreviewModeEnabled;
   bool _showPreviewScrollbar = false;
+
+  /// Last keyboard-visibility decision taken by [build], mirrored so
+  /// callbacks outside the build phase can read [_showPreview].
+  bool _lastKeyboardVisible = false;
+
+  /// Whether the (deprecated) preview surface is reachable at all: either
+  /// the user opted back in, or live markdown rendering is off and the raw
+  /// editor still needs a way to see rendered output.
+  bool get _canPreview => _previewModeEnabled || !_liveMarkdownRendering;
+
+  /// Whether the preview surface is what the user is looking at *right now*
+  /// — the manual toggle, or the keyboard-hidden auto-reveal.
+  bool get _showPreview =>
+      _canPreview &&
+      (_isPreviewMode || (_previewWhenKeyboardHidden && !_lastKeyboardVisible));
 
   // Toolbar settings
   double _toolbarShortcutRatio = SettingsKeys.defaultToolbarShortcutRatio;
@@ -153,6 +169,11 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   AutoSaveService? _autoSaveService;
   NotePositionService? _notePositionService;
   NotePositionData? _pendingPosition;
+
+  /// The persisted preview flag for this note, kept after [_pendingPosition]
+  /// is consumed so [_isPreviewMode] can be re-derived once the editor
+  /// settings land — the two loads race (see [_applySavedPreviewMode]).
+  bool? _savedIsPreviewMode;
 
   /// For new notes: becomes non-null once the note is persisted for the first time.
   String? _effectiveNoteId;
@@ -322,6 +343,11 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   void didChangeDependencies() {
     super.didChangeDependencies();
 
+    final route = ModalRoute.of(context);
+    if (route is PageRoute) {
+      AppNavigator.routeObserver.subscribe(this, route);
+    }
+
     // Refresh the cached "no content yet" placeholder on locale
     // change. If the underlying note is empty, re-dispatch so the
     // bloc swaps the stale translation for the new one.
@@ -392,6 +418,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// run before any user-driven event reaches this method, so the
   /// non-null assertion is safe.
   void _pushPreviewContent(String text) {
+    if (!_canPreview) return;
     final content = text.isEmpty ? _emptyPreviewPlaceholder! : text;
     _previewBloc.add(PreviewContentChanged(content));
     // Keep search-over-preview matches aligned with what the preview is
@@ -434,11 +461,28 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     if (widget.noteId != null) {
       final position = await _notePositionService!.getPosition(widget.noteId!);
       if (mounted) {
+        _savedIsPreviewMode = position.isPreviewMode;
         setState(() {
           _pendingPosition = position;
-          _isPreviewMode = position.isPreviewMode;
+          _isPreviewMode = _canPreview && position.isPreviewMode;
         });
+        _restoreSavedPosition();
       }
+    }
+  }
+
+  /// Re-applies the note's persisted preview flag against the current
+  /// [_canPreview]. The position load and [_loadEditorSettings] race, so
+  /// whichever finishes last decides — and a late reveal still needs the
+  /// preview seeded with the loaded content.
+  void _applySavedPreviewMode() {
+    final saved = _savedIsPreviewMode;
+    if (saved == null || !mounted) return;
+    final next = _canPreview && saved;
+    if (next == _isPreviewMode) return;
+    setState(() => _isPreviewMode = next);
+    if (next && !_isLoading) {
+      _pushPreviewContent(_contentController.text);
     }
   }
 
@@ -485,7 +529,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
 
   void _adjustFontSize(int direction) {
     final delta = FontConstants.fontSizeStep * direction;
-    if (_isPreviewMode) {
+    if (_showPreview) {
       final next = (_previewFontSize + delta).clamp(
         FontConstants.minFontSize,
         FontConstants.maxFontSize,
@@ -502,7 +546,19 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     _saveFontSizes();
   }
 
-  Future<void> _loadEditorSettings() async {
+  /// First load, on open: the note's persisted preview flag has not been
+  /// applied against [_canPreview] yet, so this path ends in
+  /// [_applySavedPreviewMode].
+  Future<void> _loadEditorSettings() => _applyEditorSettings(initial: true);
+
+  /// Re-read on returning from another page ([didPopNext]). Deliberately
+  /// does **not** call [_applySavedPreviewMode]: that re-derives the mode
+  /// from the value saved when the note opened, which would silently undo
+  /// a toggle made during this session. The only forced change is turning
+  /// the preview off when the settings just took it away.
+  Future<void> _reloadEditorSettings() => _applyEditorSettings(initial: false);
+
+  Future<void> _applyEditorSettings({required bool initial}) async {
     final settings = await SettingsService.getInstance();
     final noteSwipe = await settings.getNoteSwipeEnabled();
     final showStats = await settings.getShowStatsBar();
@@ -510,6 +566,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     final showLineNumbers = await settings.getShowLineNumbers();
     final wordWrap = await settings.getWordWrap();
     final showCursorLine = await settings.getShowCursorLine();
+    final previewModeEnabled = await settings.getPreviewModeEnabled();
     final showPreviewScrollbar = await settings.getShowPreviewScrollbar();
     final previewLinesPerChunk = await settings.getPreviewLinesPerChunk();
     final autoBreakLongLines = await settings.getAutoBreakLongLines();
@@ -520,6 +577,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     final toolbarSplit = await settings.getToolbarSplitEnabled();
     final utilityConfigs = await settings.getToolbarUtilityConfig();
     if (mounted) {
+      final canPreview = previewModeEnabled || !liveMarkdownRendering;
       setState(() {
         _noteSwipeEnabled = noteSwipe;
         _showStatsBar = showStats;
@@ -527,14 +585,23 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
         _showLineNumbers = showLineNumbers;
         _wordWrap = wordWrap;
         _showCursorLine = showCursorLine;
+        _previewModeEnabled = previewModeEnabled;
         _showPreviewScrollbar = showPreviewScrollbar;
         _autoBreakLongLines = autoBreakLongLines;
-        _previewWhenKeyboardHidden = previewWhenKeyboardHidden;
+        _previewWhenKeyboardHidden = canPreview && previewWhenKeyboardHidden;
         _scrollCursorOnKeyboard = scrollCursorOnKeyboard;
         _toolbarShortcutRatio = toolbarRatio;
         _toolbarSplitEnabled = toolbarSplit;
         _utilityConfigs = utilityConfigs;
+        // The preview just became unreachable while the user was looking
+        // at it — the only mode change a re-entrant load may force.
+        if (!initial && !canPreview) {
+          _isPreviewMode = false;
+        }
       });
+      if (initial) {
+        _applySavedPreviewMode();
+      }
       _previewBloc.add(PreviewLinesPerChunkChanged(previewLinesPerChunk));
       await _refreshMoneyConfig(settings);
       await _refreshColorPalette(settings);
@@ -767,6 +834,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// for [_kLivePreviewDebounce]. When nothing has changed by the
   /// time the timer fires, the bloc short-circuits the refresh.
   void _scheduleLivePreviewRefresh() {
+    if (!_canPreview) return;
     _previewBloc.markContentDirty();
     if (_isLoading) return;
     if (!_previewBloc.state.hasTheme) return;
@@ -861,6 +929,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   }
 
   void _togglePreviewMode() {
+    if (!_canPreview) return;
     if (_isTogglingPreview) return;
     final switchingToPreview = !_isPreviewMode;
     final totalLines = _contentController.lineCount;
@@ -1025,15 +1094,21 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     _saveCurrentPosition();
   }
 
+  /// Applies the persisted caret/progress once BOTH inputs exist: the
+  /// position load ([_pendingPosition], async) and the note content
+  /// ([_isLoading] false, which is only cleared where
+  /// [_contentController.text] is assigned). Called from both sides, so
+  /// whichever lands last performs the restore; [_pendingPosition] is
+  /// nulled on consume, so it can never run twice.
   void _restoreSavedPosition() {
     final position = _pendingPosition;
-    if (position == null) return;
+    if (position == null || _isLoading) return;
     _pendingPosition = null;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
 
-      if (position.isPreviewMode) {
+      if (_canPreview && position.isPreviewMode) {
         // Restore preview scroll using progress ratio (0.0–1.0)
         // via the PreviewScrollController's deferred restore.
         _previewController.restoreProgress(
@@ -1105,8 +1180,21 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     );
   }
 
+  /// Called when a route pushed above the editor is popped — the drawer's
+  /// settings, backup and database pages among them. Editor flags live on
+  /// the main settings page, so without this every one of them would stay
+  /// stale until the note was closed and reopened.
+  ///
+  /// `RouteObserver<PageRoute>` only fires between page routes, so the
+  /// toolbar, colour and money sheets do not reach here.
+  @override
+  void didPopNext() {
+    _reloadEditorSettings();
+  }
+
   @override
   void dispose() {
+    AppNavigator.routeObserver.unsubscribe(this);
     _counterBloc.add(const SetNoteContext());
     WidgetsBinding.instance.removeObserver(this);
     DrawerHostRegistry.unregister(_scaffoldKey);
@@ -1155,7 +1243,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       return;
     }
 
-    if (_isPreviewMode) {
+    if (_showPreview) {
       _scrollToOffsetInPreview(match.start);
     }
   }
@@ -1254,7 +1342,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     });
     _hasChanges.value = true;
 
-    if (_isPreviewMode) {
+    if (_showPreview) {
       _pushPreviewContent(_contentController.text);
     }
   }
@@ -1374,7 +1462,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// — a stable, predictable convention that avoids dropping the caret
   /// in front of leading markdown markup (e.g. `#`, `>`, `- [ ]`).
   void _handleDoubleTapLine(int lineIndex, int columnOffset) {
-    if (!_isPreviewMode) return;
+    if (!_showPreview) return;
 
     final lineCount = _contentController.lineCount;
     if (lineCount == 0) return;
@@ -1588,6 +1676,8 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   Widget build(BuildContext context) {
     final keyboardInset = _keyboardInset(context);
     final keyboardVisible = keyboardInset > 0;
+    _lastKeyboardVisible = keyboardVisible;
+    final showPreview = _showPreview;
     final bottomSpacing = keyboardVisible
         ? 0.0
         : MediaQuery.viewPaddingOf(context).bottom;
@@ -1673,16 +1763,19 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
                     onPressed: _toggleSearch,
                     tooltip: AppLocalizations.of(context)!.search,
                   ),
-                  Tooltip(
-                    message: _isPreviewMode
-                        ? AppLocalizations.of(context)!.previewMarkdown
-                        : AppLocalizations.of(context)!.switchToEditMode,
-                    waitDuration: AppConstants.debounceDelay,
-                    child: IconButton(
-                      icon: Icon(_isPreviewMode ? Icons.visibility : Icons.edit),
-                      onPressed: () => _togglePreviewMode(),
+                  if (_canPreview)
+                    Tooltip(
+                      message: _isPreviewMode
+                          ? AppLocalizations.of(context)!.previewMarkdown
+                          : AppLocalizations.of(context)!.switchToEditMode,
+                      waitDuration: AppConstants.debounceDelay,
+                      child: IconButton(
+                        icon: Icon(
+                          _isPreviewMode ? Icons.visibility : Icons.edit,
+                        ),
+                        onPressed: () => _togglePreviewMode(),
+                      ),
                     ),
-                  ),
                 ],
               ),
             ),
@@ -1717,7 +1810,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
                             searchController: _searchController,
                             onClose: () => setState(() {}),
                             onNavigateToMatch: _navigateToSearchMatch,
-                            showReplaceField: !_isPreviewMode,
+                            showReplaceField: !showPreview,
                             onReplace: _handleSearchReplace,
                           ),
                         if (_showStatsBar)
@@ -1729,14 +1822,6 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
                             ),
                             child: Builder(
                               builder: (context) {
-                                // Show preview if:
-                                // 1. User toggled preview mode manually, OR
-                                // 2. previewWhenKeyboardHidden is enabled AND keyboard is hidden
-                                final showPreview =
-                                    _isPreviewMode ||
-                                    (_previewWhenKeyboardHidden &&
-                                        !keyboardVisible);
-
                                 // Only calculate debug info if any debug option is enabled
                                 final devOptions = DevOptions.instance;
                                 if (!devOptions.anyEnabled) {
@@ -1857,13 +1942,14 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// the layout) so the loading skeleton looks identical to the final
   /// chrome.
   Widget _buildMarkdownBar({required bool enabled}) {
+    final showPreview = _showPreview;
     return MarkdownBar(
       shortcuts: _allShortcuts,
-      isPreviewMode: _isPreviewMode,
+      isPreviewMode: showPreview,
       canUndo: enabled ? _historyObserver.canUndo : false,
       canRedo: enabled ? _historyObserver.canRedo : false,
       previewFontSize: enabled
-          ? (_isPreviewMode ? _previewFontSize : _editorFontSize)
+          ? (showPreview ? _previewFontSize : _editorFontSize)
           : _previewFontSize,
       shortcutRatio: _toolbarShortcutRatio,
       splitEnabled: _toolbarSplitEnabled,
@@ -1887,11 +1973,15 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   }
 
   Widget _buildPreview() {
+    if (!_canPreview) {
+      return const SizedBox.shrink();
+    }
+
     // For large notes, don't pre-build preview to avoid memory/CPU overhead
     // The preview will build when actually needed (when switching to preview mode)
     final isLargeNote =
         _stats.value.lineCount > AppConstants.previewPreloadLineThreshold;
-    if (!_isPreviewMode && isLargeNote) {
+    if (!_showPreview && isLargeNote) {
       return const SizedBox.shrink();
     }
 
@@ -2006,6 +2096,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
         // opener runs (scheme validation + localized errors); fence
         // lines render raw so taps there stay plain editing.
         onOpenLink: markdownRendering ? _handleEditorLinkTap : null,
+        onOpenTag: markdownRendering ? _handleTagTap : null,
         onMoneyTap: markdownRendering && _moneyConfig.enabled
             ? _handleMoneyTap
             : null,
@@ -2087,7 +2178,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   }
 
   void _scrollToEdge({required bool toTop}) {
-    if (_isPreviewMode) {
+    if (_showPreview) {
       if (toTop) {
         _previewController.scrollToTop();
       } else {
@@ -2352,6 +2443,8 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       });
       await _refreshMoneyConfig(settings);
       await _refreshColorPalette(settings);
+      // The vocabulary flag and trigger character live on this page too.
+      await _refreshVocabularies(settings);
     }
   }
 }

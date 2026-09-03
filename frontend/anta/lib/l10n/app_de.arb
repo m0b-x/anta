@@ -1126,7 +1126,7 @@
   "@appSettings": {
     "description": "App settings menu item and page title"
   },
-  "appSettingsDesc": "Start, Navigation, Editor und Vorschau",
+  "appSettingsDesc": "Start, Navigation, Editor und automatisches Speichern",
   "@appSettingsDesc": {
     "description": "App settings description"
   },
@@ -1835,10 +1835,11 @@
   "@showCursorLineDesc": {
     "description": "Description for show cursor line setting"
   },
-  "previewSection": "Vorschau",
-  "@previewSection": {
-    "description": "Preview settings section title"
-  },
+  "deprecatedSection": "Veraltete Funktionen",
+  "deprecatedSectionIntro": "Bleiben für alle erhalten, die sie bereits nutzen. Standardmäßig aus und in einer künftigen Version möglicherweise entfernt.",
+  "previewModeEnabled": "Vorschaumodus",
+  "previewModeEnabledDesc": "Holt die separate gerenderte Vorschau und ihre Augen-Schaltfläche zurück. Der Editor stellt Markdown bereits beim Tippen dar.",
+  "previewModeKeywords": "vorschau, rendern, auge, veraltet",
   "showPreviewScrollbar": "Vorschau-Bildlaufleiste",
   "@showPreviewScrollbar": {
     "description": "Setting for showing scrollbar in preview mode"
@@ -2425,7 +2426,7 @@
   "pairingErrorUnknown": "Kopplung fehlgeschlagen",
   "paste": "Einfügen",
   "autoBreakLongLines": "Lange Zeilen autom. umbrechen",
-  "autoBreakLongLinesDesc": "Bricht lange Zeilen beim Einfügen von Text automatisch um. Kann die Genauigkeit der Suchpositionierung in der Vorschau leicht beeinträchtigen.",
+  "autoBreakLongLinesDesc": "Bricht lange Zeilen beim Einfügen von Text automatisch um.",
   "previewWhenKeyboardHidden": "Vorschau bei ausgeblendeter Tastatur",
   "previewWhenKeyboardHiddenDesc": "Zeigt die gerenderte Markdown-Vorschau, wenn die Tastatur ausgeblendet ist. Der Editor erscheint, wenn du zum Tippen tippst.",
   "scrollCursorOnKeyboard": "Cursor bei Tastatur scrollen",
@@ -2451,8 +2452,6 @@
   "showBlockBoundariesDesc": "Rahmen um jedes analysierte Element zeichnen",
   "showWhitespace": "Leerzeichen anzeigen",
   "showWhitespaceDesc": "Leerzeichen, Tabs und Zeilenumbrüche visualisieren",
-  "showPreviewLineNumbers": "Zeilennummern in Vorschau",
-  "showPreviewLineNumbersDesc": "Quell-Zeilennummern im Vorschaumodus anzeigen",
   "performanceMonitoring": "Leistungsüberwachung",
   "showRenderTime": "Renderzeit anzeigen",
   "showRenderTimeDesc": "Anzeigen, wie lange die Vorschau zum Rendern braucht",

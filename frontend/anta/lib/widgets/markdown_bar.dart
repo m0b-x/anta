@@ -347,7 +347,7 @@ class _MarkdownBarState extends State<MarkdownBar> {
         }
         onPressed = _enterReorderMode;
       case UtilityButtonId.share:
-        if (!widget.isPreviewMode || widget.onShare == null) return null;
+        if (widget.onShare == null) return null;
         onPressed = widget.onShare;
       case UtilityButtonId.switchBar:
         if (widget.onSwitchBar == null) return null;

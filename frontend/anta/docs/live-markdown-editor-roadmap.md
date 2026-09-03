@@ -59,8 +59,10 @@ Long lines (>4096 chars) render raw. Reveal (selection) lines bypass the memo.
       `MarkdownConstants.markBackground{Light,Dark}`)
 - [x] Blockquotes `> ` — `>` substituted 1:1 with `┃` (preview's bar glyph),
       content italic + dimmed, inline styling composes inside
-- [x] `#tag` tint — render-only, matches preview (primary color + 12% bg);
-      grammar extracted to shared `MarkdownTagSyntax` (preview now delegates)
+- [x] `#tag` tint matches preview (primary color + 12% bg); grammar
+      extracted to shared `MarkdownTagSyntax` (preview now delegates); since
+      2026-09-03 an off-caret tap on a tag opens global search (`onOpenTag`
+      zone in `ModernEditorWrapper`, same pass-through rules as links)
 - [x] Horizontal rule `---` / `***` / `___` — each marker char substituted 1:1
       with `─`, dimmed, base line height kept
 - [x] Links: `[text](url)` shows the text tinted + underlined with `[` and
@@ -115,6 +117,13 @@ Long lines (>4096 chars) render raw. Reveal (selection) lines bypass the memo.
 - [x] General setting (default ON), l10n en/de/ro, reset-to-defaults wired;
       experimental dev option removed
 - [x] `dart analyze` clean (only pre-existing repo findings)
+- [x] Preview retired (2026-09-03): the read-only preview, its eye button,
+      keyboard-hidden auto-preview, scrollbar and chunk-size rows live under
+      Settings → "Deprecated features" behind `previewModeEnabled` (default
+      off); users with live rendering OFF keep the toggle regardless. The
+      preview bloc never mounts on the default path. Share/export moved to
+      the toolbar's utility section in both modes. `showPreview` is computed
+      once per build (B1).
 
 ### Decision log
 
@@ -139,8 +148,12 @@ Long lines (>4096 chars) render raw. Reveal (selection) lines bypass the memo.
   now; dedicated type-token tinting stays on the roadmap.
 - Rule lines keep the base font size (same reasoning as H5/H6 — sub-base line
   heights buy nothing); the `─` run is only as wide as the source markers.
-- Tags conceal nothing, so they stay tinted on reveal lines; editor tags are
-  render-only (no tap) — tag taps remain a preview feature.
+- Tags conceal nothing, so they stay tinted on reveal lines. Editor tags
+  are tappable off-caret since 2026-09-03 (Session 2 of the review): the
+  wrapper's tag zone follows the link zone's rules — caret/reveal line,
+  fence lines, >4096-unit lines and ghost text all win — and routes through
+  the page's existing `_handleTagTap` (position saved, then global search
+  with the `#` preserved).
 - A lone `#` (empty-header edge) stays raw — not a header (no space), not a
   tag (no letter-led body).
 - `![image](url)` stays raw in the editor — a `[` preceded by `!` never opens
@@ -221,6 +234,22 @@ Long lines (>4096 chars) render raw. Reveal (selection) lines bypass the memo.
   so keystrokes no longer rebuild the page; `AutoSaveService._updateStatus`
   is disposed-safe. Numbers and traps in
   `live-editor-review-and-slices-2026-09.md` §3 Session 1 and §5.
+- Preview retirement (Session 2 of the 2026-09 review, 2026-09-03): the
+  editor is the only default surface. `previewModeEnabled` (default false,
+  in the backup allow-list next to `liveMarkdownRendering`) gates the
+  preview; `canPreview = previewModeEnabled || !liveMarkdownRendering` so
+  the raw-editor users are never stranded. Saved `isPreviewMode` positions
+  are masked by `canPreview` at read time — no migration, rows self-heal
+  on the next save. The dead `showPreviewLineNumbers` dev option was
+  removed. Why a named feature key rather than a "deprecated" key: if the
+  preview is ever un-deprecated, storage does not churn.
+- Editor page follow-ups (2026-09-03, same review): saved-position restore
+  fires from whichever of content-load / position-load finishes last (it
+  was silently lost when content won); the page is `RouteAware` and
+  re-reads every editor flag on `didPopNext` (settings reached through the
+  drawer used to apply only after reopening the note) without re-applying
+  the saved preview mode; the tap interceptor memoises the tap-down claim
+  so grammars run once per press.
 
 ## Not verified on device yet
 

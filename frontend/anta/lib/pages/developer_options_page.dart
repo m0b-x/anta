@@ -226,12 +226,6 @@ class _DeveloperOptionsPageState extends State<DeveloperOptionsPage> {
             value: devOptions.showWhitespace,
             apply: (v) => devOptions.showWhitespace = v,
           ),
-          toggle(
-            title: l10n.showPreviewLineNumbers,
-            description: l10n.showPreviewLineNumbersDesc,
-            value: devOptions.showPreviewLineNumbers,
-            apply: (v) => devOptions.showPreviewLineNumbers = v,
-          ),
         ],
       ),
       SettingsSectionData(

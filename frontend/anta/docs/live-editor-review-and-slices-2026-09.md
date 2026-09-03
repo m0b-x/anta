@@ -1,7 +1,8 @@
 # Live Markdown Editor — Review & Consolidation Slices (2026-09-03)
 
-**Status: Sessions 0 and 1 DONE 2026-09-03 (§3, uncommitted on
-`bf2e7ba`). Sessions 2–10 PLANNED, not implemented.** Baseline commit `bf2e7ba`
+**Status: Sessions 0, 1 and 2 DONE 2026-09-03 (§3). Sessions 0–1 are
+committed as `38c7b50`; Session 2 and its same-day follow-up are
+uncommitted on top. Sessions 3–10 PLANNED, not implemented.** Baseline commit `bf2e7ba`
 (main). Line numbers below are as of that commit and will drift — re-grep
 before editing. This doc is the ledger for making the Obsidian-style live
 editor the app's only day-to-day markdown surface, retiring the read-only
@@ -518,6 +519,121 @@ note saved in preview mode opens in the editor; live-rendering-OFF users
 keep the toggle; share works from the editor; tag tap searches. Docs:
 roadmap "Done" + decision log; COPILOT_CONTEXT "Markdown Preview Pipeline"
 gets a "deprecated, gated by `previewModeEnabled`" header.
+
+**Outcome — DONE 2026-09-03, uncommitted.** Full suite 2264 passing;
+`dart analyze lib` clean; `untranslated.txt` empty. Decision 2 was taken as
+**yes** (additive, backup version stays 7). Item by item:
+
+1. `SettingsKeys.previewModeEnabled` / `defaultPreviewModeEnabled = false`,
+   `SettingsService.getPreviewModeEnabled` / `set…`.
+2. `settings_page.dart`: "Deprecated features" section last, intro line,
+   master toggle first, the three preview rows moved under it and greyed +
+   disabled (`_switchRow`/`_sliderRow` gained `enabled`) while the master is
+   off; old preview section deleted; reset-to-defaults covers the key.
+3. Page: `_previewModeEnabled` loaded in `_loadEditorSettings`;
+   `_canPreview = _previewModeEnabled || !_liveMarkdownRendering`; gated:
+   eye button, `_togglePreviewMode`, `_buildPreview` (`SizedBox.shrink`),
+   `_pushPreviewContent` (single choke point), `_scheduleLivePreviewRefresh`
+   (before `markContentDirty`), `_previewWhenKeyboardHidden` forced false.
+   `MarkdownPreviewBlocView` never mounts when `!_canPreview`, so no theme
+   reaches the bloc and no prepare ever runs — P9 is gone from the default
+   path.
+4. **B1 fixed**: `_showPreview` getter = `_canPreview && (_isPreviewMode ||
+   (_previewWhenKeyboardHidden && !_lastKeyboardVisible))`, where
+   `_lastKeyboardVisible` is assigned once at the top of `build`; used by
+   `_buildPreview`, `_handleCheckboxToggle`, `_handleDoubleTapLine`,
+   `_navigateToSearchMatch`, `NoteSearchBar.showReplaceField`,
+   `MarkdownBar.isPreviewMode` + `previewFontSize`, `_adjustFontSize`,
+   `_scrollToEdge` (same bug class, not in the original list) and the
+   Offstage/`IgnorePointer` pair. `_isPreviewMode` stays where it means the
+   persisted mode (`_onPreviewProgressChanged`, `_saveCurrentPosition`, the
+   toggle itself, the AppBar icon). Side effect: double-tap-to-source and
+   ghost tap now work under auto-preview because focusing raises the
+   keyboard, which flips `_showPreview`.
+5. Positions: `_isPreviewMode = _canPreview && saved` is derived in
+   `_initializePositionService` **and** re-derived by
+   `_applySavedPreviewMode()` after settings load (whichever lands last
+   wins; a late reveal seeds the preview with the current text).
+   `_initializePositionService` deliberately does not await settings —
+   that would widen B2's race. `_restoreSavedPosition` takes the progress
+   branch only under `_canPreview`.
+6. `markdown_bar.dart`: share shows whenever `onShare != null`; the four
+   other `MarkdownBar` call sites pass no `onShare`.
+7. Editor tag tap: `ModernEditorWrapper.onOpenTag(String tag)` zone from
+   `MarkdownTagSyntax` with the link zone's pass-through rules (reveal line,
+   fence, >4096, ghosts win; a heading line taps its `#tag`, never its
+   hashes); page wires `onOpenTag: markdownRendering ? _handleTagTap : null`
+   — the same handler the preview uses (`AppNavigator.toSearch(query: tag)`
+   after saving the position).
+8. l10n: `deprecatedSection`, `deprecatedSectionIntro`, `previewModeEnabled`,
+   `previewModeEnabledDesc`, `previewModeKeywords`; `appSettingsDesc` and
+   `autoBreakLongLinesDesc` reworded; `showPreviewLineNumbers*` strings
+   removed; `previewSection` left in the ARBs unused.
+9. Backup allow-list gained `liveMarkdownRendering` + `previewModeEnabled`
+   (round-trip tested, stripped-key import tested). **B12 done**:
+   `showPreviewLineNumbers` removed from `DevOptions` and the developer
+   options page; a persisted value is ignored.
+10. Tests: `test/services/preview_mode_setting_test.dart` (4),
+    `backup_service_editor_settings_round_trip_test.dart` (2),
+    `note_position_service_test.dart` (9 — note: a non-bool `isPreviewMode`
+    in stored JSON drops the whole position to default, caret included;
+    documented, not changed), `test/widgets/markdown_bar_share_test.dart`
+    (4), `test/widgets/modern_editor_wrapper_tag_tap_test.dart` (9).
+
+**Follow-up the same day (owner: "no leftovers before the commit").**
+
+- **B2 fixed**: `_initializePositionService` now calls
+  `_restoreSavedPosition()` itself after storing `_pendingPosition`, and
+  the content-loaded listener still does — last one wins, and the
+  `_pendingPosition = null` on consume keeps it single-shot. The editor
+  branch (line/column + `makeCenterIfInvisible`) and the preview branch
+  were both being lost when content landed first; neither is a fork issue.
+- **B3 fixed**: the page is `RouteAware` on `AppNavigator.routeObserver`
+  (the calendar page's pattern). `_loadEditorSettings` and a new
+  `_reloadEditorSettings` share `_applyEditorSettings(initial:)`;
+  `didPopNext` runs the reload, which re-reads every flag but deliberately
+  does **not** call `_applySavedPreviewMode` (that would undo a toggle made
+  during the session) and only forces the preview off when `_canPreview`
+  just became false. Toggling live rendering on the settings page remounts
+  the editor on return via its `ValueKey`, as intended. Sheets are
+  `PopupRoute`s and do not trigger it. `_openMarkdownSettings` now also
+  calls `_refreshVocabularies`.
+- **B11 fixed**: `ModernEditorWrapper` memoises the tap-down claim
+  (`_TapClaim`: index, offset, line text, selection, fence flag, action);
+  `_consumeTapAction` at tap-up reuses it when none of those moved and
+  re-resolves otherwise; the memo is dropped either way so an abandoned
+  claim can never fire later.
+- `NotePositionData.fromJson` falls back per field on malformed values
+  instead of dropping the whole position (caret included).
+- The unused `previewSection` ARB key is gone from all three locales.
+- Tests: `test/widgets/optimized_note_editor_page_test.dart` (5 — the first
+  page-level test: content-before-position, position-before-content,
+  single-shot restore, no saved position, B3 flag picked up on pop);
+  `modern_editor_wrapper_tag_tap_test.dart` 9 → 11 (one grammar pass per
+  claimed tap via `ModernEditorWrapper.debugTapResolveCount`);
+  `note_position_service_test.dart` 9 → 11. Whole suite 2273 passing.
+- **Page-test harness, reuse it** (Session 6 will need it): temp dir +
+  `SharedPreferences.setMockInitialValues` + a mock `path_provider`
+  channel make `AppDatabase.getInstance()` real, so every service binds to
+  one in-memory-backed DB and nothing below the service layer is faked.
+  Build services and BLoCs in `setUpAll`, never inside `testWidgets` —
+  drift's `createInBackground` deadlocks under `FakeAsync`; DB writes go
+  through `tester.runAsync`. Close BLoCs in `tearDownAll`, not per test
+  (the page dispatches to `CounterBloc`/`MarkdownBarBloc` from `dispose`
+  and the binding unmounts leftovers at the start of the next test).
+  `_TestNoteBloc` swallows `LoadNoteContent` and exposes
+  `emitContentLoaded`/`reset()` so the test owns when content lands;
+  `find.byType(..., skipOffstage: false)` once a route is pushed above.
+- Pre-existing flake seen once under full-suite load:
+  `test/database/event_occurrence_crdt_test.dart` "stamping an edit …
+  moves the HLC" (two writes on one HLC stamp); passes standalone.
+- Test trap (fork): `_CodeCursorBlinkController.startBlink` schedules an
+  unguarded 100 ms `Future.delayed` on mobile platforms, so a widget test
+  that mounts the editor must flush ~200 ms while the tree is alive before
+  pumping it away; a pass-through tap moves the caret and turns that line
+  into the reveal line, so re-park the caret before the next "does fire"
+  assertion. No settings-gated haptic helper exists — all four editor tap
+  zones call `HapticFeedback` directly.
 
 ### Session 3 — structural-edit performance (Enter, toggle, index)
 

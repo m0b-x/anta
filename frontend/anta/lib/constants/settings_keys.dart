@@ -38,6 +38,7 @@ class SettingsKeys {
   static const String previewWhenKeyboardHidden =
       'preview_when_keyboard_hidden';
   static const String scrollCursorOnKeyboard = 'scroll_cursor_on_keyboard';
+  static const String previewModeEnabled = 'preview_mode_enabled';
 
   // Vocabulary autocomplete settings
   static const String vocabularySuggestionsEnabled =
@@ -366,6 +367,7 @@ class SettingsKeys {
   static const bool defaultAutoBreakLongLines = true;
   static const bool defaultPreviewWhenKeyboardHidden = false;
   static const bool defaultScrollCursorOnKeyboard = false;
+  static const bool defaultPreviewModeEnabled = false;
 
   // Default values for vocabulary autocomplete
   static const bool defaultVocabularySuggestionsEnabled = true;

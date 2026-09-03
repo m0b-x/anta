@@ -17,9 +17,9 @@ import '../widgets/unified_app_bars.dart';
 ///
 /// Sections are grouped by *where you feel the setting*, not by what kind of
 /// control it is: a swipe gesture lives with the screen it opens the drawer
-/// on, and "show the preview when the keyboard hides" lives with the preview
-/// rather than with the editor. The cross-cutting ones — startup, auto-save,
-/// feedback — keep their own sections.
+/// on. The cross-cutting ones — startup, auto-save, feedback — keep their own
+/// sections, and everything the live editor superseded sits last, under the
+/// deprecated section's master switch.
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
 
@@ -34,9 +34,9 @@ class _SettingsPageState extends State<SettingsPage> {
   static const String _sectionStartup = 'startup';
   static const String _sectionBrowsing = 'browsing';
   static const String _sectionEditor = 'editor';
-  static const String _sectionPreview = 'preview';
   static const String _sectionAutoSave = 'autosave';
   static const String _sectionFeedback = 'feedback';
+  static const String _sectionDeprecated = 'deprecated';
 
   SettingsService? _settings;
   bool _isLoading = true;
@@ -64,7 +64,8 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _previewWhenKeyboardHidden = false;
   bool _scrollCursorOnKeyboard = false;
 
-  // Preview settings
+  // Deprecated preview settings
+  bool _previewModeEnabled = false;
   bool _showPreviewScrollbar = false;
 
   // Preview performance settings
@@ -101,6 +102,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final previewWhenKeyboardHidden = await settings
         .getPreviewWhenKeyboardHidden();
     final scrollCursorOnKeyboard = await settings.getScrollCursorOnKeyboard();
+    final previewModeEnabled = await settings.getPreviewModeEnabled();
     final showPreviewScrollbar = await settings.getShowPreviewScrollbar();
     final previewLinesPerChunk = await settings.getPreviewLinesPerChunk();
     final collapsedSections = await settings.getAppSettingsCollapsedSections();
@@ -125,6 +127,7 @@ class _SettingsPageState extends State<SettingsPage> {
       _autoBreakLongLines = autoBreakLongLines;
       _previewWhenKeyboardHidden = previewWhenKeyboardHidden;
       _scrollCursorOnKeyboard = scrollCursorOnKeyboard;
+      _previewModeEnabled = previewModeEnabled;
       _showPreviewScrollbar = showPreviewScrollbar;
       _previewLinesPerChunk = previewLinesPerChunk;
       _isLoading = false;
@@ -206,9 +209,9 @@ class _SettingsPageState extends State<SettingsPage> {
       _startupSection(l10n),
       _browsingSection(l10n),
       _editorSection(l10n),
-      _previewSection(l10n),
       _autoSaveSection(l10n),
       _feedbackSection(l10n),
+      _deprecatedSection(l10n),
     ];
   }
 
@@ -418,67 +421,6 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  /// Preview and its performance knob used to be two one-row sections; they
-  /// are one section now. "Show the preview when the keyboard hides" joins
-  /// them from the editor — it decides what the preview does, not how the
-  /// editor types.
-  SettingsSectionData _previewSection(AppLocalizations l10n) {
-    return SettingsSectionData(
-      id: _sectionPreview,
-      icon: Icons.visibility_rounded,
-      title: l10n.previewSection,
-      entries: [
-        SettingsEntry(
-          title: l10n.previewWhenKeyboardHidden,
-          description: l10n.previewWhenKeyboardHiddenDesc,
-          keywords: _keywords(l10n.keyboardKeywords),
-          builder: (context, title, description) => _switchRow(
-            title: title,
-            description: description,
-            value: _previewWhenKeyboardHidden,
-            onChanged: (value) async {
-              _onHapticFeedback();
-              setState(() => _previewWhenKeyboardHidden = value);
-              await _settings?.setPreviewWhenKeyboardHidden(value);
-            },
-          ),
-        ),
-        SettingsEntry(
-          title: l10n.showPreviewScrollbar,
-          description: l10n.showPreviewScrollbarDesc,
-          builder: (context, title, description) => _switchRow(
-            title: title,
-            description: description,
-            value: _showPreviewScrollbar,
-            onChanged: (value) async {
-              _onHapticFeedback();
-              setState(() => _showPreviewScrollbar = value);
-              await _settings?.setShowPreviewScrollbar(value);
-            },
-          ),
-        ),
-        SettingsEntry(
-          title: l10n.previewLinesPerChunk,
-          description: l10n.previewLinesPerChunkDesc(_previewLinesPerChunk),
-          keywords: _keywords(l10n.performanceKeywords),
-          builder: (context, title, description) => _sliderRow(
-            title: title,
-            description: description,
-            value: _previewLinesPerChunk.toDouble(),
-            min: 1,
-            max: 50,
-            divisions: 49,
-            onChanged: (value) async {
-              _onHapticFeedback();
-              setState(() => _previewLinesPerChunk = value.round());
-              await _settings?.setPreviewLinesPerChunk(value.round());
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
   SettingsSectionData _autoSaveSection(AppLocalizations l10n) {
     return SettingsSectionData(
       id: _sectionAutoSave,
@@ -569,17 +511,119 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  /// Last on the page: what the live editor replaced. The master switch is
+  /// the first row and gates the three below it — with the preview off they
+  /// control nothing, so they read as disabled rather than vanishing and
+  /// leaving the search with nothing to find.
+  SettingsSectionData _deprecatedSection(AppLocalizations l10n) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final enabled = _previewModeEnabled;
+    final disabledStyle = enabled
+        ? null
+        : TextStyle(color: colorScheme.onSurface.withValues(alpha: 0.38));
+
+    return SettingsSectionData(
+      id: _sectionDeprecated,
+      icon: Icons.archive_rounded,
+      title: l10n.deprecatedSection,
+      intro: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+        child: Text(
+          l10n.deprecatedSectionIntro,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+      entries: [
+        SettingsEntry(
+          title: l10n.previewModeEnabled,
+          description: l10n.previewModeEnabledDesc,
+          keywords: _keywords(l10n.previewModeKeywords),
+          builder: (context, title, description) => _switchRow(
+            title: title,
+            description: description,
+            value: _previewModeEnabled,
+            onChanged: (value) async {
+              _onHapticFeedback();
+              setState(() => _previewModeEnabled = value);
+              await _settings?.setPreviewModeEnabled(value);
+            },
+          ),
+        ),
+        SettingsEntry(
+          title: l10n.previewWhenKeyboardHidden,
+          description: l10n.previewWhenKeyboardHiddenDesc,
+          keywords: _keywords(l10n.keyboardKeywords),
+          titleStyle: disabledStyle,
+          descriptionStyle: disabledStyle,
+          builder: (context, title, description) => _switchRow(
+            title: title,
+            description: description,
+            value: _previewWhenKeyboardHidden,
+            enabled: enabled,
+            onChanged: (value) async {
+              _onHapticFeedback();
+              setState(() => _previewWhenKeyboardHidden = value);
+              await _settings?.setPreviewWhenKeyboardHidden(value);
+            },
+          ),
+        ),
+        SettingsEntry(
+          title: l10n.showPreviewScrollbar,
+          description: l10n.showPreviewScrollbarDesc,
+          titleStyle: disabledStyle,
+          descriptionStyle: disabledStyle,
+          builder: (context, title, description) => _switchRow(
+            title: title,
+            description: description,
+            value: _showPreviewScrollbar,
+            enabled: enabled,
+            onChanged: (value) async {
+              _onHapticFeedback();
+              setState(() => _showPreviewScrollbar = value);
+              await _settings?.setShowPreviewScrollbar(value);
+            },
+          ),
+        ),
+        SettingsEntry(
+          title: l10n.previewLinesPerChunk,
+          description: l10n.previewLinesPerChunkDesc(_previewLinesPerChunk),
+          keywords: _keywords(l10n.performanceKeywords),
+          titleStyle: disabledStyle,
+          descriptionStyle: disabledStyle,
+          builder: (context, title, description) => _sliderRow(
+            title: title,
+            description: description,
+            value: _previewLinesPerChunk.toDouble(),
+            min: 1,
+            max: 50,
+            divisions: 49,
+            enabled: enabled,
+            onChanged: (value) async {
+              _onHapticFeedback();
+              setState(() => _previewLinesPerChunk = value.round());
+              await _settings?.setPreviewLinesPerChunk(value.round());
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _switchRow({
     required Widget title,
     required Widget? description,
     required bool value,
     required ValueChanged<bool> onChanged,
+    bool enabled = true,
   }) {
     return SwitchListTile(
       title: title,
       subtitle: description,
       value: value,
-      onChanged: onChanged,
+      onChanged: enabled ? onChanged : null,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
     );
   }
@@ -632,6 +676,7 @@ class _SettingsPageState extends State<SettingsPage> {
     required int divisions,
     required ValueChanged<double> onChanged,
     String Function(int)? labelBuilder,
+    bool enabled = true,
   }) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -649,7 +694,7 @@ class _SettingsPageState extends State<SettingsPage> {
             label: labelBuilder != null
                 ? labelBuilder(value.round())
                 : '${value.round()}',
-            onChanged: onChanged,
+            onChanged: enabled ? onChanged : null,
           ),
         ],
       ),
@@ -702,6 +747,9 @@ class _SettingsPageState extends State<SettingsPage> {
     await _settings?.setScrollCursorOnKeyboard(
       SettingsKeys.defaultScrollCursorOnKeyboard,
     );
+    await _settings?.setPreviewModeEnabled(
+      SettingsKeys.defaultPreviewModeEnabled,
+    );
     await _settings?.setShowPreviewScrollbar(
       SettingsKeys.defaultShowPreviewScrollbar,
     );
@@ -728,8 +776,10 @@ class _SettingsPageState extends State<SettingsPage> {
       _wordWrap = SettingsKeys.defaultWordWrap;
       _showCursorLine = SettingsKeys.defaultShowCursorLine;
       _autoBreakLongLines = SettingsKeys.defaultAutoBreakLongLines;
-      _previewWhenKeyboardHidden = SettingsKeys.defaultPreviewWhenKeyboardHidden;
+      _previewWhenKeyboardHidden =
+          SettingsKeys.defaultPreviewWhenKeyboardHidden;
       _scrollCursorOnKeyboard = SettingsKeys.defaultScrollCursorOnKeyboard;
+      _previewModeEnabled = SettingsKeys.defaultPreviewModeEnabled;
       _showPreviewScrollbar = SettingsKeys.defaultShowPreviewScrollbar;
       _previewLinesPerChunk = SettingsKeys.defaultPreviewLinesPerChunk;
     });

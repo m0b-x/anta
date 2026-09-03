@@ -57,16 +57,6 @@ class DevOptions extends ChangeNotifier {
     }
   }
 
-  /// Show line numbers in preview (mapped to source lines)
-  bool _showPreviewLineNumbers = false;
-  bool get showPreviewLineNumbers => _showPreviewLineNumbers;
-  set showPreviewLineNumbers(bool value) {
-    if (_showPreviewLineNumbers != value) {
-      _showPreviewLineNumbers = value;
-      notifyListeners();
-    }
-  }
-
   // ═══════════════════════════════════════════════════════════════════════════
   // PERFORMANCE MONITORING
   // ═══════════════════════════════════════════════════════════════════════════
@@ -178,7 +168,6 @@ class DevOptions extends ChangeNotifier {
       _colorMarkdownBlocks ||
       _showBlockBoundaries ||
       _showWhitespace ||
-      _showPreviewLineNumbers ||
       _showRenderTime ||
       _showFpsCounter ||
       _showChunkIndicators ||
@@ -195,7 +184,6 @@ class DevOptions extends ChangeNotifier {
     _colorMarkdownBlocks = false;
     _showBlockBoundaries = false;
     _showWhitespace = false;
-    _showPreviewLineNumbers = false;
     _showRenderTime = false;
     _showFpsCounter = false;
     _showChunkIndicators = false;
@@ -220,7 +208,6 @@ class DevOptions extends ChangeNotifier {
     _colorMarkdownBlocks = map['colorMarkdownBlocks'] ?? false;
     _showBlockBoundaries = map['showBlockBoundaries'] ?? false;
     _showWhitespace = map['showWhitespace'] ?? false;
-    _showPreviewLineNumbers = map['showPreviewLineNumbers'] ?? false;
     _showRenderTime = map['showRenderTime'] ?? false;
     _showFpsCounter = map['showFpsCounter'] ?? false;
     _showChunkIndicators = map['showChunkIndicators'] ?? false;
@@ -239,7 +226,6 @@ class DevOptions extends ChangeNotifier {
     'colorMarkdownBlocks': _colorMarkdownBlocks,
     'showBlockBoundaries': _showBlockBoundaries,
     'showWhitespace': _showWhitespace,
-    'showPreviewLineNumbers': _showPreviewLineNumbers,
     'showRenderTime': _showRenderTime,
     'showFpsCounter': _showFpsCounter,
     'showChunkIndicators': _showChunkIndicators,

@@ -220,6 +220,12 @@ class BackupService {
       // Which picker geometry they prefer — a display preference, carried
       // for the same reason `theme_mode` and `word_wrap` are.
       SettingsKeys.colorPickerMode,
+      // Which editor surface the note opens on: live rendering, and whether
+      // the deprecated preview is available at all. Additive — a backup
+      // written before these keys existed simply leaves both at their
+      // defaults on import.
+      SettingsKeys.liveMarkdownRendering,
+      SettingsKeys.previewModeEnabled,
     ];
 
     final settings = <String, dynamic>{};

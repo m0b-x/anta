@@ -2758,7 +2758,7 @@
   "@appSettings": {
     "description": "App settings menu item and page title"
   },
-  "appSettingsDesc": "Startup, browsing, editor and preview",
+  "appSettingsDesc": "Startup, browsing, editor and auto-save",
   "@appSettingsDesc": {
     "description": "App settings description"
   },
@@ -3365,7 +3365,7 @@
   "@autoBreakLongLines": {
     "description": "Setting for automatically breaking long lines on paste"
   },
-  "autoBreakLongLinesDesc": "Automatically break long lines when pasting text. May slightly affect search positioning accuracy in preview mode.",
+  "autoBreakLongLinesDesc": "Automatically break long lines when pasting text.",
   "@autoBreakLongLinesDesc": {
     "description": "Description for auto break long lines setting"
   },
@@ -3394,9 +3394,25 @@
       }
     }
   },
-  "previewSection": "Preview",
-  "@previewSection": {
-    "description": "Preview settings section title"
+  "deprecatedSection": "Deprecated features",
+  "@deprecatedSection": {
+    "description": "Deprecated features settings section title"
+  },
+  "deprecatedSectionIntro": "Kept for people who already use them. Off by default, and they may be removed in a future version.",
+  "@deprecatedSectionIntro": {
+    "description": "Explanatory line shown at the top of the deprecated features section"
+  },
+  "previewModeEnabled": "Preview Mode",
+  "@previewModeEnabled": {
+    "description": "Master switch that brings back the separate rendered preview"
+  },
+  "previewModeEnabledDesc": "Bring back the separate rendered preview and its eye button. The editor already renders markdown as you type.",
+  "@previewModeEnabledDesc": {
+    "description": "Description for the preview mode master switch"
+  },
+  "previewModeKeywords": "preview, render, eye, deprecated, legacy",
+  "@previewModeKeywords": {
+    "description": "Comma-separated hidden search synonyms for the preview mode setting"
   },
   "showPreviewScrollbar": "Preview Scrollbar",
   "@showPreviewScrollbar": {
@@ -3924,14 +3940,6 @@
   "showWhitespaceDesc": "Visualize spaces, tabs, and newlines",
   "@showWhitespaceDesc": {
     "description": "Description for show whitespace option"
-  },
-  "showPreviewLineNumbers": "Preview Line Numbers",
-  "@showPreviewLineNumbers": {
-    "description": "Option to show line numbers in preview"
-  },
-  "showPreviewLineNumbersDesc": "Show source line numbers in preview mode",
-  "@showPreviewLineNumbersDesc": {
-    "description": "Description for show preview line numbers option"
   },
 
   "performanceMonitoring": "Performance Monitoring",

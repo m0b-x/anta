@@ -2211,7 +2211,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get appSettings => 'Settings';
 
   @override
-  String get appSettingsDesc => 'Startup, browsing, editor and preview';
+  String get appSettingsDesc => 'Startup, browsing, editor and auto-save';
 
   @override
   String get folderSwipeGesture => 'Swipe to open menu in folders';
@@ -2660,7 +2660,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get autoBreakLongLinesDesc =>
-      'Automatically break long lines when pasting text. May slightly affect search positioning accuracy in preview mode.';
+      'Automatically break long lines when pasting text.';
 
   @override
   String get previewWhenKeyboardHidden => 'Preview When Keyboard Hidden';
@@ -2688,7 +2688,21 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get previewSection => 'Preview';
+  String get deprecatedSection => 'Deprecated features';
+
+  @override
+  String get deprecatedSectionIntro =>
+      'Kept for people who already use them. Off by default, and they may be removed in a future version.';
+
+  @override
+  String get previewModeEnabled => 'Preview Mode';
+
+  @override
+  String get previewModeEnabledDesc =>
+      'Bring back the separate rendered preview and its eye button. The editor already renders markdown as you type.';
+
+  @override
+  String get previewModeKeywords => 'preview, render, eye, deprecated, legacy';
 
   @override
   String get showPreviewScrollbar => 'Preview Scrollbar';
@@ -3109,13 +3123,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get showWhitespaceDesc => 'Visualize spaces, tabs, and newlines';
-
-  @override
-  String get showPreviewLineNumbers => 'Preview Line Numbers';
-
-  @override
-  String get showPreviewLineNumbersDesc =>
-      'Show source line numbers in preview mode';
 
   @override
   String get performanceMonitoring => 'Performance Monitoring';

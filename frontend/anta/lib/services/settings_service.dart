@@ -350,6 +350,17 @@ class SettingsService {
     await _setBool(SettingsKeys.liveMarkdownRendering, value);
   }
 
+  Future<bool> getPreviewModeEnabled() async {
+    return _getBool(
+      SettingsKeys.previewModeEnabled,
+      SettingsKeys.defaultPreviewModeEnabled,
+    );
+  }
+
+  Future<void> setPreviewModeEnabled(bool value) async {
+    await _setBool(SettingsKeys.previewModeEnabled, value);
+  }
+
   // Editor settings - Show line numbers
   Future<bool> getShowLineNumbers() async {
     return _getBool(

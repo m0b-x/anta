@@ -14,6 +14,7 @@ import '../utils/markdown_link_patterns.dart';
 import '../utils/markdown_list_syntax.dart';
 import '../utils/markdown_list_utils.dart';
 import '../utils/markdown_money_syntax.dart';
+import '../utils/markdown_tag_syntax.dart';
 import '../utils/re_editor_search_controller.dart';
 import 'editor_chunk_overlay.dart';
 import 'scroll_progress_indicator.dart';
@@ -43,6 +44,11 @@ class ModernEditorWrapper extends StatefulWidget {
   /// Opens the ledger detail for a tapped `$$` / `$?` money chip (live
   /// markdown rendering). Null disables money tap-to-detail.
   final void Function(int lineIndex)? onMoneyTap;
+
+  /// Searches for a tapped `#tag` (live markdown rendering), receiving
+  /// the tag with its leading `#` preserved — the same string the
+  /// preview's tag recognizer passes. Null disables tag tap-to-search.
+  final void Function(String tag)? onOpenTag;
 
   /// Whether a line sits inside (or delimits) a ``` code fence — fence
   /// text renders raw, so taps there always fall through to editing.
@@ -79,6 +85,7 @@ class ModernEditorWrapper extends StatefulWidget {
     this.checkboxTapToggle = false,
     this.onOpenLink,
     this.onMoneyTap,
+    this.onOpenTag,
     this.isFenceLine,
     this.lineNumbersKey,
     this.scrollIndicatorKey,
@@ -88,8 +95,36 @@ class ModernEditorWrapper extends StatefulWidget {
     this.showChunkBorders = false,
   });
 
+  /// Number of times a tap has been resolved against the markdown
+  /// grammars since the counter was last reset. Only exists so tests can
+  /// pin that a claimed tap resolves once (tap-down) and reuses the memo
+  /// at tap-up; nothing in the app reads it.
+  @visibleForTesting
+  static int debugTapResolveCount = 0;
+
   @override
   State<ModernEditorWrapper> createState() => _ModernEditorWrapperState();
+}
+
+/// The action resolved for the tap currently claimed by the interceptor,
+/// together with everything [_ModernEditorWrapperState._resolveTapAction]
+/// read to produce it. Reused at tap-up only while all of it still holds.
+class _TapClaim {
+  const _TapClaim({
+    required this.index,
+    required this.offset,
+    required this.lineText,
+    required this.selection,
+    required this.inFence,
+    required this.action,
+  });
+
+  final int index;
+  final int offset;
+  final String? lineText;
+  final CodeLineSelection selection;
+  final bool inFence;
+  final VoidCallback action;
 }
 
 class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
@@ -106,22 +141,29 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
   /// activate a ghost.
   bool _activatingGhost = false;
 
+  /// The pending tap claim (see [_claimTapAction] / [_consumeTapAction]).
+  _TapClaim? _tapClaim;
+
   /// Claims taps on checkbox boxes and concealed links at pointer level
   /// (via the fork's [CodeEditorTapInterceptor]) so the editor never
   /// moves the caret, never requests focus (no keyboard rise on an
   /// unfocused editor), and every tap fires — including re-taps on the
-  /// same spot. The action is re-resolved at tap-up so a text change
-  /// between down and up can never toggle the wrong line.
+  /// same spot. The claim's action is memoized at tap-down and reused at
+  /// tap-up while every input it was resolved from is unchanged, so the
+  /// grammars run once per tap instead of twice; any change (a different
+  /// position, the line's text, the selection, the line's fence role)
+  /// falls back to a fresh resolve, so a text change between down and up
+  /// still can never fire the wrong action.
   late final CodeEditorTapInterceptor _tapInterceptor =
       CodeEditorTapInterceptor(
-        shouldIntercept: (position) => _resolveTapAction(position) != null,
+        shouldIntercept: (position) => _claimTapAction(position) != null,
         onTap: (position) {
           // The tap was claimed — it must not double as a ghost-arming
           // tap, or the action's own controller notification could
           // re-activate a ghost the caret already sits in.
           _pendingGhostTapCheck = false;
           _ghostTapExpiry?.cancel();
-          _resolveTapAction(position)?.call();
+          _consumeTapAction(position)?.call();
           // On desktop the editor's inner Listener dispatches this
           // pointer-up before this widget's outer Listener re-arms the
           // flag, so disarm once more after routing finishes.
@@ -285,13 +327,59 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
     _maybeClearEngagedGhost();
   }
 
+  /// Resolves the action for a tap-down and memoizes it as the pending
+  /// claim, so [_consumeTapAction] can fire it at tap-up without running
+  /// every grammar a second time. A failed claim clears the memo.
+  VoidCallback? _claimTapAction(CodeLinePosition position) {
+    final action = _resolveTapAction(position);
+    _tapClaim = action == null
+        ? null
+        : _TapClaim(
+            index: position.index,
+            offset: position.offset,
+            lineText: _lineTextAt(position.index),
+            selection: widget.controller.selection,
+            inFence: widget.isFenceLine?.call(position.index) ?? false,
+            action: action,
+          );
+    return action;
+  }
+
+  /// The action for a claimed tap's tap-up. Reuses the memo from
+  /// [_claimTapAction] when nothing it was resolved from moved, and
+  /// re-resolves otherwise. Single-shot: the memo is dropped either way,
+  /// so an abandoned claim (slop, cancel, another pointer) can never be
+  /// consumed by a later tap.
+  VoidCallback? _consumeTapAction(CodeLinePosition position) {
+    final claim = _tapClaim;
+    _tapClaim = null;
+    if (claim != null &&
+        claim.index == position.index &&
+        claim.offset == position.offset &&
+        claim.selection == widget.controller.selection &&
+        claim.inFence == (widget.isFenceLine?.call(position.index) ?? false) &&
+        claim.lineText == _lineTextAt(position.index)) {
+      return claim.action;
+    }
+    return _resolveTapAction(position);
+  }
+
+  /// The text of [lineIndex], or null when it is out of range.
+  String? _lineTextAt(int lineIndex) {
+    final lines = widget.controller.codeLines;
+    if (lineIndex < 0 || lineIndex >= lines.length) return null;
+    return lines[lineIndex].text;
+  }
+
   /// Resolves what a tap at [position] does instead of editing: toggle
-  /// a task checkbox or open a concealed link. Returns null when the
-  /// tap should fall through to normal caret placement — on reveal
-  /// (selection-covered) lines the raw markdown is showing and taps mean
-  /// editing; fence lines render raw; and ghost runs pass through
-  /// because ghost engagement rides the selection change (ghosts win).
+  /// a task checkbox, open a concealed link, open a money row's ledger
+  /// detail, or search a `#tag`. Returns null when the tap should fall
+  /// through to normal caret placement — on reveal (selection-covered)
+  /// lines the raw markdown is showing and taps mean editing; fence
+  /// lines render raw; and ghost runs pass through because ghost
+  /// engagement rides the selection change (ghosts win).
   VoidCallback? _resolveTapAction(CodeLinePosition position) {
+    ModernEditorWrapper.debugTapResolveCount++;
     final controller = widget.controller;
     final lines = controller.codeLines;
     final lineIndex = position.index;
@@ -368,6 +456,16 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
         };
       }
     }
+    final onOpenTag = widget.onOpenTag;
+    if (onOpenTag != null) {
+      final tag = _tagAt(text, offset);
+      if (tag != null) {
+        return () {
+          HapticFeedback.selectionClick();
+          onOpenTag(tag);
+        };
+      }
+    }
     return null;
   }
 
@@ -433,6 +531,40 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
       if (offset <= link.start) return null;
       if (offset < link.end) return link.urlOf(text);
       searchFrom = link.end;
+    }
+    return null;
+  }
+
+  /// The `#tag` (leading `#` kept, as the preview's recognizer passes
+  /// it) covering [offset] in [text], or null. Grammar comes from
+  /// [MarkdownTagSyntax] — the one module both render surfaces scan
+  /// with — so the zone can never claim something the editor did not
+  /// paint as a tag: `#` must sit on a word boundary and be followed by
+  /// a letter-led body, so heading hashes (`## x`), `#3`, and `set #1`
+  /// are never tags. Tags conceal and substitute nothing, so the tapped
+  /// offset maps 1:1 onto source code units. Tags inside inline-code
+  /// backtick runs never count (code runs render literally), and tags
+  /// whose `#` sits in a ghost run never count — ghosts win. Like the
+  /// link zone, the construct's outermost boundary offsets are excluded
+  /// so taps that resolve to an edge still place the caret.
+  String? _tagAt(String text, int offset) {
+    final ghosts = GhostText.mightContain(text)
+        ? GhostText.findGhosts(text)
+        : const <GhostMatch>[];
+    final codeRuns = _inlineCodeRuns(text);
+    var searchFrom = 0;
+    while (searchFrom < text.length) {
+      final hash = text.indexOf('#', searchFrom);
+      if (hash < 0) return null;
+      searchFrom = hash + 1;
+      if (!MarkdownTagSyntax.isWordBoundaryBefore(text, hash)) continue;
+      final end = MarkdownTagSyntax.tryParseTagAt(text, hash);
+      if (end == null) continue;
+      if (_inRanges(codeRuns, hash)) continue;
+      if (_inGhosts(ghosts, hash)) continue;
+      if (offset <= hash) return null;
+      if (offset < end) return text.substring(hash, end);
+      searchFrom = end;
     }
     return null;
   }
@@ -707,7 +839,8 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
         tapInterceptor:
             (widget.checkboxTapToggle ||
                 widget.onOpenLink != null ||
-                widget.onMoneyTap != null)
+                widget.onMoneyTap != null ||
+                widget.onOpenTag != null)
             ? _tapInterceptor
             : null,
         chunkAnalyzer: const NonCodeChunkAnalyzer(),

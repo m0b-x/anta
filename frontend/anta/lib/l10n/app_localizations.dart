@@ -3907,7 +3907,7 @@ abstract class AppLocalizations {
   /// App settings description
   ///
   /// In en, this message translates to:
-  /// **'Startup, browsing, editor and preview'**
+  /// **'Startup, browsing, editor and auto-save'**
   String get appSettingsDesc;
 
   /// Folder swipe gesture setting
@@ -4705,7 +4705,7 @@ abstract class AppLocalizations {
   /// Description for auto break long lines setting
   ///
   /// In en, this message translates to:
-  /// **'Automatically break long lines when pasting text. May slightly affect search positioning accuracy in preview mode.'**
+  /// **'Automatically break long lines when pasting text.'**
   String get autoBreakLongLinesDesc;
 
   /// Setting to show preview mode when keyboard is hidden
@@ -4738,11 +4738,35 @@ abstract class AppLocalizations {
   /// **'{count, plural, =1{1 long line was formatted} other{{count} long lines were formatted}}'**
   String linesFormatted(int count);
 
-  /// Preview settings section title
+  /// Deprecated features settings section title
   ///
   /// In en, this message translates to:
-  /// **'Preview'**
-  String get previewSection;
+  /// **'Deprecated features'**
+  String get deprecatedSection;
+
+  /// Explanatory line shown at the top of the deprecated features section
+  ///
+  /// In en, this message translates to:
+  /// **'Kept for people who already use them. Off by default, and they may be removed in a future version.'**
+  String get deprecatedSectionIntro;
+
+  /// Master switch that brings back the separate rendered preview
+  ///
+  /// In en, this message translates to:
+  /// **'Preview Mode'**
+  String get previewModeEnabled;
+
+  /// Description for the preview mode master switch
+  ///
+  /// In en, this message translates to:
+  /// **'Bring back the separate rendered preview and its eye button. The editor already renders markdown as you type.'**
+  String get previewModeEnabledDesc;
+
+  /// Comma-separated hidden search synonyms for the preview mode setting
+  ///
+  /// In en, this message translates to:
+  /// **'preview, render, eye, deprecated, legacy'**
+  String get previewModeKeywords;
 
   /// Setting for showing scrollbar in preview mode
   ///
@@ -5463,18 +5487,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Visualize spaces, tabs, and newlines'**
   String get showWhitespaceDesc;
-
-  /// Option to show line numbers in preview
-  ///
-  /// In en, this message translates to:
-  /// **'Preview Line Numbers'**
-  String get showPreviewLineNumbers;
-
-  /// Description for show preview line numbers option
-  ///
-  /// In en, this message translates to:
-  /// **'Show source line numbers in preview mode'**
-  String get showPreviewLineNumbersDesc;
 
   /// Section title for performance monitoring options
   ///

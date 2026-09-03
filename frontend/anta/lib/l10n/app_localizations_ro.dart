@@ -2241,7 +2241,7 @@ class AppLocalizationsRo extends AppLocalizations {
   String get appSettings => 'Setări';
 
   @override
-  String get appSettingsDesc => 'Pornire, navigare, editor și previzualizare';
+  String get appSettingsDesc => 'Pornire, navigare, editor și salvare automată';
 
   @override
   String get folderSwipeGesture =>
@@ -2694,7 +2694,7 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get autoBreakLongLinesDesc =>
-      'Împarte automat liniile lungi la lipirea textului. Poate afecta ușor precizia poziționării căutării în modul previzualizare.';
+      'Împarte automat liniile lungi la lipirea textului.';
 
   @override
   String get previewWhenKeyboardHidden =>
@@ -2724,7 +2724,21 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
-  String get previewSection => 'Previzualizare';
+  String get deprecatedSection => 'Funcții învechite';
+
+  @override
+  String get deprecatedSectionIntro =>
+      'Păstrate pentru cei care le folosesc deja. Dezactivate implicit și pot fi eliminate într-o versiune viitoare.';
+
+  @override
+  String get previewModeEnabled => 'Mod previzualizare';
+
+  @override
+  String get previewModeEnabledDesc =>
+      'Readuce previzualizarea randată separată și butonul cu ochi. Editorul randează deja markdown pe măsură ce scrii.';
+
+  @override
+  String get previewModeKeywords => 'previzualizare, randare, ochi, învechit';
 
   @override
   String get showPreviewScrollbar => 'Bară de Derulare Previzualizare';
@@ -3152,13 +3166,6 @@ class AppLocalizationsRo extends AppLocalizations {
   @override
   String get showWhitespaceDesc =>
       'Vizualizează spațiile, taburile și liniile noi';
-
-  @override
-  String get showPreviewLineNumbers => 'Numere de linie în previzualizare';
-
-  @override
-  String get showPreviewLineNumbersDesc =>
-      'Afișează numerele liniilor sursă în modul previzualizare';
 
   @override
   String get performanceMonitoring => 'Monitorizarea performanței';
