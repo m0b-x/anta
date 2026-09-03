@@ -489,10 +489,10 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
     );
     controller.runRevocableOp(() {
       controller.value = CodeLineEditingValue(
-        codeLines: CodeLines.of([
-          for (int i = 0; i < lines.length; i++)
-            if (i == lineIndex) CodeLine(toggled) else lines[i],
-        ]),
+        codeLines: lines.replaceLine(
+          lineIndex,
+          lines[lineIndex].copyWith(text: toggled),
+        ),
         selection: controller.selection,
       );
     });
@@ -735,10 +735,10 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
 
     controller.runRevocableOp(() {
       controller.value = CodeLineEditingValue(
-        codeLines: CodeLines.of([
-          for (int i = 0; i < lines.length; i++)
-            if (i == lineIndex) CodeLine(newText) else lines[i],
-        ]),
+        codeLines: lines.replaceLine(
+          lineIndex,
+          lines[lineIndex].copyWith(text: newText),
+        ),
         selection: CodeLineSelection(
           baseIndex: lineIndex,
           baseOffset: baseOffset,

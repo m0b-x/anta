@@ -108,6 +108,41 @@ class MarkdownEditorSpanBuilder {
   final LruCache<String, TextSpan> _positionalSpanCache = LruCache(
     maxSize: _positionalSpanCacheSize,
   );
+
+  /// Money parsing is text-only but expensive (a hand-written scanner
+  /// over the whole line), and the positional path has to know the row's
+  /// kind *before* it can build its balance-keyed memo key — so every
+  /// visible display-money line would re-parse on each layout pass even
+  /// on a memo hit. This text-keyed memo makes the parse once-per-line
+  /// instead, in front of both call sites.
+  static const int _moneyParseMemoSize = 256;
+
+  /// Sentinel cached for lines that lead with `$` but do not parse as a
+  /// money row, so a negative result costs one lookup too. Compared by
+  /// [identical]; none of its fields are ever read.
+  static const MoneyLineMatch _notMoney = MoneyLineMatch(
+    kind: MoneyLineKind.total,
+    markerStart: -1,
+    markerEnd: -1,
+    amountStart: -1,
+    amountEnd: -1,
+    labelStart: -1,
+    labelEnd: -1,
+    amountFixed: 0,
+  );
+
+  /// Never cleared: the parse is a pure function of the line text, so no
+  /// configuration change can stale an entry, and the LRU bounds it.
+  final LruCache<String, MoneyLineMatch> _moneyParseMemo = LruCache(
+    maxSize: _moneyParseMemoSize,
+  );
+
+  /// Counts the [MarkdownMoneySyntax.parse] calls this builder actually
+  /// makes (memo misses only). Debug builds only — the increment lives
+  /// inside an [assert]. Test-only; nothing in the app reads it.
+  @visibleForTesting
+  int debugMoneyParseCount = 0;
+
   TextStyle? _cacheStyle;
   Color? _cacheBaseColor;
   Color? _cachePrimary;
@@ -137,8 +172,7 @@ class MarkdownEditorSpanBuilder {
     if (config.enabled != _moneyConfig.enabled ||
         config.currencySymbol != _moneyConfig.currencySymbol ||
         config.currencySuffix != _moneyConfig.currencySuffix) {
-      _spanCache.clear();
-      _positionalSpanCache.clear();
+      _clearSpanMemos();
     }
     _moneyConfig = config;
     _lineIndex.configureMoney(
@@ -159,8 +193,34 @@ class MarkdownEditorSpanBuilder {
   void configureColors(MarkdownColorPalette palette) {
     if (palette == _colorPalette) return;
     _colorPalette = palette;
+    _clearSpanMemos();
+  }
+
+  /// Drops both span memos — the text-keyed one and the positional one —
+  /// which always invalidate together: every cached span holds
+  /// already-resolved colours and metrics, so a theme, style, palette or
+  /// money-display change makes all of them stale at once. The money
+  /// parse memo is text-only and outlives all of it.
+  void _clearSpanMemos() {
     _spanCache.clear();
     _positionalSpanCache.clear();
+  }
+
+  /// [MarkdownMoneySyntax.parse] behind [_moneyParseMemo]. The result is
+  /// a pure function of the line text and [MoneyLineMatch] is immutable,
+  /// so instances are safe to share; a `null` parse memoizes as
+  /// [_notMoney] so lines that lead with `$` without being money rows
+  /// stop re-scanning too.
+  MoneyLineMatch? _parseMoney(String text) {
+    final cached = _moneyParseMemo.get(text);
+    if (cached != null) return identical(cached, _notMoney) ? null : cached;
+    assert(() {
+      debugMoneyParseCount++;
+      return true;
+    }());
+    final parsed = MarkdownMoneySyntax.parse(text);
+    _moneyParseMemo.put(text, parsed ?? _notMoney);
+    return parsed;
   }
 
   /// Returns the restyled span for [codeLine], or `null` when this line
@@ -185,8 +245,7 @@ class MarkdownEditorSpanBuilder {
         baseColor != _cacheBaseColor ||
         primary != _cachePrimary ||
         isDark != _isDark) {
-      _spanCache.clear();
-      _positionalSpanCache.clear();
+      _clearSpanMemos();
       _cacheStyle = style;
       _cacheBaseColor = baseColor;
       _cachePrimary = primary;
@@ -230,7 +289,7 @@ class MarkdownEditorSpanBuilder {
     if (!reveal &&
         _moneyConfig.enabled &&
         MarkdownMoneySyntax.leadsWithMoney(text)) {
-      final money = MarkdownMoneySyntax.parse(text);
+      final money = _parseMoney(text);
       if (money != null && MarkdownMoneySyntax.needsBalance(money)) {
         final balance =
             _lineIndex.moneyValueAt(controller.codeLines, index) ?? 0;
@@ -315,7 +374,7 @@ class MarkdownEditorSpanBuilder {
     // totals parse here (purely textual either way). A `#`-led line
     // that fails the money parse falls through to the header branch.
     if (_moneyConfig.enabled && MarkdownMoneySyntax.leadsWithMoney(text)) {
-      final m = money ?? MarkdownMoneySyntax.parse(text);
+      final m = money ?? _parseMoney(text);
       if (m != null) {
         return _buildMoneyLine(
           text: text,

@@ -54,7 +54,17 @@ class CodeLines {
       // re-iterating segment.codeLines (was O(N) per keystroke).
       segments.add(segment.cloneShallowDirty());
     }
-    return CodeLines(segments);
+    final CodeLines copy = CodeLines(segments);
+    // Precondition: a source `CodeLines` is never structurally mutated after a
+    // `from` copy — callers copy, write the copy, publish, and never touch the
+    // source again. The segment backing lists already share on that rule;
+    // `_segmentEnds`/`_lengthCache` join them unless an empty segment was
+    // dropped above, which changes the layout.
+    if (segments.length == codeLines.segments.length) {
+      copy._segmentEnds = codeLines._segmentEnds;
+      copy._lengthCache = codeLines._lengthCache;
+    }
+    return copy;
   }
 
   factory CodeLines.of(Iterable<CodeLine> elements) {
@@ -71,6 +81,18 @@ class CodeLines {
       }
     }
     return CodeLines(segments);
+  }
+
+  /// Invalidate only what replacing one line in place can change. The
+  /// segment layout — and therefore `_segmentEnds`, `_lengthCache` and the
+  /// last-hit fields — is untouched by such a write.
+  void _invalidateLineContent() {
+    _lineCountCache = null;
+    _charCountCache = null;
+    _asStringCache0 = null;
+    _asStringCache0LineBreak = null;
+    _asStringCache1 = null;
+    _asStringCache1LineBreak = null;
   }
 
   /// Invalidate all derived caches after a structural mutation.
@@ -149,17 +171,14 @@ class CodeLines {
     return _charCountCache = total;
   }
 
-  CodeLine operator [](int index) {
-    // Fast path: same segment as the previous lookup (very common during
-    // sequential paint/iteration).
-    if (index >= _lastHitStart && index < _lastHitEnd) {
-      return segments[_lastHitSegment][index - _lastHitStart];
-    }
+  /// The index of the segment holding line [index], by binary search over
+  /// the prefix-sum index. Throws [RangeError] when [index] is out of the
+  /// document.
+  int _segmentIndexFor(int index) {
     final List<int> ends = _ensureSegmentEnds();
     if (ends.isEmpty || index < 0 || index >= ends.last) {
       throw RangeError.range(index, 0, ends.isEmpty ? -1 : ends.last - 1);
     }
-    // Binary search for the segment whose [start, end) contains `index`.
     int lo = 0;
     int hi = ends.length - 1;
     while (lo < hi) {
@@ -170,31 +189,39 @@ class CodeLines {
         hi = mid;
       }
     }
-    final int segStart = lo == 0 ? 0 : ends[lo - 1];
-    _lastHitSegment = lo;
+    return lo;
+  }
+
+  CodeLine operator [](int index) {
+    // Fast path: same segment as the previous lookup (very common during
+    // sequential paint/iteration).
+    if (index >= _lastHitStart && index < _lastHitEnd) {
+      return segments[_lastHitSegment][index - _lastHitStart];
+    }
+    final int segmentIndex = _segmentIndexFor(index);
+    final List<int> ends = _segmentEnds!;
+    final int segStart = segmentIndex == 0 ? 0 : ends[segmentIndex - 1];
+    _lastHitSegment = segmentIndex;
     _lastHitStart = segStart;
-    _lastHitEnd = ends[lo];
-    return segments[lo][index - segStart];
+    _lastHitEnd = ends[segmentIndex];
+    return segments[segmentIndex][index - segStart];
   }
 
   void operator []=(int index, CodeLine value) {
-    int offset = 0;
-    for (int i = 0; i < segments.length; i++) {
-      CodeLineSegment segment = segments[i];
-      if (index - offset >= segment.length) {
-        offset += segment.length;
-      } else {
-        if (segment.dirty) {
-          segment = segment.clone();
-          segments[i] = segment;
-        }
-        segment[index - offset] = value;
-        // Aggregates may change (lineCount/charCount when chunks differ).
-        _invalidate();
-        return;
-      }
+    final int segmentIndex = _segmentIndexFor(index);
+    final List<int> ends = _segmentEnds!;
+    final int segStart = segmentIndex == 0 ? 0 : ends[segmentIndex - 1];
+    CodeLineSegment segment = segments[segmentIndex];
+    if (segment.dirty) {
+      segment = segment.clone();
+      segments[segmentIndex] = segment;
     }
-    throw RangeError.range(index, 0, length - 1);
+    segment[index - segStart] = value;
+    // Only the line's own aggregates can move (lineCount/charCount when
+    // chunks differ, and the joined-string caches). The segment layout is
+    // untouched, so the prefix-sum index and the last-hit fields stay
+    // valid — and stay warm for the next lookup.
+    _invalidateLineContent();
   }
 
   void add(CodeLine value) {
@@ -355,7 +382,51 @@ class CodeLines {
         }
       }
     }
+    assert(
+      newSegments.every((segment) => segment.isNotEmpty),
+      'sublines($start, $end) produced an empty segment; addFrom would then '
+      'merge it into a shared tail and silently re-own that segment',
+    );
     return CodeLines(newSegments);
+  }
+
+  /// A copy of this document with line [index] replaced by [line].
+  ///
+  /// `this` is left untouched. Only the segment holding [index] re-owns its
+  /// backing list; every other segment's list stays shared by identity with
+  /// this document's, which is what an incremental per-line index can use as
+  /// its dirty flag.
+  CodeLines replaceLine(int index, CodeLine line) {
+    if (index < 0 || index >= length) {
+      throw RangeError.range(index, 0, length - 1);
+    }
+    final CodeLines copy = CodeLines.from(this);
+    copy[index] = line;
+    return copy;
+  }
+
+  /// A copy of this document without line [index].
+  ///
+  /// `this` is left untouched. Whole segments before and after the removed
+  /// line keep sharing their backing list wherever [sublines] and [addFrom]
+  /// already share them; only the segment the line sat in is rebuilt (and,
+  /// per [addFrom]'s merge rule, possibly joined with the segment after it).
+  ///
+  /// Removing the only line yields an empty `CodeLines`, which a controller
+  /// cannot render. A caller must either guarantee another line survives —
+  /// the page's Enter-on-empty-item path does, removing line `current - 1`
+  /// with `current > 0` — or route the result through the controller's
+  /// `codeLines` setter, which maps an empty document onto the initial
+  /// blank line.
+  CodeLines removeLine(int index) {
+    if (index < 0 || index >= length) {
+      throw RangeError.range(index, 0, length - 1);
+    }
+    final CodeLines result = sublines(0, index);
+    if (index + 1 < length) {
+      result.addFrom(this, index + 1);
+    }
+    return result;
   }
 
   void clear() {

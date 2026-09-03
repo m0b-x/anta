@@ -1562,15 +1562,8 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       if (MarkdownListUtils.isEmptyListItem(prevLine)) {
         // Remove the empty list item line — merge with the Enter undo node
         // by setting value directly (bypasses runRevocableOp).
-        // Need full text here for replaceRange (rare path: Enter on empty list item).
-        final text = _contentController.text;
-        final newText = text.replaceRange(
-          _getLineStartOffset(prevLineIndex),
-          _getLineStartOffset(currentLineIndex),
-          '',
-        );
         _contentController.value = CodeLineEditingValue(
-          codeLines: newText.codeLines,
+          codeLines: _contentController.codeLines.removeLine(prevLineIndex),
           selection: CodeLineSelection.collapsed(
             index: prevLineIndex,
             offset: 0,
@@ -1587,15 +1580,11 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
         // by setting value directly (bypasses runRevocableOp).
         final currentLine = _contentController.codeLines[currentLineIndex];
         final newLineText = '$listPrefix${currentLine.text}';
-        final newCodeLines = CodeLines.of([
-          for (int i = 0; i < _contentController.codeLines.length; i++)
-            if (i == currentLineIndex)
-              CodeLine(newLineText)
-            else
-              _contentController.codeLines[i],
-        ]);
         _contentController.value = CodeLineEditingValue(
-          codeLines: newCodeLines,
+          codeLines: _contentController.codeLines.replaceLine(
+            currentLineIndex,
+            currentLine.copyWith(text: newLineText),
+          ),
           selection: CodeLineSelection.collapsed(
             index: currentLineIndex,
             offset: listPrefix.length,

@@ -329,6 +329,164 @@ void main() {
     });
   });
 
+  group('P2 — Enter on a list line', () {
+    // 700 lines is three 256-line segments, so the structural edit has
+    // untouched segments on both sides of the one it splits.
+    const documentLines = 700;
+    const listLine = 300;
+    const emptyItemLine = 400;
+
+    final longContent = List<String>.generate(documentLines, (i) {
+      if (i == listLine) return '- squat 5x5';
+      if (i == emptyItemLine) return '- ';
+      return 'plain line $i';
+    }).join('\n');
+
+    final longMetadata = NoteMetadata(
+      id: noteId,
+      folderId: folderId,
+      title: 'Training log',
+      preview: 'plain line 0',
+      contentLength: longContent.length,
+      chunkCount: 1,
+      isCompressed: false,
+      createdAt: DateTime(2026, 9, 1),
+      updatedAt: DateTime(2026, 9, 1),
+    );
+
+    List<List<CodeLine>> backingLists(CodeLineEditingController controller) => [
+      for (final segment in controller.codeLines.segments) segment.codeLines,
+    ];
+
+    Future<CodeLineEditingController> loadLongNote(WidgetTester tester) async {
+      await pumpPage(tester);
+      noteBloc.emitContentLoaded(longMetadata, longContent);
+      await tester.pump();
+      await settle(tester);
+      final controller = editorOf(tester).controller;
+      expect(controller.codeLines.length, documentLines);
+      expect(controller.codeLines.segments, hasLength(3));
+      return controller;
+    }
+
+    testWidgets('continues the list prefix onto the new line', (tester) async {
+      final controller = await loadLongNote(tester);
+      final before = backingLists(controller);
+
+      controller.selection = CodeLineSelection.collapsed(
+        index: listLine,
+        offset: '- squat 5x5'.length,
+      );
+      await tester.pump();
+
+      controller.applyNewLine();
+      await settle(tester, rounds: 4);
+
+      expect(controller.codeLines.length, documentLines + 1);
+      expect(controller.codeLines[listLine].text, '- squat 5x5');
+      expect(controller.codeLines[listLine + 1].text, '- ');
+      expect(controller.codeLines[listLine + 2].text, 'plain line 301');
+      expect(controller.selection.baseIndex, listLine + 1);
+      expect(controller.selection.baseOffset, 2);
+
+      // The split rebuilds only the segment line 300 sat in (into a head
+      // and a tail); the segments before and after it are carried over by
+      // reference, which is what the incremental line index reads as
+      // "nothing to re-render here".
+      final after = backingLists(controller);
+      expect(after, hasLength(4));
+      expect(identical(after.first, before.first), isTrue);
+      expect(identical(after.last, before.last), isTrue);
+      expect(identical(after[1], before[1]), isFalse);
+      expect(identical(after[2], before[1]), isFalse);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('the continuation is part of the Enter undo step', (
+      tester,
+    ) async {
+      final controller = await loadLongNote(tester);
+
+      controller.selection = CodeLineSelection.collapsed(
+        index: listLine,
+        offset: '- squat 5x5'.length,
+      );
+      await tester.pump();
+
+      controller.applyNewLine();
+      await settle(tester, rounds: 4);
+      expect(controller.codeLines[listLine + 1].text, '- ');
+
+      controller.undo();
+      await tester.pump();
+
+      expect(controller.codeLines.length, documentLines);
+      expect(controller.codeLines[listLine].text, '- squat 5x5');
+      expect(controller.codeLines[listLine + 1].text, 'plain line 301');
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('Enter on an empty item drops the item line', (tester) async {
+      final controller = await loadLongNote(tester);
+      final before = backingLists(controller);
+
+      controller.selection = const CodeLineSelection.collapsed(
+        index: emptyItemLine,
+        offset: 2,
+      );
+      await tester.pump();
+
+      controller.applyNewLine();
+      await settle(tester, rounds: 4);
+
+      expect(controller.codeLines.length, documentLines);
+      expect(controller.codeLines[emptyItemLine].text, '');
+      expect(controller.codeLines[emptyItemLine + 1].text, 'plain line 401');
+      expect(controller.selection.baseIndex, emptyItemLine);
+      expect(controller.selection.baseOffset, 0);
+
+      // The split and the removal together rebuild only the segment line
+      // 400 sat in: `removeLine`'s `sublines` head re-owns it and `addFrom`
+      // merges the 1-line remainder plus the split tail into it, while the
+      // segments on either side are carried over by reference. A full-text
+      // re-parse would hand back three brand-new lists instead.
+      final after = backingLists(controller);
+      expect(after, hasLength(3));
+      expect(identical(after.first, before.first), isTrue);
+      expect(identical(after.last, before.last), isTrue);
+      expect(identical(after[1], before[1]), isFalse);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('dropping the empty item is part of the Enter undo step', (
+      tester,
+    ) async {
+      final controller = await loadLongNote(tester);
+
+      controller.selection = const CodeLineSelection.collapsed(
+        index: emptyItemLine,
+        offset: 2,
+      );
+      await tester.pump();
+
+      controller.applyNewLine();
+      await settle(tester, rounds: 4);
+      expect(controller.codeLines[emptyItemLine].text, '');
+
+      controller.undo();
+      await tester.pump();
+
+      expect(controller.codeLines.length, documentLines);
+      expect(controller.codeLines[emptyItemLine].text, '- ');
+      expect(controller.codeLines[emptyItemLine + 1].text, 'plain line 401');
+
+      await teardownPage(tester);
+    });
+  });
+
   group('B3 — editor settings apply on the way back', () {
     testWidgets('a flag changed under a pushed route lands on pop', (
       tester,

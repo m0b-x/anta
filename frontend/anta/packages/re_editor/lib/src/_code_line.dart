@@ -1925,11 +1925,15 @@ class _CodeLineEditingControllerImpl extends ValueNotifier<CodeLineEditingValue>
 class _CodeLineEditingCache {
   final CodeLineEditingController controller;
   late _CodeLineEditingCacheNode _node;
+  // The oldest node still reachable by undo. Kept alongside `_node` so the
+  // history depth is a subtraction rather than a walk back up the chain.
+  late _CodeLineEditingCacheNode _root;
   late bool _markNewRecord;
 
   _CodeLineEditingCache(this.controller) {
     controller.addListener(_onValueChanged);
     _node = _CodeLineEditingCacheNode(controller.value);
+    _root = _node;
     _markNewRecord = false;
   }
 
@@ -1953,6 +1957,7 @@ class _CodeLineEditingCache {
 
   void clear() {
     _node = _CodeLineEditingCacheNode(controller.value);
+    _root = _node;
     _markNewRecord = false;
   }
 
@@ -1988,13 +1993,33 @@ class _CodeLineEditingCache {
 
   void _appendNewNode() {
     final _CodeLineEditingCacheNode newNode =
-        _CodeLineEditingCacheNode(controller.value);
+        _CodeLineEditingCacheNode(controller.value, _node.depth + 1);
     if (_node.next != null) {
       _node.next!.pre = null;
     }
     _node.next = newNode;
     newNode.pre = _node;
     _node = newNode;
+    _evictBeyondCap();
+  }
+
+  /// Drop everything older than [_kMaxUndoHistory] steps behind the current
+  /// node, so the history holds at most that many values plus the current
+  /// one. Depth is counted from the current node, not from the deepest node
+  /// ever reached, so appending after an undo (which drops the redo chain
+  /// and re-uses that depth) leaves the window measured from where editing
+  /// actually resumed. The oldest survivor simply ends up with
+  /// `pre == null`, which is already how [canUndo] reports "nothing left to
+  /// undo".
+  void _evictBeyondCap() {
+    while (_node.depth - _root.depth > _kMaxUndoHistory) {
+      final _CodeLineEditingCacheNode? next = _root.next;
+      if (next == null) {
+        return;
+      }
+      _root = next;
+      _root.pre = null;
+    }
   }
 }
 
@@ -2003,9 +2028,11 @@ class _CodeLineEditingCacheNode {
   _CodeLineEditingCacheNode? next;
   CodeLineEditingValue value;
 
-  _CodeLineEditingCacheNode(this.value);
+  /// Distance from the history's original node. Only differences between
+  /// depths are meaningful — see `_CodeLineEditingCache._evictBeyondCap`.
+  final int depth;
 
-  bool get isRoot => pre == null;
+  _CodeLineEditingCacheNode(this.value, [this.depth = 0]);
 
   bool get isInitial => pre == null && next == null;
 

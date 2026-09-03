@@ -5,6 +5,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:re_editor/re_editor.dart';
 
 import 'package:anta/utils/markdown_editor_line_index.dart';
+import 'package:anta/utils/markdown_editor_span_builder.dart'
+    show MarkdownEditorSpanBuilder;
+import 'package:anta/utils/markdown_money_syntax.dart'
+    show MarkdownMoneySyntax;
 
 /// Equivalence suite for [MarkdownEditorLineIndex]'s incremental passes.
 ///
@@ -80,7 +84,7 @@ void main() {
       expect(changed, [1], reason: 'line 257 lives in segment 1 only');
     });
 
-    test('a fence-free document keeps a null fence array (all roles none)', () {
+    test('every line of a fence-free document has role none', () {
       final lines = [
         for (int i = 0; i < 300; i++) '- set $i x 5',
       ];
@@ -351,6 +355,555 @@ void main() {
           money: true, reason: 'after window-only querying');
     });
   });
+
+  group('suffix proof', () {
+    // Every pass stops at the first seam whose entry state it can prove
+    // unchanged, so an edit near the top of a 12+ segment document must
+    // cost the same as one near the bottom. `debugLastScan` reports what
+    // the last `_ensure` actually scanned; equivalence is still asserted
+    // on top of every count, because a proof that fires when it should
+    // not is exactly the bug these counts would otherwise hide.
+
+    test('a plain-paragraph edit in segment 0 stops at the first seam', () {
+      final controller = CodeLineEditingController(
+        codeLines: codeLinesOf(buildTrainingLog(minLines: 3000)),
+      );
+      addTearDown(controller.dispose);
+      expect(controller.codeLines.segments.length, greaterThanOrEqualTo(12));
+      final index = newIndex(money: true);
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'initial');
+      expect(controller.codeLines[2].text, 'Bodyweight 78.4 kg.');
+
+      _replaceLine(controller, 2, 'Bodyweight 79.1 kg.');
+      final scan = _scanOf(index, controller.codeLines);
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'paragraph edited in segment 0');
+      expect(scan.rebuilt, isFalse);
+      expect(scan.fence, lessThanOrEqualTo(2));
+      expect(scan.tasks, lessThanOrEqualTo(2));
+      expect(scan.money, lessThanOrEqualTo(2));
+    });
+
+    test('toggling a task child inside segment 1 shifts counts, not scans',
+        () {
+      final List<String> lines = buildTrainingLog(minLines: 3000);
+      final int parent = _findMixedTaskParent(lines, 256, 511);
+      final controller =
+          CodeLineEditingController(codeLines: codeLinesOf(lines));
+      addTearDown(controller.dispose);
+      final index = newIndex(money: true);
+      expect(index.taskIndeterminate(controller.codeLines, parent), isTrue);
+
+      // The whole subtree lives in segment 1, so checking the one
+      // unchecked child resolves the parent — a *result* change with an
+      // unchanged frame stack at the segment-2 seam.
+      _replaceLine(controller, parent + 2, '  - [x] main lift');
+      final scan = _scanOf(index, controller.codeLines);
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'child checked in segment 1');
+      expect(index.taskIndeterminate(controller.codeLines, parent), isFalse);
+      expect(scan.rebuilt, isFalse);
+      expect(scan.tasks, lessThanOrEqualTo(2));
+
+      // A second edit at the bottom of the document: if the count shift
+      // applied above was wrong, this rescan resumes from a bogus offset.
+      final int bottom = controller.codeLines.length - 20;
+      _replaceLine(controller, bottom, '- [ ] tail task');
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'then an edit in the last segment');
+    });
+
+    test('a task subtree straddling a segment boundary stays equivalent', () {
+      final lines = <String>[
+        for (int i = 0; i < 254; i++) 'filler $i',
+        '- [ ] parent',
+        '  - [x] a',
+        '  - [ ] b',
+        '  - [ ] c',
+        '',
+        for (int i = 0; i < 600; i++) 'tail $i',
+      ];
+      expect(lines[254], '- [ ] parent');
+      final controller =
+          CodeLineEditingController(codeLines: codeLinesOf(lines));
+      addTearDown(controller.dispose);
+      final index = newIndex(money: true);
+      expect(index.taskIndeterminate(controller.codeLines, 254), isTrue);
+
+      // Parent + first child in segment 0, the other two children in
+      // segment 1. Checking line 257 changes a result that belongs to a
+      // line in the *previous* segment.
+      _replaceLine(controller, 257, '  - [x] c');
+      final scan = _scanOf(index, controller.codeLines);
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'child checked across the boundary');
+      expect(scan.rebuilt, isFalse);
+      expect(scan.tasks, lessThanOrEqualTo(3));
+
+      _replaceLine(controller, 256, '  - [x] b');
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'all children checked');
+      expect(index.taskIndeterminate(controller.codeLines, 254), isFalse);
+    });
+
+    test('an entry history rewritten to the same balance still re-folds', () {
+      // Equal seam scalars are not a proof. `$= 0 / $+ 100 / $+ 50` and
+      // `$= 0 / $- 50 / $+ 200` end on the same balance (150) with the
+      // same history length, the same period start and no target — but
+      // `$^ 1` reads *into* the history, so its value changes from 50 to
+      // 200.
+      final lines = <String>[
+        r'$= 0',
+        r'$+ 100',
+        r'$+ 50',
+        for (int i = 0; i < 509; i++) 'filler $i',
+        r'$^ 1',
+        for (int i = 0; i < 400; i++) 'tail $i',
+      ];
+      expect(lines[512], r'$^ 1');
+      final controller =
+          CodeLineEditingController(codeLines: codeLinesOf(lines));
+      addTearDown(controller.dispose);
+      final index = newIndex(money: true);
+      expect(index.moneyValueAt(controller.codeLines, 512), 5000);
+
+      controller.selection = CodeLineSelection(
+        baseIndex: 1,
+        baseOffset: 0,
+        extentIndex: 2,
+        extentOffset: controller.codeLines[2].length,
+      );
+      controller.replaceSelection('\$- 50\n\$+ 200');
+      expect(controller.codeLines.length, lines.length);
+      final scan = _scanOf(index, controller.codeLines);
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'two ops rewritten, same seam balance');
+      expect(index.moneyValueAt(controller.codeLines, 512), 20000);
+      expect(scan.rebuilt, isFalse);
+      expect(scan.money, controller.codeLines.segments.length);
+    });
+
+    test('a checkpoint rewritten to the same balance still re-folds', () {
+      // Same trap on the *anchor* history: `$= 100 / $= 200` and
+      // `$= 150 / $= 200` agree on every seam scalar, but `$~ 2` measures
+      // back to the older checkpoint and drops from 100 to 50.
+      final lines = <String>[
+        r'$= 100',
+        r'$= 200',
+        for (int i = 0; i < 510; i++) 'filler $i',
+        r'$~ 2',
+        for (int i = 0; i < 400; i++) 'tail $i',
+      ];
+      expect(lines[512], r'$~ 2');
+      final controller =
+          CodeLineEditingController(codeLines: codeLinesOf(lines));
+      addTearDown(controller.dispose);
+      final index = newIndex(money: true);
+      expect(index.moneyValueAt(controller.codeLines, 512), 10000);
+
+      _replaceLine(controller, 0, r'$= 150');
+      final scan = _scanOf(index, controller.codeLines);
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'first checkpoint rewritten');
+      expect(index.moneyValueAt(controller.codeLines, 512), 5000);
+      expect(scan.rebuilt, isFalse);
+      expect(scan.money, controller.codeLines.segments.length);
+    });
+
+    test('an op amount re-folds below, a display label stops early', () {
+      final lines = <String>[
+        r'$= 1000',
+        r'$+ 50 bonus',
+        r'$$ running total',
+        for (int i = 0; i < 509; i++) 'filler $i',
+        r'$$ still going',
+        for (int i = 0; i < 400; i++) 'tail $i',
+      ];
+      expect(lines[512], r'$$ still going');
+      final controller =
+          CodeLineEditingController(codeLines: codeLinesOf(lines));
+      addTearDown(controller.dispose);
+      final index = newIndex(money: true);
+      expect(index.moneyValueAt(controller.codeLines, 512), 105000);
+      final int segments = controller.codeLines.segments.length;
+
+      _replaceLine(controller, 1, r'$+ 75 bonus');
+      final opScan = _scanOf(index, controller.codeLines);
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'op amount changed at the top');
+      expect(index.moneyValueAt(controller.codeLines, 512), 107500);
+      expect(opScan.money, segments);
+
+      _replaceLine(controller, 2, r'$$ running total so far');
+      final labelScan = _scanOf(index, controller.codeLines);
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'display row label changed');
+      expect(labelScan.rebuilt, isFalse);
+      expect(labelScan.money, lessThanOrEqualTo(2));
+      expect(labelScan.tasks, lessThanOrEqualTo(2));
+    });
+  });
+
+  group('structural edits keep the incremental path', () {
+    // `Enter`, a line delete and a paste all change segment *lengths*.
+    // They used to fall through to a whole-document rebuild; now they are
+    // the same prefix/suffix splice a keystroke takes.
+
+    CodeLineEditingController freshController() {
+      final controller = CodeLineEditingController(
+        codeLines: codeLinesOf(buildTrainingLog(minLines: 3000)),
+      );
+      addTearDown(controller.dispose);
+      return controller;
+    }
+
+    test('Enter in the middle of segment 5 splices, never rebuilds', () {
+      final controller = freshController();
+      final index = newIndex(money: true);
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'initial');
+
+      const int target = 5 * 256 + 100;
+      final String text = controller.codeLines[target].text;
+      controller.selection = CodeLineSelection.collapsed(
+        index: target,
+        offset: text.length ~/ 2,
+      );
+      controller.applyNewLine();
+
+      final scan = _scanOf(index, controller.codeLines);
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'Enter inside segment 5');
+      expect(scan.rebuilt, isFalse);
+      expect(scan.fence, lessThanOrEqualTo(3));
+      expect(scan.tasks, lessThanOrEqualTo(3));
+      expect(scan.money, lessThanOrEqualTo(3));
+    });
+
+    test('deleting a line in segment 5 splices, never rebuilds', () {
+      final controller = freshController();
+      final index = newIndex(money: true);
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'initial');
+
+      const int target = 5 * 256 + 100;
+      controller.selection =
+          CodeLineSelection.collapsed(index: target, offset: 0);
+      controller.deleteSelectionLines();
+
+      final scan = _scanOf(index, controller.codeLines);
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'line deleted in segment 5');
+      expect(scan.rebuilt, isFalse);
+      expect(scan.fence, lessThanOrEqualTo(3));
+      expect(scan.tasks, lessThanOrEqualTo(3));
+      expect(scan.money, lessThanOrEqualTo(3));
+    });
+
+    test('Enter at the very last line appends without rebuilding', () {
+      final controller = freshController();
+      final index = newIndex(money: true);
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'initial');
+
+      final int last = controller.codeLines.length - 1;
+      controller.selection = CodeLineSelection.collapsed(
+        index: last,
+        offset: controller.codeLines[last].length,
+      );
+      controller.applyNewLine();
+
+      final scan = _scanOf(index, controller.codeLines);
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'Enter appended at EOF');
+      expect(scan.rebuilt, isFalse);
+    });
+
+    test('Enter on line 0 and deleting line 0 stay equivalent', () {
+      final controller = freshController();
+      final index = newIndex(money: true);
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'initial');
+
+      controller.selection =
+          const CodeLineSelection.collapsed(index: 0, offset: 0);
+      controller.applyNewLine();
+      final enterScan = _scanOf(index, controller.codeLines);
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'Enter on line 0');
+      expect(enterScan.rebuilt, isFalse);
+
+      controller.selection =
+          const CodeLineSelection.collapsed(index: 0, offset: 0);
+      controller.deleteSelectionLines();
+      final deleteScan = _scanOf(index, controller.codeLines);
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'line 0 deleted');
+      expect(deleteScan.rebuilt, isFalse);
+    });
+
+    test('undo after an Enter stays equivalent', () {
+      final controller = freshController();
+      final index = newIndex(money: true);
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'initial');
+
+      const int target = 5 * 256 + 100;
+      controller.selection =
+          CodeLineSelection.collapsed(index: target, offset: 3);
+      controller.applyNewLine();
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'Enter applied');
+
+      controller.undo();
+      final scan = _scanOf(index, controller.codeLines);
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'undone');
+      expect(scan.rebuilt, isFalse);
+    });
+
+    test('a multi-line paste across two segments stays equivalent', () {
+      final controller = freshController();
+      final index = newIndex(money: true);
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'initial');
+
+      controller.selection = CodeLineSelection(
+        baseIndex: 250,
+        baseOffset: 0,
+        extentIndex: 262,
+        extentOffset: controller.codeLines[262].length,
+      );
+      controller.replaceSelection(
+        '- [ ] pasted parent\n'
+        '  - [x] pasted a\n'
+        '  - [ ] pasted b\n'
+        '\n'
+        '\$= 4200 pasted reset\n'
+        '\$+ 12.50 pasted\n'
+        '\$\$\n'
+        '```\n'
+        'pasted fence body\n'
+        '```\n'
+        'pasted tail',
+      );
+
+      // Whether this splices or rebuilds depends on how many segment
+      // backing lists the paste happens to preserve; only equivalence is
+      // guaranteed. In practice it splices: `replaceSelection` rebuilds
+      // through `sublines` + `addFrom`, which share every untouched
+      // segment's backing list.
+      final scan = _scanOf(index, controller.codeLines);
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'multi-line paste across a boundary');
+      expect(scan.rebuilt, isFalse);
+    });
+
+    test('an Enter above a straddling subtree renumbers stored state', () {
+      // A task parent at 1022 with children at 1023/1024/1025 straddles
+      // the segment 3/4 boundary, and a `$$` row sits below it. An Enter
+      // in segment 2 shifts every line below by one: the stored frame
+      // snapshots and the money line indices must be renumbered, or the
+      // seam proofs below fire against stale line numbers.
+      final lines = <String>[
+        r'$= 500',
+        for (int i = 1; i < 1022; i++)
+          i == 10 ? r'$+ 25 side job' : 'filler $i',
+        '- [ ] parent',
+        '  - [x] a',
+        '  - [ ] b',
+        '  - [ ] c',
+        '',
+        for (int i = 0; i < 74; i++) 'mid $i',
+        r'$$',
+        for (int i = 0; i < 400; i++) 'tail $i',
+      ];
+      expect(lines[1022], '- [ ] parent');
+      expect(lines[1101], r'$$');
+      final controller =
+          CodeLineEditingController(codeLines: codeLinesOf(lines));
+      addTearDown(controller.dispose);
+      final index = newIndex(money: true);
+      expect(index.taskIndeterminate(controller.codeLines, 1022), isTrue);
+      expect(index.moneyValueAt(controller.codeLines, 1101), 52500);
+
+      const int target = 2 * 256 + 100;
+      controller.selection =
+          CodeLineSelection.collapsed(index: target, offset: 3);
+      controller.applyNewLine();
+
+      final scan = _scanOf(index, controller.codeLines);
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'Enter in segment 2 above the subtree');
+      expect(scan.rebuilt, isFalse);
+      final fresh = newIndex(money: true);
+      expect(
+        index.taskIndeterminate(controller.codeLines, 1023),
+        fresh.taskIndeterminate(controller.codeLines, 1023),
+      );
+      expect(index.taskIndeterminate(controller.codeLines, 1023), isTrue);
+      expect(
+        index.moneyValueAt(controller.codeLines, 1102),
+        fresh.moneyValueAt(controller.codeLines, 1102),
+      );
+      expect(index.moneyValueAt(controller.codeLines, 1102), 52500);
+    });
+
+    test('deleting one whole segment leaves an empty new middle', () {
+      final controller = freshController();
+      final index = newIndex(money: true);
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'initial');
+      final int segmentsBefore = controller.codeLines.segments.length;
+
+      controller.selection = const CodeLineSelection(
+        baseIndex: 256,
+        baseOffset: 0,
+        extentIndex: 512,
+        extentOffset: 0,
+      );
+      controller.replaceSelection('');
+
+      final scan = _scanOf(index, controller.codeLines);
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'segment 1 deleted whole');
+      expect(scan.rebuilt, isFalse);
+      expect(controller.codeLines.segments.length, segmentsBefore - 1);
+
+      _replaceLine(controller, 700, '- [ ] tail task');
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'then an edit below the splice');
+    });
+
+    test('truncating the tail at a segment boundary (p == n < m)', () {
+      final controller = freshController();
+      final index = newIndex(money: true);
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'initial');
+
+      final int last = controller.codeLines.length - 1;
+      controller.selection = CodeLineSelection(
+        baseIndex: 512,
+        baseOffset: 0,
+        extentIndex: last,
+        extentOffset: controller.codeLines[last].length,
+      );
+      controller.replaceSelection('');
+
+      final scan = _scanOf(index, controller.codeLines);
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'everything below 512 removed');
+      expect(scan.rebuilt, isFalse);
+
+      _replaceLine(controller, 100, '- [x] still fine');
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'edit above the truncation');
+    });
+
+    test('the same backing list at two segment indexes', () {
+      // Backing-list identity is the dirty flag, so a document where one
+      // list is reachable at two indexes is the adversarial case for the
+      // prefix/suffix match.
+      final CodeLines base = codeLinesOf(buildTrainingLog());
+      final index = newIndex(money: true);
+      expectMatchesFresh(index, base, money: true, reason: 'base');
+
+      final CodeLines duplicated = CodeLines.from(base)..addFrom(base, 0, 256);
+      final lists = [for (final s in duplicated.segments) s.codeLines];
+      expect(identical(lists.first, lists.last), isTrue,
+          reason: 'the fixture must actually alias one backing list');
+      expectMatchesFresh(index, duplicated,
+          money: true, reason: 'segment 0 appended a second time');
+
+      final CodeLines front = CodeLines(<CodeLineSegment>[
+        base.segments[0].cloneShallowDirty(),
+        for (final CodeLineSegment s in base.segments) s.cloneShallowDirty(),
+      ]);
+      expectMatchesFresh(index, front,
+          money: true, reason: 'segment 0 duplicated at the front');
+
+      expectMatchesFresh(index, CodeLines.from(base),
+          money: true, reason: 'back to the base shape');
+    });
+  });
+
+  group('indeterminate set', () {
+    // `expectMatchesFresh` only asks about lines that exist, so it cannot
+    // see a stale entry the incremental splice forgot to remove — a line
+    // that a delete pushed past the end of the document, say. Comparing
+    // the whole set against a freshly built index closes that gap, and
+    // the `assert`s inside the splice catch a duplicate the moment one
+    // would be inserted.
+    test('survives 120 seeded mixed edits set-for-set', () {
+      final controller = CodeLineEditingController(
+        codeLines: codeLinesOf(buildTrainingLog(minLines: 3000)),
+      );
+      addTearDown(controller.dispose);
+      final index = newIndex(money: true);
+      final rng = Random(90210);
+
+      for (int step = 0; step < 120; step++) {
+        final int target = step < _boundaryTargets.length
+            ? _boundaryTargets[step]
+            : rng.nextInt(controller.codeLines.length);
+        final _EditKind kind =
+            _EditKind.values[rng.nextInt(_EditKind.values.length)];
+        _applyEdit(controller, target, kind, rng);
+
+        final fresh = newIndex(money: true);
+        expect(
+          index.debugIndeterminate(controller.codeLines),
+          fresh.debugIndeterminate(controller.codeLines),
+          reason: 'step $step: ${kind.name} @ $target',
+        );
+      }
+
+      expect(index.debugIndeterminate(controller.codeLines), isNotEmpty);
+      expectMatchesFresh(index, controller.codeLines,
+          money: true, reason: 'after 120 seeded edits');
+    });
+  });
+
+  group('shared constants', () {
+    test('the money parser and the span builder share one length bound', () {
+      // The money pass carries no length guard of its own: it relies on
+      // `MarkdownMoneySyntax.parse` refusing oversized lines at exactly
+      // the limit past which the span builder renders raw.
+      expect(
+        MarkdownEditorSpanBuilder.maxStyledLineLength,
+        MarkdownMoneySyntax.maxLineLength,
+      );
+    });
+  });
+}
+
+/// Forces the pending `_ensure` and returns what it did. Every accessor
+/// runs `_ensure`, and a second call with the same [CodeLines] is a
+/// no-op that leaves the record untouched, so this may be read before or
+/// after [expectMatchesFresh].
+({bool rebuilt, int fence, int tasks, int money}) _scanOf(
+  MarkdownEditorLineIndex index,
+  CodeLines lines,
+) {
+  index.fenceRoleAt(lines, 0);
+  return index.debugLastScan;
+}
+
+/// The line of a `- [ ] session` parent whose whole five-line subtree
+/// lies inside `[start, end]` and whose children are mixed (two checked,
+/// one not) — the shape that renders indeterminate.
+int _findMixedTaskParent(List<String> lines, int start, int end) {
+  for (int i = start; i + 4 <= end; i++) {
+    if (!lines[i].startsWith('- [ ] session ')) continue;
+    if (lines[i + 1] == '  - [x] warmup' &&
+        lines[i + 2] == '  - [ ] main lift' &&
+        lines[i + 3] == '  - [x] cooldown' &&
+        lines[i + 4] == '- [x] logged') {
+      return i;
+    }
+  }
+  throw StateError('no mixed task subtree inside [$start, $end]');
 }
 
 // ---------------------------------------------------------------------------

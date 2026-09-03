@@ -69,6 +69,46 @@ void main() {
     expect(elapsed, lessThan(5000000));
   });
 
+  test('replaceLine mid-document', () {
+    const int operations = 2000;
+    final int middle = documentLines ~/ 2;
+    final elapsed = _bestWithSetup(
+      setup: () => CodeLines.of(lines),
+      body: (codeLines) {
+        var current = codeLines;
+        for (int i = 0; i < operations; i++) {
+          current = current.replaceLine(middle, CodeLine('- [x] replaced $i'));
+        }
+      },
+    );
+    // ignore: avoid_print
+    print(
+      '  replaceLine() ${elapsed.toString().padLeft(7)}us  '
+      '($operations ops, ${(elapsed / operations).toStringAsFixed(3)}us/op)',
+    );
+    expect(elapsed, lessThan(5000000));
+  });
+
+  test('removeLine mid-document', () {
+    const int operations = 2000;
+    final int middle = documentLines ~/ 2;
+    final elapsed = _bestWithSetup(
+      setup: () => CodeLines.of(lines),
+      body: (codeLines) {
+        var current = codeLines;
+        for (int i = 0; i < operations; i++) {
+          current = current.removeLine(middle);
+        }
+      },
+    );
+    // ignore: avoid_print
+    print(
+      '  removeLine()  ${elapsed.toString().padLeft(7)}us  '
+      '($operations ops, ${(elapsed / operations).toStringAsFixed(3)}us/op)',
+    );
+    expect(elapsed, lessThan(5000000));
+  });
+
   test('[]= of one line mid-document', () {
     const int operations = 2000;
     final int middle = documentLines ~/ 2;

@@ -41,11 +41,21 @@ Settings → Editor → "Live Markdown Rendering"  (SettingsKeys.liveMarkdownRen
 code-unit count. Markers are concealed (transparent + ~0.01 fontSize) or
 substituted 1:1 (`-`→`•`, `[`→MaterialIcons glyph) — never inserted/removed.
 
-**Performance model:** O(visible lines). Span memo LRU (1024, keyed by line
-text, sentinel for raw lines) cleared on style/theme generation change;
-consulted only *after* the fence check (fence status is positional). Fence
-index rebuilds lazily on CodeLines identity change (O(n) prefix checks).
-Long lines (>4096 chars) render raw. Reveal (selection) lines bypass the memo.
+**Performance model:** O(visible lines) per layout pass and O(one segment)
+per edit. Span memo LRU (1024, keyed by line text, sentinel for raw lines)
+cleared on style/theme generation change; consulted only *after* the fence
+check (fence status is positional); a text-keyed memo (256) sits in front of
+`MarkdownMoneySyntax.parse` so a positional-memo hit never re-parses.
+Positional state (fence roles, indeterminate task parents, money balances)
+comes from `MarkdownEditorLineIndex`, which matches the new `CodeLines`
+against the old one by per-segment backing-list identity, splices only the
+replaced segments (keystroke, Enter, delete-line and paste all take the same
+path) and stops each pass at the first seam whose entry state is proven
+unchanged. Every single-line edit the app makes goes through
+`CodeLines.replaceLine` / `removeLine` (never a `CodeLines.of` rebuild), so
+the fork's clone-on-write keeps every other segment shared. Undo history is
+capped at 200 steps. Long lines (>4096 chars) render raw. Reveal (selection)
+lines bypass the memo.
 
 ## Done
 
@@ -124,6 +134,15 @@ Long lines (>4096 chars) render raw. Reveal (selection) lines bypass the memo.
       preview bloc never mounts on the default path. Share/export moved to
       the toolbar's utility section in both modes. `showPreview` is computed
       once per build (B1).
+- [x] Structural-edit performance (2026-09-03, Session 3 of the review):
+      Enter on a list line, Enter on an empty item, checkbox toggle and
+      Tab/Shift-Tab indent no longer rebuild the document (`CodeLines.of`
+      is gone from the app; fork `replaceLine`/`removeLine`); the line
+      index splices segments instead of falling back to a full rebuild and
+      proves unchanged suffixes for all three passes (keystroke cost at the
+      top of a 10k-line note ≈ at the bottom); the money parse is memoised;
+      undo history capped at 200 steps; Tab/Shift-Tab list indent works on
+      Android/iOS with a physical keyboard (it was desktop-only).
 
 ### Decision log
 
@@ -250,9 +269,32 @@ Long lines (>4096 chars) render raw. Reveal (selection) lines bypass the memo.
   drawer used to apply only after reopening the note) without re-applying
   the saved preview mode; the tap interceptor memoises the tap-down claim
   so grammars run once per press.
+- Structural edits (Session 3 of the 2026-09 review, 2026-09-03): the
+  index treats every `CodeLines` change as one splice — identity-matched
+  prefix and suffix kept, the middle rescanned, line numbers in the kept
+  suffix shifted — rather than "keystroke = incremental, everything else =
+  rebuild"; one code path, guarded by the incremental-vs-fresh equivalence
+  suite. Suffix proofs compare the *entry state* of a seam: fence parity;
+  the open task-frame stack (the result count is deliberately excluded and
+  reconciled by a shift, otherwise toggling one child would defeat the
+  proof for every segment below); `MoneyFold`'s scalars **plus** the
+  regenerated entry/checkpoint histories element-wise — equal scalars are
+  not enough because `$^ N` and `$~ N` read back into those histories. A
+  fence pass that runs to the end also pins the other two passes to the
+  end (a fence opened above turns every row below inert). App code never
+  builds a document with `CodeLines.of` again: single-line edits go
+  through `replaceLine`/`removeLine` so clone-on-write sharing survives and
+  the undo node pins one segment, not the document. The undo cap (200) is
+  a hard bound, not a coalescing window — the per-line node heuristic in
+  `edit()` is unchanged.
 
 ## Not verified on device yet
 
+- Session 3 batch (2026-09-03): Enter on a list line / empty item and
+  checkbox toggles on a 10k-line note (undo still merges Enter +
+  continuation into one step); indeterminate dots and `$$` values after
+  Enter/delete/paste across 256-line seams; Tab/Shift-Tab list indent from
+  a physical keyboard on Android; undo depth stops at 200
 - Perf batch of 2026-07-18 (incremental line index, paragraph identity
   cache, plain-span memo): typing latency on a 10k+ line note, checkbox
   indeterminate dots after rapid edits/undo across segment boundaries
@@ -306,9 +348,13 @@ Long lines (>4096 chars) render raw. Reveal (selection) lines bypass the memo.
       structural sharing: per-segment backing-list identity is the dirty
       flag, so a keystroke resumes at the first changed segment (fence pass
       early-stops on a parity-matched unchanged segment; task pass revives
-      the boundary frame-stack snapshot and rescans the suffix). Structural
-      edits (Enter/paste/delete-line) fall back to a full rebuild, kept
-      cheap by the allocation-free `MarkdownListSyntax.scanListShape`
+      the boundary frame-stack snapshot). Since 2026-09-03 (Session 3)
+      structural edits (Enter/paste/delete-line) no longer fall back to a
+      full rebuild: the index splices the identity-matched prefix/suffix
+      around the replaced segments and every pass stops at the first
+      proven-unchanged seam; the full rebuild is the same splice with an
+      empty prefix, kept cheap by the allocation-free
+      `MarkdownListSyntax.scanListShape`
       (charcode scan, no regexes, no MarkdownListItem allocation). Fence
       grammar single-sourced as `MarkdownChunker.isFenceDelimiter` (preview
       block scan + editor index share it; NBSP-indented fences now

@@ -1,8 +1,9 @@
 # Live Markdown Editor — Review & Consolidation Slices (2026-09-03)
 
-**Status: Sessions 0, 1 and 2 DONE 2026-09-03 (§3). Sessions 0–1 are
-committed as `38c7b50`; Session 2 and its same-day follow-up are
-uncommitted on top. Sessions 3–10 PLANNED, not implemented.** Baseline commit `bf2e7ba`
+**Status: Sessions 0, 1, 2 and 3 DONE 2026-09-03 (§3). Sessions 0–1 are
+committed as `38c7b50`, Session 2 and its same-day follow-up as `c716225`;
+Session 3 is uncommitted on top of `d932a11`. Sessions 4–10 PLANNED, not
+implemented.** Baseline commit `bf2e7ba`
 (main). Line numbers below are as of that commit and will drift — re-grep
 before editing. This doc is the ledger for making the Obsidian-style live
 editor the app's only day-to-day markdown surface, retiring the read-only
@@ -665,6 +666,119 @@ O(document); the index never rescans an unchanged suffix.
 Exit: benchmarks show Enter/toggle no longer proportional to document size;
 index keystroke cost at k=0 ≈ k=39; equivalence test green.
 
+**Outcome — DONE 2026-09-03, uncommitted.** `dart analyze lib` and
+`dart analyze packages/re_editor/lib` clean (the fork's two pre-existing
+`avoid_print` infos in `debug/_trace.dart` aside). Numbers in §5. Item by
+item, plus everything the implementation surfaced and the owner asked to
+close in the same change ("make sure this is final"):
+
+1. Fork `CodeLines.replaceLine(index, line)` (`from` + `[]=`: one segment
+   re-owns its list, every other segment stays shared by identity) and
+   `CodeLines.removeLine(index)` (`sublines` + `addFrom`; an empty result
+   must go through the controller's `codeLines` setter). `[]=` now locates
+   the segment with the same binary search as `operator []` and
+   invalidates only what a same-length replacement can change (line/char
+   counts, `asString` slots) instead of everything; `sublines` asserts it
+   never emits an empty segment. Pinned in `code_lines_sharing_test.dart`
+   (incl. "`replaceLine` ≡ `CodeLines.of` rebuild" and the exact
+   `addFrom` merge rule for `removeLine`).
+2. **P2 fixed** at all three app sites — page `_handleTextChange` (Enter
+   continuation → `replaceLine`; Enter on an empty item → `removeLine`
+   instead of a full-text `replaceRange` + re-parse), wrapper
+   `_toggleTaskLine` and `_tryListIndent` (→ `replaceLine`). `grep
+   "CodeLines.of(" lib/` is empty. Undo-merge semantics (direct `value =`
+   for the continuation, `runRevocableOp` for toggle/indent), the
+   selection-untouched contract and the `_previousTextLength` resync are
+   unchanged; `copyWith(text:)` keeps chunks. Page test
+   (`optimized_note_editor_page_test.dart`, +4: continuation, empty item,
+   both undo-merges, untouched segments identical by reference) and a new
+   `modern_editor_wrapper_toggle_test.dart` (toggle + Tab/Shift-Tab on
+   Android; selection untouched, identity, one undo step).
+3. **P3 fixed, and more than planned.** The eleven parallel per-segment
+   arrays became one `List<_SegmentState>` holding the state at segment
+   *entry*, and `_ensure` is one splice: identity-matched prefix/suffix
+   kept (line numbers in the kept suffix shifted by `delta`, task-snapshot
+   frames that pointed into the replaced region marked unmappable), the
+   middle rescanned, every pass run from the first replaced segment with an
+   explicit entry state and stopped at the first seam whose entry state is
+   proven equal. So keystroke, Enter, delete-line, paste and undo all take
+   the same path — the full rebuild is the same splice with an empty prefix
+   and only runs when nothing is shared. Proofs: fence = parity (as
+   before); tasks = frame stack element-wise, with the result count
+   *excluded* and reconciled by a shift (a count-inclusive proof would
+   never fire on a child toggle); money = the six `MoneyFold` scalars
+   **plus** element-wise equality of the regenerated entry/checkpoint
+   history slices against the old ones — the plan's "equal entry state ⇒
+   identical suffix" was unsound for money because `$^ N` and `$~ N` read
+   back into the histories (two counter-examples are now tests). A fence
+   pass that runs to the end pins the other two passes to the end (a fence
+   opened above turns every row below inert — the plan missed this and the
+   equivalence suite caught it). `_resultOrder`/`_moneyLines`/`_moneyValues`
+   are rescanned into scratch lists and landed with one `replaceRange`;
+   the indeterminate set is maintained incrementally on keystrokes and
+   rebuilt only after a renumbering (a shifted suffix result can transiently
+   collide with a stale middle result, so removal-by-value is unsafe there);
+   uniqueness of result lines is asserted in debug. `debugLastScan` /
+   `debugIndeterminate(lines)` expose it to tests. `_ensure` drops `_lines`
+   before touching state and re-assigns it only on success, so a throwing
+   pass degrades to a full rebuild instead of serving stale answers. The
+   money stashes are reusable buffers cleared after each pass (their size
+   is bounded by the ledger's entry count below the caret; a shorter stash
+   is impossible because a seam can fail on `periodStart` alone and prove
+   several segments later). Suite 25 → 43, incl. the three splice branches
+   an adversarial review found uncovered (empty new middle, tail
+   truncation `p == n < m`, one backing list at two segment indexes); that
+   review also fuzzed 4,617 mixed edit/Enter/delete/paste/undo/redo steps
+   across 8 seeds against a fresh index with zero mismatches.
+4. **P5 fixed**: a 256-entry text-keyed memo (`_moneyParseMemo`, const
+   `_notMoney` sentinel for negative results) in front of
+   `MarkdownMoneySyntax.parse` at both call sites; never cleared, because
+   the parse is a pure function of the line text and the LRU bounds it
+   (a first cut cleared it in `configureMoney` and pinned that with a test
+   — review caught it as pinning a non-requirement, both removed).
+   `debugMoneyParseCount` (debug builds only) pins one parse per distinct
+   text (units suite 118 → 119). While there: `LruCache.get`
+   went from three `LinkedHashMap` probes to two, `V extends Object` makes
+   the non-null contract compiler-enforced, and the three duplicated
+   memo-clearing sites became `_clearSpanMemos()`. New
+   `test/utils/lru_cache_test.dart` (14).
+5. **P8 fixed**: `_kMaxUndoHistory = 200` (`_consts.dart`); the cache keeps
+   a root pointer and per-node depth so eviction is O(1) — the oldest
+   survivor's `pre` is cut, `canUndo` turns false there. A hard bound, not
+   a coalescing window. `test/re_editor/undo_history_cap_test.dart` (the
+   first fork test file — that folder is the planned home).
+6. The money pass's length guard is now `MarkdownMoneySyntax.maxLineLength`
+   itself (one source of truth for what a money line can be, and it stays
+   a single integer compare — dropping it entirely made `leadsWithMoney`
+   walk the leading whitespace of every over-long line); the constructor's
+   `maxScannedLineLength` is task-only; a test pins
+   `maxStyledLineLength == maxLineLength`.
+7. **Found and fixed on the way**: Tab / Shift-Tab list indent was dead on
+   Android/iOS — the fork mounts a bare `Focus.onKeyEvent` there (Backspace
+   and Enter only), so `shortcutOverrideActions` never fired and an ignored
+   Tab fell through to focus traversal. The touch branch now routes Tab
+   through the override actions (or `applyIndent`/`applyOutdent`), and its
+   Backspace/Enter arms respect `readOnly` like the desktop branch (they
+   did not — pre-existing, closed in the same change). Widget
+   tests run as Android by default; the desktop `Shortcuts` path is pinned
+   separately in `modern_editor_wrapper_desktop_indent_test.dart` with the
+   platform override set in `setUpAll` (the `kIsAndroid`/`kIsIOS` finals
+   resolve once per process — a trap).
+
+Exit criterion met: Enter and toggle cost O(one segment) in both the
+`CodeLines` mutation and the index (see §5: index work per Enter ≈ 22–38 µs
+regardless of position, was 194–284 µs; keystroke index work at k=0 ≈ k=39).
+One deliberate non-goal: `_ensure` still recomputes `_segStarts` (40 ints)
+and, after a renumbering only, rebuilds the indeterminate set — both are
+bounded by segment count / result count, not line count.
+
+Test traps: the first benchmark row printed in a run carries JIT warm-up
+(reverse `segmentsUnderTest` before blaming `k`); a two-line
+`replaceSelection` is needed to change money history entries without moving
+the seam balance (a trailing `$=` makes `$^ N` clamp to the period and hides
+the difference); `expectMatchesFresh` only queries `[0, n)`, so stale set
+entries pushed past the end by a delete need the set-for-set check.
+
 ### Session 4 — one inline grammar for both surfaces
 
 Goal: emphasis / inline-code / escape rules live in one module; the three
@@ -889,3 +1003,73 @@ lines × 40 passes; cold = both span memos cleared by alternating
 |---|---|---|
 | cold | 476.8 µs | 11.9 µs |
 | warm (memo hit) | 73.7 µs | 1.8 µs |
+
+Session 3 numbers (2026-09-03, same machine, same commands; each benchmark
+file gained rows for the shapes Session 3 changed, so "before" rows were
+measured with the new rows on the old code, in the same run shape):
+
+`CodeLines` (`code_lines_benchmark_test.dart`, 10k lines, per op):
+
+| Operation | Before Session 3 | After |
+|---|---|---|
+| `CodeLines.of` (10k lines) — the old Enter/toggle rebuild | 320 µs | unchanged (no longer on any app path) |
+| `from()` + `[]=` (keystroke shape) | 0.83 µs | 0.85 µs |
+| `replaceLine` (Enter continuation, toggle, indent) | 0.86 µs | 0.72–0.76 µs |
+| `removeLine` (Enter on an empty item; was a full text join + re-parse) | 4.19 µs | 4.08–4.40 µs |
+| `[]=` in place | 0.074 µs | 0.071 µs |
+
+So a list Enter's continuation went from ~320 µs of `CodeLines` work (plus
+a whole-document undo pin) to under 1 µs, a toggle likewise. `[]=` no
+longer discards `_segmentEnds`/`_lengthCache`, so the first `operator []`
+after a keystroke no longer rebuilds the prefix-sum index — the
+microbenchmark does not show that; the paint loop pays it.
+
+Line index (`markdown_editor_line_index_benchmark_test.dart`, 10,240 lines,
+µs per keystroke of index work — the `index` column of the Session 1 table):
+
+| money | k | Session 1 | Session 3 |
+|---|---|---|---|
+| off | 0 | 159.5 | 6.7–15.8 |
+| off | 20 | 82.1 | 6.9 |
+| off | 39 | 20.6 | 6.7 |
+| on | 0 | 236.8 | 10.3–29.7 |
+| on | 20 | 125.9 | 13.4 |
+| on | 39 | 23.1 | 10.3 |
+
+The k gradient is gone (the higher end of the k=0 range is JIT warm-up on
+whichever row prints first — reverse `segmentsUnderTest` to see it move).
+New structural rows (Enter mid-segment followed by the 40-line layout query,
+then the delete that undoes it; µs of index work per edit). "Before" was
+measured on a fence-free corpus; the corpus gained a ``` pair every 200
+lines afterwards, so "after" includes the per-line fence array's
+`replaceRange` memmove (≈10–15 µs on 10k lines) that "before" could not
+see:
+
+| money | k | Enter, before | Enter, after | delete, before | delete, after |
+|---|---|---|---|---|---|
+| off | 0 | 194.5 | 37.4 | 190.5 | 34.4 |
+| off | 20 | 201.7 | 34.7 | 183.0 | 29.6 |
+| off | 39 | 193.9 | 21.4 | 185.6 | 21.9 |
+| on | 0 | 274.5 | 49.6 | 276.3 | 45.0 |
+| on | 20 | 284.7 | 38.5 | 271.9 | 34.3 |
+| on | 39 | 276.4 | 38.0 | 267.1 | 36.8 |
+
+"Before" is the whole-document `_rebuildAll`; "after" is the splice plus,
+for structural edits only, the indeterminate-set rebuild (bounded by result
+count, ~1,000 on this corpus) and the fence-array memmove (bounded by line
+count, one `replaceRange`; making fence roles segment-relative would remove
+it and is the one remaining O(lines) term on a structural edit — a storage
+shape change, deliberately not done here). Keystroke cost is bounded by the
+ledger's entry count below the caret (the money stash), not by line count.
+Cold full build is unchanged (≈200–460 µs).
+
+Span builder (`markdown_editor_span_builder_benchmark_test.dart`, new row:
+40 display-money lines × 40 warm passes, positional memo hot):
+
+| Path | Before P5 | After P5 |
+|---|---|---|
+| display-money warm, per pass | 122–125 µs | 76–87 µs |
+| per line | 3.1 µs | 2.0–2.2 µs |
+
+The list-line rows (cold 471–549 µs, warm 69–94 µs per pass) are unchanged
+within noise.

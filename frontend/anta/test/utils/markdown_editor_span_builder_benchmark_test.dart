@@ -114,7 +114,102 @@ void main() {
       reason: 'the span memo must make a repeat pass cheaper',
     );
   });
+
+  testWidgets('span build of $lineCount display-money lines, warm', (
+    tester,
+  ) async {
+    final context = await _pumpForContext(tester);
+    final lines = <String>[..._moneyOps, ..._moneyDisplayLines(lineCount)];
+    final firstDisplay = _moneyOps.length;
+    final controller = CodeLineEditingController.fromText(lines.join('\n'));
+    addTearDown(controller.dispose);
+
+    final builder = MarkdownEditorSpanBuilder()..bind(controller);
+    builder.configureMoney(_moneyEnabled);
+    controller.selection = const CodeLineSelection.collapsed(
+      index: 0,
+      offset: 0,
+    );
+
+    int buildDisplayLines() {
+      var built = 0;
+      for (var i = 0; i < lineCount; i++) {
+        final index = firstDisplay + i;
+        final span = builder.build(
+          context: context,
+          index: index,
+          codeLine: controller.codeLines[index],
+          style: _baseStyle,
+        );
+        if (span != null) built++;
+      }
+      return built;
+    }
+
+    // Warm-up outside the measurement: first touch builds the shared line
+    // index (fence roles, task aggregates, the money ledger) and fills the
+    // positional span memo, so the measured passes are all memo hits.
+    expect(buildDisplayLines(), lineCount);
+
+    final watch = Stopwatch();
+    var built = 0;
+    for (var run = 0; run < iterations; run++) {
+      watch.start();
+      built += buildDisplayLines();
+      watch.stop();
+    }
+    expect(built, lineCount * iterations);
+
+    final perPass = watch.elapsedMicroseconds / iterations;
+
+    // ignore: avoid_print
+    print(
+      '\n=== MarkdownEditorSpanBuilder — $lineCount display-money lines, '
+      '$iterations warm passes ===\n'
+      '  warm (positional memo hit) : ${perPass.toStringAsFixed(1)} us/pass, '
+      '${(perPass / lineCount).toStringAsFixed(2)} us/line',
+    );
+
+    // Catastrophe-only bound.
+    expect(
+      perPass / lineCount,
+      lessThan(200),
+      reason: 'a warm build is an LRU probe; 200 us per line means no memo',
+    );
+  });
 }
+
+const MoneyDisplayConfig _moneyEnabled = MoneyDisplayConfig(
+  enabled: true,
+  currencySymbol: 'lei',
+  currencySuffix: true,
+);
+
+/// Op rows above the measured block so every display row has a balance,
+/// a net change, an entry window and a checkpoint window to compute.
+const List<String> _moneyOps = <String>[
+  r'$= 500',
+  r'$+ 12.50 coffee',
+  r'$- 8 lunch',
+  r'$= 700',
+  r'$+ 20 groceries',
+  r'$- 5 bus',
+];
+
+/// The four display kinds, each distinct in text so the positional memo
+/// holds one entry per line (mirroring a real ledger note's mix).
+List<String> _moneyDisplayLines(int count) => List<String>.generate(count, (i) {
+  switch (i % 4) {
+    case 0:
+      return '\$\$ Running sum $i: \$';
+    case 1:
+      return '\$? net change $i';
+    case 2:
+      return '\$^ 2 last two entries $i';
+    default:
+      return '\$~ 2 teal: Change $i: \$';
+  }
+});
 
 const TextStyle _baseStyle = TextStyle(
   fontSize: 16.0,
