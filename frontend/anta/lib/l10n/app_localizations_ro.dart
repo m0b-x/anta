@@ -2748,6 +2748,16 @@ class AppLocalizationsRo extends AppLocalizations {
   String get calendarSettings => 'Calendar';
 
   @override
+  String get calendarSettingsRow => 'Setări calendar';
+
+  @override
+  String get calendarSettingsRowDesc =>
+      'Început de săptămână, sărbători, aspect';
+
+  @override
+  String get appGroupLabel => 'Aplicație';
+
+  @override
   String get calendarMaxDayBars => 'Numărul maxim de bare pe zi';
 
   @override

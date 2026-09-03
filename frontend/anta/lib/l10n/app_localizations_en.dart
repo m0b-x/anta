@@ -2712,6 +2712,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get calendarSettings => 'Calendar';
 
   @override
+  String get calendarSettingsRow => 'Calendar settings';
+
+  @override
+  String get calendarSettingsRowDesc => 'Week start, holidays, appearance';
+
+  @override
+  String get appGroupLabel => 'App';
+
+  @override
   String get calendarMaxDayBars => 'Maximum bars per day';
 
   @override

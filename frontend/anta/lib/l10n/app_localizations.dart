@@ -4780,6 +4780,24 @@ abstract class AppLocalizations {
   /// **'Calendar'**
   String get calendarSettings;
 
+  /// Drawer row that opens the calendar settings page
+  ///
+  /// In en, this message translates to:
+  /// **'Calendar settings'**
+  String get calendarSettingsRow;
+
+  /// Subtitle of the drawer row that opens the calendar settings page
+  ///
+  /// In en, this message translates to:
+  /// **'Week start, holidays, appearance'**
+  String get calendarSettingsRowDesc;
+
+  /// Drawer group label above the app-wide settings rows
+  ///
+  /// In en, this message translates to:
+  /// **'App'**
+  String get appGroupLabel;
+
   /// Label for the calendar max-day-bars slider
   ///
   /// In en, this message translates to:

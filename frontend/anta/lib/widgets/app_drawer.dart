@@ -70,10 +70,39 @@ class _AppDrawerState extends State<AppDrawer> {
     }
   }
 
+  void _openSettingsPage(
+    BuildContext context,
+    Future<SettingsResult?> Function(BuildContext) push,
+  ) {
+    AppNavigator.pop(context);
+    push(context).then((result) {
+      if (result == SettingsResult.openDrawer && context.mounted) {
+        Scaffold.of(context).openDrawer();
+      }
+    });
+  }
+
+  Widget _buildGroupLabel(BuildContext context, String label) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 2),
+      child: Text(
+        label.toUpperCase(),
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.9,
+          color: colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final l10n = AppLocalizations.of(context)!;
 
     return Drawer(
       child: Column(
@@ -86,184 +115,135 @@ class _AppDrawerState extends State<AppDrawer> {
             child: ListView(
               padding: EdgeInsets.zero,
               children: [
-                const SizedBox(height: 8),
+                const SizedBox(height: 4),
 
-                // Calendar is a feature, not a setting: keep it first and
-                // visually separated from the settings list below.
+                _buildGroupLabel(context, l10n.calendar),
                 _buildMenuItem(
                   context: context,
                   icon: Icons.calendar_month_rounded,
-                  title: AppLocalizations.of(context)!.calendar,
-                  subtitle: AppLocalizations.of(context)!.calendarDesc,
+                  title: l10n.calendar,
+                  subtitle: l10n.calendarDesc,
                   onTap: () {
                     AppNavigator.pop(context);
                     AppNavigator.toCalendar(context);
                   },
                 ),
-
-                const Divider(indent: 16, endIndent: 16),
-
-                // The general settings page leads the group: it holds the rows
-                // most people come here for, and the ones below it are each a
-                // single subsystem.
                 _buildMenuItem(
                   context: context,
                   icon: Icons.tune_rounded,
-                  title: AppLocalizations.of(context)!.appSettings,
-                  subtitle: AppLocalizations.of(context)!.appSettingsDesc,
+                  title: l10n.calendarSettingsRow,
+                  subtitle: l10n.calendarSettingsRowDesc,
                   onTap: () {
                     AppNavigator.pop(context);
-                    AppNavigator.toSettings(context).then((result) {
-                      if (result == SettingsResult.openDrawer &&
-                          context.mounted) {
-                        Scaffold.of(context).openDrawer();
-                      }
-                    });
+                    AppNavigator.toCalendarSettings(context);
                   },
                 ),
 
-                // Database settings
-                _buildMenuItem(
-                  context: context,
-                  icon: Icons.storage_rounded,
-                  title: AppLocalizations.of(context)!.databaseSettings,
-                  subtitle: AppLocalizations.of(context)!.databaseSettingsDesc,
-                  onTap: () {
-                    AppNavigator.pop(context);
-                    AppNavigator.toDatabaseSettings(context).then((result) {
-                      if (result == SettingsResult.openDrawer &&
-                          context.mounted) {
-                        Scaffold.of(context).openDrawer();
-                      }
-                    });
-                  },
-                ),
-
-                // Markdown shortcuts
+                _buildGroupLabel(context, l10n.notes),
                 _buildMenuItem(
                   context: context,
                   icon: Icons.text_format_rounded,
-                  title: AppLocalizations.of(context)!.markdownShortcuts,
-                  subtitle: AppLocalizations.of(context)!.markdownShortcutsDesc,
+                  title: l10n.markdownShortcuts,
+                  subtitle: l10n.markdownShortcutsDesc,
                   onTap: () {
-                    AppNavigator.pop(context);
                     final blocState = context.read<MarkdownBarBloc>().state;
                     final shortcuts = blocState is MarkdownBarLoaded
                         ? blocState.currentShortcuts
                         : <CustomMarkdownShortcut>[];
-                    AppNavigator.toMarkdownSettings(
+                    _openSettingsPage(
                       context,
-                      allShortcuts: shortcuts,
-                    ).then((result) {
-                      if (result == SettingsResult.openDrawer &&
-                          context.mounted) {
-                        Scaffold.of(context).openDrawer();
-                      }
-                    });
+                      (ctx) => AppNavigator.toMarkdownSettings(
+                        ctx,
+                        allShortcuts: shortcuts,
+                      ),
+                    );
                   },
                 ),
-
-                // Counter management
                 _buildMenuItem(
                   context: context,
                   icon: Icons.pin_rounded,
-                  title: AppLocalizations.of(context)!.counterSettings,
-                  subtitle: AppLocalizations.of(context)!.counterSettingsDesc,
-                  onTap: () {
-                    AppNavigator.pop(context);
-                    AppNavigator.toCounterManagement(context).then((result) {
-                      if (result == SettingsResult.openDrawer &&
-                          context.mounted) {
-                        Scaffold.of(context).openDrawer();
-                      }
-                    });
-                  },
+                  title: l10n.counterSettings,
+                  subtitle: l10n.counterSettingsDesc,
+                  onTap: () => _openSettingsPage(
+                    context,
+                    AppNavigator.toCounterManagement,
+                  ),
                 ),
 
-                // Sharing (cloud account)
+                const SizedBox(height: 12),
                 _buildMenuItem(
                   context: context,
                   icon: Icons.cloud_sync_rounded,
-                  title: AppLocalizations.of(context)!.sharingSettings,
-                  subtitle: AppLocalizations.of(context)!.sharingSettingsDesc,
-                  onTap: () {
-                    AppNavigator.pop(context);
-                    AppNavigator.toSyncSettings(context).then((result) {
-                      if (result == SettingsResult.openDrawer &&
-                          context.mounted) {
-                        Scaffold.of(context).openDrawer();
-                      }
-                    });
-                  },
+                  title: l10n.sharingSettings,
+                  subtitle: l10n.sharingSettingsDesc,
+                  onTap: () =>
+                      _openSettingsPage(context, AppNavigator.toSyncSettings),
                 ),
 
-                // Developer options divider and menu (only shown when unlocked)
+                _buildGroupLabel(context, l10n.appGroupLabel),
+                _buildMenuItem(
+                  context: context,
+                  icon: Icons.settings_rounded,
+                  title: l10n.appSettings,
+                  subtitle: l10n.appSettingsDesc,
+                  onTap: () =>
+                      _openSettingsPage(context, AppNavigator.toSettings),
+                ),
+                _buildMenuItem(
+                  context: context,
+                  icon: Icons.storage_rounded,
+                  title: l10n.databaseSettings,
+                  subtitle: l10n.databaseSettingsDesc,
+                  onTap: () => _openSettingsPage(
+                    context,
+                    AppNavigator.toDatabaseSettings,
+                  ),
+                ),
+                _buildMenuItem(
+                  context: context,
+                  icon: Icons.language_rounded,
+                  title: l10n.languageSettings,
+                  subtitle: l10n.languageSettingsDesc,
+                  onTap: () {
+                    AppNavigator.pop(context);
+                    _showLanguageDialog(context);
+                  },
+                ),
+                _buildMenuItem(
+                  context: context,
+                  icon: Icons.palette_rounded,
+                  title: l10n.themeSettings,
+                  subtitle: l10n.themeSettingsDesc,
+                  onTap: () {
+                    AppNavigator.pop(context);
+                    _showThemeDialog(context);
+                  },
+                ),
                 ListenableBuilder(
                   listenable: DevOptions.instance,
                   builder: (context, _) {
                     if (!DevOptions.instance.developerModeUnlocked) {
                       return const SizedBox.shrink();
                     }
-                    return Column(
-                      children: [
-                        const Divider(indent: 16, endIndent: 16),
-                        _buildMenuItem(
-                          context: context,
-                          icon: Icons.developer_mode_rounded,
-                          title: AppLocalizations.of(context)!.developerOptions,
-                          subtitle: AppLocalizations.of(
-                            context,
-                          )!.developerOptionsDesc,
-                          onTap: () {
-                            AppNavigator.pop(context);
-                            AppNavigator.toDeveloperOptions(context).then((
-                              result,
-                            ) {
-                              if (result == SettingsResult.openDrawer &&
-                                  context.mounted) {
-                                Scaffold.of(context).openDrawer();
-                              }
-                            });
-                          },
-                        ),
-                      ],
+                    return _buildMenuItem(
+                      context: context,
+                      icon: Icons.developer_mode_rounded,
+                      title: l10n.developerOptions,
+                      subtitle: l10n.developerOptionsDesc,
+                      onTap: () => _openSettingsPage(
+                        context,
+                        AppNavigator.toDeveloperOptions,
+                      ),
                     );
                   },
                 ),
 
                 const Divider(indent: 16, endIndent: 16),
 
-                // Language settings
-                _buildMenuItem(
-                  context: context,
-                  icon: Icons.language_rounded,
-                  title: AppLocalizations.of(context)!.languageSettings,
-                  subtitle: AppLocalizations.of(context)!.languageSettingsDesc,
-                  onTap: () {
-                    AppNavigator.pop(context);
-                    _showLanguageDialog(context);
-                  },
-                ),
-
-                // Theme settings
-                _buildMenuItem(
-                  context: context,
-                  icon: Icons.palette_rounded,
-                  title: AppLocalizations.of(context)!.themeSettings,
-                  subtitle: AppLocalizations.of(context)!.themeSettingsDesc,
-                  onTap: () {
-                    AppNavigator.pop(context);
-                    _showThemeDialog(context);
-                  },
-                ),
-
-                const Divider(indent: 16, endIndent: 16),
-
-                // About section
                 _buildMenuItem(
                   context: context,
                   icon: Icons.info_outline_rounded,
-                  title: AppLocalizations.of(context)!.about,
+                  title: l10n.about,
                   subtitle: 'ANTA v1.0.0',
                   onTap: () {
                     AppNavigator.pop(context);

@@ -3427,6 +3427,18 @@
   "@calendarSettings": {
     "description": "Title of the calendar settings page and tooltip for its entry point"
   },
+  "calendarSettingsRow": "Calendar settings",
+  "@calendarSettingsRow": {
+    "description": "Drawer row that opens the calendar settings page"
+  },
+  "calendarSettingsRowDesc": "Week start, holidays, appearance",
+  "@calendarSettingsRowDesc": {
+    "description": "Subtitle of the drawer row that opens the calendar settings page"
+  },
+  "appGroupLabel": "App",
+  "@appGroupLabel": {
+    "description": "Drawer group label above the app-wide settings rows"
+  },
   "calendarMaxDayBars": "Maximum bars per day",
   "@calendarMaxDayBars": {
     "description": "Label for the calendar max-day-bars slider"

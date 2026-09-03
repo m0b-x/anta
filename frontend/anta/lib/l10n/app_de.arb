@@ -1862,6 +1862,9 @@
   },
   "calendarSection": "Kalender",
   "calendarSettings": "Kalender",
+  "calendarSettingsRow": "Kalendereinstellungen",
+  "calendarSettingsRowDesc": "Wochenbeginn, Feiertage, Darstellung",
+  "appGroupLabel": "App",
   "calendarMaxDayBars": "Maximale Balken pro Tag",
   "calendarMaxDayBarsDesc": "Zeige bis zu {count} Balken pro Tag. Weitere Kategorien werden als +N angezeigt.",
   "@calendarMaxDayBarsDesc": {
