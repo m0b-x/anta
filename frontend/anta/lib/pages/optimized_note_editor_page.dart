@@ -31,6 +31,7 @@ import '../widgets/debug_overlays.dart';
 import '../widgets/interactive_preview_scrollbar.dart';
 import '../widgets/markdown_bar.dart';
 import '../widgets/markdown_preview_bloc_view.dart';
+import '../widgets/note_editor_chrome.dart';
 import '../widgets/note_export_dialog.dart';
 import '../widgets/modern_editor_wrapper.dart';
 import '../models/checkbox_toggle_info.dart';
@@ -121,7 +122,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   final GlobalKey<SourceMappedMarkdownViewState> _previewViewKey =
       GlobalKey<SourceMappedMarkdownViewState>();
 
-  bool _hasChanges = false;
+  final ValueNotifier<bool> _hasChanges = ValueNotifier<bool>(false);
   bool _isPreviewMode = false;
   bool _isLoading = true;
   bool _noteSwipeEnabled = true;
@@ -192,8 +193,9 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   List<CustomMarkdownShortcut> _allShortcuts = [];
   int _previousTextLength = 0;
   bool _isProcessingTextChange = false;
-  int _cachedLineCount = 1;
-  int _cachedCharCount = 0;
+  final ValueNotifier<NoteEditorStats> _stats = ValueNotifier<NoteEditorStats>(
+    emptyNoteEditorStats,
+  );
 
   // Paste detection threshold - if text increases by more than this, it's likely a paste
   static const int _pasteThreshold = 20;
@@ -713,15 +715,11 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
         }
       },
       onChangeDetected: (hasChanges) {
-        if (mounted) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              setState(() {
-                _hasChanges = hasChanges;
-              });
-            }
-          });
-        }
+        if (!mounted || _hasChanges.value == hasChanges) return;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _hasChanges.value = hasChanges;
+        });
       },
     );
 
@@ -739,13 +737,10 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   }
 
   void _onTextChanged() {
-    if (!_hasChanges) {
+    if (!_hasChanges.value) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && !_hasChanges) {
-          setState(() {
-            _hasChanges = true;
-          });
-        }
+        if (!mounted) return;
+        _hasChanges.value = true;
       });
     }
 
@@ -858,15 +853,11 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
 
   void _updateCachedStats() {
     if (!mounted) return;
-    final newCharCount = _contentController.textLength;
     // Use re_editor's built-in lineCount for efficiency
-    final newLineCount = _contentController.lineCount;
-    if (newLineCount != _cachedLineCount || newCharCount != _cachedCharCount) {
-      setState(() {
-        _cachedLineCount = newLineCount;
-        _cachedCharCount = newCharCount;
-      });
-    }
+    _stats.value = (
+      lineCount: _contentController.lineCount,
+      charCount: _contentController.textLength,
+    );
   }
 
   void _togglePreviewMode() {
@@ -1137,6 +1128,8 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     _editorScrollController.dispose();
     _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
+    _hasChanges.dispose();
+    _stats.dispose();
     super.dispose();
   }
 
@@ -1259,7 +1252,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       );
       _contentController.replaceSelection(info.replacement);
     });
-    _hasChanges = true;
+    _hasChanges.value = true;
 
     if (_isPreviewMode) {
       _pushPreviewContent(_contentController.text);
@@ -1427,7 +1420,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     // Note: Replace is handled by CodeFindController internally
     // The newContent parameter is kept for API compatibility
     // but the actual text change happens through the controller
-    _hasChanges = true;
+    _hasChanges.value = true;
   }
 
   void _handleTextChange() {
@@ -1618,11 +1611,13 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
                 );
               } else if (state is OptimizedNoteContentLoaded) {
                 final content = state.note.content ?? '';
+                _stats.value = (
+                  lineCount: '\n'.allMatches(content).length + 1,
+                  charCount: content.length,
+                );
                 setState(() {
                   _contentController.text = content;
                   _previousTextLength = content.length;
-                  _cachedLineCount = '\n'.allMatches(content).length + 1;
-                  _cachedCharCount = content.length;
                   _isLoading = false;
                 });
                 _pushPreviewContent(content);
@@ -1659,34 +1654,37 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
             resizeToAvoidBottomInset: false,
             drawer: const AppDrawer(),
             drawerEnableOpenDragGesture: _noteSwipeEnabled,
-            appBar: NoteAppBar(
-              title: _titleController.text.isEmpty
-                  ? AppLocalizations.of(context)!.newNote
-                  : _titleController.text,
-              hasChanges: _hasChanges,
-              saveStatusNotifier: _autoSaveService?.saveStatusNotifier,
-              onTitleTap: _editTitle,
-              actions: [
-                IconButton(
-                  icon: Icon(
-                    _searchController.isSearching
-                        ? Icons.search_off
-                        : Icons.search,
+            appBar: ValueListenableAppBar<bool>(
+              valueListenable: _hasChanges,
+              builder: (context, hasChanges) => NoteAppBar(
+                title: _titleController.text.isEmpty
+                    ? AppLocalizations.of(context)!.newNote
+                    : _titleController.text,
+                hasChanges: hasChanges,
+                saveStatusNotifier: _autoSaveService?.saveStatusNotifier,
+                onTitleTap: _editTitle,
+                actions: [
+                  IconButton(
+                    icon: Icon(
+                      _searchController.isSearching
+                          ? Icons.search_off
+                          : Icons.search,
+                    ),
+                    onPressed: _toggleSearch,
+                    tooltip: AppLocalizations.of(context)!.search,
                   ),
-                  onPressed: _toggleSearch,
-                  tooltip: AppLocalizations.of(context)!.search,
-                ),
-                Tooltip(
-                  message: _isPreviewMode
-                      ? AppLocalizations.of(context)!.previewMarkdown
-                      : AppLocalizations.of(context)!.switchToEditMode,
-                  waitDuration: AppConstants.debounceDelay,
-                  child: IconButton(
-                    icon: Icon(_isPreviewMode ? Icons.visibility : Icons.edit),
-                    onPressed: () => _togglePreviewMode(),
+                  Tooltip(
+                    message: _isPreviewMode
+                        ? AppLocalizations.of(context)!.previewMarkdown
+                        : AppLocalizations.of(context)!.switchToEditMode,
+                    waitDuration: AppConstants.debounceDelay,
+                    child: IconButton(
+                      icon: Icon(_isPreviewMode ? Icons.visibility : Icons.edit),
+                      onPressed: () => _togglePreviewMode(),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
             body: Padding(
               padding: EdgeInsets.only(bottom: keyboardInset),
@@ -1694,7 +1692,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
                   ? Column(
                       children: [
                         if (_showStatsBar)
-                          RepaintBoundary(child: _buildNoteStats(context)),
+                          RepaintBoundary(child: _buildNoteStats()),
                         Expanded(
                           child: Padding(
                             padding: const EdgeInsets.symmetric(
@@ -1723,7 +1721,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
                             onReplace: _handleSearchReplace,
                           ),
                         if (_showStatsBar)
-                          RepaintBoundary(child: _buildNoteStats(context)),
+                          RepaintBoundary(child: _buildNoteStats()),
                         Expanded(
                           child: Padding(
                             padding: const EdgeInsets.symmetric(
@@ -1843,53 +1841,13 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     );
   }
 
-  Widget _buildNoteStats(BuildContext context) {
+  Widget _buildNoteStats() {
     final metadata = widget.metadata;
-    final charCount = _cachedCharCount > 0
-        ? _cachedCharCount
-        : (metadata?.contentLength ?? 0);
-    final chunkCount = metadata?.chunkCount ?? 1;
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.lg,
-        vertical: AppSpacing.xs,
-      ),
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      child: Row(
-        children: [
-          Text(
-            AppLocalizations.of(context)!.noteStats(charCount, chunkCount),
-            style: TextStyle(
-              fontSize: 11,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-          if (metadata?.isCompressed ?? false) ...[
-            const SizedBox(width: 8),
-            Icon(
-              Icons.compress,
-              size: 14,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-            const SizedBox(width: 4),
-            Text(
-              AppLocalizations.of(context)!.compressedNote,
-              style: TextStyle(
-                fontSize: 11,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-            ),
-          ],
-          const Spacer(),
-          Text(
-            AppLocalizations.of(context)!.lineCount(_cachedLineCount),
-            style: TextStyle(
-              fontSize: 11,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ),
+    return NoteEditorStatsBar(
+      stats: _stats,
+      fallbackCharCount: metadata?.contentLength ?? 0,
+      chunkCount: metadata?.chunkCount ?? 1,
+      isCompressed: metadata?.isCompressed ?? false,
     );
   }
 
@@ -1932,7 +1890,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     // For large notes, don't pre-build preview to avoid memory/CPU overhead
     // The preview will build when actually needed (when switching to preview mode)
     final isLargeNote =
-        _cachedLineCount > AppConstants.previewPreloadLineThreshold;
+        _stats.value.lineCount > AppConstants.previewPreloadLineThreshold;
     if (!_isPreviewMode && isLargeNote) {
       return const SizedBox.shrink();
     }

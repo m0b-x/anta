@@ -67,25 +67,52 @@ class _CodeLineSegmentQuckLineCount extends CodeLineSegment {
 
   @override
   set length(int newLength) {
+    final int oldLength = codeLines.length;
+    int lineDelta = 0;
+    int charDelta = 0;
+    for (int i = newLength; i < oldLength; i++) {
+      final CodeLine removed = codeLines[i];
+      lineDelta += removed.lineCount;
+      charDelta += removed.charCount;
+    }
     super.length = newLength;
-    _lineCount = super.lineCount;
-    _charCount = super.charCount;
+    if (newLength > oldLength) {
+      _lineCount = super.lineCount;
+      _charCount = super.charCount;
+    } else {
+      _lineCount -= lineDelta;
+      _charCount -= charDelta;
+    }
     _hashCache = null;
   }
 
   @override
   void add(CodeLine element) {
     super.add(element);
-    _lineCount = super.lineCount;
-    _charCount = super.charCount;
+    _lineCount += element.lineCount;
+    _charCount += element.charCount;
     _hashCache = null;
   }
 
   @override
+  CodeLineSegment clone([int start = 0, int? end]) {
+    if (start == 0 && (end == null || end == codeLines.length)) {
+      return _CodeLineSegmentQuckLineCount._withCounts(
+        codeLines: List<CodeLine>.of(codeLines),
+        dirty: false,
+        lineCount: _lineCount,
+        charCount: _charCount,
+      );
+    }
+    return super.clone(start, end);
+  }
+
+  @override
   void operator []=(int index, CodeLine value) {
+    final CodeLine previous = codeLines[index];
     super[index] = value;
-    _lineCount = super.lineCount;
-    _charCount = super.charCount;
+    _lineCount += value.lineCount - previous.lineCount;
+    _charCount += value.charCount - previous.charCount;
     _hashCache = null;
   }
 }

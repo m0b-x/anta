@@ -1882,7 +1882,72 @@ class MarkdownEditorSpanBuilder {
   /// underline when blank, so the empty slot stays findable) — the same
   /// treatment as the standalone ghost builder, but inheriting the
   /// surrounding markdown style.
+  ///
+  /// Guards the code-unit invariant in debug builds: the spans appended
+  /// to [out] for `[start, end)` must total exactly `end - start` UTF-16
+  /// code units (a placeholder run counting as the one unit it
+  /// substitutes). The check lives entirely inside `assert`s, so release
+  /// builds pay nothing and allocate nothing for it.
   void _emit({
+    required String text,
+    required int start,
+    required int end,
+    required TextStyle style,
+    required Color baseColor,
+    required List<GhostMatch> ghosts,
+    required List<InlineSpan> out,
+    CodeTextDecoration? decoration,
+  }) {
+    var mark = 0;
+    assert(() {
+      mark = out.length;
+      return true;
+    }());
+    _emitRange(
+      text: text,
+      start: start,
+      end: end,
+      style: style,
+      baseColor: baseColor,
+      ghosts: ghosts,
+      out: out,
+      decoration: decoration,
+    );
+    assert(
+      _unitsAppendedFrom(out, mark) == (end > start ? end - start : 0),
+      'code-unit invariant: _emit appended '
+      '${_unitsAppendedFrom(out, mark)} units for [$start, $end) of a '
+      '${text.length}-unit line',
+    );
+  }
+
+  /// UTF-16 code units carried by `out[from..]`, counting each
+  /// placeholder run as the single source unit it substitutes. Only ever
+  /// invoked from an `assert`.
+  static int _unitsAppendedFrom(List<InlineSpan> out, int from) {
+    var units = 0;
+    for (var i = from; i < out.length; i++) {
+      units += _unitsOf(out[i]);
+    }
+    return units;
+  }
+
+  static int _unitsOf(InlineSpan span) {
+    if (span is PlaceholderSpan) return 1;
+    if (span is TextSpan) {
+      var units = span.text?.length ?? 0;
+      final children = span.children;
+      if (children != null) {
+        for (final child in children) {
+          units += _unitsOf(child);
+        }
+      }
+      return units;
+    }
+    return 0;
+  }
+
+  void _emitRange({
     required String text,
     required int start,
     required int end,

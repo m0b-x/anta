@@ -166,6 +166,7 @@ class AutoSaveService {
   bool get hasPendingChanges => _hasPendingChanges;
 
   void _updateStatus(SaveStatus status) {
+    if (_disposed) return;
     if (saveStatusNotifier.value != status) {
       saveStatusNotifier.value = status;
     }

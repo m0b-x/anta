@@ -9,6 +9,10 @@ Invariants live in `.claude/skills/markdown-engine/SKILL.md` (Live editor
 rendering + re_editor fork sections) — read those before touching anything
 listed here.
 
+2026-09-03: a whole-system review and the plan to retire the preview behind a
+"Deprecated features" setting live in `live-editor-review-and-slices-2026-09.md`
+(findings + Sessions 0–10). Pick the next session from there.
+
 ---
 
 ## Architecture (as built)
@@ -199,6 +203,24 @@ Long lines (>4096 chars) render raw. Reveal (selection) lines bypass the memo.
   - Perf/reuse: bare-URL candidates require `ht`/`ww` pairs so the plain-prose
     quick-reject survives; `selectionCoversLine` and `isEscapablePunctuation`
     are now single-sourced (span builder static / `MarkdownConstants`).
+- Fork git history (Session 0 of the 2026-09 review, 2026-09-03): ANTA's repo
+  is the fork's only history. `packages/re_editor/.git` was a stale clone of
+  `m0b-x/re-editor` at `dfbca60` with nothing local-only (all 49 fork files
+  are tracked here as plain blobs), so the review's recommended delete was
+  chosen over keeping two histories; never re-init a nested repo there — a
+  `checkout`/`stash` inside it would revert the perf-tuned tree to the base.
+- Safety net + P1 (Session 1 of the 2026-09 review, 2026-09-03): the live
+  rendering stack now has suites (`test/utils/code_lines_sharing_test.dart`,
+  `markdown_editor_line_index_test.dart`,
+  `markdown_editor_span_builder_units_test.dart`, `markdown_chunker_test.dart`,
+  `test/services/auto_save_service_test.dart`) plus three `benchmark`-tagged
+  files; `_CodeLineSegmentQuckLineCount` keeps `lineCount`/`charCount` by
+  delta (10k-line `CodeLines.of` 14.3 ms → 0.4 ms); the span builder's
+  `_emit` asserts the code-unit invariant in debug; the editor page's dirty
+  dot and stats bar sit on `ValueNotifier`s (`lib/widgets/note_editor_chrome.dart`)
+  so keystrokes no longer rebuild the page; `AutoSaveService._updateStatus`
+  is disposed-safe. Numbers and traps in
+  `live-editor-review-and-slices-2026-09.md` §3 Session 1 and §5.
 
 ## Not verified on device yet
 
