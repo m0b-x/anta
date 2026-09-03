@@ -4497,6 +4497,18 @@ class AppLocalizationsDe extends AppLocalizations {
   String get dayListEmptyMonth => 'Nichts in diesem Monat';
 
   @override
+  String get dayListEmptyRange => 'Nichts in diesem Zeitraum';
+
+  @override
+  String get renderErrorTitle =>
+      'Dieser Teil des Bildschirms konnte nicht dargestellt werden';
+
+  @override
+  String renderErrorDetail(String error) {
+    return 'Nach unten ziehen oder zurückgehen zum Schließen. Details: $error';
+  }
+
+  @override
   String get dayListPreviousMonth => 'Voriger Monat';
 
   @override

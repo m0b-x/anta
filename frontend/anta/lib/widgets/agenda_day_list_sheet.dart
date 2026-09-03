@@ -504,11 +504,22 @@ class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
     });
   }
 
-  void _popDay(DateTime day) =>
-      Navigator.of(context).pop((focusDay: day, edit: null));
+  /// Guards the exit against a second tap landing while the route is still
+  /// animating out: the rows stay live and hit-testable for the length of that
+  /// animation, and a second `pop` would take the page underneath with it.
+  bool _popped = false;
 
-  void _popEdit(VoidCallback edit) =>
-      Navigator.of(context).pop((focusDay: null, edit: edit));
+  void _popDay(DateTime day) {
+    if (_popped) return;
+    _popped = true;
+    Navigator.of(context).pop((focusDay: day, edit: null));
+  }
+
+  void _popEdit(VoidCallback edit) {
+    if (_popped) return;
+    _popped = true;
+    Navigator.of(context).pop((focusDay: null, edit: edit));
+  }
 
   bool get _showsBack => _mode == AgendaDayListMode.month && _cameFromYear;
 
@@ -639,6 +650,25 @@ class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
   ) {
     switch (_mode) {
       case AgendaDayListMode.list:
+        // A card can outlive what it counted — a holiday removed, a fasting
+        // schedule reconfigured, an occurrence marked missed under `hidden` —
+        // and this is the one mode with no month grid or year tiles to say so.
+        // Rendered as a scrollable, like the month body's own empty state, so
+        // the sheet stays draggable and the header above it never moves.
+        if (_rows.isEmpty) {
+          return ListView(
+            padding: EdgeInsets.fromLTRB(16, 32, 16, 16 + bottomClearance),
+            children: [
+              Text(
+                l10n.dayListEmptyRange,
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          );
+        }
         return ListView.builder(
           padding: EdgeInsets.fromLTRB(8, 4, 8, 16 + bottomClearance),
           itemCount: _rows.length,

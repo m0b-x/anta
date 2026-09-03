@@ -83,6 +83,11 @@ class _CalendarFilterSheetState extends State<CalendarFilterSheet> {
   /// than something the user has to remember.
   String? _savedName;
 
+  /// Guards the sheet's own sub-routes — the category picker and the save
+  /// dialog — against a double tap pushing two identical copies, which reads
+  /// as a sheet that will not close. One flag for both: they are never nested.
+  bool _subRouteOpen = false;
+
   @override
   void initState() {
     super.initState();
@@ -132,26 +137,32 @@ class _CalendarFilterSheetState extends State<CalendarFilterSheet> {
       _report(l10n.filterPresetLimitReached(FilterPresetService.maxPresets));
       return;
     }
-    final name = await FilterPresetNameDialog.show(
-      context,
-      title: l10n.filterPresetSave,
-      initialName: CalendarFilterSummary.suggestName(_draft, l10n),
-      // Both save paths warn on a duplicate name, or the warning would be a
-      // property of which sheet you happened to save from.
-      existingNames: {
-        for (final preset in service.presets)
-          normalizeForSearch(preset.name),
-      },
-    );
-    if (name == null || !mounted) return;
-    final saved = await service.create(name: name, filters: _draft);
-    if (!mounted) return;
-    if (saved == null) {
-      _report(l10n.filterPresetLimitReached(FilterPresetService.maxPresets));
-      return;
+    if (_subRouteOpen) return;
+    _subRouteOpen = true;
+    try {
+      final name = await FilterPresetNameDialog.show(
+        context,
+        title: l10n.filterPresetSave,
+        initialName: CalendarFilterSummary.suggestName(_draft, l10n),
+        // Both save paths warn on a duplicate name, or the warning would be a
+        // property of which sheet you happened to save from.
+        existingNames: {
+          for (final preset in service.presets)
+            normalizeForSearch(preset.name),
+        },
+      );
+      if (name == null || !mounted) return;
+      final saved = await service.create(name: name, filters: _draft);
+      if (!mounted) return;
+      if (saved == null) {
+        _report(l10n.filterPresetLimitReached(FilterPresetService.maxPresets));
+        return;
+      }
+      setState(() => _savedName = saved.name);
+      _report(l10n.filterPresetSaved(saved.name));
+    } finally {
+      _subRouteOpen = false;
     }
-    setState(() => _savedName = saved.name);
-    _report(l10n.filterPresetSaved(saved.name));
   }
 
   void _report(String message) {
@@ -228,22 +239,28 @@ class _CalendarFilterSheetState extends State<CalendarFilterSheet> {
   /// not collapse an empty result to `null`, because selecting nothing here
   /// means "hide every category", which is a real state.
   Future<void> _pickCategories(List<CalendarCategory> categories) async {
-    final picked = await CategoryPickerSheet.pickMulti(
-      context,
-      selected: {
-        for (final c in categories)
-          if (!_hidden.contains(c.id)) c.id,
-      },
-    );
-    if (picked == null || !mounted) return;
-    _update(
-      _draft.copyWith(
-        hiddenCategoryIds: {
+    if (_subRouteOpen) return;
+    _subRouteOpen = true;
+    try {
+      final picked = await CategoryPickerSheet.pickMulti(
+        context,
+        selected: {
           for (final c in categories)
-            if (!picked.contains(c.id)) c.id,
+            if (!_hidden.contains(c.id)) c.id,
         },
-      ),
-    );
+      );
+      if (picked == null || !mounted) return;
+      _update(
+        _draft.copyWith(
+          hiddenCategoryIds: {
+            for (final c in categories)
+              if (!picked.contains(c.id)) c.id,
+          },
+        ),
+      );
+    } finally {
+      _subRouteOpen = false;
+    }
   }
 
   void _apply() {

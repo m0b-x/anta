@@ -1354,6 +1354,92 @@ void main() {
     picked.result!.edit!();
     expect(ran, 1);
   });
+
+  testWidgets('list mode with no entries says so and keeps its chrome', (
+    tester,
+  ) async {
+    // A card can outlive what it counted — a removed holiday, a reconfigured
+    // fasting schedule, an occurrence hidden as missed — and list mode has no
+    // month grid or year tiles to explain an empty body on its own. A blank
+    // 88%-tall sheet reads as a broken app, which is the bug this closes.
+    await openSheet(
+      tester,
+      AgendaDayList(
+        title: 'Holidays',
+        subtitle: '2 holidays · Aug 15 – Dec 25',
+        source: const AgendaDayListHolidaySource(),
+        color: const Color(0xFFFFB300),
+        entries: const [],
+      ),
+    );
+
+    expect(find.text('Nothing in this range'), findsOneWidget);
+    // The header and the mode switch survive, so the other two scopes stay
+    // reachable from an empty window.
+    expect(find.text('Holidays'), findsOneWidget);
+    expect(modeControl, findsOneWidget);
+  });
+
+  testWidgets('a second tap on a row pops nothing more', (tester) async {
+    // Two taps can be delivered in one frame, before anything has rebuilt —
+    // and the second pop would take the page underneath the sheet with it.
+    // Fired straight at the tile's callback because that is exactly what a
+    // same-frame double tap does; a second `tester.tap` cannot reproduce it,
+    // since the route stops hit-testing the instant the first pop starts.
+    final picked = await openSheet(tester, list);
+    final tile = tester.widget<ListTile>(
+      find
+          .ancestor(
+            of: find.text('Christmas Day'),
+            matching: find.byType(ListTile),
+          )
+          .first,
+    );
+
+    tile.onTap!();
+    tile.onTap!();
+    await tester.pumpAndSettle();
+
+    expect(picked.result?.focusDay, DateTime.utc(2026, 12, 25));
+    // The page the sheet was opened from is still there.
+    expect(find.text('open'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a second tap on a row action pops nothing more', (tester) async {
+    var ran = 0;
+    final picked = await openSheet(
+      tester,
+      AgendaDayList(
+        title: 'Gym',
+        subtitle: '1 event · Aug 15',
+        source: const AgendaDayListCategorySource('gym'),
+        color: gymColor,
+        entries: [
+          AgendaDayListEntry(
+            day: DateTime.utc(2026, 8, 15),
+            icon: Icons.fitness_center,
+            color: gymColor,
+            title: 'Leg day',
+            onEdit: () => ran++,
+          ),
+        ],
+      ),
+    );
+    final button = tester.widget<IconButton>(
+      find.widgetWithIcon(IconButton, Icons.edit_outlined),
+    );
+
+    button.onPressed!();
+    button.onPressed!();
+    await tester.pumpAndSettle();
+
+    expect(picked.result?.edit, isNotNull);
+    expect(find.text('open'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    // Still an intent, resolved once by the caller.
+    expect(ran, 0);
+  });
 }
 
 /// Mutable holder for the sheet's result — it is awaited inside a button

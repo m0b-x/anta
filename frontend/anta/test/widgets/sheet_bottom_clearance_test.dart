@@ -1,6 +1,13 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'dart:io';
 
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:anta/bloc/markdown_bar/markdown_bar_bloc.dart';
+import 'package:anta/constants/calendar_bounds.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/agenda_day_list.dart';
@@ -8,11 +15,18 @@ import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/widgets/agenda_day_list_sheet.dart';
+import 'package:anta/widgets/calendar_date_picker_sheet.dart';
+import 'package:anta/widgets/category_editor_sheet.dart';
 import 'package:anta/widgets/color_palette_sheet.dart';
 import 'package:anta/widgets/color_picker_sheet.dart';
 import 'package:anta/services/calendar_palette_service.dart';
+import 'package:anta/services/markdown_bar_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/widgets/event_description_sheet.dart';
 import 'package:anta/widgets/event_detail_sheet.dart';
+import 'package:anta/widgets/event_editor_sheet.dart';
+import 'package:anta/widgets/event_template_editor_sheet.dart';
+import 'package:anta/widgets/modern_editor_wrapper.dart';
 
 import '../database/support/db_test_support.dart';
 
@@ -32,21 +46,50 @@ import '../database/support/db_test_support.dart';
 /// separate rounds of it have shipped — and it is invisible in review because
 /// a sheet padded by `viewInsets` alone looks correct with the keyboard up.
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   const navBar = 48.0;
+  const surface = Size(800, 1200);
 
   // The colour sheets resolve settings before presenting (the picker reads
   // its remembered geometry, the palette warms its service), so they need a
   // backend bound or they never open inside a widget test.
   late AppDatabase db;
 
+  // The two editor sheets read the app-wide markdown bar bloc from their
+  // `initState`, so it has to exist above the `MaterialApp` — see [openFrom].
+  late Directory tempDir;
+  late MarkdownBarBloc barBloc;
+
+  setUpAll(() async {
+    tempDir = await Directory.systemTemp.createTemp('anta_sheet_clearance');
+    SharedPreferences.setMockInitialValues({});
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => tempDir.path,
+        );
+  });
+
+  tearDownAll(() async {
+    await (await AppDatabase.getInstance()).close();
+    try {
+      await tempDir.delete(recursive: true);
+    } catch (_) {}
+  });
+
   setUp(() async {
     CalendarPaletteService.reset();
     SettingsService.reset();
     db = await openTestDatabase();
     SettingsService.forTesting(db);
+    barBloc = MarkdownBarBloc(
+      barService: await MarkdownBarService.getInstance(),
+    );
   });
 
   tearDown(() async {
+    await barBloc.close();
     CalendarPaletteService.reset();
     SettingsService.reset();
     await db.close();
@@ -56,9 +99,28 @@ void main() {
   void sizeSurfaceWithNavBar(WidgetTester tester) {
     addTearDown(tester.view.reset);
     tester.view.devicePixelRatio = 1.0;
-    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.physicalSize = surface;
     tester.view.viewPadding = const FakeViewPadding(bottom: navBar);
     tester.view.padding = const FakeViewPadding(bottom: navBar);
+  }
+
+  /// The same device with an IME taller than the sheet's own box.
+  ///
+  /// Split screen, a handwriting pane, or the stale inset frame Android hands
+  /// back after a mid-animation pause all land here. The bug this guards is
+  /// the whole body being wrapped in `Padding(bottom: clearance)`: content
+  /// height becomes `factor * H - clearance`, which at this inset is zero or
+  /// negative, so the sheet paints nothing and hit-tests nothing — a blank,
+  /// dead ~92% sheet.
+  void sizeSurfaceWithTallKeyboard(WidgetTester tester, {double inset = 1180}) {
+    addTearDown(tester.view.reset);
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.physicalSize = surface;
+    tester.view.viewPadding = const FakeViewPadding(bottom: navBar);
+    // The keyboard covers the navigation bar, which is exactly why the
+    // clearance is a `max` rather than a sum.
+    tester.view.padding = FakeViewPadding.zero;
+    tester.view.viewInsets = FakeViewPadding(bottom: inset);
   }
 
   /// Bottom padding of the sheet's scrollable, resolved to pixels.
@@ -67,20 +129,36 @@ void main() {
     return list.padding!.resolve(TextDirection.ltr).bottom;
   }
 
+  /// Bottom padding of the outermost `SingleChildScrollView` on screen — the
+  /// shape every form sheet uses, where `find.byType` returns tree order and
+  /// the sheet's own scroll view is therefore first.
+  double scrollBottomPadding(WidgetTester tester) {
+    final view = tester
+        .widgetList<SingleChildScrollView>(find.byType(SingleChildScrollView))
+        .first;
+    return view.padding!.resolve(TextDirection.ltr).bottom;
+  }
+
   Future<void> openFrom(
     WidgetTester tester,
     Future<void> Function(BuildContext context) open,
   ) async {
     await tester.pumpWidget(
-      MaterialApp(
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        locale: const Locale('en'),
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => TextButton(
-              onPressed: () => open(context),
-              child: const Text('open'),
+      // Above the `MaterialApp`, as `main.dart` provides it: a sheet is a
+      // route, so a provider inside `home` sits below it in the tree and the
+      // sheet's `context.read` would not find it.
+      BlocProvider<MarkdownBarBloc>.value(
+        value: barBloc,
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('en'),
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => open(context),
+                child: const Text('open'),
+              ),
             ),
           ),
         ),
@@ -261,5 +339,154 @@ void main() {
         .resolve(TextDirection.ltr)
         .bottom;
     expect(padding, greaterThanOrEqualTo(navBar));
+  });
+
+  testWidgets('the category editor sheet clears the navigation bar', (
+    tester,
+  ) async {
+    sizeSurfaceWithNavBar(tester);
+    await openFrom(tester, (context) => CategoryEditorSheet.show(context));
+
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+  });
+
+  testWidgets('the category editor sheet keeps its header when the keyboard is '
+      'taller than the sheet', (tester) async {
+    // The regression: with the clearance on the whole body, the Column's
+    // height went to zero here and the sheet rendered as a blank rectangle
+    // that swallowed every tap. The clearance belongs on the scroll view,
+    // which can simply become scrollable instead.
+    sizeSurfaceWithTallKeyboard(tester);
+    await openFrom(tester, (context) => CategoryEditorSheet.show(context));
+
+    final box = tester.getSize(find.byType(CategoryEditorSheet));
+    expect(box.height.isFinite, isTrue);
+    expect(box.height, greaterThan(0));
+
+    final body = tester.getSize(
+      find
+          .descendant(
+            of: find.byType(CategoryEditorSheet),
+            matching: find.byType(Column),
+          )
+          .first,
+    );
+    expect(
+      body.height,
+      box.height,
+      reason: 'the body was shortened by the inset instead of the scrollable',
+    );
+
+    // Present *and* reachable: a `RenderErrorBox` is also "present".
+    expect(find.byIcon(Icons.close_rounded), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.close_rounded));
+    await tester.pumpAndSettle();
+    expect(find.byType(CategoryEditorSheet), findsNothing);
+  });
+
+  testWidgets('the event template editor sheet clears the navigation bar', (
+    tester,
+  ) async {
+    sizeSurfaceWithNavBar(tester);
+    await openFrom(tester, (context) => EventTemplateEditorSheet.show(context));
+
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+  });
+
+  testWidgets('the event editor sheet clears the navigation bar', (
+    tester,
+  ) async {
+    sizeSurfaceWithNavBar(tester);
+    await openFrom(
+      tester,
+      (context) => EventEditorSheet.show(
+        context,
+        defaultDate: DateTime.utc(2026, 8, 20),
+      ),
+    );
+
+    // The markdown bar only docks while the description has focus, so with the
+    // form idle the clearance is the scroll view's job.
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+  });
+
+  testWidgets('the event description sheet clears the navigation bar', (
+    tester,
+  ) async {
+    sizeSurfaceWithNavBar(tester);
+    await openFrom(
+      tester,
+      (context) => EventDescriptionSheet.show(
+        context,
+        initialText: '',
+        heading: 'Leg day',
+        limit: 2000,
+        grandfatheredLength: 0,
+      ),
+    );
+
+    // This sheet's bar is permanently docked, so the clearance rides the bar
+    // rather than a scrollable — and the body must keep the sheet's full box.
+    final box = tester.getSize(find.byType(EventDescriptionSheet));
+    final body = tester.getSize(
+      find
+          .descendant(
+            of: find.byType(EventDescriptionSheet),
+            matching: find.byType(Column),
+          )
+          .first,
+    );
+    expect(
+      body.height,
+      box.height,
+      reason: 'the body was shortened by the inset instead of the footer',
+    );
+    expect(
+      tester.getRect(find.byType(ModernEditorWrapper)).bottom,
+      lessThanOrEqualTo(surface.height - navBar),
+      reason: 'the editor and the bar below it ran under the gesture bar',
+    );
+  });
+
+  testWidgets('the date picker sheet clears the navigation bar', (
+    tester,
+  ) async {
+    sizeSurfaceWithNavBar(tester);
+    await openFrom(
+      tester,
+      (context) => CalendarDatePickerSheet.pickSingle(
+        context,
+        initialDate: DateTime.utc(2026, 8, 20),
+        firstDate: CalendarBounds.earliest,
+        lastDate: CalendarBounds.latest,
+        appearance: const CalendarAppearance(),
+      ),
+    );
+
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+  });
+
+  testWidgets('the date picker sheet clears the navigation bar in multi mode', (
+    tester,
+  ) async {
+    // Multi mode ends in a fixed count/Clear row below the grid, so the
+    // clearance moves onto that row — same split the colour picker uses.
+    sizeSurfaceWithNavBar(tester);
+    await openFrom(
+      tester,
+      (context) => CalendarDatePickerSheet.pickMulti(
+        context,
+        initialSelection: {DateTime.utc(2026, 8, 20)},
+        firstDate: CalendarBounds.earliest,
+        lastDate: CalendarBounds.latest,
+        appearance: const CalendarAppearance(),
+      ),
+    );
+
+    expect(
+      tester.getRect(find.widgetWithText(TextButton, 'Clear')).bottom,
+      lessThanOrEqualTo(surface.height - navBar),
+      reason: 'the selection footer ran under the gesture bar',
+    );
   });
 }

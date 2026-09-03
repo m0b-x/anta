@@ -183,12 +183,25 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
     });
   }
 
+  /// Single mode answers by popping, and a day cell is a 52px target on a grid
+  /// that scrolls — a double tap lands twice before the route is gone and the
+  /// second pop takes the page underneath with it. One latch guards every
+  /// answering path.
+  bool _popped = false;
+
+  void _answer(Set<DateTime>? selection) {
+    if (_popped) return;
+    _popped = true;
+    Navigator.of(context).pop(selection);
+  }
+
   /// Opens the wheel/typed date picker from the header's month title, exactly
   /// like the calendar page's own header. Single mode treats Apply as the
   /// final answer (the wheels carry a full date, so re-tapping it on the grid
   /// would be redundant); multi mode only jumps the grid there — day toggling
   /// stays a grid gesture so a navigation intent can never edit the set.
   Future<void> _openMonthYearJump() async {
+    if (_popped) return;
     final picked = await MonthYearPickerSheet.show(
       context,
       initialDate: _focusedDay,
@@ -198,7 +211,7 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
     );
     if (picked == null || !mounted) return;
     if (widget.mode == CalendarDatePickerMode.single) {
-      Navigator.of(context).pop(<DateTime>{_clamp(picked)});
+      _answer(<DateTime>{_clamp(picked)});
       return;
     }
     setState(() => _focusedDay = _clamp(picked));
@@ -211,7 +224,7 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
     final day = CalendarDatePickerSheet._dateOnly(selectedDay);
     if (day.isBefore(widget.firstDate) || day.isAfter(widget.lastDate)) return;
     if (widget.mode == CalendarDatePickerMode.single) {
-      Navigator.of(context).pop(<DateTime>{day});
+      _answer(<DateTime>{day});
       return;
     }
     setState(() {
@@ -241,174 +254,175 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
     final accent = _appearance.accentOr(theme.colorScheme.primary);
     final now = DateTime.now();
     // `useSafeArea: true` guards the status bar, not the bottom gesture/nav
-    // bar. The whole sheet is padded rather than just the scroll view,
-    // because the multi-select footer is a fixed row below it — same fix as
-    // `CalendarFilterSheet`, whose Cancel/Apply row has the same problem.
+    // bar. The clearance rides whichever element actually sits on that edge —
+    // the multi-select footer when there is one, the scroll view otherwise —
+    // and never the whole body: the sheet's box is a fixed fraction of the
+    // screen and does not shrink for the keyboard, so padding the body
+    // subtracts the inset from the content and a tall inset collapses the
+    // Column to nothing, leaving a blank sheet that hit-tests nothing.
     final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
     final viewPadding = MediaQuery.viewPaddingOf(context).bottom;
     final bottomClearance = viewInsets > viewPadding ? viewInsets : viewPadding;
 
     return FractionallySizedBox(
       heightFactor: 0.86,
-      child: Padding(
-        padding: EdgeInsets.only(bottom: bottomClearance),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-              child: Row(
-                children: [
-                  IconButton(
-                    tooltip: l10n.cancel,
-                    icon: const Icon(Icons.close_rounded),
-                    onPressed: () => Navigator.of(context).pop(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+            child: Row(
+              children: [
+                IconButton(
+                  tooltip: l10n.cancel,
+                  icon: const Icon(Icons.close_rounded),
+                  onPressed: () => _answer(null),
+                ),
+                Expanded(
+                  child: Text(
+                    isMulti
+                        ? l10n.datePickerMultiTitle
+                        : l10n.datePickerSingleTitle,
+                    style: theme.textTheme.titleLarge,
+                    textAlign: TextAlign.center,
                   ),
-                  Expanded(
-                    child: Text(
-                      isMulti
-                          ? l10n.datePickerMultiTitle
-                          : l10n.datePickerSingleTitle,
-                      style: theme.textTheme.titleLarge,
-                      textAlign: TextAlign.center,
+                ),
+                // Available in both modes: a single-date pick can wander
+                // months too, and there was no way back without swiping.
+                IconButton(
+                  tooltip: l10n.datePickerToday,
+                  icon: const Icon(Icons.today_rounded),
+                  onPressed: _jumpToToday,
+                ),
+                if (isMulti)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4),
+                    child: FilledButton(
+                      onPressed: _selection.isEmpty && !widget.allowEmpty
+                          ? null
+                          : () => _answer({..._selection}),
+                      child: Text(l10n.save),
                     ),
                   ),
-                  // Available in both modes: a single-date pick can wander
-                  // months too, and there was no way back without swiping.
-                  IconButton(
-                    tooltip: l10n.datePickerToday,
-                    icon: const Icon(Icons.today_rounded),
-                    onPressed: _jumpToToday,
-                  ),
-                  if (isMulti)
-                    Padding(
-                      padding: const EdgeInsets.only(left: 4),
-                      child: FilledButton(
-                        onPressed: _selection.isEmpty && !widget.allowEmpty
-                            ? null
-                            : () => Navigator.of(context).pop({..._selection}),
-                        child: Text(l10n.save),
-                      ),
-                    ),
-                ],
-              ),
+              ],
             ),
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(8, 0, 8, 16),
-                child: TableCalendar<void>(
-                  firstDay: widget.firstDate,
-                  lastDay: widget.lastDate,
-                  focusedDay: _focusedDay,
-                  selectedDayPredicate: _isSelected,
-                  calendarFormat: CalendarFormat.month,
-                  startingDayOfWeek: _startingDayOfWeek,
-                  weekendDays: CalendarWeekend.days,
-                  weekNumbersVisible: _appearance.showWeekNumbers,
-                  rowHeight: _rowHeight,
-                  daysOfWeekHeight: 24,
-                  locale: l10n.localeName,
-                  availableGestures: AvailableGestures.horizontalSwipe,
-                  headerStyle: HeaderStyle(
-                    formatButtonVisible: false,
-                    leftChevronIcon: Icon(
-                      Icons.chevron_left_rounded,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                    rightChevronIcon: Icon(
-                      Icons.chevron_right_rounded,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                8,
+                0,
+                8,
+                16 + (isMulti ? 0 : bottomClearance),
+              ),
+              child: TableCalendar<void>(
+                firstDay: widget.firstDate,
+                lastDay: widget.lastDate,
+                focusedDay: _focusedDay,
+                selectedDayPredicate: _isSelected,
+                calendarFormat: CalendarFormat.month,
+                startingDayOfWeek: _startingDayOfWeek,
+                weekendDays: CalendarWeekend.days,
+                weekNumbersVisible: _appearance.showWeekNumbers,
+                rowHeight: _rowHeight,
+                daysOfWeekHeight: 24,
+                locale: l10n.localeName,
+                availableGestures: AvailableGestures.horizontalSwipe,
+                headerStyle: HeaderStyle(
+                  formatButtonVisible: false,
+                  leftChevronIcon: Icon(
+                    Icons.chevron_left_rounded,
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
-                  calendarStyle: const CalendarStyle(
-                    outsideDaysVisible: true,
-                    markersMaxCount: 0,
+                  rightChevronIcon: Icon(
+                    Icons.chevron_right_rounded,
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
-                  calendarBuilders: CalendarBuilders<void>(
-                    headerTitleBuilder: (context, day) {
-                      final title = DateFormat.yMMMM(
-                        l10n.localeName,
-                      ).format(day);
-                      return Center(
-                        child: Tooltip(
-                          message: l10n.monthYearPickerTitle,
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(8),
-                            onTap: _openMonthYearJump,
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Flexible(
-                                    child: Text(
-                                      title,
-                                      style: theme.textTheme.titleMedium
-                                          ?.copyWith(
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
+                ),
+                calendarStyle: const CalendarStyle(
+                  outsideDaysVisible: true,
+                  markersMaxCount: 0,
+                ),
+                calendarBuilders: CalendarBuilders<void>(
+                  headerTitleBuilder: (context, day) {
+                    final title = DateFormat.yMMMM(l10n.localeName).format(day);
+                    return Center(
+                      child: Tooltip(
+                        message: l10n.monthYearPickerTitle,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(8),
+                          onTap: _openMonthYearJump,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    title,
+                                    style: theme.textTheme.titleMedium
+                                        ?.copyWith(fontWeight: FontWeight.w600),
+                                    overflow: TextOverflow.ellipsis,
                                   ),
-                                  Icon(
-                                    Icons.arrow_drop_down_rounded,
-                                    size: 20,
-                                    color: theme.colorScheme.onSurfaceVariant,
-                                  ),
-                                ],
-                              ),
+                                ),
+                                Icon(
+                                  Icons.arrow_drop_down_rounded,
+                                  size: 20,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ],
                             ),
                           ),
                         ),
-                      );
-                    },
-                    defaultBuilder: (context, day, _) =>
-                        _cell(day, accent, isOutside: false, now: now),
-                    todayBuilder: (context, day, _) =>
-                        _cell(day, accent, isOutside: false, now: now),
-                    selectedBuilder: (context, day, _) =>
-                        _cell(day, accent, isOutside: false, now: now),
-                    outsideBuilder: (context, day, _) =>
-                        _cell(day, accent, isOutside: true, now: now),
-                    markerBuilder: (context, day, _) => _marker(
-                      day,
-                      l10n: l10n,
-                      busyColor: theme.colorScheme.onSurfaceVariant,
-                    ),
+                      ),
+                    );
+                  },
+                  defaultBuilder: (context, day, _) =>
+                      _cell(day, accent, isOutside: false, now: now),
+                  todayBuilder: (context, day, _) =>
+                      _cell(day, accent, isOutside: false, now: now),
+                  selectedBuilder: (context, day, _) =>
+                      _cell(day, accent, isOutside: false, now: now),
+                  outsideBuilder: (context, day, _) =>
+                      _cell(day, accent, isOutside: true, now: now),
+                  markerBuilder: (context, day, _) => _marker(
+                    day,
+                    l10n: l10n,
+                    busyColor: theme.colorScheme.onSurfaceVariant,
                   ),
-                  onDaySelected: _onDaySelected,
-                  onPageChanged: (focusedDay) =>
-                      setState(() => _focusedDay = focusedDay),
                 ),
+                onDaySelected: _onDaySelected,
+                onPageChanged: (focusedDay) =>
+                    setState(() => _focusedDay = focusedDay),
               ),
             ),
-            if (isMulti)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 8, 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        l10n.datePickerSelectedCount(_selection.length),
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
+          ),
+          if (isMulti)
+            Padding(
+              padding: EdgeInsets.fromLTRB(16, 0, 8, 8 + bottomClearance),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      l10n.datePickerSelectedCount(_selection.length),
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
-                    TextButton(
-                      onPressed: _selection.isEmpty
-                          ? null
-                          : () => setState(_selection.clear),
-                      child: Text(l10n.datePickerClear),
-                    ),
-                  ],
-                ),
+                  ),
+                  TextButton(
+                    onPressed: _selection.isEmpty
+                        ? null
+                        : () => setState(_selection.clear),
+                    child: Text(l10n.datePickerClear),
+                  ),
+                ],
               ),
-          ],
-        ),
+            ),
+        ],
       ),
     );
   }

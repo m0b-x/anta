@@ -7822,6 +7822,24 @@ abstract class AppLocalizations {
   /// **'Nothing this month'**
   String get dayListEmptyMonth;
 
+  /// Empty state of the drill-down's list mode when no day has entries
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing in this range'**
+  String get dayListEmptyRange;
+
+  /// Title of the in-app placeholder shown where a widget failed to build
+  ///
+  /// In en, this message translates to:
+  /// **'This part of the screen could not be drawn'**
+  String get renderErrorTitle;
+
+  /// Body of the in-app placeholder shown where a widget failed to build
+  ///
+  /// In en, this message translates to:
+  /// **'Drag down or go back to close. Details: {error}'**
+  String renderErrorDetail(String error);
+
   /// Tooltip of the drill-down month navigation's left chevron
   ///
   /// In en, this message translates to:

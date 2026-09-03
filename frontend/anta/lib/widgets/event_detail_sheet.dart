@@ -280,10 +280,17 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
     );
   }
 
+  /// Whether this sheet has already asked to pop. The exit animation keeps the
+  /// buttons hittable for its whole duration, so a second tap would pop the
+  /// route *underneath* — the calendar page, or the sheet that opened this one.
+  bool _popped = false;
+
   /// Single exit funnel: a pending toggle is persisted **before** the pop so
   /// the caller routes `edit` into the editor with the description the user
   /// is looking at, not the one it opened with.
   void _close(EventDetailAction? action) {
+    if (_popped) return;
+    _popped = true;
     _flushWrite();
     Navigator.of(context).pop(action);
   }

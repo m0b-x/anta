@@ -1738,679 +1738,676 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
         if (didPop || !widget.showBack) return;
         Navigator.of(context).pop(const EventEditorBack());
       },
-      child: Padding(
-        padding: EdgeInsets.only(bottom: bottomClearance),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Header: title + inline cancel/save so the action surface is part
-            // of the sheet rather than detached at the bottom edge.
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-              child: Row(
-                children: [
-                  IconButton(
-                    tooltip: widget.showBack ? l10n.back : l10n.cancel,
-                    icon: Icon(
-                      widget.showBack
-                          ? Icons.arrow_back_rounded
-                          : Icons.close_rounded,
-                    ),
-                    onPressed: _leave,
+      // The clearance rides the scroll view's own bottom padding (or the
+      // markdown bar when it is up), never the whole body: the sheet's box is
+      // a fixed 0.92 of the screen and does not shrink for the keyboard, so
+      // padding the body subtracts the inset from the content and a tall IME
+      // collapses the Column to nothing — a blank sheet that hit-tests
+      // nothing. Padded this way the `Expanded` scroll view absorbs the loss
+      // and the header stays on screen and tappable.
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Header: title + inline cancel/save so the action surface is part
+          // of the sheet rather than detached at the bottom edge.
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+            child: Row(
+              children: [
+                IconButton(
+                  tooltip: widget.showBack ? l10n.back : l10n.cancel,
+                  icon: Icon(
+                    widget.showBack
+                        ? Icons.arrow_back_rounded
+                        : Icons.close_rounded,
                   ),
-                  Expanded(
-                    child: Text(
-                      _isEditing ? l10n.editEvent : l10n.addEvent,
-                      style: theme.textTheme.titleLarge,
-                      textAlign: TextAlign.center,
+                  onPressed: _leave,
+                ),
+                Expanded(
+                  child: Text(
+                    _isEditing ? l10n.editEvent : l10n.addEvent,
+                    style: theme.textTheme.titleLarge,
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  // _canSave reads the description length, which changes
+                  // without a form rebuild — so the button tracks the
+                  // controller directly instead of forcing keystroke-wide
+                  // setStates.
+                  child: ListenableBuilder(
+                    listenable: Listenable.merge([
+                      _descriptionRevision,
+                      _titleController,
+                    ]),
+                    builder: (context, _) => FilledButton(
+                      onPressed: _canSave ? _onSave : null,
+                      child: Text(l10n.save),
                     ),
                   ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    // _canSave reads the description length, which changes
-                    // without a form rebuild — so the button tracks the
-                    // controller directly instead of forcing keystroke-wide
-                    // setStates.
-                    child: ListenableBuilder(
-                      listenable: Listenable.merge([
-                        _descriptionRevision,
-                        _titleController,
-                      ]),
-                      builder: (context, _) => FilledButton(
-                        onPressed: _canSave ? _onSave : null,
-                        child: Text(l10n.save),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Category-first: what kind of event this is comes before
-                    // everything else — picking a category tailors the rest
-                    // (the birthday built-in pre-fills yearly recurrence). No
-                    // autofocus on the title for the same reason: a keyboard
-                    // popping up would bury the category tile the flow starts
-                    // with.
-                    _GroupHeader(text: l10n.eventSectionWhat),
-                    const SizedBox(height: 8),
-                    _PickerTile(
-                      leading: CircleAvatar(
-                        backgroundColor: categoryColor.withValues(alpha: 0.18),
-                        foregroundColor: categoryColor,
-                        child: Icon(
-                          CalendarIcons.forKey(category.iconKey) ??
-                              Icons.event_rounded,
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                20,
+                8,
+                20,
+                24 + (_descriptionFocused ? 0 : bottomClearance),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Category-first: what kind of event this is comes before
+                  // everything else — picking a category tailors the rest
+                  // (the birthday built-in pre-fills yearly recurrence). No
+                  // autofocus on the title for the same reason: a keyboard
+                  // popping up would bury the category tile the flow starts
+                  // with.
+                  _GroupHeader(text: l10n.eventSectionWhat),
+                  const SizedBox(height: 8),
+                  _PickerTile(
+                    leading: CircleAvatar(
+                      backgroundColor: categoryColor.withValues(alpha: 0.18),
+                      foregroundColor: categoryColor,
+                      child: Icon(
+                        CalendarIcons.forKey(category.iconKey) ??
+                            Icons.event_rounded,
+                      ),
+                    ),
+                    title: CalendarCategories.labelOf(category, l10n),
+                    subtitle: l10n.pickCategory,
+                    onTap: _pickCategory,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _titleController,
+                    maxLength: 120,
+                    textInputAction: TextInputAction.done,
+                    decoration: InputDecoration(
+                      labelText: l10n.eventTitle,
+                      border: const OutlineInputBorder(),
+                    ),
+                  ),
+                  // Mode-first inside the When zone: the toggle decides what
+                  // the rest of the zone renders (date chips vs start date +
+                  // recurrence config), so it must sit above the content it
+                  // switches — a control that mutates content above itself
+                  // reads as if nothing happened.
+                  _GroupHeader(text: l10n.eventSectionWhen),
+                  _SectionLabel(text: l10n.repeatMode),
+                  Center(
+                    child: SegmentedButton<_RepeatMode>(
+                      segments: [
+                        ButtonSegment(
+                          value: _RepeatMode.oneTime,
+                          label: Text(l10n.repeatOnce),
+                          icon: const Icon(Icons.looks_one_rounded),
                         ),
-                      ),
-                      title: CalendarCategories.labelOf(category, l10n),
-                      subtitle: l10n.pickCategory,
-                      onTap: _pickCategory,
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _titleController,
-                      maxLength: 120,
-                      textInputAction: TextInputAction.done,
-                      decoration: InputDecoration(
-                        labelText: l10n.eventTitle,
-                        border: const OutlineInputBorder(),
-                      ),
-                    ),
-                    // Mode-first inside the When zone: the toggle decides what
-                    // the rest of the zone renders (date chips vs start date +
-                    // recurrence config), so it must sit above the content it
-                    // switches — a control that mutates content above itself
-                    // reads as if nothing happened.
-                    _GroupHeader(text: l10n.eventSectionWhen),
-                    _SectionLabel(text: l10n.repeatMode),
-                    Center(
-                      child: SegmentedButton<_RepeatMode>(
-                        segments: [
-                          ButtonSegment(
-                            value: _RepeatMode.oneTime,
-                            label: Text(l10n.repeatOnce),
-                            icon: const Icon(Icons.looks_one_rounded),
-                          ),
-                          ButtonSegment(
-                            value: _RepeatMode.recurring,
-                            label: Text(l10n.repeatRecurring),
-                            icon: const Icon(Icons.repeat_rounded),
-                          ),
-                        ],
-                        selected: {_mode},
-                        onSelectionChanged: (s) => setState(() {
-                          _mode = s.first;
-                          // Switching to one-time hides the scope control,
-                          // so the field must stop showing a day's text.
-                          _syncScopeToRule();
-                        }),
-                      ),
-                    ),
-                    if (_mode == _RepeatMode.oneTime) ...[
-                      _SectionLabel(text: l10n.eventDatesLabel),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          for (final d in oneTimeDates)
-                            InputChip(
-                              label: Text(
-                                DateFormat.yMMMd(localeName).format(d),
-                              ),
-                              onPressed: _pickOneTimeDates,
-                              onDeleted: oneTimeDates.length > 1
-                                  ? () => _removeOneTimeDate(d)
-                                  : null,
-                              deleteButtonTooltipMessage: l10n.eventRemoveDate,
-                            ),
-                          ActionChip(
-                            avatar: const Icon(Icons.add_rounded, size: 18),
-                            label: Text(l10n.eventAddDate),
-                            onPressed: _pickOneTimeDates,
-                          ),
-                        ],
-                      ),
-                      if (oneTimeDates.length == 1)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Text(
-                            l10n.eventDatesHint,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ),
-                    ],
-                    if (_mode == _RepeatMode.recurring) ...[
-                      _SectionLabel(text: l10n.frequency),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          for (final k in _RecurrenceKind.values)
-                            ChoiceChip(
-                              label: Text(_kindLabel(l10n, k)),
-                              selected: _kind == k,
-                              onSelected: (_) => setState(() {
-                                _kind = k;
-                                if (!_countStyleTouched) {
-                                  _countStyle = _defaultCountStyleFor(k);
-                                }
-                              }),
-                            ),
-                        ],
-                      ),
-                      if (_kindSupportsInterval(_kind)) ...[
-                        _SectionLabel(text: l10n.recurrenceIntervalLabel),
-                        _IntervalStepper(
-                          value: _interval,
-                          unitLabel: _intervalUnitLabel(l10n, _kind),
-                          min: 1,
-                          max: _maxInterval,
-                          decrementTooltip: l10n.recurrenceIntervalDecrement,
-                          incrementTooltip: l10n.recurrenceIntervalIncrement,
-                          onChanged: (v) => setState(() => _interval = v),
+                        ButtonSegment(
+                          value: _RepeatMode.recurring,
+                          label: Text(l10n.repeatRecurring),
+                          icon: const Icon(Icons.repeat_rounded),
                         ),
                       ],
-                      if (_kind == _RecurrenceKind.weekly) ...[
-                        _SectionLabel(text: l10n.weekdays),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            for (var w = 1; w <= 7; w++)
-                              FilterChip(
-                                label: Text(
-                                  RecurrenceFormatter.weekdayShort(
-                                    w,
-                                    localeName,
-                                  ),
-                                ),
-                                selected: _weekdays.contains(w),
-                                onSelected: (_) => _toggleWeekday(w),
-                              ),
-                          ],
-                        ),
-                        if (_weekdays.isEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Text(
-                              l10n.weeklyDaysHint,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.error,
-                              ),
-                            ),
-                          ),
-                      ],
-                      _SectionLabel(text: l10n.eventDate),
-                      _PickerTile(
-                        leading: const CircleAvatar(
-                          child: Icon(Icons.calendar_today_rounded),
-                        ),
-                        title: DateFormat.yMMMMEEEEd(localeName).format(_date),
-                        onTap: _pickDate,
-                      ),
-                      _SectionLabel(text: l10n.eventUntilLabel),
-                      _PickerTile(
-                        leading: const CircleAvatar(
-                          child: Icon(Icons.event_busy_rounded),
-                        ),
-                        title: _endDate == null
-                            ? l10n.eventUntilNone
-                            : DateFormat.yMMMMEEEEd(
-                                localeName,
-                              ).format(_endDate!),
-                        subtitle: _endDate == null ? l10n.eventUntilHint : null,
-                        trailing: _endDate == null
-                            ? const Icon(Icons.chevron_right_rounded)
-                            : IconButton(
-                                tooltip: l10n.resetToDefault,
-                                icon: const Icon(Icons.close_rounded),
-                                onPressed: () =>
-                                    setState(() => _endDate = null),
-                              ),
-                        onTap: _pickEndDate,
-                      ),
-                      _SectionLabel(text: l10n.recurrenceScopeLabel),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          ChoiceChip(
-                            label: Text(l10n.recurrenceScopeFromStart),
-                            selected: !_retroactive,
-                            onSelected: (_) =>
-                                setState(() => _retroactive = false),
-                          ),
-                          ChoiceChip(
-                            label: Text(_scopeAlwaysLabel(l10n)),
-                            selected: _retroactive,
-                            onSelected: (_) =>
-                                setState(() => _retroactive = true),
-                          ),
-                        ],
-                      ),
-                      if (_retroactive)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Text(
-                            l10n.recurrenceScopeHint,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ),
-                      if (_kindSupportsInterval(_kind)) ...[
-                        const SizedBox(height: 16),
-                        Card(
-                          margin: EdgeInsets.zero,
-                          child: SwitchListTile(
-                            value: _countOccurrences,
-                            onChanged: (v) =>
-                                setState(() => _countOccurrences = v),
-                            secondary: const CircleAvatar(
-                              child: Icon(Icons.numbers_rounded),
-                            ),
-                            title: Text(l10n.eventCountOccurrences),
-                            subtitle: Text(l10n.eventCountOccurrencesHint),
-                          ),
-                        ),
-                        if (_countOccurrences) ...[
-                          const SizedBox(height: 8),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              for (final style in OccurrenceCountStyle.values)
-                                ChoiceChip(
-                                  label: Text(_countStyleLabel(l10n, style)),
-                                  selected: _countStyle == style,
-                                  onSelected: (_) => setState(() {
-                                    _countStyle = style;
-                                    _countStyleTouched = true;
-                                  }),
-                                ),
-                            ],
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Text(
-                              _countStyleExample(l10n),
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ],
-                    // Outside both branches so a specific-dates set — which the
-                    // form files under one-time — can track presence too. The
-                    // gate is the rule's occurrence count, nothing else.
-                    if (_ruleHasManyOccurrences) ...[
-                      const SizedBox(height: 16),
-                      Card(
-                        margin: EdgeInsets.zero,
-                        child: SwitchListTile(
-                          value: _tracksPresence,
-                          onChanged: (v) => setState(() => _tracksPresence = v),
-                          secondary: const CircleAvatar(
-                            child: Icon(Icons.how_to_reg_rounded),
-                          ),
-                          title: Text(l10n.eventTrackPresence),
-                          subtitle: Text(l10n.eventTrackPresenceDesc),
-                        ),
-                      ),
-                      // Two gates, and both are the same argument: do not offer
-                      // a choice that cannot take effect. Inside the presence
-                      // gate because the membership predicate excludes one-time
-                      // rules whatever this says; behind [_dayRailEnabled]
-                      // because the rail is opt-in and off by default, so on a
-                      // stock install this control would steer a channel that
-                      // paints nothing.
-                      if (_dayRailEnabled) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          l10n.eventShowInDayRail,
-                          style: theme.textTheme.labelLarge,
-                        ),
-                        const SizedBox(height: 4),
-                        SegmentedButton<_DayRailChoice>(
-                          segments: [
-                            ButtonSegment(
-                              value: _DayRailChoice.auto,
-                              label: Text(l10n.eventShowInDayRailAuto),
-                            ),
-                            ButtonSegment(
-                              value: _DayRailChoice.always,
-                              label: Text(l10n.eventShowInDayRailAlways),
-                            ),
-                            ButtonSegment(
-                              value: _DayRailChoice.never,
-                              label: Text(l10n.eventShowInDayRailNever),
-                            ),
-                          ],
-                          selected: {_DayRailChoice.of(_showInDayRail)},
-                          showSelectedIcon: false,
-                          style: const ButtonStyle(
-                            visualDensity: VisualDensity.compact,
-                          ),
-                          onSelectionChanged: (sel) =>
-                              setState(() => _showInDayRail = sel.first.value),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          l10n.eventShowInDayRailHint,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ],
-                    // Management only: a day is normally cancelled from the
-                    // detail sheet, one occurrence at a time. This is where they
-                    // are reviewed and restored, so it appears for an existing
-                    // recurring event and never for a brand-new one, which has
-                    // no occurrences yet to have cancelled.
-                    if (_isEditing && _ruleHasManyOccurrences) ...[
-                      _SectionLabel(text: l10n.eventSkippedDays),
-                      _PickerTile(
-                        leading: const CircleAvatar(
-                          child: Icon(Icons.event_busy_outlined),
-                        ),
-                        title: _effectiveSkippedDays.isEmpty
-                            ? l10n.eventNoSkippedDays
-                            : l10n.eventSkippedDaysCount(
-                                _effectiveSkippedDays.length,
-                              ),
-                        trailing: const Icon(Icons.chevron_right_rounded),
-                        onTap: _pickSkippedDays,
-                      ),
-                    ],
-                    _SectionLabel(text: l10n.eventTimeSection),
-                    Card(
-                      margin: EdgeInsets.zero,
-                      child: SwitchListTile(
-                        value: _isAllDay,
-                        onChanged: _setAllDay,
-                        secondary: const CircleAvatar(
-                          child: Icon(Icons.schedule_rounded),
-                        ),
-                        title: Text(l10n.eventAllDay),
-                        subtitle: Text(l10n.eventAllDayHint),
-                      ),
+                      selected: {_mode},
+                      onSelectionChanged: (s) => setState(() {
+                        _mode = s.first;
+                        // Switching to one-time hides the scope control,
+                        // so the field must stop showing a day's text.
+                        _syncScopeToRule();
+                      }),
                     ),
-                    if (!_isAllDay) ...[
-                      const SizedBox(height: 8),
-                      _PickerTile(
-                        leading: const CircleAvatar(
-                          child: Icon(Icons.play_arrow_rounded),
-                        ),
-                        title: EventTimeFormatter.formatMinute(
-                          _startMinute,
-                          context,
-                        ),
-                        subtitle: l10n.eventStartTime,
-                        onTap: _pickStartTime,
-                      ),
-                      const SizedBox(height: 8),
-                      _PickerTile(
-                        leading: const CircleAvatar(
-                          child: Icon(Icons.stop_rounded),
-                        ),
-                        title: _durationMinutes == null
-                            ? l10n.eventEndTimeNone
-                            : EventTimeFormatter.formatMinute(
-                                (_startMinute + _durationMinutes!) %
-                                    EventTime.minutesPerDay,
-                                context,
-                              ),
-                        subtitle: _durationMinutes == null
-                            ? l10n.eventEndTimeHint
-                            : (_startMinute + _durationMinutes! >=
-                                      EventTime.minutesPerDay
-                                  ? l10n.eventCrossesMidnight
-                                  : l10n.eventEndTime),
-                        trailing: _durationMinutes == null
-                            ? const Icon(Icons.chevron_right_rounded)
-                            : IconButton(
-                                tooltip: l10n.resetToDefault,
-                                icon: const Icon(Icons.close_rounded),
-                                onPressed: _clearEndTime,
-                              ),
-                        onTap: _pickEndTime,
-                      ),
-                    ],
-                    _GroupHeader(text: l10n.eventSectionDetails),
-                    const SizedBox(height: 8),
-                    // Above the description it governs, and gated on the same
-                    // occurrence count as presence: a switch whose effect lands
-                    // further up the form reads as if the tap did nothing.
-                    if (_ruleHasManyOccurrences) ...[
-                      Card(
-                        margin: EdgeInsets.zero,
-                        child: SwitchListTile(
-                          value: _perOccurrenceDescriptions,
-                          onChanged: (v) => setState(() {
-                            _perOccurrenceDescriptions = v;
-                            if (!v) _syncScopeToRule();
-                          }),
-                          secondary: const CircleAvatar(
-                            child: Icon(Icons.event_note_outlined),
-                          ),
-                          title: Text(l10n.eventPerOccurrenceDescriptions),
-                          subtitle: Text(
-                            l10n.eventPerOccurrenceDescriptionsDesc,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                    ],
-                    _buildDescriptionField(context, l10n, theme),
-                    Card(
-                      margin: EdgeInsets.zero,
-                      clipBehavior: Clip.antiAlias,
-                      child: ExpansionTile(
-                        // Collapsed for a fresh event; opens when the event
-                        // already carries a custom icon or colour.
-                        initiallyExpanded:
-                            _iconKey != null || _colorValue != null,
-                        shape: const Border(),
-                        collapsedShape: const Border(),
-                        tilePadding: const EdgeInsets.symmetric(horizontal: 16),
-                        leading: CircleAvatar(
-                          backgroundColor: accent.withValues(alpha: 0.18),
-                          foregroundColor: accent,
-                          child: Icon(
-                            CalendarIcons.forKey(_iconKey) ??
-                                CalendarIcons.forKey(category.iconKey) ??
-                                Icons.event_rounded,
-                          ),
-                        ),
-                        title: Text(l10n.eventAppearance),
-                        childrenPadding: const EdgeInsets.fromLTRB(
-                          16,
-                          0,
-                          16,
-                          12,
-                        ),
-                        expandedCrossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: Text(l10n.iconLabel),
-                            subtitle: Text(
-                              _iconKey == null
-                                  ? l10n.iconDefault
-                                  : l10n.iconCustom,
-                            ),
-                            trailing: _iconKey == null
-                                ? const Icon(Icons.chevron_right_rounded)
-                                : IconButton(
-                                    tooltip: l10n.resetToDefault,
-                                    icon: const Icon(Icons.refresh_rounded),
-                                    onPressed: () =>
-                                        setState(() => _iconKey = null),
-                                  ),
-                            onTap: _pickIcon,
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(0, 8, 0, 8),
-                            child: Text(
-                              l10n.eventColor,
-                              style: theme.textTheme.labelLarge?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
-                          ColorSwatchPicker(
-                            value: _colorValue,
-                            onChanged: (value) =>
-                                setState(() => _colorValue = value),
-
-                            defaultOption: ColorSwatchDefault(
-                              color: categoryColor,
-                              icon:
-                                  CalendarIcons.forKey(category.iconKey) ??
-                                  Icons.event_rounded,
-                              tooltip: l10n.eventColorCategoryDefault,
-                            ),
-                          ),
-                          if (_colorValue != null)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 4),
-                              child: SwitchListTile(
-                                contentPadding: EdgeInsets.zero,
-                                value: _tintIcon,
-                                onChanged: (v) => setState(() => _tintIcon = v),
-                                title: Text(l10n.eventTintIcon),
-                                subtitle: Text(l10n.eventTintIconHint),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    _SectionLabel(text: l10n.eventPriority),
-                    // One chip per level, P1 (highest) first. Chips replaced
-                    // the numeric stepper when the scale flipped to
-                    // 1-is-highest: a "+" that lowers priority (or raises the
-                    // number while the label says Higher) cannot be made
-                    // unambiguous, while a labeled, iconed chip can.
+                  ),
+                  if (_mode == _RepeatMode.oneTime) ...[
+                    _SectionLabel(text: l10n.eventDatesLabel),
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
                       children: [
-                        for (
-                          var p = kMinEventPriority;
-                          p <= kMaxEventPriority;
-                          p++
-                        )
+                        for (final d in oneTimeDates)
+                          InputChip(
+                            label: Text(DateFormat.yMMMd(localeName).format(d)),
+                            onPressed: _pickOneTimeDates,
+                            onDeleted: oneTimeDates.length > 1
+                                ? () => _removeOneTimeDate(d)
+                                : null,
+                            deleteButtonTooltipMessage: l10n.eventRemoveDate,
+                          ),
+                        ActionChip(
+                          avatar: const Icon(Icons.add_rounded, size: 18),
+                          label: Text(l10n.eventAddDate),
+                          onPressed: _pickOneTimeDates,
+                        ),
+                      ],
+                    ),
+                    if (oneTimeDates.length == 1)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          l10n.eventDatesHint,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                  ],
+                  if (_mode == _RepeatMode.recurring) ...[
+                    _SectionLabel(text: l10n.frequency),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final k in _RecurrenceKind.values)
                           ChoiceChip(
-                            avatar: Icon(EventPriorities.iconFor(p), size: 18),
-                            label: Text(EventPriorities.labelOf(p, l10n)),
-                            visualDensity: VisualDensity.compact,
-                            selected: _priority == p,
-                            onSelected: (selected) {
-                              if (selected) setState(() => _priority = p);
-                            },
+                            label: Text(_kindLabel(l10n, k)),
+                            selected: _kind == k,
+                            onSelected: (_) => setState(() {
+                              _kind = k;
+                              if (!_countStyleTouched) {
+                                _countStyle = _defaultCountStyleFor(k);
+                              }
+                            }),
                           ),
                       ],
                     ),
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Text(
-                        l10n.eventPriorityHint,
+                    if (_kindSupportsInterval(_kind)) ...[
+                      _SectionLabel(text: l10n.recurrenceIntervalLabel),
+                      _IntervalStepper(
+                        value: _interval,
+                        unitLabel: _intervalUnitLabel(l10n, _kind),
+                        min: 1,
+                        max: _maxInterval,
+                        decrementTooltip: l10n.recurrenceIntervalDecrement,
+                        incrementTooltip: l10n.recurrenceIntervalIncrement,
+                        onChanged: (v) => setState(() => _interval = v),
+                      ),
+                    ],
+                    if (_kind == _RecurrenceKind.weekly) ...[
+                      _SectionLabel(text: l10n.weekdays),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (var w = 1; w <= 7; w++)
+                            FilterChip(
+                              label: Text(
+                                RecurrenceFormatter.weekdayShort(w, localeName),
+                              ),
+                              selected: _weekdays.contains(w),
+                              onSelected: (_) => _toggleWeekday(w),
+                            ),
+                        ],
+                      ),
+                      if (_weekdays.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            l10n.weeklyDaysHint,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.error,
+                            ),
+                          ),
+                        ),
+                    ],
+                    _SectionLabel(text: l10n.eventDate),
+                    _PickerTile(
+                      leading: const CircleAvatar(
+                        child: Icon(Icons.calendar_today_rounded),
+                      ),
+                      title: DateFormat.yMMMMEEEEd(localeName).format(_date),
+                      onTap: _pickDate,
+                    ),
+                    _SectionLabel(text: l10n.eventUntilLabel),
+                    _PickerTile(
+                      leading: const CircleAvatar(
+                        child: Icon(Icons.event_busy_rounded),
+                      ),
+                      title: _endDate == null
+                          ? l10n.eventUntilNone
+                          : DateFormat.yMMMMEEEEd(localeName).format(_endDate!),
+                      subtitle: _endDate == null ? l10n.eventUntilHint : null,
+                      trailing: _endDate == null
+                          ? const Icon(Icons.chevron_right_rounded)
+                          : IconButton(
+                              tooltip: l10n.resetToDefault,
+                              icon: const Icon(Icons.close_rounded),
+                              onPressed: () => setState(() => _endDate = null),
+                            ),
+                      onTap: _pickEndDate,
+                    ),
+                    _SectionLabel(text: l10n.recurrenceScopeLabel),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        ChoiceChip(
+                          label: Text(l10n.recurrenceScopeFromStart),
+                          selected: !_retroactive,
+                          onSelected: (_) =>
+                              setState(() => _retroactive = false),
+                        ),
+                        ChoiceChip(
+                          label: Text(_scopeAlwaysLabel(l10n)),
+                          selected: _retroactive,
+                          onSelected: (_) =>
+                              setState(() => _retroactive = true),
+                        ),
+                      ],
+                    ),
+                    if (_retroactive)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          l10n.recurrenceScopeHint,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    if (_kindSupportsInterval(_kind)) ...[
+                      const SizedBox(height: 16),
+                      Card(
+                        margin: EdgeInsets.zero,
+                        child: SwitchListTile(
+                          value: _countOccurrences,
+                          onChanged: (v) =>
+                              setState(() => _countOccurrences = v),
+                          secondary: const CircleAvatar(
+                            child: Icon(Icons.numbers_rounded),
+                          ),
+                          title: Text(l10n.eventCountOccurrences),
+                          subtitle: Text(l10n.eventCountOccurrencesHint),
+                        ),
+                      ),
+                      if (_countOccurrences) ...[
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            for (final style in OccurrenceCountStyle.values)
+                              ChoiceChip(
+                                label: Text(_countStyleLabel(l10n, style)),
+                                selected: _countStyle == style,
+                                onSelected: (_) => setState(() {
+                                  _countStyle = style;
+                                  _countStyleTouched = true;
+                                }),
+                              ),
+                          ],
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            _countStyleExample(l10n),
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ],
+                  // Outside both branches so a specific-dates set — which the
+                  // form files under one-time — can track presence too. The
+                  // gate is the rule's occurrence count, nothing else.
+                  if (_ruleHasManyOccurrences) ...[
+                    const SizedBox(height: 16),
+                    Card(
+                      margin: EdgeInsets.zero,
+                      child: SwitchListTile(
+                        value: _tracksPresence,
+                        onChanged: (v) => setState(() => _tracksPresence = v),
+                        secondary: const CircleAvatar(
+                          child: Icon(Icons.how_to_reg_rounded),
+                        ),
+                        title: Text(l10n.eventTrackPresence),
+                        subtitle: Text(l10n.eventTrackPresenceDesc),
+                      ),
+                    ),
+                    // Two gates, and both are the same argument: do not offer
+                    // a choice that cannot take effect. Inside the presence
+                    // gate because the membership predicate excludes one-time
+                    // rules whatever this says; behind [_dayRailEnabled]
+                    // because the rail is opt-in and off by default, so on a
+                    // stock install this control would steer a channel that
+                    // paints nothing.
+                    if (_dayRailEnabled) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        l10n.eventShowInDayRail,
+                        style: theme.textTheme.labelLarge,
+                      ),
+                      const SizedBox(height: 4),
+                      SegmentedButton<_DayRailChoice>(
+                        segments: [
+                          ButtonSegment(
+                            value: _DayRailChoice.auto,
+                            label: Text(l10n.eventShowInDayRailAuto),
+                          ),
+                          ButtonSegment(
+                            value: _DayRailChoice.always,
+                            label: Text(l10n.eventShowInDayRailAlways),
+                          ),
+                          ButtonSegment(
+                            value: _DayRailChoice.never,
+                            label: Text(l10n.eventShowInDayRailNever),
+                          ),
+                        ],
+                        selected: {_DayRailChoice.of(_showInDayRail)},
+                        showSelectedIcon: false,
+                        style: const ButtonStyle(
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        onSelectionChanged: (sel) =>
+                            setState(() => _showInDayRail = sel.first.value),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        l10n.eventShowInDayRailHint,
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
                       ),
-                    ),
-                    _SectionLabel(text: l10n.eventLinkedNote),
-                    _PickerTile(
-                      leading: CircleAvatar(
-                        backgroundColor: _noteMissing
-                            ? theme.colorScheme.errorContainer
-                            : null,
-                        foregroundColor: _noteMissing
-                            ? theme.colorScheme.onErrorContainer
-                            : null,
-                        child: Icon(
-                          _noteId == null
-                              ? Icons.note_add_outlined
-                              : (_noteMissing
-                                    ? Icons.warning_amber_rounded
-                                    : Icons.sticky_note_2_outlined),
-                        ),
-                      ),
-                      title: _noteId == null
-                          ? l10n.eventLinkNoteHint
-                          : (_noteMissing
-                                ? l10n.eventLinkedNoteMissing
-                                : ((_noteTitle == null || _noteTitle!.isEmpty)
-                                      ? l10n.untitledNote
-                                      : _noteTitle!)),
-                      subtitle: _noteId == null ? null : l10n.selectNote,
-                      trailing: _noteId == null
-                          ? const Icon(Icons.chevron_right_rounded)
-                          : IconButton(
-                              tooltip: l10n.eventRemoveNoteLink,
-                              icon: const Icon(Icons.link_off_rounded),
-                              onPressed: _clearNote,
-                            ),
-                      onTap: _pickNote,
-                    ),
-                    // Secondary whole-form action, placed like Delete: the
-                    // inline header stays `close | title | Save`, so anything
-                    // that acts on the whole form and is not Save lives at the
-                    // bottom of the scroll body.
-                    const SizedBox(height: 24),
-                    ListenableBuilder(
-                      listenable: _titleController,
-                      builder: (context, _) => OutlinedButton.icon(
-                        onPressed: _titleController.text.trim().isEmpty
-                            ? null
-                            : _onSaveAsTemplate,
-                        style: OutlinedButton.styleFrom(
-                          minimumSize: const Size.fromHeight(48),
-                        ),
-                        icon: const Icon(Icons.bookmark_add_outlined),
-                        label: Text(l10n.saveAsTemplate),
-                      ),
-                    ),
-                    if (_isEditing) ...[
-                      const SizedBox(height: 24),
-                      FilledButton.icon(
-                        onPressed: _onDelete,
-                        style: FilledButton.styleFrom(
-                          backgroundColor: theme.colorScheme.errorContainer,
-                          foregroundColor: theme.colorScheme.onErrorContainer,
-                          minimumSize: const Size.fromHeight(48),
-                        ),
-                        icon: const Icon(Icons.delete_rounded),
-                        label: Text(l10n.delete),
-                      ),
-                      const SizedBox(height: 8),
                     ],
                   ],
-                ),
+                  // Management only: a day is normally cancelled from the
+                  // detail sheet, one occurrence at a time. This is where they
+                  // are reviewed and restored, so it appears for an existing
+                  // recurring event and never for a brand-new one, which has
+                  // no occurrences yet to have cancelled.
+                  if (_isEditing && _ruleHasManyOccurrences) ...[
+                    _SectionLabel(text: l10n.eventSkippedDays),
+                    _PickerTile(
+                      leading: const CircleAvatar(
+                        child: Icon(Icons.event_busy_outlined),
+                      ),
+                      title: _effectiveSkippedDays.isEmpty
+                          ? l10n.eventNoSkippedDays
+                          : l10n.eventSkippedDaysCount(
+                              _effectiveSkippedDays.length,
+                            ),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: _pickSkippedDays,
+                    ),
+                  ],
+                  _SectionLabel(text: l10n.eventTimeSection),
+                  Card(
+                    margin: EdgeInsets.zero,
+                    child: SwitchListTile(
+                      value: _isAllDay,
+                      onChanged: _setAllDay,
+                      secondary: const CircleAvatar(
+                        child: Icon(Icons.schedule_rounded),
+                      ),
+                      title: Text(l10n.eventAllDay),
+                      subtitle: Text(l10n.eventAllDayHint),
+                    ),
+                  ),
+                  if (!_isAllDay) ...[
+                    const SizedBox(height: 8),
+                    _PickerTile(
+                      leading: const CircleAvatar(
+                        child: Icon(Icons.play_arrow_rounded),
+                      ),
+                      title: EventTimeFormatter.formatMinute(
+                        _startMinute,
+                        context,
+                      ),
+                      subtitle: l10n.eventStartTime,
+                      onTap: _pickStartTime,
+                    ),
+                    const SizedBox(height: 8),
+                    _PickerTile(
+                      leading: const CircleAvatar(
+                        child: Icon(Icons.stop_rounded),
+                      ),
+                      title: _durationMinutes == null
+                          ? l10n.eventEndTimeNone
+                          : EventTimeFormatter.formatMinute(
+                              (_startMinute + _durationMinutes!) %
+                                  EventTime.minutesPerDay,
+                              context,
+                            ),
+                      subtitle: _durationMinutes == null
+                          ? l10n.eventEndTimeHint
+                          : (_startMinute + _durationMinutes! >=
+                                    EventTime.minutesPerDay
+                                ? l10n.eventCrossesMidnight
+                                : l10n.eventEndTime),
+                      trailing: _durationMinutes == null
+                          ? const Icon(Icons.chevron_right_rounded)
+                          : IconButton(
+                              tooltip: l10n.resetToDefault,
+                              icon: const Icon(Icons.close_rounded),
+                              onPressed: _clearEndTime,
+                            ),
+                      onTap: _pickEndTime,
+                    ),
+                  ],
+                  _GroupHeader(text: l10n.eventSectionDetails),
+                  const SizedBox(height: 8),
+                  // Above the description it governs, and gated on the same
+                  // occurrence count as presence: a switch whose effect lands
+                  // further up the form reads as if the tap did nothing.
+                  if (_ruleHasManyOccurrences) ...[
+                    Card(
+                      margin: EdgeInsets.zero,
+                      child: SwitchListTile(
+                        value: _perOccurrenceDescriptions,
+                        onChanged: (v) => setState(() {
+                          _perOccurrenceDescriptions = v;
+                          if (!v) _syncScopeToRule();
+                        }),
+                        secondary: const CircleAvatar(
+                          child: Icon(Icons.event_note_outlined),
+                        ),
+                        title: Text(l10n.eventPerOccurrenceDescriptions),
+                        subtitle: Text(l10n.eventPerOccurrenceDescriptionsDesc),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  _buildDescriptionField(context, l10n, theme),
+                  Card(
+                    margin: EdgeInsets.zero,
+                    clipBehavior: Clip.antiAlias,
+                    child: ExpansionTile(
+                      // Collapsed for a fresh event; opens when the event
+                      // already carries a custom icon or colour.
+                      initiallyExpanded:
+                          _iconKey != null || _colorValue != null,
+                      shape: const Border(),
+                      collapsedShape: const Border(),
+                      tilePadding: const EdgeInsets.symmetric(horizontal: 16),
+                      leading: CircleAvatar(
+                        backgroundColor: accent.withValues(alpha: 0.18),
+                        foregroundColor: accent,
+                        child: Icon(
+                          CalendarIcons.forKey(_iconKey) ??
+                              CalendarIcons.forKey(category.iconKey) ??
+                              Icons.event_rounded,
+                        ),
+                      ),
+                      title: Text(l10n.eventAppearance),
+                      childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                      expandedCrossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(l10n.iconLabel),
+                          subtitle: Text(
+                            _iconKey == null
+                                ? l10n.iconDefault
+                                : l10n.iconCustom,
+                          ),
+                          trailing: _iconKey == null
+                              ? const Icon(Icons.chevron_right_rounded)
+                              : IconButton(
+                                  tooltip: l10n.resetToDefault,
+                                  icon: const Icon(Icons.refresh_rounded),
+                                  onPressed: () =>
+                                      setState(() => _iconKey = null),
+                                ),
+                          onTap: _pickIcon,
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(0, 8, 0, 8),
+                          child: Text(
+                            l10n.eventColor,
+                            style: theme.textTheme.labelLarge?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                        ColorSwatchPicker(
+                          value: _colorValue,
+                          onChanged: (value) =>
+                              setState(() => _colorValue = value),
+
+                          defaultOption: ColorSwatchDefault(
+                            color: categoryColor,
+                            icon:
+                                CalendarIcons.forKey(category.iconKey) ??
+                                Icons.event_rounded,
+                            tooltip: l10n.eventColorCategoryDefault,
+                          ),
+                        ),
+                        if (_colorValue != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: SwitchListTile(
+                              contentPadding: EdgeInsets.zero,
+                              value: _tintIcon,
+                              onChanged: (v) => setState(() => _tintIcon = v),
+                              title: Text(l10n.eventTintIcon),
+                              subtitle: Text(l10n.eventTintIconHint),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  _SectionLabel(text: l10n.eventPriority),
+                  // One chip per level, P1 (highest) first. Chips replaced
+                  // the numeric stepper when the scale flipped to
+                  // 1-is-highest: a "+" that lowers priority (or raises the
+                  // number while the label says Higher) cannot be made
+                  // unambiguous, while a labeled, iconed chip can.
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (
+                        var p = kMinEventPriority;
+                        p <= kMaxEventPriority;
+                        p++
+                      )
+                        ChoiceChip(
+                          avatar: Icon(EventPriorities.iconFor(p), size: 18),
+                          label: Text(EventPriorities.labelOf(p, l10n)),
+                          visualDensity: VisualDensity.compact,
+                          selected: _priority == p,
+                          onSelected: (selected) {
+                            if (selected) setState(() => _priority = p);
+                          },
+                        ),
+                    ],
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      l10n.eventPriorityHint,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  _SectionLabel(text: l10n.eventLinkedNote),
+                  _PickerTile(
+                    leading: CircleAvatar(
+                      backgroundColor: _noteMissing
+                          ? theme.colorScheme.errorContainer
+                          : null,
+                      foregroundColor: _noteMissing
+                          ? theme.colorScheme.onErrorContainer
+                          : null,
+                      child: Icon(
+                        _noteId == null
+                            ? Icons.note_add_outlined
+                            : (_noteMissing
+                                  ? Icons.warning_amber_rounded
+                                  : Icons.sticky_note_2_outlined),
+                      ),
+                    ),
+                    title: _noteId == null
+                        ? l10n.eventLinkNoteHint
+                        : (_noteMissing
+                              ? l10n.eventLinkedNoteMissing
+                              : ((_noteTitle == null || _noteTitle!.isEmpty)
+                                    ? l10n.untitledNote
+                                    : _noteTitle!)),
+                    subtitle: _noteId == null ? null : l10n.selectNote,
+                    trailing: _noteId == null
+                        ? const Icon(Icons.chevron_right_rounded)
+                        : IconButton(
+                            tooltip: l10n.eventRemoveNoteLink,
+                            icon: const Icon(Icons.link_off_rounded),
+                            onPressed: _clearNote,
+                          ),
+                    onTap: _pickNote,
+                  ),
+                  // Secondary whole-form action, placed like Delete: the
+                  // inline header stays `close | title | Save`, so anything
+                  // that acts on the whole form and is not Save lives at the
+                  // bottom of the scroll body.
+                  const SizedBox(height: 24),
+                  ListenableBuilder(
+                    listenable: _titleController,
+                    builder: (context, _) => OutlinedButton.icon(
+                      onPressed: _titleController.text.trim().isEmpty
+                          ? null
+                          : _onSaveAsTemplate,
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(48),
+                      ),
+                      icon: const Icon(Icons.bookmark_add_outlined),
+                      label: Text(l10n.saveAsTemplate),
+                    ),
+                  ),
+                  if (_isEditing) ...[
+                    const SizedBox(height: 24),
+                    FilledButton.icon(
+                      onPressed: _onDelete,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: theme.colorScheme.errorContainer,
+                        foregroundColor: theme.colorScheme.onErrorContainer,
+                        minimumSize: const Size.fromHeight(48),
+                      ),
+                      icon: const Icon(Icons.delete_rounded),
+                      label: Text(l10n.delete),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                ],
               ),
             ),
-            AnimatedSize(
-              duration: const Duration(milliseconds: 180),
-              curve: Curves.easeOut,
-              alignment: Alignment.topCenter,
-              child: _descriptionFocused
-                  ? _buildDescriptionBar()
-                  : const SizedBox(width: double.infinity),
-            ),
-          ],
-        ),
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            alignment: Alignment.topCenter,
+            child: _descriptionFocused
+                ? Padding(
+                    padding: EdgeInsets.only(bottom: bottomClearance),
+                    child: _buildDescriptionBar(),
+                  )
+                : const SizedBox(width: double.infinity),
+          ),
+        ],
       ),
     );
   }

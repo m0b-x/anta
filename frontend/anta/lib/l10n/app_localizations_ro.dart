@@ -4532,6 +4532,18 @@ class AppLocalizationsRo extends AppLocalizations {
   String get dayListEmptyMonth => 'Nimic în această lună';
 
   @override
+  String get dayListEmptyRange => 'Nimic în acest interval';
+
+  @override
+  String get renderErrorTitle =>
+      'Această parte a ecranului nu a putut fi afișată';
+
+  @override
+  String renderErrorDetail(String error) {
+    return 'Trage în jos sau mergi înapoi pentru a închide. Detalii: $error';
+  }
+
+  @override
   String get dayListPreviousMonth => 'Luna anterioară';
 
   @override

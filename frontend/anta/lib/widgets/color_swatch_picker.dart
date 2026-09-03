@@ -69,6 +69,13 @@ class _ColorSwatchPickerState extends State<ColorSwatchPicker> {
   /// nothing: a user who expanded once is browsing colours.
   bool _expanded = false;
 
+  /// Whether one of this row's sheets is already in flight. A dot is a small
+  /// target in a field of small targets, so a double tap here is routine — and
+  /// without this it pushes two identical pickers, the second of which looks
+  /// like a sheet that refuses to close. Sheets opened from *inside* a guarded
+  /// trip (the long-press menu's edit and manage entries) never re-check it.
+  bool _sheetOpen = false;
+
   @override
   void initState() {
     super.initState();
@@ -101,21 +108,40 @@ class _ColorSwatchPickerState extends State<ColorSwatchPicker> {
   }
 
   Future<void> _addFromPicker() async {
-    final picked = await ColorPickerSheet.show(
-      context,
-      initialColor: widget.value,
-    );
-    if (picked == null || !mounted) return;
-    widget.onChanged(picked);
-    if (CalendarPalette.contains(picked)) return;
-    final service = await CalendarPaletteService.getInstance();
-    final added = await service.add(picked);
-    if (added || !mounted) return;
-    // The only way `add` refuses a colour the palette does not already carry.
-    CustomSnackbar.showError(
-      context,
-      AppLocalizations.of(context)!.colorPaletteFull,
-    );
+    if (_sheetOpen) return;
+    _sheetOpen = true;
+    try {
+      final picked = await ColorPickerSheet.show(
+        context,
+        initialColor: widget.value,
+      );
+      if (picked == null || !mounted) return;
+      widget.onChanged(picked);
+      if (CalendarPalette.contains(picked)) return;
+      final service = await CalendarPaletteService.getInstance();
+      final added = await service.add(picked);
+      if (added || !mounted) return;
+      // The only way `add` refuses a colour the palette does not already carry.
+      CustomSnackbar.showError(
+        context,
+        AppLocalizations.of(context)!.colorPaletteFull,
+      );
+    } finally {
+      _sheetOpen = false;
+    }
+  }
+
+  /// The manage affordance. Guarded like [_addFromPicker] and awaited, so the
+  /// flag survives for the sheet's whole life rather than being cleared on the
+  /// frame the route was pushed.
+  Future<void> _openPaletteSheet() async {
+    if (_sheetOpen) return;
+    _sheetOpen = true;
+    try {
+      await ColorPaletteSheet.show(context);
+    } finally {
+      _sheetOpen = false;
+    }
   }
 
   Future<void> _editCustom(int color) async {
@@ -131,6 +157,18 @@ class _ColorSwatchPickerState extends State<ColorSwatchPicker> {
   }
 
   Future<void> _openMenu(int color) async {
+    if (_sheetOpen) return;
+    _sheetOpen = true;
+    try {
+      await _menuBody(color);
+    } finally {
+      _sheetOpen = false;
+    }
+  }
+
+  /// Unguarded body of [_openMenu]: the editor and the manage sheet it routes
+  /// into are part of the same trip and already hold the slot.
+  Future<void> _menuBody(int color) async {
     final l10n = AppLocalizations.of(context)!;
     final action = await showModalBottomSheet<_SwatchAction>(
       context: context,
@@ -212,7 +250,7 @@ class _ColorSwatchPickerState extends State<ColorSwatchPicker> {
             icon: Icons.palette_outlined,
             tooltip: l10n.manageColors,
             selected: false,
-            onTap: () => ColorPaletteSheet.show(context),
+            onTap: _openPaletteSheet,
           ),
         ];
 
@@ -281,6 +319,10 @@ class _ColorSwatchPickerState extends State<ColorSwatchPicker> {
   ) {
     final limit = budget < 1 ? 1 : budget;
     final shown = palette.take(limit).toList();
+    // An empty palette has no slot to swap the selection into. `take` on an
+    // empty list is empty however generous the budget is, so the write below
+    // would be an out-of-range assignment, not a no-op.
+    if (shown.isEmpty) return shown;
     if (selected == null || shown.contains(selected)) return shown;
     if (!palette.contains(selected)) return shown;
     shown[shown.length - 1] = selected;

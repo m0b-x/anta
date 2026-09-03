@@ -5689,6 +5689,23 @@
   "@dayListEmptyMonth": {
     "description": "Empty state of the drill-down's month mode"
   },
+  "dayListEmptyRange": "Nothing in this range",
+  "@dayListEmptyRange": {
+    "description": "Empty state of the drill-down's list mode when no day has entries"
+  },
+  "renderErrorTitle": "This part of the screen could not be drawn",
+  "@renderErrorTitle": {
+    "description": "Title of the in-app placeholder shown where a widget failed to build"
+  },
+  "renderErrorDetail": "Drag down or go back to close. Details: {error}",
+  "@renderErrorDetail": {
+    "description": "Body of the in-app placeholder shown where a widget failed to build",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
   "dayListPreviousMonth": "Previous month",
   "@dayListPreviousMonth": {
     "description": "Tooltip of the drill-down month navigation's left chevron"

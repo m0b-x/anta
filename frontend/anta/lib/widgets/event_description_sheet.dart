@@ -339,144 +339,148 @@ class _EventDescriptionSheetState extends State<EventDescriptionSheet> {
         2 *
         1.4;
     // The bar is a fixed footer below the editor, so the clearance goes on the
-    // whole sheet rather than on a scrollable's padding — the footer is what
-    // has to clear the gesture bar.
+    // bar — never on the whole sheet. The sheet's box is a fixed fraction of
+    // the screen and does not shrink for the keyboard, so padding the body
+    // subtracts the inset from the content: with a tall IME (or a stale inset
+    // frame) that reaches zero, the header stops rendering and the sheet reads
+    // as blank and dead. Padding the footer instead lets the editor's
+    // `Expanded` absorb the loss and keeps the header on screen and tappable.
     final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
     final viewPadding = MediaQuery.viewPaddingOf(context).bottom;
     final bottomClearance = viewInsets > viewPadding ? viewInsets : viewPadding;
 
-    return Padding(
-      padding: EdgeInsets.only(bottom: bottomClearance),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-            child: Row(
-              children: [
-                IconButton(
-                  tooltip: l10n.close,
-                  icon: const Icon(Icons.close_rounded),
-                  onPressed: () => Navigator.of(context).pop(),
-                ),
-                // Two lines, not a `title · Description` breadcrumb: between a
-                // 48dp icon and the Done button there is barely 180dp left on
-                // a phone, and a one-line breadcrumb ellipsises away the half
-                // that says what the sheet *is*. Stacked, the event name
-                // truncates and the label never does — and the pair still fits
-                // inside the row's existing button height, so the header costs
-                // no extra vertical room.
-                Expanded(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (subject != null)
-                        Text(
-                          subject,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
-                          ),
-                          textAlign: TextAlign.center,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+          child: Row(
+            children: [
+              IconButton(
+                tooltip: l10n.close,
+                icon: const Icon(Icons.close_rounded),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+              // Two lines, not a `title · Description` breadcrumb: between a
+              // 48dp icon and the Done button there is barely 180dp left on
+              // a phone, and a one-line breadcrumb ellipsises away the half
+              // that says what the sheet *is*. Stacked, the event name
+              // truncates and the label never does — and the pair still fits
+              // inside the row's existing button height, so the header costs
+              // no extra vertical room.
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (subject != null)
                       Text(
-                        l10n.eventDescription,
-                        style: theme.textTheme.titleLarge,
+                        subject,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
                         textAlign: TextAlign.center,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                    ],
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: ListenableBuilder(
-                    listenable: _revision,
-                    builder: (context, _) => FilledButton(
-                      onPressed: _withinLimit(_length) ? _confirm : null,
-                      child: Text(l10n.eventDescriptionDone),
+                    Text(
+                      l10n.eventDescription,
+                      style: theme.textTheme.titleLarge,
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: ListenableBuilder(
+                  listenable: _revision,
+                  builder: (context, _) => FilledButton(
+                    onPressed: _withinLimit(_length) ? _confirm : null,
+                    child: Text(l10n.eventDescriptionDone),
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-          // One builder for both halves: the counter and the over-limit line
-          // answer the same question, and reading the length once per change
-          // keeps them from ever disagreeing.
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(minHeight: statusBandHeight),
-              child: ListenableBuilder(
-                listenable: _revision,
-                builder: (context, _) {
-                  final over = !_withinLimit(_length);
-                  // Over budget the explanation takes the caption's slot: it
-                  // is the more urgent of the two, and swapping costs no
-                  // layout change where stacking them would.
-                  final message = over
-                      ? l10n.eventDescriptionTooLong(widget.limit)
-                      : caption;
-                  return Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Expanded(
-                        child: message == null
-                            ? const SizedBox.shrink()
-                            : Text(
-                                message,
-                                style: statusStyle?.copyWith(
-                                  color: over
-                                      ? colorScheme.error
-                                      : colorScheme.onSurfaceVariant,
-                                ),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
+        ),
+        // One builder for both halves: the counter and the over-limit line
+        // answer the same question, and reading the length once per change
+        // keeps them from ever disagreeing.
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: statusBandHeight),
+            child: ListenableBuilder(
+              listenable: _revision,
+              builder: (context, _) {
+                final over = !_withinLimit(_length);
+                // Over budget the explanation takes the caption's slot: it
+                // is the more urgent of the two, and swapping costs no
+                // layout change where stacking them would.
+                final message = over
+                    ? l10n.eventDescriptionTooLong(widget.limit)
+                    : caption;
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Expanded(
+                      child: message == null
+                          ? const SizedBox.shrink()
+                          : Text(
+                              message,
+                              style: statusStyle?.copyWith(
+                                color: over
+                                    ? colorScheme.error
+                                    : colorScheme.onSurfaceVariant,
                               ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      l10n.eventDescriptionCount(_length, widget.limit),
+                      style: statusStyle?.copyWith(
+                        color: over
+                            ? colorScheme.error
+                            : colorScheme.onSurfaceVariant,
+                        fontWeight: over ? FontWeight.w600 : null,
                       ),
-                      const SizedBox(width: 12),
-                      Text(
-                        l10n.eventDescriptionCount(_length, widget.limit),
-                        style: statusStyle?.copyWith(
-                          color: over
-                              ? colorScheme.error
-                              : colorScheme.onSurfaceVariant,
-                          fontWeight: over ? FontWeight.w600 : null,
-                        ),
-                      ),
-                    ],
-                  );
-                },
-              ),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
-          // The editor owns all remaining height, so there is no outer scroll
-          // view for it to fight — the whole reason this sheet exists. No
-          // border: a bounded field inside a form earns one, a full-height
-          // writing surface does not, and the note editor — the app's other
-          // full-height editor — has none either. The 4dp inset only lines the
-          // editor's own 16dp text padding up with the 20dp sheet gutter.
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: ModernEditorWrapper(
-                controller: _controller,
-                focusNode: _focus,
-                scrollController: _scroll,
-                searchController: _search,
-                editorFontSize: FontConstants.defaultFontSize,
-                onTextChanged: () {},
-                checkboxTapToggle: _liveMarkdownRendering,
-                showScrollIndicator: false,
-              ),
+        ),
+        // The editor owns all remaining height, so there is no outer scroll
+        // view for it to fight — the whole reason this sheet exists. No
+        // border: a bounded field inside a form earns one, a full-height
+        // writing surface does not, and the note editor — the app's other
+        // full-height editor — has none either. The 4dp inset only lines the
+        // editor's own 16dp text padding up with the 20dp sheet gutter.
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: ModernEditorWrapper(
+              controller: _controller,
+              focusNode: _focus,
+              scrollController: _scroll,
+              searchController: _search,
+              editorFontSize: FontConstants.defaultFontSize,
+              onTextChanged: () {},
+              checkboxTapToggle: _liveMarkdownRendering,
+              showScrollIndicator: false,
             ),
           ),
-          _buildBar(),
-        ],
-      ),
+        ),
+        Padding(
+          padding: EdgeInsets.only(bottom: bottomClearance),
+          child: _buildBar(),
+        ),
+      ],
     );
   }
 }

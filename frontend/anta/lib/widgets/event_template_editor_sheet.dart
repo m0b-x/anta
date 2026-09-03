@@ -8,6 +8,7 @@ import '../models/calendar_event.dart';
 import '../models/event_template.dart';
 import '../models/recurrence_rule.dart';
 import '../services/event_template_service.dart';
+import '../utils/custom_snackbar.dart';
 import 'category_picker_sheet.dart';
 import 'color_swatch_picker.dart';
 import 'icon_picker_sheet.dart';
@@ -257,20 +258,34 @@ class _EventTemplateEditorSheetState extends State<EventTemplateEditorSheet> {
     );
   }
 
+  /// Persists and pops with the saved template.
+  ///
+  /// The `try` is the point: `_saving` gates Save, so a throw escaping here
+  /// would leave the button disabled for the life of the sheet with nothing
+  /// said and the edit unsaved — the same failure `CategoryEditorSheet._onSave`
+  /// guards against, handled the same way.
   Future<void> _onSave() async {
     if (!_canSave) return;
     setState(() => _saving = true);
-    final service = await EventTemplateService.getInstance();
-    final template = _buildTemplate();
-    final EventTemplate saved;
-    if (widget.initial == null) {
-      saved = await service.create(template);
-    } else {
-      await service.updateTemplate(template);
-      saved = template;
+    final l10n = AppLocalizations.of(context)!;
+    try {
+      final service = await EventTemplateService.getInstance();
+      final template = _buildTemplate();
+      final EventTemplate saved;
+      if (widget.initial == null) {
+        saved = await service.create(template);
+      } else {
+        await service.updateTemplate(template);
+        saved = template;
+      }
+      if (!mounted) return;
+      Navigator.of(context).pop(saved);
+    } catch (e) {
+      debugPrint('[EventTemplateEditorSheet] Save failed: $e');
+      if (!mounted) return;
+      setState(() => _saving = false);
+      CustomSnackbar.showError(context, l10n.saveStatusError);
     }
-    if (!mounted) return;
-    Navigator.of(context).pop(saved);
   }
 
   @override
@@ -282,320 +297,312 @@ class _EventTemplateEditorSheetState extends State<EventTemplateEditorSheet> {
     final bottomClearance = viewInsets > viewPadding ? viewInsets : viewPadding;
     final category = CalendarCategories.resolve(_categoryId);
 
-    return Padding(
-      padding: EdgeInsets.only(bottom: bottomClearance),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-            child: Row(
-              children: [
-                IconButton(
-                  tooltip: l10n.cancel,
-                  icon: const Icon(Icons.close_rounded),
-                  onPressed: () => Navigator.of(context).pop(),
+    // The clearance goes on the scroll view's bottom padding, never on the
+    // whole body: the sheet's box is a fixed 0.92 of the screen and does not
+    // shrink for the keyboard, so padding the body subtracts the inset from
+    // the content and a tall IME collapses the Column to nothing — a blank
+    // sheet that hit-tests nothing. Padded this way the header always renders.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+          child: Row(
+            children: [
+              IconButton(
+                tooltip: l10n.cancel,
+                icon: const Icon(Icons.close_rounded),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+              Expanded(
+                child: Text(
+                  _isEditing ? l10n.editTemplate : l10n.createTemplate,
+                  style: theme.textTheme.titleLarge,
+                  textAlign: TextAlign.center,
                 ),
-                Expanded(
-                  child: Text(
-                    _isEditing ? l10n.editTemplate : l10n.createTemplate,
-                    style: theme.textTheme.titleLarge,
-                    textAlign: TextAlign.center,
-                  ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: FilledButton(
+                  onPressed: _canSave ? _onSave : null,
+                  child: Text(l10n.save),
                 ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: FilledButton(
-                    onPressed: _canSave ? _onSave : null,
-                    child: Text(l10n.save),
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Center(
-                    child: CircleAvatar(
-                      radius: 28,
-                      backgroundColor: _tint.withValues(alpha: 0.18),
-                      foregroundColor: _tint,
-                      child: Icon(_icon, size: 28),
-                    ),
+        ),
+        Expanded(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(20, 8, 20, 24 + bottomClearance),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: CircleAvatar(
+                    radius: 28,
+                    backgroundColor: _tint.withValues(alpha: 0.18),
+                    foregroundColor: _tint,
+                    child: Icon(_icon, size: 28),
                   ),
-                  const SizedBox(height: 16),
+                ),
+                const SizedBox(height: 16),
 
-                  // Category first, exactly as in the event editor: picking it
-                  // decides the colour and icon everything below falls back to.
-                  Card(
-                    margin: EdgeInsets.zero,
-                    child: ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: category.color.withValues(alpha: 0.18),
-                        foregroundColor: category.color,
-                        child: Icon(
-                          CalendarIcons.forKey(category.iconKey) ??
-                              Icons.event_rounded,
-                        ),
+                // Category first, exactly as in the event editor: picking it
+                // decides the colour and icon everything below falls back to.
+                Card(
+                  margin: EdgeInsets.zero,
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: category.color.withValues(alpha: 0.18),
+                      foregroundColor: category.color,
+                      child: Icon(
+                        CalendarIcons.forKey(category.iconKey) ??
+                            Icons.event_rounded,
                       ),
-                      title: Text(l10n.eventType),
-                      subtitle: Text(
-                        CalendarCategories.labelOf(category, l10n),
-                      ),
-                      trailing: const Icon(Icons.chevron_right_rounded),
-                      onTap: _pickCategory,
                     ),
+                    title: Text(l10n.eventType),
+                    subtitle: Text(CalendarCategories.labelOf(category, l10n)),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: _pickCategory,
                   ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _nameController,
+                  autofocus: !_isEditing && widget.draft == null,
+                  maxLength: 60,
+                  textInputAction: TextInputAction.done,
+                  textCapitalization: TextCapitalization.sentences,
+                  decoration: InputDecoration(
+                    labelText: l10n.templateName,
+                    hintText: l10n.templateNameHint,
+                    border: const OutlineInputBorder(),
+                  ),
+                  onChanged: (_) => setState(() {}),
+                ),
+
+                _SectionLabel(text: l10n.repeatMode),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final repeat in _TemplateRepeat.values)
+                      ChoiceChip(
+                        label: Text(_repeatLabel(l10n, repeat)),
+                        visualDensity: VisualDensity.compact,
+                        selected: _repeat == repeat,
+                        onSelected: (selected) {
+                          if (selected) setState(() => _repeat = repeat);
+                        },
+                      ),
+                  ],
+                ),
+                if (_hasInterval) ...[
                   const SizedBox(height: 12),
-                  TextField(
-                    controller: _nameController,
-                    autofocus: !_isEditing && widget.draft == null,
-                    maxLength: 60,
-                    textInputAction: TextInputAction.done,
-                    textCapitalization: TextCapitalization.sentences,
-                    decoration: InputDecoration(
-                      labelText: l10n.templateName,
-                      hintText: l10n.templateNameHint,
-                      border: const OutlineInputBorder(),
-                    ),
-                    onChanged: (_) => setState(() {}),
+                  _IntervalStepper(
+                    value: _interval,
+                    onChanged: (value) => setState(() => _interval = value),
                   ),
-
-                  _SectionLabel(text: l10n.repeatMode),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final repeat in _TemplateRepeat.values)
-                        ChoiceChip(
-                          label: Text(_repeatLabel(l10n, repeat)),
-                          visualDensity: VisualDensity.compact,
-                          selected: _repeat == repeat,
-                          onSelected: (selected) {
-                            if (selected) setState(() => _repeat = repeat);
-                          },
-                        ),
-                    ],
+                ],
+                if (_repeat == _TemplateRepeat.weekly) ...[
+                  const SizedBox(height: 12),
+                  _WeekdaySelector(
+                    selected: _weekdays,
+                    onToggle: (day) => setState(() {
+                      if (!_weekdays.remove(day)) _weekdays.add(day);
+                    }),
                   ),
-                  if (_hasInterval) ...[
-                    const SizedBox(height: 12),
-                    _IntervalStepper(
-                      value: _interval,
-                      onChanged: (value) => setState(() => _interval = value),
-                    ),
-                  ],
-                  if (_repeat == _TemplateRepeat.weekly) ...[
-                    const SizedBox(height: 12),
-                    _WeekdaySelector(
-                      selected: _weekdays,
-                      onToggle: (day) => setState(() {
-                        if (!_weekdays.remove(day)) _weekdays.add(day);
-                      }),
-                    ),
-                  ],
+                ],
 
-                  _SectionLabel(text: l10n.eventTimeSection),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    value: _allDay,
-                    title: Text(l10n.eventAllDay),
-                    subtitle: Text(l10n.eventAllDayHint),
-                    onChanged: (value) => setState(() => _allDay = value),
-                  ),
-                  if (!_allDay) ...[
-                    Card(
-                      margin: EdgeInsets.zero,
-                      child: Column(
-                        children: [
-                          ListTile(
-                            leading: const Icon(Icons.schedule_rounded),
-                            title: Text(l10n.eventStartTime),
-                            subtitle: Text(
-                              _formatMinutes(context, _startMinute),
-                            ),
-                            onTap: () => _pickTime(start: true),
-                          ),
-                          ListTile(
-                            leading: const Icon(Icons.timelapse_rounded),
-                            title: Text(l10n.eventEndTime),
-                            subtitle: Text(
-                              _durationMinutes == null
-                                  ? l10n.eventEndTimeNone
-                                  : _formatMinutes(
-                                      context,
-                                      (_startMinute + _durationMinutes!) %
-                                          EventTime.minutesPerDay,
-                                    ),
-                            ),
-                            trailing: _durationMinutes == null
-                                ? null
-                                : IconButton(
-                                    tooltip: l10n.eventEndTimeNone,
-                                    icon: const Icon(Icons.clear_rounded),
-                                    onPressed: () =>
-                                        setState(() => _durationMinutes = null),
-                                  ),
-                            onTap: () => _pickTime(start: false),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: _descriptionController,
-                    maxLines: 5,
-                    minLines: 3,
-                    textCapitalization: TextCapitalization.sentences,
-                    decoration: InputDecoration(
-                      labelText: l10n.eventDescription,
-                      alignLabelWithHint: true,
-                      border: const OutlineInputBorder(),
-                    ),
-                  ),
-
-                  _SectionLabel(text: l10n.iconLabel),
+                _SectionLabel(text: l10n.eventTimeSection),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: _allDay,
+                  title: Text(l10n.eventAllDay),
+                  subtitle: Text(l10n.eventAllDayHint),
+                  onChanged: (value) => setState(() => _allDay = value),
+                ),
+                if (!_allDay) ...[
                   Card(
                     margin: EdgeInsets.zero,
-                    child: ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: _tint.withValues(alpha: 0.18),
-                        foregroundColor: _tint,
-                        child: Icon(_icon),
-                      ),
-                      title: Text(l10n.pickIcon),
-                      trailing: _iconKey == null
-                          ? const Icon(Icons.chevron_right_rounded)
-                          : IconButton(
-                              tooltip: l10n.reset,
-                              icon: const Icon(Icons.clear_rounded),
-                              onPressed: () => setState(() => _iconKey = null),
-                            ),
-                      onTap: _pickIcon,
-                    ),
-                  ),
-
-                  _SectionLabel(text: l10n.eventColor),
-                  ColorSwatchPicker(
-                    value: _colorValue,
-                    onChanged: (value) => setState(() => _colorValue = value),
-                    // The category default reads as a swatch of its own, so
-                    // "no override" is a choice rather than a missing one.
-                    defaultOption: ColorSwatchDefault(
-                      color: category.color,
-                      icon: Icons.auto_awesome_rounded,
-                      tooltip: l10n.eventColorCategoryDefault,
-                    ),
-                  ),
-                  if (_colorValue != null)
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      value: _tintIcon,
-                      title: Text(l10n.eventTintIcon),
-                      onChanged: (value) => setState(() => _tintIcon = value),
-                    ),
-
-                  _SectionLabel(text: l10n.eventPriority),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (
-                        var p = kMinEventPriority;
-                        p <= kMaxEventPriority;
-                        p++
-                      )
-                        ChoiceChip(
-                          avatar: Icon(EventPriorities.iconFor(p), size: 18),
-                          label: Text(EventPriorities.labelOf(p, l10n)),
-                          visualDensity: VisualDensity.compact,
-                          selected: _priority == p,
-                          onSelected: (selected) {
-                            if (selected) setState(() => _priority = p);
-                          },
-                        ),
-                    ],
-                  ),
-
-                  // The repeat-only options. Hidden rather than disabled for a
-                  // one-time template: there is nothing to explain, and the
-                  // save path clears them anyway.
-                  if (_repeats) ...[
-                    const SizedBox(height: 8),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      value: _tracksPresence,
-                      title: Text(l10n.eventTrackPresence),
-                      subtitle: Text(l10n.eventTrackPresenceDesc),
-                      onChanged: (value) =>
-                          setState(() => _tracksPresence = value),
-                    ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      value: _perOccurrenceDescriptions,
-                      title: Text(l10n.eventPerOccurrenceDescriptions),
-                      subtitle: Text(l10n.eventPerOccurrenceDescriptionsDesc),
-                      onChanged: (value) =>
-                          setState(() => _perOccurrenceDescriptions = value),
-                    ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      value: _countOccurrences,
-                      title: Text(l10n.eventCountOccurrences),
-                      subtitle: Text(l10n.eventCountOccurrencesHint),
-                      onChanged: (value) =>
-                          setState(() => _countOccurrences = value),
-                    ),
-                    // Scope is chips, not a switch — the same control the
-                    // event editor uses, so the two forms cannot describe the
-                    // same field in two different vocabularies.
-                    _SectionLabel(text: l10n.recurrenceScopeLabel),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
+                    child: Column(
                       children: [
-                        ChoiceChip(
-                          label: Text(l10n.recurrenceScopeFromStart),
-                          visualDensity: VisualDensity.compact,
-                          selected: !_retroactive,
-                          onSelected: (_) =>
-                              setState(() => _retroactive = false),
+                        ListTile(
+                          leading: const Icon(Icons.schedule_rounded),
+                          title: Text(l10n.eventStartTime),
+                          subtitle: Text(_formatMinutes(context, _startMinute)),
+                          onTap: () => _pickTime(start: true),
                         ),
-                        ChoiceChip(
-                          label: Text(
-                            _repeat == _TemplateRepeat.yearly
-                                ? l10n.recurrenceScopeEveryYear
-                                : l10n.recurrenceScopeAlways,
+                        ListTile(
+                          leading: const Icon(Icons.timelapse_rounded),
+                          title: Text(l10n.eventEndTime),
+                          subtitle: Text(
+                            _durationMinutes == null
+                                ? l10n.eventEndTimeNone
+                                : _formatMinutes(
+                                    context,
+                                    (_startMinute + _durationMinutes!) %
+                                        EventTime.minutesPerDay,
+                                  ),
                           ),
-                          visualDensity: VisualDensity.compact,
-                          selected: _retroactive,
-                          onSelected: (_) =>
-                              setState(() => _retroactive = true),
+                          trailing: _durationMinutes == null
+                              ? null
+                              : IconButton(
+                                  tooltip: l10n.eventEndTimeNone,
+                                  icon: const Icon(Icons.clear_rounded),
+                                  onPressed: () =>
+                                      setState(() => _durationMinutes = null),
+                                ),
+                          onTap: () => _pickTime(start: false),
                         ),
                       ],
                     ),
-                    if (_retroactive)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Text(
-                          l10n.recurrenceScopeHint,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ],
+
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _descriptionController,
+                  maxLines: 5,
+                  minLines: 3,
+                  textCapitalization: TextCapitalization.sentences,
+                  decoration: InputDecoration(
+                    labelText: l10n.eventDescription,
+                    alignLabelWithHint: true,
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+
+                _SectionLabel(text: l10n.iconLabel),
+                Card(
+                  margin: EdgeInsets.zero,
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: _tint.withValues(alpha: 0.18),
+                      foregroundColor: _tint,
+                      child: Icon(_icon),
+                    ),
+                    title: Text(l10n.pickIcon),
+                    trailing: _iconKey == null
+                        ? const Icon(Icons.chevron_right_rounded)
+                        : IconButton(
+                            tooltip: l10n.reset,
+                            icon: const Icon(Icons.clear_rounded),
+                            onPressed: () => setState(() => _iconKey = null),
                           ),
-                        ),
+                    onTap: _pickIcon,
+                  ),
+                ),
+
+                _SectionLabel(text: l10n.eventColor),
+                ColorSwatchPicker(
+                  value: _colorValue,
+                  onChanged: (value) => setState(() => _colorValue = value),
+                  // The category default reads as a swatch of its own, so
+                  // "no override" is a choice rather than a missing one.
+                  defaultOption: ColorSwatchDefault(
+                    color: category.color,
+                    icon: Icons.auto_awesome_rounded,
+                    tooltip: l10n.eventColorCategoryDefault,
+                  ),
+                ),
+                if (_colorValue != null)
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: _tintIcon,
+                    title: Text(l10n.eventTintIcon),
+                    onChanged: (value) => setState(() => _tintIcon = value),
+                  ),
+
+                _SectionLabel(text: l10n.eventPriority),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (var p = kMinEventPriority; p <= kMaxEventPriority; p++)
+                      ChoiceChip(
+                        avatar: Icon(EventPriorities.iconFor(p), size: 18),
+                        label: Text(EventPriorities.labelOf(p, l10n)),
+                        visualDensity: VisualDensity.compact,
+                        selected: _priority == p,
+                        onSelected: (selected) {
+                          if (selected) setState(() => _priority = p);
+                        },
                       ),
                   ],
+                ),
+
+                // The repeat-only options. Hidden rather than disabled for a
+                // one-time template: there is nothing to explain, and the
+                // save path clears them anyway.
+                if (_repeats) ...[
+                  const SizedBox(height: 8),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: _tracksPresence,
+                    title: Text(l10n.eventTrackPresence),
+                    subtitle: Text(l10n.eventTrackPresenceDesc),
+                    onChanged: (value) =>
+                        setState(() => _tracksPresence = value),
+                  ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: _perOccurrenceDescriptions,
+                    title: Text(l10n.eventPerOccurrenceDescriptions),
+                    subtitle: Text(l10n.eventPerOccurrenceDescriptionsDesc),
+                    onChanged: (value) =>
+                        setState(() => _perOccurrenceDescriptions = value),
+                  ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: _countOccurrences,
+                    title: Text(l10n.eventCountOccurrences),
+                    subtitle: Text(l10n.eventCountOccurrencesHint),
+                    onChanged: (value) =>
+                        setState(() => _countOccurrences = value),
+                  ),
+                  // Scope is chips, not a switch — the same control the
+                  // event editor uses, so the two forms cannot describe the
+                  // same field in two different vocabularies.
+                  _SectionLabel(text: l10n.recurrenceScopeLabel),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      ChoiceChip(
+                        label: Text(l10n.recurrenceScopeFromStart),
+                        visualDensity: VisualDensity.compact,
+                        selected: !_retroactive,
+                        onSelected: (_) => setState(() => _retroactive = false),
+                      ),
+                      ChoiceChip(
+                        label: Text(
+                          _repeat == _TemplateRepeat.yearly
+                              ? l10n.recurrenceScopeEveryYear
+                              : l10n.recurrenceScopeAlways,
+                        ),
+                        visualDensity: VisualDensity.compact,
+                        selected: _retroactive,
+                        onSelected: (_) => setState(() => _retroactive = true),
+                      ),
+                    ],
+                  ),
+                  if (_retroactive)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        l10n.recurrenceScopeHint,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
                 ],
-              ),
+              ],
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 

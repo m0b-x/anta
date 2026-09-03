@@ -203,117 +203,118 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
                   CalendarCategories.labelOf(duplicate, l10n),
                 ));
 
-    return Padding(
-      padding: EdgeInsets.only(bottom: bottomClearance),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-            child: Row(
-              children: [
-                IconButton(
-                  tooltip: l10n.cancel,
-                  icon: const Icon(Icons.close_rounded),
-                  onPressed: () => Navigator.of(context).pop(),
+    // The clearance goes on the scroll view's bottom padding, never on the
+    // whole body: the sheet's box is a fixed fraction of the screen and does
+    // not shrink for the keyboard, so padding the body subtracts the inset
+    // from the content and a tall IME collapses the Column to nothing — a
+    // blank sheet that hit-tests nothing. Padded this way the header always
+    // renders and stays tappable.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+          child: Row(
+            children: [
+              IconButton(
+                tooltip: l10n.cancel,
+                icon: const Icon(Icons.close_rounded),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+              Expanded(
+                child: Text(
+                  _isEditing ? l10n.editCategory : l10n.createCategory,
+                  style: theme.textTheme.titleLarge,
+                  textAlign: TextAlign.center,
                 ),
-                Expanded(
-                  child: Text(
-                    _isEditing ? l10n.editCategory : l10n.createCategory,
-                    style: theme.textTheme.titleLarge,
-                    textAlign: TextAlign.center,
-                  ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: FilledButton(
+                  onPressed: _canSave ? _onSave : null,
+                  child: Text(l10n.save),
                 ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: FilledButton(
-                    onPressed: _canSave ? _onSave : null,
-                    child: Text(l10n.save),
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // Live preview of the category's avatar.
-                  Center(
-                    child: CircleAvatar(
-                      radius: 28,
+        ),
+        Expanded(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(20, 8, 20, 24 + bottomClearance),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Live preview of the category's avatar.
+                Center(
+                  child: CircleAvatar(
+                    radius: 28,
+                    backgroundColor: tint.withValues(alpha: 0.18),
+                    foregroundColor: tint,
+                    child: Icon(
+                      CalendarIcons.forKey(_iconKey) ?? Icons.event_rounded,
+                      size: 28,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (_isBuiltIn)
+                  TextFormField(
+                    key: const ValueKey('builtin-name'),
+                    initialValue: builtInLabel,
+                    enabled: false,
+                    decoration: InputDecoration(
+                      labelText: l10n.categoryName,
+                      helperText: l10n.categoryDefault,
+                      border: const OutlineInputBorder(),
+                    ),
+                  )
+                else
+                  TextField(
+                    controller: _nameController,
+                    autofocus: !_isEditing,
+                    maxLength: 40,
+                    textInputAction: TextInputAction.done,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: InputDecoration(
+                      labelText: l10n.categoryName,
+                      hintText: l10n.categoryNameHint,
+                      helperText: duplicateWarning,
+                      helperMaxLines: 2,
+                      helperStyle: TextStyle(color: theme.colorScheme.tertiary),
+                      border: const OutlineInputBorder(),
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                _SectionLabel(text: l10n.iconLabel),
+                Card(
+                  margin: EdgeInsets.zero,
+                  child: ListTile(
+                    leading: CircleAvatar(
                       backgroundColor: tint.withValues(alpha: 0.18),
                       foregroundColor: tint,
                       child: Icon(
                         CalendarIcons.forKey(_iconKey) ?? Icons.event_rounded,
-                        size: 28,
                       ),
                     ),
+                    title: Text(l10n.pickIcon),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: _pickIcon,
                   ),
-                  const SizedBox(height: 16),
-                  if (_isBuiltIn)
-                    TextFormField(
-                      key: const ValueKey('builtin-name'),
-                      initialValue: builtInLabel,
-                      enabled: false,
-                      decoration: InputDecoration(
-                        labelText: l10n.categoryName,
-                        helperText: l10n.categoryDefault,
-                        border: const OutlineInputBorder(),
-                      ),
-                    )
-                  else
-                    TextField(
-                      controller: _nameController,
-                      autofocus: !_isEditing,
-                      maxLength: 40,
-                      textInputAction: TextInputAction.done,
-                      textCapitalization: TextCapitalization.sentences,
-                      decoration: InputDecoration(
-                        labelText: l10n.categoryName,
-                        hintText: l10n.categoryNameHint,
-                        helperText: duplicateWarning,
-                        helperMaxLines: 2,
-                        helperStyle: TextStyle(
-                          color: theme.colorScheme.tertiary,
-                        ),
-                        border: const OutlineInputBorder(),
-                      ),
-                      onChanged: (_) => setState(() {}),
-                    ),
-                  _SectionLabel(text: l10n.iconLabel),
-                  Card(
-                    margin: EdgeInsets.zero,
-                    child: ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: tint.withValues(alpha: 0.18),
-                        foregroundColor: tint,
-                        child: Icon(
-                          CalendarIcons.forKey(_iconKey) ?? Icons.event_rounded,
-                        ),
-                      ),
-                      title: Text(l10n.pickIcon),
-                      trailing: const Icon(Icons.chevron_right_rounded),
-                      onTap: _pickIcon,
-                    ),
-                  ),
-                  _SectionLabel(text: l10n.categoryColor),
-                  // No "default" dot: a category *is* the colour everything
-                  // else falls back to, so there is nothing behind it to
-                  // inherit.
-                  ColorSwatchPicker(
-                    value: _colorValue,
-                    onChanged: (value) =>
-                        setState(() => _colorValue = value ?? _colorValue),
-                  ),
-                ],
-              ),
+                ),
+                _SectionLabel(text: l10n.categoryColor),
+                // No "default" dot: a category *is* the colour everything
+                // else falls back to, so there is nothing behind it to
+                // inherit.
+                ColorSwatchPicker(
+                  value: _colorValue,
+                  onChanged: (value) =>
+                      setState(() => _colorValue = value ?? _colorValue),
+                ),
+              ],
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

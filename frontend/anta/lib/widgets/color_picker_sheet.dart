@@ -55,8 +55,27 @@ class ColorPickerSheet extends StatefulWidget {
     this.initialMode = ColorPickerMode.square,
   });
 
+  /// Whether a picker is between its settings read and its push.
+  ///
+  /// [show] resolves the stored geometry *before* it presents anything, and in
+  /// that window there is no route and no modal barrier — so a second tap sees
+  /// an untouched screen and opens a second picker, which then stacks
+  /// pixel-identically under the first and reads as a sheet that will not
+  /// close. Once the route is up the barrier does this job, which is why the
+  /// flag is released at the push rather than held for the sheet's life: a
+  /// route disposed without popping (a torn-down navigator) never completes
+  /// its future, and a flag waiting on that would block the picker for good.
+  static bool _opening = false;
+
   static Future<int?> show(BuildContext context, {int? initialColor}) async {
-    final mode = await _loadMode();
+    if (_opening) return null;
+    _opening = true;
+    final ColorPickerMode mode;
+    try {
+      mode = await _loadMode();
+    } finally {
+      _opening = false;
+    }
     if (!context.mounted) return null;
     return showModalBottomSheet<int>(
       context: context,

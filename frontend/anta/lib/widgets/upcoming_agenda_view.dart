@@ -140,6 +140,13 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
   Timer? _scanDebounce;
   static const Duration _scanDebounceDelay = Duration(milliseconds: 200);
 
+  /// One modal at a time. A summary card's button and the filter button are
+  /// both plain taps on a list that keeps rendering while the route animates
+  /// in, so a double tap would otherwise push two identical sheets — and
+  /// dismissing the top one would leave the second stranded over the panel.
+  bool _dayListOpen = false;
+  bool _filtersOpen = false;
+
   /// The raw query parsed **once per rescan** and shared by all three layers —
   /// events, holidays, fasting — so they can never disagree about what
   /// "matches" means. Reparsed only when the raw text or the locale moves
@@ -165,8 +172,12 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
   List<EventOccurrence> _occurrences = const [];
 
   /// The occurrence list digested to one entry per category. Non-empty only
-  /// under [AgendaEventDisplay.summary]; derived in [_recompute] because it is
-  /// a fold of [_occurrences] rather than a scan of its own.
+  /// under [AgendaEventDisplay.summary]; derived in [_rowsFor] rather than in
+  /// [_recompute] because it is a fold of [_occurrences] that also depends on
+  /// the *presence* inputs — `missedDisplay` and `occurrenceRevision` — which
+  /// deliberately never trigger a rescan. Deriving it beside the rows is what
+  /// makes a card's count and the rows behind it come out of one pass, so the
+  /// drill-down can never open empty on a number the card printed.
   List<EventCategorySummary> _eventSummaries = const [];
 
   List<DateTime> _holidayDays = const [];
@@ -207,8 +218,8 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
   List<DateTime>? _rowsForHolidays;
   List<DateTime>? _rowsForFasting;
   List<FastingRun>? _rowsForFastingRuns;
-  List<EventCategorySummary>? _rowsForEventSummaries;
   List<FastingSummary>? _rowsForFastingSummaries;
+  AgendaEventDisplay? _rowsForEventDisplay;
   AgendaHolidayDisplay? _rowsForHolidayDisplay;
   String? _rowsForLocale;
   bool? _rowsForShowRecurrence;
@@ -217,12 +228,17 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
   CalendarMissedDisplay? _rowsForMissedDisplay;
 
   List<AgendaRow> _rowsFor(AppLocalizations l10n) {
+    final eventDisplay = widget.filters.eventDisplay;
     if (identical(_rowsForOccurrences, _occurrences) &&
         identical(_rowsForHolidays, _holidayDays) &&
         identical(_rowsForFasting, _fastingDays) &&
         identical(_rowsForFastingRuns, _fastingRuns) &&
-        identical(_rowsForEventSummaries, _eventSummaries) &&
         identical(_rowsForFastingSummaries, _fastingSummaries) &&
+        // The event presentation joins the key because the summaries are
+        // folded below rather than scanned: an empty window keeps the same
+        // `const []` occurrence list across a presentation change, so the
+        // identity test above cannot see one on its own.
+        _rowsForEventDisplay == eventDisplay &&
         // A holiday-presentation change re-derives nothing — the days are
         // already scanned — so this memo key *is* the whole mechanism behind
         // the toggle, and `didUpdateWidget` needs no branch for it.
@@ -238,14 +254,23 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
     _rowsForHolidays = _holidayDays;
     _rowsForFasting = _fastingDays;
     _rowsForFastingRuns = _fastingRuns;
-    _rowsForEventSummaries = _eventSummaries;
     _rowsForFastingSummaries = _fastingSummaries;
+    _rowsForEventDisplay = eventDisplay;
     _rowsForHolidayDisplay = widget.filters.holidayDisplay;
     _rowsForLocale = l10n.localeName;
     _rowsForShowRecurrence = widget.showRecurrenceLabels;
     _rowsForOccurrenceRevision = widget.occurrenceRevision;
     _rowsForMembershipRevision = widget.membershipRevision;
     _rowsForMissedDisplay = widget.missedDisplay;
+    // Folded here, beside the rows it must agree with, and under the very
+    // same hidden-missed rule `buildAgendaRows` applies to the day walk — so
+    // a card can never count an occurrence its drill-down would drop.
+    _eventSummaries = eventDisplay == AgendaEventDisplay.summary
+        ? EventAgenda.categorySummariesOf(
+            _occurrences,
+            hideMissed: widget.missedDisplay == CalendarMissedDisplay.hidden,
+          )
+        : const [];
     _rows = buildAgendaRows(
       occurrences: _occurrences,
       holidayDays: _holidayDays,
@@ -502,9 +527,6 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
       // second number away.
       collapseRecurring: display == AgendaEventDisplay.perEvent,
     );
-    _eventSummaries = display == AgendaEventDisplay.summary
-        ? EventAgenda.categorySummariesOf(_occurrences)
-        : const [];
   }
 
   /// Resolves the holiday days to interleave.
@@ -824,28 +846,44 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
   /// inside it, so the editor never stacks on top of a sheet it would return
   /// the user to.
   Future<void> _showDayList(AgendaDayList list) async {
-    final l10n = AppLocalizations.of(context)!;
-    final result = await AgendaDayListSheet.show(
-      context,
-      list,
-      resolve: _resolverFor(list.source, l10n),
-      appearance: widget.appearance,
-      today: EventAgenda.dateOnly(DateTime.now()),
-      windowStart: _resolved.$1,
-      windowEnd: _resolved.$2,
-      initialMode: widget.dayListMode,
-      onModeChanged: widget.onDayListModeChanged,
-    );
-    if (result == null || !mounted) return;
-    final day = result.focusDay;
-    if (day != null) {
-      widget.onDaySelected(day);
-      return;
+    if (_dayListOpen) return;
+    _dayListOpen = true;
+    try {
+      final l10n = AppLocalizations.of(context)!;
+      final result = await AgendaDayListSheet.show(
+        context,
+        list,
+        resolve: _resolverFor(list.source, l10n),
+        appearance: widget.appearance,
+        today: EventAgenda.dateOnly(DateTime.now()),
+        windowStart: _resolved.$1,
+        windowEnd: _resolved.$2,
+        initialMode: widget.dayListMode,
+        onModeChanged: widget.onDayListModeChanged,
+      );
+      if (result == null || !mounted) return;
+      final day = result.focusDay;
+      if (day != null) {
+        widget.onDaySelected(day);
+        return;
+      }
+      result.edit?.call();
+    } finally {
+      _dayListOpen = false;
     }
-    result.edit?.call();
   }
 
   Future<void> _openFilters() async {
+    if (_filtersOpen) return;
+    _filtersOpen = true;
+    try {
+      await _openFiltersSheet();
+    } finally {
+      _filtersOpen = false;
+    }
+  }
+
+  Future<void> _openFiltersSheet() async {
     final result = await AgendaFiltersSheet.show(
       context,
       filters: widget.filters,

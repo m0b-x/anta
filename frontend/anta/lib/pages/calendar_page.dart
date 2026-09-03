@@ -98,6 +98,34 @@ List<DateTime> gridDaysForMonth(
   ];
 }
 
+/// One in-flight slot shared by every sheet the calendar opens.
+///
+/// A fast double tap (or a tap landing while a route transition is still
+/// running) pushes the same modal twice; dismissing one then reveals a
+/// pixel-identical copy underneath, which reads as a sheet that refuses to
+/// close. Owned by [_CalendarViewState] and handed down, so it survives the
+/// rebuilds that reconstruct [_CalendarTable].
+///
+/// Only entry points from a gesture go through [run]. A sheet opened from
+/// inside an already-running body — the detail sheet's editor loop, the
+/// template picker's fallback — is intentional and calls the unguarded body
+/// directly, so the slot is never re-checked below the top of the trip.
+class SheetGuard {
+  bool _open = false;
+
+  bool get isOpen => _open;
+
+  Future<T?> run<T>(Future<T> Function() body) async {
+    if (_open) return null;
+    _open = true;
+    try {
+      return await body();
+    } finally {
+      _open = false;
+    }
+  }
+}
+
 class CalendarPage extends StatelessWidget {
   const CalendarPage({super.key});
 
@@ -115,6 +143,9 @@ class _CalendarView extends StatefulWidget {
 }
 
 class _CalendarViewState extends State<_CalendarView> with RouteAware {
+  /// Guards every gesture-driven sheet on this page against double opens.
+  final SheetGuard _sheetGuard = SheetGuard();
+
   CalendarAppearance _appearance = const CalendarAppearance();
 
   /// Resolved markdown palette, so an event's description renders with the
@@ -490,6 +521,15 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     BuildContext context,
     CalendarEvent event,
     DateTime day,
+  ) => _sheetGuard.run<void>(() => _detailSheetLoop(context, event, day));
+
+  /// The loop itself, unguarded so the trip it runs — detail, editor, quick
+  /// description edit — can reopen freely inside the one slot [_sheetGuard]
+  /// took at the top.
+  Future<void> _detailSheetLoop(
+    BuildContext context,
+    CalendarEvent event,
+    DateTime day,
   ) async {
     final bloc = context.read<CalendarBloc>();
     var current = event;
@@ -544,7 +584,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
           pendingOccurrence = edited.pending;
           if (!context.mounted) return;
         case EventDetailAction.edit:
-          final result = await _openEditorSheet(
+          final result = await _editorSheet(
             context,
             initialEvent: current,
             occurrenceDay: day,
@@ -953,6 +993,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
                                         railOutputCache: _railOutputCache,
                                         onDayLongPressed: (day) =>
                                             _quickAddFromTemplate(context, day),
+                                        sheetGuard: _sheetGuard,
                                       );
                                     },
                                   ),
@@ -1105,10 +1146,18 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   /// With no templates yet, this falls through to the normal editor rather
   /// than showing an empty sheet: a long-press that appears to do nothing is
   /// worse than one that does the obvious thing.
-  Future<void> _quickAddFromTemplate(BuildContext context, DateTime day) async {
+  Future<void> _quickAddFromTemplate(BuildContext context, DateTime day) =>
+      _sheetGuard.run<void>(() => _quickAddFromTemplateBody(context, day));
+
+  /// Unguarded body of [_quickAddFromTemplate]: the picker and the editor it
+  /// falls through to are one trip, already holding the sheet slot.
+  Future<void> _quickAddFromTemplateBody(
+    BuildContext context,
+    DateTime day,
+  ) async {
     final normalized = DateTime.utc(day.year, day.month, day.day);
     if (CalendarTemplates.isEmpty) {
-      await _openEditorSheet(context, day: normalized);
+      await _editorSheet(context, day: normalized);
       return;
     }
 
@@ -1116,7 +1165,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     if (choice == null || !context.mounted) return;
     switch (choice) {
       case EventTemplateBlank():
-        await _openEditorSheet(context, day: normalized);
+        await _editorSheet(context, day: normalized);
       case EventTemplatePicked(:final template):
         final l10n = AppLocalizations.of(context)!;
         final bloc = context.read<CalendarBloc>();
@@ -1163,6 +1212,26 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   /// next. Every caller still gets the dispatch for free; only the detail
   /// sheet's loop reads the return value.
   Future<EventEditorResult?> _openEditorSheet(
+    BuildContext context, {
+    CalendarEvent? initialEvent,
+    DateTime? day,
+    DateTime? occurrenceDay,
+    String? pendingOccurrenceDescription,
+    bool showBack = false,
+  }) => _sheetGuard.run<EventEditorResult?>(
+    () => _editorSheet(
+      context,
+      initialEvent: initialEvent,
+      day: day,
+      occurrenceDay: occurrenceDay,
+      pendingOccurrenceDescription: pendingOccurrenceDescription,
+      showBack: showBack,
+    ),
+  );
+
+  /// Unguarded body of [_openEditorSheet], for the callers that already hold
+  /// the sheet slot — the detail sheet's edit loop and the template quick-add.
+  Future<EventEditorResult?> _editorSheet(
     BuildContext context, {
     CalendarEvent? initialEvent,
     DateTime? day,
@@ -1349,6 +1418,11 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   Future<void> _openFilterSheet(
     BuildContext context,
     CalendarPageLoaded state,
+  ) => _sheetGuard.run<void>(() => _filterSheetBody(context, state));
+
+  Future<void> _filterSheetBody(
+    BuildContext context,
+    CalendarPageLoaded state,
   ) async {
     final result = await CalendarFilterSheet.show(
       context,
@@ -1369,6 +1443,11 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   /// the live filter exactly like any other change — pick it today, reopen the
   /// app tomorrow, still filtered.
   Future<void> _openPresetSheet(
+    BuildContext context,
+    CalendarPageLoaded state,
+  ) => _sheetGuard.run<void>(() => _presetSheetBody(context, state));
+
+  Future<void> _presetSheetBody(
     BuildContext context,
     CalendarPageLoaded state,
   ) async {
@@ -1488,6 +1567,11 @@ class _CalendarTable extends StatelessWidget {
   /// the sheets and the bloc.
   final ValueChanged<DateTime> onDayLongPressed;
 
+  /// The page's one in-flight sheet slot. Passed down because this widget is
+  /// reconstructed on every grid build, so a flag it owned itself would reset
+  /// under the very double tap it exists to catch.
+  final SheetGuard sheetGuard;
+
   const _CalendarTable({
     required this.state,
     required this.format,
@@ -1503,6 +1587,7 @@ class _CalendarTable extends StatelessWidget {
     required this.tintOutputCache,
     required this.railOutputCache,
     required this.onDayLongPressed,
+    required this.sheetGuard,
   });
 
   StartingDayOfWeek get _startingDayOfWeek =>
@@ -1540,7 +1625,10 @@ class _CalendarTable extends StatelessWidget {
   /// carry a day too, so this both focuses the month and selects the day —
   /// dispatching [SelectCalendarDay] so the panel below moves with it. Opens
   /// on the currently selected day.
-  Future<void> _openMonthYearPicker(BuildContext context) async {
+  Future<void> _openMonthYearPicker(BuildContext context) =>
+      sheetGuard.run<void>(() => _monthYearPickerBody(context));
+
+  Future<void> _monthYearPickerBody(BuildContext context) async {
     final bloc = context.read<CalendarBloc>();
     final picked = await MonthYearPickerSheet.show(
       context,

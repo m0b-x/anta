@@ -4464,6 +4464,17 @@ class AppLocalizationsEn extends AppLocalizations {
   String get dayListEmptyMonth => 'Nothing this month';
 
   @override
+  String get dayListEmptyRange => 'Nothing in this range';
+
+  @override
+  String get renderErrorTitle => 'This part of the screen could not be drawn';
+
+  @override
+  String renderErrorDetail(String error) {
+    return 'Drag down or go back to close. Details: $error';
+  }
+
+  @override
   String get dayListPreviousMonth => 'Previous month';
 
   @override

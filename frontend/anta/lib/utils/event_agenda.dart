@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
+import '../constants/event_presence.dart';
 import '../constants/fasting_calendar.dart';
 import '../constants/occurrence_descriptions.dart';
 import '../constants/public_holidays.dart';
@@ -576,12 +577,27 @@ abstract final class EventAgenda {
   /// what makes `first`/`last` and the per-category order fall out for free.
   /// Categories are ordered by their first in-window occurrence, matching the
   /// time ordering of everything else in the agenda.
+  ///
+  /// [hideMissed] is the `CalendarMissedDisplay.hidden` half of presence
+  /// (**v26**), resolved here — once, in the aggregation layer — rather than
+  /// re-filtered per surface. A hidden occurrence never reaches a row in
+  /// `buildAgendaRows` or an entry in `AgendaListView.eventDayEntries`, so a
+  /// card counting it would promise a drill-down that opens empty. A category
+  /// left with nothing produces **no card at all**, which is the same rule the
+  /// day walk applies to a day it emptied. `faded` changes nothing: those
+  /// occurrences still render, so they still count.
   static List<EventCategorySummary> categorySummariesOf(
-    List<EventOccurrence> occurrences,
-  ) {
+    List<EventOccurrence> occurrences, {
+    bool hideMissed = false,
+  }) {
     if (occurrences.isEmpty) return const [];
     final byCategory = <String, List<EventOccurrence>>{};
     for (final occurrence in occurrences) {
+      if (hideMissed &&
+          EventPresence.appliesTo(occurrence.event) &&
+          EventPresence.isMissed(occurrence.event.id, occurrence.day)) {
+        continue;
+      }
       (byCategory[occurrence.event.categoryId] ??= <EventOccurrence>[]).add(
         occurrence,
       );

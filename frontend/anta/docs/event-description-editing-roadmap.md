@@ -72,11 +72,14 @@ code before implementation; these are what that review and the build changed.
    really *never call `configureMoney`*, which is a much easier thing to break
    by copying the note editor's setup.
 10. **The docked bar makes this a fixed-footer sheet**, so the
-    `max(viewInsets, viewPadding)` clearance wraps the whole sheet rather than
-    padding a scrollable — the `CalendarFilterSheet` variant of that rule, not
-    the one §3.1 assumed both existing sheets shared (they do not: the editor
-    sheet sets no `useSafeArea` and pads itself, the detail sheet does the
-    opposite).
+    `max(viewInsets, viewPadding)` clearance pads the bar rather than a
+    scrollable — not the one §3.1 assumed both existing sheets shared (they do
+    not: the editor sheet sets no `useSafeArea` and pads itself, the detail
+    sheet does the opposite). **Corrected 2026-09-03:** it wrapped the whole
+    sheet body until then, which is the blank ~92% sheet defect — the box is a
+    fixed fraction of the screen and never shrinks for the keyboard, so the
+    content became `factor · H − clearance` and a tall inset collapsed it to
+    nothing.
 11. **Sheet stacking needed no justification.** §6.1 defended `EventEditorBack`
     partly as avoiding two stacked barriers; the editor sheet already opens
     `EventTemplateEditorSheet` at 0.92 on top of its own 0.92, and the category

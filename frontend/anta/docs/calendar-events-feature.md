@@ -3001,11 +3001,23 @@ is the worst time to move it. The editor fills the rest of the height with
   (`s.effectiveCounters.isEmpty`), shortcuts through
   `MarkdownShortcutInserter` + `ShortcutApplier` inside `runRevocableOp` with
   a post-frame `makeCursorVisible()`.
-- **Because the bar is a fixed footer, the clearance wraps the whole sheet.**
-  `max(viewInsets.bottom, viewPadding.bottom)` pads the sheet itself rather
-  than a scrollable — the `CalendarFilterSheet` variant of the rule §6.6 and
-  the hard rules describe, not the scrollable-padding one every other
-  calendar sheet uses.
+- **Because the bar is a fixed footer, the clearance pads the bar** —
+  `max(viewInsets.bottom, viewPadding.bottom)` on the footer, **never on the
+  whole body** (corrected 2026-09-03). Wrapping the body was the original
+  shape and it is the blank-sheet bug: the sheet's box is a fixed 0.92 of the
+  screen and never shrinks for the keyboard, so `Padding(bottom: clearance)`
+  around the `Column` makes the content `0.92 · H − clearance`, which a tall
+  IME, split screen, or a stale Android inset frame drives to zero. The
+  `Column` then paints nothing and hit-tests nothing — a blank ~92% sheet that
+  ignores taps, indistinguishable from the release `RenderErrorBox`. Padded on
+  the footer, the editor's `Expanded` absorbs the loss and the header stays on
+  screen and tappable. The same correction applies to every fixed-footer sheet
+  in the subsystem (`EventEditorSheet`'s markdown bar,
+  `CalendarDatePickerSheet`'s multi-select row); the form sheets
+  (`CategoryEditorSheet`, `EventTemplateEditorSheet`) simply moved the
+  clearance onto their scroll view's bottom padding, the shape the picker
+  sheets already used. `test/widgets/sheet_bottom_clearance_test.dart` carries
+  a case that drives the inset past the sheet's own height.
 - **The editor carries no border, deliberately.** A bounded 120–260 px field
   inside a form earns an outline; a full-height writing surface does not — it
   reads as a form field, nests a box inside the sheet's own box, and spends

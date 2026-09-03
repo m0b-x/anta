@@ -15,6 +15,9 @@ import 'bloc/optimized_note/optimized_note_bloc.dart';
 import 'bloc/counter/counter_bloc.dart';
 import 'bloc/import_export/import_export_bloc.dart';
 import 'bloc/markdown_bar/markdown_bar_bloc.dart';
+import 'constants/app_colors.dart';
+import 'constants/app_icon_sizes.dart';
+import 'constants/app_spacing.dart';
 import 'core/di/injection.dart';
 import 'pages/optimized_folder_content_page.dart';
 import 'pages/onboarding_page.dart';
@@ -24,8 +27,133 @@ import 'services/import_export_service.dart';
 import 'services/navigation_history_service.dart';
 import 'services/settings_service.dart';
 
+/// How much of an exception string the on-screen placeholder carries. Long
+/// enough to name the widget and the assertion, short enough that the box
+/// stays a caption rather than a wall of stack frames.
+const int _errorDetailLimit = 300;
+
+/// Localizations for a surface that has no [BuildContext] to resolve them
+/// from. Falls back to English when the device locale is not one of ours, and
+/// to `null` when even that fails, so the caller can use plain literals.
+AppLocalizations? _errorLocalizations() {
+  try {
+    final device = WidgetsBinding.instance.platformDispatcher.locale;
+    final supported = AppLocalizations.supportedLocales.any(
+      (locale) => locale.languageCode == device.languageCode,
+    );
+    return lookupAppLocalizations(
+      supported ? Locale(device.languageCode) : const Locale('en'),
+    );
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Replacement for Flutter's default [ErrorWidget].
+///
+/// In release the default is a textless [RenderErrorBox] that expands to fill
+/// its parent, so a build exception inside a bottom sheet renders as a blank,
+/// unresponsive sheet. This one says what happened, stays as small as its own
+/// content, and hit-tests nothing outside that box.
+///
+/// It runs with no inherited theme or directionality guaranteed, so both are
+/// supplied here and every colour is explicit.
+Widget buildAppErrorWidget(FlutterErrorDetails details) {
+  final l10n = _errorLocalizations();
+  final raw = details.exceptionAsString();
+  final error = raw.length > _errorDetailLimit
+      ? '${raw.substring(0, _errorDetailLimit)}…'
+      : raw;
+  final title =
+      l10n?.renderErrorTitle ?? 'This part of the screen could not be drawn';
+  final detail = l10n?.renderErrorDetail(error) ?? 'Details: $error';
+
+  return Directionality(
+    textDirection: TextDirection.ltr,
+    child: Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 360),
+        child: Material(
+          color: AppColors.deleteAction.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(AppSpacing.sm),
+          child: DefaultTextStyle(
+            style: const TextStyle(
+              fontSize: 12,
+              height: 1.3,
+              color: AppColors.deleteAction,
+              decoration: TextDecoration.none,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.sm),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(
+                        Icons.error_outline_rounded,
+                        size: AppIconSizes.tiny,
+                        color: AppColors.deleteAction,
+                      ),
+                      const SizedBox(width: AppSpacing.xs),
+                      Flexible(
+                        child: Text(
+                          title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            height: 1.3,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.deleteAction,
+                            decoration: TextDecoration.none,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  SelectableText(
+                    detail,
+                    maxLines: 4,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      height: 1.3,
+                      color: AppColors.deleteAction,
+                      decoration: TextDecoration.none,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+/// Keeps Flutter's own reporting and adds a single logcat line, which is the
+/// only place a release build surfaces anything at all.
+void installErrorHooks() {
+  ErrorWidget.builder = buildAppErrorWidget;
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+    final where = details.context == null ? '' : ' while ${details.context}';
+    debugPrint(
+      '[anta][${details.library ?? 'flutter'}]$where: '
+      '${details.exceptionAsString()}',
+    );
+  };
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  installErrorHooks();
   await initializeDateFormatting();
 
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);

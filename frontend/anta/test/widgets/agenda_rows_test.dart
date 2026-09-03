@@ -724,6 +724,87 @@ void main() {
       expect(rows.whereType<AgendaEventSummaryRow>(), isEmpty);
       expect(rows.whereType<AgendaEntryRow>(), hasLength(3));
     });
+
+    /// The card and its drill-down fold the same occurrences twice, so the
+    /// hidden-missed rule has to reach both: a card counting an occurrence the
+    /// drill-down drops opens an empty sheet on a number it printed itself.
+    group('hidden missed occurrences', () {
+      /// `tracked` is the only `gym` event; its day2 occurrence is marked
+      /// missed, day1 is attended.
+      final gymOnly = [
+        EventOccurrence(event: tracked, day: day1),
+        EventOccurrence(event: tracked, day: day2),
+      ];
+      final missedOnly = [EventOccurrence(event: tracked, day: day2)];
+
+      int drillDownLength(List<EventOccurrence> occ) {
+        return AgendaListView.eventDayEntries(
+          occ,
+          l10n,
+          (_, _) {},
+          showRecurrenceLabels: true,
+          missedDisplay: CalendarMissedDisplay.hidden,
+        ).length;
+      }
+
+      test('the count drops exactly what the drill-down drops', () {
+        final summary = EventAgenda.categorySummariesOf(
+          gymOnly,
+          hideMissed: true,
+        ).single;
+
+        expect(summary.categoryId, 'gym');
+        expect(summary.occurrenceCount, 1);
+        expect(summary.eventCount, 1);
+        // The advertised range shrinks with it, so the card cannot name a day
+        // its drill-down holds nothing for.
+        expect(summary.first, day1);
+        expect(summary.last, day1);
+        expect(summary.occurrenceCount, drillDownLength(gymOnly));
+      });
+
+      test('a category left with nothing gets no card at all', () {
+        final summaries = EventAgenda.categorySummariesOf(
+          missedOnly,
+          hideMissed: true,
+        );
+
+        expect(summaries, isEmpty);
+        expect(drillDownLength(missedOnly), 0);
+        expect(
+          build(
+            eventSummaries: summaries,
+            missedDisplay: CalendarMissedDisplay.hidden,
+          ).whereType<AgendaEventSummaryRow>(),
+          isEmpty,
+        );
+      });
+
+      test('faded still shows the card and still counts the miss', () {
+        final summary = EventAgenda.categorySummariesOf(missedOnly).single;
+
+        expect(summary.categoryId, 'gym');
+        expect(summary.occurrenceCount, 1);
+        final cards = build(
+          eventSummaries: [summary],
+        ).whereType<AgendaEventSummaryRow>();
+        expect(cards.single.summary.categoryId, 'gym');
+      });
+
+      test('an untracked category is untouched by hiding', () {
+        // Hiding narrows to the marks alone: `mobility` tracks no presence, so
+        // no card of its can ever thin out.
+        final summaries = EventAgenda.categorySummariesOf(
+          mixed,
+          hideMissed: true,
+        );
+
+        expect(summaries.map((s) => s.categoryId), ['gym', 'mobility']);
+        for (final summary in summaries) {
+          expect(summary.occurrenceCount, 1, reason: summary.categoryId);
+        }
+      });
+    });
   });
 
   /// The summary card's drill-down converts the very same occurrences a second
