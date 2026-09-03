@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../bloc/calendar/calendar_bloc.dart';
 import '../l10n/app_localizations.dart';
+import '../models/agenda_day_list_mode.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../models/calendar_panel_mode.dart';
@@ -76,9 +77,15 @@ class CalendarBottomPanel extends StatefulWidget {
   /// reason as [showRecurrenceLabels].
   final CalendarMissedDisplay missedDisplay;
 
+  /// Calendar look & feel, forwarded to the agenda so a summary card's
+  /// drill-down can render its mini month on the same grid the page does.
+  /// Owned by the page for the same staleness reason as [colorPalette].
+  final CalendarAppearance appearance;
+
   const CalendarBottomPanel({
     super.key,
     required this.loaded,
+    required this.appearance,
     required this.expanded,
     required this.onToggleExpanded,
     required this.onEditEvent,
@@ -98,6 +105,11 @@ class CalendarBottomPanel extends StatefulWidget {
 class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
   CalendarPanelMode _mode = CalendarPanelMode.day;
   UpcomingAgendaFilters _filters = const UpcomingAgendaFilters();
+
+  /// Which presentation a summary card's drill-down opens in. Panel state for
+  /// the same reason the filters are: the sheet is opened from inside this
+  /// subtree, and nothing on the settings page edits it.
+  AgendaDayListMode _dayListMode = AgendaDayListMode.list;
 
   /// Where the upcoming agenda's look-ahead window starts.
   ///
@@ -171,10 +183,12 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
     final settings = await SettingsService.getInstance();
     final mode = await settings.getCalendarPanelMode();
     final filters = await settings.getUpcomingAgendaFilters();
+    final dayListMode = await settings.getAgendaDayListMode();
     if (!mounted) return;
     final now = DateTime.now();
     setState(() {
       _mode = mode;
+      _dayListMode = dayListMode;
       _filters = filters.withoutElapsedRange(
         DateTime.utc(now.year, now.month, now.day),
       );
@@ -231,6 +245,20 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
   Future<void> _persist(UpcomingAgendaFilters filters) async {
     final settings = await SettingsService.getInstance();
     await settings.saveUpcomingAgendaFilters(filters);
+  }
+
+  /// Remembers the presentation a summary card's drill-down was left in. The
+  /// sheet is still open when this runs, so the write is fire-and-forget like
+  /// the filter writes above.
+  void _onDayListModeChanged(AgendaDayListMode mode) {
+    if (mode == _dayListMode) return;
+    setState(() => _dayListMode = mode);
+    _persistDayListMode(mode);
+  }
+
+  Future<void> _persistDayListMode(AgendaDayListMode mode) async {
+    final settings = await SettingsService.getInstance();
+    await settings.setAgendaDayListMode(mode);
   }
 
   @override
@@ -358,6 +386,9 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
           onOpenNote: widget.onOpenNote,
           colorPalette: widget.colorPalette,
           showRecurrenceLabels: widget.showRecurrenceLabels,
+          appearance: widget.appearance,
+          dayListMode: _dayListMode,
+          onDayListModeChanged: _onDayListModeChanged,
           occurrenceRevision: loaded.occurrenceRevision,
           membershipRevision: loaded.membershipRevision,
           missedDisplay: widget.missedDisplay,

@@ -2508,5 +2508,24 @@
   "colorHueSaturation": "Farbton und Sättigung",
   "colorHueSaturationValue": "Farbton {hue}°, Sättigung {saturation} %",
   "colorShowAll": "{count} weitere Farben anzeigen",
-  "eventColorCategoryDefault": "Kategoriefarbe"
+  "eventColorCategoryDefault": "Kategoriefarbe",
+  "dayListModeList": "Liste",
+  "dayListModeMonth": "Monat",
+  "dayListModeYear": "Jahr",
+  "dayListBackToYear": "Zurück zu den Monaten",
+  "dayListWholeMonth": "Ganzer Monat",
+  "dayListEmptyMonth": "Nichts in diesem Monat",
+  "dayListPreviousMonth": "Voriger Monat",
+  "dayListNextMonth": "Nächster Monat",
+  "dayListScopeUpcoming": "Demnächst",
+  "dayListScopeThisYear": "Dieses Jahr",
+  "dayListJumpToToday": "Dieser Monat",
+  "dayListMissedCount": "{count, plural, one {1 verpasst} other {{count} verpasst}}",
+  "@dayListMissedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  }
 }

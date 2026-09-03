@@ -1366,5 +1366,24 @@
   "colorHueSaturation": "Nuanță și saturație",
   "colorHueSaturationValue": "Nuanță {hue}°, saturație {saturation}%",
   "colorShowAll": "Arată încă {count} culori",
-  "eventColorCategoryDefault": "Culoarea categoriei"
+  "eventColorCategoryDefault": "Culoarea categoriei",
+  "dayListModeList": "Listă",
+  "dayListModeMonth": "Lună",
+  "dayListModeYear": "An",
+  "dayListBackToYear": "Înapoi la luni",
+  "dayListWholeMonth": "Toată luna",
+  "dayListEmptyMonth": "Nimic în această lună",
+  "dayListPreviousMonth": "Luna anterioară",
+  "dayListNextMonth": "Luna următoare",
+  "dayListScopeUpcoming": "Urmează",
+  "dayListScopeThisYear": "Anul acesta",
+  "dayListJumpToToday": "Luna aceasta",
+  "dayListMissedCount": "{count, plural, one {1 ratată} few {{count} ratate} other {{count} de ratate}}",
+  "@dayListMissedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  }
 }

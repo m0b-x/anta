@@ -4,15 +4,21 @@ import 'package:intl/intl.dart';
 
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/constants/app_spacing.dart';
+import 'package:anta/constants/calendar_colors.dart';
+import 'package:anta/constants/event_presence.dart';
 import 'package:anta/constants/fasting_calendar.dart';
 import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/models/agenda_day_list_mode.dart';
+import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/fasting_appearance.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/models/upcoming_agenda_filters.dart';
 import 'package:anta/utils/event_agenda.dart';
+import 'package:anta/widgets/agenda_day_list_sheet.dart';
 import 'package:anta/widgets/agenda_list_view.dart';
+import 'package:anta/widgets/calendar_day_cell.dart';
 import 'package:anta/widgets/upcoming_agenda_view.dart';
 
 /// Widget tests for [UpcomingAgendaView], driven against fakes with no
@@ -38,7 +44,7 @@ void main() {
   /// One stable list instance across pumps — the calendar bloc preserves
   /// `allEvents` identity on a day tap, so the view's `identical(events)` guard
   /// stays quiet and only the anchor drives (or does not drive) a rescan.
-  final events = [daily];
+  final sharedEvents = [daily];
 
   /// A day far enough from the real clock that the agenda never relabels it.
   ///
@@ -63,6 +69,8 @@ void main() {
     VoidCallback? onResetAnchor,
     ValueChanged<DateTime>? onDaySelected,
     void Function(CalendarEvent event, DateTime day)? onEditEvent,
+    List<CalendarEvent>? events,
+    CalendarMissedDisplay missedDisplay = CalendarMissedDisplay.faded,
   }) {
     return tester.pumpWidget(
       MaterialApp(
@@ -71,7 +79,7 @@ void main() {
         locale: const Locale('en'),
         home: Scaffold(
           body: UpcomingAgendaView(
-            events: events,
+            events: events ?? sharedEvents,
             anchorDay: anchorDay,
             onResetAnchor: onResetAnchor,
             hiddenCategoryIds: const {},
@@ -80,6 +88,8 @@ void main() {
             onDaySelected: onDaySelected ?? (_) {},
             onEditEvent: onEditEvent ?? (_, _) {},
             onOpenNote: (_) {},
+            appearance: const CalendarAppearance(),
+            missedDisplay: missedDisplay,
           ),
         ),
       ),
@@ -96,6 +106,45 @@ void main() {
   /// that pumps exactly one chip can address it without reaching for whichever
   /// icon the current Material version draws there.
   final removeFilter = find.byTooltip('Remove filter');
+
+  /// Scrolls the drill-down sheet's month body so the rows under the mini
+  /// calendar are laid out.
+  ///
+  /// Scoped to the sheet on purpose: the agenda underneath is a
+  /// `CustomScrollView` too, and it is the one an unscoped finder reaches
+  /// first.
+  Future<void> scrollSheetBody(WidgetTester tester) async {
+    final state = tester.state<ScrollableState>(
+      find
+          .descendant(
+            of: find.descendant(
+              of: find.byType(AgendaDayListSheet),
+              matching: find.byType(CustomScrollView),
+            ),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    state.position.jumpTo(state.position.maxScrollExtent);
+    await tester.pumpAndSettle();
+  }
+
+  /// Switches the drill-down's year overview to the calendar year. Addressed
+  /// through the typed selector, so it can never hit the mode selector above
+  /// it, and by position rather than label.
+  Future<void> tapThisYear(WidgetTester tester) async {
+    await tester.tap(
+      find
+          .descendant(
+            of: find.byWidgetPredicate(
+              (w) => w is SegmentedButton<AgendaDayListYearScope>,
+            ),
+            matching: find.byType(Text),
+          )
+          .at(1),
+    );
+    await tester.pumpAndSettle();
+  }
 
   testWidgets('anchor change with no custom range moves the window', (
     tester,
@@ -909,6 +958,381 @@ void main() {
       expect(captured?.periodMode, AgendaPeriodMode.rollingDays);
       // The rolling window the user had chosen before, not the default.
       expect(captured?.rangeDays, 90);
+    });
+  });
+
+  group('drill-down resolver', () {
+    // The sheet dates itself off the real clock (`today` is resolved when the
+    // sheet opens), so its This-year tiles are always the current calendar
+    // year. Every fixture here is anchored to that year rather than to a
+    // literal one, and the window is pinned to December so January is safely
+    // outside it.
+    final thisYear = EventAgenda.dateOnly(DateTime.now()).year;
+    final january = DateTime.utc(thisYear, 1, 1);
+    final anchor = DateTime.utc(thisYear, 12, 1);
+    String januaryTile() => DateFormat.yMMM('en').format(january);
+    const summary = UpcomingAgendaFilters(
+      rangeDays: 30,
+      eventDisplay: AgendaEventDisplay.summary,
+    );
+
+    final dailyThisYear = CalendarEvent(
+      id: 'r1',
+      title: 'Leg day',
+      categoryId: 'gym',
+      startDate: january,
+      rule: const DailyRecurrence(),
+    );
+
+    /// In the card's category but far outside its window, and ranked away from
+    /// the neutral default so a priority filter can exclude it.
+    final winter = CalendarEvent(
+      id: 'r2',
+      title: 'Winter session',
+      categoryId: 'gym',
+      startDate: DateTime.utc(thisYear, 1, 14),
+      rule: const OneTimeRecurrence(),
+      priority: 1,
+    );
+
+    /// Same past month, a different category — the drill-down is scoped to the
+    /// card that opened it, so this must never reach it.
+    final dentist = CalendarEvent(
+      id: 'r3',
+      title: 'Dentist',
+      categoryId: 'other',
+      startDate: DateTime.utc(thisYear, 1, 20),
+      rule: const OneTimeRecurrence(),
+    );
+
+    final pastEvents = [dailyThisYear, winter, dentist];
+
+    setUp(() {
+      CalendarCategories.updateCache([
+        for (final (index, seed) in CalendarCategories.builtInSeeds.indexed)
+          CalendarCategory(
+            id: seed.id,
+            name: seed.kind.name,
+            colorValue: seed.colorValue,
+            iconKey: seed.iconKey,
+            sortOrder: index,
+            isBuiltIn: true,
+          ),
+      ]);
+    });
+    tearDown(() => CalendarCategories.updateCache(const []));
+
+    /// Opens the one summary card's drill-down and switches its year overview
+    /// to the calendar year, where every month of the year is a tile.
+    Future<void> openThisYear(
+      WidgetTester tester,
+      UpcomingAgendaFilters filters,
+    ) async {
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: filters,
+        events: pastEvents,
+      );
+      // A query debounces the rescan; let it land before the card is read.
+      await tester.pump(const Duration(milliseconds: 250));
+
+      await tester.tap(find.byTooltip('Show every day'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.grid_view_rounded));
+      await tester.pumpAndSettle();
+      await tapThisYear(tester);
+    }
+
+    testWidgets('This year reaches a past month with the card\'s own rows', (
+      tester,
+    ) async {
+      await openThisYear(tester, summary);
+
+      final handle = tester.ensureSemantics();
+      // 31 daily occurrences plus the one-time January session. The dentist is
+      // in the same month and is not this card's category, so it is not here.
+      expect(
+        find.bySemanticsLabel('${januaryTile()}, 32 entries'),
+        findsOneWidget,
+      );
+      handle.dispose();
+
+      await tester.tap(find.text(januaryTile()));
+      await tester.pumpAndSettle();
+      // Narrow to the one day that carries both, so the assertion does not
+      // depend on where a lazy list stopped building.
+      await tester.tap(find.text('14'));
+      await tester.pumpAndSettle();
+      await scrollSheetBody(tester);
+
+      expect(find.text('Winter session'), findsOneWidget);
+      expect(find.text('Leg day'), findsOneWidget);
+      expect(find.text('Dentist'), findsNothing);
+    });
+
+    testWidgets('the priority filter excludes a past occurrence too', (
+      tester,
+    ) async {
+      await openThisYear(
+        tester,
+        summary.copyWith(priorities: const {kDefaultEventPriority}),
+      );
+
+      final handle = tester.ensureSemantics();
+      // The daily event alone: the P1 session no longer passes the filter the
+      // card was built under, so the month it was in must not count it.
+      expect(
+        find.bySemanticsLabel('${januaryTile()}, 31 entries'),
+        findsOneWidget,
+      );
+      handle.dispose();
+
+      await tester.tap(find.text(januaryTile()));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('14'));
+      await tester.pumpAndSettle();
+      await scrollSheetBody(tester);
+
+      expect(find.text('Leg day'), findsOneWidget);
+      expect(find.text('Winter session'), findsNothing);
+    });
+
+    testWidgets('the text query excludes a past occurrence too', (
+      tester,
+    ) async {
+      await openThisYear(tester, summary.copyWith(query: 'leg'));
+
+      final handle = tester.ensureSemantics();
+      expect(
+        find.bySemanticsLabel('${januaryTile()}, 31 entries'),
+        findsOneWidget,
+      );
+      handle.dispose();
+
+      await tester.tap(find.text(januaryTile()));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('14'));
+      await tester.pumpAndSettle();
+      await scrollSheetBody(tester);
+
+      expect(find.text('Leg day'), findsOneWidget);
+      expect(find.text('Winter session'), findsNothing);
+    });
+  });
+
+  group('holiday drill-down resolver', () {
+    final thisYear = EventAgenda.dateOnly(DateTime.now()).year;
+    final anchor = DateTime.utc(thisYear, 8, 10);
+    String januaryTile() =>
+        DateFormat.yMMM('en').format(DateTime.utc(thisYear, 1));
+
+    testWidgets('This year reaches a holiday the window never covered', (
+      tester,
+    ) async {
+      // New Year's Day resolves through the uninitialized fixed-date fallback,
+      // and an August window can never contain it.
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: const UpcomingAgendaFilters(
+          rangeDays: 90,
+          showHolidays: true,
+          holidayDisplay: AgendaHolidayDisplay.summary,
+        ),
+      );
+
+      await tester.tap(find.byTooltip('Show every day'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.grid_view_rounded));
+      await tester.pumpAndSettle();
+      await tapThisYear(tester);
+
+      final handle = tester.ensureSemantics();
+      // New Year's Day and Epiphany.
+      expect(
+        find.bySemanticsLabel('${januaryTile()}, 2 entries'),
+        findsOneWidget,
+      );
+      handle.dispose();
+
+      await tester.tap(find.text(januaryTile()));
+      await tester.pumpAndSettle();
+      await scrollSheetBody(tester);
+
+      expect(find.text("New Year's Day"), findsOneWidget);
+    });
+  });
+
+  group('fasting drill-down resolver', () {
+    setUp(
+      () => FastingCalendar.configure(
+        traditions: const {FastingTradition.orthodox},
+      ),
+    );
+    tearDown(FastingCalendar.resetConfiguration);
+
+    final thisYear = EventAgenda.dateOnly(DateTime.now()).year;
+    final anchor = DateTime.utc(thisYear, 8, 10);
+    String januaryTile() =>
+        DateFormat.yMMM('en').format(DateTime.utc(thisYear, 1));
+
+    testWidgets('This year reaches fasting days outside the window', (
+      tester,
+    ) async {
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: const UpcomingAgendaFilters(
+          rangeDays: 30,
+          showFasting: true,
+          fastingDisplay: AgendaFastingDisplay.summary,
+        ),
+      );
+
+      await tester.tap(find.byTooltip('Show every day'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.grid_view_rounded));
+      await tester.pumpAndSettle();
+      await tapThisYear(tester);
+
+      // The year-round Wednesday/Friday rule alone marks eight or nine days a
+      // month, and January carries no span fast in most years — the exact
+      // number is the calendar's business, but a January tile counted from the
+      // window would read zero.
+      final handle = tester.ensureSemantics();
+      expect(
+        find.bySemanticsLabel(RegExp('^${januaryTile()}, \\d+ entries\$')),
+        findsOneWidget,
+      );
+      handle.dispose();
+    });
+  });
+
+  group('drill-down presence', () {
+    // Same anchoring rule as the resolver group above: the sheet dates itself
+    // off the real clock, so This year is always the current calendar year.
+    final thisYear = EventAgenda.dateOnly(DateTime.now()).year;
+    final january = DateTime.utc(thisYear, 1, 1);
+    final anchor = DateTime.utc(thisYear, 12, 1);
+    final missedDay = DateTime.utc(thisYear, 1, 14);
+    String januaryTile() => DateFormat.yMMM('en').format(january);
+    const summary = UpcomingAgendaFilters(
+      rangeDays: 30,
+      eventDisplay: AgendaEventDisplay.summary,
+    );
+
+    /// Tracked and recurring, so one of its January occurrences can be marked
+    /// missed — the daily gym event the drill-down used to report as attended
+    /// every day of the month.
+    final tracked = CalendarEvent(
+      id: 'p1',
+      title: 'Leg day',
+      categoryId: 'gym',
+      startDate: january,
+      rule: const DailyRecurrence(),
+      tracksPresence: true,
+    );
+
+    setUp(() {
+      CalendarCategories.updateCache([
+        for (final (index, seed) in CalendarCategories.builtInSeeds.indexed)
+          CalendarCategory(
+            id: seed.id,
+            name: seed.kind.name,
+            colorValue: seed.colorValue,
+            iconKey: seed.iconKey,
+            sortOrder: index,
+            isBuiltIn: true,
+          ),
+      ]);
+      EventPresence.updateCache(
+        byEvent: {
+          'p1': {missedDay},
+        },
+      );
+    });
+    tearDown(() {
+      CalendarCategories.updateCache(const []);
+      EventPresence.resetCache();
+    });
+
+    Future<void> openJanuary(
+      WidgetTester tester,
+      CalendarMissedDisplay display,
+    ) async {
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: summary,
+        events: [tracked],
+        missedDisplay: display,
+      );
+      await tester.tap(find.byTooltip('Show every day'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.grid_view_rounded));
+      await tester.pumpAndSettle();
+      await tapThisYear(tester);
+    }
+
+    CalendarDayCell cellFor(WidgetTester tester, String day) =>
+        tester.widget<CalendarDayCell>(
+          find.ancestor(
+            of: find.text(day),
+            matching: find.byType(CalendarDayCell),
+          ),
+        );
+
+    testWidgets(
+      'faded keeps a missed occurrence out of the count and dims it',
+      (tester) async {
+        await openJanuary(tester, CalendarMissedDisplay.faded);
+
+        // 31 January occurrences, one of them missed.
+        final handle = tester.ensureSemantics();
+        expect(
+          find.bySemanticsLabel('${januaryTile()}, 30 entries · 1 missed'),
+          findsOneWidget,
+        );
+        handle.dispose();
+
+        await tester.tap(find.text(januaryTile()));
+        await tester.pumpAndSettle();
+        expect(cellFor(tester, '14').isOutside, isFalse);
+
+        await tester.tap(find.text('14'));
+        await tester.pumpAndSettle();
+        await scrollSheetBody(tester);
+
+        final faded = tester.widget<Opacity>(
+          find
+              .ancestor(
+                of: find.text('Leg day'),
+                matching: find.byType(Opacity),
+              )
+              .first,
+        );
+        expect(faded.opacity, CalendarColors.missedEventAlpha);
+      },
+    );
+
+    testWidgets('hidden drops it from the rows, the count and the grid', (
+      tester,
+    ) async {
+      await openJanuary(tester, CalendarMissedDisplay.hidden);
+
+      final handle = tester.ensureSemantics();
+      expect(
+        find.bySemanticsLabel('${januaryTile()}, 30 entries'),
+        findsOneWidget,
+      );
+      handle.dispose();
+
+      await tester.tap(find.text(januaryTile()));
+      await tester.pumpAndSettle();
+      // Nothing is left on the 14th, so the grid treats it as an empty day.
+      expect(cellFor(tester, '14').isOutside, isTrue);
+      expect(cellFor(tester, '15').isOutside, isFalse);
     });
   });
 }

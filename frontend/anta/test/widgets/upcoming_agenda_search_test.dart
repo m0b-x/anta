@@ -5,6 +5,7 @@ import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/fasting_calendar.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
+import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/fasting_appearance.dart';
@@ -83,6 +84,7 @@ void main() {
             onDaySelected: (_) {},
             onEditEvent: (_, _) {},
             onOpenNote: (_) {},
+            appearance: const CalendarAppearance(),
           ),
         ),
       ),

@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/calendar_panel_mode.dart';
 import 'package:anta/models/calendar_selection_source.dart';
 import 'package:anta/models/upcoming_agenda_filters.dart';
@@ -82,6 +83,7 @@ void main() {
           child: Scaffold(
             body: CalendarBottomPanel(
               loaded: loaded,
+              appearance: const CalendarAppearance(),
               expanded: false,
               onToggleExpanded: () {},
               onEditEvent: (_, _) {},

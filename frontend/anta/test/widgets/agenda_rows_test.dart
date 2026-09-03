@@ -7,6 +7,7 @@ import 'package:anta/constants/public_holidays.dart';
 import 'package:anta/models/fasting_appearance.dart';
 import 'package:anta/models/fasting_schedule.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
+import 'package:anta/models/agenda_day_list.dart';
 import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/recurrence_rule.dart';
@@ -722,6 +723,51 @@ void main() {
 
       expect(rows.whereType<AgendaEventSummaryRow>(), isEmpty);
       expect(rows.whereType<AgendaEntryRow>(), hasLength(3));
+    });
+  });
+
+  /// The summary card's drill-down converts the very same occurrences a second
+  /// time, so it has to apply the very same presence rule — dropping it is
+  /// what made a daily gym event read as attended every day of the month.
+  group('eventDayEntries presence', () {
+    List<AgendaDayListEntry> convert(CalendarMissedDisplay display) {
+      return AgendaListView.eventDayEntries(
+        occurrences,
+        l10n,
+        (_, _) {},
+        showRecurrenceLabels: true,
+        missedDisplay: display,
+      );
+    }
+
+    test('faded keeps a missed occurrence and flags it', () {
+      final entries = convert(CalendarMissedDisplay.faded);
+
+      expect(entries, hasLength(3));
+      final onDay2 = entries.where((entry) => entry.day == day2).single;
+      expect(onDay2.title, 'Leg day');
+      expect(onDay2.missed, isTrue);
+      // The attended ones are not flagged, so nothing else dims.
+      expect(
+        entries.where((entry) => entry.day == day1).every((e) => !e.missed),
+        isTrue,
+      );
+    });
+
+    test('hidden drops it before it becomes a row', () {
+      final entries = convert(CalendarMissedDisplay.hidden);
+
+      expect(entries.map((entry) => entry.day), [day1, day1]);
+      expect(entries.every((entry) => !entry.missed), isTrue);
+    });
+
+    test('an untracked event is never dropped or flagged', () {
+      final entries = convert(CalendarMissedDisplay.hidden);
+
+      expect(
+        entries.map((entry) => entry.title),
+        containsAll(<String>['Leg day', 'Mobility']),
+      );
     });
   });
 }

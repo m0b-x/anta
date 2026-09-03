@@ -4460,4 +4460,48 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get eventColorCategoryDefault => 'Kategoriefarbe';
+
+  @override
+  String get dayListModeList => 'Liste';
+
+  @override
+  String get dayListModeMonth => 'Monat';
+
+  @override
+  String get dayListModeYear => 'Jahr';
+
+  @override
+  String get dayListBackToYear => 'Zurück zu den Monaten';
+
+  @override
+  String get dayListWholeMonth => 'Ganzer Monat';
+
+  @override
+  String get dayListEmptyMonth => 'Nichts in diesem Monat';
+
+  @override
+  String get dayListPreviousMonth => 'Voriger Monat';
+
+  @override
+  String get dayListNextMonth => 'Nächster Monat';
+
+  @override
+  String get dayListScopeUpcoming => 'Demnächst';
+
+  @override
+  String get dayListScopeThisYear => 'Dieses Jahr';
+
+  @override
+  String get dayListJumpToToday => 'Dieser Monat';
+
+  @override
+  String dayListMissedCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count verpasst',
+      one: '1 verpasst',
+    );
+    return '$_temp0';
+  }
 }

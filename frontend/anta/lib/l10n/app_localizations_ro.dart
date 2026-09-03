@@ -4495,4 +4495,49 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get eventColorCategoryDefault => 'Culoarea categoriei';
+
+  @override
+  String get dayListModeList => 'Listă';
+
+  @override
+  String get dayListModeMonth => 'Lună';
+
+  @override
+  String get dayListModeYear => 'An';
+
+  @override
+  String get dayListBackToYear => 'Înapoi la luni';
+
+  @override
+  String get dayListWholeMonth => 'Toată luna';
+
+  @override
+  String get dayListEmptyMonth => 'Nimic în această lună';
+
+  @override
+  String get dayListPreviousMonth => 'Luna anterioară';
+
+  @override
+  String get dayListNextMonth => 'Luna următoare';
+
+  @override
+  String get dayListScopeUpcoming => 'Urmează';
+
+  @override
+  String get dayListScopeThisYear => 'Anul acesta';
+
+  @override
+  String get dayListJumpToToday => 'Luna aceasta';
+
+  @override
+  String dayListMissedCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de ratate',
+      few: '$count ratate',
+      one: '1 ratată',
+    );
+    return '$_temp0';
+  }
 }

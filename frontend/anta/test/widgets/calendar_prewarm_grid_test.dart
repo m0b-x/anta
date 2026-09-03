@@ -3,6 +3,7 @@ import 'package:table_calendar/table_calendar.dart';
 
 import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/pages/calendar_page.dart';
+import 'package:anta/utils/calendar_week_start.dart';
 
 /// Guards the one piece of hand-rolled arithmetic in 3.4's neighbour-month
 /// prewarm.

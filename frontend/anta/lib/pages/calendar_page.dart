@@ -40,6 +40,7 @@ import '../services/day_rail_resolver.dart';
 import '../services/note_money_ledger_service.dart';
 import '../services/public_holiday_service.dart';
 import '../services/settings_service.dart';
+import '../utils/calendar_week_start.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/event_agenda.dart';
 import '../utils/keyboard_inset_tracker.dart';
@@ -74,18 +75,6 @@ const int prewarmGridDayCount = 42;
 /// Months either side of the focused one that [_CalendarViewState] warms —
 /// radius 1, deliberately inside `CalendarBloc`'s radius-3 eviction window.
 const List<int> _prewarmMonthOffsets = [-1, 1];
-
-/// Maps the app's week-start setting onto `table_calendar`'s enum. Shared by
-/// [_CalendarTable]'s grid and [_CalendarViewState]'s neighbour-month
-/// prewarm so the two can never disagree on a month's first visible day.
-@visibleForTesting
-StartingDayOfWeek startingDayOfWeekFor(CalendarWeekStart weekStart) {
-  return switch (weekStart) {
-    CalendarWeekStart.monday => StartingDayOfWeek.monday,
-    CalendarWeekStart.saturday => StartingDayOfWeek.saturday,
-    CalendarWeekStart.sunday => StartingDayOfWeek.sunday,
-  };
-}
 
 /// The [prewarmGridDayCount]-day window `table_calendar`'s `PageView` pages
 /// to for [monthAnchor] — same first-visible-day arithmetic as
@@ -988,6 +977,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
                         }
                         return CalendarBottomPanel(
                           loaded: state,
+                          appearance: _appearance,
                           expanded: _panelExpanded,
                           onToggleExpanded: () =>
                               setState(() => _panelExpanded = !_panelExpanded),

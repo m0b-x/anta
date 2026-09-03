@@ -1888,10 +1888,12 @@ The area under the grid is now a mode-switched panel owned by
   else follows a selection that actually changed. A custom range still overrides
   the anchor entirely, and the rescan stays guarded (`anchorChanged =
   !hasCustomRange && anchor moved`), so an anchor move under a pinned range
-  costs nothing. Not persisted: reopening starts from today. The three
+  costs nothing. Not persisted: reopening starts from today. The four
   wall-clock reads that must **stay** on `now()` — the picker's initial range,
-  the Today/Tomorrow row headers, and `withoutElapsedRange` — are not anchor
-  material.
+  the Today/Tomorrow row headers, `withoutElapsedRange`, and the drill-down
+  sheet's own `today`, resolved once per open in `_showDayList` — are not
+  anchor material. The rule behind the list is the useful one: a **per-open**
+  or per-build clock read is fine, a **per-row** one is not.
 - **`SelectCalendarDay` carries a `CalendarSelectionSource`**
   ([lib/models/calendar_selection_source.dart](../lib/models/calendar_selection_source.dart)):
   `grid` (a day cell), `agendaRow` (a row in the agenda) or `navigation`
@@ -3970,3 +3972,207 @@ The review also confirmed clean: `_serialize` survives a throwing action,
 index semantics match `onReorderItem`, the legacy fold is genuinely once-only,
 `% 360` is safe for negative hues, `Select` always returns what the preview dot
 painted, and the `AnimatedSwitcher` cross-fade cannot swallow a hit test.
+
+## Addendum (2026-09-02): the day-list drill-down grows list / month / year modes
+
+`AgendaDayListSheet` (`lib/widgets/agenda_day_list_sheet.dart`) picked up a
+`SegmentedButton<AgendaDayListMode>` under its header, so the drill-down
+behind a summary card is no longer only the flat list described above:
+
+- **List** is that same flat list, now grouped under day headers
+  (`AgendaListView.dayHeaderLabel`) with a month header above them when the
+  entries span two or more calendar months — mirroring the agenda's own
+  `AgendaMonthHeaderRow` rule. This supersedes the "row titles differ per
+  source" claim above: entries now carry the same title/subtitle/icon/colour
+  the agenda row shows for that occurrence (event summary, holiday name,
+  fasting title), and the date lives **only** in the day/month headers, never
+  in the row.
+- **Month** is a mini `TableCalendar` scoped to the sheet's window (own
+  chevron nav, disabled at the window's first/last month), with the tapped
+  month's entries listed below, grouped by day. Tapping a *marked* day narrows
+  the list to that day; a "Whole month" action (always mounted via
+  `Visibility(maintainState: true)`, so the section header never resizes)
+  restores it. Tapping an unmarked day is a no-op — `enabledDayPredicate` +
+  `disabledBuilder` keep table_calendar from treating it as a real selection.
+- **Year** is one tile per calendar month of the window (up to 13, since the
+  window can span at most 366 days), each showing the month label, its entry
+  count, and a small dot-matrix calendar (`MonthDotMatrixPainter` in
+  `lib/widgets/month_dot_matrix.dart`) — marked days in the list's colour,
+  unmarked days faint, days outside the window fainter still, today ringed.
+  Tapping a tile enters month mode on that month with a back arrow in the
+  header (`_cameFromYear`); the arrow and a `PopScope` on system back both
+  return to year mode instead of closing the sheet or falling through to the
+  flat list.
+
+All three modes read one `AgendaDayListIndex`
+(`lib/utils/agenda_day_list_index.dart`) built once in `initState` — a pure,
+Flutter-free index over the (possibly window-extending) entries: the ascending
+month list, per-day and per-month entry lookups, and per-month `markedMask` /
+`windowMask` bitmasks (bit `day - 1`) the dot-matrix painter reads directly
+instead of re-deriving. `AgendaDayListMode` (`lib/models/agenda_day_list_mode.dart`)
+is persisted like `calendarUpcomingEventDisplay`: `SettingsKeys.calendarDayListMode`
+/ `defaultCalendarDayListMode`, `SettingsService.getAgendaDayListMode()` /
+`setAgendaDayListMode()`, loaded and written by `CalendarBottomPanel` alongside
+its other display settings, reset wherever `calendarUpcomingEventDisplay` is.
+`onModeChanged` fires **only** from the segmented button — drilling into a
+month from a year tile, or backing out of one, is navigation within the
+sheet, not a change of presentation, and does not persist.
+
+`AgendaDayListSheet.show` dropped its `editTooltip` parameter; the sheet reads
+`l10n.upcomingEditEvent` itself. The sheet still reads no facade — entries
+arrive pre-resolved — but it now localizes its own chrome (mode labels, nav
+tooltips, empty state) instead of localizing nothing.
+
+### Addendum (2026-09-02, iteration 2): earlier months and free month browsing
+
+The sheet grew a second time scope. The first — the **window** — is what the
+card counts and stays exactly as above for **list mode** and for the year
+overview's default **Upcoming** tiles. The second is the **calendar month**:
+whole months, past days included, which now back **month mode** and the year
+overview's new **This year** tiles.
+
+The split is absolute, and it is what makes each number explainable. Month mode
+and This year read `_resolvedMonths` and never the window index — *including*
+for months the window overlaps, so the first and last window months show all of
+themselves rather than the window's slice, and their header counts say so. List
+mode and the Upcoming tiles read the window index and never resolve anything.
+
+- **How the wider data arrives.** `AgendaDayList` carries an
+  `AgendaDayListSource` (`AgendaDayListCategorySource(categoryId)` /
+  `AgendaDayListHolidaySource` / `AgendaDayListFastingSource(tradition)`) —
+  the card's *identity*, not its contents — and `AgendaDayListSheet.show` takes
+  a `required AgendaDayListResolver resolve`, a
+  `List<AgendaDayListEntry> Function(DateTime start, DateTime end)` the agenda
+  layer builds from that source in `UpcomingAgendaView._resolverFor`. Same
+  rows, same filters, wider time: the category branch re-runs
+  `EventAgenda.occurrencesInRange` with the card's `hiddenCategoryIds`,
+  priorities, parsed query, `eventType` and `categoryIds: {categoryId}`; the
+  holiday branch goes through the shared `_holidayDaysIn`; the fasting branch
+  through `_fastingDaysIn`, which reads the *same*
+  `EventAgenda.fastingSummariesInRange` the card was built from. Every input is
+  snapshotted at open time — the sheet is modal, so that is the state the card
+  was built from, and a rebuild underneath it must not make a browsed month
+  disagree with the window above it. The three converters moved onto
+  `AgendaListView` as public statics (`eventDayEntries`, `holidayDayEntries`,
+  `fastingDayEntries`) so the on-press build and the resolver fold through one
+  piece of code.
+- **When it is resolved.** On navigation only, never in `build`.
+  `_ensureMonths(months)` collects the uncached ones, groups **contiguous runs**
+  and issues one `resolve(runStart, runEnd)` per run, then stores an
+  `AgendaDayListMonth` for **every** requested month — an empty bucket
+  included, so a month with nothing in it is never resolved twice. Entering
+  month mode resolves one month; switching the scope to This year resolves
+  Jan 1 – Dec 31 in a single call (365/366 days, inside
+  `EventAgenda.maxRangeDays`); paging and tile taps hit the cache. `_recompute`
+  turns the active state into `_rows` / `_monthBars` / `_yearTiles` and the
+  current `_monthBucket`, so a frame paints and folds nothing, and `occursOn`
+  is still never touched per frame.
+- **`AgendaDayListMonth`** (same file as `AgendaDayListIndex`) is the pure
+  per-month bucket the two calendar-scoped surfaces read: `count`,
+  `markedMask`, `daysInMonth`, ascending `days` (only days carrying entries),
+  `entriesOn` / `countForDay`. It debug-asserts every entry falls inside its
+  month.
+- **Bounds.** Computed once in `initState`: earliest = the first day of the
+  month twelve months before `min(today's month, first window month)`; latest =
+  the last day of `max(last window month, December of today's year)`. The
+  chevrons, `TableCalendar.firstDay/lastDay` and `_clampMonth` all use them, so
+  swipe and chevrons stop at the same place. A tile tapped in either scope
+  always lands inside them by construction.
+- **UI.** The year body gained a two-chip scope row **above the grid, inside
+  the body** — `dayListScopeUpcoming` / `dayListScopeThisYear`, styled like the
+  filter sheet's Period chips — so the fixed header (title, subtitle, segmented
+  button) is identical in all three modes. The month nav row gained an
+  `Icons.today_rounded` button in a reserved 40 dp slot (`dayListJumpToToday`,
+  "This month"), disabled while already on today's month, so the title beside
+  it never shifts. Month mode dropped the out-of-window `isOutside` fade: every
+  day the grid draws is now a real day of the month, and days of neighbouring
+  months stay hidden by `outsideDaysVisible: false`. A This-year tile's dot
+  matrix passes a full `windowMask` — a complete month has nothing to fade.
+  There are no loading indicators: resolution is synchronous and cheap.
+- **The scope is session-only.** It is not persisted and resets to Upcoming on
+  every open, because the number on the card is the window's and the sheet must
+  open on that number. The *mode* stays persisted as before. Neither a scope
+  switch nor a tile drill-down fires `onModeChanged`.
+
+### Addendum (2026-09-02, fix batch 3): presence in the drill-down
+
+**The bug.** A presence-tracked event's missed occurrences rendered, counted
+and marked in the drill-down exactly like attended ones, so a daily gym event
+looked attended every day of the month. `AgendaListView.eventDayEntries` mapped
+`DaySummaryEntry` → `AgendaDayListEntry` and dropped `entry.missed`; the sheet
+never saw `CalendarMissedDisplay` at all.
+
+**Where presence is resolved.** In the agenda layer, at conversion time — the
+same place `buildAgendaRows` already resolves it, and the only place that may:
+the sheet still reads no facade. `eventDayEntries` takes a
+`required CalendarMissedDisplay missedDisplay` (threaded from
+`UpcomingAgendaView.missedDisplay` through the new `AgendaListView.missedDisplay`
+prop for the on-press build, and snapshotted in `_resolverFor` for a browsed
+month) and applies the same `!hideMissed || !entry.missed` rule the rows do:
+
+- `hidden` — the occurrence is dropped **before** it becomes an entry. Nothing
+  downstream sees it: no row, no bar, no mask bit, no count, and its day goes
+  back to reading as empty in the mini calendar.
+- `faded` — the occurrence is kept, carrying `AgendaDayListEntry.missed`, and
+  is drawn dimmed to `CalendarColors.missedEventAlpha` everywhere: list and
+  month rows (an `Opacity` around the `ListTile`, mirroring `_AgendaCard`),
+  month-grid bars (the colour faded, mirroring `day_bars_resolver.dart`), and
+  dot-matrix squares in a `missedColor` of the list colour at the same alpha.
+
+**Counts are attendance counts.** Every number the sheet prints — year tiles,
+the month nav, the section header, day headers — counts the entries that were
+**not** missed. Where missed ones exist (faded only), the month nav and the
+section header append `l10n.dayListMissedCount(n)` after a ` · `
+("1 entry · 1 missed"); a tile prints the kept count alone and puts the missed
+tally in its `Semantics` label. The sheet **header** (the card's title and
+subtitle) is untouched — it is the card's, and says what the card said.
+`AgendaDayListIndex` and `AgendaDayListMonth` grew `keptCountForMonth` /
+`keptCountForDay` / `keptCount` alongside the untouched totals, plus a
+`missedMask` whose bit is set only when a day carries entries and **every** one
+of them was missed — one attended entry wins the square back. A missed-only day
+stays openable: the user has to be able to see that it was missed.
+
+Review fixes that shipped with it:
+
+- **Month mode opens on a month the card covers.** `_initialMonth` clamps
+  today's month into the **window months** first and only then into the
+  browsable bounds, so a card pinned to 2020 opens on that window's edge rather
+  than on today's month, which is inside the bounds but empty.
+- **`AgendaDayList.color`** is now required and set from the card's own entry at
+  each `showDayList` call site. It tints the tiles, the counts and the dot
+  matrix. The old `_listColor` read the *first entry's* colour, so one event
+  with a colour override recoloured the whole year overview — and an empty card
+  had no colour at all.
+- **The mini calendar reads the cell's own month.** `_marker` and
+  `enabledDayPredicate` look the cell's month up in `_resolvedMonths` /
+  `_barsByMonth` (**cache only** — resolving from a builder would scan while a
+  frame is being built) and the predicate tests a mask bit instead of
+  allocating a `DateTime` per cell per frame. A page animation draws two months
+  at once, and keying the bars off the focused month blanked the outgoing one
+  mid-swipe.
+- **Empty days look inert.** A day of the month with nothing on it renders
+  through the existing `isOutside` fade — except today, which keeps its own
+  styling. A missed-only day counts as non-empty.
+- **Touch targets.** The header's back arrow and the nav row's today button
+  dropped `visualDensity: compact` and sit in 48x48 slots (the header's are
+  fixed in **both** dimensions, so the fixed header's rect is identical across
+  modes and with or without the arrow — pinned by a test).
+- **The year scope is a `SegmentedButton<AgendaDayListYearScope>`** (the enum
+  moved into `lib/models/agenda_day_list_mode.dart`). The two `ChoiceChip`s it
+  replaced measured 336-378 dp against the 288-328 dp a phone offers and wrapped
+  to a second row in every locale.
+- **The dot matrix earned its contrast.** Marked and missed fills route through
+  `MarkerContrast` (the same 1.6:1 rule `CalendarDayBars` uses) and take a 1 px
+  hairline when they fail it. `MonthDotMatrix.unmarkedAlpha` is **0.45** and
+  `outsideAlpha` **0.22**: measured against `surfaceContainerHigh` in both
+  schemes of the app's `deepPurple` seed, an unmarked square is 1.67:1 (light) /
+  2.02:1 (dark) — the 0.25 it replaced was 1.32:1 / 1.47:1, i.e. invisible. The
+  measurement lives in `month_dot_matrix_test.dart` so the numbers cannot drift.
+- **The `PopScope` is gone.** The back arrow is the only step back to the year
+  overview; the barrier, a drag-down and the Android back gesture all dismiss
+  the sheet and return null, exactly like every sibling sheet.
+- Smaller: `_resolveRun` debug-asserts its run is at most twelve months and at
+  most `EventAgenda.maxRangeDays` long; `AgendaDayListIndex.build` computes the
+  window masks by arithmetic on the day numbers rather than a `DateTime.utc` per
+  day; a `_YearTile` carries its own `daysInMonth`; and the sheet no longer
+  re-exports `lib/models/agenda_day_list.dart`.

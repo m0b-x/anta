@@ -208,6 +208,11 @@ class SettingsKeys {
   /// upcoming). Parsed with a forward-compatible fallback.
   static const String calendarPanelMode = 'calendar_panel_mode';
 
+  /// Which presentation the agenda summary cards' drill-down sheet was left in
+  /// (`AgendaDayListMode` name): list / month / year. Parsed with a
+  /// forward-compatible fallback to `list`.
+  static const String calendarDayListMode = 'calendar_day_list_mode';
+
   /// Whether day-panel / agenda event rows mention the repeat pattern
   /// ("Daily", "Every 2 weeks", …) in their subtitle.
   static const String calendarShowRecurrenceLabels =
@@ -472,6 +477,10 @@ class SettingsKeys {
 
   /// Default bottom-panel mode name (see `CalendarPanelMode`).
   static const String defaultCalendarPanelMode = 'day';
+
+  /// Default drill-down presentation: the flat, grouped list (see
+  /// `AgendaDayListMode`).
+  static const String defaultCalendarDayListMode = 'list';
 
   /// Maximum number of recently-used custom event colors to remember.
   ///

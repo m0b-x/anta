@@ -5,6 +5,7 @@ import 'package:table_calendar/table_calendar.dart';
 import '../constants/calendar_weekend.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
+import '../utils/calendar_week_start.dart';
 import 'calendar_day_bars.dart';
 import 'calendar_day_cell.dart';
 import 'month_year_picker_sheet.dart';
@@ -219,13 +220,8 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
     });
   }
 
-  StartingDayOfWeek get _startingDayOfWeek {
-    return switch (_appearance.weekStart) {
-      CalendarWeekStart.monday => StartingDayOfWeek.monday,
-      CalendarWeekStart.saturday => StartingDayOfWeek.saturday,
-      CalendarWeekStart.sunday => StartingDayOfWeek.sunday,
-    };
-  }
+  StartingDayOfWeek get _startingDayOfWeek =>
+      startingDayOfWeekFor(_appearance.weekStart);
 
   /// Same collision-free geometry the real grid uses, so the picker cannot
   /// drift from it. Markers here are a single "busy" bar, so one slot.

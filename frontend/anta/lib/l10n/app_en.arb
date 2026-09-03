@@ -5644,5 +5644,58 @@
   "eventColorCategoryDefault": "Category color",
   "@eventColorCategoryDefault": {
     "description": "Tooltip on the swatch meaning: use the colour of the chosen category"
+  },
+  "dayListModeList": "List",
+  "@dayListModeList": {
+    "description": "Drill-down sheet mode: one grouped, dated list of every entry"
+  },
+  "dayListModeMonth": "Month",
+  "@dayListModeMonth": {
+    "description": "Drill-down sheet mode: a mini month calendar with that month's entries below it"
+  },
+  "dayListModeYear": "Year",
+  "@dayListModeYear": {
+    "description": "Drill-down sheet mode: one tile per month of the window"
+  },
+  "dayListBackToYear": "Back to months",
+  "@dayListBackToYear": {
+    "description": "Tooltip of the back arrow returning from a month opened out of the year overview"
+  },
+  "dayListWholeMonth": "Whole month",
+  "@dayListWholeMonth": {
+    "description": "Clears the selected day in the drill-down's month mode and lists the whole month again"
+  },
+  "dayListEmptyMonth": "Nothing this month",
+  "@dayListEmptyMonth": {
+    "description": "Empty state of the drill-down's month mode"
+  },
+  "dayListPreviousMonth": "Previous month",
+  "@dayListPreviousMonth": {
+    "description": "Tooltip of the drill-down month navigation's left chevron"
+  },
+  "dayListNextMonth": "Next month",
+  "@dayListNextMonth": {
+    "description": "Tooltip of the drill-down month navigation's right chevron"
+  },
+  "dayListScopeUpcoming": "Upcoming",
+  "@dayListScopeUpcoming": {
+    "description": "Year overview scope: the months of the agenda window the card counted"
+  },
+  "dayListScopeThisYear": "This year",
+  "@dayListScopeThisYear": {
+    "description": "Year overview scope: all twelve calendar months of the current year, earlier ones included"
+  },
+  "dayListJumpToToday": "This month",
+  "@dayListJumpToToday": {
+    "description": "Tooltip of the drill-down month navigation's button returning to the current month"
+  },
+  "dayListMissedCount": "{count, plural, one {1 missed} other {{count} missed}}",
+  "@dayListMissedCount": {
+    "description": "Suffix after the drill-down's entry count, naming how many of the month's or day's occurrences were marked missed",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   }
 }

@@ -7755,6 +7755,78 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Category color'**
   String get eventColorCategoryDefault;
+
+  /// Drill-down sheet mode: one grouped, dated list of every entry
+  ///
+  /// In en, this message translates to:
+  /// **'List'**
+  String get dayListModeList;
+
+  /// Drill-down sheet mode: a mini month calendar with that month's entries below it
+  ///
+  /// In en, this message translates to:
+  /// **'Month'**
+  String get dayListModeMonth;
+
+  /// Drill-down sheet mode: one tile per month of the window
+  ///
+  /// In en, this message translates to:
+  /// **'Year'**
+  String get dayListModeYear;
+
+  /// Tooltip of the back arrow returning from a month opened out of the year overview
+  ///
+  /// In en, this message translates to:
+  /// **'Back to months'**
+  String get dayListBackToYear;
+
+  /// Clears the selected day in the drill-down's month mode and lists the whole month again
+  ///
+  /// In en, this message translates to:
+  /// **'Whole month'**
+  String get dayListWholeMonth;
+
+  /// Empty state of the drill-down's month mode
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing this month'**
+  String get dayListEmptyMonth;
+
+  /// Tooltip of the drill-down month navigation's left chevron
+  ///
+  /// In en, this message translates to:
+  /// **'Previous month'**
+  String get dayListPreviousMonth;
+
+  /// Tooltip of the drill-down month navigation's right chevron
+  ///
+  /// In en, this message translates to:
+  /// **'Next month'**
+  String get dayListNextMonth;
+
+  /// Year overview scope: the months of the agenda window the card counted
+  ///
+  /// In en, this message translates to:
+  /// **'Upcoming'**
+  String get dayListScopeUpcoming;
+
+  /// Year overview scope: all twelve calendar months of the current year, earlier ones included
+  ///
+  /// In en, this message translates to:
+  /// **'This year'**
+  String get dayListScopeThisYear;
+
+  /// Tooltip of the drill-down month navigation's button returning to the current month
+  ///
+  /// In en, this message translates to:
+  /// **'This month'**
+  String get dayListJumpToToday;
+
+  /// Suffix after the drill-down's entry count, naming how many of the month's or day's occurrences were marked missed
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one {1 missed} other {{count} missed}}'**
+  String dayListMissedCount(int count);
 }
 
 class _AppLocalizationsDelegate

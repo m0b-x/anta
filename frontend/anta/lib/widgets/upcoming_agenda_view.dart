@@ -9,6 +9,8 @@ import '../constants/event_priorities.dart';
 import '../constants/fasting_calendar.dart';
 import '../constants/public_holidays.dart';
 import '../l10n/app_localizations.dart';
+import '../models/agenda_day_list.dart';
+import '../models/agenda_day_list_mode.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../models/fasting_appearance.dart';
@@ -74,6 +76,16 @@ class UpcomingAgendaView extends StatefulWidget {
   /// pattern.
   final bool showRecurrenceLabels;
 
+  /// Look & feel of the mini month calendar inside a summary card's
+  /// drill-down. Passed down like every other calendar surface's appearance
+  /// rather than re-read here, which would go stale after a settings edit.
+  final CalendarAppearance appearance;
+
+  /// Which presentation the drill-down sheet opens in, and where a change to
+  /// it goes. Owned and persisted by the panel, like the agenda filters.
+  final AgendaDayListMode dayListMode;
+  final ValueChanged<AgendaDayListMode>? onDayListModeChanged;
+
   /// Bumped when a per-occurrence description or a presence mark changes.
   /// Part of the row-memo key below and **deliberately excluded** from this
   /// widget's rescan test: neither changes which days an event occurs on, so
@@ -102,9 +114,12 @@ class UpcomingAgendaView extends StatefulWidget {
     required this.onDaySelected,
     required this.onEditEvent,
     required this.onOpenNote,
+    required this.appearance,
     this.onResetAnchor,
     this.colorPalette = MarkdownColorPalette.presets,
     this.showRecurrenceLabels = true,
+    this.dayListMode = AgendaDayListMode.list,
+    this.onDayListModeChanged,
     this.occurrenceRevision = 0,
     this.membershipRevision = 0,
     this.missedDisplay = CalendarMissedDisplay.faded,
@@ -509,29 +524,66 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
       _holidayDays = const [];
       return;
     }
-    final days = EventAgenda.holidayDaysInRange(
-      from: _resolved.$1,
-      to: _resolved.$2,
+    _holidayDays = _holidayDaysIn(
+      _resolved.$1,
+      _resolved.$2,
+      AppLocalizations.of(context)!,
+      _query,
     );
-    if (_query.isEmpty) {
-      _holidayDays = days;
-      return;
-    }
-    final l10n = AppLocalizations.of(context)!;
+  }
+
+  /// Query-filtered public holidays in an arbitrary range — the one definition
+  /// the interleaved list and the drill-down's resolver share, so a month the
+  /// sheet browses past the window is narrowed exactly as the window was.
+  ///
+  /// [query] is passed rather than read off the field so the resolver can hold
+  /// the query the card was built with for the life of the sheet.
+  List<DateTime> _holidayDaysIn(
+    DateTime from,
+    DateTime to,
+    AppLocalizations l10n,
+    EventSearchQuery query,
+  ) {
+    final days = EventAgenda.holidayDaysInRange(from: from, to: to);
+    if (query.isEmpty) return days;
     // Chrome every holiday surface renders but no holiday is named after: the
     // row's own "Public holiday" subtitle, and the summary card's "Holidays"
     // title. Folded once for the whole scan rather than once per day.
     final chrome =
-        _query.maskOf(l10n.dayBarPublicHoliday) |
-        _query.maskOf(l10n.upcomingShowHolidays);
-    _holidayDays = [
+        query.maskOf(l10n.dayBarPublicHoliday) |
+        query.maskOf(l10n.upcomingShowHolidays);
+    return [
       for (final day in days)
-        if (_query.satisfied(
-          chrome | _query.maskOf(_holidayLabel(day, l10n)),
+        if (query.satisfied(
+          chrome | query.maskOf(_holidayLabel(day, l10n)),
           day,
         ))
           day,
     ];
+  }
+
+  /// Query-filtered days one tradition marks in an arbitrary range, resolved
+  /// through the same scan the summary cards are built from — so the card's
+  /// drill-down and the months it browses can never disagree about which days
+  /// that tradition fasts.
+  List<DateTime> _fastingDaysIn(
+    FastingTradition tradition,
+    DateTime from,
+    DateTime to,
+    AppLocalizations l10n,
+    EventSearchQuery query,
+  ) {
+    final summaries = EventAgenda.fastingSummariesInRange(
+      from: from,
+      to: to,
+      dayFilter: query.isEmpty
+          ? null
+          : (day) => _fastingMatches(day, l10n, query),
+    );
+    for (final summary in summaries) {
+      if (summary.tradition == tradition) return summary.days;
+    }
+    return const [];
   }
 
   String _holidayLabel(DateTime day, AppLocalizations l10n) {
@@ -559,7 +611,7 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
     bool Function(DateTime day)? dayFilter;
     if (_query.isNotEmpty) {
       final l10n = AppLocalizations.of(context)!;
-      dayFilter = (day) => _fastingMatches(day, l10n);
+      dayFilter = (day) => _fastingMatches(day, l10n, _query);
     }
 
     switch (widget.filters.fastingDisplay) {
@@ -596,39 +648,41 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
   }
 
   /// Whether [day]'s fasting entries (across configured traditions) satisfy
-  /// [_query] — its terms against the displayed title (custom override or
+  /// [query] — its terms against the displayed title (custom override or
   /// period name) and the regime subtitle, its date terms against the day
   /// itself. The masks accumulate across entries, so a two-term query can be
   /// answered by two different traditions on the same day.
-  bool _fastingMatches(DateTime day, AppLocalizations l10n) {
+  bool _fastingMatches(
+    DateTime day,
+    AppLocalizations l10n,
+    EventSearchQuery query,
+  ) {
     var mask = 0;
     for (final info in FastingCalendar.on(day)) {
       final style = FastingCalendar.styleOf(info.tradition);
       // The override **and** the computed name, never `??`. Mirroring the
       // display's fallback here is what made a period stop being searchable
       // the moment a user renamed it — the row is still that period.
-      mask |= _query.maskOf(style.titleOverride);
-      mask |= _query.maskOf(FastingCalendar.periodNameOf(info.period, l10n));
-      mask |= _query.maskOf(FastingCalendar.regimeNameOf(info.regime, l10n));
+      mask |= query.maskOf(style.titleOverride);
+      mask |= query.maskOf(FastingCalendar.periodNameOf(info.period, l10n));
+      mask |= query.maskOf(FastingCalendar.regimeNameOf(info.regime, l10n));
       // The summary card is titled with the tradition whenever the window
       // holds no single named period, so "Orthodox" is on screen and has to
       // be findable — it was folded nowhere before.
-      mask |= _query.maskOf(
+      mask |= query.maskOf(
         FastingCalendar.traditionNameOf(info.tradition, l10n),
       );
       // Rendered under every fasting row.
-      mask |= _query.maskOf(style.description);
+      mask |= query.maskOf(style.description);
       // Matched but never rendered: the other languages' names for the same
       // period, so "lent" finds Postul Paștelui and "orthodox" finds Ortodox.
-      mask |= _query.maskOf(
-        FastingCalendar.searchKeywordsOf(info.period, l10n),
-      );
-      mask |= _query.maskOf(
+      mask |= query.maskOf(FastingCalendar.searchKeywordsOf(info.period, l10n));
+      mask |= query.maskOf(
         FastingCalendar.traditionKeywordsOf(info.tradition, l10n),
       );
-      if (_query.satisfied(mask, day)) return true;
+      if (query.satisfied(mask, day)) return true;
     }
-    return _query.satisfied(mask, day);
+    return query.satisfied(mask, day);
   }
 
   /// Corrections offered when a non-empty query matched nothing, memoized on
@@ -699,6 +753,68 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
     return catalog;
   }
 
+  /// Rebuilds the card's rows over an arbitrary range, applying exactly the
+  /// filters the card was built under.
+  ///
+  /// Every input is snapshotted here, at open time, rather than read off
+  /// `widget` when the sheet asks: the sheet is modal, so this is the same
+  /// state the card was built from, and a rebuild underneath the sheet must
+  /// not make a browsed month disagree with the window above it.
+  ///
+  /// Each branch is the window's own scan widened — the same
+  /// `occurrencesInRange` / holiday walk / fasting summary the agenda runs,
+  /// folded through the same converter — so nothing about a resolved month is
+  /// derived a second way.
+  AgendaDayListResolver _resolverFor(
+    AgendaDayListSource source,
+    AppLocalizations l10n,
+  ) {
+    _syncQuery();
+    final query = _query;
+    switch (source) {
+      case AgendaDayListCategorySource(:final categoryId):
+        final events = widget.events;
+        final hiddenCategoryIds = widget.hiddenCategoryIds;
+        final filters = widget.filters;
+        final categoryLabels = _categoryLabels;
+        final onEditEvent = widget.onEditEvent;
+        final showRecurrenceLabels = widget.showRecurrenceLabels;
+        final missedDisplay = widget.missedDisplay;
+        return (start, end) => AgendaListView.eventDayEntries(
+          EventAgenda.occurrencesInRange(
+            events: events,
+            from: start,
+            to: end,
+            hiddenCategoryIds: hiddenCategoryIds,
+            priorities: filters.priorities,
+            query: query,
+            categoryLabels: categoryLabels,
+            labelTextOf: (event) => AgendaSearchText.forEvent(event, l10n),
+            eventType: filters.eventType,
+            categoryIds: {categoryId},
+            // The card prints distinct events *and* their occurrence tally,
+            // so its rows are the uncollapsed ones — and so are these.
+            collapseRecurring: false,
+          ),
+          l10n,
+          onEditEvent,
+          showRecurrenceLabels: showRecurrenceLabels,
+          missedDisplay: missedDisplay,
+        );
+      case AgendaDayListHolidaySource():
+        return (start, end) => AgendaListView.holidayDayEntries(
+          _holidayDaysIn(start, end, l10n, query),
+          l10n,
+        );
+      case AgendaDayListFastingSource(:final tradition):
+        return (start, end) => AgendaListView.fastingDayEntries(
+          tradition,
+          _fastingDaysIn(tradition, start, end, l10n, query),
+          l10n,
+        );
+    }
+  }
+
   /// Opens a summary card's drill-down and routes what the viewer picked.
   ///
   /// A day goes through [UpcomingAgendaView.onDaySelected] — which the panel
@@ -712,7 +828,13 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
     final result = await AgendaDayListSheet.show(
       context,
       list,
-      editTooltip: l10n.upcomingEditEvent,
+      resolve: _resolverFor(list.source, l10n),
+      appearance: widget.appearance,
+      today: EventAgenda.dateOnly(DateTime.now()),
+      windowStart: _resolved.$1,
+      windowEnd: _resolved.$2,
+      initialMode: widget.dayListMode,
+      onModeChanged: widget.onDayListModeChanged,
     );
     if (result == null || !mounted) return;
     final day = result.focusDay;
@@ -1032,6 +1154,8 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
                         MediaQuery.viewInsetsOf(context).bottom,
                   ),
                   colorPalette: widget.colorPalette,
+                  showRecurrenceLabels: widget.showRecurrenceLabels,
+                  missedDisplay: widget.missedDisplay,
                 ),
               ),
             ],

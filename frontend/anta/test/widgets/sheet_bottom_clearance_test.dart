@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/models/agenda_day_list.dart';
+import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/widgets/agenda_day_list_sheet.dart';
@@ -117,17 +119,18 @@ void main() {
     );
   });
 
-  testWidgets('the agenda day list sheet clears the navigation bar', (
-    tester,
-  ) async {
-    sizeSurfaceWithNavBar(tester);
-    await openFrom(
+  /// Opens the drill-down on a one-entry August list, the fixture all three
+  /// mode variants below share.
+  Future<void> openDayListSheet(WidgetTester tester) {
+    return openFrom(
       tester,
       (context) => AgendaDayListSheet.show(
         context,
         AgendaDayList(
           title: 'Holidays',
           subtitle: '2 holidays',
+          source: const AgendaDayListHolidaySource(),
+          color: const Color(0xFFFFB300),
           entries: [
             AgendaDayListEntry(
               day: DateTime.utc(2026, 8, 15),
@@ -138,11 +141,60 @@ void main() {
             ),
           ],
         ),
-        editTooltip: 'Edit event',
+        resolve: (_, _) => const [],
+        appearance: const CalendarAppearance(),
+        today: DateTime.utc(2026, 8, 1),
+        windowStart: DateTime.utc(2026, 8, 1),
+        windowEnd: DateTime.utc(2026, 8, 31),
       ),
     );
+  }
+
+  testWidgets('the agenda day list sheet clears the navigation bar', (
+    tester,
+  ) async {
+    sizeSurfaceWithNavBar(tester);
+    await openDayListSheet(tester);
 
     expect(listBottomPadding(tester), greaterThanOrEqualTo(navBar));
+  });
+
+  testWidgets('the day list sheet clears the navigation bar in month mode', (
+    tester,
+  ) async {
+    // Month mode is a `CustomScrollView`, so its clearance is a trailing
+    // sliver rather than a list padding — a different code path, and the one
+    // the rows under the mini calendar end on.
+    sizeSurfaceWithNavBar(tester);
+    await openDayListSheet(tester);
+    await tester.tap(find.byIcon(Icons.calendar_view_month_rounded));
+    await tester.pumpAndSettle();
+
+    final spacer =
+        tester
+                .widgetList<SliverToBoxAdapter>(find.byType(SliverToBoxAdapter))
+                .last
+                .child
+            as SizedBox;
+    expect(spacer.height, greaterThanOrEqualTo(navBar));
+  });
+
+  testWidgets('the day list sheet clears the navigation bar in year mode', (
+    tester,
+  ) async {
+    // Year mode is a `GridView` with its own padding; the last row of tiles is
+    // what runs under the bar without it.
+    sizeSurfaceWithNavBar(tester);
+    await openDayListSheet(tester);
+    await tester.tap(find.byIcon(Icons.grid_view_rounded));
+    await tester.pumpAndSettle();
+
+    final padding = tester
+        .widget<GridView>(find.byType(GridView))
+        .padding!
+        .resolve(TextDirection.ltr)
+        .bottom;
+    expect(padding, greaterThanOrEqualTo(navBar));
   });
 
   testWidgets('a sheet on a device without a navigation bar is unpadded', (

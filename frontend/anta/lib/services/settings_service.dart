@@ -11,6 +11,7 @@ import '../models/nav_destination.dart';
 import '../models/restore_location_mode.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
+import '../models/agenda_day_list_mode.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_grid_filters.dart';
 import '../models/calendar_panel_mode.dart';
@@ -936,6 +937,23 @@ class SettingsService {
   Future<void> setCalendarPanelMode(CalendarPanelMode mode) async {
     await _db.userSettingsDao.setValue(
       SettingsKeys.calendarPanelMode,
+      mode.name,
+    );
+  }
+
+  // Calendar - Which presentation the agenda drill-down sheet was left in.
+  Future<AgendaDayListMode> getAgendaDayListMode() async {
+    final raw = await _db.userSettingsDao.getValue(
+      SettingsKeys.calendarDayListMode,
+    );
+    return AgendaDayListMode.fromName(
+      raw ?? SettingsKeys.defaultCalendarDayListMode,
+    );
+  }
+
+  Future<void> setAgendaDayListMode(AgendaDayListMode mode) async {
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.calendarDayListMode,
       mode.name,
     );
   }

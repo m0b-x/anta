@@ -8,12 +8,13 @@ import '../constants/fasting_calendar.dart';
 import '../constants/public_holidays.dart';
 import '../constants/event_priorities.dart';
 import '../l10n/app_localizations.dart';
+import '../models/agenda_day_list.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../models/day_summary_entry.dart';
+import '../models/fasting_appearance.dart';
 import '../models/upcoming_agenda_filters.dart';
 import '../utils/markdown_color_syntax.dart';
-import 'agenda_day_list_sheet.dart';
 import 'markdown_inline_text.dart';
 import '../services/day_summary_resolver.dart';
 import '../utils/event_agenda.dart';
@@ -329,30 +330,6 @@ DaySummaryEntry _eventSummaryEntry(
   );
 }
 
-/// The event card's drill-down: one row per occurrence, **date first**,
-/// because the rows share a category and it is the date and title that vary.
-///
-/// Every row carries its edit action, so collapsing the events layer never
-/// puts editing further away than it was in the list.
-List<AgendaDayListEntry> _eventDayEntries(
-  EventCategorySummary summary,
-  AppLocalizations l10n,
-  DateTime today,
-  void Function(CalendarEvent event, DateTime day) onEditEvent,
-) {
-  return [
-    for (final occurrence in summary.occurrences)
-      AgendaDayListEntry(
-        day: occurrence.day,
-        icon: CalendarCategories.iconFor(occurrence.event),
-        color: CalendarCategories.resolve(occurrence.event.categoryId).color,
-        title: occurrence.event.title,
-        subtitle: AgendaListView.dayHeaderLabel(l10n, occurrence.day, today),
-        onEdit: () => onEditEvent(occurrence.event, occurrence.day),
-      ),
-  ];
-}
-
 /// The card standing in for every public holiday in the window.
 ///
 /// Icon, colour, key and priority mirror [PublicHolidaySummaryProvider] exactly
@@ -370,59 +347,6 @@ DaySummaryEntry _holidaySummaryEntry(
     subtitle: l10n.upcomingHolidayCount(days.length),
     priority: 150,
   );
-}
-
-/// The holiday card's drill-down: one row per holiday, **name first**, because
-/// every row is a different holiday and the name is what distinguishes them.
-List<AgendaDayListEntry> _holidayDayEntries(
-  List<DateTime> days,
-  AppLocalizations l10n,
-  DateTime today,
-) {
-  return [
-    for (final day in days)
-      if (PublicHolidays.holidayOn(day) case final info?)
-        AgendaDayListEntry(
-          day: day,
-          icon: Icons.celebration_rounded,
-          color: CalendarColors.publicHoliday,
-          // Carries the "(observed)" suffix for a substitute day, so two
-          // Christmas rows in one week explain themselves here too.
-          title: PublicHolidays.labelOf(info, l10n),
-          subtitle: AgendaListView.dayHeaderLabel(l10n, day, today),
-        ),
-  ];
-}
-
-/// The fasting card's drill-down: one row per marked day, **date first**,
-/// because every row belongs to the same fast and only the date varies.
-///
-/// The regime line comes from [FastingSummaryProvider] filtered to this
-/// summary's tradition — the same reuse `_fastingEntries` makes for run rows,
-/// so the title-override rule and the regime naming are inherited rather than
-/// re-derived.
-List<AgendaDayListEntry> _fastingDayEntries(
-  FastingSummary summary,
-  AppLocalizations l10n,
-  DateTime today,
-) {
-  final provider = FastingSummaryProvider(l10n);
-  final key = 'fasting:${summary.tradition.name}';
-  return [
-    for (final day in summary.days)
-      if (provider
-              .summaryFor(day, const [])
-              .where((entry) => entry.key == key)
-              .firstOrNull
-          case final entry?)
-        AgendaDayListEntry(
-          day: day,
-          icon: entry.icon,
-          color: entry.color,
-          title: AgendaListView.dayHeaderLabel(l10n, day, today),
-          subtitle: [entry.title, ?entry.subtitle].join(' · '),
-        ),
-  ];
 }
 
 /// The card standing in for a whole window of one tradition's fasting.
@@ -538,6 +462,18 @@ class AgendaListView extends StatelessWidget {
   /// day summary panel so both surfaces render a description identically.
   final MarkdownColorPalette colorPalette;
 
+  /// Whether an event row's subtitle mentions the repeat pattern. Only the
+  /// event card's drill-down reads it here — [rows] already carry the
+  /// setting, baked in when they were built — so a drill-down row and the
+  /// agenda row it stands for say the same thing.
+  final bool showRecurrenceLabels;
+
+  /// How a missed occurrence is drawn. Read here for the same reason as
+  /// [showRecurrenceLabels]: [rows] already carry it, but the event card's
+  /// drill-down is converted on press and must apply the one setting the
+  /// agenda and the grid apply.
+  final CalendarMissedDisplay missedDisplay;
+
   /// Optional external scroll controller. The owner uses it to reset the list
   /// to the top when the window's anchor day changes, so the tapped day
   /// becomes the first row instead of the old offset surviving against a
@@ -562,6 +498,8 @@ class AgendaListView extends StatelessWidget {
     required this.emptyHint,
     this.padding = const EdgeInsets.fromLTRB(16, 12, 16, 16),
     this.colorPalette = MarkdownColorPalette.presets,
+    this.showRecurrenceLabels = true,
+    this.missedDisplay = CalendarMissedDisplay.faded,
     this.controller,
     this.sliver = false,
   });
@@ -683,6 +621,108 @@ class AgendaListView extends StatelessWidget {
     )).format(day);
   }
 
+  /// The event card's drill-down: one row per occurrence, carrying exactly what
+  /// the agenda row for that occurrence carries — the date lives in the group
+  /// header the sheet draws above it, never in the row.
+  ///
+  /// Resolved through [EventSummaryProvider], the same provider the agenda rows
+  /// and the day panel read, so the drill-down cannot say anything different
+  /// about an occurrence than the list it was opened from.
+  ///
+  /// Every row carries its edit action, so collapsing the events layer never
+  /// puts editing further away than it was in the list.
+  ///
+  /// Public because the sheet browses months the card never counted: the
+  /// agenda layer re-scans a wider range and folds it through this same
+  /// converter, so a resolved month and the window it extends are rendered by
+  /// one piece of code.
+  ///
+  /// Presence (**v26**) is resolved **here**, at conversion time, exactly as
+  /// [buildAgendaRows] resolves it for the list this drills into: `hidden`
+  /// drops a missed occurrence before it becomes a row — so nothing downstream
+  /// draws it, marks a day for it or counts it — and `faded` keeps it with
+  /// [AgendaDayListEntry.missed] set, which is the sheet's only input on the
+  /// subject. Without this the drill-down would report a daily gym event as
+  /// attended every day of the month.
+  static List<AgendaDayListEntry> eventDayEntries(
+    List<EventOccurrence> occurrences,
+    AppLocalizations l10n,
+    void Function(CalendarEvent event, DateTime day) onEditEvent, {
+    required bool showRecurrenceLabels,
+    required CalendarMissedDisplay missedDisplay,
+  }) {
+    final provider = EventSummaryProvider(
+      l10n,
+      showRecurrence: showRecurrenceLabels,
+    );
+    final hideMissed = missedDisplay == CalendarMissedDisplay.hidden;
+    return [
+      for (final occurrence in occurrences)
+        if (provider.summaryFor(occurrence.day, [occurrence.event]).firstOrNull
+            case final entry?)
+          if (!hideMissed || !entry.missed)
+            AgendaDayListEntry(
+              day: occurrence.day,
+              icon: entry.icon,
+              color: entry.color,
+              title: entry.title,
+              subtitle: entry.subtitle,
+              onEdit: () => onEditEvent(occurrence.event, occurrence.day),
+              missed: entry.missed,
+            ),
+    ];
+  }
+
+  /// The holiday card's drill-down: one row per holiday, the name alone —
+  /// the date belongs to the group header the sheet draws above the row.
+  static List<AgendaDayListEntry> holidayDayEntries(
+    List<DateTime> days,
+    AppLocalizations l10n,
+  ) {
+    return [
+      for (final day in days)
+        if (PublicHolidays.holidayOn(day) case final info?)
+          AgendaDayListEntry(
+            day: day,
+            icon: Icons.celebration_rounded,
+            color: CalendarColors.publicHoliday,
+            // Carries the "(observed)" suffix for a substitute day, so two
+            // Christmas rows in one week explain themselves here too.
+            title: PublicHolidays.labelOf(info, l10n),
+          ),
+    ];
+  }
+
+  /// The fasting card's drill-down: one row per marked day, carrying the fast's
+  /// own title and regime — the date belongs to the group header above the row.
+  ///
+  /// Both come from [FastingSummaryProvider] filtered to [tradition] — the same
+  /// reuse `_fastingEntries` makes for run rows, so the title-override rule and
+  /// the regime naming are inherited rather than re-derived.
+  static List<AgendaDayListEntry> fastingDayEntries(
+    FastingTradition tradition,
+    List<DateTime> days,
+    AppLocalizations l10n,
+  ) {
+    final provider = FastingSummaryProvider(l10n);
+    final key = 'fasting:${tradition.name}';
+    return [
+      for (final day in days)
+        if (provider
+                .summaryFor(day, const [])
+                .where((entry) => entry.key == key)
+                .firstOrNull
+            case final entry?)
+          AgendaDayListEntry(
+            day: day,
+            icon: entry.icon,
+            color: entry.color,
+            title: entry.title,
+            subtitle: entry.subtitle,
+          ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -712,10 +752,18 @@ class AgendaListView extends StatelessWidget {
     void showDayList(
       String title,
       String subtitle,
+      Color color,
+      AgendaDayListSource source,
       List<AgendaDayListEntry> Function() entries,
     ) {
       onShowDayList?.call(
-        AgendaDayList(title: title, subtitle: subtitle, entries: entries()),
+        AgendaDayList(
+          title: title,
+          subtitle: subtitle,
+          color: color,
+          source: source,
+          entries: entries(),
+        ),
       );
     }
 
@@ -798,7 +846,13 @@ class AgendaListView extends StatelessWidget {
                   : () => showDayList(
                       entry.title,
                       [?entry.subtitle, rangeLabel].join(' · '),
-                      () => _fastingDayEntries(summary, l10n, today),
+                      entry.color,
+                      AgendaDayListFastingSource(summary.tradition),
+                      () => AgendaListView.fastingDayEntries(
+                        summary.tradition,
+                        summary.days,
+                        l10n,
+                      ),
                     ),
               colorPalette: colorPalette,
             ),
@@ -822,7 +876,15 @@ class AgendaListView extends StatelessWidget {
                   : () => showDayList(
                       entry.title,
                       [?entry.subtitle, rangeLabel].join(' · '),
-                      () => _eventDayEntries(summary, l10n, today, onEditEvent),
+                      entry.color,
+                      AgendaDayListCategorySource(summary.categoryId),
+                      () => AgendaListView.eventDayEntries(
+                        summary.occurrences,
+                        l10n,
+                        onEditEvent,
+                        showRecurrenceLabels: showRecurrenceLabels,
+                        missedDisplay: missedDisplay,
+                      ),
                     ),
               colorPalette: colorPalette,
             ),
@@ -840,7 +902,9 @@ class AgendaListView extends StatelessWidget {
                   : () => showDayList(
                       entry.title,
                       [?entry.subtitle, rangeLabel].join(' · '),
-                      () => _holidayDayEntries(days, l10n, today),
+                      entry.color,
+                      const AgendaDayListHolidaySource(),
+                      () => AgendaListView.holidayDayEntries(days, l10n),
                     ),
               colorPalette: colorPalette,
             ),

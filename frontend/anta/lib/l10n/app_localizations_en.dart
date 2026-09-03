@@ -4428,4 +4428,48 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get eventColorCategoryDefault => 'Category color';
+
+  @override
+  String get dayListModeList => 'List';
+
+  @override
+  String get dayListModeMonth => 'Month';
+
+  @override
+  String get dayListModeYear => 'Year';
+
+  @override
+  String get dayListBackToYear => 'Back to months';
+
+  @override
+  String get dayListWholeMonth => 'Whole month';
+
+  @override
+  String get dayListEmptyMonth => 'Nothing this month';
+
+  @override
+  String get dayListPreviousMonth => 'Previous month';
+
+  @override
+  String get dayListNextMonth => 'Next month';
+
+  @override
+  String get dayListScopeUpcoming => 'Upcoming';
+
+  @override
+  String get dayListScopeThisYear => 'This year';
+
+  @override
+  String get dayListJumpToToday => 'This month';
+
+  @override
+  String dayListMissedCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count missed',
+      one: '1 missed',
+    );
+    return '$_temp0';
+  }
 }
