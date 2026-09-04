@@ -1,9 +1,9 @@
 # Live Markdown Editor — Review & Consolidation Slices (2026-09-03)
 
-**Status: Sessions 0, 1, 2 and 3 DONE 2026-09-03 (§3). Sessions 0–1 are
-committed as `38c7b50`, Session 2 and its same-day follow-up as `c716225`;
-Session 3 is uncommitted on top of `d932a11`. Sessions 4–10 PLANNED, not
-implemented.** Baseline commit `bf2e7ba`
+**Status: Sessions 0–5 DONE (§3). Sessions 0–1 are committed as
+`38c7b50`, Session 2 and its same-day follow-up as `c716225`, Session 3 as
+`a183f11`, Session 4 as `1ed4a60`; Session 5 (2026-09-04) is uncommitted on
+top of `1ed4a60`. Sessions 6–10 PLANNED, not implemented.** Baseline commit `bf2e7ba`
 (main). Line numbers below are as of that commit and will drift — re-grep
 before editing. This doc is the ledger for making the Obsidian-style live
 editor the app's only day-to-day markdown surface, retiring the read-only
@@ -951,6 +951,115 @@ enforces its contracts, list-line layout is cheaper.
 Exit: no `BuildContext` in the renderer; fork asserts fire in debug on
 contract violations; scroll benchmark improved.
 
+**Outcome — DONE 2026-09-04, uncommitted on 1ed4a60.** Full suite 2722
+passing (6 benchmark cases skipped by default); `dart analyze lib test
+packages/re_editor/lib` clean. Owner decisions applied: B8 fixed with
+`floor` (not documented away); the paragraph cache was measured at 512 vs
+128 and lowered to 128 because the meminfo delta was a clear 15 MB (§5).
+What landed, item by item:
+
+1. `lib/utils/editor_render_context.dart` — `EditorRenderContext{style,
+   baseColor, primary, isDark, onAccent}` (value-equal on the first four;
+   `onAccent` derived from `primary`; `fromTheme(ThemeData, TextStyle)` is
+   the one derivation) and `EditorRenderContextCache.of(theme, style)`,
+   which hands back the same instance until `Theme.of`'s `ThemeData`
+   instance or the fork's line style changes — one cache per surface
+   that owns an editor (the page, the event description sheet, the event
+   editor sheet), so the per-line cost is one `Theme.of` plus two
+   identity checks. `MarkdownEditorSpanBuilder.build({context:
+   EditorRenderContext, index, codeLine})` — no `style` parameter and no
+   `BuildContext` anywhere under `lib/utils/markdown_editor_*`; the
+   builder adopts an unequal context by dropping both span memos, so the
+   context IS the generation key. The page's ghost fallback takes
+   `baseColor` from the same context. Deliberate deviation from the plan's
+   field list: the colour palette and the money config are NOT in the
+   context — `configureColors`/`configureMoney` stay, because they also
+   seed the line index and carry their own invalidation rule (a
+   start-balance change skips the memo clear).
+2. Split, no behaviour change, seven libraries with one responsibility
+   each (callers still import `markdown_editor_span_builder.dart` alone):
+   `markdown_editor_span_builder.dart` 2266 → 750 lines (`build()`'s
+   routing, `_buildLine`, the header / quote / rule / list-item / fence
+   shapes, the two positional predicates); `markdown_editor_span_cache.dart`
+   136 (`EditorSpanCache`: text-keyed LRU 1024, positional LRU 128, money
+   parse memo 256 with its sentinel, `adoptContext`);
+   `markdown_editor_emitter.dart` 210 (`EditorSpanEmitter`: `emit`,
+   `emitChrome`, `concealStyle`/`dimStyle`, the debug code-unit inventory
+   assert); `markdown_editor_inline_emitter.dart` 380
+   (`EditorInlineEmitter.append` over `MarkdownInlineGrammar` tokens + the
+   inline styles — the plan left this cut open; without it the builder
+   stayed at ~1,080 lines); `markdown_editor_money_row.dart` 800
+   (`EditorMoneyRowBuilder.build`); `markdown_editor_paint_spans.dart` 178
+   (`EditorMoneyTotalSpan`, `EditorCheckboxSpan`, `EditorCheckboxVisual`);
+   `editor_render_context.dart` 95. Every emitter is static — the build
+   path allocates no emitter object and captures no closure per line.
+   Two design values with consumers in two libraries moved to
+   `MarkdownConstants` (`editorHeaderScale(level)`,
+   `editorChipBackgroundAlpha`); the rest of the alphas stayed private
+   where they are used. `build()` is ~90 lines rather than the plan's 40
+   because each of its four cache branches kept its doc comment.
+3. Fork (`_code_paragraph.dart` unless noted): **B7** — hanging `height`
+   and `lineCount` are the max over marker and content (both parts share
+   one `preferredLineHeight`, so `height == lineCount *
+   preferredLineHeight` still holds; nothing outside `_ParagraphImpl`
+   reads `IParagraph.lineCount`). **B8** — `indent =
+   markerRight.floorToDouble()` and the boundary offset is answered by
+   the content side for BOTH affinities, so the seam resolves to exactly
+   `indent`; flooring makes the marker's selection/search rects overlap
+   the content's by under a pixel instead of leaving a gap. Two
+   debug-only asserts: a root span that scales `fontSize` must keep the
+   base style's strut inputs (`fontFamily`, `height`; the plan's "differs
+   only in fontSize" would have fired on every bold heading root), and
+   every `CodeInlinePaintSpan` box must be ≤ the line's preferred height.
+   `_buildHanging` returns null before any paragraph work when `maxWidth`
+   is infinite (word wrap off). **P6** — `_markerMeasurements`, a 128-entry
+   insertion-ordered LRU keyed by the marker `TextSpan` by value (not the
+   plan's `(markerText, fontSize)`: the style is part of what is
+   measured, and the marker span carries the root style so equal keys
+   imply the same scaled paragraph style), holding the laid-out marker
+   `_ParagraphImpl` and its floored indent; a hit skips a
+   `ParagraphBuilder`, a layout and both `getBoxes` calls, and sharing
+   one marker paragraph across lines is safe because its lazy memos are
+   pure functions of its own paragraph; cleared by `clearCache()`. The
+   1.5× wrapping-marker rejection stays uncached. `trucate`/`_dropPrefix`
+   no longer emit empty `TextSpan('')` nodes and the dead
+   `remaining <= 0` branch is gone. **B9** — `_CodeHighlighter.clearCache`
+   also clears `_plainSpans`. **B10** — `goToMatch` on the current match
+   skips the value push and still re-centres.
+4. `code_paragraph_testing.dart` — `@visibleForTesting
+   CodeParagraphProviderForTesting` (build / updateBaseStyle / clearCache /
+   truncate / dropPrefix / isHanging / markerCacheLength).
+   `test/re_editor/hanging_paragraph_test.dart` (17): round trip
+   `getPosition(getOffset(p)) == p` on seven realistic lines (offsets at a
+   soft-wrap boundary have two visual locations and are skipped, with at
+   least half the offsets required to be checked — the plan's "every
+   offset" is not provable there), seam x identical for both affinities,
+   `getRangeRects` covering marker + rows in order with no gap including
+   a fractional-advance case (13.7 px glyphs — with the test font's
+   integral advances floor and ceil are indistinguishable), `height >=
+   marker.height` and the line-height identity, infinite width never
+   hanging, split identity / no empty children / plain-text
+   concatenation at every split point, marker-cache dedupe + clear, and
+   both asserts firing. `re_editor_search_controller_test.dart` gained
+   the observable half of B10 (no value push on the current match; the
+   scroll half needs a mounted editor). Units suite 142 → 144 (a
+   generation group); the units, agreement and span-builder benchmark
+   suites are plain `test()` now (the binding is initialised, nothing is
+   pumped). No `expectedDivergence` entry was added.
+5. Benchmarks in §5: `test/re_editor/hanging_paragraph_benchmark_test.dart`
+   is new and the marker cache cut the cold list-line layout by a
+   quarter; the span-builder rows did not regress.
+
+Traps: a `git worktree` under the scratchpad exceeds Windows' 260-char
+path limit inside `ios/Flutter/ephemeral` and the flutter tool crashes —
+map the scratchpad to a drive letter with `subst` first; the pre-session
+worktree also needs the untracked `ios/macos/Flutter/ephemeral` folders
+copied in; `@visibleForTesting` on a cache field makes the builder's
+delegating getter a lint error — annotate the public getter the tests
+read; under `BoxHeightStyle.max` with `height: 1.4` the first rect's top
+is 0.4, not 0; `dart format` leaves the fork package in the old style
+(its own language version) — do not "fix" it to match the app.
+
 ### Session 6 — editor page controllers
 
 Goal: settings apply without reopening, restore is deterministic, no
@@ -1182,3 +1291,53 @@ Span builder (`markdown_editor_span_builder_benchmark_test.dart`, new row:
 
 The list-line rows (cold 471–549 µs, warm 69–94 µs per pass) are unchanged
 within noise.
+
+Session 5 numbers (2026-09-04, same machine, quiet box, three runs each).
+
+Hanging paragraphs (`test/re_editor/hanging_paragraph_benchmark_test.dart`,
+new: 40 mixed list lines — `• `, `1. `, checkbox placeholder, nested
+`    • `, a few wrapping at 360 px — × 40 passes through
+`CodeParagraphProviderForTesting`; "before" is the pre-session fork at
+`1ed4a60` in a detached worktree with the test seam grafted in):
+
+| Path | Before P6 | After P6 |
+|---|---|---|
+| cold (paragraph cache cleared per pass), per pass | 2,095–2,236 µs | 1,598–1,711 µs |
+| per line | 52–56 µs | 40–43 µs |
+| warm (identity hit), per pass | 18–21 µs | 23–25 µs (noise) |
+
+So a fling into 40 fresh list lines pays ~25 % less layout; the marker
+paragraph is built once per distinct marker span and the content
+paragraph is the remaining cost.
+
+Span builder (`markdown_editor_span_builder_benchmark_test.dart`, rows and
+bounds unchanged; the harness moved from `testWidgets` to `test()`, so
+the environment moved with the code — read this as "no regression from
+the decomposition", not as a speed-up claim; the warm row was already
+known to track JIT warm-up):
+
+| Path | Before Session 5 | After |
+|---|---|---|
+| cold (memo cleared), per pass | 618–632 µs | 491–523 µs |
+| warm (memo hit), per pass | 136–140 µs | 27–31 µs |
+| display-money warm, per pass | 76–81 µs | 50 µs |
+
+Paragraph cache size (`adb shell dumpsys meminfo` on the x86_64 API 36
+emulator, profile build of a throwaway `flutter run -t` entrypoint that
+mounts `CodeEditor` + `MarkdownEditorSpanBuilder` over a generated
+10k-line list note and walks 4,000 lines in viewport steps, then parks):
+
+| `_kMaxCacheSize` | Native Heap | TOTAL PSS |
+|---|---|---|
+| 512 (three samples) | 55.0–56.7 MB | 160.0–162.0 MB |
+| 128 (three samples) | 40.8–40.9 MB | 145.1–145.9 MB |
+
+≈ 15 MB for 384 extra entries, ≈ 39 KB per retained list-line paragraph
+(the content paragraph plus its boxes; the marker is shared by P6). That
+is the "clear win" the decision rule asked for, so the paragraph cache
+is now **128** (both the equality LRU and the identity L1). Cost side:
+128 entries cover 3–5 phone viewports, a miss on a list line is the
+40–43 µs cold row above, so a page that scrolled out of the cache costs
+1–2 ms to come back — inside one frame. The absolute numbers are an
+emulator's and the harness's content is all list lines; the delta is
+what matters.

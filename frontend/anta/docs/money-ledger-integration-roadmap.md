@@ -35,8 +35,9 @@ cents math.
 - **Editor render** — `MarkdownEditorLineIndex`'s incremental money pass
   (`moneyValueAt`, mirrors the task pass: per-segment entry balance + `$=`
   anchor snapshots, resumes at the first changed segment) +
-  `MarkdownEditorSpanBuilder._buildMoneyLine` / `_moneyTotalSpan` /
-  `_EditorMoneyTotalSpan` (fork `CodeInlinePaintSpan`, paints `Σ`/`Δ` + value
+  `EditorMoneyRowBuilder.build` (`lib/utils/markdown_editor_money_row.dart`)
+  / `_valueSpan` / `EditorMoneyTotalSpan`
+  (`markdown_editor_paint_spans.dart`; fork `CodeInlinePaintSpan`, paints `Σ`/`Δ` + value
   into a placeholder box substituting 1:1 for the second marker char).
 - **Palette** — `MarkdownConstants.moneyPositive/moneyNegative/moneyNeutral`.
 - **Toolbar** — `default_money` shortcut (`$+ `) in

@@ -12,6 +12,7 @@ import '../l10n/app_localizations.dart';
 import '../models/custom_markdown_shortcut.dart';
 import '../models/utility_button_config.dart';
 import '../services/settings_service.dart';
+import '../utils/editor_render_context.dart';
 import '../utils/list_aware_paste.dart';
 import '../utils/markdown_color_syntax.dart';
 import '../utils/markdown_editor_span_builder.dart';
@@ -134,6 +135,10 @@ class _EventDescriptionSheetState extends State<EventDescriptionSheet> {
 
   final MarkdownEditorSpanBuilder _spanBuilder = MarkdownEditorSpanBuilder();
 
+  /// The renderer's theme generation, resolved once per theme/style
+  /// change instead of once per line.
+  final EditorRenderContextCache _renderContext = EditorRenderContextCache();
+
   /// Build-safe relay for [_controller]'s notifications.
   ///
   /// Nothing here may listen to the controller directly: re_editor's
@@ -242,10 +247,9 @@ class _EventDescriptionSheetState extends State<EventDescriptionSheet> {
   }) {
     if (!_liveMarkdownRendering) return textSpan;
     return _spanBuilder.build(
-          context: context,
+          context: _renderContext.of(Theme.of(context), style),
           index: index,
           codeLine: codeLine,
-          style: style,
         ) ??
         textSpan;
   }

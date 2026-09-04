@@ -1,6 +1,8 @@
 import 'package:anta/constants/markdown_constants.dart';
+import 'package:anta/utils/editor_render_context.dart';
 import 'package:anta/utils/markdown_color_syntax.dart';
 import 'package:anta/utils/markdown_editor_span_builder.dart';
+import 'package:anta/utils/markdown_editor_span_cache.dart';
 import 'package:anta/utils/markdown_inline_grammar.dart';
 import 'package:anta/utils/money_display_config.dart';
 import 'package:flutter/material.dart';
@@ -20,6 +22,12 @@ import 'package:re_editor/re_editor.dart';
 /// * a root `fontSize` that does not move between reveal states (a caret
 ///   move must never change a line's height).
 void main() {
+  // Nothing here pumps a widget: the renderer takes an
+  // [EditorRenderContext], not a `BuildContext`. The binding is still
+  // needed because the money chip lays a `TextPainter` out through
+  // dart:ui.
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('inline candidate pre-check', () {
     test('is a superset of what the tokenizer can open', () {
       // The quick reject in front of the tokenizer (and the editor's
@@ -43,8 +51,7 @@ void main() {
   });
 
   for (final entry in _corpus) {
-    testWidgets(entry.label, (tester) async {
-      final context = await _pumpForContext(tester);
+    test(entry.label, () {
       final document = <String>[
         _pad,
         ...entry.above,
@@ -71,10 +78,9 @@ void main() {
             offset: 0,
           );
           final span = builder.build(
-            context: context,
+            context: _renderContext,
             index: index,
             codeLine: controller.codeLines[index],
-            style: _baseStyle,
           );
           spans[reveal] = span;
           final where = '${entry.label} [money=$money reveal=$reveal]';
@@ -101,10 +107,9 @@ void main() {
           offset: 0,
         );
         final again = builder.build(
-          context: context,
+          context: _renderContext,
           index: index,
           codeLine: controller.codeLines[index],
-          style: _baseStyle,
         );
         if (off == null) {
           expect(again, isNull, reason: 'memo must stay null-stable: $where');
@@ -123,10 +128,8 @@ void main() {
   // the right things are *hidden*. Concealed leaves (transparent + the
   // 0.01 fontSize) are dropped, and what is left is what the user sees.
   group('visible rendering', () {
-    testWidgets('nested emphasis styles only the inner run bold', (
-      tester,
-    ) async {
-      final render = await _renderOffCaret(tester, '*a **b** c*');
+    test('nested emphasis styles only the inner run bold', () {
+      final render = _renderOffCaret('*a **b** c*');
       expect(render.visibleText, 'a b c');
       for (final leaf in render.leaves) {
         expect(
@@ -146,26 +149,22 @@ void main() {
       }
     });
 
-    testWidgets('a triple underscore run is one bold-italic token', (
-      tester,
-    ) async {
-      final render = await _renderOffCaret(tester, '___both___');
+    test('a triple underscore run is one bold-italic token', () {
+      final render = _renderOffCaret('___both___');
       expect(render.visibleText, 'both');
       final leaf = render.leaves.single;
       expect(leaf.style?.fontWeight, FontWeight.bold);
       expect(leaf.style?.fontStyle, FontStyle.italic);
     });
 
-    testWidgets('a double-backtick fence keeps a single backtick inside', (
-      tester,
-    ) async {
-      final render = await _renderOffCaret(tester, '``x`y``');
+    test('a double-backtick fence keeps a single backtick inside', () {
+      final render = _renderOffCaret('``x`y``');
       expect(render.visibleText, 'x`y');
       expect(render.leaves.single.span, isA<CodeDecoratedTextSpan>());
     });
 
-    testWidgets('bare hashes render as an empty heading', (tester) async {
-      final render = await _renderOffCaret(tester, '###');
+    test('bare hashes render as an empty heading', () {
+      final render = _renderOffCaret('###');
       expect(render.visibleText, isEmpty);
       expect(
         render.span.style?.fontSize,
@@ -173,11 +172,8 @@ void main() {
       );
     });
 
-    testWidgets('an emphasis-wrapped diff row conceals its count', (
-      tester,
-    ) async {
-      final render = await _renderOffCaret(
-        tester,
+    test('an emphasis-wrapped diff row conceals its count', () {
+      final render = _renderOffCaret(
         r'*$^ 2*',
         above: const <String>[r'$= 500', r'$+ 20 x', r'$- 5 y'],
         money: true,
@@ -196,8 +192,7 @@ void main() {
   });
 
   group('money parse is memoised', () {
-    testWidgets('parses once per distinct line text', (tester) async {
-      final context = await _pumpForContext(tester);
+    test('parses once per distinct line text', () {
       final controller = CodeLineEditingController.fromText(
         _moneyMemoDocument.join('\n'),
       );
@@ -206,10 +201,9 @@ void main() {
       builder.configureMoney(_moneyEnabled);
 
       TextSpan? buildAt(int index) => builder.build(
-        context: context,
+        context: _renderContext,
         index: index,
         codeLine: controller.codeLines[index],
-        style: _baseStyle,
       );
 
       for (final index in _moneyMemoRows) {
@@ -261,6 +255,70 @@ void main() {
       );
     });
   });
+
+  // The render context is the span memos' generation key: an equal one
+  // must keep a warm cache (the page rebuilds it whenever the fork hands
+  // over a new style instance), a different one must drop it.
+  group('render context generation', () {
+    test('an equal context keeps the memos, a different one drops them', () {
+      final cache = EditorSpanCache();
+      expect(cache.renderContext, isNull);
+      expect(cache.adoptContext(_renderContext), isTrue);
+
+      final same = EditorRenderContext(
+        style: _renderContext.style,
+        baseColor: _renderContext.baseColor,
+        primary: _renderContext.primary,
+        isDark: _renderContext.isDark,
+      );
+      expect(same, _renderContext);
+      expect(
+        cache.adoptContext(same),
+        isFalse,
+        reason: 'an equal generation must not clear a warm cache',
+      );
+
+      final darker = EditorRenderContext(
+        style: _renderContext.style,
+        baseColor: _renderContext.baseColor,
+        primary: _renderContext.primary,
+        isDark: true,
+      );
+      expect(cache.adoptContext(darker), isTrue);
+      expect(cache.renderContext, darker);
+    });
+
+    test('a rebuilt but equal context keeps the identical span', () {
+      final controller = CodeLineEditingController.fromText(
+        <String>[_pad, '- **bold** item', _pad].join('\n'),
+      );
+      addTearDown(controller.dispose);
+      final builder = MarkdownEditorSpanBuilder()..bind(controller);
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 0,
+      );
+      final first = builder.build(
+        context: _renderContext,
+        index: 1,
+        codeLine: controller.codeLines[1],
+      );
+      final second = builder.build(
+        context: EditorRenderContext.fromTheme(
+          ThemeData(useMaterial3: true, brightness: Brightness.light),
+          _baseStyle,
+        ),
+        index: 1,
+        codeLine: controller.codeLines[1],
+      );
+      expect(first, isNotNull);
+      expect(
+        identical(first, second),
+        isTrue,
+        reason: 'an equal generation must hit the span memo',
+      );
+    });
+  });
 }
 
 const String _pad = 'padding line';
@@ -290,6 +348,14 @@ const TextStyle _baseStyle = TextStyle(
   color: Color(0xFF202124),
 );
 
+/// The renderer's theme generation, built straight from a [ThemeData] —
+/// the whole point of [EditorRenderContext] is that no widget tree is
+/// needed to render a line.
+final EditorRenderContext _renderContext = EditorRenderContext.fromTheme(
+  ThemeData(useMaterial3: true, brightness: Brightness.light),
+  _baseStyle,
+);
+
 const MoneyDisplayConfig _moneyEnabled = MoneyDisplayConfig(
   enabled: true,
   currencySymbol: 'lei',
@@ -314,22 +380,6 @@ const Map<int, String> _substitutions = <int, String>{
   0xFFFC: r'[$?^~!:', // placeholder run — checkbox, money chip, op glyph
 };
 
-Future<BuildContext> _pumpForContext(WidgetTester tester) async {
-  late BuildContext captured;
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: ThemeData(useMaterial3: true, brightness: Brightness.light),
-      home: Builder(
-        builder: (context) {
-          captured = context;
-          return const SizedBox.shrink();
-        },
-      ),
-    ),
-  );
-  return captured;
-}
-
 /// One visible piece of a built line: a text leaf that is not concealed,
 /// or a placeholder run (a checkbox, a money chip, an op glyph).
 class _Leaf {
@@ -346,13 +396,11 @@ typedef _Render = ({TextSpan span, List<_Leaf> leaves, String visibleText});
 /// collapsed selection would reveal the line under test) and projects the
 /// span tree down to what the reader actually sees. A fresh builder per
 /// call, because `configureMoney` clears the memos of a warm one.
-Future<_Render> _renderOffCaret(
-  WidgetTester tester,
+_Render _renderOffCaret(
   String line, {
   List<String> above = const <String>[],
   bool money = false,
-}) async {
-  final context = await _pumpForContext(tester);
+}) {
   final document = <String>[_pad, ...above, line, _pad];
   final index = 1 + above.length;
   final controller = CodeLineEditingController.fromText(document.join('\n'));
@@ -361,10 +409,9 @@ Future<_Render> _renderOffCaret(
   builder.configureMoney(money ? _moneyEnabled : MoneyDisplayConfig.disabled);
   controller.selection = const CodeLineSelection.collapsed(index: 0, offset: 0);
   final span = builder.build(
-    context: context,
+    context: _renderContext,
     index: index,
     codeLine: controller.codeLines[index],
-    style: _baseStyle,
   );
   expect(span, isNotNull, reason: 'expected a styled span for: $line');
   final leaves = _visibleLeaves(span!);

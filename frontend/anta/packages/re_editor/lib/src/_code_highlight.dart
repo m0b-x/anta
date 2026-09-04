@@ -68,8 +68,14 @@ class _CodeHighlighter extends ValueNotifier<List<_HighlightResult>> {
         maxWidth);
   }
 
+  /// Drops every cached layout AND the plain-span memo: the memo hands
+  /// out the span instances the provider's identity cache is keyed on,
+  /// so a memo that survived would keep serving spans whose paragraphs
+  /// were just thrown away — and, when the reason for the clear is a
+  /// changed style, spans carrying the old one.
   void clearCache() {
     _provider.clearCache();
+    _plainSpans.clear();
   }
 
   @override

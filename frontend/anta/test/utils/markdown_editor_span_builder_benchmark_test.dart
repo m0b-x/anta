@@ -1,6 +1,7 @@
 @Tags(['benchmark'])
 library;
 
+import 'package:anta/utils/editor_render_context.dart';
 import 'package:anta/utils/markdown_color_syntax.dart';
 import 'package:anta/utils/markdown_editor_span_builder.dart';
 import 'package:anta/utils/money_display_config.dart';
@@ -21,13 +22,15 @@ import 'package:re_editor/re_editor.dart';
 /// The assertions are catastrophe-only (they catch an accidental O(n²) or a
 /// dead memo, not a 30 % regression). Read the printed table for the signal.
 void main() {
+  // No widget pumping: the renderer takes an [EditorRenderContext]. The
+  // binding is still needed because painted runs lay a `TextPainter`
+  // out through dart:ui.
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   const lineCount = 40;
   const iterations = 40;
 
-  testWidgets('span build of $lineCount list lines, cold vs warm', (
-    tester,
-  ) async {
-    final context = await _pumpForContext(tester);
+  test('span build of $lineCount list lines, cold vs warm', () {
     final lines = _listLines(lineCount);
     final controller = CodeLineEditingController.fromText(lines.join('\n'));
     addTearDown(controller.dispose);
@@ -43,10 +46,9 @@ void main() {
       var built = 0;
       for (var i = 0; i < lineCount; i++) {
         final span = builder.build(
-          context: context,
+          context: _renderContext,
           index: i,
           codeLine: controller.codeLines[i],
-          style: _baseStyle,
         );
         if (span != null) built++;
       }
@@ -115,10 +117,7 @@ void main() {
     );
   });
 
-  testWidgets('span build of $lineCount display-money lines, warm', (
-    tester,
-  ) async {
-    final context = await _pumpForContext(tester);
+  test('span build of $lineCount display-money lines, warm', () {
     final lines = <String>[..._moneyOps, ..._moneyDisplayLines(lineCount)];
     final firstDisplay = _moneyOps.length;
     final controller = CodeLineEditingController.fromText(lines.join('\n'));
@@ -136,10 +135,9 @@ void main() {
       for (var i = 0; i < lineCount; i++) {
         final index = firstDisplay + i;
         final span = builder.build(
-          context: context,
+          context: _renderContext,
           index: index,
           codeLine: controller.codeLines[index],
-          style: _baseStyle,
         );
         if (span != null) built++;
       }
@@ -217,6 +215,14 @@ const TextStyle _baseStyle = TextStyle(
   color: Color(0xFF202124),
 );
 
+/// The renderer's theme generation, built straight from a [ThemeData] —
+/// the page resolves one of these per generation and hands the same
+/// instance to every line, which is what these passes reproduce.
+final EditorRenderContext _renderContext = EditorRenderContext.fromTheme(
+  ThemeData(useMaterial3: true, brightness: Brightness.light),
+  _baseStyle,
+);
+
 final MarkdownColorPalette _altPalette = MarkdownColorPalette.decode(
   'benchcold=ff112233',
 );
@@ -238,19 +244,3 @@ List<String> _listLines(int count) => List<String>.generate(count, (i) {
       return '    - note: [form cue](https://example.com/cue/$i)';
   }
 });
-
-Future<BuildContext> _pumpForContext(WidgetTester tester) async {
-  late BuildContext captured;
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: ThemeData(useMaterial3: true, brightness: Brightness.light),
-      home: Builder(
-        builder: (context) {
-          captured = context;
-          return const SizedBox.shrink();
-        },
-      ),
-    ),
-  );
-  return captured;
-}

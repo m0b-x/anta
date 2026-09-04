@@ -240,11 +240,18 @@ lines bypass the memo.
     dropped (an empty line can't paint one, which rendered striped blocks) —
     interior is plain monospace, delimiters dimmed monospace.
   - Hanging indent: marker width measured via `getBoxesForRange`'s right edge
-    (longestLine drops the trailing-space advance); wrapped markers fall back
-    to plain layout; `trucate`/`_dropPrefix` count placeholder lengths and
-    keep children of text+children spans; `getSpanForPosition` resolves
-    against the original root span so recognizer/annotation spans keep
-    identity with `getRangeForSpan`.
+    (longestLine drops the trailing-space advance) and floored into the
+    indent (2026-09-04: the boundary offset resolves to exactly the indent
+    for both affinities, and the marker's rects overlap the content's by
+    under a pixel instead of leaving a gap); the laid-out marker is memoized
+    per marker span (128-entry LRU, cleared with the paragraph cache) so a
+    fling pays one marker layout per distinct marker; wrapped markers and
+    word-wrap-off (infinite width) fall back to plain layout;
+    `trucate`/`_dropPrefix` count placeholder lengths, keep untouched
+    subtrees by identity and emit no empty children; `getSpanForPosition`
+    resolves against the original root span so recognizer/annotation spans
+    keep identity with `getRangeForSpan`; the line's height is the taller
+    of marker and content. Pinned by `test/re_editor/hanging_paragraph_test.dart`.
   - Perf/reuse: bare-URL candidates require `ht`/`ww` pairs so the plain-prose
     quick-reject survives; `selectionCoversLine` and `isEscapablePunctuation`
     are now single-sourced (span builder static / `MarkdownConstants`).

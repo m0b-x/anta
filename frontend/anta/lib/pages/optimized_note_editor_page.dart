@@ -49,6 +49,7 @@ import '../utils/text_history_observer.dart';
 import '../utils/text_position_utils.dart';
 import '../utils/markdown_list_utils.dart';
 import '../utils/markdown_color_syntax.dart';
+import '../utils/editor_render_context.dart';
 import '../utils/markdown_editor_span_builder.dart';
 import '../utils/ghost_text.dart';
 import '../utils/markdown_money_syntax.dart';
@@ -94,6 +95,11 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   late CodeLineEditingController _contentController;
   final MarkdownEditorSpanBuilder _markdownSpanBuilder =
       MarkdownEditorSpanBuilder();
+
+  /// The renderer's theme generation, resolved once per theme/style
+  /// change instead of once per line — see [EditorRenderContextCache].
+  final EditorRenderContextCache _editorRenderContext =
+      EditorRenderContextCache();
   late final VocabularySuggestionController _vocabularySuggestions;
   bool _liveMarkdownRendering = SettingsKeys.defaultLiveMarkdownRendering;
   MoneyDisplayConfig _moneyConfig = const MoneyDisplayConfig(
@@ -2035,21 +2041,21 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     required TextSpan textSpan,
     required TextStyle style,
   }) {
+    final render = _editorRenderContext.of(Theme.of(context), style);
     if (_liveMarkdownRendering) {
       final span = _markdownSpanBuilder.build(
-        context: context,
+        context: render,
         index: index,
         codeLine: codeLine,
-        style: style,
       );
       if (span != null) return span;
     }
     return _buildGhostEditorSpan(
-      context: context,
       index: index,
       codeLine: codeLine,
       textSpan: textSpan,
       style: style,
+      baseColor: render.baseColor,
     );
   }
 
@@ -2449,22 +2455,23 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
 /// placeholder gets an underline so the empty slot stays findable.
 /// Lines without the opening marker short-circuit so the common path
 /// stays allocation-free.
+///
+/// [baseColor] comes from the caller's [EditorRenderContext], the same
+/// theme generation the markdown builder renders under, so the ghost
+/// tone matches whichever surface drew the line — and the theme is read
+/// once per generation instead of once per ghost line.
 TextSpan _buildGhostEditorSpan({
-  required BuildContext context,
   required int index,
   required CodeLine codeLine,
   required TextSpan textSpan,
   required TextStyle style,
+  required Color baseColor,
 }) {
   final text = codeLine.text;
   if (!GhostText.mightContain(text)) return textSpan;
   final ghosts = GhostText.findGhosts(text);
   if (ghosts.isEmpty) return textSpan;
 
-  final baseColor =
-      style.color ??
-      Theme.of(context).textTheme.bodyLarge?.color ??
-      Colors.grey;
   final ghostColor = baseColor.withValues(alpha: 0.45);
   final ghostStyle = style.copyWith(color: ghostColor);
   // Markers stay in the model (offset integrity) but are painted

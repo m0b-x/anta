@@ -94,6 +94,29 @@ void main() {
       expect(controller.currentMatchIndex, 0);
     });
 
+    /// B10: re-targeting the match the result already points at re-centres
+    /// the editor on it (a "go to match" is a navigation request even when
+    /// the index does not move) but must not push a new value — no listener
+    /// has anything to react to. Only the second half is observable here:
+    /// the scroll runs through the render object, which needs a mounted
+    /// editor this pure-Dart harness has no reason to build.
+    test('re-targeting the current match does not push a new value', () {
+      final editor = _editorWith('a squat\nanother squat', 'squat');
+      final controller = ReEditorSearchController()
+        ..initialize(editor.edit)
+        ..setFindController(editor.find);
+
+      controller.goToMatch(1);
+      expect(controller.currentMatchIndex, 1);
+
+      var notifications = 0;
+      controller.addListener(() => notifications++);
+      controller.goToMatch(1);
+
+      expect(controller.currentMatchIndex, 1);
+      expect(notifications, 0);
+    });
+
     test('moves the index in preview mode', () {
       final controller = _previewController('one\ntwo hit\nthree hit', 'hit');
       expect(controller.matchCount, 2);

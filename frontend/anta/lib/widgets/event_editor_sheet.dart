@@ -29,6 +29,7 @@ import '../services/event_time_formatter.dart';
 import '../services/recurrence_formatter.dart';
 import '../services/settings_service.dart';
 import '../utils/custom_snackbar.dart';
+import '../utils/editor_render_context.dart';
 import '../utils/list_aware_paste.dart';
 import '../utils/markdown_color_syntax.dart';
 import '../utils/markdown_editor_span_builder.dart';
@@ -269,6 +270,11 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
 
   final MarkdownEditorSpanBuilder _descriptionSpanBuilder =
       MarkdownEditorSpanBuilder();
+
+  /// The renderer's theme generation, resolved once per theme/style
+  /// change instead of once per line.
+  final EditorRenderContextCache _descriptionRenderContext =
+      EditorRenderContextCache();
 
   /// Build-safe relay for [_descriptionController]'s notifications.
   ///
@@ -679,10 +685,9 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   }) {
     if (!_liveMarkdownRendering) return textSpan;
     return _descriptionSpanBuilder.build(
-          context: context,
+          context: _descriptionRenderContext.of(Theme.of(context), style),
           index: index,
           codeLine: codeLine,
-          style: style,
         ) ??
         textSpan;
   }

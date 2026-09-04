@@ -235,13 +235,17 @@ class _CodeFindControllerImpl extends ValueNotifier<CodeFindValue?>
       return;
     }
     final int target = index.clamp(0, result.matches.length - 1);
-    if (target == result.index) {
-      return;
+    // Re-targeting the match the result already points at skips the
+    // value update — nothing changed for listeners — but still scrolls:
+    // "go to match N" is a navigation request, and the caller has no
+    // other way to bring the current match back into view after the
+    // user has scrolled away from it.
+    if (target != result.index) {
+      final CodeFindValue newValue =
+          value!.copyWith(result: result.copyWith(index: target));
+      _expandChunkIfNeeded(newValue);
+      value = newValue;
     }
-    final CodeFindValue newValue =
-        value!.copyWith(result: result.copyWith(index: target));
-    _expandChunkIfNeeded(newValue);
-    value = newValue;
     final CodeLineSelection? selection = currentMatchSelection;
     if (selection != null) {
       _controller.makePositionCenterIfInvisible(selection.start);

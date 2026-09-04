@@ -1,3 +1,4 @@
+import 'package:anta/utils/editor_render_context.dart';
 import 'package:anta/utils/line_based_markdown_builder.dart';
 import 'package:anta/utils/markdown_color_syntax.dart';
 import 'package:anta/utils/markdown_editor_span_builder.dart';
@@ -41,37 +42,38 @@ import 'package:re_editor/re_editor.dart';
 /// deliberately out of scope — those surfaces differ by design and have
 /// their own suites.
 void main() {
+  // Nothing here pumps a widget: both builders take resolved values,
+  // not a `BuildContext`. The binding is still needed because painted
+  // runs lay a `TextPainter` out through dart:ui.
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   // The comparator is the whole point of the suite: if it stopped
   // seeing differences every corpus entry would pass vacuously.
   group('the comparator sees differences', () {
-    testWidgets('a dropped marker on one surface fails', (tester) async {
-      final context = await _pumpForContext(tester);
-      final editor = _editorUnits(context, 'a **b** c');
-      final preview = _previewUnits(context, '**b**');
+    test('a dropped marker on one surface fails', () {
+      final editor = _editorUnits('a **b** c');
+      final preview = _previewUnits('**b**');
       expect(_firstDifference(editor, preview), contains('visible text'));
     });
 
-    testWidgets('a weight difference on one unit fails', (tester) async {
-      final context = await _pumpForContext(tester);
-      final bold = _editorUnits(context, '**b**');
-      final plain = _editorUnits(context, 'b');
+    test('a weight difference on one unit fails', () {
+      final bold = _editorUnits('**b**');
+      final plain = _editorUnits('b');
       expect(_firstDifference(bold, plain), contains('weight'));
     });
 
-    testWidgets('a colour difference on one unit fails', (tester) async {
-      final context = await _pumpForContext(tester);
-      final tinted = _editorUnits(context, '{red:b}');
-      final plain = _editorUnits(context, 'b');
+    test('a colour difference on one unit fails', () {
+      final tinted = _editorUnits('{red:b}');
+      final plain = _editorUnits('b');
       expect(_firstDifference(tinted, plain), contains('color'));
     });
   });
 
   group('editor and preview agree', () {
     for (final entry in _corpus) {
-      testWidgets(entry.label, (tester) async {
-        final context = await _pumpForContext(tester);
-        final editor = _editorUnits(context, entry.line);
-        final preview = _previewUnits(context, entry.line);
+      test(entry.label, () {
+        final editor = _editorUnits(entry.line);
+        final preview = _previewUnits(entry.line);
         // Agreement between two empty projections proves nothing, so
         // pin that both surfaces actually rendered something. A bare
         // `###` is the one line that legitimately shows nothing.
@@ -112,11 +114,9 @@ void main() {
   // paint, in order, reconstruct the visible line.
   group('preview offsets', () {
     for (final line in _offsetCorpus) {
-      testWidgets('every visible unit keeps its source offset: '
-          '${_quote(line)}', (tester) async {
-        final context = await _pumpForContext(tester);
-        final style = _previewStyle(context);
-        final visible = _previewUnits(context, line).map((u) => u.unit).join();
+      test('every visible unit keeps its source offset: ${_quote(line)}', () {
+        final style = _previewStyle;
+        final visible = _previewUnits(line).map((u) => u.unit).join();
 
         final painted = StringBuffer();
         for (var k = 0; k < line.length; k++) {
@@ -361,34 +361,31 @@ const TextStyle _baseStyle = TextStyle(
   color: _baseColor,
 );
 
-Future<BuildContext> _pumpForContext(WidgetTester tester) async {
-  late BuildContext captured;
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: ThemeData(useMaterial3: true, brightness: Brightness.light),
-      home: Builder(
-        builder: (context) {
-          captured = context;
-          return const SizedBox.shrink();
-        },
-      ),
-    ),
-  );
-  return captured;
-}
+/// The one theme both surfaces resolve from — built directly, never
+/// pumped: the editor renderer takes an [EditorRenderContext] and the
+/// preview builder a [LineMarkdownStyle], so neither needs a widget
+/// tree.
+final ThemeData _theme = ThemeData(
+  useMaterial3: true,
+  brightness: Brightness.light,
+);
 
-LineMarkdownStyle _previewStyle(BuildContext context) =>
-    LineMarkdownStyle.fromTheme(
-      Theme.of(context),
-      _baseStyle.fontSize!,
-      textColor: _baseColor,
-    );
+final EditorRenderContext _editorContext = EditorRenderContext.fromTheme(
+  _theme,
+  _baseStyle,
+);
+
+final LineMarkdownStyle _previewStyle = LineMarkdownStyle.fromTheme(
+  _theme,
+  _baseStyle.fontSize!,
+  textColor: _baseColor,
+);
 
 /// Builds [line] off-caret (the caret parks on the padding line above, so
 /// nothing reveals) and projects the span tree down to visible units. A
 /// line the builder declines to style renders as plain text, which is
 /// exactly what the editor page falls back to.
-List<_Unit> _editorUnits(BuildContext context, String line) {
+List<_Unit> _editorUnits(String line) {
   final controller = CodeLineEditingController.fromText(
     <String>[_pad, line, _pad].join('\n'),
   );
@@ -397,26 +394,24 @@ List<_Unit> _editorUnits(BuildContext context, String line) {
   builder.configureColors(MarkdownColorPalette.presets);
   controller.selection = const CodeLineSelection.collapsed(index: 0, offset: 0);
   final span = builder.build(
-    context: context,
+    context: _editorContext,
     index: 1,
     codeLine: controller.codeLines[1],
-    style: _baseStyle,
   );
   return _project(
     span ?? TextSpan(text: line, style: _baseStyle),
-    context,
     editor: true,
   );
 }
 
-List<_Unit> _previewUnits(BuildContext context, String line) {
+List<_Unit> _previewUnits(String line) {
   final builder = LineBasedMarkdownBuilder(
-    style: _previewStyle(context),
+    style: _previewStyle,
     colorPalette: MarkdownColorPalette.presets,
   );
   addTearDown(builder.dispose);
   builder.prepare(line);
-  return _project(builder.buildLine(line, 0), context, editor: false);
+  return _project(builder.buildLine(line, 0), editor: false);
 }
 
 // ---------------------------------------------------------------------------
@@ -482,12 +477,8 @@ List<_Raw> _walk(InlineSpan root, TextStyle inherited, Color? chip) {
   return out;
 }
 
-List<_Unit> _project(
-  InlineSpan root,
-  BuildContext context, {
-  required bool editor,
-}) {
-  final primary = Theme.of(context).colorScheme.primary;
+List<_Unit> _project(InlineSpan root, {required bool editor}) {
+  final primary = _editorContext.primary;
   final ghostColor = _baseColor.withValues(alpha: 0.45);
   final codeChip = _baseColor.withValues(alpha: 0.08);
   final tagChip = primary.withValues(alpha: 0.12);

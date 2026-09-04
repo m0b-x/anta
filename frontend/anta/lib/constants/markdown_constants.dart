@@ -36,6 +36,19 @@ class MarkdownConstants {
   static const double h5Scale = 1.0;
   static const double h6Scale = 0.875;
 
+  /// Heading scale in the live editor. H1–H4 share the preview's
+  /// factors; H5/H6 deliberately stay at the base size — a line shorter
+  /// than the editor's base line height buys nothing there, so those two
+  /// levels distinguish themselves by colour instead (see the span
+  /// builder's header branch).
+  static double editorHeaderScale(int level) => switch (level) {
+    1 => h1Scale,
+    2 => h2Scale,
+    3 => h3Scale,
+    4 => h4Scale,
+    _ => 1.0,
+  };
+
   // Line height scales (for height calculations)
   /// Scale for normal text lines (baseline)
   static const double normalLineScale = 1.0;
@@ -83,6 +96,11 @@ class MarkdownConstants {
 
   /// Opacity for quote text
   static const double quoteTextOpacity = 0.7;
+
+  /// Alpha of the tinted chip the live editor paints behind an accented
+  /// run: `#tag` pills and money value chips, which must read as the
+  /// same weight of tint.
+  static const double editorChipBackgroundAlpha = 0.12;
 
   // List item widths
   /// Width reserved for numbered list numbers

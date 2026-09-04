@@ -321,6 +321,20 @@ class _DecorPaintBox {
   const _DecorPaintBox(this.decoration, this.rect);
 }
 
+/// A laid-out list marker and the indent it anchors, shared by every
+/// hanging line that renders the same marker span.
+///
+/// Sharing one [_ParagraphImpl] across lines is safe: its lazily built
+/// `_offsets`, `_inlinePaints` and `_decorPaints` are pure functions of
+/// its own paragraph and span — memos, not per-line state — so a second
+/// line reading them sees exactly what it would have measured itself.
+class _MarkerMeasurement {
+  final _ParagraphImpl paragraph;
+  final double indent;
+
+  const _MarkerMeasurement({required this.paragraph, required this.indent});
+}
+
 class _ScaledLineStyle {
   final ui.ParagraphStyle paragraphStyle;
   final double preferredLineHeight;
@@ -330,10 +344,18 @@ class _ScaledLineStyle {
 
 class _CodeParagraphProvider {
   // Bound the cache so we don't retain `ui.Paragraph` (and its native skia
-  // memory) for every line ever scrolled past. Tuned for ~10x a typical
-  // viewport on mobile — large enough to hide cache misses during scroll,
-  // small enough to keep peak memory bounded on long documents.
-  static const int _kMaxCacheSize = 512;
+  // memory) for every line ever scrolled past. 128 covers 3–5 phone
+  // viewports; measured 2026-09-04 on a 10k-line list note, 512 held
+  // ≈15 MB more native heap (≈39 KB per retained paragraph) while a miss
+  // re-lays out a list line in ~40 µs, so a page scrolled back from past
+  // the cache costs 1–2 ms — inside one frame. Re-measure with
+  // `dumpsys meminfo` before changing it.
+  static const int _kMaxCacheSize = 128;
+
+  // A whole document draws from a handful of distinct list markers, so
+  // the measurement cache only has to cover the markers alive on screen
+  // plus the styles they render in.
+  static const int _kMaxMarkerCacheSize = 128;
 
   final Map<TextSpan, IParagraph> _cachedParagraphs;
 
@@ -352,6 +374,12 @@ class _CodeParagraphProvider {
   // can render individual lines taller than the editor's base line height.
   final Map<double, _ScaledLineStyle> _scaledLineStyles;
 
+  // Measured list markers, insertion-ordered LRU keyed by the marker
+  // span's value. Cleared by clearCache(), which every style and
+  // constraint change routes through, so an entry always describes the
+  // current layout.
+  final LinkedHashMap<TextSpan, _MarkerMeasurement> _markerMeasurements;
+
   ui.TextStyle? _style;
   TextStyle? _baseStyle;
   ui.ParagraphConstraints? _constraints;
@@ -362,7 +390,10 @@ class _CodeParagraphProvider {
   _CodeParagraphProvider()
       : _cachedParagraphs = {},
         _identityParagraphs = LinkedHashMap.identity(),
-        _scaledLineStyles = {};
+        _scaledLineStyles = {},
+        _markerMeasurements = LinkedHashMap();
+
+  int get markerCacheLength => _markerMeasurements.length;
 
   void updateBaseStyle(TextStyle style) {
     // Called once per line per layout pass with the render's stable
@@ -487,9 +518,13 @@ class _CodeParagraphProvider {
       if (currentLength >= maxLength) {
         return const TextSpan(text: '');
       }
-      String? text = span.text;
+      // currentLength < maxLength here, so a non-empty own text always
+      // keeps at least one code unit: the only spans that come back
+      // childless and textless are the ones that had nothing to keep,
+      // and those are dropped rather than emitted as `TextSpan('')`.
+      final String? text = span.text;
       String? keptText;
-      if (text != null) {
+      if (text != null && text.isNotEmpty) {
         final int remainingLength = maxLength - currentLength;
         keptText = text.length > remainingLength
             ? text.substring(0, remainingLength)
@@ -497,9 +532,9 @@ class _CodeParagraphProvider {
         currentLength += keptText.length;
       }
       List<InlineSpan>? children;
-      if (span.children != null) {
-        children = [];
-        for (InlineSpan child in span.children!) {
+      final List<InlineSpan>? sourceChildren = span.children;
+      if (sourceChildren != null) {
+        for (final InlineSpan child in sourceChildren) {
           if (currentLength >= maxLength) {
             break;
           }
@@ -510,15 +545,18 @@ class _CodeParagraphProvider {
             final int childLength = child.length;
             if (currentLength + childLength <= maxLength) {
               currentLength += childLength;
-              children.add(child);
+              (children ??= []).add(child);
             } else {
-              children.add(truncateSpan(child));
+              final TextSpan kept = truncateSpan(child);
+              if (kept.text != null || kept.children != null) {
+                (children ??= []).add(kept);
+              }
             }
           } else {
             // Placeholders count for their code-unit length so the
             // truncated tree stays aligned with the truncated text.
             currentLength += child.length;
-            children.add(child);
+            (children ??= []).add(child);
           }
         }
       }
@@ -531,6 +569,45 @@ class _CodeParagraphProvider {
   void clearCache() {
     _cachedParagraphs.clear();
     _identityParagraphs.clear();
+    _markerMeasurements.clear();
+  }
+
+  /// Debug-only contract check for a root span that scales `fontSize`:
+  /// the scaled strut is derived from `_baseStyle.copyWith(fontSize:)`,
+  /// so a root that also changes a strut input would be laid out under
+  /// a strut that does not describe it (clipped ascenders, drifting
+  /// baselines). A null input is inherited from the base and is fine —
+  /// everything else about the root style (weight, colour, decoration)
+  /// is free to differ.
+  bool _debugRootStyleKeepsStrutInputs(TextStyle rootStyle) {
+    final TextStyle base = _baseStyle!;
+    assert(
+        rootStyle.fontFamily == null || rootStyle.fontFamily == base.fontFamily,
+        'A root span that scales fontSize must keep the base style\'s '
+        'strut inputs: fontFamily ${rootStyle.fontFamily} != '
+        '${base.fontFamily}.');
+    assert(
+        rootStyle.height == null || rootStyle.height == base.height,
+        'A root span that scales fontSize must keep the base style\'s '
+        'strut inputs: height ${rootStyle.height} != ${base.height}.');
+    return true;
+  }
+
+  /// Debug-only contract check for [CodeInlinePaintSpan]: placeholder
+  /// boxes are not clamped by `forceStrutHeight`, so a box taller than
+  /// the line's preferred height silently grows that one line and
+  /// breaks the render's uniform line stepping.
+  bool _debugPlaceholdersFitLine(TextSpan span, double preferredLineHeight) {
+    span.visitChildren((child) {
+      if (child is CodeInlinePaintSpan) {
+        assert(
+            child.height <= preferredLineHeight,
+            'CodeInlinePaintSpan reserves a box taller than the line: '
+            '${child.height} > $preferredLineHeight.');
+      }
+      return true;
+    });
+    return true;
   }
 
   IParagraph _build(TextSpan span, String plainText, bool trucated) {
@@ -544,10 +621,12 @@ class _CodeParagraphProvider {
     if (rootFontSize != null &&
         baseFontSize != null &&
         rootFontSize != baseFontSize) {
+      assert(_debugRootStyleKeepsStrutInputs(span.style!));
       final _ScaledLineStyle scaled = _scaledLineStyle(rootFontSize);
       style = scaled.paragraphStyle;
       preferredLineHeight = scaled.preferredLineHeight;
     }
+    assert(_debugPlaceholdersFitLine(span, preferredLineHeight!));
     if (!trucated && span is CodeHangingTextSpan) {
       final IParagraph? hanging =
           _buildHanging(span, plainText, style, preferredLineHeight!);
@@ -570,21 +649,79 @@ class _CodeParagraphProvider {
 
   /// Builds the two-part hanging-indent paragraph for [span], or null
   /// when the split is degenerate and the plain single paragraph should
-  /// be used instead: an empty/whole-line prefix, a marker wider than
-  /// half the viewport (deeply indented list on a narrow screen), or a
-  /// marker that would itself wrap.
+  /// be used instead: word wrap turned off (nothing wraps, so there is
+  /// no continuation line to align), an empty/whole-line prefix, a
+  /// marker wider than half the viewport (deeply indented list on a
+  /// narrow screen), or a marker that would itself wrap.
   IParagraph? _buildHanging(
     CodeHangingTextSpan span,
     String plainText,
     ui.ParagraphStyle style,
     double preferredLineHeight,
   ) {
+    final double maxWidth = _constraints!.width;
+    if (!maxWidth.isFinite) {
+      return null;
+    }
     final int hangingChars = span.hangingChars;
     if (hangingChars <= 0 || hangingChars >= plainText.length) {
       return null;
     }
-    final double maxWidth = _constraints!.width;
     final TextSpan markerSpan = trucate(span, hangingChars);
+    final _MarkerMeasurement? measured = _measureMarker(
+      markerSpan,
+      plainText.substring(0, hangingChars),
+      style,
+      preferredLineHeight,
+    );
+    if (measured == null) {
+      return null;
+    }
+    final double indent = measured.indent;
+    if (indent <= 0 || indent > maxWidth / 2) {
+      return null;
+    }
+    final TextSpan contentSpan = _dropPrefix(span, hangingChars);
+    final ui.ParagraphBuilder contentBuilder = ui.ParagraphBuilder(style);
+    contentSpan.build(contentBuilder);
+    final ui.Paragraph contentParagraph = contentBuilder.build();
+    contentParagraph
+        .layout(ui.ParagraphConstraints(width: max(0, maxWidth - indent)));
+    return _HangingParagraphImpl(
+      rootSpan: span,
+      marker: measured.paragraph,
+      content: _ParagraphImpl(
+        text: plainText.substring(hangingChars),
+        span: contentSpan,
+        paragraph: contentParagraph,
+        trucated: false,
+        preferredLineHeight: preferredLineHeight,
+      ),
+      indent: indent,
+    );
+  }
+
+  /// Lays out and measures the marker prefix, or returns null when the
+  /// marker wraps and so cannot anchor a hanging indent.
+  ///
+  /// Successful measurements are memoized: list lines repeat a handful
+  /// of markers (`• `, `1. `, a checkbox, one indent step) over a whole
+  /// document, and every repeat would otherwise pay a ParagraphBuilder,
+  /// a layout and two `getBoxes` calls. The key is the marker span
+  /// itself, by value — style is part of what is measured, so a key
+  /// that ignored it would hand a heading-sized line the body-sized
+  /// indent.
+  _MarkerMeasurement? _measureMarker(
+    TextSpan markerSpan,
+    String markerText,
+    ui.ParagraphStyle style,
+    double preferredLineHeight,
+  ) {
+    final _MarkerMeasurement? cached = _markerMeasurements.remove(markerSpan);
+    if (cached != null) {
+      _markerMeasurements[markerSpan] = cached;
+      return cached;
+    }
     final ui.ParagraphBuilder markerBuilder = ui.ParagraphBuilder(style);
     markerSpan.build(markerBuilder);
     final ui.Paragraph markerParagraph = markerBuilder.build();
@@ -597,7 +734,7 @@ class _CodeParagraphProvider {
     // prefix always ends in the separator space and longestLine excludes
     // trailing whitespace, which would collapse the marker-content gap.
     final List<ui.TextBox> markerBoxes = markerParagraph.getBoxesForRange(
-        0, hangingChars,
+        0, markerText.length,
         boxHeightStyle: ui.BoxHeightStyle.strut);
     double markerRight = 0;
     for (final ui.TextBox box in markerBoxes) {
@@ -613,34 +750,25 @@ class _CodeParagraphProvider {
         markerRight = box.right;
       }
     }
-    final double indent = markerRight.ceilToDouble();
-    if (indent <= 0 || (maxWidth.isFinite && indent > maxWidth / 2)) {
-      return null;
-    }
-    final TextSpan contentSpan = _dropPrefix(span, hangingChars);
-    final ui.ParagraphBuilder contentBuilder = ui.ParagraphBuilder(style);
-    contentSpan.build(contentBuilder);
-    final ui.Paragraph contentParagraph = contentBuilder.build();
-    contentParagraph.layout(ui.ParagraphConstraints(
-        width: maxWidth.isFinite ? max(0, maxWidth - indent) : maxWidth));
-    return _HangingParagraphImpl(
-      rootSpan: span,
-      marker: _ParagraphImpl(
-        text: plainText.substring(0, hangingChars),
+    final _MarkerMeasurement measured = _MarkerMeasurement(
+      paragraph: _ParagraphImpl(
+        text: markerText,
         span: markerSpan,
         paragraph: markerParagraph,
         trucated: false,
         preferredLineHeight: preferredLineHeight,
       ),
-      content: _ParagraphImpl(
-        text: plainText.substring(hangingChars),
-        span: contentSpan,
-        paragraph: contentParagraph,
-        trucated: false,
-        preferredLineHeight: preferredLineHeight,
-      ),
-      indent: indent,
+      // Floored, not ceiled: the marker's selection and search rects
+      // reach the unrounded advance, so a floored indent has them
+      // overlap the content's rects by under a pixel instead of
+      // leaving a visible gap before them.
+      indent: markerRight.floorToDouble(),
     );
+    _markerMeasurements[markerSpan] = measured;
+    if (_markerMeasurements.length > _kMaxMarkerCacheSize) {
+      _markerMeasurements.remove(_markerMeasurements.keys.first);
+    }
+    return measured;
   }
 
   /// The mirror of [trucate]: drops the first [skip] code units while
@@ -658,30 +786,33 @@ class _CodeParagraphProvider {
       if (remaining <= 0) {
         return span;
       }
+      // remaining > 0 here (the identity return above covers the rest),
+      // so an own text is either wholly consumed — and then dropped
+      // rather than emitted as `TextSpan('')` — or cut in the middle.
       final String? text = span.text;
       String? keptText;
       if (text != null) {
-        if (remaining <= 0) {
-          keptText = text;
-        } else if (text.length <= remaining) {
+        if (text.length <= remaining) {
           remaining -= text.length;
-          keptText = '';
         } else {
           keptText = text.substring(remaining);
           remaining = 0;
         }
       }
       List<InlineSpan>? children;
-      if (span.children != null) {
-        children = [];
-        for (final InlineSpan child in span.children!) {
+      final List<InlineSpan>? sourceChildren = span.children;
+      if (sourceChildren != null) {
+        for (final InlineSpan child in sourceChildren) {
           if (child is TextSpan) {
-            children.add(dropSpan(child));
+            final TextSpan kept = dropSpan(child);
+            if (kept.text != null || kept.children != null) {
+              (children ??= []).add(kept);
+            }
           } else if (remaining >= child.length) {
             remaining -= child.length;
           } else {
             remaining = 0;
-            children.add(child);
+            (children ??= []).add(child);
           }
         }
       }
@@ -699,7 +830,11 @@ class _CodeParagraphProvider {
 /// Every geometry query (caret offsets, selection/search rects, hit
 /// tests, word and line boundaries) maps piecewise through the two
 /// parts; the seam at the marker/content boundary is invisible because
-/// both sides resolve to the same x.
+/// both sides resolve to exactly [indent]: the marker's own advance is
+/// floored into [indent], so the marker's rects reach at most one pixel
+/// PAST the content's left edge (an overlap the eye cannot see) instead
+/// of stopping short of it (a gap it can), and the boundary offset is
+/// answered by the content side whatever its affinity.
 class _HangingParagraphImpl extends IParagraph {
   final TextSpan rootSpan;
   final _ParagraphImpl marker;
@@ -718,8 +853,13 @@ class _HangingParagraphImpl extends IParagraph {
   @override
   double get width => indent + content.width;
 
+  /// Both parts are laid out with the same [preferredLineHeight], so
+  /// taking the taller part keeps [_ParagraphImpl]'s identity
+  /// `height == lineCount * preferredLineHeight` — the render's scroll
+  /// math and caret walk (`getUpPosition` / `getDownPosition`) step by
+  /// that unit and would land between rows without it.
   @override
-  double get height => content.height;
+  double get height => max(marker.height, content.height);
 
   @override
   double get preferredLineHeight => content.preferredLineHeight;
@@ -728,7 +868,7 @@ class _HangingParagraphImpl extends IParagraph {
   int get length => marker.length + content.length;
 
   @override
-  int get lineCount => content.lineCount;
+  int get lineCount => max(marker.lineCount, content.lineCount);
 
   @override
   bool get trucated => false;
@@ -809,9 +949,12 @@ class _HangingParagraphImpl extends IParagraph {
 
   @override
   Offset? getOffset(TextPosition position) {
-    if (position.offset < _markerLen ||
-        (position.offset == _markerLen &&
-            position.affinity == TextAffinity.upstream)) {
+    // The boundary offset itself belongs to the content side for BOTH
+    // affinities: the content's own origin is exactly [indent], while
+    // the marker's upstream edge is its unfloored advance, which would
+    // put the caret a sub-pixel step to the right of the same offset
+    // reached from the other side.
+    if (position.offset < _markerLen) {
       return marker.getOffset(position);
     }
     final Offset? offset = content.getOffset(TextPosition(
