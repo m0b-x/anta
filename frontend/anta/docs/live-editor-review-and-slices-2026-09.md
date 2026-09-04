@@ -1,11 +1,14 @@
 # Live Markdown Editor — Review & Consolidation Slices (2026-09-03)
 
-**Status: Sessions 0–6 DONE (§3). Sessions 0–1 are committed as
+**Status: Sessions 0–6 and 7a DONE (§3). Sessions 0–1 are committed as
 `38c7b50`, Session 2 and its same-day follow-up as `c716225`, Session 3 as
-`a183f11`, Session 4 as `1ed4a60`, Session 5 as `4cad6ec`; Session 6
-(2026-09-04) is uncommitted on top of `4cad6ec`. Sessions 7–9 and 11
-PLANNED, not implemented; Session 10 DROPPED (decision 4). All five §2
-decisions are taken.** Baseline commit `bf2e7ba`
+`a183f11`, Session 4 as `1ed4a60`, Session 5 as `4cad6ec`, Session 6 as
+`b5fcdbd`, Session 7a's sync as "Session 7a of the live editor roadmap"
+(2026-09-04; its format-only and ownership-rule commits are still
+pending). Session 7 was re-sized against the code and split into
+7a/7b/7c on 2026-09-04; Sessions 7b–7c, 8–9 and 11 PLANNED, not
+implemented; Session 10 DROPPED (decision 4). All six §2
+decisions are taken (6, fork ownership, added 2026-09-04).** Baseline commit `bf2e7ba`
 (main). Line numbers below are as of that commit and will drift — re-grep
 before editing. This doc is the ledger for making the Obsidian-style live
 editor the app's only day-to-day markdown surface, retiring the read-only
@@ -185,15 +188,24 @@ fontSize). They are just unguarded.
 
 ### 1.5 re_editor fork
 
-- Base `dfbca60` (2026-01-19), post-0.8.0 upstream main, upstream last
-  fetched 2026-02-27; `a0094dd` deleted `example/` and `test/`. Delta ≈
-  +1,200 net lines; 58 % of it in `_code_paragraph.dart`/`code_paragraph.dart`
-  (fork-owned), the rest smeared through `_code_field`, `_code_selection`,
-  `code_lines`, `_code_highlight`, `code_editor`. ~60 % of the raw diff is
-  `dart format` reflow.
+- Base `dfbca60` = `8a7dbc5` (merge-base of `m0b-x/main` and `reqable/main`)
+  + `a0094dd` (deleted `example/` and `test/`) + `dfbca60` itself
+  ("re-activated cursor on android", fork-only). Evaluated 2026-09-04
+  against upstream HEAD `28d9fc0` (2026-08-21, unchanged since). Base
+  pubspec is `0.8.0`; upstream is at `0.10.0`; the fork stays frozen at
+  `0.8.0`. Delta, formatting both sides (Dart 3.12) then diffing with
+  `git diff --no-index --diff-algorithm=histogram` (plain `diff -ruN`
+  without stripping CRLF inflates every count): +1,877/−134 lines across
+  19 files (changed-lines method); `_code_paragraph.dart`+
+  `code_paragraph.dart` (fork-owned) are 926/2,011 ≈ **46 %** of it — the
+  ledger's original figure, confirmed. The rest is smeared through
+  `_code_field`, `_code_selection`, `code_lines`, `_code_highlight`,
+  `code_editor`. Raw (unformatted) diff is +3,718/−2,244; reflow is
+  therefore 1 − 2,011/5,962 ≈ **66 %** of the raw churn. Full breakdown in
+  `docs/re-editor-performance-2026-07.md`.
 - **Nested `.git` trap (corrected severity: Medium).** `packages/re_editor/.git`
   shows 33 modified files against its own HEAD, but the **outer repo tracks
-  all 36 `lib/` files as ordinary blobs and its status is clean** — the fork
+  all 37 `lib/` files as ordinary blobs and its status is clean** — the fork
   source is safely in ANTA's history. The nested repo is stale noise that a
   `git checkout`/`stash` inside it would use to revert the working tree.
   Delete it or commit into it; do not leave it half-alive. (Session 0
@@ -211,7 +223,9 @@ fontSize). They are just unguarded.
   first; claimed pointer cannot drag-select; right-click during a claimed
   press moves the caret. `render` getter (`_code_selection.dart:38-39`) is an
   unchecked cast now on the every-tap-down path (SUSPECTED crash class,
-  cf. upstream `b19f746`).
+  cf. upstream `b19f746` — which, checked 2026-09-04, is issue #68's
+  mobile-handle fix and already in the base; the getter fix is upstream
+  `dc27ee5`, taken in Session 7a).
 - `getRangeForSpan` double-counts nested spans (upstream bug, hover cursor
   only); `_dropPrefix:664` dead branch; empty `TextSpan(text:'')` children
   retained.
@@ -301,8 +315,10 @@ snippet), `toolbarSplitEnabled` (toolbar layout).
    tap on an interceptor zone performs the same action as a pointer tap.
    Same day, for Session 7 item 3: a desktop drag that starts on a claimed
    zone **releases the claim past the touch slop and becomes a normal
-   drag selection** (not documented away). Session 7 runs as one whole
-   session after Session 6; planned only, not implemented.
+   drag selection** (not documented away). Session 7 was planned as one
+   whole session after Session 6, then split on 2026-09-04 into 7a
+   (upstream sync, items 6/2/5), 7b (interceptor, items 3/4) and 7c
+   (this decision, item 1) — see §3; planned only, not implemented.
 4. **Lite rendering tier** (Session 10): only if the Session 1 benchmarks
    and a real-device profile say the hanging layout or variable line heights
    dominate. Do not build it speculatively. **Decided 2026-09-04: dropped.**
@@ -312,11 +328,29 @@ snippet), `toolbarSplitEnabled` (toolbar layout).
 5. **Wiki links `[[note]]`** (Session 9): wanted at all? It is the one
    genuinely new feature in the plan. **Decided 2026-09-04: yes, Session 9
    stays as planned.**
+6. **Fork ownership** (raised while splitting Session 7): after the 7a
+   sync, keep tracking `reqable/re-editor` or declare the fork owned?
+   The evidence: 28 upstream commits in eight months, four worth taking
+   after removing net-zero pairs, no-ops (`10fdbc1` was already present
+   in the fork), API renames and paths the app does not use; the fork's
+   largest delta (the paragraph and lines files)
+   has zero upstream commits; the app uses a narrow slice (no built-in
+   autocomplete, no shortcut remaps, find via `findBuilder`), and Session
+   11 makes the chunk machinery fork-specific. **Decided 2026-09-04:
+   owned after 7a.** Concretely: watch, do not sync (the 7a provenance +
+   patch list keep a one-off cherry-pick cheap; no tracking branch, no
+   scheduled syncs); format the fork tree once as its own commit right
+   after 7a (32 of 37 files reflow under Dart 3.12 today); keep the
+   package name, import paths and frozen pubspec version; and **retire
+   the "avoid API-breaking changes" rule** for the fork in CLAUDE.md and
+   COPILOT_CONTEXT — the fork's API is whatever the app needs, which
+   Session 11 uses immediately. The preserved-optimizations list stays.
 
 Also settled 2026-09-04 while planning: Session 8 callouts render the
 accent bar only (no background band — an empty line cannot paint one, the
 same reason the fence tint went); heading folding leaves §4 and is planned
-as Session 11 (planning only, after Session 7's upstream review).
+as Session 11 (planning only, after Session 7a's upstream review and
+Session 7b's interceptor harness).
 
 ---
 
@@ -1286,31 +1320,430 @@ mangles em-dashes and emoji in test files — use the editor tools;
 bound, so per-file `reset()` in `tearDown` is what gives each suite its
 own database.
 
-### Session 7 — accessibility + fork tests + upstream evaluation
+### Session 7 — fork sync, interceptor hardening, accessibility (split 2026-09-04)
 
-1. Semantics per decision 3 (taken: visible window): `value` is the
-   visible lines only, rebuilt from the display paragraphs the render
-   already holds, never from `asString`; add `onTap`/`onSetSelection`/
-   `onDidGainAccessibilityFocus` actions so the editor can be focused and
-   the interceptor zones become reachable (an a11y tap on a zone should
-   perform the same action as a pointer tap).
-2. `render` getter null-safety on tap-down (SUSPECTED crash class).
-3. Desktop interceptor: refuse a second claim while one is live; a pointer
-   that claimed a zone and then moves past the touch slop releases the
-   claim and the editor starts its normal drag selection (decided
-   2026-09-04 — allow, not document). One interceptor state plus one test
-   in the Session 7 tap-interceptor suite.
-4. `test/re_editor/tap_interceptor_test.dart` (widget test over a real
-   `CodeEditor`): claim→cancel via long-press; claim→pointer-cancel;
-   claim→up fires once and leaves `selection` identical; two consecutive taps
-   both fire; a claimed tap never focuses.
-5. Paragraph cache identity fast path test: same span instance twice ⇒
-   identical `IParagraph`, `hashCode` never invoked (counting subclass).
-6. Upstream: fetch `reqable/re-editor`, format the base commit with the
-   same `dart format` to get a semantic diff, list upstream fixes since
-   `8a7dbc5` worth cherry-picking, write the fork delta as a patch list in
-   `re-editor-performance-2026-07.md` (or a new "fork delta" section there).
-   Cherry-pick only bug fixes; no API changes.
+Originally six items in one session. Re-sized on 2026-09-04 against the
+code (three read-only passes: interceptor + cache, semantics, upstream)
+and split into **7a → 7b → 7c**, in that order. The six original items
+keep their numbers below so earlier references stay valid. The measured
+sizes: 7a ≈ 3–4 h, 7b ≈ 3 h, 7c ≈ 4–6 h — 7c alone is the largest and
+the only one that leaves the fork (app policy + wrapper + l10n). If only
+two sittings are available, run 7a and 7b together; 7c always stands
+alone.
+
+Why this order and not another:
+
+- Upstream first, because `dc27ee5` (upstream, 2026-07-17, "guard delayed
+  drag-autoscroll after dispose") **is** item 2 — it replaces the
+  unchecked `render` getter with a `findRenderObject() is! _CodeFieldRender`
+  check at three call sites plus a `mounted` guard, and cherry-picks clean.
+  Writing item 2 by hand and then taking `dc27ee5` writes the same guard
+  twice. And `04b240d` (upstream, 2026-08-20) fixes a hard-freeze layout
+  loop in `_code_field.dart` that the fork still carries verbatim; landing
+  it before 7b/7c edit that file keeps the merge to one place.
+- Interceptor second, because item 4's widget harness (a bare
+  `CodeEditor` with a fake zone) is what 7c's semantics tests and Session
+  11's folding tests both reuse — whoever lands first pays the scaffolding.
+- Accessibility last, because its largest part (zones reachable to a
+  screen reader) adds a member to `CodeEditorTapInterceptor`, the class
+  item 3 edits, and needs the harness.
+
+#### Session 7a — upstream sync + fork test debt (items 6, 2, 5)
+
+Facts established 2026-09-04 (both remotes reachable; upstream HEAD
+`28d9fc0` unchanged since 2026-08-21, so the range is closed):
+
+- Two bases, both correct for different things. `8a7dbc5` is
+  `merge-base(m0b-x/main, reqable/main)` — the base for **enumerating
+  upstream commits**. `dfbca60` is `m0b-x/re-editor` `main` = `8a7dbc5` +
+  `a0094dd` (deleted `example/`, `test/`) + `dfbca60` ("re-activated
+  cursor on android", fork-only code) — the base for **diffing the tree**.
+  `dfbca60` does not exist in `reqable/re-editor`. §1.5's "post-0.8.0
+  upstream main" and "last fetched 2026-02-27" are both stale; the base
+  pubspec says 0.8.0, upstream is at 0.10.0, the fork pubspec still says
+  0.8.0.
+- `b19f746` (§1.5) is issue #68's fix and is **already an ancestor of
+  `8a7dbc5`** — it fixed the mobile-handle facet of the `Null is not
+  _CodeFieldRender` crash, not the getter. The commit that attacks the
+  getter is `dc27ee5`.
+- **The fork tree is not `dart format`-clean under Dart 3.12** (32 of 37
+  files reflow), so "format the base commit" alone makes the diff
+  *larger* (35 files, +3,399/−2,285). Format **both** sides. Then: raw
+  diff 34 files +3,722/−2,248; semantic diff **19 files +1,877/−134**; 15
+  of the 34 files are 100 % reflow (`re_editor.dart`, `_code_autocomplete`,
+  `_code_editable`, `_code_formatter`, `_code_indicator`, `_code_scroll`,
+  `_code_span`, `code_autocomplete`, `code_formatter`, `code_indicator`,
+  `code_scroll`, `code_shortcuts`, `code_span`, `code_theme`,
+  `code_toolbar`). Reflow is 66 % of raw churn. `_code_paragraph.dart` +
+  `code_paragraph.dart` are 46 % of the semantic delta (not 58 %) and have
+  **zero upstream commits** in range; same for `code_lines.dart`,
+  `_code_lines.dart`, `code_chunk.dart`, `_code_find.dart`.
+- 28 upstream commits since `8a7dbc5`, 18 non-merge touching `lib`,
+  each trial-applied with `cherry-pick -n -X patience` onto the fork:
+
+  | Take | Commit | Why |
+  |---|---|---|
+  | **hand-port + test** | `04b240d` | layout-loop hard freeze (`_updateDisplayRenderParagraphs` self-recursion at `_code_field.dart:1196-1200` gets an `index > 0` guard + `_kMaxLayoutCycles = 10`; the fork has 4 recursive sites vs upstream's 3, thread the counter by hand), `makePositionVisible` overshoot (`:687-691` counts from `first.index`, must be `last.index`), and `jumpTo` clamped to the viewport. The search bar's `goToMatch` drives exactly these paths. Conflicts in `_code_field.dart`. |
+  | clean | `dc27ee5` | = item 2, see above |
+  | clean | `4f3cb30` | viewport-still-valid check before the post-frame retry in `makePositionVisible` / `makePositionCenterIfInvisible` |
+  | clean | `6bd7151` | `keyboardAppearance` follows theme brightness (additive param) |
+  | clean | `512ba8d` | `numpadEnter` on `newLine`; no API change — the fork's mobile `Focus.onKeyEvent` path already had it, but not the desktop `Shortcuts` activator tables in `code_shortcuts.dart` |
+  | no-op | `10fdbc1` | `onFocusReceived() => false` — already present in the fork tree (added to `_code_input.dart` before 7a); the pick applied without a textual conflict but duplicated the method, so it was dropped |
+  | skip | `5e9cfa1`+`367192d`, `880c4ed`+`4b34f7d` | net-zero pairs |
+  | skip | `20e4b11` | logically identical rewrite |
+  | skip | `bf2e2b7` | `modes.isEmpty` guard; unreachable here (no `CodeHighlightTheme` passed) |
+  | skip | `febb8eb`, `93db119` | new public API (`moveCursorToPageUp/Down`, `sperator`→`leadingDivider`) — rule |
+  | skip | `90ed36e` | re-maps existing shortcut bindings (Ctrl+Delete → Shift+Delete etc.) — behaviour change, not a fix |
+  | skip | `000d8c3`+`830fad1`, `5526c38` | reflow-only conflicts for paths ANTA does not use (built-in autocomplete; `findController:` — the app uses `findBuilder`) — record as declined |
+
+  Four of the seven conflicts are pure formatting (`code_shortcuts.dart`,
+  `_code_editable.dart` have zero fork delta); only `04b240d` and the two
+  `code_editor.dart` commits collide with code the fork owns.
+
+Work:
+
+1. Item 6: the semantic diff as above; write the **fork delta as a
+   19-entry patch list** (1–3 lines each) plus the upstream-candidate
+   table and a corrected provenance block into
+   `re-editor-performance-2026-07.md` (currently 81 lines, names only 2 of
+   the 19 files, no provenance). Fix the §1.5 stale claims here and in
+   COPILOT_CONTEXT ("36 files" → 37: `code_paragraph_testing.dart` is the
+   fork's only added file).
+2. Cherry-pick the "clean" four (`10fdbc1` is a no-op — already present);
+   hand-port `04b240d` with a regression
+   test in `test/re_editor/` (a viewport that would have recursed:
+   assert layout terminates and `first.index == 0` is not re-entered).
+3. Item 2, finished: `dc27ee5` covers three sites; extend the nullable
+   pattern (`_code_selection.dart:781-813` already has it) to the rest of
+   the every-tap-down path — `_tryInterceptTap:73`, mobile `onTapDown:179`,
+   desktop `onPointerDown:252`, `_selectPosition:479/483`,
+   `_extendSelection:453/457`, `_autoScrollWhenDragging:525` (100 ms
+   `Future.delayed` loop with no mounted check) and `ensureRender:816`.
+   ~12 sites, ~60 lines, one file.
+4. Item 5: `test/re_editor/paragraph_cache_identity_test.dart` (or
+   appended to `hanging_paragraph_test.dart`) over the existing
+   `CodeParagraphProviderForTesting` — zero production change. A
+   `_CountingSpan extends TextSpan` (override `==` too, `hash_and_equals`):
+   same instance twice ⇒ `identical(p1, p2)` and the count unchanged after
+   the first build; a value-equal distinct instance ⇒ same `IParagraph`
+   via the L2 map, count incremented; `clearCache()` empties both. Traps:
+   `updateBaseStyle` before `build`; same `maxWidth` on both calls
+   (`_code_paragraph.dart:463-466` clears on width change); count only
+   from after the first build; needs
+   `TestWidgetsFlutterBinding.ensureInitialized()` (a `TextPainter` is
+   built).
+5. Decision 6, ownership (after everything above is green and
+   committed): run `dart format packages/re_editor/lib` and commit the
+   reflow **alone**, with no semantic change in the same commit, so the
+   patch list written in item 1 stays the last diff that needed
+   format-both-sides. Then, in a third commit, retire the "avoid
+   API-breaking changes" sentence for the fork in `CLAUDE.md`
+   (Architecture, the `packages/re_editor/` bullet) and in
+   COPILOT_CONTEXT "Generated And Local Package Notes", replacing it with
+   the ownership statement: fork owned as of the 7a sync, upstream HEAD
+   `28d9fc0` the last evaluated, cherry-picks one-off and by decision,
+   the optimizations list still binding.
+
+Exit: `dart analyze packages/re_editor/lib` clean, `test/re_editor/`
+green (3 existing + 2 new), a device scroll-and-search check for
+`04b240d`, fork pubspec unchanged (version is not part of the sync),
+three commits (sync, format, ownership rule).
+
+**Outcome — DONE 2026-09-04 (the sync commit only; work items 1–4 of
+this block), on b5fcdbd.** Full suite 2,978 → **2,988** passing (7
+benchmark cases skipped by default); `test/re_editor/` is five files (3
+existing + `layout_loop_test.dart` 6 cases + `paragraph_cache_identity_test.dart`
+4 cases), 36 passing + 1 skipped; `dart analyze lib`, `dart analyze
+test/re_editor` and `dart analyze packages/re_editor/lib` clean apart
+from the fork's two pre-existing `avoid_print` infos in `debug/_trace.dart`.
+Fork pubspec untouched (0.8.0). What landed, item by item:
+
+1. Item 6: both upstreams cloned into the scratchpad only; a scratch git
+   repo carried `dfbca60` + the fork tree as one commit with `reqable`
+   fetched, so every cherry-pick ran outside ANTA's repo and only files
+   were copied back. Format-both-sides diff (Dart 3.12.2) reproduced the
+   plan's figures **exactly** once measured with `git diff --no-index`:
+   19 files +1,877/−134 semantic, 34 files +3,718/−2,244 raw, reflow 66 %
+   of raw churn, the paragraph pair 926/2,011 = 46 % of the semantic
+   delta — the plan's "46 % not 58 %" stands. `re-editor-performance-2026-07.md`
+   is now the fork reference: provenance block, the 19-entry patch list
+   with per-file counts, the 18-row upstream candidates table with
+   verdicts and reasons, the old 2026-07-18 batch kept under its own
+   heading. §1.5 and COPILOT_CONTEXT corrected (37 files, HEAD `28d9fc0`,
+   pubspec frozen at 0.8.0, format-both-sides recipe).
+2. Cherry-picks: **four** landed clean — `512ba8d` (numpadEnter in the
+   desktop `Shortcuts` tables; the mobile `Focus.onKeyEvent` path already
+   had it), `4f3cb30`, `6bd7151` (`keyboardAppearance`, additive),
+   `dc27ee5`. `10fdbc1` was a **no-op**: `onFocusReceived() => false` is
+   part of the fork's own delta, the pick applied without a textual
+   conflict and produced a duplicate method definition, so it was
+   dropped. Every skip row was trial-applied and recorded: six apply
+   clean but stay declined for the plan's reasons (the two net-zero pairs,
+   `20e4b11`'s identical rewrite, `bf2e2b7`'s unreachable guard), six
+   conflict (`febb8eb`, `93db119`, `90ed36e`, `000d8c3`, `830fad1`,
+   `5526c38`). The four comment lines the picks carried were stripped
+   (repo rule); the code is verbatim.
+3. `04b240d` hand-port: the fork has **three** self-calls of
+   `_updateDisplayRenderParagraphs`, not four (document shrank below the
+   first shown line; empty rebuild; the top-gap check) — `forceRepaint`
+   and `performLayout` are entry points and stay at cycle 0.
+   `_kMaxLayoutCycles = 10`, `[int cycle = 0]`, the top-gap recursion
+   gated on `first.index > 0`, `_jumpVerticallyTo` clamping all four
+   vertical jumps in `makePositionVisible` to `[0, _verticalViewportSize]`,
+   and the below-viewport distance counted from `last.index`.
+   `makePositionCenterIfInvisible`'s own clamp, `_alignTopEdge` /
+   `_alignBottomEdge` and the horizontal jumps untouched. The regression
+   test drives the public API only (a bare `CodeEditor`, the display
+   window read through `indicatorBuilder`'s `CodeIndicatorValueNotifier`,
+   the offset through `CodeScrollController.verticalScroller.position`):
+   "an offset a hair above the first line does not loop layout" fails on
+   the pre-port file with `StackOverflowError` inside `performLayout` and
+   the offset frozen at −1.0 forever; post-port the spring walks it back
+   to exactly 0.0. The other five (near-end jump lands, below-viewport
+   jump stays in range, centering stays in range, jump to line 0 is
+   exactly 0.0, twenty resting frames at the top never re-layout) pass on
+   both and stand as forward guards.
+4. Item 2, whole file: both `render` getters in `_code_selection.dart`
+   are nullable type-checks (`is _CodeFieldRender ? … : null`, the State's
+   with a `mounted` guard in front), `ensureRender` is deleted,
+   `lineHeight` / `_lineHeightAt` / `attached` collapsed onto the getter,
+   and every caller early-returns — tap interception, mobile/desktop
+   tap-down, long-press, double-tap, secondary tap, `_extendSelection`,
+   `_selectPosition`, the drag-autoscroll loop (stops rescheduling once
+   unmounted), toolbar, handles, handle drags and both handle-autoscroll
+   loops. `_getHandleDy` takes the render as a parameter (a 0 fallback
+   would divide by zero); `init()` leaves `_inited` false when detached so
+   a later `showHandle` retries; the handle drag-start guards sit after
+   the `late` assignments so a detached editor cannot trade the cast
+   crash for a `LateInitializationError`. Zero `as _CodeFieldRender`
+   casts remain. Interceptor state machine untouched (7b's).
+5. Item 5: `paragraph_cache_identity_test.dart` over
+   `CodeParagraphProviderForTesting` with a `_CountingSpan extends
+   TextSpan` counting `==`/`hashCode`: same instance twice ⇒ identical
+   paragraph and zero calls after the first build; distinct value-equal
+   instance ⇒ the same `IParagraph` with `hashCode` called (L2
+   fall-through); `clearCache()` and a `maxWidth` change ⇒ a new instance.
+   Zero production change.
+
+Not done here, by scope: work item 5 (the format-only commit and the
+ownership-rule commit) — next, as its own two commits.
+
+Deviations from the plan: four picks, not five (`10fdbc1`); three
+recursive sites, not four; item 2 covered the whole file rather than the
+listed dozen sites (the nullable getter forced every caller); the plan's
+own 7a table row for `10fdbc1` was rewritten to "no-op" so the doc does
+not contradict the reference; the picks' comments were removed.
+
+Device pass (emulator-5554, Android 16, 74-line note, keyboard up so the
+viewport is ~14 lines): search `12` (41 matches), jump to match 39 from
+the match sheet — scrolled into view, no freeze; next twice to 41 — the
+last line, scrollbar at the range end, no bounce; next wraps to 1 — the
+true top (a further drag moves nothing); DTD reports no runtime errors.
+
+Traps: on a Windows checkout the fork's files carry CRLF, so `diff -ruN`
+over-counts every line — use `git diff --no-index` (or
+`--strip-trailing-cr`); a cherry-pick of a change the fork already
+carries can apply with **no conflict** and leave a duplicate member — a
+compile error, not a merge marker — so `dart analyze` after every pick;
+the app does not compile in `flutter_driver`'s extension, so device
+checks go through `adb shell input tap/text/swipe` + `exec-out screencap`
+with a DTD connection for runtime errors; `LinkedHashMap.identity()`
+never calls a key's `==`/`hashCode` (it is `identical`/`identityHashCode`
+by construction), so a counting span measures only the L2 fall-through;
+a `const` constructor on a `TextSpan` subclass that is only ever invoked
+non-const keeps instances distinct and satisfies
+`prefer_const_constructors_in_immutables` without an ignore; post-port
+`makePositionVisible` can no longer produce an out-of-range offset, so
+the only way to reach the old loop from a test is a raw
+`position.jumpTo(-1.0)`; two workers editing two fork files in parallel
+break each other's compile mid-edit (`ensureRender` vanished under the
+port worker) — sequence them or have the second poll until the analyzer
+is clean.
+
+#### Session 7b — interceptor hardening + harness (items 3, 4)
+
+The state machine is five fields and three methods on
+`_CodeSelectionGestureDetectorState` (`_code_selection.dart:41-114`);
+there is no `onPointerMove` on the desktop `Listener` at all, and a
+successful second `_tryInterceptTap` overwrites all four claim fields
+unconditionally (`:77-80`).
+
+1. Item 3, in `_code_selection.dart` only (~40 lines): a guard at the top
+   of `_tryInterceptTap` (`if (_interceptedTapPosition != null) return
+   false;` — mobile needs it too, `_interceptedTapPointer` is always null
+   there); a desktop `onPointerMove` that, for the claiming pointer past
+   the mouse/touch slop (same rule as `:100-101`), cancels the claim and
+   starts the drag. **The hidden decision**: `_onDesktopTapDown` was
+   skipped at claim time (`:249` returns before `:255`), so
+   `_anchorSelection`, `_pointerTapTimestamp` and the caret were never set
+   — replay `_onDesktopTapDown(downOffset)` before flipping `_tapping`, or
+   the drag extends from a stale selection. Update the doc comments at
+   `:43-52` and `:60-63`.
+2. Item 4 as **two files**, because `kIsAndroid`/`kIsIOS` are top-level
+   finals fixed for the whole test process
+   (`modern_editor_wrapper_desktop_indent_test.dart:20-37` — override in
+   `setUpAll` before the first editor builds): `test/re_editor/
+   tap_interceptor_test.dart` on the default platform (claim→up fires once
+   and leaves `selection` identical; two consecutive taps both fire; a
+   claimed tap never focuses; claim→cancel via long-press against
+   `onTapCancel`) and `tap_interceptor_desktop_test.dart` (claim→
+   `gesture.cancel()` against `Listener.onPointerCancel:266`; second claim
+   refused; move past slop → claim released, drag selection extends). Build
+   a bare `CodeEditor(padding: EdgeInsets.zero, tapInterceptor:
+   CodeEditorTapInterceptor(...))` with a fake zone — both types are
+   public, no fork change needed; borrow `positionOf` / `pumpEditor` /
+   `teardownEditor` from `modern_editor_wrapper_tag_tap_test.dart:20-96`
+   (cursor-blink timers: pump 200 ms, `pumpWidget(SizedBox.shrink())`,
+   `pump()`, never `pumpAndSettle` after teardown; the Android selection
+   handle hangs one line box under the caret, park follow-up taps at
+   column 9; desktop focus is a deferred `Future`, pump once before
+   asserting). ~380 lines total; the first `startGesture`-style tests
+   against the editor.
+
+Exit: both suites green, `dart analyze packages/re_editor/lib` clean, a
+desktop run (`flutter run -d windows`) confirming click-drag from a
+checkbox selects text and a click on it still toggles. Unblocks Session
+11's harness dependency.
+
+#### Session 7c — accessibility (item 1, decision 3)
+
+`describeSemanticsConfiguration` (`_code_field.dart:549-569`) sets
+`value = _codes.asString(...)` and no action. `flushSemantics` runs after
+layout, so `_displayParagraphs` (`:151`, rebuilt in
+`_updateDisplayRenderParagraphs:1105-1206`, exactly the on-screen window,
+sorted by `index`) is never stale when it is read there — but it carries
+layout only (`IParagraph` has no text getter), so the value is rebuilt
+from `_codes[p.index].text`, which is the same per-line text `asString`
+uses (chunks not expanded either way). Four parts, in size order:
+
+1. **(A) visible-window value** — `_code_field.dart` only, ~20 lines:
+   loop over `_displayParagraphs`, join with `\n`, `isEmpty` guard, and
+   rewrite the doc comment at `:549-554` (it advertises the `asString`
+   cache, which becomes wrong). Closes P11.
+2. **(B1) `onTap` + `onDidGainAccessibilityFocus`** — widget layer, not
+   the render (the render has no controller and no focus node; Flutter
+   does the same split — `RenderEditable` never sets these,
+   `material/text_field.dart:1807-1830` does). A `Semantics` wrapper at
+   `code_editor.dart:588-600` where `_editingController`,
+   `_inputController`, `_focusNode` are all in scope; both `Focus` widgets
+   there already pass `includeSemantics: false`. `onTap` →
+   `ensureInput()` with a collapsed-selection fallback when the selection
+   is invalid. ~30 lines.
+3. **(B2) `onSetSelection` + `textSelection`** — coupled to (A): the
+   platform sends flat offsets into whatever string was announced, so a
+   window-relative value forces a window-relative
+   `CodeLinePosition ⟷ flat offset` mapping (new helper on the render, the
+   only place with both `_displayParagraphs` and `_codes`;
+   `index2lineIndex` is document-wide and does not help). Route the
+   result through the controller the way `_selectPosition:498-501` does.
+   ~60 lines. Ship with (A) or not at all.
+4. **(C) zones reachable** — the large part. "Performs the same action"
+   needs no state-machine change: `CodeEditorTapInterceptor` is
+   `CodeLinePosition`-only and `EditorInputPolicy.resolveTap` is a pure
+   function, so a semantics handler calls `shouldIntercept(pos)` then
+   `onTap(pos)` back to back and the wrapper's claim memo accepts it
+   unchanged (`modern_editor_wrapper.dart:325-362`). "Reachable" is the
+   cost: `resolveTap` answers "what does offset N do", nothing enumerates
+   "which ranges on this line are zones". So: `explicitChildNodes = true`
+   + an `assembleSemanticsNode` override in `_code_field.dart` producing
+   one child per zone rect via `CodeLineRenderParagraph.getRangeRects`
+   (`code_line.dart:1054`) with a keyed node cache for stable ids
+   (Flutter's `editable.dart:1418-1540` is the template; ~90 lines
+   without bidi/placeholders); a third member on `CodeEditorTapInterceptor`
+   (`List<(TextRange, String)> Function(int lineIndex)`) plumbed from
+   `_CodeSelectionGestureDetector` down through `_CodeEditable` to
+   `_CodeField` (the interceptor stops above `_CodeEditable` today,
+   `code_editor.dart:588-596`; ~30 lines); a range-enumerating sibling of
+   `resolveTap` in `editor_input_policy.dart` (checkbox from
+   `MarkdownListSyntax`, links from `MarkdownInlineGrammar`, money from
+   `MarkdownMoneySyntax`, tags — ~80 lines) with an **agreement test**
+   that every enumerated cell resolves to the same action through
+   `resolveTap` and every non-enumerated cell to none; wrapper wiring
+   (~20 lines); four zone labels in the three ARBs.
+
+**Execution order (added 2026-09-04) — four commits, each green, so a
+window that runs out mid-way loses nothing.** Steps 1–3 are ~110 lines in
+two fork files and can share one sitting; step 4 is the one to start
+fresh.
+
+0. **Five-minute risk check before any code.** `RenderEditable` never
+   combines a text-field `value` with `explicitChildNodes` — it drops the
+   value when it has child nodes (`editable.dart:1337-1346`). Step 4
+   wants both. Build a throwaway config in a widget test
+   (`isTextField`, `value`, `explicitChildNodes = true`, one child from
+   `assembleSemanticsNode`) and confirm the semantics binding does not
+   assert. If it does, the children go on a sibling `Semantics` container
+   above the field (a `Semantics(container: true)` wrapping a
+   `CustomPaint`-sized box per zone is the fallback) — decide this before
+   writing step 4, not after.
+1. **(A) + the P11 proof.** Rewrite the value; add
+   `@visibleForTesting static int debugAsStringCalls` incremented in
+   `CodeLines.asString` (`code_lines.dart:437`; pattern:
+   `ModernEditorWrapper.debugTapResolveCount`). Check: with a
+   `tester.ensureSemantics()` handle, `find.semantics.byValue(...)` matches
+   the joined visible lines and nothing more on a 200-line note in a
+   short viewport; scroll, pump, the value is the new window; type one
+   character, the counter has not moved. Dispose the handle before
+   `teardownEditor`.
+2. **(B1).** Check: `tester.semantics.performAction(find.semantics
+   .byAction(SemanticsAction.tap), SemanticsAction.tap)` → the focus node
+   has focus after one pump (the ensure-input `Future`), the selection is
+   valid; a second tap does not reset the caret.
+   `didGainAccessibilityFocus` → focus requested without opening the
+   keyboard (mirror `text_field.dart`).
+3. **(B2).** The platform sends `args = {'base': int, 'extent': int}`
+   (`semantics.dart:5613-5617`) — offsets into the announced string, so
+   window-relative. Check: `performAction(..., SemanticsAction.setSelection,
+   args: {'base': 3, 'extent': 3})` on a window starting at document
+   line 40 puts the controller caret at line 40 offset 3; a base/extent
+   spanning a `\n` becomes a two-line `CodeLineSelection`; the node's
+   `textSelection` equals the controller selection mapped back. When the
+   caret is off-screen, **omit `textSelection`** rather than clamp — do
+   not announce a position that is not in the value. Test both.
+4. **(C).** Land in this order, each with its test: the enumerator in
+   `editor_input_policy.dart` + the agreement table (reuse the Session 6
+   `EditorInputPolicy` fixture lines: for every line and every offset,
+   `resolveTap(offset) != null` ⇔ some enumerated range contains the
+   offset, and the action type matches the range's label kind; caret-line
+   reveal and fence lines enumerate nothing, exactly like `resolveTap`) →
+   the third `CodeEditorTapInterceptor` member + plumbing → the child
+   nodes with a **keyed node cache** (without stable ids TalkBack focus
+   jumps on every rebuild) → wrapper wiring → four labels in the three
+   ARBs + `flutter gen-l10n`. Checks: `find.semantics.byLabel(<toggle
+   label>)` finds one node per checkbox on visible lines; its rect equals
+   `getRangeRects` for the `[ ]` cells; `tester.semantics.tap(...)` on it
+   turns `- [ ]` into `- [x]` in `controller.text` and the caret does not
+   move; the link node's tap fires `onOpenLink` with the URL; the nodes on
+   the caret line are absent (a11y focus is not the caret, so the reveal
+   rule holds unchanged); `tester.semantics.simulatedAccessibilityTraversal()`
+   with `containsAllInOrder` reads the field value first, then the zones in
+   line order.
+
+**Why widget tests, not `integration_test/`.** The repo has no
+`integration_test` dependency or directory, and adding one buys nothing
+here: an integration test drives the same `SemanticsOwner` a widget test
+drives (`performAction` calls `node.owner!.performAction` — the exact
+entry point the platform uses), and TalkBack itself cannot be scripted
+from either. Everything above is therefore a real proof of the contract
+the screen reader consumes: tree shape, labels, value, actions, and what
+each action does to the controller. The only things a widget test cannot
+prove are TalkBack's own reading behaviour, explore-by-touch focusability
+of the child nodes on Android, and the platform-channel cost behind P11.
+For the cost, if a number is wanted, use the §5 recipe (`gfxinfo
+framestats` while typing with TalkBack on) — a benchmark, not a gate.
+
+**Device pass (five minutes, owner, after the suites are green).**
+TalkBack on, open a long note with a checkbox and a link, caret at the
+top: (1) swipe to the editor — it reads the visible lines, not the whole
+note; (2) double-tap — keyboard opens; (3) type three characters — no
+stall (this was the P11 freeze); (4) swipe forward — "toggle task" is
+reachable, double-tap flips it, the text under it now shows `[x]`;
+(5) scroll a screen and swipe back to the field — the value has moved.
+Anything that fails here but passed the suites is a platform-layer
+issue, not a fork bug — record it, do not iterate on the fork for it.
+
+Exit: the four commits above, the suites green, `dart analyze lib` + fork
+clean, the device pass recorded in this block.
 
 ### Session 8 — rendering parity features
 
@@ -1341,11 +1774,15 @@ navigation.
 Moved to §4 Deferred with its reopen trigger. The number kept its slot so
 earlier references stay valid.
 
-### Session 11 — heading folding (planned 2026-09-04, after Session 7)
+### Session 11 — heading folding (planned 2026-09-04, after Sessions 7a and 7b)
 
 Goal: tap a heading, its section collapses to the heading line; tap again,
 it expands. Session-only state in v1. Nothing about the code-unit
 invariant changes: folding hides whole lines, never characters.
+**Opt-in behind a settings toggle** (decided 2026-09-04, item 7): a tap
+on a heading's concealed `#` cells places the caret today, and folding
+changes what that tap does, so the feature ships off by default and the
+owner turns it on.
 
 Mechanism — the fork already has it. §4 deferred this as "needs a
 `CodeLines` view that hides lines", but `code_chunk.dart` ships
@@ -1371,7 +1808,11 @@ tap surface, and making the app's positional machinery chunk-aware.
    (`canCollapse == false`) gets no chunk. Runs on the controller's value
    like upstream's analyzer; it is O(lines) per run, so debounce it the
    way the highlighter is (50 ms) and skip it entirely while
-   `liveMarkdownRendering` is off.
+   `liveMarkdownRendering` is off **or `headingFolding` (item 7) is off**
+   — off means `NonCodeChunkAnalyzer` exactly as today, no chevron zone,
+   nothing collapsible, and a note that was folded when the flag is
+   turned off reopens flat (v1 never persists fold state, so there is
+   nothing to migrate).
 2. Tap surface: not the gutter (one-handed use; line numbers are off by
    default). A **fifth interceptor zone** on heading lines, after tag in
    precedence: the concealed `#` run's cells, `[0, contentStart)`. Off-caret
@@ -1419,9 +1860,34 @@ tap surface, and making the app's positional machinery chunk-aware.
    4); restore mapping (item 5); interceptor zone precedence (a `#tag` or
    link on the heading line still wins at its own cells); agreement
    suite unchanged (folding is not rendering).
+7. **The setting**, following the `liveMarkdownRendering` /
+   `previewModeEnabled` pattern end to end, nothing new: a
+   `SettingsKeys.headingFolding` constant (`settings_keys.dart:33-41`
+   neighbourhood); `getHeadingFolding` / `setHeadingFolding` on
+   `SettingsService` next to the live-rendering pair (`:412-429`),
+   default `false`; the key added to `_editorSettingsKeys` (`:568-587`)
+   and a `headingFolding` field on the `EditorSettings` record decoded
+   in the same one-pass read, so `EditorSettingsController.reload()`
+   picks it up without another round trip; the page passes it to
+   `ModernEditorWrapper` beside `checkboxTapToggle`
+   (`optimized_note_editor_page.dart:1744`), and the wrapper chooses the
+   analyzer and enables the chevron zone from it (`didUpdateWidget`
+   rebind, like the other flags — toggling the setting must not remount
+   the editor, B4); a tile on the settings page in the editor group,
+   right under Live Markdown Rendering (`settings_page.dart:313-319`
+   pattern), with `headingFolding` / `headingFoldingDesc` /
+   `headingFoldingKeywords` in all three ARBs (the keywords key feeds
+   settings search; Live Markdown's is at `app_en.arb:5246`); and the key
+   appended to the backup allow-list (`backup_service.dart:227-228`) —
+   additive like decision 2, old backups still import. Tests: the
+   `editor_settings_test.dart` round trip gains the key; the page suite
+   gains "toggle folding on, no remount"; the analyzer suite gains "flag
+   off ⇒ zero chunks on a heading-rich note".
 
-Depends on Session 6 (position controller) and Session 7 (interceptor
-test harness). Size: about one and a half days. Out of scope for v1:
+Depends on Session 6 (position controller), Session 7a (the upstream
+sync — `04b240d` rewrites `_updateDisplayRenderParagraphs`, which chunk
+collapse drives) and Session 7b (interceptor test harness); 7c is not a
+prerequisite. Size: about one and a half days. Out of scope for v1:
 persisted fold state, fold-all/unfold-all, folding list subtrees.
 
 ---

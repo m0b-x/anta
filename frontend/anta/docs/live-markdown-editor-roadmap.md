@@ -174,6 +174,24 @@ lines bypass the memo.
       rebinds on a controller swap, and a paste reflows only the pasted
       lines through a `CodeLines` splice (no document join, ASCII lines
       pre-filtered by a per-glyph advance table).
+- [x] Fork upstream sync + fork test debt (2026-09-04, Session 7a of the
+      review): upstream `reqable/re-editor` evaluated through HEAD
+      `28d9fc0` — 18 lib commits, four cherry-picked (`512ba8d` numpad
+      Enter in the desktop shortcut tables, `4f3cb30` viewport-still-valid
+      retry guard, `6bd7151` keyboard appearance follows the theme,
+      `dc27ee5` dispose-safe drag autoscroll), `04b240d` hand-ported (the
+      render's layout loop is bounded at ten cycles, the top-gap rebuild
+      is skipped when line 0 is already first, `makePositionVisible` never
+      leaves the scrollable range and counts a below-viewport target from
+      the last displayed line — the search bar's jump-to-match no longer
+      overshoots or freezes), one already present, twelve declined with
+      reasons. Every render lookup in the fork's selection layer is now a
+      nullable type-check, so a tap on a detached editor is a no-op
+      instead of a `Null is not _CodeFieldRender` crash. The fork's
+      provenance, 19-file patch list and candidate table live in
+      `re-editor-performance-2026-07.md`; `test/re_editor/` gained the
+      layout-loop regression (reproduces the pre-port stack overflow) and
+      the paragraph-cache identity contract.
 
 ### Decision log
 

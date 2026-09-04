@@ -457,6 +457,7 @@ class _CodeInputController extends ChangeNotifier
           smartDashesType: SmartDashesType.disabled,
           smartQuotesType: SmartQuotesType.disabled,
           textCapitalization: TextCapitalization.none,
+          keyboardAppearance: Theme.of(context).brightness,
         ),
       );
       _remoteEditingValue = _buildTextEditingValue();
@@ -733,6 +734,7 @@ class _TextInputConfiguration extends TextInputConfiguration {
     super.smartDashesType = SmartDashesType.disabled,
     super.smartQuotesType = SmartQuotesType.disabled,
     super.textCapitalization = TextCapitalization.none,
+    super.keyboardAppearance,
   });
 
   @override

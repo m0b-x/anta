@@ -673,35 +673,43 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     return _selectWord(localPosition);
   }
 
+  void _jumpVerticallyTo(double offset) {
+    final double? maxOffset = _verticalViewportSize;
+    _verticalViewport.jumpTo(
+        maxOffset == null ? max(0, offset) : min(max(0, offset), maxOffset));
+  }
+
   void makePositionVisible(CodeLinePosition position, [int tryCount = 0]) {
     final Offset? offset = calculateTextPositionViewportOffset(position);
     if (offset == null) {
       if (_displayParagraphs.isNotEmpty) {
         final CodeLineRenderParagraph first = _displayParagraphs.first;
         if (position.index < first.index) {
-          _verticalViewport.jumpTo(first.top +
+          _jumpVerticallyTo(first.top +
               _preferredLineHeight * (position.index - first.index));
         }
         final CodeLineRenderParagraph last = _displayParagraphs.last;
         if (position.index > last.index) {
-          _verticalViewport.jumpTo(max(
-              0,
-              last.bottom -
-                  size.height +
-                  _preferredLineHeight * (position.index - first.index)));
+          _jumpVerticallyTo(last.bottom -
+              size.height +
+              _preferredLineHeight * (position.index - last.index));
         }
       }
       if (tryCount < 10) {
         SchedulerBinding.instance.addPostFrameCallback((timeStamp) {
+          final ViewportOffset viewport = _verticalViewport;
+          if (viewport is ScrollPosition && viewport.context.notificationContext == null) {
+            return;
+          }
           makePositionVisible(position, tryCount + 1);
         });
       }
       return;
     }
     if (offset.dy < 0) {
-      _verticalViewport.jumpTo(_verticalViewport.pixels + offset.dy);
+      _jumpVerticallyTo(_verticalViewport.pixels + offset.dy);
     } else if (offset.dy > size.height - _preferredLineHeight) {
-      _verticalViewport.jumpTo(_verticalViewport.pixels +
+      _jumpVerticallyTo(_verticalViewport.pixels +
           offset.dy -
           (size.height - _preferredLineHeight));
     }
@@ -752,6 +760,10 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
       }
       if (tryCount < 10) {
         SchedulerBinding.instance.addPostFrameCallback((timeStamp) {
+          final ViewportOffset viewport = _verticalViewport;
+          if (viewport is ScrollPosition && viewport.context.notificationContext == null) {
+            return;
+          }
           makePositionCenterIfInvisible(position, tryCount: tryCount + 1);
         });
       }
@@ -1102,7 +1114,12 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     return null;
   }
 
-  void _updateDisplayRenderParagraphs() {
+  static const int _kMaxLayoutCycles = 10;
+
+  void _updateDisplayRenderParagraphs([int cycle = 0]) {
+    if (cycle > _kMaxLayoutCycles) {
+      return;
+    }
     final double effectiveWidth;
     if (_horizontalViewport == null) {
       effectiveWidth = constraints.maxWidth - _padding.horizontal;
@@ -1124,7 +1141,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     } else {
       if (_codes.length <= _displayParagraphs.first.index) {
         _displayParagraphs.clear();
-        _updateDisplayRenderParagraphs();
+        _updateDisplayRenderParagraphs(cycle + 1);
         return;
       }
       if (target < _displayParagraphs.first.top) {
@@ -1173,7 +1190,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     }
     // The codes length maybe changed, this will make the displayParagraphs empty.
     if (_displayParagraphs.isEmpty) {
-      _updateDisplayRenderParagraphs();
+      _updateDisplayRenderParagraphs(cycle + 1);
       return;
     }
     final double totalHeight = _displayParagraphs.last.bottom +
@@ -1194,9 +1211,10 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
       _horizontalViewport!.applyContentDimensions(0, _horizontalViewportSize!);
     }
     // applyContentDimensions will change the _verticalViewport.pixels, we should rebuild.
-    if (_displayParagraphs.first.offset.dy >
-        _verticalViewport.pixels + paddingTop) {
-      _updateDisplayRenderParagraphs();
+    if (_displayParagraphs.first.index > 0 &&
+        _displayParagraphs.first.offset.dy >
+            _verticalViewport.pixels + paddingTop) {
+      _updateDisplayRenderParagraphs(cycle + 1);
       return;
     }
 
