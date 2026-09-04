@@ -434,7 +434,11 @@ class CodeLines {
     _invalidate();
   }
 
+  @visibleForTesting
+  static int debugAsStringCalls = 0;
+
   String asString(TextLineBreak lineBreak, [bool expandChunks = true]) {
+    debugAsStringCalls++;
     if (_asStringCache0 != null &&
         _asStringCache0LineBreak == lineBreak &&
         _asStringCache0ExpandChunks == expandChunks) {

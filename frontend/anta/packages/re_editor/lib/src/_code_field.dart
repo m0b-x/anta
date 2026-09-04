@@ -548,10 +548,12 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
 
   /// The editor paints raw ui.Paragraphs and otherwise contributes no
   /// semantics at all, so without this the whole document is invisible
-  /// to screen readers. Announce it as a (multiline) text field with
-  /// the document as its value; the value string comes from the
-  /// CodeLines 2-slot asString cache, and none of this runs unless an
-  /// assistive technology has enabled the semantics tree.
+  /// to screen readers. Announce it as a (multiline) text field whose
+  /// value is the on-screen window only, never the whole document:
+  /// flushSemantics runs after layout, so _displayParagraphs is the
+  /// current window and its lines are joined straight from _codes.
+  /// None of this runs unless an assistive technology has enabled the
+  /// semantics tree.
   @override
   void describeSemanticsConfiguration(SemanticsConfiguration config) {
     super.describeSemanticsConfiguration(config);
@@ -565,7 +567,20 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
       // render is LTR-only (padding/offsets resolve TextDirection.ltr
       // throughout), so announce the same.
       ..textDirection = TextDirection.ltr
-      ..value = _codes.asString(TextLineBreak.lf, false);
+      ..value = _visibleWindowText();
+  }
+
+  String _visibleWindowText() {
+    final int lineCount = _codes.length;
+    final List<String> lines = <String>[];
+    for (final CodeLineRenderParagraph paragraph in _displayParagraphs) {
+      final int index = paragraph.index;
+      if (index < 0 || index >= lineCount) {
+        continue;
+      }
+      lines.add(_codes[index].text);
+    }
+    return lines.join('\n');
   }
 
   List<CodeLineRenderParagraph> get displayParagraphs => _displayParagraphs;
