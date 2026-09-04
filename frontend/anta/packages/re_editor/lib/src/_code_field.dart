@@ -29,6 +29,7 @@ class _CodeField extends SingleChildRenderObjectWidget {
   final LayerLink endHandleLayerLink;
   final VoidCallback onSemanticsTap;
   final VoidCallback onSemanticsDidGainAccessibilityFocus;
+  final ValueChanged<CodeLineSelection> onSemanticsSetSelection;
 
   _CodeField({
     super.key,
@@ -60,6 +61,7 @@ class _CodeField extends SingleChildRenderObjectWidget {
     required this.endHandleLayerLink,
     required this.onSemanticsTap,
     required this.onSemanticsDidGainAccessibilityFocus,
+    required this.onSemanticsSetSelection,
   })  : assert(codes.isNotEmpty),
         floatingCursorColor = floatingCursorColor ?? cursorColor,
         floatingCursorWidth = floatingCursorWidth ?? cursorWidth;
@@ -95,6 +97,7 @@ class _CodeField extends SingleChildRenderObjectWidget {
         onSemanticsTap: onSemanticsTap,
         onSemanticsDidGainAccessibilityFocus:
             onSemanticsDidGainAccessibilityFocus,
+        onSemanticsSetSelection: onSemanticsSetSelection,
       );
 
   @override
@@ -129,7 +132,8 @@ class _CodeField extends SingleChildRenderObjectWidget {
       ..endHandleLayerLink = endHandleLayerLink
       ..onSemanticsTap = onSemanticsTap
       ..onSemanticsDidGainAccessibilityFocus =
-          onSemanticsDidGainAccessibilityFocus;
+          onSemanticsDidGainAccessibilityFocus
+      ..onSemanticsSetSelection = onSemanticsSetSelection;
   }
 }
 
@@ -154,6 +158,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
   Color? _chunkIndicatorColor;
   VoidCallback _onSemanticsTap;
   VoidCallback _onSemanticsDidGainAccessibilityFocus;
+  ValueChanged<CodeLineSelection> _onSemanticsSetSelection;
 
   double? _horizontalViewportSize;
   double? _verticalViewportSize;
@@ -196,6 +201,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     required LayerLink endHandleLayerLink,
     required VoidCallback onSemanticsTap,
     required VoidCallback onSemanticsDidGainAccessibilityFocus,
+    required ValueChanged<CodeLineSelection> onSemanticsSetSelection,
   })  : _verticalViewport = verticalViewport,
         _horizontalViewport = horizontalViewport,
         _verticalScrollbarWidth = verticalScrollbarWidth,
@@ -220,7 +226,8 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
         _endHandleLayerLink = endHandleLayerLink,
         _onSemanticsTap = onSemanticsTap,
         _onSemanticsDidGainAccessibilityFocus =
-            onSemanticsDidGainAccessibilityFocus {
+            onSemanticsDidGainAccessibilityFocus,
+        _onSemanticsSetSelection = onSemanticsSetSelection {
     _backgroundRender = _CodeFieldExtraRender(painters: [
       _CodeCursorLinePainter(cursorLineColor, _selection),
       _CodeFieldSelectionPainter(selectionColor, _selection),
@@ -312,6 +319,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
           _selection.isCollapsed;
     }
     markNeedsLayout();
+    markNeedsSemanticsUpdate();
   }
 
   set highlightSelections(List<CodeLineSelection>? value) {
@@ -579,6 +587,14 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     markNeedsSemanticsUpdate();
   }
 
+  set onSemanticsSetSelection(ValueChanged<CodeLineSelection> value) {
+    if (_onSemanticsSetSelection == value) {
+      return;
+    }
+    _onSemanticsSetSelection = value;
+    markNeedsSemanticsUpdate();
+  }
+
   /// The editor paints raw ui.Paragraphs and otherwise contributes no
   /// semantics at all, so without this the whole document is invisible
   /// to screen readers. Announce it as a (multiline) text field whose
@@ -602,7 +618,89 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
       ..textDirection = TextDirection.ltr
       ..value = _visibleWindowText()
       ..onTap = _onSemanticsTap
-      ..onDidGainAccessibilityFocus = _onSemanticsDidGainAccessibilityFocus;
+      ..onDidGainAccessibilityFocus = _onSemanticsDidGainAccessibilityFocus
+      ..onSetSelection = _handleSemanticsSetSelection;
+    final TextSelection? textSelection = _visibleWindowSelection();
+    if (textSelection != null) {
+      config.textSelection = textSelection;
+    }
+  }
+
+  void _handleSemanticsSetSelection(TextSelection selection) {
+    final CodeLinePosition? base = positionForWindowOffset(
+        selection.baseOffset);
+    final CodeLinePosition? extent = positionForWindowOffset(
+        selection.extentOffset);
+    if (base == null || extent == null) {
+      return;
+    }
+    _onSemanticsSetSelection(CodeLineSelection(
+      baseIndex: base.index,
+      baseOffset: base.offset,
+      extentIndex: extent.index,
+      extentOffset: extent.offset,
+    ));
+  }
+
+  TextSelection? _visibleWindowSelection() {
+    final int? base = windowOffsetForPosition(_selection.base);
+    if (base == null) {
+      return null;
+    }
+    final int? extent = windowOffsetForPosition(_selection.extent);
+    if (extent == null) {
+      return null;
+    }
+    return TextSelection(baseOffset: base, extentOffset: extent);
+  }
+
+  /// Maps a flat offset into the announced visible-window string onto a
+  /// document position.
+  ///
+  /// Offsets are clamped into the window, an offset that lands on one of
+  /// the '\n' separators resolves to the end of the line before it, and
+  /// the result is null only when the window is empty.
+  CodeLinePosition? positionForWindowOffset(int offset) {
+    final int lineCount = _codes.length;
+    int remaining = max(offset, 0);
+    int? lastIndex;
+    int lastLength = 0;
+    for (final CodeLineRenderParagraph paragraph in _displayParagraphs) {
+      final int index = paragraph.index;
+      if (index < 0 || index >= lineCount) {
+        continue;
+      }
+      final int length = _codes[index].text.length;
+      if (remaining <= length) {
+        return CodeLinePosition(index: index, offset: remaining);
+      }
+      remaining -= length + 1;
+      lastIndex = index;
+      lastLength = length;
+    }
+    if (lastIndex == null) {
+      return null;
+    }
+    return CodeLinePosition(index: lastIndex, offset: lastLength);
+  }
+
+  /// Maps a document position onto a flat offset into the announced
+  /// visible-window string, or null when its line is not on screen.
+  int? windowOffsetForPosition(CodeLinePosition position) {
+    final int lineCount = _codes.length;
+    int offset = 0;
+    for (final CodeLineRenderParagraph paragraph in _displayParagraphs) {
+      final int index = paragraph.index;
+      if (index < 0 || index >= lineCount) {
+        continue;
+      }
+      final int length = _codes[index].text.length;
+      if (index == position.index) {
+        return offset + min(max(position.offset, 0), length);
+      }
+      offset += length + 1;
+    }
+    return null;
   }
 
   String _visibleWindowText() {

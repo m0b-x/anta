@@ -587,6 +587,7 @@ class _CodeEditorState extends State<CodeEditor> {
       onSemanticsTap: _handleSemanticsTap,
       onSemanticsDidGainAccessibilityFocus:
           _handleSemanticsDidGainAccessibilityFocus,
+      onSemanticsSetSelection: _handleSemanticsSetSelection,
     );
     final Widget detector = _CodeSelectionGestureDetector(
         controller: _editingController,
@@ -709,6 +710,17 @@ class _CodeEditorState extends State<CodeEditor> {
     }
     _focusNode.requestFocus();
     _focusNode.consumeKeyboardToken();
+  }
+
+  void _handleSemanticsSetSelection(CodeLineSelection selection) {
+    if (_editingController.selection == selection) {
+      return;
+    }
+    _editingController.value = _editingController.value.copyWith(
+      selection: selection,
+      composing: TextRange.empty,
+    );
+    _editingController.makeCursorVisible();
   }
 
   bool _isSelectionWithinDocument(CodeLineSelection selection) {

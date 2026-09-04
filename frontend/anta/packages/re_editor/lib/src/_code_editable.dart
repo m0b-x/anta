@@ -48,6 +48,7 @@ class _CodeEditable extends StatefulWidget {
   final _SelectionOverlayController selectionOverlayController;
   final VoidCallback onSemanticsTap;
   final VoidCallback onSemanticsDidGainAccessibilityFocus;
+  final ValueChanged<CodeLineSelection> onSemanticsSetSelection;
 
   const _CodeEditable({
     required this.editorKey,
@@ -91,6 +92,7 @@ class _CodeEditable extends StatefulWidget {
     required this.selectionOverlayController,
     required this.onSemanticsTap,
     required this.onSemanticsDidGainAccessibilityFocus,
+    required this.onSemanticsSetSelection,
   });
 
   @override
@@ -311,6 +313,7 @@ class _CodeEditableState extends State<_CodeEditable>
       onSemanticsTap: widget.onSemanticsTap,
       onSemanticsDidGainAccessibilityFocus:
           widget.onSemanticsDidGainAccessibilityFocus,
+      onSemanticsSetSelection: widget.onSemanticsSetSelection,
     );
   }
 
