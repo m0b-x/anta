@@ -1,6 +1,6 @@
 # Live Markdown Editor — Review & Consolidation Slices (2026-09-03)
 
-**Status: Sessions 0–6, 7a and 7b DONE (§3). Sessions 0–1 are committed as
+**Status: Sessions 0–7 DONE (§3; 7c on 2026-09-05). Sessions 0–1 are committed as
 `38c7b50`, Session 2 and its same-day follow-up as `c716225`, Session 3 as
 `a183f11`, Session 4 as `1ed4a60`, Session 5 as `4cad6ec`, Session 6 as
 `b5fcdbd`, Session 7a as `fcfe704` (sync) + `72401b8` (format) + the
@@ -255,7 +255,10 @@ text field with **no `SemanticsAction`** (no `onTap`, `onSetSelection`,
 `onSetText`, no `textSelection`), so under TalkBack/VoiceOver the editor
 cannot be focused and no checkbox/link/money zone is reachable — the
 interceptor is pointer-only. Combined with P11 this is the editor's whole
-screen-reader story.
+screen-reader story. **Resolved by Session 7c (2026-09-05, §3):** the
+node announces the visible window, carries `onTap` /
+`onDidGainAccessibilityFocus` / `onSetSelection` / `textSelection`, and
+hangs one labelled child per zone off the field.
 
 ### 1.8 What retiring the preview loses
 
@@ -1820,6 +1823,144 @@ issue, not a fork bug — record it, do not iterate on the fork for it.
 
 Exit: the four commits above, the suites green, `dart analyze lib` + fork
 clean, the device pass recorded in this block.
+
+**Outcome — DONE 2026-09-05, six commits on top of 7b's `d9621bb` (after
+7a's deferred `72401b8` format + `684b553` ownership commits).** Full
+suite 2,998 → **3,102** passing (7 benchmark cases skipped);
+`test/re_editor/` is 14 files, 72 passing + 1 skipped; `dart analyze
+lib`, `dart analyze test` and `dart analyze packages/re_editor/lib`
+clean apart from the fork's two pre-existing `avoid_print` infos.
+Commits: `3866ef2` (A), `12dad1e` (B1), `f602056` (B2), `e403a35` (C1:
+enumerator + agreement suite + labels), `be24f73` (C2: child nodes +
+wrapper wiring), `8cb585d` (C3: the teardown fix the device pass
+forced, below), then the docs commit. What landed, in plan order:
+
+0. **Risk check: passes on the same node.** A throwaway render with
+   `isTextField` + `value` + `explicitChildNodes` + one
+   `assembleSemanticsNode` child asserted nothing on Flutter 3.44.2,
+   `byValue` and `byLabel` both found their nodes, and traversal read
+   the field before the child. `RenderEditable`'s value-vs-children
+   exclusion is a choice in its own `describeSemanticsConfiguration`,
+   not a framework rule, so the sibling-container fallback was never
+   built.
+1. **(A)** `describeSemanticsConfiguration` announces
+   `_visibleWindowText()` — `_displayParagraphs` lines from `_codes`
+   joined by `\n`, out-of-range indices skipped, `''` for an empty
+   window; the doc comment that advertised the `asString` cache was
+   rewritten. `CodeLines.debugAsStringCalls` is the P11 proof:
+   `semantics_value_test.dart` (4) pins the window value, the window
+   after a scroll, an edit through the controller with the counter still
+   at **0** (nothing else on a bare editor's edit path calls
+   `asString`), and the empty document.
+2. **(B1) — the plan's widget shape does not work; the render carries
+   the actions.** A `Semantics` wrapper above the boundary render sends
+   its actions *up* (configs merge child → node-forming ancestor only;
+   `MergeSemantics` merely flags the child `isMergedIntoParent`, and
+   `byFlag(isTextField)` still lands on the render's node), and dropping
+   the boundary would remove `assembleSemanticsNode` — which (C) needs.
+   Verified with the failing output `Bad state: The given node does not
+   support SemanticsAction.tap` before switching. So the handlers stay
+   in `code_editor.dart` (controller/input/focus in scope) and reach the
+   render through explicit callbacks plumbed `_CodeEditable` →
+   `_CodeField` → render setters that `markNeedsSemanticsUpdate()`.
+   `onTap`: collapse an out-of-document selection to 0/0, then
+   `ensureInput()` (read-only is handled by `ensureInput` itself, which
+   never opens the IME then — better than `text_field.dart`, which sets
+   no `onTap` when read-only). `onDidGainAccessibilityFocus`:
+   `requestFocus()` **plus `consumeKeyboardToken()`** — the fork's focus
+   listener opens the IME whenever the token is unconsumed, so the SDK's
+   bare `requestFocus` *does* raise the keyboard here (test 3 fails
+   without that line). No `onDidLoseAccessibilityFocus`: the SDK's
+   one-liner would unfocus the editor the moment TalkBack steps onto a
+   zone child. `semantics_actions_test.dart` (5), watching
+   `SystemChannels.textInput` for `TextInput.show` / `setClient`.
+3. **(B2)** `positionForWindowOffset` / `windowOffsetForPosition` on the
+   render (per displayed line `length + 1`; a separator offset resolves
+   to the end of the line before it — falls out of the arithmetic;
+   negative clamps to the window start, past-the-end to the last visible
+   line's end; empty window → null). `textSelection` is set only when
+   both ends map, **omitted** otherwise; `onSetSelection` maps
+   base/extent independently (reversed stays reversed) and hands a
+   `CodeLineSelection` to `onSemanticsSetSelection`, which mirrors
+   `_selectPosition`'s identity early-return, `value.copyWith(selection:,
+   composing: TextRange.empty)` and `makeCursorVisible()` and skips its
+   chunk-indicator, hit-test and pointer-bookkeeping branches;
+   `ensureInput` is not called (it lives in `_onMobileTapUp`, not in
+   `_selectPosition`). `selection` setter now also marks semantics.
+   `semantics_selection_test.dart` (8).
+4. **(C)** `EditorInputPolicy.zonesOf` + `EditorTapZone` (start, end,
+   action) — grammar-driven, not offset-scanning: candidates from
+   `MarkdownListSyntax.parse`, a new thin `MarkdownInlineGrammar.linksAndTags`
+   walker (the whole-line form of `linkAt`/`tagAt`, same tokenizer, same
+   descent), `MarkdownMoneySyntax.parse`; precedence and clipping by a
+   per-offset owner array (first claim wins, ghost runs cleared last),
+   equal-owner runs coalesced. The agreement group runs every fixture row
+   × every offset (`resolveTap` ⇔ a covering range, same action);
+   `editor_input_policy_test.dart` 66 → 154 with three ghost-in-link
+   fixtures added. `CodeEditorTapInterceptor.zonesOf` +
+   `CodeEditorSemanticsZone` (start/end/label) on the fork; the render
+   gets `semanticsZonesOf` and `onSemanticsPerformZone` (the tap-down /
+   tap-up pair at the zone start, which the wrapper's claim memo accepts
+   unchanged); `explicitChildNodes` only when `zonesOf` is set;
+   `assembleSemanticsNode` builds one keyed child per zone per visible
+   line (rect = `getRangeRects` union shifted by `paragraph.offset −
+   paintOffset`, clipped to the viewport; `OrdinalSortKey` in line
+   order; `ValueKey('$line:$start:$end:$label')` cache). Wrapper: labels
+   resolved once in `didChangeDependencies`, `_enabledZones()` shared by
+   both paths, action type → label switch. `semantics_zones_test.dart`
+   (6 + 3) and `modern_editor_wrapper_semantics_test.dart` (6).
+5. **C3 — found by the device, not the suites.** `uiautomator dump`
+   enables semantics per dump; on the second dump the reused cached
+   `SemanticsNode`s belonged to the disposed owner: `semantics.dart:3270
+   'owner!._nodes.containsKey(id)'`, then `:3008 '!child.attached'`,
+   then `object.dart:5713 'node.built'` on every frame and a tree that
+   collapsed to the root. Fix = `RenderParagraph`'s shape: a
+   `clearSemantics()` override nulling the cache (the hook
+   `RendererBinding` calls on owner disposal) plus an `attached`/`parent`
+   guard on reuse. No widget-test harness tears the owner down
+   (`ensureSemantics().dispose()` and `semanticsEnabledTestValue` both
+   leave the tree standing), so the regression test drives
+   `renderObject.clearSemantics()` directly and asserts the rebuilt
+   node ids are disjoint from the old ones — fails pre-fix with
+   `Expected: empty, Actual: Set:[6, 7]`.
+
+Device pass (emulator-5554, Android 16, TalkBack from the Android
+Accessibility Suite, the app's own debug build; taps under TalkBack are
+explore-by-touch, so single tap = focus, double tap = activate;
+`uiautomator dump` reads the platform accessibility tree): (1) the
+`EditText` node's text is the on-screen lines only — 30 of the note's
+78 — and moves with a scroll; (2) double-tap on the field opens the
+keyboard (B1 `onTap`); (3) `input text abc` lands in 128 ms with the
+value updated and no error — the P11 stall is gone; (4) each visible
+task line exposes a `Toggle task` node with box-sized bounds
+(`[96,1235][158,1307]` at 1280 px), a link line an `Open link` node and
+a tag line a `Search tag` node starting after the `#` cell; single-tap
+then double-tap on the first task node turns its line into `- [x]` while
+the other two stay `[ ]` and the caret does not move; (5) the caret line
+contributes no node; DTD reports no runtime errors after the whole
+sequence (post-C3). TalkBack was switched off again afterwards. Not
+provable from here: TalkBack's spoken output.
+
+Deviations: B1 on the render, not a widget (above); a `consumeKeyboardToken`
+that the plan did not foresee; six commits instead of four (C split into
+enumerator / nodes / teardown fix); the enumerator gained a grammar
+walker (`linksAndTags`) rather than scanning offsets; `didChangeDependencies`
+label resolution instead of a per-build interceptor.
+
+Traps: a `Semantics` widget never merges into a boundary render on this
+SDK — declare actions on the render; `FocusNode.requestFocus()` alone
+opens the IME in this fork — `consumeKeyboardToken()` right after it is
+the "focus without keyboard" idiom; keyed semantics child caches must be
+dropped in `clearSemantics()` or the second platform enable reuses
+nodes of a dead owner; the test binding cannot reproduce that teardown —
+call `clearSemantics()` on the render yourself; `uiautomator dump` needs
+`MSYS_NO_PATHCONV=1` under Git Bash (the `/sdcard` path gets rewritten)
+and `grep -c '<node'` counts lines of a one-line XML; TalkBack's first
+enable pops a notification-permission dialog that steals every tap —
+`pm grant … POST_NOTIFICATIONS` first; the device shell eats `(`, `)`
+and `#` in `adb shell input text` — double-quote a single-quoted
+string; `settings put secure enabled_accessibility_services ""` is "Bad
+arguments" — use `settings delete`.
 
 ### Session 8 — rendering parity features
 

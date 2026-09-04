@@ -203,6 +203,20 @@ lines bypass the memo.
       path) and `tap_interceptor_desktop_test.dart` are the first
       `startGesture`-style suites against a bare `CodeEditor` with a fake
       zone; Session 11's folding tests reuse the harness.
+- [x] Screen-reader surface (2026-09-05, Session 7c of the review): the
+      editor's text-field node announces only the visible window (the
+      whole-document string that stalled every keystroke under TalkBack is
+      gone — the semantics path never calls `asString` any more), can be
+      focused and opened from a screen reader (`onTap`,
+      `onDidGainAccessibilityFocus` without raising the keyboard), accepts
+      window-relative `setSelection` and reports `textSelection` only
+      while the caret is on screen, and hangs one labelled child node per
+      tap zone — "Toggle task", "Open link", "Open ledger details",
+      "Search tag" in en/de/ro — under the field, in line order, so
+      checkboxes, links, money chips and tags are reachable and activate
+      the same actions a tap does with the caret untouched. The zones come
+      from `EditorInputPolicy.zonesOf`, the range-enumerating sibling of
+      `resolveTap`, pinned offset-by-offset against it.
 
 ### Decision log
 
