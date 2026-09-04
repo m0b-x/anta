@@ -304,4 +304,106 @@ void main() {
     handle.dispose();
     await teardownEditor(tester);
   });
+
+  /// What the framework does to the render tree when the platform
+  /// disposes the semantics owner (`RendererBinding` calls it from
+  /// `onSemanticsOwnerDisposed`). An accessibility dump on Android
+  /// enables semantics in a burst, so this runs between two builds of
+  /// the same tree — and any node held across it belongs to a disposed
+  /// owner.
+  void tearDownSemantics(WidgetTester tester) {
+    tester.renderObject(find.byType(CodeEditor)).clearSemantics();
+  }
+
+  /// Dirties the field's semantics without touching the text, so the
+  /// next flush rebuilds the child nodes.
+  Future<void> rebuildSemantics(
+    WidgetTester tester,
+    CodeLineEditingController controller,
+    int caretLine,
+  ) async {
+    controller.selection = CodeLineSelection.collapsed(
+      index: caretLine,
+      offset: 0,
+    );
+    await settle(tester);
+  }
+
+  List<int> zoneIds() =>
+      find.semantics.byLabel(label).evaluate().map((n) => n.id).toList();
+
+  testWidgets('a semantics teardown drops the zone node cache',
+      (tester) async {
+    final handle = tester.ensureSemantics();
+    final e = await pumpEditor(tester, text: buildDocument(6));
+    await settle(tester);
+    final before = zoneIds();
+    expect(before, hasLength(2));
+
+    tearDownSemantics(tester);
+    await rebuildSemantics(tester, e.controller, 4);
+
+    expect(tester.takeException(), isNull);
+    final after = zoneIds();
+    expect(after, hasLength(2));
+    expect(after.toSet().intersection(before.toSet()), isEmpty);
+
+    handle.dispose();
+    await teardownEditor(tester);
+  });
+
+  testWidgets('a window that moved across a teardown rebuilds cleanly',
+      (tester) async {
+    final handle = tester.ensureSemantics();
+    final e = await pumpEditor(tester, text: buildDocument(200));
+    await settle(tester);
+    final before = zoneIds();
+    expect(before, hasLength(2));
+
+    tearDownSemantics(tester);
+    e.controller.makePositionVisible(
+      const CodeLinePosition(index: 120, offset: 0),
+    );
+    await settle(tester);
+
+    expect(tester.takeException(), isNull);
+    expect(find.semantics.byLabel(label), findsNothing);
+
+    e.controller.makePositionVisible(
+      const CodeLinePosition(index: 0, offset: 0),
+    );
+    await settle(tester);
+
+    expect(tester.takeException(), isNull);
+    final after = zoneIds();
+    expect(after, hasLength(2));
+    expect(after.toSet().intersection(before.toSet()), isEmpty);
+
+    handle.dispose();
+    await teardownEditor(tester);
+  });
+
+  testWidgets('repeated teardowns never reuse a node from an earlier tree',
+      (tester) async {
+    final handle = tester.ensureSemantics();
+    final e = await pumpEditor(tester, text: buildDocument(6));
+    await settle(tester);
+
+    final seen = <int>{...zoneIds()};
+    expect(seen, hasLength(2));
+
+    for (var i = 0; i < 3; i++) {
+      tearDownSemantics(tester);
+      await rebuildSemantics(tester, e.controller, i + 3);
+
+      expect(tester.takeException(), isNull, reason: 'pass $i');
+      final ids = zoneIds();
+      expect(ids, hasLength(2), reason: 'pass $i');
+      expect(seen.intersection(ids.toSet()), isEmpty, reason: 'pass $i');
+      seen.addAll(ids);
+    }
+
+    handle.dispose();
+    await teardownEditor(tester);
+  });
 }

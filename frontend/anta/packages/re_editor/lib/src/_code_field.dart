@@ -718,8 +718,11 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
           ..label = zone.label
           ..onTap = () => _onSemanticsPerformZone(
               CodeLinePosition(index: index, offset: zone.start));
+        final SemanticsNode? cached = _cachedZoneNodes?.remove(key);
         final SemanticsNode child =
-            _cachedZoneNodes?.remove(key) ?? SemanticsNode(key: key);
+            cached != null && (!cached.attached || cached.parent == node)
+                ? cached
+                : SemanticsNode(key: key);
         child
           ..updateWith(config: zoneConfig)
           ..rect = rect;
@@ -732,6 +735,17 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
       ...children,
       ...zoneNodes,
     ]);
+  }
+
+  /// Drops the zone node cache when the semantics tree is torn down, so
+  /// a later pass never reuses a node that belongs to a disposed owner
+  /// (the platform enables semantics in bursts — an accessibility dump
+  /// is one). [RenderParagraph] guards its own child-node cache the same
+  /// way, and for the same reason.
+  @override
+  void clearSemantics() {
+    super.clearSemantics();
+    _cachedZoneNodes = null;
   }
 
   /// The zone's rect in this render's local coordinates, or null when it
