@@ -61,15 +61,6 @@ class MarkdownPreviewBlocView extends StatefulWidget {
   /// keep working without going through the bloc state.
   final ValueChanged<double>? onScrollProgress;
 
-  /// Forwarded to the underlying [SourceMappedMarkdownView] as a
-  /// [GlobalKey] so existing imperative APIs (scrollToSourceOffset,
-  /// scrollToLineIndex, ...) keep working through the controller.
-  ///
-  /// When `null`, the bloc's own scroll controller key is used so
-  /// `bloc.scrollToProgress(...)` and friends resolve against the
-  /// live view automatically.
-  final Key? viewKey;
-
   const MarkdownPreviewBlocView({
     super.key,
     this.bloc,
@@ -81,7 +72,6 @@ class MarkdownPreviewBlocView extends StatefulWidget {
     this.onTagTap,
     this.onMoneyTap,
     this.onScrollProgress,
-    this.viewKey,
   });
 
   @override
@@ -221,7 +211,7 @@ class _MarkdownPreviewBlocViewState extends State<MarkdownPreviewBlocView> {
 
   @override
   Widget build(BuildContext context) {
-    final effectiveKey = widget.viewKey ?? _scrollKey;
+    final effectiveKey = _scrollKey;
 
     return BlocBuilder<MarkdownPreviewBloc, MarkdownPreviewState>(
       bloc: _bloc,

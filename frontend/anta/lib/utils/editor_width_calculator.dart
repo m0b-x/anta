@@ -40,6 +40,14 @@ class LineBreakResult {
   const LineBreakResult({required this.lines, required this.linesModified});
 }
 
+/// Identity of an ASCII advance table: everything about the measuring style
+/// that can move a glyph's advance.
+typedef _AdvanceTableKey = (
+  double fontSize,
+  double lineHeight,
+  String? fontFamily,
+);
+
 /// Utility class for calculating available text width in the editor
 /// and measuring text pixel widths for paste line breaking.
 ///
@@ -67,6 +75,25 @@ class EditorWidthCalculator {
 
   /// Cached TextPainter reused across measurements to avoid re-allocation.
   late final TextPainter _textPainter;
+
+  /// Per-glyph advance tables for printable ASCII, keyed by the style triple
+  /// that decides them. Static because the page builds a fresh calculator per
+  /// paste while the font rarely changes, and bounded because a stale table
+  /// costs 95 doubles: one paste sees one size, so eight is already generous.
+  static final Map<_AdvanceTableKey, List<double>> _advanceTables = {};
+
+  static const int _maxAdvanceTables = 8;
+  static const int _asciiFirst = 0x20;
+  static const int _asciiLast = 0x7E;
+
+  /// Number of [measureTextWidth] layouts run so far.
+  ///
+  /// The pre-filter in [lineExceedsWidth] exists to keep this number flat for
+  /// lines that obviously fit; the tests assert exactly that. One-off glyph
+  /// measurements taken to build an advance table are deliberately not
+  /// counted — they are per style, not per line.
+  @visibleForTesting
+  static int debugLayoutCount = 0;
 
   EditorWidthCalculator({required this.config, required this.editorPadding})
     : _textPainter = TextPainter(
@@ -102,14 +129,82 @@ class EditorWidthCalculator {
 
   /// Measure the pixel width of a string using the editor's font
   double measureTextWidth(String text) {
+    debugLayoutCount++;
+    return _measureRaw(text);
+  }
+
+  /// Check if a line exceeds the available width.
+  ///
+  /// A paste asks this once per pasted line, and almost every line of an
+  /// ordinary note obviously fits — so an all-printable-ASCII line is first
+  /// summed from a per-glyph advance table (measured once per style, filled
+  /// lazily per glyph) and only measured for real when that sum does not
+  /// already settle it.
+  ///
+  /// **Why the sum is a safe "it fits" proof.** Shaping a run never makes it
+  /// wider than the sum of its glyphs' isolated advances: ligatures merge
+  /// glyphs and kerning is almost always negative, so the shaped width is at
+  /// most the sum, except for the rare positive kerning pair — a sub-pixel
+  /// adjustment already absorbed by [EditorWidthConfig.safetyMargin], which
+  /// was deducted from [availableWidth] upstream. Each table entry is a
+  /// painter measurement of its glyph alone, taken with the same style and
+  /// the same painter as the whole-line measurement, so both sides of the
+  /// comparison see the same fractional advances (`TextPainter.width` is not
+  /// rounded to the pixel grid). Anything else — one non-ASCII code unit, or
+  /// a sum that reaches [availableWidth] — falls through to the exact
+  /// measurement, so the answer can only ever be the painter's.
+  bool lineExceedsWidth(String lineText, double availableWidth) {
+    if (lineText.isEmpty) return false;
+    if (_asciiFitPrefix(lineText, availableWidth) == lineText.length) {
+      return false;
+    }
+    return measureTextWidth(lineText) > availableWidth;
+  }
+
+  /// Length of the longest prefix of [text] that is all printable ASCII and
+  /// whose summed table advances stay within [maxWidth] — so a prefix that
+  /// **provably fits**, by the upper-bound argument on [lineExceedsWidth].
+  ///
+  /// Stops at the first non-ASCII code unit (that prefix still fits, it just
+  /// cannot be extended), so a result equal to `text.length` means the whole
+  /// string is settled: all ASCII and within the width.
+  int _asciiFitPrefix(String text, double maxWidth) {
+    final table = _advanceTable();
+    double total = 0;
+    for (int i = 0; i < text.length; i++) {
+      final unit = text.codeUnitAt(i);
+      if (unit < _asciiFirst || unit > _asciiLast) return i;
+      final index = unit - _asciiFirst;
+      var advance = table[index];
+      if (advance < 0) {
+        advance = _measureRaw(String.fromCharCode(unit));
+        table[index] = advance;
+      }
+      total += advance;
+      if (total > maxWidth) return i;
+    }
+    return text.length;
+  }
+
+  /// The advance table for this calculator's style, created empty (`-1` per
+  /// glyph) on first use. Passing [_maxAdvanceTables] drops every table
+  /// rather than tracking an LRU order: font changes come in bursts of one.
+  List<double> _advanceTable() {
+    final key = (config.fontSize, config.lineHeight, config.fontFamily);
+    final existing = _advanceTables[key];
+    if (existing != null) return existing;
+    if (_advanceTables.length >= _maxAdvanceTables) _advanceTables.clear();
+    final table = List<double>.filled(_asciiLast - _asciiFirst + 1, -1);
+    _advanceTables[key] = table;
+    return table;
+  }
+
+  /// Lay [text] out and read its width, without counting the layout: only
+  /// per-line measurements belong in [debugLayoutCount].
+  double _measureRaw(String text) {
     _textPainter.text = TextSpan(text: text, style: _getTextStyle());
     _textPainter.layout();
     return _textPainter.width;
-  }
-
-  /// Check if a line exceeds the available width
-  bool lineExceedsWidth(String lineText, double availableWidth) {
-    return lineText.isNotEmpty && measureTextWidth(lineText) > availableWidth;
   }
 
   /// Smart line breaking for all lines, respecting code blocks and markdown syntax.
@@ -162,9 +257,14 @@ class EditorWidthCalculator {
     return LineBreakResult(lines: result, linesModified: linesModified);
   }
 
-  /// Break a single line respecting markdown syntax
+  /// Break a single line respecting markdown syntax.
+  ///
+  /// The caller has already established that [line] is non-empty and wider
+  /// than [maxWidth], so the whole line is never re-measured on entry. A
+  /// line that does fit still comes back as `[line]`: the loop below simply
+  /// never runs.
   List<String> _breakLineRespectingMarkdown(String line, double maxWidth) {
-    if (line.isEmpty || measureTextWidth(line) <= maxWidth) return [line];
+    if (line.isEmpty) return [line];
 
     // Find all protected ranges (markdown syntax that shouldn't be broken)
     final protectedRanges = _findProtectedRanges(line);
@@ -173,9 +273,9 @@ class EditorWidthCalculator {
     var remaining = line;
     var offset = 0;
 
-    while (remaining.isNotEmpty && measureTextWidth(remaining) > maxWidth) {
+    while (remaining.isNotEmpty && lineExceedsWidth(remaining, maxWidth)) {
       // Find the optimal break point
-      int breakPoint = _findBreakPoint(remaining, maxWidth);
+      int breakPoint = findBreakPoint(remaining, maxWidth);
 
       if (breakPoint <= 0) {
         // Can't fit even one character, force at least one
@@ -312,9 +412,19 @@ class EditorWidthCalculator {
     return breakPoint;
   }
 
-  /// Binary search to find how many characters fit within maxWidth
-  int _findBreakPoint(String text, double maxWidth) {
-    int low = 0;
+  /// How many leading characters of [text] fit within [maxWidth].
+  ///
+  /// The search is seeded with the ASCII prefix that provably fits (see
+  /// [_asciiFitPrefix]) rather than with 0. Since prefix widths grow with
+  /// length, the largest fitting prefix is at or past that seed, so the
+  /// binary search above it converges on exactly the same answer — it just
+  /// starts with a chunk of the range already ruled in, which for a line
+  /// only slightly over the width collapses the search to one or two
+  /// layouts. Non-ASCII text seeds at the first non-ASCII code unit and so
+  /// searches as before.
+  @visibleForTesting
+  int findBreakPoint(String text, double maxWidth) {
+    int low = _asciiFitPrefix(text, maxWidth);
     int high = text.length;
 
     while (low < high) {

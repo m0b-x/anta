@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:equatable/equatable.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
 import '../constants/calendar_icons.dart';
 import '../constants/fasting_calendar.dart';
+import '../constants/font_constants.dart';
 import '../constants/settings_keys.dart';
+import '../models/editor_settings.dart';
 import '../models/fasting_appearance.dart';
 import '../models/fasting_schedule.dart';
 import '../models/nav_destination.dart';
@@ -26,7 +30,18 @@ class SettingsService {
   static SettingsService? _instance;
   late AppDatabase _db;
 
-  SettingsService._();
+  /// How long [_scheduleWrite] waits for the next write to the same key.
+  ///
+  /// Only the font sizes are debounced, and they are driven by repeated +/-
+  /// taps: 400 ms is long enough that a burst costs one write and short enough
+  /// that a user who taps once and leaves the note has it persisted before the
+  /// page's lifecycle flush would have to save it.
+  static const Duration defaultWriteDebounce = Duration(milliseconds: 400);
+
+  final Duration _writeDebounce;
+
+  SettingsService._({Duration? writeDebounce})
+    : _writeDebounce = writeDebounce ?? defaultWriteDebounce;
 
   static Future<SettingsService> getInstance() async {
     if (_instance == null) {
@@ -42,10 +57,13 @@ class SettingsService {
   /// exercise the real DAO against `NativeDatabase.memory()`; never use it in
   /// app code — the singleton is what the [DatabaseLifecycle] reset contract
   /// is built on.
+  ///
+  /// [writeDebounce] shortens [defaultWriteDebounce] so a test can wait out a
+  /// debounced write in real time instead of holding the suite for 400 ms.
   @visibleForTesting
-  static SettingsService forTesting(AppDatabase db) {
+  static SettingsService forTesting(AppDatabase db, {Duration? writeDebounce}) {
     if (_instance != null) return _instance!;
-    final service = SettingsService._();
+    final service = SettingsService._(writeDebounce: writeDebounce);
     service._db = db;
     _instance = service;
     DatabaseLifecycle.registerResetHandler(reset);
@@ -59,7 +77,12 @@ class SettingsService {
   /// Also clears the static [FastingCalendar] configuration: it is derived
   /// entirely from settings rows this service owns, and would otherwise keep
   /// painting the previous database's practice.
+  ///
+  /// Debounced writes are dropped rather than flushed: this runs while the
+  /// active database is being swapped, so a pending row would land in the
+  /// wrong database — or in a closed one.
   static void reset() {
+    _instance?._dropPendingWrites();
     _instance = null;
     FastingCalendar.resetConfiguration();
   }
@@ -74,6 +97,51 @@ class SettingsService {
 
   static int _decodeInt(String? raw, int defaultValue) =>
       raw == null ? defaultValue : (int.tryParse(raw) ?? defaultValue);
+
+  static double _decodeDouble(String? raw, double defaultValue) =>
+      raw == null ? defaultValue : (double.tryParse(raw) ?? defaultValue);
+
+  /// Rows held back until the writes to them stop coming, keyed by settings
+  /// key so a caller that changed one row never rewrites its neighbour — the
+  /// editor page's old "save both font sizes on every tap" path did exactly
+  /// that, and a preview size the user never touched was rewritten on every
+  /// editor zoom.
+  final Map<String, String> _pendingWrites = {};
+  Timer? _writeTimer;
+
+  void _scheduleWrite(String key, String value) {
+    _pendingWrites[key] = value;
+    _writeTimer?.cancel();
+    _writeTimer = Timer(_writeDebounce, () {
+      _writeTimer = null;
+      flushPendingWrites();
+    });
+  }
+
+  /// Writes every debounced row now.
+  ///
+  /// Public because the editor page flushes on lifecycle pause and on dispose:
+  /// a process killed inside the debounce window must not lose the size the
+  /// user just set. Also called by [getEditorSettings], so a read can never
+  /// see a value older than the last write.
+  Future<void> flushPendingWrites() async {
+    _writeTimer?.cancel();
+    _writeTimer = null;
+    if (_pendingWrites.isEmpty) return;
+    // Drained before the first await: a second flush (or the timer firing
+    // while this one is in flight) must not write the same row twice.
+    final pending = Map<String, String>.of(_pendingWrites);
+    _pendingWrites.clear();
+    for (final entry in pending.entries) {
+      await _db.userSettingsDao.setValue(entry.key, entry.value);
+    }
+  }
+
+  void _dropPendingWrites() {
+    _writeTimer?.cancel();
+    _writeTimer = null;
+    _pendingWrites.clear();
+  }
 
   // Helper methods for type conversion
   Future<bool> _getBool(String key, bool defaultValue) async {
@@ -418,20 +486,24 @@ class SettingsService {
     await _setBool(SettingsKeys.vocabularySuggestionsEnabled, value);
   }
 
-  /// The character that opens the suggestion bar. Anything other than a single
-  /// character from [VocabularyTrigger.availableTriggers] falls back to the
-  /// default, so a corrupted row can never disable the feature silently.
+  /// Anything other than a single character from
+  /// [VocabularyTrigger.availableTriggers] falls back to the default, so a
+  /// corrupted row can never disable the feature silently.
+  static String _decodeVocabularyTrigger(String? raw) {
+    if (raw == null || raw.length != 1) {
+      return SettingsKeys.defaultVocabularyTriggerChar;
+    }
+    if (!VocabularyTrigger.availableTriggers.contains(raw)) {
+      return SettingsKeys.defaultVocabularyTriggerChar;
+    }
+    return raw;
+  }
+
+  /// The character that opens the suggestion bar.
   Future<String> getVocabularyTriggerChar() async {
-    final stored = await _db.userSettingsDao.getValue(
-      SettingsKeys.vocabularyTriggerChar,
+    return _decodeVocabularyTrigger(
+      await _db.userSettingsDao.getValue(SettingsKeys.vocabularyTriggerChar),
     );
-    if (stored == null || stored.length != 1) {
-      return SettingsKeys.defaultVocabularyTriggerChar;
-    }
-    if (!VocabularyTrigger.availableTriggers.contains(stored)) {
-      return SettingsKeys.defaultVocabularyTriggerChar;
-    }
-    return stored;
   }
 
   Future<void> setVocabularyTriggerChar(String value) async {
@@ -487,6 +559,156 @@ class SettingsService {
 
   Future<void> setPreviewLinesPerChunk(int value) async {
     await _setInt(SettingsKeys.previewLinesPerChunk, value);
+  }
+
+  /// Every row [getEditorSettings] decodes. Keyed rather than a full-table
+  /// read for the same reason the calendar bundle is: `user_settings` also
+  /// holds one `note_position_<id>` row per note the user has ever opened.
+  static const List<String> _editorSettingsKeys = [
+    SettingsKeys.noteSwipeEnabled,
+    SettingsKeys.showStatsBar,
+    SettingsKeys.liveMarkdownRendering,
+    SettingsKeys.showLineNumbers,
+    SettingsKeys.wordWrap,
+    SettingsKeys.showCursorLine,
+    SettingsKeys.autoBreakLongLines,
+    SettingsKeys.previewWhenKeyboardHidden,
+    SettingsKeys.scrollCursorOnKeyboard,
+    SettingsKeys.previewModeEnabled,
+    SettingsKeys.showPreviewScrollbar,
+    SettingsKeys.previewLinesPerChunk,
+    SettingsKeys.toolbarShortcutRatio,
+    SettingsKeys.toolbarSplitEnabled,
+    SettingsKeys.toolbarUtilityConfig,
+    SettingsKeys.vocabularySuggestionsEnabled,
+    SettingsKeys.vocabularyTriggerChar,
+    SettingsKeys.editorFontSize,
+    SettingsKeys.previewFontSize,
+  ];
+
+  /// Every setting the note editor page needs before it can mount, in one
+  /// statement.
+  ///
+  /// `initState` issued 17 sequential single-row SELECTs plus two raw DAO
+  /// reads for the font sizes; each await is its own round trip to the drift
+  /// isolate, so the latencies add rather than overlap. That cost is on the
+  /// critical path now in a way it was not before: the editor's `ValueKey`
+  /// depends on [EditorSettings.liveMarkdownRendering], so the loading
+  /// skeleton stays up until this lands rather than letting the editor mount
+  /// and remount.
+  ///
+  /// Flushes debounced writes first. The page re-reads this bundle when it
+  /// returns from the settings page, and a font size adjusted a moment before
+  /// leaving must not read back stale.
+  ///
+  /// The decoders are the ones the single-row getters use, so the bulk path
+  /// cannot drift from them.
+  Future<EditorSettings> getEditorSettings() async {
+    await flushPendingWrites();
+    final values = await _db.userSettingsDao.getValuesFor(_editorSettingsKeys);
+    return EditorSettings(
+      noteSwipeEnabled: _decodeBool(
+        values[SettingsKeys.noteSwipeEnabled],
+        SettingsKeys.defaultNoteSwipeEnabled,
+      ),
+      showStatsBar: _decodeBool(
+        values[SettingsKeys.showStatsBar],
+        SettingsKeys.defaultShowStatsBar,
+      ),
+      liveMarkdownRendering: _decodeBool(
+        values[SettingsKeys.liveMarkdownRendering],
+        SettingsKeys.defaultLiveMarkdownRendering,
+      ),
+      showLineNumbers: _decodeBool(
+        values[SettingsKeys.showLineNumbers],
+        SettingsKeys.defaultShowLineNumbers,
+      ),
+      wordWrap: _decodeBool(
+        values[SettingsKeys.wordWrap],
+        SettingsKeys.defaultWordWrap,
+      ),
+      showCursorLine: _decodeBool(
+        values[SettingsKeys.showCursorLine],
+        SettingsKeys.defaultShowCursorLine,
+      ),
+      autoBreakLongLines: _decodeBool(
+        values[SettingsKeys.autoBreakLongLines],
+        SettingsKeys.defaultAutoBreakLongLines,
+      ),
+      previewWhenKeyboardHidden: _decodeBool(
+        values[SettingsKeys.previewWhenKeyboardHidden],
+        SettingsKeys.defaultPreviewWhenKeyboardHidden,
+      ),
+      scrollCursorOnKeyboard: _decodeBool(
+        values[SettingsKeys.scrollCursorOnKeyboard],
+        SettingsKeys.defaultScrollCursorOnKeyboard,
+      ),
+      previewModeEnabled: _decodeBool(
+        values[SettingsKeys.previewModeEnabled],
+        SettingsKeys.defaultPreviewModeEnabled,
+      ),
+      showPreviewScrollbar: _decodeBool(
+        values[SettingsKeys.showPreviewScrollbar],
+        SettingsKeys.defaultShowPreviewScrollbar,
+      ),
+      previewLinesPerChunk: _decodeInt(
+        values[SettingsKeys.previewLinesPerChunk],
+        SettingsKeys.defaultPreviewLinesPerChunk,
+      ),
+      toolbarShortcutRatio: _decodeDouble(
+        values[SettingsKeys.toolbarShortcutRatio],
+        SettingsKeys.defaultToolbarShortcutRatio,
+      ),
+      toolbarSplitEnabled: _decodeBool(
+        values[SettingsKeys.toolbarSplitEnabled],
+        SettingsKeys.defaultToolbarSplitEnabled,
+      ),
+      toolbarUtilityConfig: _decodeUtilityConfig(
+        values[SettingsKeys.toolbarUtilityConfig],
+      ),
+      vocabularySuggestionsEnabled: _decodeBool(
+        values[SettingsKeys.vocabularySuggestionsEnabled],
+        SettingsKeys.defaultVocabularySuggestionsEnabled,
+      ),
+      vocabularyTriggerChar: _decodeVocabularyTrigger(
+        values[SettingsKeys.vocabularyTriggerChar],
+      ),
+      editorFontSize: _decodeDouble(
+        values[SettingsKeys.editorFontSize],
+        FontConstants.defaultFontSize,
+      ),
+      previewFontSize: _decodeDouble(
+        values[SettingsKeys.previewFontSize],
+        FontConstants.defaultFontSize,
+      ),
+    );
+  }
+
+  // Font sizes - the editor's own text size and the preview's
+  Future<double> getEditorFontSize() async {
+    return _decodeDouble(
+      await _db.userSettingsDao.getValue(SettingsKeys.editorFontSize),
+      FontConstants.defaultFontSize,
+    );
+  }
+
+  /// Debounced: the size is driven by repeated +/- taps, so the write waits
+  /// for the taps to stop. Only this key is written — the preview size stays
+  /// untouched, and stays absent on an install that never changed it.
+  Future<void> setEditorFontSize(double value) async {
+    _scheduleWrite(SettingsKeys.editorFontSize, value.toString());
+  }
+
+  Future<double> getPreviewFontSize() async {
+    return _decodeDouble(
+      await _db.userSettingsDao.getValue(SettingsKeys.previewFontSize),
+      FontConstants.defaultFontSize,
+    );
+  }
+
+  /// Debounced, like [setEditorFontSize].
+  Future<void> setPreviewFontSize(double value) async {
+    _scheduleWrite(SettingsKeys.previewFontSize, value.toString());
   }
 
   // Calendar - Max number of bars shown per day cell (overflow shows "+N").
@@ -1461,11 +1683,10 @@ class SettingsService {
 
   // Toolbar settings - Shortcut/utility ratio
   Future<double> getToolbarShortcutRatio() async {
-    final value = await _db.userSettingsDao.getValue(
-      SettingsKeys.toolbarShortcutRatio,
+    return _decodeDouble(
+      await _db.userSettingsDao.getValue(SettingsKeys.toolbarShortcutRatio),
+      SettingsKeys.defaultToolbarShortcutRatio,
     );
-    if (value == null) return SettingsKeys.defaultToolbarShortcutRatio;
-    return double.tryParse(value) ?? SettingsKeys.defaultToolbarShortcutRatio;
   }
 
   Future<void> setToolbarShortcutRatio(double value) async {
@@ -1503,13 +1724,25 @@ class SettingsService {
     );
   }
 
+  /// [UtilityButtonConfig.decode] parses JSON the user never types by hand,
+  /// but it is JSON all the same: a truncated or hand-edited row would throw
+  /// out of the decode and take the whole editor open with it. An unreadable
+  /// row is treated exactly like an absent one — the toolbar the user gets is
+  /// the default toolbar, never no toolbar.
+  static List<UtilityButtonConfig> _decodeUtilityConfig(String? raw) {
+    if (raw == null || raw.isEmpty) return UtilityButtonConfig.defaults();
+    try {
+      return UtilityButtonConfig.decode(raw);
+    } catch (_) {
+      return UtilityButtonConfig.defaults();
+    }
+  }
+
   // Toolbar utility buttons config
   Future<List<UtilityButtonConfig>> getToolbarUtilityConfig() async {
-    final value = await _db.userSettingsDao.getValue(
-      SettingsKeys.toolbarUtilityConfig,
+    return _decodeUtilityConfig(
+      await _db.userSettingsDao.getValue(SettingsKeys.toolbarUtilityConfig),
     );
-    if (value == null) return UtilityButtonConfig.defaults();
-    return UtilityButtonConfig.decode(value);
   }
 
   Future<void> setToolbarUtilityConfig(

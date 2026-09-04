@@ -1,9 +1,11 @@
 # Live Markdown Editor — Review & Consolidation Slices (2026-09-03)
 
-**Status: Sessions 0–5 DONE (§3). Sessions 0–1 are committed as
+**Status: Sessions 0–6 DONE (§3). Sessions 0–1 are committed as
 `38c7b50`, Session 2 and its same-day follow-up as `c716225`, Session 3 as
-`a183f11`, Session 4 as `1ed4a60`; Session 5 (2026-09-04) is uncommitted on
-top of `1ed4a60`. Sessions 6–10 PLANNED, not implemented.** Baseline commit `bf2e7ba`
+`a183f11`, Session 4 as `1ed4a60`, Session 5 as `4cad6ec`; Session 6
+(2026-09-04) is uncommitted on top of `4cad6ec`. Sessions 7–9 and 11
+PLANNED, not implemented; Session 10 DROPPED (decision 4). All five §2
+decisions are taken.** Baseline commit `bf2e7ba`
 (main). Line numbers below are as of that commit and will drift — re-grep
 before editing. This doc is the ledger for making the Obsidian-style live
 editor the app's only day-to-day markdown surface, retiring the read-only
@@ -292,11 +294,29 @@ snippet), `toolbarSplitEnabled` (toolbar layout).
    lines / a size cap, or keep whole-document semantics and only throttle?
    Flutter's own `EditableText` announces the whole value, so bounding is a
    deliberate divergence. Recommended: visible-window value + actions.
+   **Decided 2026-09-04: visible-window value + actions.** The announced
+   `value` is the lines currently on screen (O(viewport) per keystroke),
+   and the render gains `onTap` / `onSetSelection` /
+   `onDidGainAccessibilityFocus` so the editor can be focused and an a11y
+   tap on an interceptor zone performs the same action as a pointer tap.
+   Same day, for Session 7 item 3: a desktop drag that starts on a claimed
+   zone **releases the claim past the touch slop and becomes a normal
+   drag selection** (not documented away). Session 7 runs as one whole
+   session after Session 6; planned only, not implemented.
 4. **Lite rendering tier** (Session 10): only if the Session 1 benchmarks
    and a real-device profile say the hanging layout or variable line heights
-   dominate. Do not build it speculatively.
+   dominate. Do not build it speculatively. **Decided 2026-09-04: dropped.**
+   After Session 5 a cold list line lays out in 40–43 µs and the paragraph
+   cache is bounded at 128, so nothing measured points at it; the block
+   moved to §4 with its reopen trigger (a real low-end device profile).
 5. **Wiki links `[[note]]`** (Session 9): wanted at all? It is the one
-   genuinely new feature in the plan.
+   genuinely new feature in the plan. **Decided 2026-09-04: yes, Session 9
+   stays as planned.**
+
+Also settled 2026-09-04 while planning: Session 8 callouts render the
+accent bar only (no background band — an empty line cannot paint one, the
+same reason the fence tint went); heading folding leaves §4 and is planned
+as Session 11 (planning only, after Session 7's upstream review).
 
 ---
 
@@ -1094,16 +1114,192 @@ Page→DAO, no remount-on-open, paste is incremental.
 Exit: page State under ~25 fields; toggling any editor setting on the
 settings page applies on return; restore never lost; `flutter test` green.
 
+**Outcome — DONE 2026-09-04, uncommitted on 4cad6ec.** Full suite 2,978
+passing (7 benchmark cases skipped by default); `dart analyze lib test
+packages/re_editor/lib` clean apart from the fork's two pre-existing
+`avoid_print` infos in `debug/_trace.dart` (untouched). Owner decisions
+applied as stated: plain page-owned controllers, no BLoC on the typing
+path; font sizes on `SettingsService` with debounced writes; the first
+`CodeEditor` mount waits for the bundle; `EditorInputPolicy` table-tested;
+`PasteLineBreaker` splices; absolute line numbers for the position record.
+The page went from 2,520 lines / ~60 instance fields to 2,068 lines /
+**26 fields** (the 25th and 26th are `_previousKeyboardHeight` and
+`_lastKeyboardVisible`; folding the latter would mean reading
+`MediaQuery` from non-build callbacks, so 26 is the honest count). What
+landed, item by item:
+
+1. `EditorSettings` (`lib/models/editor_settings.dart`, Equatable, 19
+   fields incl. both font sizes, `canPreview`, an unmodifiable utility
+   list) + `SettingsService.getEditorSettings()` — **one** keyed
+   `getValuesFor` statement, decoded by the same static decoders the
+   single-row getters now share (`_decodeDouble`, `_decodeVocabularyTrigger`,
+   `_decodeUtilityConfig`; a corrupt `toolbar_utility_config` row falls
+   back to the default toolbar instead of throwing out of the page open,
+   which the old getter did). `EditorSettingsController` (`lib/controllers/`,
+   `ChangeNotifier`): `value`, `loaded`, `canPreview`, `reload()` (notifies
+   on change or first load), `adjustEditorFontSize/adjustPreviewFontSize`,
+   `setToolbarUtilityConfig`, `flushPendingWrites`; a late `reload()` after
+   `dispose()` never notifies. The page calls `_reloadSettings()` (bundle +
+   money config + palette) from `initState` and `didPopNext`;
+   `_openMarkdownSettings` no longer re-reads on return (that push is a
+   `MaterialPageRoute`, so `didPopNext` already covers it — it was a
+   double read). One bundle read replaces the seventeen sequential
+   single-row awaits plus two raw DAO reads the old `initState` issued.
+2. **B4**: `_isLoading => !_contentLoaded || !_editorSettings.loaded`. The
+   skeleton stays up until both landed, so the editor's `ValueKey`
+   (`editor-md` / `editor`) is final on first build; the page test pins the
+   wrapper's `State` identity across a further settle in both key states.
+   Consequence accepted: a failing settings read keeps the skeleton up
+   (the read is one local statement with per-field fallbacks, so that
+   case is the database being unreadable, where the content load fails too).
+3. **B5**: `_loadFontSizes`/`_saveFontSizes` and every `AppDatabase`/
+   `userSettingsDao` use in the page are gone. `setEditorFontSize` /
+   `setPreviewFontSize` are debounced (`defaultWriteDebounce` 400 ms, one
+   timer, per-key pending map) and write only their own row;
+   `flushPendingWrites()` is public (the page flushes on lifecycle pause
+   and on dispose; `getEditorSettings` flushes before reading so a size
+   adjusted a moment before returning from settings never reads back
+   stale); `SettingsService.reset()` drops pending writes rather than
+   flushing them into the next database. Deviation from the old page: the
+   deprecated preview's font size now defaults to
+   `FontConstants.defaultFontSize` (16) like the editor's instead of the
+   bloc's 14 when no row exists — the two surfaces share one default.
+4. **B2**: `NoteEditorPositionController` owns the record, the
+   `savedEditorSelection`, and both timers (restore scroll, preview
+   progress save). `restoreWhenReady()` is the explicit join — fires
+   `onRestore` exactly once when both the position and "editor ready"
+   have landed, whichever came last — and "editor ready" is only signalled
+   once `!_isLoading`, so the restore can never target an editor that
+   does not exist yet. `_applySavedPreviewMode` moved into the restore
+   callback (the only point where the position record, the content and
+   the settings bundle are all guaranteed present). Positions are saved
+   through `controller.index2lineIndex` and restored through
+   `lineIndex2Index(...).index` — **absolute line numbers**; the unit test
+   collapses a chunk and pins that a caret on visible line 3 saves as
+   absolute line 8 and restores to the visible parent, which is Session
+   11's contract in advance. Position saves during preview scrolling now
+   record `isPreviewMode: false` if the user left preview within the
+   500 ms debounce (was silently dropped).
+5. `EditorInputPolicy` (`lib/utils/editor_input_policy.dart`): the sealed
+   `EditorTapAction` family, `EditorTapZones`, `resolveTap` (every
+   pass-through rule verbatim, precedence checkbox → link → money → tag),
+   `toggledTaskLine`, `listIndent`, and the `GhostEngagement` two-tap
+   state machine with its `GhostEngagementDecision`s. The wrapper is the
+   adapter: it builds the zones from its flags, maps actions to haptics
+   plus page callbacks, keeps the `_TapClaim` memo (one grammar pass per
+   claimed tap, B11 stays fixed), keeps the expiry timer and the
+   activation microtask, and gained `didUpdateWidget` (listener moves to
+   a swapped controller, claim and ghost state dropped, a swapped search
+   controller unbound). `test/utils/editor_input_policy_test.dart` is the
+   table: 82 rows (52 `resolveTap`, 9 toggle, 5 indent, 16 ghost);
+   `modern_editor_wrapper_rebind_test.dart` (2) pins the rebind. The
+   three existing wrapper suites, the agreement suite and the units suite
+   are unchanged and green; no `expectedDivergence` entry was added.
+6. **P7**: `PasteLineBreaker.run({controller, calculator, availableWidth,
+   pasteEnd, pastedLength})` finds the pasted range by walking back over
+   line lengths from the caret (no flat offsets, no `controller.text`, no
+   `TextPositionUtils`), breaks only `[start, end]`, splices with
+   `sublines` + `add` + `addFrom` (the fork's own `_replaceRange` shape, so
+   every segment outside the range keeps its backing-list identity), and
+   still assigns `controller.value` directly so paste + reflow stay one
+   undo step; a debug assert refuses to rebuild a collapsed-chunk parent
+   (Session 11's data-loss guard, always true today). The caller
+   measures the width (`getAvailableTextWidth`, null ⇒ no reflow).
+   `EditorWidthCalculator.lineExceedsWidth` gained a per-glyph ASCII
+   advance table (measured once per `(fontSize, lineHeight, fontFamily)`,
+   filled lazily per glyph, ≤ 8 tables): an all-printable-ASCII line whose
+   summed advances fit is settled with zero layouts, anything else falls
+   through to the painter (sound because shaping never widens a run past
+   the sum of its isolated advances except for positive kerning, which
+   `safetyMargin` absorbs; both sides use the same painter and style).
+   The same table seeds `findBreakPoint`'s binary search with a prefix
+   that provably fits (exact answer unchanged — a 300-string property test
+   pins it against the unseeded search), and the redundant whole-line
+   layout on entry to the break loop is gone. `CodeLineOffsetUtils` kept
+   only `lineStartOffset` (the debug overlay); `offsetFromPosition` is
+   deleted. `test/utils/paste_line_breaker_test.dart` (17): range splice
+   with prefix/suffix segment identity on a 700-line note, fence and
+   line-led lines untouched, multi-line and mid-line start detection,
+   single undo step, pre-filter layout counts, byte-identical golden
+   output. Numbers in §5.
+7. Preview bloc laziness (item 7) confirmed rather than changed: the bloc
+   is still built in `initState`, but `MarkdownRenderService` allocates
+   nothing until `prepare`, `_emitPrepared` no-ops until
+   `PreviewThemeChanged`, and that event's only source is
+   `MarkdownPreviewBlocView`, which `_buildPreview` mounts only under
+   `_canPreview`. The view now binds its own key (its `viewKey`
+   parameter is deleted along with the page's `_previewViewKey`).
+
+Beyond the plan's list, reaching the field budget honestly took four more
+page-owned extractions, each with its own suite: `NoteSaveCoordinator`
+(`lib/controllers/note_save_coordinator.dart`, 25 tests — auto-save,
+early create, duplicate-title rules with the one-shot warning,
+`hasChanges` deferred past a running frame via `SchedulerBinding
+.schedulerPhase`, lifecycle flush; `saveBeforeExit` now **awaits** the
+early create, closing a race where a colliding title's lookup finished
+after the page popped and the create was dropped; `forceSave` guards on
+a persisted id so it can never clear `hasChanges` for a note that was
+never written), `EditorEditTracker` (`editor_edit_tracker.dart`, 36 — the
+paste heuristic, `reformatInserted` for the shortcut path, and
+`runGuarded` which replaces the guard-on / op / guard-off / resync dance
+at every programmatic insert site incl. the two ghost inserts),
+`NoteEditorStatsTracker` (13 — the 300 ms debounce and the delta
+threshold; `set` on content load also moves the baseline, so the first
+keystroke in a >500-char note no longer forces an immediate recount) and
+`EditorRenderController` (32 — span builder + `EditorRenderContextCache`
++ money config + palette, `buildSpan` routing, the static `ghostSpan`
+with its code-unit inventory pinned). `_bar` (`MarkdownBarLoaded?`)
+replaced `_allShortcuts` + `_activeBarProfileId`; `_previewController`
+is a getter; `_emptyPreviewPlaceholder` and `_contentHasFocus` are
+derived on demand.
+
+**Behaviour fix found on the way (nested lists).** Enter on an indented
+list item never continued the list: the fork's `applyNewLine` copies the
+line's leading spaces onto the new line and parks the caret after them,
+so the page's `baseOffset == 0` gate never fired and `  - nested` + Enter
+produced a bare `  `. The tracker's gate is now "caret exactly after the
+copied auto-indent, and the line starts with it"; continuation strips
+the copy before prepending `getListPrefix` (which carries the indent —
+this is what its doc comment had promised all along), and Enter on an
+empty nested item drops the item and leaves a bare line, exactly like
+the top-level case. Tab-indented items follow the fork's space-only
+auto-indent rule. Pinned by 11 cases (bullet, task, ordered, mid-item
+split, empty item, undo as one step with the Enter, tab indent, plain
+indented prose untouched, two guard cases).
+
+Tests: page suite 10 → 11 (B4 no-remount in both key states, B5 one-row
+font write; B2/P2/B3 unchanged); `test/services/editor_settings_test.dart`
+(14), `test/controllers/` gained six suites (editor settings 13, position
+20, stats 13, edits 36, saves 25, render 32); whole suite 2,722 → 2,978.
+Docs: `COPILOT_CONTEXT.md` (feature area, preview key, tap policy, ghost
+span, the event-sheet clause), both skills, the companion roadmap's
+architecture block and Done list.
+
+Traps: `SettingsService`'s debounce `Timer` is created inside
+`testWidgets`' `FakeAsync` zone, so a `runAsync` delay never fires it —
+pump past `defaultWriteDebounce` first, then settle for the drift isolate;
+`TextPainter.width` is **not** rounded to the pixel grid on Flutter 3.44
+(`_contentWidthFor` clamps a raw double), so never argue soundness from
+integer widths; a `Get-Content | Set-Content` round trip in PowerShell
+mangles em-dashes and emoji in test files — use the editor tools;
+`SettingsService.forTesting` returns the existing singleton when one is
+bound, so per-file `reset()` in `tearDown` is what gives each suite its
+own database.
+
 ### Session 7 — accessibility + fork tests + upstream evaluation
 
-1. Semantics per decision 3: bounded `value` (visible window or size cap)
-   and a throttle so P11 cannot stall typing; add `onTap`/`onSetSelection`/
+1. Semantics per decision 3 (taken: visible window): `value` is the
+   visible lines only, rebuilt from the display paragraphs the render
+   already holds, never from `asString`; add `onTap`/`onSetSelection`/
    `onDidGainAccessibilityFocus` actions so the editor can be focused and
    the interceptor zones become reachable (an a11y tap on a zone should
    perform the same action as a pointer tap).
 2. `render` getter null-safety on tap-down (SUSPECTED crash class).
-3. Desktop interceptor: refuse a second claim while one is live; allow
-   drag-select to start from a zone (or document that it can't).
+3. Desktop interceptor: refuse a second claim while one is live; a pointer
+   that claimed a zone and then moves past the touch slop releases the
+   claim and the editor starts its normal drag selection (decided
+   2026-09-04 — allow, not document). One interceptor state plus one test
+   in the Session 7 tap-interceptor suite.
 4. `test/re_editor/tap_interceptor_test.dart` (widget test over a real
    `CodeEditor`): claim→cancel via long-press; claim→pointer-cancel;
    claim→up fires once and leaves `selection` identical; two consecutive taps
@@ -1122,9 +1318,9 @@ settings page applies on return; restore never lost; `flutter test` green.
 2. Callout blocks: a positional `c:` pass in `MarkdownEditorLineIndex`
    (same lazy pattern as fences), continuation lines get the accent bar,
    lead line gets the icon via a 1:1 substitution of `[` with a painted
-   glyph; band background only if the empty-line striping problem has a fix
-   (an empty line cannot paint a background — same reason the fence tint
-   was dropped). Extend the equivalence test.
+   glyph; **accent bar only, no background band** (decided 2026-09-04: an
+   empty line cannot paint a background — same reason the fence tint was
+   dropped — so a band would stripe). Extend the equivalence test.
 3. Tables-lite: rows matching `_MarkdownPatterns.tableRow` render monospace
    with tinted `|`; separator rows dimmed. No alignment.
 4. Nested `>>` quote depth (1:1 per `>`); inline code 0.9× only if it does
@@ -1140,13 +1336,93 @@ token to the shared link grammar so `SimpleMarkdownPreview` renders it too.
 Grammar in `MarkdownLinkPatterns`. Tests: grammar + tap-zone table +
 navigation.
 
-### Session 10 — lite rendering tier (conditional, decision 4)
+### Session 10 — lite rendering tier (DROPPED 2026-09-04, decision 4)
 
-Only if profiling on the target device (see §5) shows the hanging layout or
-variable line heights dominate. Setting under Editor ("Reduced rendering
-for slow devices"): headers bold at base size (uniform line height ⇒ no
-`correctBy` storms, no backward walk), single-paragraph list lines, money
-display rows plain. None of it touches the code-unit invariant.
+Moved to §4 Deferred with its reopen trigger. The number kept its slot so
+earlier references stay valid.
+
+### Session 11 — heading folding (planned 2026-09-04, after Session 7)
+
+Goal: tap a heading, its section collapses to the heading line; tap again,
+it expands. Session-only state in v1. Nothing about the code-unit
+invariant changes: folding hides whole lines, never characters.
+
+Mechanism — the fork already has it. §4 deferred this as "needs a
+`CodeLines` view that hides lines", but `code_chunk.dart` ships
+`CodeChunkController` + `CodeChunkAnalyzer` (upstream's brace folding),
+and the app merely switches it off with `NonCodeChunkAnalyzer`
+(`modern_editor_wrapper.dart`). `collapseChunk(start, end)` moves lines
+`start+1..end-1` into `codeLines[start].chunks` (the parent `CodeLine`
+keeps them; `asString`/`text`/`lineCount` still include them, so autosave
+and backup content are untouched), and `expandChunk` splices them back;
+both remap the selection. Search already expands a collapsed chunk that
+holds a match (`_expandChunkIfNeeded`). So the session is an analyzer, a
+tap surface, and making the app's positional machinery chunk-aware.
+
+1. `MarkdownHeadingChunkAnalyzer implements CodeChunkAnalyzer`
+   (`lib/utils/markdown_heading_chunks.dart`): a section runs from a
+   heading (`MarkdownLineShape.headingAt`, the shared predicate) to the
+   line before the next heading of the same or a shallower level, or EOF;
+   sections nest (an h2 chunk inside an h1 chunk — the controller supports
+   nested chunks, the indicator shows the innermost). Headings inside a
+   code fence are not headings — read fence roles from the span builder's
+   `lineInFence` (the line index), never a second scan. Trailing blank
+   lines stay inside the section. A section with nothing under it
+   (`canCollapse == false`) gets no chunk. Runs on the controller's value
+   like upstream's analyzer; it is O(lines) per run, so debounce it the
+   way the highlighter is (50 ms) and skip it entirely while
+   `liveMarkdownRendering` is off.
+2. Tap surface: not the gutter (one-handed use; line numbers are off by
+   default). A **fifth interceptor zone** on heading lines, after tag in
+   precedence: the concealed `#` run's cells, `[0, contentStart)`. Off-caret
+   the leading `#` is substituted 1:1 by a painted chevron
+   (`CodeInlinePaintSpan`, same mechanism as the checkbox; `▸` when
+   collapsed, `▾` when expandable, nothing when the section is empty);
+   reveal lines show raw hashes and pass through, like every zone. The
+   chevron's collapsed/expandable facet is positional (it depends on the
+   chunk list), so it goes through the positional memo with the state in
+   the key, exactly like indeterminate task parents.
+3. The line index must keep seeing the whole document. Every pass in
+   `MarkdownEditorLineIndex` (fence, tasks, money) walks visible lines;
+   under a collapse the hidden lines vanish from `CodeLines` and a `$$`
+   below a collapsed section would fold without its entries. Rule: passes
+   step through `codeLines[i].chunks` (recursively) after line `i`,
+   advancing fold state without emitting results — results stay keyed by
+   visible index because that is what renders. Guard with an equivalence
+   test: fold every money/task/fence result with and without a collapse
+   and require identical values on the visible lines. Collapse/expand
+   rebuild `CodeLines` through `sublines` + `add` + `addFrom`, which breaks
+   segment identity from the fold point down — accept the full rescan
+   (rare, user-initiated), but confirm the splice path handles it rather
+   than the dirty-flag path.
+4. **Data-loss guard.** The app rebuilds single lines from text in six
+   places (Enter continuation, checkbox toggle, Tab/Shift-Tab indent,
+   `PasteLineBreaker`, `ListAwarePasteController`, the money/ghost
+   helpers): a `CodeLine(text)` built for a chunk parent silently drops its
+   `chunks` — the collapsed section is deleted on the next keystroke.
+   Rule: app code never mutates a chunk-parent line; every structural
+   edit on a heading line first expands it (`expandChunk`) and
+   `CodeLines.replaceLine`/`removeLine` assert `!old.chunkParent` in
+   debug. Widget test per path: collapse, edit the heading, expand,
+   content identical.
+5. Position restore saves visible indexes today. Save and restore in
+   absolute (chunk-flattened) line numbers — the fork's `lineCount`
+   arithmetic in `code_lines.dart` already counts chunks — so a note saved
+   while folded reopens at the right line unfolded (v1 does not persist
+   fold state; the position controller from Session 6 owns the mapping).
+   `EditorChunkOverlay` (the debug overlay) and the search bar's match
+   list use visible indexes and are fine as long as they read the same
+   `CodeLines` the render does.
+6. Tests: analyzer table (levels, nesting, fence-shadowed `#`, `#tag`,
+   `##$$` money heading, trailing blanks, heading at EOF, empty section);
+   index equivalence under collapse (item 3); the six edit paths (item
+   4); restore mapping (item 5); interceptor zone precedence (a `#tag` or
+   link on the heading line still wins at its own cells); agreement
+   suite unchanged (folding is not rendering).
+
+Depends on Session 6 (position controller) and Session 7 (interceptor
+test harness). Size: about one and a half days. Out of scope for v1:
+persisted fold state, fold-all/unfold-all, folding list subtrees.
 
 ---
 
@@ -1154,9 +1430,16 @@ display rows plain. None of it touches the code-unit invariant.
 
 - **Ordered-list renumbering as a render** — rejected: `9.`→`10.` changes
   the unit count. Only viable as an Enter-continuation edit.
-- **Heading folding** — high value for long logs but needs a `CodeLines`
-  view in the fork that hides lines; large; revisit after Session 7's
-  upstream evaluation.
+- **Heading folding** — high value for long logs; was deferred as "needs a
+  `CodeLines` view that hides lines". Planned as Session 11 on 2026-09-04
+  (planning only); see that block for the mechanism actually available.
+- **Lite rendering tier** (was Session 10, dropped 2026-09-04): a
+  "Reduced rendering for slow devices" setting — headers bold at base size
+  (uniform line height ⇒ no `correctBy` storms, no backward walk),
+  single-paragraph list lines, money display rows plain. Reopen only if a
+  real low-end device profile (§5 recipe, `gfxinfo framestats` on a
+  header-heavy fling) shows the hanging layout or variable line heights
+  dominating a frame; after Session 5 nothing measured does.
 - **Inline images** — a thumbnail must substitute exactly one source char
   and makes reveal/edit awkward; keep raw.
 - **Select/copy rendered text**, **half-height blank lines**, **40-char
@@ -1341,3 +1624,32 @@ is now **128** (both the equality LRU and the identity L1). Cost side:
 1–2 ms to come back — inside one frame. The absolute numbers are an
 emulator's and the harness's content is all list lines; the delta is
 what matters.
+
+Session 6 numbers (2026-09-04, same machine, quiet box — no agent or
+suite running — two runs each, best-of-20 / median-of-20 per run).
+
+Paste reflow (`test/utils/paste_line_breaker_benchmark_test.dart`, new:
+a 10,000-line task-list note, a 500-line paste ending at line 5,499,
+360 px at 16 pt, `PasteLineBreaker.run` alone; "before" is `4cad6ec` in a
+detached worktree with the benchmark ported to the old flat-offset
+signature and two throwaway seams grafted in — a fixed available width,
+since the old breaker measured it off a mounted widget, and the layout
+counter). "20 % over-long" means every fifth pasted line is wider than
+the editor; "layouts" is the number of `TextPainter.layout` calls:
+
+| Path | Before P7 (best / median / layouts) | After (best / median / layouts) |
+|---|---|---|
+| nothing to break | 5,069–5,229 µs / 6,679–6,771 µs / 500 | 86–88 µs / 164–174 µs / 0 |
+| 20 % over-long | 22,927–23,245 µs / 24,023–24,291 µs / 2,018 | 15,093–15,211 µs / 16,529–17,711 µs / 1,200 |
+
+The common case — a paste whose lines all fit — is ~58× cheaper: the four
+whole-document string passes (`controller.text`, two
+`TextPositionUtils` scans, the `join` + `.codeLines` re-parse) are gone,
+and the ASCII advance table settles all 500 lines without a single
+layout. The breaking case keeps the per-break binary search (the exact
+answer is required — a 300-string property test pins it against the
+unseeded search), so it improves by a third: the document passes and the
+redundant whole-line layouts went, the table seeds each search, and the
+remaining cost is the ~12 layouts a genuinely over-long line needs. Not
+in either column: the page used to compute the flat paste offsets with
+an O(lines) loop before calling the breaker; that loop no longer exists.

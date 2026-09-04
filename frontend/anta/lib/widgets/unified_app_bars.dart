@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../services/auto_save_service.dart';
 import '../services/app_navigator.dart';
@@ -199,7 +200,11 @@ class FolderAppBar extends StatelessWidget implements PreferredSizeWidget {
 class NoteAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;
   final bool hasChanges;
-  final ValueNotifier<SaveStatus>? saveStatusNotifier;
+
+  /// Read-only by contract: the bar only listens. Typed as a
+  /// [ValueListenable] so a coordinator can expose its status without
+  /// handing the widget tree a notifier it could write to.
+  final ValueListenable<SaveStatus>? saveStatusNotifier;
   final List<Widget>? actions;
   final VoidCallback? onBackPressed;
   final VoidCallback? onTitleTap;
@@ -291,7 +296,7 @@ class NoteAppBar extends StatelessWidget implements PreferredSizeWidget {
 /// when the status actually changes.
 class _SaveStatusIndicator extends StatelessWidget {
   final bool hasChanges;
-  final ValueNotifier<SaveStatus>? saveStatusNotifier;
+  final ValueListenable<SaveStatus>? saveStatusNotifier;
 
   const _SaveStatusIndicator({
     required this.hasChanges,

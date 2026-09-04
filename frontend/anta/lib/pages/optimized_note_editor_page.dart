@@ -20,7 +20,6 @@ import '../models/dev_options.dart';
 import '../models/markdown_bar_profile.dart';
 import '../models/note_metadata.dart';
 import '../models/utility_button_config.dart';
-import '../services/auto_save_service.dart';
 import '../services/dev_options_service.dart';
 import '../services/note_position_service.dart';
 import '../services/settings_service.dart';
@@ -35,7 +34,6 @@ import '../widgets/note_editor_chrome.dart';
 import '../widgets/note_export_dialog.dart';
 import '../widgets/modern_editor_wrapper.dart';
 import '../models/checkbox_toggle_info.dart';
-import '../widgets/source_mapped_markdown_view.dart';
 import '../widgets/note_search_bar.dart';
 import '../widgets/app_drawer.dart';
 import '../services/app_navigator.dart';
@@ -47,27 +45,25 @@ import '../utils/custom_snackbar.dart';
 import '../utils/re_editor_search_controller.dart';
 import '../utils/text_history_observer.dart';
 import '../utils/text_position_utils.dart';
-import '../utils/markdown_list_utils.dart';
-import '../utils/markdown_color_syntax.dart';
-import '../utils/editor_render_context.dart';
-import '../utils/markdown_editor_span_builder.dart';
-import '../utils/ghost_text.dart';
 import '../utils/markdown_money_syntax.dart';
 import '../utils/money_display_config.dart';
 import '../widgets/money_detail_sheet.dart';
 import '../utils/list_aware_paste.dart';
 import '../utils/paste_line_breaker.dart';
+import '../controllers/editor_edit_tracker.dart';
+import '../controllers/editor_render_controller.dart';
+import '../controllers/editor_settings_controller.dart';
 import '../controllers/markdown_shortcut_inserter.dart';
+import '../controllers/note_editor_position_controller.dart';
+import '../controllers/note_editor_stats_tracker.dart';
+import '../controllers/note_save_coordinator.dart';
 import '../controllers/preview_scroll_controller.dart';
 import '../controllers/shortcut_applier.dart';
 import '../controllers/vocabulary_suggestion_controller.dart';
 import '../services/vocabulary_service.dart';
-import '../database/database.dart';
 import '../constants/app_constants.dart';
 import '../constants/app_spacing.dart';
 import '../constants/font_constants.dart';
-import '../constants/markdown_constants.dart';
-import '../constants/settings_keys.dart';
 
 class OptimizedNoteEditorPage extends StatefulWidget {
   final String folderId;
@@ -93,102 +89,39 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   late TextEditingController _titleController;
   late CodeLineEditingController _contentController;
-  final MarkdownEditorSpanBuilder _markdownSpanBuilder =
-      MarkdownEditorSpanBuilder();
-
-  /// The renderer's theme generation, resolved once per theme/style
-  /// change instead of once per line — see [EditorRenderContextCache].
-  final EditorRenderContextCache _editorRenderContext =
-      EditorRenderContextCache();
-  late final VocabularySuggestionController _vocabularySuggestions;
-  bool _liveMarkdownRendering = SettingsKeys.defaultLiveMarkdownRendering;
-  MoneyDisplayConfig _moneyConfig = const MoneyDisplayConfig(
-    enabled: SettingsKeys.defaultMoneyLedgerEnabled,
-    startCents: SettingsKeys.defaultMoneyStartCents,
-    currencySymbol: SettingsKeys.defaultMoneyCurrencySymbol,
-    currencySuffix: SettingsKeys.defaultMoneyCurrencySuffix,
-  );
-
-  /// Last applied markdown colour palette. Only used to detect a real
-  /// change (so the editor repaint nudge stays rare); the preview reads
-  /// its palette from bloc state, not from here.
-  MarkdownColorPalette _colorPalette = MarkdownColorPalette.presets;
   late FocusNode _contentFocusNode;
   late CodeScrollController _editorScrollController;
   late TextHistoryObserver _historyObserver;
   late ReEditorSearchController _searchController;
-  late PreviewScrollController _previewController;
+  late final VocabularySuggestionController _vocabularySuggestions;
   final GlobalKey _editorWrapperKey = GlobalKey();
   final GlobalKey _lineNumbersKey = GlobalKey();
   final GlobalKey _scrollIndicatorKey = GlobalKey();
 
-  /// GlobalKey for the [SourceMappedMarkdownView] inside the bloc-view.
-  /// Owned by the page so the binding to [_previewController] is visible
-  /// in one place instead of going page → controller → bloc-view.
-  final GlobalKey<SourceMappedMarkdownViewState> _previewViewKey =
-      GlobalKey<SourceMappedMarkdownViewState>();
+  /// Every setting this page reads, as one listenable bundle, plus the
+  /// font-size taps. Also half of the editor-mount gate: the skeleton
+  /// stays up until it has loaded, so the `CodeEditor`'s [ValueKey] is
+  /// already final the first time it is built (B4).
+  final EditorSettingsController _editorSettings = EditorSettingsController();
 
-  final ValueNotifier<bool> _hasChanges = ValueNotifier<bool>(false);
-  bool _isPreviewMode = false;
-  bool _isLoading = true;
-  bool _noteSwipeEnabled = true;
-  bool _showStatsBar = true;
+  /// The note's persisted reading position, and the join that decides
+  /// when it may be applied (B2).
+  late final NoteEditorPositionController _position;
 
-  // Editor settings
-  bool _showLineNumbers = false;
-  bool _wordWrap = true;
-  bool _showCursorLine = false;
-  bool _autoBreakLongLines = true;
-  bool _previewWhenKeyboardHidden = false;
-  bool _scrollCursorOnKeyboard = false;
+  /// Auto-save, the early create for brand-new notes, and the
+  /// duplicate-title rules.
+  late final NoteSaveCoordinator _saves;
 
-  // Preview settings
-  bool _previewModeEnabled = SettingsKeys.defaultPreviewModeEnabled;
-  bool _showPreviewScrollbar = false;
+  /// The paste reflow, the Enter list continuation, and the re-entrancy
+  /// guard every programmatic edit runs under.
+  late final EditorEditTracker _edits;
 
-  /// Last keyboard-visibility decision taken by [build], mirrored so
-  /// callbacks outside the build phase can read [_showPreview].
-  bool _lastKeyboardVisible = false;
+  /// Line and character counts for the stats bar.
+  late final NoteEditorStatsTracker _stats;
 
-  /// Whether the (deprecated) preview surface is reachable at all: either
-  /// the user opted back in, or live markdown rendering is off and the raw
-  /// editor still needs a way to see rendered output.
-  bool get _canPreview => _previewModeEnabled || !_liveMarkdownRendering;
-
-  /// Whether the preview surface is what the user is looking at *right now*
-  /// — the manual toggle, or the keyboard-hidden auto-reveal.
-  bool get _showPreview =>
-      _canPreview &&
-      (_isPreviewMode || (_previewWhenKeyboardHidden && !_lastKeyboardVisible));
-
-  // Toolbar settings
-  double _toolbarShortcutRatio = SettingsKeys.defaultToolbarShortcutRatio;
-  bool _toolbarSplitEnabled = SettingsKeys.defaultToolbarSplitEnabled;
-  List<UtilityButtonConfig> _utilityConfigs = UtilityButtonConfig.defaults();
-
-  /// The resolved bar profile currently active for this note.
-  String _activeBarProfileId = MarkdownBarProfile.defaultProfileId;
-
-  /// Saved editor selection for restoring cursor position after preview→editor.
-  CodeLineSelection? _savedEditorSelection;
-
-  AutoSaveService? _autoSaveService;
-  NotePositionService? _notePositionService;
-  NotePositionData? _pendingPosition;
-
-  /// The persisted preview flag for this note, kept after [_pendingPosition]
-  /// is consumed so [_isPreviewMode] can be re-derived once the editor
-  /// settings land — the two loads race (see [_applySavedPreviewMode]).
-  bool? _savedIsPreviewMode;
-
-  /// For new notes: becomes non-null once the note is persisted for the first time.
-  String? _effectiveNoteId;
-  bool _isCreatingNewNote = false;
-
-  /// One-shot guard so the auto-save doesn't show the duplicate-title
-  /// snackbar on every keystroke after a collision is detected. Reset to
-  /// false the moment the user types a non-colliding title.
-  bool _warnedDuplicateTitle = false;
+  /// The span builder plus the two resolved render settings (money
+  /// display, colour palette) both surfaces have to agree on.
+  final EditorRenderController _render = EditorRenderController();
 
   /// Cached reference so we can dispatch [SetNoteContext] during [dispose].
   late final CounterBloc _counterBloc;
@@ -200,9 +133,41 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// live in this bloc's state — read via getters below.
   late final MarkdownPreviewBloc _previewBloc;
 
+  /// The toolbar's resolved profile and shortcuts, or null until the bar
+  /// bloc first answers.
+  MarkdownBarLoaded? _bar;
+
+  bool _isPreviewMode = false;
+  bool _isTogglingPreview = false;
+  Timer? _livePreviewDebounce;
+
+  /// Whether the note's text has reached the editor — the other half of
+  /// [_isLoading].
+  bool _contentLoaded = false;
+
+  double _previousKeyboardHeight = 0;
+
+  /// Last keyboard-visibility decision taken by [build], mirrored so
+  /// callbacks outside the build phase can read [_showPreview].
+  bool _lastKeyboardVisible = false;
+
+  /// The preview's scroll controller, owned by [_previewBloc]. The
+  /// bloc-view binds its own view key to it on mount, so the page holds
+  /// no key of its own.
+  PreviewScrollController get _previewController =>
+      _previewBloc.scrollController;
+
+  /// Whether the loading skeleton is still up.
+  ///
+  /// Both inputs matter (B4). The note's text is the obvious one; the
+  /// settings bundle is the subtle one, because the editor's [ValueKey]
+  /// is derived from `liveMarkdownRendering` — mounting before that
+  /// landed would remount the `CodeEditor` the moment it arrived, mid
+  /// initialization.
+  bool get _isLoading => !_contentLoaded || !_editorSettings.loaded;
+
   /// Convenience accessor for the current preview font size, sourced
-  /// from [_previewBloc.state.fontSize]. Used by the toolbar build
-  /// and by [_saveFontSizes].
+  /// from [_previewBloc.state.fontSize]. Used by the toolbar build.
   double get _previewFontSize => _previewBloc.state.fontSize;
 
   /// Convenience accessor for the current preview chunk size,
@@ -211,41 +176,37 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// agree on chunk boundaries.
   int get _previewLinesPerChunk => _previewBloc.state.linesPerChunk;
 
-  /// Localized placeholder shown in preview when the note is empty.
-  /// Refreshed in [didChangeDependencies] whenever the locale
-  /// changes so the bloc never holds a stale translation.
-  String? _emptyPreviewPlaceholder;
+  /// Whether the (deprecated) preview surface is reachable at all: either
+  /// the user opted back in, or live markdown rendering is off and the raw
+  /// editor still needs a way to see rendered output.
+  bool get _canPreview => _editorSettings.canPreview;
 
-  double _editorFontSize = FontConstants.defaultFontSize;
-  List<CustomMarkdownShortcut> _allShortcuts = [];
-  int _previousTextLength = 0;
-  bool _isProcessingTextChange = false;
-  final ValueNotifier<NoteEditorStats> _stats = ValueNotifier<NoteEditorStats>(
-    emptyNoteEditorStats,
-  );
+  /// The stored auto-reveal flag, gated on reachability: a `true` left
+  /// over from before the preview was deprecated must not resurrect a
+  /// surface the user can no longer reach.
+  bool get _previewWhenKeyboardHidden =>
+      _canPreview && _editorSettings.value.previewWhenKeyboardHidden;
 
-  // Paste detection threshold - if text increases by more than this, it's likely a paste
-  static const int _pasteThreshold = 20;
+  /// Whether the preview surface is what the user is looking at *right now*
+  /// — the manual toggle, or the keyboard-hidden auto-reveal.
+  bool get _showPreview =>
+      _canPreview &&
+      (_isPreviewMode || (_previewWhenKeyboardHidden && !_lastKeyboardVisible));
 
-  Timer? _lineCountDebounceTimer;
-  Timer? _restorePositionTimer;
-  Timer? _previewProgressDebounce;
-  Timer? _livePreviewDebounce;
-  int _lastLineCountTextLength = 0;
-  double _previousKeyboardHeight = 0;
-  bool _isTogglingPreview = false;
+  /// The toolbar's shortcuts for the active profile, empty until the bar
+  /// bloc answers.
+  List<CustomMarkdownShortcut> get _shortcuts =>
+      _bar?.currentShortcuts ?? const [];
 
-  /// Mirrors [_contentFocusNode.hasFocus] so the bottom-inset gate in
-  /// [build] re-runs when the editor gains or loses the IME.
-  bool _contentHasFocus = false;
+  /// The bar profile currently active for this note.
+  String get _activeBarProfileId =>
+      _bar?.activeProfileId ?? MarkdownBarProfile.defaultProfileId;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     DrawerHostRegistry.register(_scaffoldKey);
-    _effectiveNoteId = widget.noteId;
-    _loadEditorSettings();
     _initDevOptions();
 
     _titleController = TextEditingController(
@@ -255,24 +216,76 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     // pasting multi-line plain text into a list item continues the
     // list. Everything else forwards to the inner controller.
     _contentController = ListAwarePasteController(
-      delegate: CodeLineEditingController(spanBuilder: _buildEditorSpan),
+      delegate: CodeLineEditingController(
+        // Live markdown first, ghost text as the fallback — the routing
+        // itself lives in [EditorRenderController.buildSpan]; the page
+        // only supplies the setting that chooses between them.
+        spanBuilder:
+            ({
+              required BuildContext context,
+              required int index,
+              required CodeLine codeLine,
+              required TextSpan textSpan,
+              required TextStyle style,
+            }) => _render.buildSpan(
+              context: context,
+              index: index,
+              codeLine: codeLine,
+              textSpan: textSpan,
+              style: style,
+              liveRendering: _editorSettings.value.liveMarkdownRendering,
+            ),
+      ),
     );
-    _markdownSpanBuilder.bind(_contentController);
+    _render.bind(_contentController);
     _vocabularySuggestions = VocabularySuggestionController(
       controller: _contentController,
       onInsert: _applyVocabularyInsertion,
     );
     _historyObserver = TextHistoryObserver(_contentController);
-    _previousTextLength = 0;
     _contentFocusNode = FocusNode()..addListener(_onContentFocusChanged);
     _editorScrollController = CodeScrollController();
     _searchController = ReEditorSearchController();
     _searchController.initialize(_contentController);
     _previewBloc = MarkdownPreviewBloc();
     _previewBloc.bindContentProvider(() => _contentController.text);
-    _previewController = _previewBloc.scrollController
-      ..bindView(_previewViewKey);
     _previewController.progress.addListener(_onPreviewProgressChanged);
+
+    _stats = NoteEditorStatsTracker(
+      snapshot: () => (
+        lineCount: _contentController.lineCount,
+        charCount: _contentController.textLength,
+      ),
+    );
+    _edits = EditorEditTracker(
+      controller: _contentController,
+      autoBreakLongLines: () => _editorSettings.value.autoBreakLongLines,
+      pasteContext: _pasteReformatContext,
+      onLinesReformatted: _showLinesFormatted,
+    );
+    _saves = NoteSaveCoordinator(
+      folderId: widget.folderId,
+      noteId: widget.noteId,
+      originalTitle: widget.metadata?.title,
+      title: () => _titleController.text,
+      content: () => _contentController.text,
+      titleExists: ({required String title, String? excludeId}) =>
+          GetIt.I<NoteStorageService>().noteTitleExistsInFolder(
+            folderId: widget.folderId,
+            title: title,
+            excludeId: excludeId,
+          ),
+      dispatch: context.read<OptimizedNoteBloc>().add,
+      onDuplicateTitle: _showDuplicateTitleWarning,
+    );
+    _position = NoteEditorPositionController(
+      noteId: widget.noteId,
+      loadPosition: (id) async =>
+          (await NotePositionService.getInstance()).getPosition(id),
+      savePosition: (id, position) async =>
+          (await NotePositionService.getInstance()).savePosition(id, position),
+      onRestore: _applyRestoredPosition,
+    );
 
     _titleController.addListener(_onTextChanged);
     _contentController.addListener(_onTextChanged);
@@ -281,26 +294,73 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     if (widget.noteId != null) {
       _loadNoteContent();
     } else {
-      _isLoading = false;
+      // A brand-new note has nothing to wait for on the content side.
+      _contentLoaded = true;
     }
 
-    context.read<MarkdownBarBloc>().add(
-      LoadMarkdownBar(noteId: _effectiveNoteId ?? widget.noteId),
-    );
-    ShortcutHandlerFactory.counterHandler.setActiveNoteId(
-      _effectiveNoteId ?? widget.noteId,
-    );
+    context.read<MarkdownBarBloc>().add(LoadMarkdownBar(noteId: widget.noteId));
+    ShortcutHandlerFactory.counterHandler.setActiveNoteId(widget.noteId);
     _counterBloc = context.read<CounterBloc>();
-    _counterBloc.add(SetNoteContext(noteId: _effectiveNoteId));
-    _initializeAutoSave();
-    _loadFontSizes();
-    _initializePositionService();
+    _counterBloc.add(SetNoteContext(noteId: widget.noteId));
+    _saves.start();
+    unawaited(_position.load());
+    // Last, so the settings listener can never fire against a
+    // half-constructed page.
+    _editorSettings.addListener(_onEditorSettingsChanged);
+    unawaited(_reloadSettings());
   }
 
+  /// The editor gained or lost the IME. [_keyboardInset] reads the focus
+  /// state directly, so the listener only has to ask for a rebuild.
   void _onContentFocusChanged() {
-    final hasFocus = _contentFocusNode.hasFocus;
-    if (hasFocus == _contentHasFocus || !mounted) return;
-    setState(() => _contentHasFocus = hasFocus);
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  /// The settings bundle changed — the first load, or a return from a
+  /// page that edited one of them (B3). Rebuilds, then re-derives
+  /// everything the page keeps outside the bundle.
+  void _onEditorSettingsChanged() {
+    if (!mounted) return;
+    final settings = _editorSettings.value;
+    setState(() {
+      // The preview just became unreachable while the user was looking at
+      // it — the only mode change a settings load may force. On the first
+      // load [_isPreviewMode] is still false, so this is a no-op there and
+      // [_applySavedPreviewMode] stays the only thing that turns it on.
+      if (!settings.canPreview) _isPreviewMode = false;
+    });
+    _previewBloc.add(
+      PreviewLinesPerChunkChanged(settings.previewLinesPerChunk),
+    );
+    // The preview owns its font size in bloc state, so the settings row
+    // is pushed across only when the two have actually drifted apart —
+    // which is what a font-size tap does.
+    if (settings.previewFontSize != _previewBloc.state.fontSize) {
+      _previewBloc.add(PreviewFontSizeChanged(settings.previewFontSize));
+    }
+    unawaited(_refreshVocabularies());
+    _markEditorReady();
+  }
+
+  /// Re-reads the settings bundle plus the two resolved render settings
+  /// that are not part of it. Called from [initState] and from
+  /// [didPopNext], which is what makes an editor flag changed on the
+  /// settings page apply on the way back (B3).
+  Future<void> _reloadSettings() async {
+    await _editorSettings.reload();
+    if (!mounted) return;
+    await _refreshMoneyConfig();
+    await _refreshColorPalette();
+  }
+
+  /// Both halves of the mount gate have landed, so the editor exists and
+  /// holds the note: a restored caret set now will stick. Called from
+  /// both listeners — the position controller latches, so whichever
+  /// lands last is the one that opens the restore (B2).
+  void _markEditorReady() {
+    if (_isLoading) return;
+    _position.contentReady();
   }
 
   @override
@@ -314,22 +374,13 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     }
   }
 
-  /// Performs a synchronous-as-possible save when the OS is about to
-  /// suspend / kill the app.  For existing notes we force-save via the
-  /// auto-save service; for brand-new notes that haven't been persisted
-  /// yet we trigger an early create.
+  /// Persists everything that must survive the OS suspending or killing
+  /// the app: the reading position, the note itself, and any font size
+  /// the user tapped moments ago (whose write is debounced).
   void _saveOnLifecycleEvent() {
-    // Capture the current preview scroll position before the OS suspends
-    // us so reopening the note restores where the user actually was.
-    _saveCurrentPosition();
-    final noteId = _effectiveNoteId;
-    if (noteId != null) {
-      // Existing (or already-created) note – force save via provider
-      _autoSaveService?.forceSave(title: _titleController.text);
-    } else {
-      // Brand-new note never saved – create it now
-      _createNewNoteEarly();
-    }
+    unawaited(_saveCurrentPosition());
+    _saves.saveOnLifecyclePause();
+    unawaited(_editorSettings.flushPendingWrites());
   }
 
   /// Debounced reaction to preview scroll progress changes; persists the
@@ -337,12 +388,10 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// reader anchored.
   void _onPreviewProgressChanged() {
     if (!_isPreviewMode) return;
-    _previewProgressDebounce?.cancel();
-    _previewProgressDebounce = Timer(const Duration(milliseconds: 500), () {
-      if (mounted && _isPreviewMode) {
-        _saveCurrentPosition();
-      }
-    });
+    _position.debounceSave(
+      const Duration(milliseconds: 500),
+      _positionSnapshot,
+    );
   }
 
   @override
@@ -354,15 +403,13 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       AppNavigator.routeObserver.subscribe(this, route);
     }
 
-    // Refresh the cached "no content yet" placeholder on locale
-    // change. If the underlying note is empty, re-dispatch so the
-    // bloc swaps the stale translation for the new one.
-    final placeholder = AppLocalizations.of(context)!.noContentYet;
-    if (_emptyPreviewPlaceholder != placeholder) {
-      _emptyPreviewPlaceholder = placeholder;
-      if (_contentController.text.isEmpty) {
-        _pushPreviewContent('');
-      }
+    // Swap the localized "no content yet" placeholder on a locale
+    // change. Only an empty note is showing it, and the bloc's own
+    // content is what says which translation it currently holds.
+    if (_contentController.text.isEmpty &&
+        _previewBloc.state.content !=
+            AppLocalizations.of(context)!.noContentYet) {
+      _pushPreviewContent('');
     }
 
     // Same for the money config's localized error strings: rebuild the
@@ -372,22 +419,26 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     final l10n = AppLocalizations.of(context);
     if (l10n != null) {
       final messages = MoneyErrorMessages.of(l10n);
-      if (_moneyConfig.errorMessages != messages) {
+      final current = _render.moneyConfig;
+      if (current.errorMessages != messages) {
         final config = MoneyDisplayConfig(
-          enabled: _moneyConfig.enabled,
-          startCents: _moneyConfig.startCents,
-          currencySymbol: _moneyConfig.currencySymbol,
-          currencySuffix: _moneyConfig.currencySuffix,
+          enabled: current.enabled,
+          startCents: current.startCents,
+          currencySymbol: current.currencySymbol,
+          currencySuffix: current.currencySuffix,
           errorMessages: messages,
         );
-        _moneyConfig = config;
+        // No repaint nudge: only the wording of an error row changed,
+        // and the editor renders those the next time it lays the line
+        // out. The preview holds its config in bloc state.
+        _render.applyMoneyConfig(config);
         _previewBloc.add(PreviewMoneyConfigChanged(config));
       }
     }
 
     // Track keyboard visibility to scroll cursor into view when keyboard appears
     final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
-    if (_scrollCursorOnKeyboard &&
+    if (_editorSettings.value.scrollCursorOnKeyboard &&
         keyboardHeight > _previousKeyboardHeight &&
         keyboardHeight > 0) {
       // Keyboard just appeared - scroll to make cursor visible
@@ -411,21 +462,21 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   }
 
   /// Dispatches the latest preview source into [_previewBloc],
-  /// substituting the cached localized "no content yet" placeholder
-  /// when the note is empty so the preview still renders something
-  /// readable.
+  /// substituting the localized "no content yet" placeholder when the
+  /// note is empty so the preview still renders something readable.
   ///
   /// The bloc is a no-op when the content is identical to what was
   /// last prepared, so this is safe to call liberally on toggles,
   /// keyboard dismissal, content load, and checkbox toggles.
   ///
-  /// [_emptyPreviewPlaceholder] is initialised in
-  /// [didChangeDependencies] which is guaranteed by the framework to
-  /// run before any user-driven event reaches this method, so the
-  /// non-null assertion is safe.
+  /// Every caller runs after [didChangeDependencies], which the
+  /// framework guarantees before any user-driven event reaches the
+  /// page, so the localizations lookup cannot fail.
   void _pushPreviewContent(String text) {
     if (!_canPreview) return;
-    final content = text.isEmpty ? _emptyPreviewPlaceholder! : text;
+    final content = text.isEmpty
+        ? AppLocalizations.of(context)!.noContentYet
+        : text;
     _previewBloc.add(PreviewContentChanged(content));
     // Keep search-over-preview matches aligned with what the preview is
     // actually rendering. The controller dedupes on identical inputs and
@@ -462,27 +513,15 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     }
   }
 
-  Future<void> _initializePositionService() async {
-    _notePositionService = await NotePositionService.getInstance();
-    if (widget.noteId != null) {
-      final position = await _notePositionService!.getPosition(widget.noteId!);
-      if (mounted) {
-        _savedIsPreviewMode = position.isPreviewMode;
-        setState(() {
-          _pendingPosition = position;
-          _isPreviewMode = _canPreview && position.isPreviewMode;
-        });
-        _restoreSavedPosition();
-      }
-    }
-  }
-
-  /// Re-applies the note's persisted preview flag against the current
-  /// [_canPreview]. The position load and [_loadEditorSettings] race, so
-  /// whichever finishes last decides — and a late reveal still needs the
-  /// preview seeded with the loaded content.
+  /// Re-applies the note's persisted preview flag against [_canPreview].
+  ///
+  /// Runs once, from [_applyRestoredPosition]. By then the settings
+  /// bundle has landed too: the restore join only opens once the editor
+  /// mounted, and the editor waits on the bundle (B4) — so both inputs
+  /// this decision needs are available exactly when it runs, which is
+  /// what the two racing loads never guaranteed before.
   void _applySavedPreviewMode() {
-    final saved = _savedIsPreviewMode;
+    final saved = _position.savedIsPreviewMode;
     if (saved == null || !mounted) return;
     final next = _canPreview && saved;
     if (next == _isPreviewMode) return;
@@ -492,139 +531,31 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     }
   }
 
-  Future<void> _loadFontSizes() async {
-    final db = await AppDatabase.getInstance();
-    final previewSize = await db.userSettingsDao.getValue(
-      SettingsKeys.previewFontSize,
-    );
-    final editorSize = await db.userSettingsDao.getValue(
-      SettingsKeys.editorFontSize,
-    );
-
-    if (!mounted) return;
-
-    if (previewSize != null) {
-      _previewBloc.add(
-        PreviewFontSizeChanged(
-          double.tryParse(previewSize) ?? FontConstants.defaultFontSize,
-        ),
-      );
-    }
-    if (editorSize != null) {
-      setState(() {
-        _editorFontSize =
-            double.tryParse(editorSize) ?? FontConstants.defaultFontSize;
-      });
-    }
-  }
-
-  Future<void> _saveFontSizes() async {
-    final db = await AppDatabase.getInstance();
-    await db.userSettingsDao.setValue(
-      SettingsKeys.previewFontSize,
-      _previewFontSize.toString(),
-    );
-    await db.userSettingsDao.setValue(
-      SettingsKeys.editorFontSize,
-      _editorFontSize.toString(),
-    );
-  }
-
   void _decreaseFontSize() => _adjustFontSize(-1);
   void _increaseFontSize() => _adjustFontSize(1);
 
+  /// Steps the text size of whichever surface the user is looking at.
+  /// Only that surface's row is written, and the write is debounced by
+  /// [SettingsService]; the preview picks the new size up through the
+  /// settings listener.
   void _adjustFontSize(int direction) {
-    final delta = FontConstants.fontSizeStep * direction;
     if (_showPreview) {
-      final next = (_previewFontSize + delta).clamp(
-        FontConstants.minFontSize,
-        FontConstants.maxFontSize,
-      );
-      _previewBloc.add(PreviewFontSizeChanged(next));
+      _editorSettings.adjustPreviewFontSize(direction);
     } else {
-      setState(() {
-        _editorFontSize = (_editorFontSize + delta).clamp(
-          FontConstants.minFontSize,
-          FontConstants.maxFontSize,
-        );
-      });
-    }
-    _saveFontSizes();
-  }
-
-  /// First load, on open: the note's persisted preview flag has not been
-  /// applied against [_canPreview] yet, so this path ends in
-  /// [_applySavedPreviewMode].
-  Future<void> _loadEditorSettings() => _applyEditorSettings(initial: true);
-
-  /// Re-read on returning from another page ([didPopNext]). Deliberately
-  /// does **not** call [_applySavedPreviewMode]: that re-derives the mode
-  /// from the value saved when the note opened, which would silently undo
-  /// a toggle made during this session. The only forced change is turning
-  /// the preview off when the settings just took it away.
-  Future<void> _reloadEditorSettings() => _applyEditorSettings(initial: false);
-
-  Future<void> _applyEditorSettings({required bool initial}) async {
-    final settings = await SettingsService.getInstance();
-    final noteSwipe = await settings.getNoteSwipeEnabled();
-    final showStats = await settings.getShowStatsBar();
-    final liveMarkdownRendering = await settings.getLiveMarkdownRendering();
-    final showLineNumbers = await settings.getShowLineNumbers();
-    final wordWrap = await settings.getWordWrap();
-    final showCursorLine = await settings.getShowCursorLine();
-    final previewModeEnabled = await settings.getPreviewModeEnabled();
-    final showPreviewScrollbar = await settings.getShowPreviewScrollbar();
-    final previewLinesPerChunk = await settings.getPreviewLinesPerChunk();
-    final autoBreakLongLines = await settings.getAutoBreakLongLines();
-    final previewWhenKeyboardHidden = await settings
-        .getPreviewWhenKeyboardHidden();
-    final scrollCursorOnKeyboard = await settings.getScrollCursorOnKeyboard();
-    final toolbarRatio = await settings.getToolbarShortcutRatio();
-    final toolbarSplit = await settings.getToolbarSplitEnabled();
-    final utilityConfigs = await settings.getToolbarUtilityConfig();
-    if (mounted) {
-      final canPreview = previewModeEnabled || !liveMarkdownRendering;
-      setState(() {
-        _noteSwipeEnabled = noteSwipe;
-        _showStatsBar = showStats;
-        _liveMarkdownRendering = liveMarkdownRendering;
-        _showLineNumbers = showLineNumbers;
-        _wordWrap = wordWrap;
-        _showCursorLine = showCursorLine;
-        _previewModeEnabled = previewModeEnabled;
-        _showPreviewScrollbar = showPreviewScrollbar;
-        _autoBreakLongLines = autoBreakLongLines;
-        _previewWhenKeyboardHidden = canPreview && previewWhenKeyboardHidden;
-        _scrollCursorOnKeyboard = scrollCursorOnKeyboard;
-        _toolbarShortcutRatio = toolbarRatio;
-        _toolbarSplitEnabled = toolbarSplit;
-        _utilityConfigs = utilityConfigs;
-        // The preview just became unreachable while the user was looking
-        // at it — the only mode change a re-entrant load may force.
-        if (!initial && !canPreview) {
-          _isPreviewMode = false;
-        }
-      });
-      if (initial) {
-        _applySavedPreviewMode();
-      }
-      _previewBloc.add(PreviewLinesPerChunkChanged(previewLinesPerChunk));
-      await _refreshMoneyConfig(settings);
-      await _refreshColorPalette(settings);
-      await _refreshVocabularies(settings);
+      _editorSettings.adjustEditorFontSize(direction);
     }
   }
 
   /// Loads the user's vocabularies and hands the suggestion controller its
-  /// settings. Called on note open and again when returning from settings.
+  /// settings. Runs off the settings listener, so it re-applies whenever
+  /// the flag or the trigger character changes.
   ///
   /// The service is a lazy singleton, so the first editor open is what pulls
   /// the tables into memory; later opens hit the cache. Failure is silent by
   /// design — autocomplete is an accelerator, and a note must always open.
-  Future<void> _refreshVocabularies(SettingsService settings) async {
-    final enabled = await settings.getVocabularySuggestionsEnabled();
-    final trigger = await settings.getVocabularyTriggerChar();
-    if (enabled) {
+  Future<void> _refreshVocabularies() async {
+    final settings = _editorSettings.value;
+    if (settings.vocabularySuggestionsEnabled) {
       try {
         await VocabularyService.getInstance();
       } catch (e) {
@@ -633,32 +564,31 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     }
     if (!mounted) return;
     _vocabularySuggestions.configure(
-      enabled: enabled,
-      trigger: trigger,
-      isFenceLine: _markdownSpanBuilder.lineInFence,
+      enabled: settings.vocabularySuggestionsEnabled,
+      trigger: settings.vocabularyTriggerChar,
+      isFenceLine: _render.lineInFence,
     );
   }
 
   /// Applies an accepted suggestion, with the same bookkeeping every other
-  /// programmatic insert uses (see [_handleShortcut]): the reentrancy guard so
-  /// the paste heuristic cannot fire mid-op, one revocable op so the whole
-  /// completion is a single undo step, then a `_previousTextLength` resync so
-  /// the next keystroke diffs correctly.
+  /// programmatic insert uses (see [_handleShortcut]): the edit tracker's
+  /// guard so the paste heuristic cannot fire mid-op and the length is
+  /// resynced afterwards, wrapped in one revocable op so the whole
+  /// completion is a single undo step.
   void _applyVocabularyInsertion(VocabularyInsertion insertion) {
-    _isProcessingTextChange = true;
-    _contentController.runRevocableOp(() {
-      _contentController.replaceSelection(
-        insertion.text,
-        CodeLineSelection(
-          baseIndex: insertion.lineIndex,
-          baseOffset: insertion.start,
-          extentIndex: insertion.lineIndex,
-          extentOffset: insertion.end,
-        ),
-      );
+    _edits.runGuarded(() {
+      _contentController.runRevocableOp(() {
+        _contentController.replaceSelection(
+          insertion.text,
+          CodeLineSelection(
+            baseIndex: insertion.lineIndex,
+            baseOffset: insertion.start,
+            extentIndex: insertion.lineIndex,
+            extentOffset: insertion.end,
+          ),
+        );
+      });
     });
-    _isProcessingTextChange = false;
-    _previousTextLength = _contentController.textLength;
     _onTextChanged();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -672,8 +602,8 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// settings.
   ///
   /// The editor surface is refreshed non-destructively:
-  /// [MarkdownEditorSpanBuilder.configureMoney] clears the builder's
-  /// span memos, and — only when the config actually changed —
+  /// [EditorRenderController.applyMoneyConfig] clears the builder's span
+  /// memos, and — only when the config actually changed —
   /// `forceRepaint()` makes re_editor drop and rebuild its display
   /// paragraphs (re-running the span builder) without remounting,
   /// mutating text, or moving the caret. On the first open the render
@@ -682,9 +612,10 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// into the editor's ValueKey to force a remount; that remounted the
   /// CodeEditor mid-initialization and crashed re_editor's controller-
   /// delegate handoff — never remount the editor for a settings change.)
-  Future<void> _refreshMoneyConfig(SettingsService settings) async {
+  Future<void> _refreshMoneyConfig() async {
+    final settings = await SettingsService.getInstance();
     final resolved = await settings.getMoneyConfig(
-      noteId: _effectiveNoteId ?? widget.noteId,
+      noteId: _saves.effectiveNoteId ?? widget.noteId,
     );
     if (!mounted) return;
     final l10n = AppLocalizations.of(context);
@@ -699,10 +630,10 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       currencySuffix: resolved.suffix,
       errorMessages: l10n == null ? null : MoneyErrorMessages.of(l10n),
     );
-    final changed = config != _moneyConfig;
-    _markdownSpanBuilder.configureMoney(config);
-    if (changed) {
-      setState(() => _moneyConfig = config);
+    if (_render.applyMoneyConfig(config)) {
+      // The wrapper's money tap zone reads `enabled` off the config, so
+      // the rebuild is what keeps the tap surface in step with the paint.
+      setState(() {});
       _contentController.forceRepaint();
     }
     _previewBloc.add(PreviewMoneyConfigChanged(config));
@@ -713,13 +644,15 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// non-destructive refresh contract as [_refreshMoneyConfig]: the
   /// editor's span memos are cleared and a repaint is nudged only when
   /// the palette actually changed — never a remount.
-  Future<void> _refreshColorPalette(SettingsService settings) async {
+  Future<void> _refreshColorPalette() async {
+    final settings = await SettingsService.getInstance();
     final palette = await settings.getColorPalette();
     if (!mounted) return;
-    final changed = palette != _colorPalette;
-    _markdownSpanBuilder.configureColors(palette);
-    if (changed) {
-      _colorPalette = palette;
+    if (_render.applyPalette(palette)) {
+      // The wrapper takes the palette as a widget field (its tap zones
+      // resolve `{name:…}` runs with it), so this needs the rebuild as
+      // much as the repaint.
+      setState(() {});
       _contentController.forceRepaint();
     }
     _previewBloc.add(PreviewColorPaletteChanged(palette));
@@ -738,71 +671,36 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     if (mounted) setState(() {});
   }
 
-  void _initializeAutoSave() {
-    _autoSaveService = AutoSaveService(
-      onSave: (title, content) async {
-        if (_effectiveNoteId != null) {
-          // Pre-validate the title against sibling notes BEFORE dispatching
-          // the save. If a duplicate is detected we still save the content
-          // (so the user never loses keystrokes) but skip the title update
-          // and warn once. This mirrors the rename-dialog behavior and
-          // avoids drowning the user in repeated snackbars on every save.
-          var titleToSave = title;
-          final trimmed = title?.trim() ?? '';
-          if (trimmed.isNotEmpty &&
-              trimmed.toLowerCase() !=
-                  (widget.metadata?.title.trim().toLowerCase() ?? '')) {
-            final exists = await GetIt.I<NoteStorageService>()
-                .noteTitleExistsInFolder(
-                  folderId: widget.folderId,
-                  title: trimmed,
-                  excludeId: _effectiveNoteId,
-                );
-            if (exists) {
-              titleToSave = widget.metadata?.title ?? '';
-              if (!_warnedDuplicateTitle && mounted) {
-                _warnedDuplicateTitle = true;
-                CustomSnackbar.showError(
-                  context,
-                  AppLocalizations.of(context)!.noteTitleAlreadyExists(trimmed),
-                );
-              }
-            } else {
-              // Reset the one-shot warning once the user picks a unique
-              // title so a future collision will warn again.
-              _warnedDuplicateTitle = false;
-            }
-          }
-
-          final completer = Completer<void>();
-          if (!mounted) return;
-          context.read<OptimizedNoteBloc>().add(
-            UpdateOptimizedNote(
-              noteId: _effectiveNoteId!,
-              title: titleToSave,
-              content: content,
-              completer: completer,
-            ),
-          );
-          await completer.future;
-        }
-      },
-      onChangeDetected: (hasChanges) {
-        if (!mounted || _hasChanges.value == hasChanges) return;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          _hasChanges.value = hasChanges;
-        });
-      },
+  /// Warns once that the title the user typed is already taken in this
+  /// folder. The content is still saved — under the note's original
+  /// title — so a rename that cannot be applied never costs keystrokes.
+  void _showDuplicateTitleWarning(String title) {
+    if (!mounted) return;
+    CustomSnackbar.showError(
+      context,
+      AppLocalizations.of(context)!.noteTitleAlreadyExists(title),
     );
+  }
 
-    if (_effectiveNoteId != null) {
-      _autoSaveService?.startTracking(
-        _titleController.text,
-        _contentController.text,
-        contentProvider: () => _contentController.text,
-      );
-    }
+  /// The measurements [EditorEditTracker] needs to reflow a paste, or
+  /// null while the editor has no laid-out width to break lines against
+  /// (a paste into a page that has not been measured yet).
+  PasteReformatContext? _pasteReformatContext() {
+    final calculator = _createWidthCalculator();
+    final width = calculator.getAvailableTextWidth();
+    if (width == null) return null;
+    return (calculator: calculator, availableWidth: width);
+  }
+
+  /// Tells the user a paste was reflowed to the editor's width, so the
+  /// rewrapped lines do not read as text they did not type.
+  void _showLinesFormatted(int linesModified) {
+    if (!mounted) return;
+    CustomSnackbar.show(
+      context,
+      AppLocalizations.of(context)!.linesFormatted(linesModified),
+      withToolbarOffset: true,
+    );
   }
 
   Future<void> _loadNoteContent() async {
@@ -810,22 +708,9 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   }
 
   void _onTextChanged() {
-    if (!_hasChanges.value) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _hasChanges.value = true;
-      });
-    }
-
-    _debouncedLineCountUpdate();
+    _stats.onTextChanged(_contentController.textLength);
     _scheduleLivePreviewRefresh();
-
-    if (_effectiveNoteId != null) {
-      _autoSaveService?.onContentChanged(_titleController.text);
-    } else {
-      // New note: create early once there's meaningful content
-      _maybeCreateNewNoteEarly();
-    }
+    _saves.onContentChanged();
   }
 
   /// Keeps the offstage preview hot while the user is typing so a
@@ -858,82 +743,6 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
 
   static const Duration _kLivePreviewDebounce = Duration(milliseconds: 500);
 
-  /// Triggers early creation as soon as the note has any title or content.
-  void _maybeCreateNewNoteEarly() {
-    if (_effectiveNoteId != null || _isCreatingNewNote) return;
-    final title = _titleController.text.trim();
-    final content = _contentController.text.trim();
-    if (title.isNotEmpty || content.isNotEmpty) {
-      _createNewNoteEarly();
-    }
-  }
-
-  /// Immediately persists a brand-new note and switches to update mode.
-  void _createNewNoteEarly() async {
-    if (_effectiveNoteId != null || _isCreatingNewNote) return;
-    final title = _titleController.text.trim();
-    final content = _contentController.text.trim();
-    if (title.isEmpty && content.isEmpty) return;
-
-    // Apply the same per-folder uniqueness rule that rename + auto-save
-    // use. If the user picked a colliding title for a brand-new note, save
-    // it with an empty title so content isn't lost; the user can rename
-    // later from the cards view.
-    var titleToCreate = title;
-    if (title.isNotEmpty) {
-      final exists = await GetIt.I<NoteStorageService>()
-          .noteTitleExistsInFolder(folderId: widget.folderId, title: title);
-      if (!mounted) return;
-      if (exists) {
-        titleToCreate = '';
-        _warnedDuplicateTitle = true;
-        if (context.mounted) {
-          CustomSnackbar.showError(
-            context,
-            AppLocalizations.of(context)!.noteTitleAlreadyExists(title),
-          );
-        }
-      }
-    }
-
-    _isCreatingNewNote = true;
-    if (!mounted) return;
-    context.read<OptimizedNoteBloc>().add(
-      CreateOptimizedNote(
-        folderId: widget.folderId,
-        title: titleToCreate,
-        content: content,
-      ),
-    );
-  }
-
-  void _debouncedLineCountUpdate() {
-    final currentLength = _contentController.textLength;
-    final lengthDelta = (currentLength - _lastLineCountTextLength).abs();
-
-    if (lengthDelta > MarkdownConstants.contentChangeDeltaThreshold) {
-      _lineCountDebounceTimer?.cancel();
-      _updateCachedStats();
-      _lastLineCountTextLength = currentLength;
-      return;
-    }
-
-    _lineCountDebounceTimer?.cancel();
-    _lineCountDebounceTimer = Timer(const Duration(milliseconds: 300), () {
-      _updateCachedStats();
-      _lastLineCountTextLength = _contentController.textLength;
-    });
-  }
-
-  void _updateCachedStats() {
-    if (!mounted) return;
-    // Use re_editor's built-in lineCount for efficiency
-    _stats.value = (
-      lineCount: _contentController.lineCount,
-      charCount: _contentController.textLength,
-    );
-  }
-
   void _togglePreviewMode() {
     if (!_canPreview) return;
     if (_isTogglingPreview) return;
@@ -945,11 +754,8 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     // Compute text once — reused for force-save, cached preview, and search.
     final currentText = switchingToPreview ? _contentController.text : null;
 
-    if (switchingToPreview && _effectiveNoteId != null) {
-      _autoSaveService?.forceSave(
-        title: _titleController.text,
-        content: currentText!,
-      );
+    if (switchingToPreview) {
+      unawaited(_saves.forceSave(content: currentText));
     }
 
     // Update cached preview content BEFORE switching modes.
@@ -967,7 +773,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       final lineIndex = _contentController.selection.baseIndex;
 
       // Save editor position so we can restore it when switching back.
-      _savedEditorSelection = _contentController.selection;
+      _position.savedEditorSelection = _contentController.selection;
 
       if (isLargeNote) {
         // LARGE NOTE: Switch immediately, scroll with short animation
@@ -1060,15 +866,13 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     // Chunks are block-aligned (variable line counts), so we compare the
     // preview's top line against the *chunk-start line* of the saved
     // cursor via the render service rather than assuming uniform chunks.
-    final previewTopLine = _previewViewKey.currentState?.currentLineIndex;
-    final savedBaseIndex = _savedEditorSelection?.baseIndex;
+    final previewTopLine = _previewController.currentLineIndex;
+    final savedBaseIndex = _position.savedEditorSelection?.baseIndex;
     final savedChunkStart = savedBaseIndex != null
         ? _previewBloc.renderService.chunkStartLineForLine(savedBaseIndex)
         : null;
     final userMovedPreview =
-        previewTopLine != null &&
-        savedChunkStart != null &&
-        savedChunkStart != previewTopLine;
+        savedChunkStart != null && savedChunkStart != previewTopLine;
 
     // Just flip the mode
     setState(() {
@@ -1100,16 +904,13 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     _saveCurrentPosition();
   }
 
-  /// Applies the persisted caret/progress once BOTH inputs exist: the
-  /// position load ([_pendingPosition], async) and the note content
-  /// ([_isLoading] false, which is only cleared where
-  /// [_contentController.text] is assigned). Called from both sides, so
-  /// whichever lands last performs the restore; [_pendingPosition] is
-  /// nulled on consume, so it can never run twice.
-  void _restoreSavedPosition() {
-    final position = _pendingPosition;
-    if (position == null || _isLoading) return;
-    _pendingPosition = null;
+  /// Applies the persisted caret or preview progress. Runs exactly once,
+  /// when the position record and a mounted editor holding the note have
+  /// both landed — the join lives in
+  /// [NoteEditorPositionController.restoreWhenReady], so this body no
+  /// longer has to guess which side it is being called from (B2).
+  void _applyRestoredPosition(NotePositionData position) {
+    _applySavedPreviewMode();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -1120,52 +921,41 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
         _previewController.restoreProgress(
           position.previewScrollProgress.clamp(0.0, 1.0),
         );
-      } else {
-        final lineCount = _contentController.lineCount;
-        final lineIndex = position.editorLineIndex.clamp(0, lineCount - 1);
-
-        final lineText = lineIndex < _contentController.codeLines.length
-            ? _contentController.codeLines[lineIndex].text
-            : '';
-        final columnOffset = position.editorColumnOffset.clamp(
-          0,
-          lineText.length,
-        );
-
-        _contentController.selection = CodeLineSelection.collapsed(
-          index: lineIndex,
-          offset: columnOffset,
-        );
-
-        _restorePositionTimer?.cancel();
-        _restorePositionTimer = Timer(const Duration(milliseconds: 100), () {
-          if (!mounted) return;
-          _editorScrollController.makeCenterIfInvisible(
-            CodeLinePosition(index: lineIndex, offset: columnOffset),
-          );
-        });
+        return;
       }
+
+      // The record stores an absolute line number; this resolves it back
+      // to a visible index (and clamps a stale line/column against the
+      // note as it is now).
+      final target = NoteEditorPositionController.editorTarget(
+        position,
+        _contentController,
+      );
+      _contentController.selection = CodeLineSelection.collapsed(
+        index: target.index,
+        offset: target.offset,
+      );
+
+      _position.scheduleScroll(const Duration(milliseconds: 100), () {
+        if (!mounted) return;
+        _editorScrollController.makeCenterIfInvisible(target);
+      });
     });
   }
 
-  Future<void> _saveCurrentPosition() async {
-    final noteId = _effectiveNoteId ?? widget.noteId;
-    if (noteId == null || _notePositionService == null) return;
+  /// The record describing where the reader is right now.
+  NotePositionData _positionSnapshot() => NoteEditorPositionController.snapshot(
+    controller: _contentController,
+    isPreviewMode: _isPreviewMode,
+    previewScrollProgress: _previewController.progress.value,
+  );
 
-    final position = NotePositionData(
-      isPreviewMode: _isPreviewMode,
-      previewScrollProgress: _previewController.progress.value,
-      editorLineIndex: _contentController.selection.baseIndex,
-      editorColumnOffset: _contentController.selection.baseOffset,
-    );
-
-    await _notePositionService!.savePosition(noteId, position);
-  }
+  Future<void> _saveCurrentPosition() => _position.save(_positionSnapshot());
 
   /// Restores the editor cursor position after switching from preview mode.
   /// Uses a delayed callback to account for the keyboard animation.
   void _restoreEditorPosition() {
-    final selection = _savedEditorSelection;
+    final selection = _position.savedEditorSelection;
     if (selection == null) return;
 
     final position = CodeLinePosition(
@@ -1176,8 +966,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     // The keyboard may animate open when the editor regains focus.
     // Wait for that animation before scrolling, otherwise the cursor
     // might end up behind the keyboard.
-    _restorePositionTimer?.cancel();
-    _restorePositionTimer = Timer(
+    _position.scheduleScroll(
       Duration(milliseconds: Platform.isIOS ? 300 : 350),
       () {
         if (!mounted) return;
@@ -1195,7 +984,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// toolbar, colour and money sheets do not reach here.
   @override
   void didPopNext() {
-    _reloadEditorSettings();
+    unawaited(_reloadSettings());
   }
 
   @override
@@ -1205,14 +994,13 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     WidgetsBinding.instance.removeObserver(this);
     DrawerHostRegistry.unregister(_scaffoldKey);
     DevOptions.instance.removeListener(_onDevOptionsChanged);
-    _lineCountDebounceTimer?.cancel();
-    _restorePositionTimer?.cancel();
-    _previewProgressDebounce?.cancel();
+    // Cancels the restore-scroll and position-save timers.
+    _position.dispose();
     _livePreviewDebounce?.cancel();
     _previewController.progress.removeListener(_onPreviewProgressChanged);
     // _previewController is owned by _previewBloc — bloc disposes it.
     _previewBloc.close();
-    _autoSaveService?.dispose();
+    _saves.dispose();
     _titleController.dispose();
     _historyObserver.dispose();
     _vocabularySuggestions.dispose();
@@ -1222,7 +1010,9 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     _editorScrollController.dispose();
     _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
-    _hasChanges.dispose();
+    _editorSettings.removeListener(_onEditorSettingsChanged);
+    // Disposing flushes any font size the user tapped moments ago.
+    _editorSettings.dispose();
     _stats.dispose();
     super.dispose();
   }
@@ -1346,7 +1136,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       );
       _contentController.replaceSelection(info.replacement);
     });
-    _hasChanges.value = true;
+    _saves.markChanged();
 
     if (_showPreview) {
       _pushPreviewContent(_contentController.text);
@@ -1417,9 +1207,9 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     final collected = MarkdownMoneySyntax.collectEntries(
       lineCount: codeLines.length,
       lineAt: (i) => codeLines[i].text,
-      isInert: _markdownSpanBuilder.lineInFence,
+      isInert: _render.lineInFence,
       toLine: lineIndex,
-      startCents: _moneyConfig.startCents,
+      startCents: _render.moneyConfig.startCents,
     );
     final anchorLines = collected.anchorLines;
     final lastAnchorLine = anchorLines.isEmpty ? -1 : anchorLines.last;
@@ -1448,7 +1238,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       context,
       entries: entries,
       tappedKind: tapped.kind,
-      config: _moneyConfig,
+      config: _render.moneyConfig,
     );
   }
 
@@ -1514,92 +1304,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     // Note: Replace is handled by CodeFindController internally
     // The newContent parameter is kept for API compatibility
     // but the actual text change happens through the controller
-    _hasChanges.value = true;
-  }
-
-  void _handleTextChange() {
-    if (_isProcessingTextChange) return;
-
-    final selection = _contentController.selection;
-
-    final currentTextLength = _contentController.textLength;
-    final textLengthDiff = currentTextLength - _previousTextLength;
-    final textLengthIncreased = textLengthDiff > 0;
-
-    // Detect paste: large text additions
-    final isPaste = textLengthDiff > _pasteThreshold;
-
-    // Calculate paste location before updating _previousTextLength
-    int? pasteStartOffset;
-    int? pasteEndOffset;
-    if (isPaste && textLengthIncreased) {
-      // The selection end is where the paste ended
-      pasteEndOffset = _getOffsetFromSelection(selection.extent);
-      // The paste started textLengthDiff characters before the end
-      pasteStartOffset = pasteEndOffset - textLengthDiff;
-      if (pasteStartOffset < 0) pasteStartOffset = 0;
-    }
-
-    _previousTextLength = currentTextLength;
-
-    if (!textLengthIncreased) return;
-
-    // Handle paste: break long lines to fit editor width.
-    // _handlePasteLineBreaking sets controller.value directly (bypassing
-    // runRevocableOp) so the reformatting overwrites the paste's undo
-    // node — making paste + reformat a single undo entry.
-    if (isPaste && pasteStartOffset != null && pasteEndOffset != null) {
-      _handlePasteLineBreaking(pasteStartOffset, pasteEndOffset);
-      return;
-    }
-
-    // Check if we just inserted a newline
-    // In CodeLineEditingController, after pressing Enter:
-    // - baseIndex is the new line (current line)
-    // - baseOffset is 0 (start of new line)
-    final currentLineIndex = selection.baseIndex;
-    if (currentLineIndex > 0 && selection.baseOffset == 0) {
-      _isProcessingTextChange = true;
-
-      // Get the previous line text
-      final prevLineIndex = currentLineIndex - 1;
-      final prevLine = _contentController.codeLines[prevLineIndex].text;
-
-      if (MarkdownListUtils.isEmptyListItem(prevLine)) {
-        // Remove the empty list item line — merge with the Enter undo node
-        // by setting value directly (bypasses runRevocableOp).
-        _contentController.value = CodeLineEditingValue(
-          codeLines: _contentController.codeLines.removeLine(prevLineIndex),
-          selection: CodeLineSelection.collapsed(
-            index: prevLineIndex,
-            offset: 0,
-          ),
-        );
-        _previousTextLength = _contentController.textLength;
-        _isProcessingTextChange = false;
-        return;
-      }
-
-      String? listPrefix = MarkdownListUtils.getListPrefix(prevLine);
-      if (listPrefix != null) {
-        // Insert the list prefix — merge with the Enter undo node
-        // by setting value directly (bypasses runRevocableOp).
-        final currentLine = _contentController.codeLines[currentLineIndex];
-        final newLineText = '$listPrefix${currentLine.text}';
-        _contentController.value = CodeLineEditingValue(
-          codeLines: _contentController.codeLines.replaceLine(
-            currentLineIndex,
-            currentLine.copyWith(text: newLineText),
-          ),
-          selection: CodeLineSelection.collapsed(
-            index: currentLineIndex,
-            offset: listPrefix.length,
-          ),
-        );
-        _previousTextLength = _contentController.textLength;
-      }
-      _isProcessingTextChange = false;
-    }
+    _saves.markChanged();
   }
 
   /// Creates an EditorWidthCalculator with current configuration
@@ -1607,9 +1312,11 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     return EditorWidthCalculator(
       config: EditorWidthConfig(
         editorContainerKey: _editorWrapperKey,
-        lineNumbersKey: _showLineNumbers ? _lineNumbersKey : null,
+        lineNumbersKey: _editorSettings.value.showLineNumbers
+            ? _lineNumbersKey
+            : null,
         scrollIndicatorKey: _scrollIndicatorKey,
-        fontSize: _editorFontSize,
+        fontSize: _editorSettings.value.editorFontSize,
         fontFamily: FontConstants.editorFontFamily,
       ),
       editorPadding: EdgeInsets.only(
@@ -1621,37 +1328,10 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     );
   }
 
-  /// Handle paste by breaking long lines to fit editor width.
-  /// Respects markdown syntax and skips code blocks.
-  /// Only formats lines within the pasted range.
-  void _handlePasteLineBreaking(int pasteStartOffset, int pasteEndOffset) {
-    if (!_autoBreakLongLines) return;
-
-    _isProcessingTextChange = true;
-    final result = PasteLineBreaker.run(
-      controller: _contentController,
-      calculator: _createWidthCalculator(),
-      pasteStartOffset: pasteStartOffset,
-      pasteEndOffset: pasteEndOffset,
-    );
-    if (result.reformatted) {
-      _previousTextLength = _contentController.textLength;
-      if (mounted) {
-        CustomSnackbar.show(
-          context,
-          AppLocalizations.of(context)!.linesFormatted(result.linesModified),
-          withToolbarOffset: true,
-        );
-      }
-    }
-    _isProcessingTextChange = false;
-  }
-
+  /// Character offset of a line's first character, for the debug
+  /// overlay's cursor/selection read-out.
   int _getLineStartOffset(int lineIndex) =>
       CodeLineOffsetUtils.lineStartOffset(_contentController, lineIndex);
-
-  int _getOffsetFromSelection(CodeLinePosition position) =>
-      CodeLineOffsetUtils.offsetFromPosition(_contentController, position);
 
   /// Bottom inset the body must give up to the on-screen keyboard.
   ///
@@ -1663,7 +1343,8 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   double _keyboardInset(BuildContext context) {
     final inset = MediaQuery.viewInsetsOf(context).bottom;
     if (inset <= 0) return 0;
-    final ownsInput = _contentHasFocus || _searchController.isSearching;
+    final ownsInput =
+        _contentFocusNode.hasFocus || _searchController.isSearching;
     return ownsInput ? inset : 0;
   }
 
@@ -1683,42 +1364,40 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
           BlocListener<OptimizedNoteBloc, OptimizedNoteState>(
             listener: (context, state) {
               if (state is OptimizedNoteCreated) {
-                _effectiveNoteId = state.metadata.id;
-                _isCreatingNewNote = false;
-                _counterBloc.add(SetNoteContext(noteId: _effectiveNoteId));
-                ShortcutHandlerFactory.counterHandler.setActiveNoteId(
-                  _effectiveNoteId,
-                );
-                _autoSaveService?.startTracking(
-                  _titleController.text,
-                  _contentController.text,
-                  contentProvider: () => _contentController.text,
-                );
+                final id = state.metadata.id;
+                _saves.noteCreated(id);
+                // From here on the note has an id, so its reading
+                // position can start being persisted.
+                _position.noteId = id;
+                _counterBloc.add(SetNoteContext(noteId: id));
+                ShortcutHandlerFactory.counterHandler.setActiveNoteId(id);
               } else if (state is OptimizedNoteContentLoaded) {
                 final content = state.note.content ?? '';
-                _stats.value = (
+                // Counted from the string rather than asked of the
+                // editor: it is exact and already in hand.
+                _stats.set((
                   lineCount: '\n'.allMatches(content).length + 1,
                   charCount: content.length,
-                );
+                ));
                 setState(() {
                   _contentController.text = content;
-                  _previousTextLength = content.length;
-                  _isLoading = false;
+                  _contentLoaded = true;
                 });
+                // The assignment above notified the edit tracker with a
+                // whole document's worth of growth; adopt it as the
+                // baseline so the next keystroke does not read as a paste.
+                _edits.syncLength();
                 _pushPreviewContent(content);
-                _restoreSavedPosition();
+                _markEditorReady();
               }
             },
           ),
           BlocListener<MarkdownBarBloc, MarkdownBarState>(
             listener: (context, state) {
               if (state is MarkdownBarLoaded) {
-                setState(() {
-                  _activeBarProfileId = state.activeProfileId;
-                  _allShortcuts = List.from(state.currentShortcuts);
-                });
+                setState(() => _bar = state);
                 ShortcutHandlerFactory.counterHandler.setActiveNoteId(
-                  _effectiveNoteId ?? widget.noteId,
+                  _saves.effectiveNoteId ?? widget.noteId,
                 );
               }
             },
@@ -1738,15 +1417,15 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
             key: _scaffoldKey,
             resizeToAvoidBottomInset: false,
             drawer: const AppDrawer(),
-            drawerEnableOpenDragGesture: _noteSwipeEnabled,
+            drawerEnableOpenDragGesture: _editorSettings.value.noteSwipeEnabled,
             appBar: ValueListenableAppBar<bool>(
-              valueListenable: _hasChanges,
+              valueListenable: _saves.hasChanges,
               builder: (context, hasChanges) => NoteAppBar(
                 title: _titleController.text.isEmpty
                     ? AppLocalizations.of(context)!.newNote
                     : _titleController.text,
                 hasChanges: hasChanges,
-                saveStatusNotifier: _autoSaveService?.saveStatusNotifier,
+                saveStatusNotifier: _saves.saveStatus,
                 onTitleTap: _editTitle,
                 actions: [
                   IconButton(
@@ -1779,7 +1458,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
               child: _isLoading
                   ? Column(
                       children: [
-                        if (_showStatsBar)
+                        if (_editorSettings.value.showStatsBar)
                           RepaintBoundary(child: _buildNoteStats()),
                         Expanded(
                           child: Padding(
@@ -1791,7 +1470,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
                             ),
                           ),
                         ),
-                        if (_allShortcuts.isNotEmpty)
+                        if (_shortcuts.isNotEmpty)
                           RepaintBoundary(
                             child: _buildMarkdownBar(enabled: false),
                           ),
@@ -1808,7 +1487,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
                             showReplaceField: !showPreview,
                             onReplace: _handleSearchReplace,
                           ),
-                        if (_showStatsBar)
+                        if (_editorSettings.value.showStatsBar)
                           RepaintBoundary(child: _buildNoteStats()),
                         Expanded(
                           child: Padding(
@@ -1924,7 +1603,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   Widget _buildNoteStats() {
     final metadata = widget.metadata;
     return NoteEditorStatsBar(
-      stats: _stats,
+      stats: _stats.stats,
       fallbackCharCount: metadata?.contentLength ?? 0,
       chunkCount: metadata?.chunkCount ?? 1,
       isCompressed: metadata?.isCompressed ?? false,
@@ -1938,17 +1617,18 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// chrome.
   Widget _buildMarkdownBar({required bool enabled}) {
     final showPreview = _showPreview;
+    final settings = _editorSettings.value;
     return MarkdownBar(
-      shortcuts: _allShortcuts,
+      shortcuts: _shortcuts,
       isPreviewMode: showPreview,
       canUndo: enabled ? _historyObserver.canUndo : false,
       canRedo: enabled ? _historyObserver.canRedo : false,
       previewFontSize: enabled
-          ? (showPreview ? _previewFontSize : _editorFontSize)
+          ? (showPreview ? _previewFontSize : settings.editorFontSize)
           : _previewFontSize,
-      shortcutRatio: _toolbarShortcutRatio,
-      splitEnabled: _toolbarSplitEnabled,
-      utilityConfigs: _utilityConfigs,
+      shortcutRatio: settings.toolbarShortcutRatio,
+      splitEnabled: settings.toolbarSplitEnabled,
+      utilityConfigs: settings.toolbarUtilityConfig,
       onUndo: enabled ? () => _historyObserver.undo() : () {},
       onRedo: enabled ? () => _historyObserver.redo() : () {},
       onPaste: enabled ? () => _contentController.paste() : null,
@@ -1975,7 +1655,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     // For large notes, don't pre-build preview to avoid memory/CPU overhead
     // The preview will build when actually needed (when switching to preview mode)
     final isLargeNote =
-        _stats.value.lineCount > AppConstants.previewPreloadLineThreshold;
+        _stats.stats.value.lineCount > AppConstants.previewPreloadLineThreshold;
     if (!_showPreview && isLargeNote) {
       return const SizedBox.shrink();
     }
@@ -1989,7 +1669,6 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
 
     final markdownView = MarkdownPreviewBlocView(
       bloc: _previewBloc,
-      viewKey: _previewViewKey,
       padding: const EdgeInsets.only(
         left: AppSpacing.lg,
         top: AppSpacing.lg,
@@ -2012,7 +1691,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     );
 
     // If scrollbar is disabled, just return the markdown view
-    if (!_showPreviewScrollbar) {
+    if (!_editorSettings.value.showPreviewScrollbar) {
       return KeyedSubtree(key: const ValueKey('preview'), child: markdownView);
     }
 
@@ -2031,74 +1710,48 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     );
   }
 
-  /// Routes line rendering: live markdown styling when the editor setting
-  /// is on (unhandled lines fall through), the ghost-text builder
-  /// otherwise.
-  TextSpan _buildEditorSpan({
-    required BuildContext context,
-    required int index,
-    required CodeLine codeLine,
-    required TextSpan textSpan,
-    required TextStyle style,
-  }) {
-    final render = _editorRenderContext.of(Theme.of(context), style);
-    if (_liveMarkdownRendering) {
-      final span = _markdownSpanBuilder.build(
-        context: render,
-        index: index,
-        codeLine: codeLine,
-      );
-      if (span != null) return span;
-    }
-    return _buildGhostEditorSpan(
-      index: index,
-      codeLine: codeLine,
-      textSpan: textSpan,
-      style: style,
-      baseColor: render.baseColor,
-    );
-  }
-
   Widget _buildEditor() {
     final devOptions = DevOptions.instance;
     final showChunkDebug = devOptions.showChunkIndicators;
-    final markdownRendering = _liveMarkdownRendering;
+    final settings = _editorSettings.value;
+    final markdownRendering = settings.liveMarkdownRendering;
 
     return KeyedSubtree(
       key: _editorWrapperKey,
       child: ModernEditorWrapper(
         // Toggling live markdown rendering remounts the editor so all
         // cached line paragraphs are rebuilt with the new span builder.
-        // Money config is NOT folded into this key: it changes while the
-        // editor is mid-initialization (note open resolves the config
-        // asynchronously), and a remount there tears the CodeEditor down
-        // during its own mount, crashing re_editor's controller-delegate
-        // handoff. Money config is applied non-destructively via
-        // _markdownSpanBuilder.configureMoney (cache clear) + a repaint
-        // nudge in _refreshMoneyConfig instead.
+        // That is also why the whole settings bundle has to have landed
+        // before this first mounts (B4) — a key that flips one frame in
+        // would remount the CodeEditor mid-initialization.
+        //
+        // Money config is NOT folded into this key: it resolves
+        // asynchronously on note open, and a remount there tears the
+        // CodeEditor down during its own mount, crashing re_editor's
+        // controller-delegate handoff. It is applied non-destructively
+        // via [EditorRenderController.applyMoneyConfig] (cache clear) +
+        // a repaint nudge in [_refreshMoneyConfig] instead.
         key: ValueKey(markdownRendering ? 'editor-md' : 'editor'),
         controller: _contentController,
         focusNode: _contentFocusNode,
         scrollController: _editorScrollController,
         searchController: _searchController,
-        editorFontSize: _editorFontSize,
-        onTextChanged: _handleTextChange,
-        showLineNumbers: _showLineNumbers,
-        wordWrap: _wordWrap,
-        showCursorLine: _showCursorLine,
+        editorFontSize: settings.editorFontSize,
+        onTextChanged: _edits.onTextChanged,
+        showLineNumbers: settings.showLineNumbers,
+        wordWrap: settings.wordWrap,
+        showCursorLine: settings.showCursorLine,
         checkboxTapToggle: markdownRendering,
         // Editor link taps confirm via snackbar before the preview's
         // opener runs (scheme validation + localized errors); fence
         // lines render raw so taps there stay plain editing.
         onOpenLink: markdownRendering ? _handleEditorLinkTap : null,
         onOpenTag: markdownRendering ? _handleTagTap : null,
-        onMoneyTap: markdownRendering && _moneyConfig.enabled
+        onMoneyTap: markdownRendering && _render.moneyConfig.enabled
             ? _handleMoneyTap
             : null,
-        isFenceLine: markdownRendering
-            ? _markdownSpanBuilder.lineInFence
-            : null,
-        colorPalette: _colorPalette,
+        isFenceLine: markdownRendering ? _render.lineInFence : null,
+        colorPalette: _render.palette,
         lineNumbersKey: _lineNumbersKey,
         scrollIndicatorKey: _scrollIndicatorKey,
         // Chunk debug visualization (matches preview mode)
@@ -2109,12 +1762,17 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     );
   }
 
+  /// Adopts a dragged shortcut order locally before the bloc answers, so
+  /// the row does not snap back for the length of the write.
   Future<void> _handleReorderComplete(
     List<CustomMarkdownShortcut> reorderedShortcuts,
   ) async {
-    setState(() {
-      _allShortcuts = reorderedShortcuts;
-    });
+    final bar = _bar;
+    if (bar != null) {
+      setState(() {
+        _bar = bar.copyWith(currentShortcuts: reorderedShortcuts);
+      });
+    }
     context.read<MarkdownBarBloc>().add(
       UpdateShortcuts(
         profileId: _activeBarProfileId,
@@ -2123,29 +1781,16 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     );
   }
 
+  /// Same for the utility half of the toolbar; the settings controller
+  /// updates its value before writing, so nothing is re-read here.
   Future<void> _handleUtilityReorderComplete(
     List<UtilityButtonConfig> reorderedUtilities,
-  ) async {
-    setState(() {
-      _utilityConfigs = reorderedUtilities;
-    });
-    final settings = await SettingsService.getInstance();
-    await settings.setToolbarUtilityConfig(reorderedUtilities);
-  }
+  ) => _editorSettings.setToolbarUtilityConfig(reorderedUtilities);
 
   Future<void> _saveBeforeExit() async {
     _contentFocusNode.unfocus();
-
     await _saveCurrentPosition();
-
-    if (_effectiveNoteId != null) {
-      await _autoSaveService?.forceSave(title: _titleController.text);
-    } else if (!_isCreatingNewNote) {
-      final title = _titleController.text.trim();
-      final content = _contentController.text.trim();
-      if (title.isEmpty && content.isEmpty) return;
-      _createNewNoteEarly();
-    }
+    await _saves.saveBeforeExit();
   }
 
   void _showExportFormatDialog() {
@@ -2215,7 +1860,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
 
     final currentValue =
         counterState.counterValues[counterId] ?? counter.startValue;
-    final noteId = _effectiveNoteId ?? widget.noteId;
+    final noteId = _saves.effectiveNoteId ?? widget.noteId;
     bloc.add(IncrementCounter(counterId: counterId, noteId: noteId));
     return currentValue + counter.step;
   }
@@ -2233,7 +1878,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
 
     final currentValue =
         counterState.counterValues[counterId] ?? counter.startValue;
-    final noteId = _effectiveNoteId ?? widget.noteId;
+    final noteId = _saves.effectiveNoteId ?? widget.noteId;
     bloc.add(DecrementCounter(counterId: counterId, noteId: noteId));
     return currentValue - counter.step;
   }
@@ -2246,15 +1891,15 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       context,
       counters: counterState.counters,
       counterValues: counterState.counterValues,
-      noteId: _effectiveNoteId,
+      noteId: _saves.effectiveNoteId,
       onManageCounters: () async {
         await AppNavigator.toCounterManagement(
           context,
-          noteId: _effectiveNoteId,
+          noteId: _saves.effectiveNoteId,
         );
         if (!mounted) return null;
         final bloc = context.read<CounterBloc>();
-        bloc.add(RefreshCounters(noteId: _effectiveNoteId));
+        bloc.add(RefreshCounters(noteId: _saves.effectiveNoteId));
         final updated = await bloc.stream
             .where((s) => s is CounterLoaded)
             .first
@@ -2270,8 +1915,10 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     if (selected == null || !mounted) return;
 
     final currentValue = await _incrementCounter(selected.id);
-    _contentController.runRevocableOp(() {
-      _contentController.replaceSelection(currentValue.toString());
+    _edits.runGuarded(() {
+      _contentController.runRevocableOp(() {
+        _contentController.replaceSelection(currentValue.toString());
+      });
     });
     _onTextChanged();
   }
@@ -2280,7 +1927,9 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// no selection, inserts an empty `{{  }}` and parks the caret between
   /// the markers so the user can type the placeholder.
   void _insertGhostText() {
-    MarkdownShortcutInserter.insertGhost(_contentController);
+    _edits.runGuarded(
+      () => MarkdownShortcutInserter.insertGhost(_contentController),
+    );
     _onTextChanged();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _contentController.makeCursorVisible();
@@ -2291,7 +1940,12 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// selected ghost placeholder into the slot when there is no selection —
   /// see [MarkdownShortcutInserter.insertWithGhostSlot].
   void _insertWithGhostSlot(CustomMarkdownShortcut shortcut) {
-    MarkdownShortcutInserter.insertWithGhostSlot(_contentController, shortcut);
+    _edits.runGuarded(
+      () => MarkdownShortcutInserter.insertWithGhostSlot(
+        _contentController,
+        shortcut,
+      ),
+    );
     _onTextChanged();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _contentController.makeCursorVisible();
@@ -2319,40 +1973,25 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     // Store length before applying the shortcut to calculate inserted range
     final beforeLength = _contentController.textLength;
 
-    // Prevent _handleTextChange from running during runRevocableOp.
-    // Without this, replaceSelection fires notifyListeners synchronously
-    // which triggers _handleTextChange → _handlePasteLineBreaking inside
-    // the revocable op, then we'd call _handlePasteLineBreaking again
-    // below — double-formatting with stale offsets.
-    _isProcessingTextChange = true;
-
-    // Wrap the entire shortcut operation in an atomic undo entry
-    // so that e.g. date insertion + repeat + wrapper text all revert together.
-    _contentController.runRevocableOp(() {
-      _applyShortcut(shortcut);
+    // The guard keeps the tracker's paste heuristic out of the revocable
+    // op — `replaceSelection` notifies synchronously, and a reformat
+    // running mid-op would work off stale offsets and then be repeated
+    // below. It also resyncs the length, so the next keystroke diffs
+    // against what the shortcut actually left behind.
+    //
+    // The revocable op inside it makes the whole shortcut one undo entry,
+    // so e.g. date insertion + repeat + wrapper text revert together.
+    _edits.runGuarded(() {
+      _contentController.runRevocableOp(() {
+        _applyShortcut(shortcut);
+      });
     });
-
-    _isProcessingTextChange = false;
-
-    // Sync _previousTextLength so subsequent edits diff correctly
-    _previousTextLength = _contentController.textLength;
 
     _onTextChanged();
 
-    // Format the inserted text if auto-break is enabled
-    if (_autoBreakLongLines) {
-      final afterLength = _contentController.textLength;
-      final textLengthDiff = afterLength - beforeLength;
-      if (textLengthDiff > 0) {
-        final afterSelection = _contentController.selection;
-        final insertEndOffset = _getOffsetFromSelection(afterSelection.extent);
-        final insertStartOffset = insertEndOffset - textLengthDiff;
-
-        if (insertStartOffset >= 0 && insertEndOffset <= afterLength) {
-          _handlePasteLineBreaking(insertStartOffset, insertEndOffset);
-        }
-      }
-    }
+    // Reflow whatever the shortcut inserted, if it was wide enough to
+    // need it and auto-break is on (the tracker checks both).
+    _edits.reformatInserted(beforeLength: beforeLength);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
@@ -2390,11 +2029,11 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     final result = await BarSwitcherSheet.show(
       context,
       currentProfileId: _activeBarProfileId,
-      noteId: _effectiveNoteId ?? widget.noteId,
+      noteId: _saves.effectiveNoteId ?? widget.noteId,
     );
     if (result == null || !mounted) return;
 
-    final noteId = _effectiveNoteId ?? widget.noteId;
+    final noteId = _saves.effectiveNoteId ?? widget.noteId;
 
     if (result.clearedOverride) {
       if (noteId != null) {
@@ -2419,102 +2058,18 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     }
   }
 
+  /// Opens the markdown settings page and re-resolves the toolbar's bar
+  /// profile on the way back.
+  ///
+  /// Nothing else is re-read here: this is a page route, so [didPopNext]
+  /// has already fired [_reloadSettings] by the time the push returns —
+  /// re-reading the toolbar rows here would be a second round trip for
+  /// values that already landed.
   Future<void> _openMarkdownSettings() async {
-    await AppNavigator.toMarkdownSettings(context, allShortcuts: _allShortcuts);
-
+    await AppNavigator.toMarkdownSettings(context, allShortcuts: _shortcuts);
     if (!mounted) return;
-
     context.read<MarkdownBarBloc>().add(
-      ResolveBarForNote(noteId: _effectiveNoteId ?? widget.noteId),
+      ResolveBarForNote(noteId: _saves.effectiveNoteId ?? widget.noteId),
     );
-    final settings = await SettingsService.getInstance();
-    final ratio = await settings.getToolbarShortcutRatio();
-    final splitEnabled = await settings.getToolbarSplitEnabled();
-    final utilityConfigs = await settings.getToolbarUtilityConfig();
-    if (mounted) {
-      setState(() {
-        _toolbarShortcutRatio = ratio;
-        _toolbarSplitEnabled = splitEnabled;
-        _utilityConfigs = utilityConfigs;
-      });
-      await _refreshMoneyConfig(settings);
-      await _refreshColorPalette(settings);
-      // The vocabulary flag and trigger character live on this page too.
-      await _refreshVocabularies(settings);
-    }
   }
-}
-
-/// re_editor [CodeLineSpanBuilder] that renders `{{ … }}` ghost-text
-/// runs as dimmed inner text with the markers visually concealed.
-///
-/// The marker characters are kept in the line (re_editor maps caret /
-/// selection offsets through the rendered span, so removing them would
-/// desync the model) but are painted transparent and collapsed to a
-/// near-zero width, so only the grey inner text shows. A whitespace-only
-/// placeholder gets an underline so the empty slot stays findable.
-/// Lines without the opening marker short-circuit so the common path
-/// stays allocation-free.
-///
-/// [baseColor] comes from the caller's [EditorRenderContext], the same
-/// theme generation the markdown builder renders under, so the ghost
-/// tone matches whichever surface drew the line — and the theme is read
-/// once per generation instead of once per ghost line.
-TextSpan _buildGhostEditorSpan({
-  required int index,
-  required CodeLine codeLine,
-  required TextSpan textSpan,
-  required TextStyle style,
-  required Color baseColor,
-}) {
-  final text = codeLine.text;
-  if (!GhostText.mightContain(text)) return textSpan;
-  final ghosts = GhostText.findGhosts(text);
-  if (ghosts.isEmpty) return textSpan;
-
-  final ghostColor = baseColor.withValues(alpha: 0.45);
-  final ghostStyle = style.copyWith(color: ghostColor);
-  // Markers stay in the model (offset integrity) but are painted
-  // transparent and collapsed to ~0 width so they read as invisible.
-  final concealStyle = style.copyWith(
-    color: const Color(0x00000000),
-    fontSize: 0.01,
-  );
-
-  final children = <TextSpan>[];
-  int pos = 0;
-  for (final g in ghosts) {
-    if (g.start > pos) {
-      children.add(TextSpan(text: text.substring(pos, g.start), style: style));
-    }
-    // Opening `{{` — concealed.
-    children.add(
-      TextSpan(
-        text: text.substring(g.start, g.innerStart),
-        style: concealStyle,
-      ),
-    );
-    // Inner text — dimmed; underline when blank so the slot stays visible.
-    final inner = text.substring(g.innerStart, g.innerEnd);
-    children.add(
-      TextSpan(
-        text: inner,
-        style: inner.trim().isEmpty
-            ? ghostStyle.copyWith(
-                decoration: TextDecoration.underline,
-                decorationColor: ghostColor,
-              )
-            : ghostStyle,
-      ),
-    );
-    // Closing `}}` — concealed.
-    children.add(
-      TextSpan(text: text.substring(g.innerEnd, g.end), style: concealStyle),
-    );
-    pos = g.end;
-  }
-  if (pos < text.length) {
-    children.add(TextSpan(text: text.substring(pos), style: style));
-  }
-  return TextSpan(style: style, children: children);
 }

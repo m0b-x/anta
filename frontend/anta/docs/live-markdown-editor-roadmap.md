@@ -19,15 +19,20 @@ listed here.
 
 ```
 Settings → Editor → "Live Markdown Rendering"  (SettingsKeys.liveMarkdownRendering, default ON)
-  OptimizedNoteEditorPage._buildEditorSpan          — routing: markdown → ghost fallback
+  EditorRenderController.buildSpan (lib/controllers) — routing: markdown → ghost fallback;
+                                                      owns the span builder, the render-context
+                                                      cache, the money config and the palette
     MarkdownEditorSpanBuilder (lib/utils/markdown_editor_span_builder.dart)
       • per-line restyling, LRU span memo, fence index (+ public lineInFence),
         ghost composition, CodeHangingTextSpan roots for list items
-    _buildGhostEditorSpan (page, top-level)          — plain ghost rendering when unhandled/off
+    EditorRenderController.ghostSpan (static)        — plain ghost rendering when unhandled/off
   ModernEditorWrapper                                — ghost two-tap; tap interceptor
-      • CodeEditorTapInterceptor: checkbox toggle + link open resolved from
-        line text via shared grammars; page wires onOpenLink (_handleLinkTap)
-        and isFenceLine (span builder)
+      • EditorInputPolicy (lib/utils/editor_input_policy.dart): the pure tap,
+        checkbox-toggle and Tab/Shift-Tab rules plus the GhostEngagement
+        two-tap state machine, table-tested; the wrapper maps each action to
+        haptics + the page callbacks (onOpenLink, onOpenTag, onMoneyTap) and
+        reads isFenceLine from the span builder; CodeEditorTapInterceptor
+        claims the tap at tap-down and fires the action at tap-up
   packages/re_editor fork
       • _code_paragraph.dart: root-span fontSize ⇒ per-line strut/line height;
         CodeHangingTextSpan ⇒ marker+content two-paragraph hanging indent
@@ -154,6 +159,21 @@ lines bypass the memo.
       top of a 10k-line note ≈ at the bottom); the money parse is memoised;
       undo history capped at 200 steps; Tab/Shift-Tab list indent works on
       Android/iOS with a physical keyboard (it was desktop-only).
+- [x] Editor page controllers (2026-09-04, Session 6 of the review): the
+      page `State` went from ~60 fields / 2,520 lines to 26 fields / ~2,070
+      lines over six page-owned controllers in `lib/controllers/` — the
+      settings bundle read in one statement with debounced font-size writes
+      through `SettingsService` (the app's only Page→DAO call is gone), the
+      saved-position restore as an explicit join stored in absolute line
+      numbers, auto-save / early-create / duplicate-title orchestration, the
+      paste reflow + Enter continuation (nested items now continue too), the
+      stats debounce, and the render routing. The editor mounts exactly once
+      (its `ValueKey` waits for the settings bundle), every editor flag edited
+      on the settings page applies on return, the wrapper's tap/Tab/ghost
+      rules are the pure, table-tested `EditorInputPolicy`, the wrapper
+      rebinds on a controller swap, and a paste reflows only the pasted
+      lines through a `CodeLines` splice (no document join, ASCII lines
+      pre-filtered by a per-glyph advance table).
 
 ### Decision log
 

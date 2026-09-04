@@ -13,6 +13,8 @@ import 'package:anta/bloc/markdown_bar/markdown_bar_bloc.dart';
 import 'package:anta/bloc/optimized_note/optimized_note_bloc.dart';
 import 'package:anta/bloc/optimized_note/optimized_note_event.dart';
 import 'package:anta/bloc/optimized_note/optimized_note_state.dart';
+import 'package:anta/constants/font_constants.dart';
+import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/note_metadata.dart';
@@ -25,6 +27,7 @@ import 'package:anta/services/markdown_bar_service.dart';
 import 'package:anta/services/note_position_service.dart';
 import 'package:anta/services/note_storage_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/widgets/markdown_bar.dart';
 import 'package:anta/widgets/modern_editor_wrapper.dart';
 
 /// The first page-level test in the app.
@@ -137,15 +140,22 @@ void main() {
     noteBloc.reset();
     await positions.deletePosition(noteId);
     await settings.setShowLineNumbers(false);
+    await settings.setLiveMarkdownRendering(true);
+    // Font sizes are per-database rows, and one case below writes the
+    // editor's; clear both so the next test starts at the default.
+    await db.userSettingsDao.deleteValue(SettingsKeys.editorFontSize);
+    await db.userSettingsDao.deleteValue(SettingsKeys.previewFontSize);
   });
 
   /// Lets the page's real async work finish, then flushes whatever
   /// `setState`s it produced into frames. Both halves are needed: the
   /// database answers on a background isolate (real time only), and the
   /// widget tree advances only on `pump` (fake time only). One round
-  /// carries roughly one round trip, so a chain of sequential reads —
-  /// `_loadEditorSettings` issues about fifteen — needs many.
-  Future<void> settle(WidgetTester tester, {int rounds = 40}) async {
+  /// carries roughly one round trip, so a chain of sequential reads needs
+  /// several — the settings bundle is one statement now, but the money
+  /// config, the colour palette and the stored position still queue up
+  /// behind it. Prefer [settleUntil] over guessing a count.
+  Future<void> settle(WidgetTester tester, {int rounds = 12}) async {
     for (var i = 0; i < rounds; i++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 5)),
@@ -204,6 +214,12 @@ void main() {
   ModernEditorWrapper editorOf(WidgetTester tester) =>
       tester.widget<ModernEditorWrapper>(editorFinder);
 
+  /// The wrapper's `State` object. Identity is the remount test (B4): a
+  /// changed `ValueKey` gives the editor a brand-new `State`, and with it
+  /// a fresh `CodeEditor` torn down mid-initialization.
+  State<ModernEditorWrapper> editorStateOf(WidgetTester tester) =>
+      tester.state<State<ModernEditorWrapper>>(editorFinder);
+
   /// The caret's line, or -1 while the page is still on its loading
   /// placeholder and no editor exists to ask.
   int caretLine(WidgetTester tester) => editorFinder.evaluate().isEmpty
@@ -243,16 +259,44 @@ void main() {
       // position is still in flight when the content arrives.
       noteBloc.emitContentLoaded(metadata, content);
       await tester.pump();
+      // The editor deliberately does not exist yet — its `ValueKey`
+      // depends on a setting that has not landed (B4) — so wait for the
+      // mount rather than reading the controller through the tree.
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
       expect(editorOf(tester).controller.text, content);
+      final mounted = editorStateOf(tester);
 
-      await settleUntil(
-        tester,
-        () => caretLine(tester) == 2,
-      );
+      await settleUntil(tester, () => caretLine(tester) == 2);
 
       final selection = editorOf(tester).controller.selection;
       expect(selection.baseIndex, 2);
       expect(selection.baseOffset, 6);
+
+      // And it was mounted exactly once: everything the first frame's key
+      // depends on had already landed.
+      await settle(tester);
+      expect(identical(editorStateOf(tester), mounted), isTrue);
+      await teardownPage(tester);
+    });
+
+    testWidgets('live rendering off: the editor still mounts once', (
+      tester,
+    ) async {
+      await tester.runAsync(() => settings.setLiveMarkdownRendering(false));
+
+      await pumpPage(tester);
+      noteBloc.emitContentLoaded(metadata, content);
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+
+      // The stored flag picks the key, and it picks it on the first
+      // frame the editor exists — never `editor-md` first and then this.
+      expect(editorOf(tester).key, const ValueKey('editor'));
+      final mounted = editorStateOf(tester);
+
+      await settle(tester);
+      expect(editorOf(tester).key, const ValueKey('editor'));
+      expect(identical(editorStateOf(tester), mounted), isTrue);
       await teardownPage(tester);
     });
 
@@ -270,10 +314,7 @@ void main() {
 
       noteBloc.emitContentLoaded(metadata, content);
       await tester.pump();
-      await settleUntil(
-        tester,
-        () => caretLine(tester) == 3,
-      );
+      await settleUntil(tester, () => caretLine(tester) == 3);
 
       final selection = editorOf(tester).controller.selection;
       expect(selection.baseIndex, 3);
@@ -287,10 +328,7 @@ void main() {
       await pumpPage(tester);
       noteBloc.emitContentLoaded(metadata, content);
       await tester.pump();
-      await settleUntil(
-        tester,
-        () => caretLine(tester) == 1,
-      );
+      await settleUntil(tester, () => caretLine(tester) == 1);
 
       final controller = editorOf(tester).controller;
       expect(controller.selection.baseIndex, 1);
@@ -483,6 +521,48 @@ void main() {
       expect(controller.codeLines[emptyItemLine].text, '- ');
       expect(controller.codeLines[emptyItemLine + 1].text, 'plain line 401');
 
+      await teardownPage(tester);
+    });
+  });
+
+  group('B5 — the page writes settings through SettingsService', () {
+    testWidgets('a font-size tap writes only the editor row', (tester) async {
+      await pumpPage(tester);
+      noteBloc.emitContentLoaded(metadata, content);
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      expect(editorOf(tester).editorFontSize, FontConstants.defaultFontSize);
+
+      // Driven through the toolbar's own callback rather than a tap: the
+      // bar's font buttons live behind a horizontal scroll view whose
+      // layout is not what this case is about.
+      tester
+          .widget<MarkdownBar>(find.byType(MarkdownBar, skipOffstage: false))
+          .onIncreaseFontSize();
+      await tester.pump();
+
+      // The editor sees the new size immediately — the controller updates
+      // its value before the (debounced) write.
+      expect(editorOf(tester).editorFontSize, 18.0);
+
+      // Two clocks to get past: the write's debounce timer was started
+      // inside the test's fake clock, and the statement it then issues
+      // completes on drift's background isolate, which only real time
+      // advances.
+      await tester.pump(
+        SettingsService.defaultWriteDebounce + const Duration(milliseconds: 50),
+      );
+      await settle(tester);
+
+      expect(await tester.runAsync(settings.getEditorFontSize), 18.0);
+      // And only that row: zooming the editor must never write the
+      // preview's size (B5's other half — the page used to write both).
+      expect(
+        await tester.runAsync(
+          () => db.userSettingsDao.getValue(SettingsKeys.previewFontSize),
+        ),
+        isNull,
+      );
       await teardownPage(tester);
     });
   });

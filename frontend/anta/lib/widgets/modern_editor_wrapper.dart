@@ -8,13 +8,9 @@ import '../constants/app_constants.dart';
 import '../constants/app_spacing.dart';
 import '../constants/font_constants.dart';
 import '../constants/markdown_constants.dart';
-import '../utils/ghost_text.dart';
+import '../utils/editor_input_policy.dart';
 import '../utils/markdown_color_syntax.dart';
 import '../utils/markdown_editor_span_builder.dart';
-import '../utils/markdown_inline_grammar.dart';
-import '../utils/markdown_list_syntax.dart';
-import '../utils/markdown_list_utils.dart';
-import '../utils/markdown_money_syntax.dart';
 import '../utils/re_editor_search_controller.dart';
 import 'editor_chunk_overlay.dart';
 import 'scroll_progress_indicator.dart';
@@ -135,11 +131,12 @@ class _TapClaim {
 class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
   late final SelectionToolbarController _toolbarController;
 
-  /// Armed by a pointer-up over the editor and consumed by the next
-  /// caret change, so only a *tap* (not arrow-key navigation, which
-  /// fires no pointer event) can engage a ghost. Auto-expires so a
-  /// stale tap can't trigger a much-later keyboard caret move.
-  bool _pendingGhostTapCheck = false;
+  /// The ghost two-tap state machine. Armed by a pointer-up over the
+  /// editor and consumed by the next caret change, so only a *tap* (not
+  /// arrow-key navigation, which fires no pointer event) can engage a
+  /// ghost. The arming auto-expires so a stale tap can't trigger a
+  /// much-later keyboard caret move.
+  final GhostEngagement _ghostEngagement = GhostEngagement();
   Timer? _ghostTapExpiry;
 
   /// Reentrancy guard while we programmatically set the selection to
@@ -166,28 +163,18 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
           // The tap was claimed — it must not double as a ghost-arming
           // tap, or the action's own controller notification could
           // re-activate a ghost the caret already sits in.
-          _pendingGhostTapCheck = false;
+          _ghostEngagement.disarm();
           _ghostTapExpiry?.cancel();
           _consumeTapAction(position)?.call();
           // On desktop the editor's inner Listener dispatches this
           // pointer-up before this widget's outer Listener re-arms the
           // flag, so disarm once more after routing finishes.
           scheduleMicrotask(() {
-            _pendingGhostTapCheck = false;
+            _ghostEngagement.disarm();
             _ghostTapExpiry?.cancel();
           });
         },
       );
-
-  /// The ghost run engaged by the last tap (whole-run selection). A
-  /// second tap on the same, unmodified ghost switches to edit mode:
-  /// the caret stays where the tap put it instead of re-selecting the
-  /// run. Cleared as soon as the selection leaves the run or its line
-  /// changes.
-  int _engagedGhostLine = -1;
-  int _engagedGhostStart = -1;
-  int _engagedGhostEnd = -1;
-  String _engagedGhostText = '';
 
   static const Duration _ghostTapWindow = Duration(milliseconds: 350);
 
@@ -198,6 +185,28 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
     _toolbarController = MobileSelectionToolbarController(
       builder: _buildSelectionToolbar,
     );
+  }
+
+  /// Rebinds to a swapped-in controller: the page may hand the wrapper a
+  /// different document (another note, or a reload) without remounting,
+  /// and a listener left on the old controller would report the wrong
+  /// document's edits. The pending tap claim and the ghost engagement
+  /// both describe the old document, so both are dropped. A swapped
+  /// search controller is unbound here; the new one re-binds itself
+  /// through `findBuilder` on the next build.
+  @override
+  void didUpdateWidget(covariant ModernEditorWrapper oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_onControllerChanged);
+      widget.controller.addListener(_onControllerChanged);
+      _tapClaim = null;
+      _ghostTapExpiry?.cancel();
+      _ghostEngagement.reset();
+    }
+    if (oldWidget.searchController != widget.searchController) {
+      oldWidget.searchController.clearFindController();
+    }
   }
 
   @override
@@ -211,67 +220,46 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
   /// Arms the ghost-tap check. Called from a [Listener] wrapping the
   /// editor, so it fires on every pointer release over the text area.
   void _onEditorPointerUp(PointerUpEvent event) {
-    _pendingGhostTapCheck = true;
+    _ghostEngagement.arm();
     _ghostTapExpiry?.cancel();
-    _ghostTapExpiry = Timer(_ghostTapWindow, () {
-      _pendingGhostTapCheck = false;
-    });
+    _ghostTapExpiry = Timer(_ghostTapWindow, _ghostEngagement.disarm);
   }
 
-  /// When a tap lands the caret strictly inside a ghost run, select the
-  /// whole `{{ … }}` run so it reads as an active "fill-in" field — the
-  /// native selection highlight is the "you tapped it" signal. Typing
-  /// replaces the run (markers included); tapping away simply collapses
-  /// the selection, leaving the placeholder intact, so nothing is ever
-  /// lost. Tapping the same ghost a second time switches to edit mode:
-  /// the caret stays where that tap put it so the inner text can be
-  /// edited in place. The selection is set in a microtask so we never
-  /// reenter the controller from within its own notification.
-  void _maybeActivateTappedGhost() {
-    if (!_pendingGhostTapCheck || _activatingGhost) return;
+  /// Applies [GhostEngagement]'s verdict on the new caret position: the
+  /// whole-run selection is set in a microtask so we never reenter the
+  /// controller from within its own notification, and
+  /// [_activatingGhost] keeps a second activation from starting while
+  /// one is in flight.
+  void _handleGhostCaretChange() {
     final controller = widget.controller;
     final selection = controller.selection;
-    if (!selection.isCollapsed) return;
-    final lineIndex = selection.baseIndex;
-    final lines = controller.codeLines;
-    if (lineIndex < 0 || lineIndex >= lines.length) return;
-    final lineText = lines[lineIndex].text;
-    if (!GhostText.mightContain(lineText)) return;
-    final ghost = GhostText.ghostAtOffset(lineText, selection.baseOffset);
-    if (ghost == null) return;
-
-    if (lineIndex == _engagedGhostLine &&
-        lineText == _engagedGhostText &&
-        ghost.start == _engagedGhostStart &&
-        ghost.end == _engagedGhostEnd) {
-      // Second tap on the engaged ghost: leave the collapsed caret in
-      // place for editing.
-      _pendingGhostTapCheck = false;
-      _ghostTapExpiry?.cancel();
-      _clearEngagedGhost();
-      return;
-    }
-    _engagedGhostLine = lineIndex;
-    _engagedGhostStart = ghost.start;
-    _engagedGhostEnd = ghost.end;
-    _engagedGhostText = lineText;
-
-    _pendingGhostTapCheck = false;
-    _ghostTapExpiry?.cancel();
-    _activatingGhost = true;
-    scheduleMicrotask(() {
-      if (!mounted) {
-        _activatingGhost = false;
+    final decision = _ghostEngagement.caretChanged(
+      selection: selection,
+      lineText: _lineTextAt(selection.baseIndex),
+    );
+    switch (decision) {
+      case GhostNone():
         return;
-      }
-      controller.selection = CodeLineSelection(
-        baseIndex: lineIndex,
-        baseOffset: ghost.start,
-        extentIndex: lineIndex,
-        extentOffset: ghost.end,
-      );
-      _activatingGhost = false;
-    });
+      case GhostEditInPlace():
+        _ghostTapExpiry?.cancel();
+      case GhostSelectRun(:final lineIndex, :final start, :final end):
+        _ghostTapExpiry?.cancel();
+        if (_activatingGhost) return;
+        _activatingGhost = true;
+        scheduleMicrotask(() {
+          if (!mounted) {
+            _activatingGhost = false;
+            return;
+          }
+          controller.selection = CodeLineSelection(
+            baseIndex: lineIndex,
+            baseOffset: start,
+            extentIndex: lineIndex,
+            extentOffset: end,
+          );
+          _activatingGhost = false;
+        });
+    }
   }
 
   Widget _buildSelectionToolbar({
@@ -328,8 +316,7 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
 
   void _onControllerChanged() {
     widget.onTextChanged();
-    _maybeActivateTappedGhost();
-    _maybeClearEngagedGhost();
+    _handleGhostCaretChange();
   }
 
   /// Resolves the action for a tap-down and memoizes it as the pending
@@ -385,93 +372,49 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
   /// engagement rides the selection change (ghosts win).
   VoidCallback? _resolveTapAction(CodeLinePosition position) {
     ModernEditorWrapper.debugTapResolveCount++;
-    final controller = widget.controller;
-    final lines = controller.codeLines;
     final lineIndex = position.index;
-    if (lineIndex < 0 || lineIndex >= lines.length) return null;
-    if (MarkdownEditorSpanBuilder.selectionCoversLine(
-      controller.selection,
-      lineIndex,
-    )) {
-      return null;
-    }
-    if (widget.isFenceLine?.call(lineIndex) ?? false) return null;
-    final text = lines[lineIndex].text;
-    // Overlong lines render raw (the builder's length guard), so their
-    // constructs are visible markdown and taps mean editing.
-    if (text.length > MarkdownEditorSpanBuilder.maxStyledLineLength) {
-      return null;
-    }
-    final offset = position.offset;
-    // Hit-testing clamps taps in blank space (right of the text, or
-    // below the last line) to the line-end offset — those always mean
-    // caret placement, never an action.
-    if (offset >= text.length) return null;
-    if (GhostText.mightContain(text) &&
-        GhostText.ghostAtOffset(text, offset) != null) {
-      return null;
-    }
-    if (widget.checkboxTapToggle) {
-      final item = MarkdownListSyntax.parse(text);
-      // The toggle zone starts at the list marker, not the bracket, so
-      // fat-finger taps just left of the box still toggle; everything
-      // left of the marker is indent and keeps caret placement, and the
-      // content right of the box stays editable.
-      if (item != null &&
-          item.kind == MarkdownListKind.task &&
-          offset >= item.indent.length &&
-          offset <= item.bracketStart + 3) {
-        return () => _toggleTaskLine(lineIndex);
-      }
-    }
     final onOpenLink = widget.onOpenLink;
-    if (onOpenLink != null) {
-      final url = _linkUrlAt(text, offset);
-      if (url != null) {
-        // Tactile confirmation — the caret and keyboard intentionally
-        // don't react to an intercepted tap.
-        return () {
-          HapticFeedback.selectionClick();
-          onOpenLink(url);
-        };
-      }
-    }
     final onMoneyTap = widget.onMoneyTap;
-    if (onMoneyTap != null && MarkdownMoneySyntax.leadsWithMoney(text)) {
-      final money = MarkdownMoneySyntax.parse(text);
-      // Only a display row's painted chip (`$$` / `$?` / bare `$!` /
-      // `$^` / `$~` — the shared [MarkdownMoneySyntax.isDisplayKind]
-      // grouping) is a zone: from the marker up to the amount range
-      // (the chip is wider than its two source chars, so the spaces and
-      // any concealed accent token ride along); heading hashes,
-      // `$^`/`$~` count digits, label text, op lines, and `$! N`
-      // declarations stay editable. When a value slot moved the chip
-      // into the label, its single `$` is a zone too — the marker keeps
-      // its own (it still renders the kind's glyph there), so both the
-      // glyph and the value open the sheet while the label around them
-      // stays editable. Exactly the slot offset, never the space beside
-      // it.
-      if (money != null &&
-          MarkdownMoneySyntax.isDisplayKind(money.kind) &&
-          ((offset >= money.markerStart && offset < money.amountStart) ||
-              (money.valueSlot >= 0 && offset == money.valueSlot))) {
-        return () {
-          HapticFeedback.selectionClick();
-          onMoneyTap(lineIndex);
-        };
-      }
-    }
     final onOpenTag = widget.onOpenTag;
-    if (onOpenTag != null) {
-      final tag = _tagAt(text, offset);
-      if (tag != null) {
-        return () {
-          HapticFeedback.selectionClick();
-          onOpenTag(tag);
-        };
-      }
-    }
-    return null;
+    final action = EditorInputPolicy.resolveTap(
+      lineText: _lineTextAt(lineIndex),
+      lineIndex: lineIndex,
+      offset: position.offset,
+      lineRevealed: MarkdownEditorSpanBuilder.selectionCoversLine(
+        widget.controller.selection,
+        lineIndex,
+      ),
+      inFence: widget.isFenceLine?.call(lineIndex) ?? false,
+      zones: EditorTapZones(
+        checkbox: widget.checkboxTapToggle,
+        links: onOpenLink != null,
+        money: onMoneyTap != null,
+        tags: onOpenTag != null,
+        palette: widget.colorPalette,
+      ),
+    );
+    // The toggle's haptic rides in [_toggleTaskLine], beside the edit it
+    // confirms; the three openers confirm here. Either way the tactile
+    // click is the only feedback an intercepted tap gives — the caret and
+    // the keyboard intentionally don't react.
+    return switch (action) {
+      null => null,
+      EditorToggleTaskAction(:final lineIndex) => () => _toggleTaskLine(
+        lineIndex,
+      ),
+      EditorOpenLinkAction(:final url) => () {
+        HapticFeedback.selectionClick();
+        onOpenLink?.call(url);
+      },
+      EditorOpenMoneyAction(:final lineIndex) => () {
+        HapticFeedback.selectionClick();
+        onMoneyTap?.call(lineIndex);
+      },
+      EditorOpenTagAction(:final tag) => () {
+        HapticFeedback.selectionClick();
+        onOpenTag?.call(tag);
+      },
+    };
   }
 
   /// Flips the task checkbox on [lineIndex] as one atomic, undoable
@@ -481,17 +424,9 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
     final controller = widget.controller;
     final lines = controller.codeLines;
     if (lineIndex >= lines.length) return;
-    final lineText = lines[lineIndex].text;
-    final current = MarkdownListSyntax.parse(lineText);
-    if (current == null || current.kind != MarkdownListKind.task) return;
-    // Tactile confirmation — the caret and keyboard intentionally
-    // don't react to an intercepted tap.
+    final toggled = EditorInputPolicy.toggledTaskLine(lines[lineIndex].text);
+    if (toggled == null) return;
     HapticFeedback.lightImpact();
-    final toggled = lineText.replaceRange(
-      current.bracketStart + 1,
-      current.bracketStart + 2,
-      current.checked ? ' ' : 'x',
-    );
     controller.runRevocableOp(() {
       controller.value = CodeLineEditingValue(
         codeLines: lines.replaceLine(
@@ -501,66 +436,6 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
         selection: controller.selection,
       );
     });
-  }
-
-  /// The url of the `[text](url)` link covering [offset] in [text], or
-  /// null. The zone is exactly the construct the editor renders as a
-  /// link, resolved through [MarkdownInlineGrammar] — the one inline
-  /// grammar both surfaces consume — at any nesting depth, so emphasis,
-  /// colour runs, inline code, escapes, images and ghosts all decide the
-  /// zone the same way they decide the paint. The construct's outermost
-  /// boundary offsets are excluded, so taps that resolve to the edges
-  /// (including clamped taps in blank space) still place the caret.
-  String? _linkUrlAt(String text, int offset) => MarkdownInlineGrammar.linkAt(
-    text,
-    offset,
-    palette: widget.colorPalette,
-  )?.urlOf(text);
-
-  /// The `#tag` (leading `#` kept, as the preview's recognizer passes
-  /// it) covering [offset] in [text], or null. Like the link zone, it is
-  /// exactly the construct the editor renders as a tag, resolved through
-  /// [MarkdownInlineGrammar] at any nesting depth — so a tag inside
-  /// emphasis or a colour run is tappable while heading hashes, `#3`,
-  /// and tags inside code spans, escapes or ghost runs are not. Tags
-  /// conceal and substitute nothing, so the tapped offset maps 1:1 onto
-  /// source code units; the construct's outermost boundary offsets are
-  /// excluded so taps that resolve to an edge still place the caret.
-  String? _tagAt(String text, int offset) => MarkdownInlineGrammar.tagAt(
-    text,
-    offset,
-    palette: widget.colorPalette,
-  )?.tagOf(text);
-
-  /// Drops the engaged-ghost state once the selection leaves the run or
-  /// its line's text changes, so a much-later tap on the same ghost
-  /// starts fresh in replace mode instead of edit mode.
-  void _maybeClearEngagedGhost() {
-    if (_engagedGhostLine < 0) return;
-    final controller = widget.controller;
-    final selection = controller.selection;
-    final lines = controller.codeLines;
-    if (selection.baseIndex != _engagedGhostLine ||
-        selection.extentIndex != _engagedGhostLine ||
-        _engagedGhostLine >= lines.length ||
-        lines[_engagedGhostLine].text != _engagedGhostText) {
-      _clearEngagedGhost();
-      return;
-    }
-    final base = selection.baseOffset;
-    final extent = selection.extentOffset;
-    final lo = base < extent ? base : extent;
-    final hi = base < extent ? extent : base;
-    if (lo < _engagedGhostStart || hi > _engagedGhostEnd) {
-      _clearEngagedGhost();
-    }
-  }
-
-  void _clearEngagedGhost() {
-    _engagedGhostLine = -1;
-    _engagedGhostStart = -1;
-    _engagedGhostEnd = -1;
-    _engagedGhostText = '';
   }
 
   /// Overrides re_editor's Tab / Shift-Tab so that, when the caret sits on
@@ -603,32 +478,22 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
     final lineIndex = selection.extentIndex;
     final lines = controller.codeLines;
     if (lineIndex < 0 || lineIndex >= lines.length) return false;
-    final lineText = lines[lineIndex].text;
-    if (!MarkdownListUtils.isListLine(lineText)) return false;
+    final indent = EditorInputPolicy.listIndent(
+      lineText: lines[lineIndex].text,
+      outdent: outdent,
+    );
+    if (indent == null) return false;
+    // Already at column 0 — consume the key but do nothing.
+    if (indent.delta == 0) return true;
 
-    const unit = '  '; // MarkdownListUtils.indentUnit spaces
-    final String newText;
-    final int delta;
-    if (outdent) {
-      if (lineText.startsWith(unit)) {
-        newText = lineText.substring(2);
-        delta = -2;
-      } else if (lineText.startsWith(' ') || lineText.startsWith('\t')) {
-        newText = lineText.substring(1);
-        delta = -1;
-      } else {
-        // Already at column 0 — consume the key but do nothing.
-        return true;
-      }
-    } else {
-      newText = '$unit$lineText';
-      delta = 2;
-    }
-
+    final newText = indent.text;
     // Keep the caret on the same content character (never at offset 0,
     // which would make the page's Enter-continuation logic misfire).
-    final baseOffset = (selection.baseOffset + delta).clamp(0, newText.length);
-    final extentOffset = (selection.extentOffset + delta).clamp(
+    final baseOffset = (selection.baseOffset + indent.delta).clamp(
+      0,
+      newText.length,
+    );
+    final extentOffset = (selection.extentOffset + indent.delta).clamp(
       0,
       newText.length,
     );
@@ -769,7 +634,7 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
         scrollbarBuilder: (context, child, details) => child,
         findBuilder: (context, controller, readOnly) {
           widget.searchController.setFindController(controller);
-          return _HiddenFindPanel(controller: controller);
+          return const _HiddenFindPanel();
         },
       ),
     );
@@ -779,10 +644,12 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
 /// A hidden find panel widget that implements PreferredSizeWidget.
 /// This allows us to use re_editor's native search highlighting
 /// while using our own NoteSearchBar UI for the search interface.
+///
+/// The fork hands the `findBuilder` a [CodeFindController]; the search UI
+/// lives in the page's own `NoteSearchBar`, which the builder wires up
+/// before returning, so this panel needs nothing from it.
 class _HiddenFindPanel extends StatelessWidget implements PreferredSizeWidget {
-  final CodeFindController? controller;
-
-  const _HiddenFindPanel({required this.controller});
+  const _HiddenFindPanel();
 
   @override
   Size get preferredSize => Size.zero;

@@ -91,11 +91,10 @@ class MarkdownPreviewBloc
     on<PreviewThemeChanged>(_onThemeChanged);
   }
 
-  /// The scroll controller owned by this bloc. Pass
-  /// `controller.viewKey` as the `key:` of the underlying
-  /// [SourceMappedMarkdownView] (the bloc-view wrapper does this
-  /// automatically) so all imperative scroll calls resolve to the
-  /// live state.
+  /// The scroll controller owned by this bloc. The bloc-view wrapper
+  /// binds the underlying [SourceMappedMarkdownView]'s key into it on
+  /// mount (reusing an already-bound key across remounts), so all
+  /// imperative scroll calls resolve to the live state.
   PreviewScrollController get scrollController => _scrollController;
 
   /// Convenience: the same [ValueNotifier] used by
