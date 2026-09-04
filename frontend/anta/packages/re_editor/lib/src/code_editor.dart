@@ -584,6 +584,9 @@ class _CodeEditorState extends State<CodeEditor> {
       endHandleLayerLink: _endHandleLayerLink,
       toolbarLayerLink: _toolbarLayerLink,
       selectionOverlayController: _selectionOverlayController,
+      onSemanticsTap: _handleSemanticsTap,
+      onSemanticsDidGainAccessibilityFocus:
+          _handleSemanticsDidGainAccessibilityFocus,
     );
     final Widget detector = _CodeSelectionGestureDetector(
         controller: _editingController,
@@ -690,6 +693,33 @@ class _CodeEditorState extends State<CodeEditor> {
 
   void _updateWidget() {
     setState(() {});
+  }
+
+  void _handleSemanticsTap() {
+    if (!_isSelectionWithinDocument(_editingController.selection)) {
+      _editingController.selection =
+          const CodeLineSelection.collapsed(index: 0, offset: 0);
+    }
+    _inputController.ensureInput();
+  }
+
+  void _handleSemanticsDidGainAccessibilityFocus() {
+    if (_focusNode.hasFocus || !_focusNode.canRequestFocus) {
+      return;
+    }
+    _focusNode.requestFocus();
+    _focusNode.consumeKeyboardToken();
+  }
+
+  bool _isSelectionWithinDocument(CodeLineSelection selection) {
+    final CodeLines codeLines = _editingController.codeLines;
+    bool within(int index, int offset) =>
+        index >= 0 &&
+        index < codeLines.length &&
+        offset >= 0 &&
+        offset <= codeLines[index].text.length;
+    return within(selection.baseIndex, selection.baseOffset) &&
+        within(selection.extentIndex, selection.extentOffset);
   }
 }
 

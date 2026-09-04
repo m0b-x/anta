@@ -27,6 +27,8 @@ class _CodeField extends SingleChildRenderObjectWidget {
   final int? maxLengthSingleLineRendering;
   final LayerLink startHandleLayerLink;
   final LayerLink endHandleLayerLink;
+  final VoidCallback onSemanticsTap;
+  final VoidCallback onSemanticsDidGainAccessibilityFocus;
 
   _CodeField({
     super.key,
@@ -56,6 +58,8 @@ class _CodeField extends SingleChildRenderObjectWidget {
     this.maxLengthSingleLineRendering,
     required this.startHandleLayerLink,
     required this.endHandleLayerLink,
+    required this.onSemanticsTap,
+    required this.onSemanticsDidGainAccessibilityFocus,
   })  : assert(codes.isNotEmpty),
         floatingCursorColor = floatingCursorColor ?? cursorColor,
         floatingCursorWidth = floatingCursorWidth ?? cursorWidth;
@@ -88,6 +92,9 @@ class _CodeField extends SingleChildRenderObjectWidget {
         maxLengthSingleLineRendering: maxLengthSingleLineRendering,
         startHandleLayerLink: startHandleLayerLink,
         endHandleLayerLink: endHandleLayerLink,
+        onSemanticsTap: onSemanticsTap,
+        onSemanticsDidGainAccessibilityFocus:
+            onSemanticsDidGainAccessibilityFocus,
       );
 
   @override
@@ -119,7 +126,10 @@ class _CodeField extends SingleChildRenderObjectWidget {
       ..readOnly = readOnly
       ..maxLengthSingleLineRendering = maxLengthSingleLineRendering
       ..startHandleLayerLink = startHandleLayerLink
-      ..endHandleLayerLink = endHandleLayerLink;
+      ..endHandleLayerLink = endHandleLayerLink
+      ..onSemanticsTap = onSemanticsTap
+      ..onSemanticsDidGainAccessibilityFocus =
+          onSemanticsDidGainAccessibilityFocus;
   }
 }
 
@@ -142,6 +152,8 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
   bool _readOnly;
   int? _maxLengthSingleLineRendering;
   Color? _chunkIndicatorColor;
+  VoidCallback _onSemanticsTap;
+  VoidCallback _onSemanticsDidGainAccessibilityFocus;
 
   double? _horizontalViewportSize;
   double? _verticalViewportSize;
@@ -182,6 +194,8 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     int? maxLengthSingleLineRendering,
     required LayerLink startHandleLayerLink,
     required LayerLink endHandleLayerLink,
+    required VoidCallback onSemanticsTap,
+    required VoidCallback onSemanticsDidGainAccessibilityFocus,
   })  : _verticalViewport = verticalViewport,
         _horizontalViewport = horizontalViewport,
         _verticalScrollbarWidth = verticalScrollbarWidth,
@@ -203,7 +217,10 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
         _chunkIndicators = [],
         _cursor = SystemMouseCursors.text,
         _startHandleLayerLink = startHandleLayerLink,
-        _endHandleLayerLink = endHandleLayerLink {
+        _endHandleLayerLink = endHandleLayerLink,
+        _onSemanticsTap = onSemanticsTap,
+        _onSemanticsDidGainAccessibilityFocus =
+            onSemanticsDidGainAccessibilityFocus {
     _backgroundRender = _CodeFieldExtraRender(painters: [
       _CodeCursorLinePainter(cursorLineColor, _selection),
       _CodeFieldSelectionPainter(selectionColor, _selection),
@@ -546,6 +563,22 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     markNeedsLayout();
   }
 
+  set onSemanticsTap(VoidCallback value) {
+    if (_onSemanticsTap == value) {
+      return;
+    }
+    _onSemanticsTap = value;
+    markNeedsSemanticsUpdate();
+  }
+
+  set onSemanticsDidGainAccessibilityFocus(VoidCallback value) {
+    if (_onSemanticsDidGainAccessibilityFocus == value) {
+      return;
+    }
+    _onSemanticsDidGainAccessibilityFocus = value;
+    markNeedsSemanticsUpdate();
+  }
+
   /// The editor paints raw ui.Paragraphs and otherwise contributes no
   /// semantics at all, so without this the whole document is invisible
   /// to screen readers. Announce it as a (multiline) text field whose
@@ -567,7 +600,9 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
       // render is LTR-only (padding/offsets resolve TextDirection.ltr
       // throughout), so announce the same.
       ..textDirection = TextDirection.ltr
-      ..value = _visibleWindowText();
+      ..value = _visibleWindowText()
+      ..onTap = _onSemanticsTap
+      ..onDidGainAccessibilityFocus = _onSemanticsDidGainAccessibilityFocus;
   }
 
   String _visibleWindowText() {
