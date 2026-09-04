@@ -3,9 +3,8 @@
 **Status: Sessions 0–6, 7a and 7b DONE (§3). Sessions 0–1 are committed as
 `38c7b50`, Session 2 and its same-day follow-up as `c716225`, Session 3 as
 `a183f11`, Session 4 as `1ed4a60`, Session 5 as `4cad6ec`, Session 6 as
-`b5fcdbd`, Session 7a's sync as `fcfe704` (its format-only and
-ownership-rule commits are still pending), Session 7b as "Session 7b of
-the live editor roadmap" (2026-09-04). Session 7 was re-sized against the
+`b5fcdbd`, Session 7a as `fcfe704` (sync) + `72401b8` (format) + the
+ownership-rule commit after it, Session 7b as `d9621bb`. Session 7 was re-sized against the
 code and split into 7a/7b/7c on 2026-09-04; Sessions 7c, 8–9 and 11
 PLANNED, not implemented; Session 10 DROPPED (decision 4). All six §2
 decisions are taken (6, fork ownership, added 2026-09-04).** Baseline commit `bf2e7ba`
@@ -1525,8 +1524,14 @@ Fork pubspec untouched (0.8.0). What landed, item by item:
    fall-through); `clearCache()` and a `maxWidth` change ⇒ a new instance.
    Zero production change.
 
-Not done here, by scope: work item 5 (the format-only commit and the
-ownership-rule commit) — next, as its own two commits.
+Work item 5 followed on 2026-09-05 as its own two commits: `72401b8`
+(format-only — **two lines**, not 32 files: the plan's "32 of 37 reflow"
+was measured on pubspec-less copies, which the formatter treats as the
+newest language version and reflows in the tall style; under the fork's
+own `>=2.17.3` SDK floor `dart format` uses the short style and the tree
+was already clean apart from the two cherry-picked `4f3cb30` lines) and
+the ownership-rule commit that follows it (CLAUDE.md fork bullet,
+COPILOT_CONTEXT fork-notes bullet, the markdown-engine skill sentence).
 
 Deviations from the plan: four picks, not five (`10fdbc1`); three
 recursive sites, not four; item 2 covered the whole file rather than the

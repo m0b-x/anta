@@ -72,7 +72,7 @@ Page/Widget -> BLoC -> Service -> Repository -> DAO -> Drift (SQLite)
 - **DAOs** (`lib/database/daos/`) own all SQL, transactions, soft deletes, FTS, migrations.
 - **DI** is `get_it`, configured in `lib/core/di/injection.dart`; `main.dart` calls `configureDependencies()` then registers app-wide BLoCs.
 - **Constants** live in `lib/constants/` (spacing, text styles, icon sizes, colors, JSON keys, settings keys) — never magic values.
-- **`packages/re_editor/`** is a local, perf-tuned fork of the editor. Treat it as part of the workspace for bug/perf fixes, but avoid API-breaking changes and preserve the optimizations listed in COPILOT_CONTEXT.md ("Generated And Local Package Notes").
+- **`packages/re_editor/`** is a local, perf-tuned fork of the editor, **owned** since the Session 7a upstream sync (2026-09-04): its API is whatever the app needs, so add, rename or remove fork members when a feature calls for it, and treat it as part of the workspace for bug/perf fixes. Upstream is watched, not tracked (last evaluated commit `28d9fc0`; cherry-picks are one-off decisions recorded in `docs/re-editor-performance-2026-07.md`). Preserve the optimizations listed in COPILOT_CONTEXT.md ("Generated And Local Package Notes").
 
 The two pages that carry most of the app are [optimized_folder_content_page.dart](lib/pages/optimized_folder_content_page.dart) (browser) and [optimized_note_editor_page.dart](lib/pages/optimized_note_editor_page.dart) (editor: re_editor + toolbar + preview/split + auto-save + search).
 
