@@ -61,6 +61,35 @@ final class EditorOpenTagAction extends EditorTapAction {
   List<Object?> get props => [tag];
 }
 
+/// One tap zone on a line: the half-open offset range `[start, end)`
+/// whose every offset resolves to [action] through
+/// [EditorInputPolicy.resolveTap].
+///
+/// Ranges are what a screen reader needs and a single offset is not: a
+/// semantics child node per zone needs the zone's extent to size its
+/// rect. One zone per construct — two adjacent links are two zones, and
+/// a construct a ghost run or a higher-precedence zone cuts in two is
+/// two zones as well, because both halves are separately reachable.
+class EditorTapZone extends Equatable {
+  const EditorTapZone({
+    required this.start,
+    required this.end,
+    required this.action,
+  });
+
+  /// First offset of the zone.
+  final int start;
+
+  /// One past the zone's last offset.
+  final int end;
+
+  /// What a tap anywhere in `[start, end)` does.
+  final EditorTapAction action;
+
+  @override
+  List<Object?> get props => [start, end, action];
+}
+
 /// Which tap zones the host enabled — the wrapper's `checkboxTapToggle`
 /// flag and its three nullable callbacks — plus the palette the span
 /// builder renders with, so a zone resolves nested `{name:…}` runs
@@ -201,6 +230,163 @@ class EditorInputPolicy {
     return null;
   }
 
+  /// Every tap zone on [lineIndex], sorted by [EditorTapZone.start] and
+  /// non-overlapping — the range-enumerating sibling of [resolveTap],
+  /// for the accessibility layer, which cannot probe offsets and needs
+  /// one child node per reachable zone.
+  ///
+  /// The two agree by construction: for every offset in
+  /// `[0, lineText.length)`, [resolveTap] answers non-`null` exactly
+  /// when some returned range contains that offset, and with that
+  /// range's [EditorTapZone.action]. Every pass-through rule holds
+  /// identically — a `null`, revealed, fenced or over-long line
+  /// enumerates nothing, and ghost runs are cut out of every zone, so a
+  /// construct straddling one is reported as the two halves that are
+  /// actually tappable.
+  ///
+  /// The constructs come from the same grammars [resolveTap] reads;
+  /// precedence — checkbox, link, money, tag, and outermost before
+  /// nested within each — is resolved by claiming offsets in that order,
+  /// so a zone nested in an earlier one is simply never reported.
+  static List<EditorTapZone> zonesOf({
+    required String? lineText,
+    required int lineIndex,
+    required bool lineRevealed,
+    required bool inFence,
+    required EditorTapZones zones,
+  }) {
+    if (lineText == null) return const [];
+    if (lineRevealed) return const [];
+    if (inFence) return const [];
+    final int length = lineText.length;
+    if (length == 0) return const [];
+    if (length > MarkdownEditorSpanBuilder.maxStyledLineLength) {
+      return const [];
+    }
+
+    final List<_ZoneCandidate> candidates = <_ZoneCandidate>[];
+    if (zones.checkbox) {
+      final item = MarkdownListSyntax.parse(lineText);
+      if (item != null && item.kind == MarkdownListKind.task) {
+        _addCandidate(
+          candidates,
+          item.indent.length,
+          item.bracketStart + 4,
+          EditorToggleTaskAction(lineIndex),
+          length,
+        );
+      }
+    }
+
+    final List<InlineToken> inline = zones.links || zones.tags
+        ? MarkdownInlineGrammar.linksAndTags(lineText, palette: zones.palette)
+        : const <InlineToken>[];
+
+    if (zones.links) {
+      for (final InlineToken token in inline) {
+        if (token is InlineLink) {
+          _addCandidate(
+            candidates,
+            token.start + 1,
+            token.end,
+            EditorOpenLinkAction(token.urlOf(lineText)),
+            length,
+          );
+        }
+      }
+    }
+
+    if (zones.money && MarkdownMoneySyntax.leadsWithMoney(lineText)) {
+      final money = MarkdownMoneySyntax.parse(lineText);
+      if (money != null && MarkdownMoneySyntax.isDisplayKind(money.kind)) {
+        final action = EditorOpenMoneyAction(lineIndex);
+        _addCandidate(
+          candidates,
+          money.markerStart,
+          money.amountStart,
+          action,
+          length,
+        );
+        if (money.valueSlot >= 0) {
+          _addCandidate(
+            candidates,
+            money.valueSlot,
+            money.valueSlot + 1,
+            action,
+            length,
+          );
+        }
+      }
+    }
+
+    if (zones.tags) {
+      for (final InlineToken token in inline) {
+        if (token is InlineTag) {
+          _addCandidate(
+            candidates,
+            token.start + 1,
+            token.end,
+            EditorOpenTagAction(token.tagOf(lineText)),
+            length,
+          );
+        }
+      }
+    }
+
+    if (candidates.isEmpty) return const [];
+
+    final List<int> owner = List<int>.filled(length, -1);
+    for (int i = 0; i < candidates.length; i++) {
+      final _ZoneCandidate candidate = candidates[i];
+      for (int o = candidate.start; o < candidate.end; o++) {
+        if (owner[o] < 0) owner[o] = i;
+      }
+    }
+    if (GhostText.mightContain(lineText)) {
+      for (final GhostMatch ghost in GhostText.findGhosts(lineText)) {
+        final int stop = ghost.end < length ? ghost.end : length;
+        for (int o = ghost.start + 1; o < stop; o++) {
+          owner[o] = -1;
+        }
+      }
+    }
+
+    final List<EditorTapZone> result = <EditorTapZone>[];
+    int offset = 0;
+    while (offset < length) {
+      final int claim = owner[offset];
+      if (claim < 0) {
+        offset++;
+        continue;
+      }
+      int end = offset + 1;
+      while (end < length && owner[end] == claim) {
+        end++;
+      }
+      result.add(
+        EditorTapZone(
+          start: offset,
+          end: end,
+          action: candidates[claim].action,
+        ),
+      );
+      offset = end;
+    }
+    return result;
+  }
+
+  static void _addCandidate(
+    List<_ZoneCandidate> candidates,
+    int start,
+    int end,
+    EditorTapAction action,
+    int length,
+  ) {
+    final int lo = start < 0 ? 0 : start;
+    final int hi = end > length ? length : end;
+    if (lo < hi) candidates.add(_ZoneCandidate(lo, hi, action));
+  }
+
   /// [lineText] with its task box flipped, or `null` when it is not a
   /// task item. The rest of the line is untouched, so the caller can
   /// apply it as a single-line replacement.
@@ -233,6 +419,14 @@ class EditorInputPolicy {
     }
     return EditorListIndent(lineText, 0);
   }
+}
+
+class _ZoneCandidate {
+  const _ZoneCandidate(this.start, this.end, this.action);
+
+  final int start;
+  final int end;
+  final EditorTapAction action;
 }
 
 /// What the editor should do about the ghost run under the caret after a

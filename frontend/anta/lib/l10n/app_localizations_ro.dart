@@ -4569,4 +4569,16 @@ class AppLocalizationsRo extends AppLocalizations {
     );
     return '$_temp0';
   }
+
+  @override
+  String get editorZoneToggleTask => 'Comută sarcina';
+
+  @override
+  String get editorZoneOpenLink => 'Deschide linkul';
+
+  @override
+  String get editorZoneOpenMoney => 'Deschide detaliile registrului';
+
+  @override
+  String get editorZoneSearchTag => 'Caută eticheta';
 }

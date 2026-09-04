@@ -7875,6 +7875,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{count, plural, one {1 missed} other {{count} missed}}'**
   String dayListMissedCount(int count);
+
+  /// Accessibility label of the editor tap zone over a task list checkbox
+  ///
+  /// In en, this message translates to:
+  /// **'Toggle task'**
+  String get editorZoneToggleTask;
+
+  /// Accessibility label of the editor tap zone over a markdown link
+  ///
+  /// In en, this message translates to:
+  /// **'Open link'**
+  String get editorZoneOpenLink;
+
+  /// Accessibility label of the editor tap zone over a money row's chip
+  ///
+  /// In en, this message translates to:
+  /// **'Open ledger details'**
+  String get editorZoneOpenMoney;
+
+  /// Accessibility label of the editor tap zone over a #tag
+  ///
+  /// In en, this message translates to:
+  /// **'Search tag'**
+  String get editorZoneSearchTag;
 }
 
 class _AppLocalizationsDelegate

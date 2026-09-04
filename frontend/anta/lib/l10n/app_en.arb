@@ -5734,5 +5734,21 @@
         "type": "int"
       }
     }
+  },
+  "editorZoneToggleTask": "Toggle task",
+  "@editorZoneToggleTask": {
+    "description": "Accessibility label of the editor tap zone over a task list checkbox"
+  },
+  "editorZoneOpenLink": "Open link",
+  "@editorZoneOpenLink": {
+    "description": "Accessibility label of the editor tap zone over a markdown link"
+  },
+  "editorZoneOpenMoney": "Open ledger details",
+  "@editorZoneOpenMoney": {
+    "description": "Accessibility label of the editor tap zone over a money row's chip"
+  },
+  "editorZoneSearchTag": "Search tag",
+  "@editorZoneSearchTag": {
+    "description": "Accessibility label of the editor tap zone over a #tag"
   }
 }

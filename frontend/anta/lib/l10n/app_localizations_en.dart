@@ -4499,4 +4499,16 @@ class AppLocalizationsEn extends AppLocalizations {
     );
     return '$_temp0';
   }
+
+  @override
+  String get editorZoneToggleTask => 'Toggle task';
+
+  @override
+  String get editorZoneOpenLink => 'Open link';
+
+  @override
+  String get editorZoneOpenMoney => 'Open ledger details';
+
+  @override
+  String get editorZoneSearchTag => 'Search tag';
 }

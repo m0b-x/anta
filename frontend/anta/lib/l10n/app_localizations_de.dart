@@ -4533,4 +4533,16 @@ class AppLocalizationsDe extends AppLocalizations {
     );
     return '$_temp0';
   }
+
+  @override
+  String get editorZoneToggleTask => 'Aufgabe umschalten';
+
+  @override
+  String get editorZoneOpenLink => 'Link öffnen';
+
+  @override
+  String get editorZoneOpenMoney => 'Kontodetails öffnen';
+
+  @override
+  String get editorZoneSearchTag => 'Tag suchen';
 }

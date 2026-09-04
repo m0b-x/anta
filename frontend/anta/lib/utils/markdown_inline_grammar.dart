@@ -284,6 +284,31 @@ class MarkdownInlineGrammar {
     return found is InlineTag ? found : null;
   }
 
+  /// Every `[text](url)` link and every `#tag` [tokenize] renders in
+  /// [text], at any nesting depth — the whole-line form of [linkAt] and
+  /// [tagAt], for callers that need the constructs themselves instead of
+  /// the one under a single offset. It is the same depth-first walk over
+  /// the same tokenizer, collecting instead of stopping, so the two
+  /// forms can never disagree.
+  ///
+  /// Outermost first, siblings in source order, so a run nested in an
+  /// earlier token follows it: an image is not a link but its text is
+  /// still descended into, and a link's text is descended into as well,
+  /// so a tag inside either is reported after the token that covers it
+  /// and the caller applies its own precedence.
+  static List<InlineToken> linksAndTags(
+    String text, {
+    required MarkdownColorPalette palette,
+  }) {
+    if (text.isEmpty) return const [];
+    final List<GhostMatch> ghosts = GhostText.mightContain(text)
+        ? GhostText.findGhosts(text)
+        : const <GhostMatch>[];
+    final List<InlineToken> found = <InlineToken>[];
+    _collect(text, 0, text.length, ghosts, palette, 0, found);
+    return found;
+  }
+
   /// Whether `[start, end)` holds a code unit that can open any token —
   /// `* ~ ` _ = # [ \ {` or a bare-URL scheme lead (`ht`, `ww`; a lone
   /// `h`/`w` would defeat the check on every prose line). The one-pass
@@ -671,6 +696,63 @@ class MarkdownInlineGrammar {
       return null;
     }
     return null;
+  }
+
+  /// Depth-first collection of every link and tag in `[start, end)`.
+  static void _collect(
+    String text,
+    int start,
+    int end,
+    List<GhostMatch> ghosts,
+    MarkdownColorPalette palette,
+    int depth,
+    List<InlineToken> out,
+  ) {
+    final List<InlineToken> tokens = tokenize(
+      text,
+      start: start,
+      end: end,
+      ghosts: ghosts,
+      palette: palette,
+      depth: depth,
+    );
+    for (int i = 0; i < tokens.length; i++) {
+      final InlineToken token = tokens[i];
+      if (token is InlineTag) {
+        out.add(token);
+      } else if (token is InlineLink) {
+        if (!token.isImage) out.add(token);
+        _collect(
+          text,
+          token.textStart,
+          token.textEnd,
+          ghosts,
+          palette,
+          depth + 1,
+          out,
+        );
+      } else if (token is InlineEmphasis) {
+        _collect(
+          text,
+          token.contentStart,
+          token.innerEnd,
+          ghosts,
+          palette,
+          depth + 1,
+          out,
+        );
+      } else if (token is InlineColor) {
+        _collect(
+          text,
+          token.innerStart,
+          token.innerEnd,
+          ghosts,
+          palette,
+          depth + 1,
+          out,
+        );
+      }
+    }
   }
 
   static InlineToken? _descend(

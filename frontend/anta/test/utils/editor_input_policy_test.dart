@@ -25,312 +25,326 @@ void main() {
   /// A `{{ … }}` ghost run at `[4, 14)`.
   const ghostLine = 'see {{ name }} now';
 
+  /// A link at `[2, 32)` whose text holds a `{{ … }}` ghost at `[6, 13)`.
+  const ghostInLinkLine = 'a [do {{ x }} cs](https://x.dev) b';
+
+  final rows = <TapRow>[
+    // --- pass-through rules -------------------------------------------
+    tapRow('an out-of-range line index passes through', expected: null),
+    tapRow(
+      'a revealed (caret) line passes through — its markdown is raw',
+      text: tagLine,
+      offset: 6,
+      revealed: true,
+    ),
+    tapRow(
+      'a fence line passes through — fence text renders raw',
+      text: tagLine,
+      offset: 6,
+      inFence: true,
+    ),
+    tapRow(
+      'a line past maxStyledLineLength passes through',
+      text: tagLine.padRight(
+        MarkdownEditorSpanBuilder.maxStyledLineLength + 1,
+        'x',
+      ),
+      offset: 6,
+    ),
+    tapRow(
+      'a line exactly at maxStyledLineLength still resolves',
+      text: tagLine.padRight(
+        MarkdownEditorSpanBuilder.maxStyledLineLength,
+        'x',
+      ),
+      offset: 6,
+      expected: const EditorOpenTagAction('#project'),
+    ),
+    tapRow(
+      'a tap clamped to the line-end offset passes through',
+      text: tagLine,
+      offset: tagLine.length,
+    ),
+    tapRow(
+      'a tap past the line end passes through',
+      text: tagLine,
+      offset: tagLine.length + 40,
+    ),
+
+    // --- ghosts win ----------------------------------------------------
+    tapRow(
+      'a tap inside a ghost run passes through — the tag in it loses',
+      text: '{{ #project }}',
+      offset: 6,
+    ),
+    tapRow(
+      'a tap inside a ghost run passes through — the link in it loses',
+      text: '{{ [docs](https://x.dev) }}',
+      offset: 7,
+    ),
+    tapRow(
+      'a tap outside the ghost on the same line still resolves',
+      text: '$ghostLine #project',
+      offset: 21,
+      expected: const EditorOpenTagAction('#project'),
+    ),
+
+    // --- link zone -----------------------------------------------------
+    tapRow(
+      "the link construct's opening boundary passes through",
+      text: linkLine,
+      offset: 2,
+    ),
+    tapRow(
+      "the link construct's closing boundary passes through",
+      text: linkLine,
+      offset: 23,
+    ),
+    tapRow(
+      'a tap inside the link text opens the url',
+      text: linkLine,
+      offset: 5,
+      expected: const EditorOpenLinkAction('https://x.dev'),
+    ),
+    tapRow(
+      'a tap inside the concealed url opens it too',
+      text: linkLine,
+      offset: 12,
+      expected: const EditorOpenLinkAction('https://x.dev'),
+    ),
+    tapRow(
+      'an image never opens — it renders raw',
+      text: 'a ![img](https://x.dev) b',
+      offset: 6,
+    ),
+    tapRow(
+      'an escaped opening bracket is not a link',
+      text: r'a \[docs](https://x.dev) b',
+      offset: 7,
+    ),
+    tapRow(
+      'a link inside an inline-code run is literal',
+      text: 'a `[docs](https://x.dev)` b',
+      offset: 7,
+    ),
+    tapRow(
+      'links disabled: the same tap passes through',
+      text: linkLine,
+      offset: 5,
+      links: false,
+    ),
+
+    // --- checkbox zone -------------------------------------------------
+    tapRow(
+      'a tap on the list marker toggles the box',
+      text: '- [ ] squat',
+      offset: 0,
+      expected: const EditorToggleTaskAction(lineIndex),
+    ),
+    tapRow(
+      'a tap on the closing bracket toggles the box',
+      text: '- [ ] squat',
+      offset: 5,
+      expected: const EditorToggleTaskAction(lineIndex),
+    ),
+    tapRow(
+      'the content right of the box stays editable',
+      text: '- [ ] squat',
+      offset: 6,
+    ),
+    tapRow(
+      'the indent left of the marker stays editable',
+      text: '  - [ ] squat',
+      offset: 1,
+    ),
+    tapRow(
+      'an indented zone starts at its marker',
+      text: '  - [ ] squat',
+      offset: 2,
+      expected: const EditorToggleTaskAction(lineIndex),
+    ),
+    tapRow(
+      'an indented zone ends at its closing bracket',
+      text: '  - [ ] squat',
+      offset: 7,
+      expected: const EditorToggleTaskAction(lineIndex),
+    ),
+    tapRow('a plain bullet is not a checkbox zone', text: '- squat', offset: 0),
+    tapRow(
+      'checkbox disabled: the same tap passes through',
+      text: '- [ ] squat',
+      offset: 0,
+      checkbox: false,
+    ),
+
+    // --- money zone ----------------------------------------------------
+    tapRow(
+      r'the $$ chip opens the ledger detail',
+      text: r'$$ balance',
+      offset: 0,
+      expected: const EditorOpenMoneyAction(lineIndex),
+    ),
+    tapRow(
+      'the chip reaches up to the amount range',
+      text: r'$$ balance',
+      offset: 2,
+      expected: const EditorOpenMoneyAction(lineIndex),
+    ),
+    tapRow(
+      'the label text of a display row stays editable',
+      text: r'$$ balance',
+      offset: 3,
+    ),
+    tapRow(
+      r'the $? chip opens the ledger detail',
+      text: r'$? change',
+      offset: 1,
+      expected: const EditorOpenMoneyAction(lineIndex),
+    ),
+    tapRow(
+      r'a bare $! chip opens the ledger detail',
+      text: r'$!',
+      offset: 0,
+      expected: const EditorOpenMoneyAction(lineIndex),
+    ),
+    tapRow(
+      r'the $^ chip opens the ledger detail',
+      text: r'$^ 3 recent',
+      offset: 1,
+      expected: const EditorOpenMoneyAction(lineIndex),
+    ),
+    tapRow(
+      r'the $^ count digits stay editable',
+      text: r'$^ 3 recent',
+      offset: 3,
+    ),
+    tapRow(
+      r'the $~ chip opens the ledger detail',
+      text: r'$~ 2 span',
+      offset: 1,
+      expected: const EditorOpenMoneyAction(lineIndex),
+    ),
+    tapRow(r'the $~ count digits stay editable', text: r'$~ 2 span', offset: 3),
+    tapRow(
+      'a value slot moved into the label is a zone too',
+      text: r'$$ Current sum: $',
+      offset: 16,
+      expected: const EditorOpenMoneyAction(lineIndex),
+    ),
+    tapRow(
+      'the space beside a value slot is not',
+      text: r'$$ Current sum: $',
+      offset: 15,
+    ),
+    tapRow(
+      r'a $= op row never opens the sheet',
+      text: r'$= 500 lunch',
+      offset: 0,
+    ),
+    tapRow(
+      r'a $+ op row never opens the sheet',
+      text: r'$+ 50 coffee',
+      offset: 0,
+    ),
+    tapRow(
+      r'a $! N declaration never opens the sheet',
+      text: r'$! 500 rent',
+      offset: 0,
+    ),
+    tapRow(
+      'money disabled: the same tap passes through',
+      text: r'$$ balance',
+      offset: 0,
+      money: false,
+    ),
+
+    // --- tag zone ------------------------------------------------------
+    tapRow(
+      'a tap inside a #tag opens the search with the leading #',
+      text: tagLine,
+      offset: 6,
+      expected: const EditorOpenTagAction('#project'),
+    ),
+    tapRow(
+      "the tag construct's opening boundary passes through",
+      text: tagLine,
+      offset: 4,
+    ),
+    tapRow('a digit-led #1 is not a tag', text: '#1 place', offset: 1),
+    tapRow('heading hashes are not a tag', text: '# Heading', offset: 1),
+    tapRow(
+      'a tag inside an inline-code run is literal',
+      text: '`#project`',
+      offset: 3,
+    ),
+    tapRow(
+      'a tag nested in bold is still a tag',
+      text: '**see #project**',
+      offset: 9,
+      expected: const EditorOpenTagAction('#project'),
+    ),
+    tapRow(
+      "a tag in a money row's label opens the tag, not the sheet",
+      text: r'$$ #project',
+      offset: 4,
+      expected: const EditorOpenTagAction('#project'),
+    ),
+    tapRow(
+      'tags disabled: the same tap passes through',
+      text: tagLine,
+      offset: 6,
+      tags: false,
+    ),
+
+    // --- precedence: checkbox > link > money > tag ----------------------
+    tapRow(
+      'the checkbox zone outranks a link that starts inside it',
+      text: '- [ ](https://x.dev)',
+      offset: 3,
+      expected: const EditorToggleTaskAction(lineIndex),
+    ),
+    tapRow(
+      'without the checkbox zone that same tap opens the link',
+      text: '- [ ](https://x.dev)',
+      offset: 3,
+      checkbox: false,
+      expected: const EditorOpenLinkAction('https://x.dev'),
+    ),
+    tapRow(
+      'the link zone outranks a tag nested in its text',
+      text: '[#project](https://x.dev)',
+      offset: 3,
+      expected: const EditorOpenLinkAction('https://x.dev'),
+    ),
+    tapRow(
+      'without the link zone that same tap opens the tag',
+      text: '[#project](https://x.dev)',
+      offset: 3,
+      links: false,
+      expected: const EditorOpenTagAction('#project'),
+    ),
+
+    // --- a construct straddling a ghost run ----------------------------
+    tapRow(
+      'the link half before a ghost inside its text still opens',
+      text: ghostInLinkLine,
+      offset: 4,
+      expected: const EditorOpenLinkAction('https://x.dev'),
+    ),
+    tapRow(
+      'the ghost inside a link text still wins',
+      text: ghostInLinkLine,
+      offset: 9,
+    ),
+    tapRow(
+      'the link half after that ghost still opens',
+      text: ghostInLinkLine,
+      offset: 15,
+      expected: const EditorOpenLinkAction('https://x.dev'),
+    ),
+  ];
+
   group('resolveTap', () {
-    final rows = <TapRow>[
-      // --- pass-through rules -------------------------------------------
-      tapRow('an out-of-range line index passes through', expected: null),
-      tapRow(
-        'a revealed (caret) line passes through — its markdown is raw',
-        text: tagLine,
-        offset: 6,
-        revealed: true,
-      ),
-      tapRow(
-        'a fence line passes through — fence text renders raw',
-        text: tagLine,
-        offset: 6,
-        inFence: true,
-      ),
-      tapRow(
-        'a line past maxStyledLineLength passes through',
-        text: tagLine.padRight(
-          MarkdownEditorSpanBuilder.maxStyledLineLength + 1,
-          'x',
-        ),
-        offset: 6,
-      ),
-      tapRow(
-        'a line exactly at maxStyledLineLength still resolves',
-        text: tagLine.padRight(
-          MarkdownEditorSpanBuilder.maxStyledLineLength,
-          'x',
-        ),
-        offset: 6,
-        expected: const EditorOpenTagAction('#project'),
-      ),
-      tapRow(
-        'a tap clamped to the line-end offset passes through',
-        text: tagLine,
-        offset: tagLine.length,
-      ),
-      tapRow(
-        'a tap past the line end passes through',
-        text: tagLine,
-        offset: tagLine.length + 40,
-      ),
-
-      // --- ghosts win ----------------------------------------------------
-      tapRow(
-        'a tap inside a ghost run passes through — the tag in it loses',
-        text: '{{ #project }}',
-        offset: 6,
-      ),
-      tapRow(
-        'a tap inside a ghost run passes through — the link in it loses',
-        text: '{{ [docs](https://x.dev) }}',
-        offset: 7,
-      ),
-      tapRow(
-        'a tap outside the ghost on the same line still resolves',
-        text: '$ghostLine #project',
-        offset: 21,
-        expected: const EditorOpenTagAction('#project'),
-      ),
-
-      // --- link zone -----------------------------------------------------
-      tapRow(
-        "the link construct's opening boundary passes through",
-        text: linkLine,
-        offset: 2,
-      ),
-      tapRow(
-        "the link construct's closing boundary passes through",
-        text: linkLine,
-        offset: 23,
-      ),
-      tapRow(
-        'a tap inside the link text opens the url',
-        text: linkLine,
-        offset: 5,
-        expected: const EditorOpenLinkAction('https://x.dev'),
-      ),
-      tapRow(
-        'a tap inside the concealed url opens it too',
-        text: linkLine,
-        offset: 12,
-        expected: const EditorOpenLinkAction('https://x.dev'),
-      ),
-      tapRow(
-        'an image never opens — it renders raw',
-        text: 'a ![img](https://x.dev) b',
-        offset: 6,
-      ),
-      tapRow(
-        'an escaped opening bracket is not a link',
-        text: r'a \[docs](https://x.dev) b',
-        offset: 7,
-      ),
-      tapRow(
-        'a link inside an inline-code run is literal',
-        text: 'a `[docs](https://x.dev)` b',
-        offset: 7,
-      ),
-      tapRow(
-        'links disabled: the same tap passes through',
-        text: linkLine,
-        offset: 5,
-        links: false,
-      ),
-
-      // --- checkbox zone -------------------------------------------------
-      tapRow(
-        'a tap on the list marker toggles the box',
-        text: '- [ ] squat',
-        offset: 0,
-        expected: const EditorToggleTaskAction(lineIndex),
-      ),
-      tapRow(
-        'a tap on the closing bracket toggles the box',
-        text: '- [ ] squat',
-        offset: 5,
-        expected: const EditorToggleTaskAction(lineIndex),
-      ),
-      tapRow(
-        'the content right of the box stays editable',
-        text: '- [ ] squat',
-        offset: 6,
-      ),
-      tapRow(
-        'the indent left of the marker stays editable',
-        text: '  - [ ] squat',
-        offset: 1,
-      ),
-      tapRow(
-        'an indented zone starts at its marker',
-        text: '  - [ ] squat',
-        offset: 2,
-        expected: const EditorToggleTaskAction(lineIndex),
-      ),
-      tapRow(
-        'an indented zone ends at its closing bracket',
-        text: '  - [ ] squat',
-        offset: 7,
-        expected: const EditorToggleTaskAction(lineIndex),
-      ),
-      tapRow(
-        'a plain bullet is not a checkbox zone',
-        text: '- squat',
-        offset: 0,
-      ),
-      tapRow(
-        'checkbox disabled: the same tap passes through',
-        text: '- [ ] squat',
-        offset: 0,
-        checkbox: false,
-      ),
-
-      // --- money zone ----------------------------------------------------
-      tapRow(
-        r'the $$ chip opens the ledger detail',
-        text: r'$$ balance',
-        offset: 0,
-        expected: const EditorOpenMoneyAction(lineIndex),
-      ),
-      tapRow(
-        'the chip reaches up to the amount range',
-        text: r'$$ balance',
-        offset: 2,
-        expected: const EditorOpenMoneyAction(lineIndex),
-      ),
-      tapRow(
-        'the label text of a display row stays editable',
-        text: r'$$ balance',
-        offset: 3,
-      ),
-      tapRow(
-        r'the $? chip opens the ledger detail',
-        text: r'$? change',
-        offset: 1,
-        expected: const EditorOpenMoneyAction(lineIndex),
-      ),
-      tapRow(
-        r'a bare $! chip opens the ledger detail',
-        text: r'$!',
-        offset: 0,
-        expected: const EditorOpenMoneyAction(lineIndex),
-      ),
-      tapRow(
-        r'the $^ chip opens the ledger detail',
-        text: r'$^ 3 recent',
-        offset: 1,
-        expected: const EditorOpenMoneyAction(lineIndex),
-      ),
-      tapRow(
-        r'the $^ count digits stay editable',
-        text: r'$^ 3 recent',
-        offset: 3,
-      ),
-      tapRow(
-        r'the $~ chip opens the ledger detail',
-        text: r'$~ 2 span',
-        offset: 1,
-        expected: const EditorOpenMoneyAction(lineIndex),
-      ),
-      tapRow(
-        r'the $~ count digits stay editable',
-        text: r'$~ 2 span',
-        offset: 3,
-      ),
-      tapRow(
-        'a value slot moved into the label is a zone too',
-        text: r'$$ Current sum: $',
-        offset: 16,
-        expected: const EditorOpenMoneyAction(lineIndex),
-      ),
-      tapRow(
-        'the space beside a value slot is not',
-        text: r'$$ Current sum: $',
-        offset: 15,
-      ),
-      tapRow(
-        r'a $= op row never opens the sheet',
-        text: r'$= 500 lunch',
-        offset: 0,
-      ),
-      tapRow(
-        r'a $+ op row never opens the sheet',
-        text: r'$+ 50 coffee',
-        offset: 0,
-      ),
-      tapRow(
-        r'a $! N declaration never opens the sheet',
-        text: r'$! 500 rent',
-        offset: 0,
-      ),
-      tapRow(
-        'money disabled: the same tap passes through',
-        text: r'$$ balance',
-        offset: 0,
-        money: false,
-      ),
-
-      // --- tag zone ------------------------------------------------------
-      tapRow(
-        'a tap inside a #tag opens the search with the leading #',
-        text: tagLine,
-        offset: 6,
-        expected: const EditorOpenTagAction('#project'),
-      ),
-      tapRow(
-        "the tag construct's opening boundary passes through",
-        text: tagLine,
-        offset: 4,
-      ),
-      tapRow('a digit-led #1 is not a tag', text: '#1 place', offset: 1),
-      tapRow('heading hashes are not a tag', text: '# Heading', offset: 1),
-      tapRow(
-        'a tag inside an inline-code run is literal',
-        text: '`#project`',
-        offset: 3,
-      ),
-      tapRow(
-        'a tag nested in bold is still a tag',
-        text: '**see #project**',
-        offset: 9,
-        expected: const EditorOpenTagAction('#project'),
-      ),
-      tapRow(
-        "a tag in a money row's label opens the tag, not the sheet",
-        text: r'$$ #project',
-        offset: 4,
-        expected: const EditorOpenTagAction('#project'),
-      ),
-      tapRow(
-        'tags disabled: the same tap passes through',
-        text: tagLine,
-        offset: 6,
-        tags: false,
-      ),
-
-      // --- precedence: checkbox > link > money > tag ----------------------
-      tapRow(
-        'the checkbox zone outranks a link that starts inside it',
-        text: '- [ ](https://x.dev)',
-        offset: 3,
-        expected: const EditorToggleTaskAction(lineIndex),
-      ),
-      tapRow(
-        'without the checkbox zone that same tap opens the link',
-        text: '- [ ](https://x.dev)',
-        offset: 3,
-        checkbox: false,
-        expected: const EditorOpenLinkAction('https://x.dev'),
-      ),
-      tapRow(
-        'the link zone outranks a tag nested in its text',
-        text: '[#project](https://x.dev)',
-        offset: 3,
-        expected: const EditorOpenLinkAction('https://x.dev'),
-      ),
-      tapRow(
-        'without the link zone that same tap opens the tag',
-        text: '[#project](https://x.dev)',
-        offset: 3,
-        links: false,
-        expected: const EditorOpenTagAction('#project'),
-      ),
-    ];
-
     for (final row in rows) {
       test(row.name, () {
         expect(
@@ -352,6 +366,212 @@ void main() {
         );
       });
     }
+  });
+
+  List<EditorTapZone> zonesFor(
+    String? text, {
+    bool revealed = false,
+    bool inFence = false,
+    bool checkbox = true,
+    bool links = true,
+    bool money = true,
+    bool tags = true,
+  }) => EditorInputPolicy.zonesOf(
+    lineText: text,
+    lineIndex: lineIndex,
+    lineRevealed: revealed,
+    inFence: inFence,
+    zones: EditorTapZones(
+      checkbox: checkbox,
+      links: links,
+      money: money,
+      tags: tags,
+      palette: palette,
+    ),
+  );
+
+  group('zonesOf agrees with resolveTap', () {
+    for (final row in rows) {
+      test(row.name, () {
+        final zoneList = zonesFor(
+          row.text,
+          revealed: row.revealed,
+          inFence: row.inFence,
+          checkbox: row.checkbox,
+          links: row.links,
+          money: row.money,
+          tags: row.tags,
+        );
+        final length = row.text?.length ?? 0;
+
+        for (final zone in zoneList) {
+          expect(zone.start, greaterThanOrEqualTo(0));
+          expect(zone.start, lessThan(zone.end));
+          expect(zone.end, lessThanOrEqualTo(length));
+        }
+        for (int i = 1; i < zoneList.length; i++) {
+          expect(
+            zoneList[i].start,
+            greaterThanOrEqualTo(zoneList[i - 1].end),
+            reason: 'zones must be sorted and non-overlapping',
+          );
+        }
+
+        for (int offset = 0; offset < length; offset++) {
+          final resolved = EditorInputPolicy.resolveTap(
+            lineText: row.text,
+            lineIndex: lineIndex,
+            offset: offset,
+            lineRevealed: row.revealed,
+            inFence: row.inFence,
+            zones: EditorTapZones(
+              checkbox: row.checkbox,
+              links: row.links,
+              money: row.money,
+              tags: row.tags,
+              palette: palette,
+            ),
+          );
+          final covering = zoneList
+              .where((zone) => offset >= zone.start && offset < zone.end)
+              .toList();
+          expect(
+            covering.length,
+            lessThanOrEqualTo(1),
+            reason: 'offset $offset is covered twice',
+          );
+          expect(
+            covering.isEmpty ? null : covering.single.action,
+            resolved,
+            reason: 'offset $offset disagrees',
+          );
+        }
+      });
+    }
+  });
+
+  group('zonesOf', () {
+    test('a null line enumerates nothing', () {
+      expect(zonesFor(null), isEmpty);
+    });
+
+    test('an empty line enumerates nothing', () {
+      expect(zonesFor(''), isEmpty);
+    });
+
+    test('a revealed (caret) line enumerates nothing', () {
+      expect(zonesFor('- [ ] $linkLine', revealed: true), isEmpty);
+    });
+
+    test('a fence line enumerates nothing', () {
+      expect(zonesFor('- [ ] $linkLine', inFence: true), isEmpty);
+    });
+
+    test('a line past maxStyledLineLength enumerates nothing', () {
+      final long = tagLine.padRight(
+        MarkdownEditorSpanBuilder.maxStyledLineLength + 1,
+        'x',
+      );
+      expect(zonesFor(long), isEmpty);
+    });
+
+    test('a construct-free line enumerates nothing', () {
+      expect(zonesFor('squat 5x5'), isEmpty);
+    });
+
+    test('two adjacent links produce two ranges, not one', () {
+      expect(zonesFor('[a](https://x.dev)[b](https://x.dev)'), const [
+        EditorTapZone(
+          start: 1,
+          end: 18,
+          action: EditorOpenLinkAction('https://x.dev'),
+        ),
+        EditorTapZone(
+          start: 19,
+          end: 36,
+          action: EditorOpenLinkAction('https://x.dev'),
+        ),
+      ]);
+    });
+
+    test('a task line with a link produces two ranges in order', () {
+      expect(zonesFor('- [ ] see [docs](https://x.dev)'), const [
+        EditorTapZone(
+          start: 0,
+          end: 6,
+          action: EditorToggleTaskAction(lineIndex),
+        ),
+        EditorTapZone(
+          start: 11,
+          end: 31,
+          action: EditorOpenLinkAction('https://x.dev'),
+        ),
+      ]);
+    });
+
+    test('a ghost run inside a link splits it into its two halves', () {
+      expect(zonesFor(ghostInLinkLine), const [
+        EditorTapZone(
+          start: 3,
+          end: 7,
+          action: EditorOpenLinkAction('https://x.dev'),
+        ),
+        EditorTapZone(
+          start: 13,
+          end: 32,
+          action: EditorOpenLinkAction('https://x.dev'),
+        ),
+      ]);
+    });
+
+    test('the money chip and its moved value slot are both zones', () {
+      expect(zonesFor(r'$$ Current sum: $'), const [
+        EditorTapZone(
+          start: 0,
+          end: 3,
+          action: EditorOpenMoneyAction(lineIndex),
+        ),
+        EditorTapZone(
+          start: 16,
+          end: 17,
+          action: EditorOpenMoneyAction(lineIndex),
+        ),
+      ]);
+    });
+
+    test('a tag zone excludes the leading hash offset', () {
+      expect(zonesFor(tagLine), const [
+        EditorTapZone(
+          start: 5,
+          end: 12,
+          action: EditorOpenTagAction('#project'),
+        ),
+      ]);
+    });
+
+    test('a nested tag is swallowed by the link that outranks it', () {
+      expect(zonesFor('[#project](https://x.dev)'), const [
+        EditorTapZone(
+          start: 1,
+          end: 25,
+          action: EditorOpenLinkAction('https://x.dev'),
+        ),
+      ]);
+      expect(zonesFor('[#project](https://x.dev)', links: false), const [
+        EditorTapZone(
+          start: 2,
+          end: 9,
+          action: EditorOpenTagAction('#project'),
+        ),
+      ]);
+    });
+
+    test('a disabled zone enumerates nothing for its construct', () {
+      expect(zonesFor('- [ ] squat', checkbox: false), isEmpty);
+      expect(zonesFor(linkLine, links: false), isEmpty);
+      expect(zonesFor(r'$$ balance', money: false), isEmpty);
+      expect(zonesFor(tagLine, tags: false), isEmpty);
+    });
   });
 
   group('toggledTaskLine', () {

@@ -2532,5 +2532,9 @@
         "type": "int"
       }
     }
-  }
+  },
+  "editorZoneToggleTask": "Aufgabe umschalten",
+  "editorZoneOpenLink": "Link öffnen",
+  "editorZoneOpenMoney": "Kontodetails öffnen",
+  "editorZoneSearchTag": "Tag suchen"
 }

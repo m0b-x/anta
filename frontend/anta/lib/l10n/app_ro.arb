@@ -1393,5 +1393,9 @@
         "type": "int"
       }
     }
-  }
+  },
+  "editorZoneToggleTask": "Comută sarcina",
+  "editorZoneOpenLink": "Deschide linkul",
+  "editorZoneOpenMoney": "Deschide detaliile registrului",
+  "editorZoneSearchTag": "Caută eticheta"
 }
