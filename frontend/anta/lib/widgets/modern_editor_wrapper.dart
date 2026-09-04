@@ -8,6 +8,7 @@ import '../constants/app_constants.dart';
 import '../constants/app_spacing.dart';
 import '../constants/font_constants.dart';
 import '../constants/markdown_constants.dart';
+import '../l10n/app_localizations.dart';
 import '../utils/editor_input_policy.dart';
 import '../utils/markdown_color_syntax.dart';
 import '../utils/markdown_editor_span_builder.dart';
@@ -159,6 +160,7 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
   late final CodeEditorTapInterceptor _tapInterceptor =
       CodeEditorTapInterceptor(
         shouldIntercept: (position) => _claimTapAction(position) != null,
+        zonesOf: _semanticsZonesOf,
         onTap: (position) {
           // The tap was claimed — it must not double as a ghost-arming
           // tap, or the action's own controller notification could
@@ -177,6 +179,25 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
       );
 
   static const Duration _ghostTapWindow = Duration(milliseconds: 350);
+
+  /// The accessibility labels of the four tap zones, resolved once per
+  /// locale instead of per enumerated zone — the interceptor itself has
+  /// no [BuildContext], and rebuilding it per build would hand the fork
+  /// a new instance on every frame.
+  String? _zoneToggleTaskLabel;
+  String? _zoneOpenLinkLabel;
+  String? _zoneOpenMoneyLabel;
+  String? _zoneSearchTagLabel;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final l10n = AppLocalizations.of(context);
+    _zoneToggleTaskLabel = l10n?.editorZoneToggleTask;
+    _zoneOpenLinkLabel = l10n?.editorZoneOpenLink;
+    _zoneOpenMoneyLabel = l10n?.editorZoneOpenMoney;
+    _zoneSearchTagLabel = l10n?.editorZoneSearchTag;
+  }
 
   @override
   void initState() {
@@ -363,6 +384,60 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
     return lines[lineIndex].text;
   }
 
+  /// Which zone kinds this host has enabled — the one description that
+  /// both the pointer path ([_resolveTapAction]) and the accessibility
+  /// path ([_semanticsZonesOf]) resolve against, so the nodes a screen
+  /// reader reaches are exactly the offsets a tap would be claimed on.
+  EditorTapZones _enabledZones() => EditorTapZones(
+    checkbox: widget.checkboxTapToggle,
+    links: widget.onOpenLink != null,
+    money: widget.onMoneyTap != null,
+    tags: widget.onOpenTag != null,
+    palette: widget.colorPalette,
+  );
+
+  /// The tap zones of [lineIndex] as labelled semantics zones, for the
+  /// fork's child nodes under the editor's text field. Empty until the
+  /// labels resolve (no [AppLocalizations] in scope), and empty on every
+  /// line [EditorInputPolicy] enumerates nothing for — reveal lines,
+  /// fence lines, over-long lines.
+  List<CodeEditorSemanticsZone> _semanticsZonesOf(int lineIndex) {
+    final toggleLabel = _zoneToggleTaskLabel;
+    final linkLabel = _zoneOpenLinkLabel;
+    final moneyLabel = _zoneOpenMoneyLabel;
+    final tagLabel = _zoneSearchTagLabel;
+    if (toggleLabel == null ||
+        linkLabel == null ||
+        moneyLabel == null ||
+        tagLabel == null) {
+      return const [];
+    }
+    final zones = EditorInputPolicy.zonesOf(
+      lineText: _lineTextAt(lineIndex),
+      lineIndex: lineIndex,
+      lineRevealed: MarkdownEditorSpanBuilder.selectionCoversLine(
+        widget.controller.selection,
+        lineIndex,
+      ),
+      inFence: widget.isFenceLine?.call(lineIndex) ?? false,
+      zones: _enabledZones(),
+    );
+    if (zones.isEmpty) return const [];
+    return [
+      for (final zone in zones)
+        CodeEditorSemanticsZone(
+          start: zone.start,
+          end: zone.end,
+          label: switch (zone.action) {
+            EditorToggleTaskAction() => toggleLabel,
+            EditorOpenLinkAction() => linkLabel,
+            EditorOpenMoneyAction() => moneyLabel,
+            EditorOpenTagAction() => tagLabel,
+          },
+        ),
+    ];
+  }
+
   /// Resolves what a tap at [position] does instead of editing: toggle
   /// a task checkbox, open a concealed link, open a money row's ledger
   /// detail, or search a `#tag`. Returns null when the tap should fall
@@ -385,13 +460,7 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
         lineIndex,
       ),
       inFence: widget.isFenceLine?.call(lineIndex) ?? false,
-      zones: EditorTapZones(
-        checkbox: widget.checkboxTapToggle,
-        links: onOpenLink != null,
-        money: onMoneyTap != null,
-        tags: onOpenTag != null,
-        palette: widget.colorPalette,
-      ),
+      zones: _enabledZones(),
     );
     // The toggle's haptic rides in [_toggleTaskLine], beside the edit it
     // confirms; the three openers confirm here. Either way the tactile

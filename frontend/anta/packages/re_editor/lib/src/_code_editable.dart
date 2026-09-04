@@ -49,6 +49,8 @@ class _CodeEditable extends StatefulWidget {
   final VoidCallback onSemanticsTap;
   final VoidCallback onSemanticsDidGainAccessibilityFocus;
   final ValueChanged<CodeLineSelection> onSemanticsSetSelection;
+  final List<CodeEditorSemanticsZone> Function(int lineIndex)? semanticsZonesOf;
+  final ValueChanged<CodeLinePosition> onSemanticsPerformZone;
 
   const _CodeEditable({
     required this.editorKey,
@@ -93,6 +95,8 @@ class _CodeEditable extends StatefulWidget {
     required this.onSemanticsTap,
     required this.onSemanticsDidGainAccessibilityFocus,
     required this.onSemanticsSetSelection,
+    required this.semanticsZonesOf,
+    required this.onSemanticsPerformZone,
   });
 
   @override
@@ -314,6 +318,8 @@ class _CodeEditableState extends State<_CodeEditable>
       onSemanticsDidGainAccessibilityFocus:
           widget.onSemanticsDidGainAccessibilityFocus,
       onSemanticsSetSelection: widget.onSemanticsSetSelection,
+      semanticsZonesOf: widget.semanticsZonesOf,
+      onSemanticsPerformZone: widget.onSemanticsPerformZone,
     );
   }
 

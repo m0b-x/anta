@@ -187,14 +187,45 @@ class CodeEditorStyle {
 /// position — only if the gesture stayed a tap. Because the decision is
 /// made per pointer event rather than from selection changes, repeated
 /// taps on the same spot each fire.
+/// [zonesOf] makes those regions reachable without a pointer: it
+/// enumerates, for one line, the ranges a tap would be claimed on and
+/// how to name them. The editor turns each into its own semantics node
+/// (label + tap action) under the text field, and a tap on such a node
+/// runs [shouldIntercept] followed by [onTap] — the same pair a pointer
+/// tap produces. Leave it null to contribute no child nodes at all.
 class CodeEditorTapInterceptor {
   final bool Function(CodeLinePosition position) shouldIntercept;
   final void Function(CodeLinePosition position) onTap;
+  final List<CodeEditorSemanticsZone> Function(int lineIndex)? zonesOf;
 
   const CodeEditorTapInterceptor({
     required this.shouldIntercept,
     required this.onTap,
+    this.zonesOf,
   });
+}
+
+/// One screen-reader-reachable range of a line, as reported by
+/// [CodeEditorTapInterceptor.zonesOf].
+///
+/// [start] is the first source offset of the range and [end] is one past
+/// its last; [label] is what the screen reader announces for it. The
+/// editor performs the zone at [start].
+class CodeEditorSemanticsZone {
+  const CodeEditorSemanticsZone({
+    required this.start,
+    required this.end,
+    required this.label,
+  });
+
+  /// First source offset of the zone.
+  final int start;
+
+  /// One past the zone's last source offset.
+  final int end;
+
+  /// What a screen reader announces for the zone.
+  final String label;
 }
 
 class CodeEditor extends StatefulWidget {
@@ -588,6 +619,9 @@ class _CodeEditorState extends State<CodeEditor> {
       onSemanticsDidGainAccessibilityFocus:
           _handleSemanticsDidGainAccessibilityFocus,
       onSemanticsSetSelection: _handleSemanticsSetSelection,
+      semanticsZonesOf:
+          widget.tapInterceptor?.zonesOf == null ? null : _semanticsZonesOf,
+      onSemanticsPerformZone: _handleSemanticsPerformZone,
     );
     final Widget detector = _CodeSelectionGestureDetector(
         controller: _editingController,
@@ -710,6 +744,21 @@ class _CodeEditorState extends State<CodeEditor> {
     }
     _focusNode.requestFocus();
     _focusNode.consumeKeyboardToken();
+  }
+
+  List<CodeEditorSemanticsZone> _semanticsZonesOf(int lineIndex) =>
+      widget.tapInterceptor?.zonesOf?.call(lineIndex) ??
+      const <CodeEditorSemanticsZone>[];
+
+  /// Runs a zone's action through the interceptor's own two-step
+  /// contract, so a screen-reader tap and a pointer tap reach the host
+  /// app by exactly the same path.
+  void _handleSemanticsPerformZone(CodeLinePosition position) {
+    final CodeEditorTapInterceptor? interceptor = widget.tapInterceptor;
+    if (interceptor == null || !interceptor.shouldIntercept(position)) {
+      return;
+    }
+    interceptor.onTap(position);
   }
 
   void _handleSemanticsSetSelection(CodeLineSelection selection) {

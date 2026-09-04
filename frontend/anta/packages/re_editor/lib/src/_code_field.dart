@@ -30,6 +30,8 @@ class _CodeField extends SingleChildRenderObjectWidget {
   final VoidCallback onSemanticsTap;
   final VoidCallback onSemanticsDidGainAccessibilityFocus;
   final ValueChanged<CodeLineSelection> onSemanticsSetSelection;
+  final List<CodeEditorSemanticsZone> Function(int lineIndex)? semanticsZonesOf;
+  final ValueChanged<CodeLinePosition> onSemanticsPerformZone;
 
   _CodeField({
     super.key,
@@ -62,6 +64,8 @@ class _CodeField extends SingleChildRenderObjectWidget {
     required this.onSemanticsTap,
     required this.onSemanticsDidGainAccessibilityFocus,
     required this.onSemanticsSetSelection,
+    required this.semanticsZonesOf,
+    required this.onSemanticsPerformZone,
   })  : assert(codes.isNotEmpty),
         floatingCursorColor = floatingCursorColor ?? cursorColor,
         floatingCursorWidth = floatingCursorWidth ?? cursorWidth;
@@ -98,6 +102,8 @@ class _CodeField extends SingleChildRenderObjectWidget {
         onSemanticsDidGainAccessibilityFocus:
             onSemanticsDidGainAccessibilityFocus,
         onSemanticsSetSelection: onSemanticsSetSelection,
+        semanticsZonesOf: semanticsZonesOf,
+        onSemanticsPerformZone: onSemanticsPerformZone,
       );
 
   @override
@@ -133,7 +139,9 @@ class _CodeField extends SingleChildRenderObjectWidget {
       ..onSemanticsTap = onSemanticsTap
       ..onSemanticsDidGainAccessibilityFocus =
           onSemanticsDidGainAccessibilityFocus
-      ..onSemanticsSetSelection = onSemanticsSetSelection;
+      ..onSemanticsSetSelection = onSemanticsSetSelection
+      ..semanticsZonesOf = semanticsZonesOf
+      ..onSemanticsPerformZone = onSemanticsPerformZone;
   }
 }
 
@@ -159,6 +167,14 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
   VoidCallback _onSemanticsTap;
   VoidCallback _onSemanticsDidGainAccessibilityFocus;
   ValueChanged<CodeLineSelection> _onSemanticsSetSelection;
+  List<CodeEditorSemanticsZone> Function(int lineIndex)? _semanticsZonesOf;
+  ValueChanged<CodeLinePosition> _onSemanticsPerformZone;
+
+  /// The zone child nodes built by the last [assembleSemanticsNode] pass,
+  /// keyed by line/range/label so an unchanged zone keeps its node — and
+  /// therefore its id — across frames instead of stealing the screen
+  /// reader's focus back to the top on every rebuild.
+  Map<Key, SemanticsNode>? _cachedZoneNodes;
 
   double? _horizontalViewportSize;
   double? _verticalViewportSize;
@@ -202,6 +218,9 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     required VoidCallback onSemanticsTap,
     required VoidCallback onSemanticsDidGainAccessibilityFocus,
     required ValueChanged<CodeLineSelection> onSemanticsSetSelection,
+    required List<CodeEditorSemanticsZone> Function(int lineIndex)?
+        semanticsZonesOf,
+    required ValueChanged<CodeLinePosition> onSemanticsPerformZone,
   })  : _verticalViewport = verticalViewport,
         _horizontalViewport = horizontalViewport,
         _verticalScrollbarWidth = verticalScrollbarWidth,
@@ -227,7 +246,9 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
         _onSemanticsTap = onSemanticsTap,
         _onSemanticsDidGainAccessibilityFocus =
             onSemanticsDidGainAccessibilityFocus,
-        _onSemanticsSetSelection = onSemanticsSetSelection {
+        _onSemanticsSetSelection = onSemanticsSetSelection,
+        _semanticsZonesOf = semanticsZonesOf,
+        _onSemanticsPerformZone = onSemanticsPerformZone {
     _backgroundRender = _CodeFieldExtraRender(painters: [
       _CodeCursorLinePainter(cursorLineColor, _selection),
       _CodeFieldSelectionPainter(selectionColor, _selection),
@@ -595,6 +616,24 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     markNeedsSemanticsUpdate();
   }
 
+  set semanticsZonesOf(
+      List<CodeEditorSemanticsZone> Function(int lineIndex)? value) {
+    if (_semanticsZonesOf == value) {
+      return;
+    }
+    _semanticsZonesOf = value;
+    _cachedZoneNodes = null;
+    markNeedsSemanticsUpdate();
+  }
+
+  set onSemanticsPerformZone(ValueChanged<CodeLinePosition> value) {
+    if (_onSemanticsPerformZone == value) {
+      return;
+    }
+    _onSemanticsPerformZone = value;
+    markNeedsSemanticsUpdate();
+  }
+
   /// The editor paints raw ui.Paragraphs and otherwise contributes no
   /// semantics at all, so without this the whole document is invisible
   /// to screen readers. Announce it as a (multiline) text field whose
@@ -624,6 +663,101 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     if (textSelection != null) {
       config.textSelection = textSelection;
     }
+    if (_semanticsZonesOf != null) {
+      config.explicitChildNodes = true;
+    }
+  }
+
+  /// One child node per interactive zone on the visible lines, so a
+  /// screen reader can reach what only a pointer could hit before.
+  ///
+  /// Zones come from the host per line and are already filtered there
+  /// (caret/reveal lines and fence lines enumerate none), so this only
+  /// maps ranges onto rects: [CodeLineRenderParagraph.getRangeRects] in
+  /// paragraph space, shifted by the paragraph's offset minus the scroll
+  /// offset — the transform [_drawText] paints with — then clipped to
+  /// the viewport. Nothing here runs unless an assistive technology has
+  /// enabled the semantics tree.
+  @override
+  void assembleSemanticsNode(
+    SemanticsNode node,
+    SemanticsConfiguration config,
+    Iterable<SemanticsNode> children,
+  ) {
+    final List<CodeEditorSemanticsZone> Function(int lineIndex)? zonesOf =
+        _semanticsZonesOf;
+    if (zonesOf == null) {
+      _cachedZoneNodes = null;
+      super.assembleSemanticsNode(node, config, children);
+      return;
+    }
+    final Map<Key, SemanticsNode> cache = <Key, SemanticsNode>{};
+    final List<SemanticsNode> zoneNodes = <SemanticsNode>[];
+    final int lineCount = _codes.length;
+    double ordinal = 0;
+    for (final CodeLineRenderParagraph paragraph in _displayParagraphs) {
+      final int index = paragraph.index;
+      if (index < 0 || index >= lineCount) {
+        continue;
+      }
+      final List<CodeEditorSemanticsZone> zones = zonesOf(index);
+      if (zones.isEmpty) {
+        continue;
+      }
+      final Offset origin = paragraph.offset - paintOffset;
+      for (final CodeEditorSemanticsZone zone in zones) {
+        final Rect? rect = _zoneRect(paragraph, origin, zone);
+        if (rect == null) {
+          continue;
+        }
+        final Key key =
+            ValueKey<String>('$index:${zone.start}:${zone.end}:${zone.label}');
+        final SemanticsConfiguration zoneConfig = SemanticsConfiguration()
+          ..sortKey = OrdinalSortKey(ordinal++)
+          ..textDirection = TextDirection.ltr
+          ..label = zone.label
+          ..onTap = () => _onSemanticsPerformZone(
+              CodeLinePosition(index: index, offset: zone.start));
+        final SemanticsNode child =
+            _cachedZoneNodes?.remove(key) ?? SemanticsNode(key: key);
+        child
+          ..updateWith(config: zoneConfig)
+          ..rect = rect;
+        cache[key] = child;
+        zoneNodes.add(child);
+      }
+    }
+    _cachedZoneNodes = cache;
+    super.assembleSemanticsNode(node, config, <SemanticsNode>[
+      ...children,
+      ...zoneNodes,
+    ]);
+  }
+
+  /// The zone's rect in this render's local coordinates, or null when it
+  /// has no painted cells or falls entirely outside the viewport.
+  Rect? _zoneRect(
+    CodeLineRenderParagraph paragraph,
+    Offset origin,
+    CodeEditorSemanticsZone zone,
+  ) {
+    final List<Rect> rects = paragraph
+        .getRangeRects(TextRange(start: zone.start, end: zone.end));
+    if (rects.isEmpty) {
+      return null;
+    }
+    Rect rect = rects.first.shift(origin);
+    for (final Rect part in rects.skip(1)) {
+      rect = rect.expandToInclude(part.shift(origin));
+    }
+    final double left = max(rect.left, 0);
+    final double top = max(rect.top, 0);
+    final double right = min(rect.right, size.width);
+    final double bottom = min(rect.bottom, size.height);
+    if (right <= left || bottom <= top) {
+      return null;
+    }
+    return Rect.fromLTRB(left, top, right, bottom);
   }
 
   void _handleSemanticsSetSelection(TextSelection selection) {
