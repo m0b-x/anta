@@ -6,11 +6,11 @@ import 'ghost_text.dart';
 import 'markdown_callout_syntax.dart';
 import 'markdown_chunker.dart';
 import 'markdown_color_syntax.dart';
+import 'markdown_inline_grammar.dart';
 import 'markdown_line_height_calculator.dart';
-import 'markdown_link_patterns.dart';
+import 'markdown_line_shape.dart';
 import 'markdown_list_syntax.dart';
 import 'markdown_money_syntax.dart';
-import 'markdown_tag_syntax.dart';
 import 'money_display_config.dart';
 
 typedef LinkTapCallback = void Function(String url);
@@ -103,6 +103,10 @@ class LineMarkdownStyle {
 
 /// Renders markdown line-by-line for precise scroll positioning.
 /// Lines are grouped into chunks for better performance with large documents.
+///
+/// Line shape comes from [MarkdownLineShape] and inline structure from
+/// [MarkdownInlineGrammar] — the same modules the live editor consumes,
+/// so the two surfaces never disagree about what a line or a run is.
 ///
 /// Performance optimizations for large documents (100k+ lines):
 /// - LRU cache limits memory usage for chunk spans
@@ -652,26 +656,21 @@ class LineBasedMarkdownBuilder {
       return _buildTableRow(trimmed, lineStart, lineEnd);
     }
 
-    // ATX heading: 1–6 leading '#' that must be followed by a space or
-    // be the entire line. `#tag` (no space) and `#######` (7+) are NOT
-    // headings — they fall through to paragraph rendering (CommonMark).
-    if (trimmed.startsWith('#')) {
-      int hashes = 0;
-      while (hashes < trimmed.length && trimmed.codeUnitAt(hashes) == 0x23) {
-        hashes++;
-      }
-      final followedBySpaceOrEol =
-          hashes == trimmed.length || trimmed.codeUnitAt(hashes) == 0x20;
-      if (hashes <= 6 && followedBySpaceOrEol) {
-        final hasSpace = hashes < trimmed.length;
-        final contentOffset = lineStart + indent + hashes + (hasSpace ? 1 : 0);
-        return _buildHeading(
-          trimmed.substring(hashes).trim(),
-          hashes,
-          contentOffset,
-          lineEnd,
-        );
-      }
+    // ATX heading: 1–6 leading '#' followed by a space or the line end.
+    // Shape comes from the shared [MarkdownLineShape.headingAt], so the
+    // preview, the live editor and the line-height calculator agree that
+    // `#tag` (no space) and `#######` (7+) are prose while a bare `###`
+    // is an empty heading. Offsets are line-relative; only trailing
+    // blanks are trimmed, or the content would drift off its source
+    // offset for `#   spaced`.
+    final heading = MarkdownLineShape.headingAt(line);
+    if (heading != null) {
+      return _buildHeading(
+        line.substring(heading.contentStart).trimRight(),
+        heading.level,
+        lineStart + heading.contentStart,
+        lineEnd,
+      );
     }
 
     // List items (bullet / ordered / task) via the shared syntax so the
@@ -719,7 +718,7 @@ class LineBasedMarkdownBuilder {
     }
 
     // Horizontal rule
-    if (_MarkdownPatterns.horizontalRule.hasMatch(trimmed)) {
+    if (MarkdownLineShape.isHorizontalRule(trimmed)) {
       return _buildHorizontalRule();
     }
 
@@ -1756,7 +1755,7 @@ class LineBasedMarkdownBuilder {
   /// Build inline formatted text with bold, italic, code, links, and
   /// highlighting. [contentStart] is the source offset where [text]
   /// begins — critical so search highlighting lands on the right
-  /// characters. Delegates to the recursive [_parseInline] scanner.
+  /// characters. Delegates to the recursive [_parseInline] renderer.
   ///
   /// [lineEnd] is retained for call-site compatibility and is unused.
   TextSpan _buildInlineFormatted(
@@ -1771,210 +1770,185 @@ class LineBasedMarkdownBuilder {
     return _parseInline(text, baseStyle, contentStart);
   }
 
-  /// Recursively parses inline markdown in [text] whose first character
-  /// sits at source offset [contentStart]. Every leaf text run is routed
-  /// through [_applyHighlighting] with its exact offset, so search
-  /// highlighting stays aligned at any nesting depth.
-  ///
-  /// Improvements over the former single-pass regex:
-  ///   * Nested emphasis (`**bold _italic_**`, `[**x**](url)`).
-  ///   * Backslash escaping (`\*literal\*`).
-  ///   * Intra-word underscores are not emphasis (`snake_case_word`).
-  ///   * Inline code is literal (its content is never re-parsed).
-  TextSpan _parseInline(String text, TextStyle baseStyle, int contentStart) {
+  /// Recursively renders inline markdown in [text] whose first character
+  /// sits at source offset [contentStart]. Structure comes from the
+  /// shared [MarkdownInlineGrammar]: the preview drops the markers the
+  /// live editor conceals, and every container is re-tokenized one
+  /// [depth] deeper over its inner range, so both surfaces classify the
+  /// same source identically. Every leaf text run is routed through
+  /// [_applyHighlighting] with its exact offset, so search highlighting
+  /// stays aligned at any nesting depth.
+  TextSpan _parseInline(
+    String text,
+    TextStyle baseStyle,
+    int contentStart, [
+    int depth = 0,
+  ]) {
     final children = <InlineSpan>[];
-    final length = text.length;
-    int i = 0;
-    int runStart = 0;
+    int from = 0;
 
     void flushRun(int end) {
-      if (end > runStart) {
+      if (end > from) {
         children.add(
           _applyHighlighting(
-            text.substring(runStart, end),
+            text.substring(from, end),
             baseStyle,
-            contentStart + runStart,
+            contentStart + from,
           ),
         );
       }
     }
 
-    while (i < length) {
-      final c = text.codeUnitAt(i);
-
-      // Backslash escape: emit the next punctuation char literally.
-      if (c == _kBackslash &&
-          i + 1 < length &&
-          _isEscapablePunctuation(text.codeUnitAt(i + 1))) {
-        flushRun(i);
-        children.add(
-          _applyHighlighting(
-            text.substring(i + 1, i + 2),
-            baseStyle,
-            contentStart + i + 1,
-          ),
-        );
-        i += 2;
-        runStart = i;
-        continue;
-      }
-
-      // Ghost text: {{ inner }} — dimmed placeholder, markers hidden.
-      // Detected before other inline syntax so `{{` is never mistaken
-      // for prose. Renders even without a tap handler (e.g. dialog
-      // previews); the tap recognizer is attached only when engageable.
-      if (c == _kOpenBrace) {
-        final ghost = GhostText.matchAt(text, i);
-        if (ghost != null) {
-          flushRun(i);
-          children.add(_buildGhostSpan(text, ghost, baseStyle, contentStart));
-          i = ghost.end;
-          runStart = i;
-          continue;
-        }
-        // Coloured text: {name:content}. The `{name:` and `}` markers
-        // are chrome (like `[!TYPE]` and the `$x` money ops); the
-        // content keeps its source offsets and is parsed recursively so
-        // emphasis, links, and nested colours all compose. An unknown
-        // name never matches, so the braces stay literal text.
-        final colored = MarkdownColorSyntax.matchAt(text, i, colorPalette);
-        if (colored != null) {
-          flushRun(i);
-          children.add(
-            _parseInline(
-              text.substring(colored.innerStart, colored.innerEnd),
-              baseStyle.copyWith(color: colored.spec.text(dark: style.isDark)),
-              contentStart + colored.innerStart,
-            ),
-          );
-          i = colored.end;
-          runStart = i;
-          continue;
-        }
-      }
-
-      // Inline code span: `code` / ``co`de`` — literal, no nesting.
-      if (c == _kBacktick) {
-        final fence = _countRun(text, i, _kBacktick);
-        final close = _findClosingBacktick(text, i + fence, fence);
-        if (close != -1) {
-          flushRun(i);
-          final contentBegin = i + fence;
+    for (final token in MarkdownInlineGrammar.tokenize(
+      text,
+      palette: colorPalette,
+      depth: depth,
+    )) {
+      flushRun(token.start);
+      switch (token) {
+        // Backslash escape: only the escaped character renders.
+        case InlineEscape():
           children.add(
             _applyHighlighting(
-              text.substring(contentBegin, close),
-              baseStyle.copyWith(
-                fontFamily: 'monospace',
-                backgroundColor: style.codeBackground,
-                fontSize: baseStyle.fontSize! * 0.9,
-              ),
-              contentStart + contentBegin,
+              text.substring(token.charStart, token.end),
+              baseStyle,
+              contentStart + token.charStart,
             ),
           );
-          i = close + fence;
-          runStart = i;
-          continue;
-        }
-      }
-
-      // Link: [text](url) — link text is parsed recursively.
-      if (c == _kOpenBracket) {
-        final link = _tryParseLinkAt(text, i);
-        if (link != null) {
-          flushRun(i);
-          final inner = _parseInline(
-            text.substring(link.textStart, link.textEnd),
-            baseStyle.copyWith(
-              color: style.primaryColor,
-              decoration: TextDecoration.underline,
-            ),
-            contentStart + link.textStart,
-          );
+        // Ghost text: dimmed placeholder, `{{` / `}}` markers dropped.
+        case InlineGhost():
           children.add(
-            _wrapLinkSpan(inner, link.urlOf(text), contentStart + i),
+            _buildGhostSpan(text, token.match, baseStyle, contentStart),
           );
-          i = link.end;
-          runStart = i;
-          continue;
-        }
-      }
-
-      // Emphasis / strong / strikethrough / highlight (`*`, `_`, `~`, `==`).
-      if (c == _kStar || c == _kUnderscore || c == _kTilde || c == _kEquals) {
-        final emphasis = _tryParseEmphasisAt(text, i);
-        if (emphasis != null) {
-          flushRun(i);
-          var innerStart = emphasis.contentStart;
-          var runStyle = _applyEmphasisStyle(baseStyle, emphasis.kind);
-          // `==name:text==` tints the highlight and consumes `name:` as
-          // chrome. An unresolved name keeps the default amber and
-          // leaves the prefix as ordinary highlighted text, so plain
-          // prose like `==note: see below==` is never eaten.
-          if (emphasis.kind == _EmphasisKind.highlight) {
-            final tint = MarkdownColorSyntax.matchHighlightPrefix(
-              text,
-              innerStart,
-              emphasis.contentEnd,
-              colorPalette,
-            );
-            if (tint != null) {
-              runStyle = baseStyle.copyWith(
-                backgroundColor: tint.spec.highlight(dark: style.isDark),
+        // Inline code: literal content, never re-parsed.
+        case InlineCode():
+          // Literal content, but ghosts still win inside it (they are
+          // ghosts to the tap handling and to the editor's emitter too),
+          // so the run splits around them like every other range — and
+          // the ghost keeps the surrounding prose style, not the code
+          // style, exactly as the editor drops its code chip there.
+          final codeStyle = baseStyle.copyWith(
+            fontFamily: 'monospace',
+            backgroundColor: style.codeBackground,
+            fontSize: baseStyle.fontSize! * 0.9,
+          );
+          var codeFrom = token.innerStart;
+          if (GhostText.mightContain(text)) {
+            for (final ghost in GhostText.findGhosts(text)) {
+              if (ghost.end <= codeFrom) continue;
+              if (ghost.start >= token.innerEnd) break;
+              if (ghost.start > codeFrom) {
+                children.add(
+                  _applyHighlighting(
+                    text.substring(codeFrom, ghost.start),
+                    codeStyle,
+                    contentStart + codeFrom,
+                  ),
+                );
+              }
+              children.add(
+                _buildGhostSpan(text, ghost, baseStyle, contentStart),
               );
-              innerStart = tint.contentStart;
+              codeFrom = ghost.end;
             }
           }
-          children.add(
-            _parseInline(
-              text.substring(innerStart, emphasis.contentEnd),
-              runStyle,
-              contentStart + innerStart,
-            ),
-          );
-          i = emphasis.end;
-          runStart = i;
-          continue;
-        }
-      }
-
-      // Tag: #identifier (letter-led, at a word boundary) — tappable,
-      // searches across notes. Letter-led so `#3` / `set #1` and `C#`
-      // are never tags.
-      if (c == _kHash && _isWordBoundaryBefore(text, i)) {
-        final tagEnd = MarkdownTagSyntax.tryParseTagAt(text, i);
-        if (tagEnd != null) {
-          flushRun(i);
-          children.add(_buildTagSpan(text, i, tagEnd, baseStyle, contentStart));
-          i = tagEnd;
-          runStart = i;
-          continue;
-        }
-      }
-
-      // Bare autolink: http://… https://… www.…
-      if ((c == _kLowerH || c == _kLowerW) && _isWordBoundaryBefore(text, i)) {
-        final auto = _tryParseBareUrlAt(text, i);
-        if (auto != null) {
-          flushRun(i);
-          final inner = _applyHighlighting(
-            text.substring(i, auto.end),
+          if (codeFrom < token.innerEnd) {
+            children.add(
+              _applyHighlighting(
+                text.substring(codeFrom, token.innerEnd),
+                codeStyle,
+                contentStart + codeFrom,
+              ),
+            );
+          }
+        case InlineLink():
+          // Images are not rendered inline mid-line: the `!` stays
+          // literal text and the rest renders as an ordinary link.
+          if (token.isImage) {
+            children.add(
+              _applyHighlighting(
+                text.substring(token.start, token.bracketStart),
+                baseStyle,
+                contentStart + token.start,
+              ),
+            );
+          }
+          final inner = _parseInline(
+            text.substring(token.textStart, token.textEnd),
             baseStyle.copyWith(
               color: style.primaryColor,
               decoration: TextDecoration.underline,
             ),
-            contentStart + i,
+            contentStart + token.textStart,
+            depth + 1,
           );
-          children.add(_wrapLinkSpan(inner, auto.url, contentStart + i));
-          i = auto.end;
-          runStart = i;
-          continue;
-        }
+          children.add(
+            _wrapLinkSpan(
+              inner,
+              token.urlOf(text),
+              contentStart + token.bracketStart,
+            ),
+          );
+        // Coloured text: `{name:` and `}` are chrome, the content keeps
+        // its source offsets and composes with everything else.
+        case InlineColor():
+          children.add(
+            _parseInline(
+              text.substring(token.innerStart, token.innerEnd),
+              baseStyle.copyWith(color: token.spec.text(dark: style.isDark)),
+              contentStart + token.innerStart,
+              depth + 1,
+            ),
+          );
+        case InlineTag():
+          children.add(
+            _buildTagSpan(
+              text,
+              token.start,
+              token.end,
+              baseStyle,
+              contentStart,
+            ),
+          );
+        case InlineUrl():
+          final inner = _applyHighlighting(
+            text.substring(token.start, token.end),
+            baseStyle.copyWith(
+              color: style.primaryColor,
+              decoration: TextDecoration.underline,
+            ),
+            contentStart + token.start,
+          );
+          children.add(
+            _wrapLinkSpan(
+              inner,
+              token.hrefOf(text),
+              contentStart + token.start,
+            ),
+          );
+        // A resolved `==name:text==` tint replaces the default amber and
+        // consumes `name:` as chrome; the token reports the content
+        // start either way.
+        case InlineEmphasis():
+          final tint = token.tintSpec;
+          final runStyle = tint == null
+              ? _applyEmphasisStyle(baseStyle, token.kind)
+              : baseStyle.copyWith(
+                  backgroundColor: tint.highlight(dark: style.isDark),
+                );
+          children.add(
+            _parseInline(
+              text.substring(token.contentStart, token.innerEnd),
+              runStyle,
+              contentStart + token.contentStart,
+              depth + 1,
+            ),
+          );
       }
-
-      i++;
+      from = token.end;
     }
 
-    flushRun(length);
+    flushRun(text.length);
 
     if (children.isEmpty) {
       return _applyHighlighting(text, baseStyle, contentStart);
@@ -1984,20 +1958,20 @@ class LineBasedMarkdownBuilder {
 
   /// Applies the style delta for an emphasis [kind] on top of [base],
   /// so nested emphasis composes (e.g. strikethrough + bold).
-  TextStyle _applyEmphasisStyle(TextStyle base, _EmphasisKind kind) {
+  TextStyle _applyEmphasisStyle(TextStyle base, InlineEmphasisKind kind) {
     switch (kind) {
-      case _EmphasisKind.boldItalic:
+      case InlineEmphasisKind.boldItalic:
         return base.copyWith(
           fontWeight: FontWeight.bold,
           fontStyle: FontStyle.italic,
         );
-      case _EmphasisKind.bold:
+      case InlineEmphasisKind.bold:
         return base.copyWith(fontWeight: FontWeight.bold);
-      case _EmphasisKind.italic:
+      case InlineEmphasisKind.italic:
         return base.copyWith(fontStyle: FontStyle.italic);
-      case _EmphasisKind.strikethrough:
+      case InlineEmphasisKind.strikethrough:
         return base.copyWith(decoration: TextDecoration.lineThrough);
-      case _EmphasisKind.highlight:
+      case InlineEmphasisKind.highlight:
         return base.copyWith(backgroundColor: style.markColor);
     }
   }
@@ -2031,165 +2005,6 @@ class LineBasedMarkdownBuilder {
     }
     return span;
   }
-
-  /// Tries to parse a `[text](url)` link starting at the `[` at [open].
-  /// Grammar lives in [MarkdownLinkPatterns.matchInlineLinkAt], shared
-  /// with the live editor's rendering and tap interception.
-  MarkdownInlineLink? _tryParseLinkAt(String text, int open) =>
-      MarkdownLinkPatterns.matchInlineLinkAt(text, open);
-
-  /// Tries to parse an emphasis run (`*`, `_`, `~`) opening at [i].
-  /// Applies CommonMark-style flanking so underscores never match
-  /// intra-word and a run must wrap non-space content.
-  _InlineEmphasis? _tryParseEmphasisAt(String text, int i) {
-    final marker = text.codeUnitAt(i);
-    final runLen = _countRun(text, i, marker);
-
-    final int use;
-    final _EmphasisKind kind;
-    if (marker == _kTilde) {
-      if (runLen < 2) return null; // single ~ is literal
-      use = 2;
-      kind = _EmphasisKind.strikethrough;
-    } else if (marker == _kEquals) {
-      if (runLen < 2) return null; // single = is literal
-      use = 2;
-      kind = _EmphasisKind.highlight;
-    } else if (runLen >= 3) {
-      use = 3;
-      kind = _EmphasisKind.boldItalic;
-    } else if (runLen == 2) {
-      use = 2;
-      kind = _EmphasisKind.bold;
-    } else {
-      use = 1;
-      kind = _EmphasisKind.italic;
-    }
-
-    if (!_canOpenEmphasis(text, i, marker, use)) return null;
-
-    final contentStart = i + use;
-    int j = contentStart;
-    while (j < text.length) {
-      if (text.codeUnitAt(j) == marker) {
-        final closeRun = _countRun(text, j, marker);
-        if (closeRun >= use &&
-            j > contentStart &&
-            _canCloseEmphasis(text, j, marker, use)) {
-          return _InlineEmphasis(
-            kind: kind,
-            contentStart: contentStart,
-            contentEnd: j,
-            end: j + use,
-          );
-        }
-        j += closeRun;
-      } else {
-        j++;
-      }
-    }
-    return null; // no valid closing run
-  }
-
-  /// Whether an emphasis run of [use] [marker]s at [i] can open: it must
-  /// be followed by a non-space char, and underscores must sit at a left
-  /// word boundary (so `a_b_` stays literal).
-  bool _canOpenEmphasis(String text, int i, int marker, int use) {
-    final afterIdx = i + use;
-    if (afterIdx >= text.length) return false;
-    if (_isSpace(text.codeUnitAt(afterIdx))) return false;
-    if (marker == _kUnderscore &&
-        i > 0 &&
-        _isAlphaNumeric(text.codeUnitAt(i - 1))) {
-      return false;
-    }
-    return true;
-  }
-
-  /// Whether an emphasis run of [use] [marker]s at [j] can close: it must
-  /// be preceded by a non-space char, and underscores must sit at a right
-  /// word boundary.
-  bool _canCloseEmphasis(String text, int j, int marker, int use) {
-    if (j == 0) return false;
-    if (_isSpace(text.codeUnitAt(j - 1))) return false;
-    if (marker == _kUnderscore) {
-      final afterIdx = j + use;
-      if (afterIdx < text.length &&
-          _isAlphaNumeric(text.codeUnitAt(afterIdx))) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  /// Tries to match a bare URL at [i]. Extent and trailing-punctuation
-  /// trim come from the shared [MarkdownLinkPatterns.matchBareUrlEnd] so
-  /// preview, paste line-breaker, and live editor always agree.
-  _InlineAutoLink? _tryParseBareUrlAt(String text, int i) {
-    final end = MarkdownLinkPatterns.matchBareUrlEnd(text, i);
-    if (end < 0) return null;
-    final raw = text.substring(i, end);
-    final href = raw.toLowerCase().startsWith('www.') ? 'https://$raw' : raw;
-    return _InlineAutoLink(end: end, url: href);
-  }
-
-  /// Counts how many consecutive [marker] code units start at [i].
-  static int _countRun(String text, int i, int marker) {
-    int n = 0;
-    while (i + n < text.length && text.codeUnitAt(i + n) == marker) {
-      n++;
-    }
-    return n;
-  }
-
-  /// Finds a backtick run of exactly [fence] length at/after [from],
-  /// returning its start index, or -1. CommonMark requires the closing
-  /// run to match the opening length.
-  static int _findClosingBacktick(String text, int from, int fence) {
-    int j = from;
-    while (j < text.length) {
-      if (text.codeUnitAt(j) == _kBacktick) {
-        final run = _countRun(text, j, _kBacktick);
-        if (run == fence) return j;
-        j += run;
-      } else {
-        j++;
-      }
-    }
-    return -1;
-  }
-
-  /// Whether the character before [i] is a word boundary, so an inline
-  /// token (`#tag`) or a bare autolink may start here. Delegates to the
-  /// shared tag grammar so preview and live editor always agree.
-  bool _isWordBoundaryBefore(String text, int i) =>
-      MarkdownTagSyntax.isWordBoundaryBefore(text, i);
-
-  static bool _isSpace(int c) =>
-      c == 0x20 || c == 0x09 || c == 0x0A || c == 0x0D;
-
-  static bool _isAlphaNumeric(int c) =>
-      (c >= 0x30 && c <= 0x39) || // 0-9
-      (c >= 0x41 && c <= 0x5A) || // A-Z
-      (c >= 0x61 && c <= 0x7A); // a-z
-
-  /// ASCII-punctuation test for backslash escaping; shared with the live
-  /// editor via [MarkdownConstants.isEscapablePunctuation].
-  static bool _isEscapablePunctuation(int c) =>
-      MarkdownConstants.isEscapablePunctuation(c);
-
-  // Inline-scanner code-unit constants.
-  static const int _kBackslash = 0x5C; // \
-  static const int _kBacktick = 0x60; // `
-  static const int _kStar = 0x2A; // *
-  static const int _kUnderscore = 0x5F; // _
-  static const int _kTilde = 0x7E; // ~
-  static const int _kEquals = 0x3D; // =
-  static const int _kHash = 0x23; // #
-  static const int _kOpenBracket = 0x5B; // [
-  static const int _kOpenBrace = 0x7B; // {
-  static const int _kLowerH = 0x68; // h
-  static const int _kLowerW = 0x77; // w
 
   /// Builds the span for a `#tag`, tinted and (when [onTagTap] is set)
   /// tappable. The tag text — including the leading `#` — stays a normal
@@ -2321,38 +2136,8 @@ class _HighlightRange {
   });
 }
 
-/// Inline emphasis variants produced by the recursive inline parser.
-enum _EmphasisKind { boldItalic, bold, italic, strikethrough, highlight }
-
-/// A parsed emphasis run: [contentStart, contentEnd) is the inner text,
-/// [end] is the index just past the closing delimiter.
-class _InlineEmphasis {
-  final _EmphasisKind kind;
-  final int contentStart;
-  final int contentEnd;
-  final int end;
-
-  const _InlineEmphasis({
-    required this.kind,
-    required this.contentStart,
-    required this.contentEnd,
-    required this.end,
-  });
-}
-
-/// A parsed bare autolink: [end] is the index just past the URL and
-/// [url] is the launch target (scheme-normalized for `www.` links).
-class _InlineAutoLink {
-  final int end;
-  final String url;
-
-  const _InlineAutoLink({required this.end, required this.url});
-}
-
 /// Pre-compiled regex patterns for inline markdown (compiled once, reused)
 class _MarkdownPatterns {
-  static final horizontalRule = RegExp(r'^[-*_]{3,}\s*$');
-
   /// Image pattern: ![alt text](url)
   static final image = RegExp(r'^!\[([^\]]*)\]\(([^)]+)\)$');
 

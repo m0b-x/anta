@@ -1,4 +1,7 @@
+import 'package:anta/constants/markdown_constants.dart';
+import 'package:anta/utils/markdown_color_syntax.dart';
 import 'package:anta/utils/markdown_editor_span_builder.dart';
+import 'package:anta/utils/markdown_inline_grammar.dart';
 import 'package:anta/utils/money_display_config.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -17,6 +20,28 @@ import 'package:re_editor/re_editor.dart';
 /// * a root `fontSize` that does not move between reveal states (a caret
 ///   move must never change a line's height).
 void main() {
+  group('inline candidate pre-check', () {
+    test('is a superset of what the tokenizer can open', () {
+      // The quick reject in front of the tokenizer (and the editor's
+      // paragraph pre-check) must accept every line the tokenizer
+      // would find something in — or that construct silently stops
+      // rendering on plain lines.
+      for (final entry in _corpus) {
+        final tokens = MarkdownInlineGrammar.tokenize(
+          entry.line,
+          palette: MarkdownColorPalette.presets,
+        );
+        if (tokens.any((t) => t is! InlineGhost)) {
+          expect(
+            MarkdownInlineGrammar.hasCandidates(entry.line),
+            isTrue,
+            reason: 'pre-check rejects a tokenizable line: ${entry.label}',
+          );
+        }
+      }
+    });
+  });
+
   for (final entry in _corpus) {
     testWidgets(entry.label, (tester) async {
       final context = await _pumpForContext(tester);
@@ -93,6 +118,82 @@ void main() {
       }
     });
   }
+
+  // The code-unit suite above proves nothing is lost; this one proves
+  // the right things are *hidden*. Concealed leaves (transparent + the
+  // 0.01 fontSize) are dropped, and what is left is what the user sees.
+  group('visible rendering', () {
+    testWidgets('nested emphasis styles only the inner run bold', (
+      tester,
+    ) async {
+      final render = await _renderOffCaret(tester, '*a **b** c*');
+      expect(render.visibleText, 'a b c');
+      for (final leaf in render.leaves) {
+        expect(
+          leaf.style?.fontStyle,
+          FontStyle.italic,
+          reason: 'the whole run is italic: "${leaf.text}"',
+        );
+      }
+      final inner = render.leaves.singleWhere((leaf) => leaf.text == 'b');
+      expect(inner.style?.fontWeight, FontWeight.bold);
+      for (final leaf in render.leaves.where((leaf) => leaf.text != 'b')) {
+        expect(
+          leaf.style?.fontWeight,
+          isNot(FontWeight.bold),
+          reason: 'only the inner run is bold: "${leaf.text}"',
+        );
+      }
+    });
+
+    testWidgets('a triple underscore run is one bold-italic token', (
+      tester,
+    ) async {
+      final render = await _renderOffCaret(tester, '___both___');
+      expect(render.visibleText, 'both');
+      final leaf = render.leaves.single;
+      expect(leaf.style?.fontWeight, FontWeight.bold);
+      expect(leaf.style?.fontStyle, FontStyle.italic);
+    });
+
+    testWidgets('a double-backtick fence keeps a single backtick inside', (
+      tester,
+    ) async {
+      final render = await _renderOffCaret(tester, '``x`y``');
+      expect(render.visibleText, 'x`y');
+      expect(render.leaves.single.span, isA<CodeDecoratedTextSpan>());
+    });
+
+    testWidgets('bare hashes render as an empty heading', (tester) async {
+      final render = await _renderOffCaret(tester, '###');
+      expect(render.visibleText, isEmpty);
+      expect(
+        render.span.style?.fontSize,
+        _baseStyle.fontSize! * MarkdownConstants.h3Scale,
+      );
+    });
+
+    testWidgets('an emphasis-wrapped diff row conceals its count', (
+      tester,
+    ) async {
+      final render = await _renderOffCaret(
+        tester,
+        r'*$^ 2*',
+        above: const <String>[r'$= 500', r'$+ 20 x', r'$- 5 y'],
+        money: true,
+      );
+      expect(
+        render.visibleText.contains('2'),
+        isFalse,
+        reason: 'the window count is chrome: ${render.visibleText}',
+      );
+      expect(
+        render.leaves.where((leaf) => leaf.span is PlaceholderSpan).length,
+        1,
+        reason: 'the money chip is the row\'s only visible glyph',
+      );
+    });
+  });
 
   group('money parse is memoised', () {
     testWidgets('parses once per distinct line text', (tester) async {
@@ -229,6 +330,81 @@ Future<BuildContext> _pumpForContext(WidgetTester tester) async {
   return captured;
 }
 
+/// One visible piece of a built line: a text leaf that is not concealed,
+/// or a placeholder run (a checkbox, a money chip, an op glyph).
+class _Leaf {
+  final String text;
+  final TextStyle? style;
+  final InlineSpan span;
+
+  const _Leaf(this.text, this.style, this.span);
+}
+
+typedef _Render = ({TextSpan span, List<_Leaf> leaves, String visibleText});
+
+/// Builds [line] off-caret (the caret parks on the padding line 0, or a
+/// collapsed selection would reveal the line under test) and projects the
+/// span tree down to what the reader actually sees. A fresh builder per
+/// call, because `configureMoney` clears the memos of a warm one.
+Future<_Render> _renderOffCaret(
+  WidgetTester tester,
+  String line, {
+  List<String> above = const <String>[],
+  bool money = false,
+}) async {
+  final context = await _pumpForContext(tester);
+  final document = <String>[_pad, ...above, line, _pad];
+  final index = 1 + above.length;
+  final controller = CodeLineEditingController.fromText(document.join('\n'));
+  addTearDown(controller.dispose);
+  final builder = MarkdownEditorSpanBuilder()..bind(controller);
+  builder.configureMoney(money ? _moneyEnabled : MoneyDisplayConfig.disabled);
+  controller.selection = const CodeLineSelection.collapsed(index: 0, offset: 0);
+  final span = builder.build(
+    context: context,
+    index: index,
+    codeLine: controller.codeLines[index],
+    style: _baseStyle,
+  );
+  expect(span, isNotNull, reason: 'expected a styled span for: $line');
+  final leaves = _visibleLeaves(span!);
+  return (
+    span: span,
+    leaves: leaves,
+    visibleText: leaves.map((leaf) => leaf.text).join(),
+  );
+}
+
+/// A marker span: transparent and shrunk to a 0.01 font size, which is
+/// exactly what the builder's `_concealStyle` produces.
+bool _concealed(TextStyle? style) =>
+    style != null &&
+    style.color == const Color(0x00000000) &&
+    style.fontSize == 0.01;
+
+List<_Leaf> _visibleLeaves(InlineSpan root) {
+  final leaves = <_Leaf>[];
+  void walk(InlineSpan span) {
+    if (span is TextSpan) {
+      final text = span.text;
+      if (text != null && text.isNotEmpty && !_concealed(span.style)) {
+        leaves.add(_Leaf(text, span.style, span));
+      }
+      final children = span.children;
+      if (children != null) {
+        for (final child in children) {
+          walk(child);
+        }
+      }
+    } else if (span is PlaceholderSpan) {
+      leaves.add(_Leaf('￼', span.style, span));
+    }
+  }
+
+  walk(root);
+  return leaves;
+}
+
 void _expectCodeUnits(String source, InlineSpan span, String where) {
   final plain = span.toPlainText(includePlaceholders: true);
   expect(
@@ -277,7 +453,8 @@ class _Case {
   });
 }
 
-final String _longLine = 'x' * (MarkdownEditorSpanBuilder.maxStyledLineLength + 1);
+final String _longLine =
+    'x' * (MarkdownEditorSpanBuilder.maxStyledLineLength + 1);
 
 final List<_Case> _corpus = <_Case>[
   // Headings H1-H6 plus the divergences named in the review's §1.3 table.
@@ -370,8 +547,11 @@ final List<_Case> _corpus = <_Case>[
   // Fences.
   const _Case('fence open', '```dart'),
   _Case('fence interior', 'final x = 1;', above: const <String>['```dart']),
-  _Case('fence interior with markdown', '- **not a list**',
-      above: const <String>['```']),
+  _Case(
+    'fence interior with markdown',
+    '- **not a list**',
+    above: const <String>['```'],
+  ),
   _Case('fence close', '```', above: const <String>['```dart', 'code']),
 
   // Unicode, tabs, long lines.
@@ -394,17 +574,36 @@ final List<_Case> _corpus = <_Case>[
   const _Case('money multiply', r'$* 2 doubled'),
   const _Case('money divide', r'$/ 4 split'),
   _Case('money total', r'$$', above: const <String>[r'$= 500']),
-  _Case('money total with label', r'$$ running sum',
-      above: const <String>[r'$= 500']),
-  _Case('money total with value slot', r'$$ Current sum: $',
-      above: const <String>[r'$= 500']),
-  _Case('money net change', r'$?', above: const <String>[r'$= 500', r'$+ 20 x']),
-  _Case('money entry diff', r'$^ 2',
-      above: const <String>[r'$= 500', r'$+ 20 x', r'$- 5 y']),
-  _Case('money checkpoint span', r'$~ 2',
-      above: const <String>[r'$= 500', r'$= 700']),
-  _Case('money span with accent and slot', r'$~ 2 teal: Change: $ dollars',
-      above: const <String>[r'$= 500', r'$= 700']),
+  _Case(
+    'money total with label',
+    r'$$ running sum',
+    above: const <String>[r'$= 500'],
+  ),
+  _Case(
+    'money total with value slot',
+    r'$$ Current sum: $',
+    above: const <String>[r'$= 500'],
+  ),
+  _Case(
+    'money net change',
+    r'$?',
+    above: const <String>[r'$= 500', r'$+ 20 x'],
+  ),
+  _Case(
+    'money entry diff',
+    r'$^ 2',
+    above: const <String>[r'$= 500', r'$+ 20 x', r'$- 5 y'],
+  ),
+  _Case(
+    'money checkpoint span',
+    r'$~ 2',
+    above: const <String>[r'$= 500', r'$= 700'],
+  ),
+  _Case(
+    'money span with accent and slot',
+    r'$~ 2 teal: Change: $ dollars',
+    above: const <String>[r'$= 500', r'$= 700'],
+  ),
   const _Case('money target declaration', r'$! 1000'),
   _Case('money remaining status', r'$!', above: const <String>[r'$! 1000']),
   const _Case('money remaining with no target', r'$!'),
@@ -424,7 +623,10 @@ final List<_Case> _corpus = <_Case>[
 
   // Money: label-first, currency, slots, errors.
   const _Case('money label first', r'$= Net worth: 5000'),
-  const _Case('money label first trailing', r'$= Net worth: 5000 lei as of now'),
+  const _Case(
+    'money label first trailing',
+    r'$= Net worth: 5000 lei as of now',
+  ),
   const _Case('money inline currency', r'$= 500 lei'),
   const _Case('money op value slot', r'$+ 12.50 now $'),
   const _Case('money target label first', r'### $! yellow: Groceries: 500'),
@@ -435,6 +637,31 @@ final List<_Case> _corpus = <_Case>[
   const _Case('money error bulleted', r'- $/ 0 broken'),
   const _Case('dollar text is not money', r'- $100 coffee'),
   const _Case('money ghost in label', r'$+ 12.50 {{ what for }}'),
+
+  // The shared inline grammar (MarkdownInlineGrammar): flanking, the
+  // rule of three, matched-length fences, atoms winning over delimiters,
+  // and the constructs that compose inside one another.
+  _Case(
+    'money emphasis wrapped diff with a balance above',
+    r'*$^ 2*',
+    above: const <String>[r'$= 500', r'$+ 20 x', r'$- 5 y'],
+  ),
+  const _Case('image with styled alt text', '![*a*](b)'),
+  const _Case('escaped image bang', r'\![a](b)'),
+  const _Case('code span with inner spaces', '` a `'),
+  const _Case('triple tilde', '~~~x~~~'),
+  const _Case('emphasis mid word', 'a*b*c'),
+  const _Case('three asterisks closed by two', '***a**'),
+  const _Case('dunder is bold', '__init__'),
+  const _Case('interleaved emphasis', '*a _b* c_'),
+  const _Case('ghost then emphasis', '{{a}} *b*'),
+  const _Case('link inside bold', '**a [b](c) d**'),
+  const _Case('tinted highlight then text', '==red:x== y'),
+  const _Case('tag inside italic', '*#tag*'),
+  const _Case('code span inside link text', '[a `]` x](b)'),
+  const _Case('emphasis closer inside ghost', '**a {{b** c}}'),
+  const _Case('emphasis opener inside code span', '*a `b* c`'),
+  const _Case('deeply nested inline', '*_~~==[a](b)==~~_*'),
 
   // Plain prose and blanks.
   const _Case('plain prose', 'just some ordinary words'),

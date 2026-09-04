@@ -65,6 +65,17 @@ lines bypass the memo.
 - [x] Task boxes as check glyphs (0.85× text size), checked content struck+dimmed
 - [x] Inline: `**bold**`, `*italic*`, `__bold__`, `_italic_` (word-boundary
       guarded — snake_case safe), `~~strike~~`, `` `code` `` (bg tint, literal inside)
+- [x] One inline grammar for both surfaces (2026-09-04, review Session 4):
+      `MarkdownInlineGrammar.tokenize` in `lib/utils/markdown_inline_grammar.dart`
+      — CommonMark-style delimiter pairing (`*a **b** c*` nests, `___x___` and
+      `***x***` are bold-italic, the rule of three, openers spend from the end
+      of a run and closers from the start), matched-length backtick fences
+      (``` ``a`b`` ```), escapes / ghosts / code spans as opaque atoms, and a
+      shared nesting cap (`maxNestingDepth`). The preview drops what the
+      editor conceals; `test/utils/markdown_inline_agreement_test.dart` pins
+      that the two render the same visible characters with the same styles.
+      Headings (`###` alone is an empty heading on both surfaces) and rules
+      come from `MarkdownLineShape`.
 - [x] `==highlight==` — amber background matching preview (shared
       `MarkdownConstants.markBackground{Light,Dark}`)
 - [x] Blockquotes `> ` — `>` substituted 1:1 with `┃` (preview's bar glyph),
@@ -192,12 +203,13 @@ lines bypass the memo.
   text, so tapping them places the caret (opening lives in preview). Only the
   partially-concealed `[text](url)` construct opens on tap.
 - Wrapper tap zones re-resolve at tap-up, so a text change between down and up
-  can never toggle the wrong line; zones derive from the shared grammar, so a
-  literal `[x](y)` inside inline code (rendered literal, ultra-rare) would
-  still open on tap — accepted divergence.
-- Escapes vs ghosts: `\{{x}}` still renders as a ghost in the editor
-  (GhostText owns `{{` scanning); the preview treats it as an escaped literal.
-  Ghost UX wins in the editor; divergence accepted as a curiosity.
+  can never toggle the wrong line. Since 2026-09-04 the link and tag zones
+  resolve through `MarkdownInlineGrammar.linkAt` / `tagAt` — the exact token
+  tree the span builder renders — so a `[x](y)` inside inline code, behind an
+  escaped `[`, inside a ghost, or in an image never opens, and one nested in
+  emphasis or a colour run does.
+- Escapes vs ghosts: `\{{x}}` renders as a ghost on both surfaces (GhostText
+  owns `{{` scanning; the escape rule yields to it in the shared tokenizer).
 - Callout tint is lead-line-only: continuation lines keep the plain grey quote
   bar because the styling must stay purely textual for the span memo to be
   valid (block-scoped bar tint would need a positional index like fences).
@@ -210,10 +222,11 @@ lines bypass the memo.
   - Tap zones: taps clamped to a line's end offset (blank space right of /
     below the text) always place the caret; link zones exclude their outermost
     boundary offsets; >4096-char (raw-rendered) lines never intercept;
-    `_linkUrlAt` now skips escaped opens (backslash parity), brackets inside
-    inline-code backtick runs, and ghost-straddling links. Residual accepted
-    divergence: links clamped out by an emphasis-segment end still intercept
-    (rare; full fidelity would mean running the inline scanner per tap).
+    `_linkUrlAt` skipped escaped opens (backslash parity), brackets inside
+    inline-code backtick runs, and ghost-straddling links. Its residual
+    divergence (links clamped out by an emphasis-segment end still
+    intercepted) closed on 2026-09-04 when the zone moved onto the shared
+    tokenizer.
   - Desktop pointer path: interception is primary-button-only, skips
     shift-clicks, is keyed to the claiming pointer id (multi-touch safe), uses
     precise-pointer slop for mice, clears the double-tap timestamps (an

@@ -7,10 +7,10 @@ import 'lru_cache.dart';
 import 'markdown_callout_syntax.dart';
 import 'markdown_color_syntax.dart';
 import 'markdown_editor_line_index.dart';
-import 'markdown_link_patterns.dart';
+import 'markdown_inline_grammar.dart';
+import 'markdown_line_shape.dart';
 import 'markdown_list_syntax.dart';
 import 'markdown_money_syntax.dart';
-import 'markdown_tag_syntax.dart';
 import 'money_display_config.dart';
 
 /// Live markdown rendering for the re_editor text mode (the "live
@@ -29,7 +29,12 @@ import 'money_display_config.dart';
 /// concealed (render-only — tapping places the caret and the line
 /// reveals raw for editing); bare `http(s)://` / `www.` URLs tint in
 /// place with nothing concealed. Backslash escapes render the escaped
-/// punctuation literally with the `\` concealed. Callout lead lines
+/// punctuation literally with the `\` concealed. Every one of those
+/// inline constructs is found by [MarkdownInlineGrammar] — the one
+/// tokenizer the preview reads too — so this surface only decides how
+/// to *emit* a token, never what a token is; the line's shape (heading,
+/// horizontal rule) comes from [MarkdownLineShape] for the same reason.
+/// Callout lead lines
 /// (`> [!TIP] title`) tint the quote bar and the `[!TYPE]` token with
 /// the type's accent. Code-fence delimiter lines render monospace and
 /// dimmed, fence interiors monospace over the inline-code background.
@@ -55,11 +60,6 @@ import 'money_display_config.dart';
 /// CodeLines instance and resumed at the first changed segment, so a
 /// keystroke rescans ~one segment instead of the whole document.
 class MarkdownEditorSpanBuilder {
-  /// Mirrors the preview's horizontal-rule pattern (`^[-*_]{3,}\s*$` on
-  /// the trimmed line), with the leading indent folded into the regex so
-  /// no trim allocation happens on the hot path.
-  static final RegExp _ruleRe = RegExp(r'^[ \t]*[-*_]{3,}[ \t]*$');
-
   static const Color _transparent = Color(0x00000000);
   static const double _concealedFontSize = 0.01;
   static const double _dimAlpha = 0.45;
@@ -70,7 +70,6 @@ class MarkdownEditorSpanBuilder {
   static const double _fenceDelimiterAlpha = 0.6;
   static const double _h56PrimaryBlend = 0.35;
   static const double _h6Alpha = 0.7;
-  static const int _maxInlineDepth = 3;
 
   /// Lines longer than this render raw — matches the spirit of
   /// re_editor's maxLengthSingleLineRendering guard. Public so the
@@ -389,34 +388,21 @@ class MarkdownEditorSpanBuilder {
       }
     }
 
-    // Headers accept leading whitespace, matching the preview (which
-    // trims before its check) — an indented ` ## x`, a frequent
-    // leftover of list Enter-continuation, must style identically to a
-    // flush one or the two surfaces visibly disagree. Hand-scanned
-    // because `^`-anchored regexes can't match at an offset.
-    var hStart = 0;
-    while (hStart < text.length &&
-        (text.codeUnitAt(hStart) == 0x20 || text.codeUnitAt(hStart) == 0x09)) {
-      hStart++;
-    }
-    if (hStart < text.length && text.codeUnitAt(hStart) == 0x23) {
-      var h = hStart;
-      while (h < text.length && text.codeUnitAt(h) == 0x23) {
-        h++;
-      }
-      final level = h - hStart;
-      if (level <= 6 && h < text.length && text.codeUnitAt(h) == 0x20) {
-        return _buildHeader(
-          text: text,
-          start: hStart,
-          level: level,
-          style: style,
-          baseColor: baseColor,
-          primary: primary,
-          reveal: reveal,
-          ghosts: ghosts,
-        );
-      }
+    // Heading shape comes from [MarkdownLineShape] — the one predicate
+    // the preview and the line-height calculator read — so leading
+    // indent (a frequent leftover of list Enter-continuation) and a
+    // bare `###` classify identically on every surface.
+    final heading = MarkdownLineShape.headingAt(text);
+    if (heading != null) {
+      return _buildHeader(
+        text: text,
+        heading: heading,
+        style: style,
+        baseColor: baseColor,
+        primary: primary,
+        reveal: reveal,
+        ghosts: ghosts,
+      );
     }
 
     final item = MarkdownListSyntax.parse(text);
@@ -444,7 +430,7 @@ class MarkdownEditorSpanBuilder {
       );
     }
 
-    if (_ruleRe.hasMatch(text)) {
+    if (MarkdownLineShape.isHorizontalRule(text)) {
       return _buildRule(
         text: text,
         style: style,
@@ -453,7 +439,7 @@ class MarkdownEditorSpanBuilder {
       );
     }
 
-    final hasCandidates = _hasInlineCandidates(text);
+    final hasCandidates = MarkdownInlineGrammar.hasCandidates(text);
     if (!hasCandidates && ghosts.isEmpty) return null;
     final children = <InlineSpan>[];
     var styled = false;
@@ -978,7 +964,11 @@ class MarkdownEditorSpanBuilder {
     if (concealCount) {
       // The parser skips spaces to reach the label, so whenever a label
       // follows there is a space right before it to leave visible.
-      final int keep = m.labelStart < text.length
+      // Bounded by [MoneyRowLayout.contentEnd], never the line length:
+      // on an emphasis-wrapped row (`*$^ 2*`) the label is empty and
+      // starts at the closer, and testing against the line length would
+      // read that as "a label follows" and leave the count visible.
+      final int keep = m.labelStart < layout.contentEnd
           ? m.labelStart - 1
           : m.labelStart;
       if (m.markerEnd < keep) {
@@ -1227,16 +1217,21 @@ class MarkdownEditorSpanBuilder {
     );
   }
 
+  /// ATX heading, shaped by [MarkdownLineShape.headingAt]: the hashes
+  /// and their separating space (`[hashStart, contentStart)` — empty
+  /// content for a bare `###`) conceal as one chrome run, and the rest
+  /// of the line renders inline at the level's scale.
   TextSpan _buildHeader({
     required String text,
-    required int level,
-    int start = 0,
+    required MarkdownHeadingMatch heading,
     required TextStyle style,
     required Color baseColor,
     required Color primary,
     required bool reveal,
     required List<GhostMatch> ghosts,
   }) {
+    final level = heading.level;
+    final start = heading.hashStart;
     final baseSize = style.fontSize ?? 16.0;
     var headerStyle = style.copyWith(
       fontSize: baseSize * _headerScale(level),
@@ -1254,7 +1249,7 @@ class MarkdownEditorSpanBuilder {
     // [start] is past any leading indent — kept visible (like list
     // indent) while the hashes + their space conceal, so an indented
     // header keeps its width and only the chrome disappears.
-    final markerEnd = start + level + 1;
+    final markerEnd = heading.contentStart;
     final children = <InlineSpan>[
       if (start > 0)
         TextSpan(text: text.substring(0, start), style: headerStyle),
@@ -1537,12 +1532,27 @@ class MarkdownEditorSpanBuilder {
     return TextSpan(style: style, children: children);
   }
 
-  /// Appends spans covering [start]..[end], styling emphasis / strike /
-  /// highlight / code runs, `[text](url)` links, bare URLs, `#tag`
-  /// tokens, and backslash escapes against [contextStyle].
-  /// Ghost regions are opaque to the scanner (their characters never
-  /// open or close a run) and all content is emitted through the
-  /// ghost-aware [_emit]. Returns whether any run was styled.
+  /// Appends spans covering [start]..[end], styling every inline
+  /// construct [MarkdownInlineGrammar] finds there — emphasis, strike,
+  /// highlight, inline code, `[text](url)` links and images, bare URLs,
+  /// `#tag` tokens, `{name:text}` colours, ghost runs and backslash
+  /// escapes — against [contextStyle]. The grammar is shared with the
+  /// preview: this method never scans for a construct of its own, it
+  /// only decides how each token is emitted (conceal vs drop is the one
+  /// difference between the two surfaces), and it recurses into a
+  /// container's inner range for the nested tokens. Gaps between tokens
+  /// are plain text.
+  ///
+  /// Ghost runs come back as tokens and are emitted through the
+  /// ghost-aware [_emit] like everything else, so their markers stay
+  /// concealed inside whatever style surrounds them. They are not
+  /// "styling" on their own — the caller falls back to the ghost-only
+  /// builder when nothing else matched.
+  ///
+  /// Nesting is bounded by [MarkdownInlineGrammar.maxNestingDepth]: past
+  /// it the tokenizer returns nothing, so the inner range emits plain
+  /// through the gap path on both surfaces alike. Returns whether any
+  /// non-ghost token was found.
   bool _appendInline({
     required String text,
     required int start,
@@ -1555,81 +1565,151 @@ class MarkdownEditorSpanBuilder {
     required List<InlineSpan> out,
     required int depth,
   }) {
+    final tokens = MarkdownInlineGrammar.tokenize(
+      text,
+      start: start,
+      end: end,
+      ghosts: ghosts,
+      palette: _colorPalette,
+      depth: depth,
+    );
+    if (tokens.isEmpty) {
+      _emit(
+        text: text,
+        start: start,
+        end: end,
+        style: contextStyle,
+        baseColor: baseColor,
+        ghosts: ghosts,
+        out: out,
+      );
+      return false;
+    }
+
+    final markerStyle = reveal
+        ? _dimStyle(contextStyle, baseColor)
+        : _concealStyle(contextStyle);
     var styled = false;
     var plainFrom = start;
-    var pos = start;
-    while (pos < end) {
-      final c = text.codeUnitAt(pos);
-      // A ghost run is opaque: skip it whole so `{{`/`}}` never open a
-      // run. Any other `{` falls through to the coloured-text branch
-      // below — it must not be swallowed here, or `{red:x}` would stop
-      // rendering on every line that also contains a ghost.
-      if (c == 0x7B && ghosts.isNotEmpty) {
-        final g = _ghostAt(ghosts, pos);
-        if (g != null) {
-          pos = g.end;
-          continue;
-        }
+    for (final token in tokens) {
+      if (plainFrom < token.start) {
+        _emit(
+          text: text,
+          start: plainFrom,
+          end: token.start,
+          style: contextStyle,
+          baseColor: baseColor,
+          ghosts: ghosts,
+          out: out,
+        );
       }
-      // Backslash escape: the escaped punctuation renders literally and
-      // never opens a run/tag/link (mirrors the preview's scan). The `\`
-      // is concealed off-caret, dimmed on reveal. A `\` in front of a
-      // ghost's `{{` is left alone — ghosts win, GhostText owns that
-      // grammar.
-      if (c == 0x5C && pos + 1 < end) {
-        final next = text.codeUnitAt(pos + 1);
-        if (_isEscapablePunctuation(next) && !_inGhost(ghosts, pos + 1)) {
-          if (plainFrom < pos) {
-            _emit(
-              text: text,
-              start: plainFrom,
-              end: pos,
-              style: contextStyle,
-              baseColor: baseColor,
-              ghosts: ghosts,
-              out: out,
-            );
-          }
-          out.add(
-            TextSpan(
-              text: r'\',
-              style: reveal
-                  ? _dimStyle(contextStyle, baseColor)
-                  : _concealStyle(contextStyle),
-            ),
+      plainFrom = token.end;
+      switch (token) {
+        case InlineGhost():
+          // [_emit] already splits ghosts out of any range; a ghost
+          // token just marks where one is, and styles nothing.
+          _emit(
+            text: text,
+            start: token.start,
+            end: token.end,
+            style: contextStyle,
+            baseColor: baseColor,
+            ghosts: ghosts,
+            out: out,
           );
+        case InlineEscape():
+          // The escaped punctuation renders literally with the `\`
+          // concealed off-caret, dimmed on reveal. Never inside a ghost
+          // by the grammar, so no ghost split is needed here.
+          out.add(TextSpan(text: r'\', style: markerStyle));
           out.add(
             TextSpan(
-              text: text.substring(pos + 1, pos + 2),
+              text: text.substring(token.charStart, token.end),
               style: contextStyle,
             ),
           );
           styled = true;
-          pos += 2;
-          plainFrom = pos;
-          continue;
-        }
-        pos++;
-        continue;
-      }
-      if (c == 0x23) {
-        final tagEnd = _matchTag(text, pos, end);
-        if (tagEnd > 0) {
-          if (plainFrom < pos) {
-            _emit(
-              text: text,
-              start: plainFrom,
-              end: pos,
-              style: contextStyle,
-              baseColor: baseColor,
-              ghosts: ghosts,
-              out: out,
-            );
-          }
+        case InlineCode():
+          // Code spans are literal all the way down: no recursion, and
+          // the chip is painted at the emit site (CodeDecoratedTextSpan)
+          // rather than as a per-glyph background.
+          _emitChrome(text, token.start, token.innerStart, markerStyle, out);
           _emit(
             text: text,
-            start: pos,
-            end: tagEnd,
+            start: token.innerStart,
+            end: token.innerEnd,
+            style: contextStyle,
+            baseColor: baseColor,
+            ghosts: ghosts,
+            out: out,
+            decoration: _codeDecoration(contextStyle, baseColor),
+          );
+          _emitChrome(text, token.innerEnd, token.end, markerStyle, out);
+          styled = true;
+        case InlineLink():
+          // `![image](url)` stays raw in the editor — the preview owns
+          // image rendering — so its chrome is emitted plain and the alt
+          // text keeps the surrounding style. A real link tints and
+          // underlines its text with `[` and `](url)` concealed.
+          final isImage = token.isImage;
+          _emit(
+            text: text,
+            start: token.start,
+            end: token.textStart,
+            style: isImage ? contextStyle : markerStyle,
+            baseColor: baseColor,
+            ghosts: ghosts,
+            out: out,
+          );
+          _appendInline(
+            text: text,
+            start: token.textStart,
+            end: token.textEnd,
+            contextStyle: isImage
+                ? contextStyle
+                : _linkStyle(contextStyle, primary),
+            baseColor: baseColor,
+            primary: primary,
+            reveal: reveal,
+            ghosts: ghosts,
+            out: out,
+            depth: depth + 1,
+          );
+          _emit(
+            text: text,
+            start: token.textEnd,
+            end: token.end,
+            style: isImage ? contextStyle : markerStyle,
+            baseColor: baseColor,
+            ghosts: ghosts,
+            out: out,
+          );
+          styled = true;
+        case InlineColor():
+          // `{name:` and `}` are concealed (transparent + ~0 size) so
+          // the line keeps every source code unit.
+          _emitChrome(text, token.start, token.innerStart, markerStyle, out);
+          _appendInline(
+            text: text,
+            start: token.innerStart,
+            end: token.innerEnd,
+            contextStyle: contextStyle.copyWith(
+              color: token.spec.text(dark: _isDark),
+            ),
+            baseColor: baseColor,
+            primary: primary,
+            reveal: reveal,
+            ghosts: ghosts,
+            out: out,
+            depth: depth + 1,
+          );
+          _emitChrome(text, token.innerEnd, token.end, markerStyle, out);
+          styled = true;
+        case InlineTag():
+          _emit(
+            text: text,
+            start: token.start,
+            end: token.end,
             style: contextStyle.copyWith(
               color: primary,
               fontWeight: FontWeight.w600,
@@ -1640,61 +1720,42 @@ class MarkdownEditorSpanBuilder {
             decoration: _tagDecoration(contextStyle, primary),
           );
           styled = true;
-          pos = tagEnd;
-          plainFrom = pos;
-        } else {
-          pos++;
-        }
-        continue;
-      }
-      // Coloured text: {name:content}. `{name:` and `}` are concealed
-      // (transparent + ~0 size) so the line keeps every source code
-      // unit and caret offsets never desync. Rejected inside a ghost —
-      // ghosts win, same as every other construct here.
-      if (c == 0x7B) {
-        final colored = MarkdownColorSyntax.matchAt(
-          text,
-          pos,
-          _colorPalette,
-          end,
-        );
-        if (colored == null ||
-            _inGhost(ghosts, pos) ||
-            _inGhost(ghosts, colored.innerEnd)) {
-          pos++;
-          continue;
-        }
-        if (plainFrom < pos) {
+        case InlineUrl():
           _emit(
             text: text,
-            start: plainFrom,
-            end: pos,
-            style: contextStyle,
+            start: token.start,
+            end: token.end,
+            style: _linkStyle(contextStyle, primary),
             baseColor: baseColor,
             ghosts: ghosts,
             out: out,
           );
-        }
-        final markerStyle = reveal
-            ? _dimStyle(contextStyle, baseColor)
-            : _concealStyle(contextStyle);
-        final runStyle = contextStyle.copyWith(
-          color: colored.spec.text(dark: _isDark),
-        );
-        _emit(
-          text: text,
-          start: pos,
-          end: colored.innerStart,
-          style: markerStyle,
-          baseColor: baseColor,
-          ghosts: ghosts,
-          out: out,
-        );
-        if (depth < _maxInlineDepth) {
+          styled = true;
+        case InlineEmphasis():
+          _emitChrome(text, token.start, token.innerStart, markerStyle, out);
+          // `==name:text==` tints the highlight and conceals the
+          // `name:` prefix as chrome alongside the `==` markers; an
+          // unresolved name never reaches here (the tokenizer leaves it
+          // as content) so nothing is ever silently eaten.
+          final TextStyle runStyle;
+          if (token.contentStart > token.innerStart) {
+            _emitChrome(
+              text,
+              token.innerStart,
+              token.contentStart,
+              markerStyle,
+              out,
+            );
+            runStyle = contextStyle.copyWith(
+              backgroundColor: token.tintSpec!.highlight(dark: _isDark),
+            );
+          } else {
+            runStyle = _runStyle(contextStyle, token.kind);
+          }
           _appendInline(
             text: text,
-            start: colored.innerStart,
-            end: colored.innerEnd,
+            start: token.contentStart,
+            end: token.innerEnd,
             contextStyle: runStyle,
             baseColor: baseColor,
             primary: primary,
@@ -1703,224 +1764,9 @@ class MarkdownEditorSpanBuilder {
             out: out,
             depth: depth + 1,
           );
-        } else {
-          _emit(
-            text: text,
-            start: colored.innerStart,
-            end: colored.innerEnd,
-            style: runStyle,
-            baseColor: baseColor,
-            ghosts: ghosts,
-            out: out,
-          );
-        }
-        _emit(
-          text: text,
-          start: colored.innerEnd,
-          end: colored.end,
-          style: markerStyle,
-          baseColor: baseColor,
-          ghosts: ghosts,
-          out: out,
-        );
-        styled = true;
-        pos = colored.end;
-        plainFrom = pos;
-        continue;
+          _emitChrome(text, token.innerEnd, token.end, markerStyle, out);
+          styled = true;
       }
-      if (c == 0x5B) {
-        final link = _matchLink(text, pos, end, ghosts);
-        if (link == null) {
-          pos++;
-          continue;
-        }
-        if (plainFrom < pos) {
-          _emit(
-            text: text,
-            start: plainFrom,
-            end: pos,
-            style: contextStyle,
-            baseColor: baseColor,
-            ghosts: ghosts,
-            out: out,
-          );
-        }
-        final markerStyle = reveal
-            ? _dimStyle(contextStyle, baseColor)
-            : _concealStyle(contextStyle);
-        final linkStyle = _linkStyle(contextStyle, primary);
-        out.add(TextSpan(text: '[', style: markerStyle));
-        if (depth < _maxInlineDepth) {
-          _appendInline(
-            text: text,
-            start: pos + 1,
-            end: link.textEnd,
-            contextStyle: linkStyle,
-            baseColor: baseColor,
-            primary: primary,
-            reveal: reveal,
-            ghosts: ghosts,
-            out: out,
-            depth: depth + 1,
-          );
-        } else {
-          _emit(
-            text: text,
-            start: pos + 1,
-            end: link.textEnd,
-            style: linkStyle,
-            baseColor: baseColor,
-            ghosts: ghosts,
-            out: out,
-          );
-        }
-        _emit(
-          text: text,
-          start: link.textEnd,
-          end: link.end,
-          style: markerStyle,
-          baseColor: baseColor,
-          ghosts: ghosts,
-          out: out,
-        );
-        styled = true;
-        pos = link.end;
-        plainFrom = pos;
-        continue;
-      }
-      if (c == 0x68 || c == 0x77) {
-        final urlEnd = _matchBareUrl(text, pos, end, ghosts);
-        if (urlEnd < 0) {
-          pos++;
-          continue;
-        }
-        if (plainFrom < pos) {
-          _emit(
-            text: text,
-            start: plainFrom,
-            end: pos,
-            style: contextStyle,
-            baseColor: baseColor,
-            ghosts: ghosts,
-            out: out,
-          );
-        }
-        _emit(
-          text: text,
-          start: pos,
-          end: urlEnd,
-          style: _linkStyle(contextStyle, primary),
-          baseColor: baseColor,
-          ghosts: ghosts,
-          out: out,
-        );
-        styled = true;
-        pos = urlEnd;
-        plainFrom = pos;
-        continue;
-      }
-      final _InlineRun? run;
-      if (c == 0x2A) {
-        run =
-            _matchRun(text, pos, end, '***', ghosts: ghosts) ??
-            _matchRun(text, pos, end, '**', ghosts: ghosts) ??
-            _matchRun(text, pos, end, '*', ghosts: ghosts);
-      } else if (c == 0x7E) {
-        run = _matchRun(text, pos, end, '~~', ghosts: ghosts);
-      } else if (c == 0x3D) {
-        run = _matchRun(text, pos, end, '==', ghosts: ghosts);
-      } else if (c == 0x60) {
-        run = _matchRun(text, pos, end, '`', ghosts: ghosts);
-      } else if (c == 0x5F) {
-        run =
-            _matchRun(text, pos, end, '__', ghosts: ghosts, wordBound: true) ??
-            _matchRun(text, pos, end, '_', ghosts: ghosts, wordBound: true);
-      } else {
-        pos++;
-        continue;
-      }
-      if (run == null) {
-        pos++;
-        continue;
-      }
-      if (plainFrom < pos) {
-        _emit(
-          text: text,
-          start: plainFrom,
-          end: pos,
-          style: contextStyle,
-          baseColor: baseColor,
-          ghosts: ghosts,
-          out: out,
-        );
-      }
-      final markerStyle = reveal
-          ? _dimStyle(contextStyle, baseColor)
-          : _concealStyle(contextStyle);
-      var innerStart = run.innerStart;
-      var runStyle = _runStyle(contextStyle, baseColor, run.marker);
-      // `==name:text==` tints the highlight and conceals `name:` as
-      // chrome alongside the `==` markers. An unresolved name keeps the
-      // default amber and leaves the prefix as ordinary text, so
-      // `==note: see below==` is never eaten.
-      if (run.marker == '==') {
-        final tint = MarkdownColorSyntax.matchHighlightPrefix(
-          text,
-          innerStart,
-          run.innerEnd,
-          _colorPalette,
-        );
-        if (tint != null && !_inGhost(ghosts, tint.contentStart - 1)) {
-          runStyle = contextStyle.copyWith(
-            backgroundColor: tint.spec.highlight(dark: _isDark),
-          );
-          innerStart = tint.contentStart;
-        }
-      }
-      out.add(TextSpan(text: run.marker, style: markerStyle));
-      if (innerStart > run.innerStart) {
-        _emit(
-          text: text,
-          start: run.innerStart,
-          end: innerStart,
-          style: markerStyle,
-          baseColor: baseColor,
-          ghosts: ghosts,
-          out: out,
-        );
-      }
-      // Code runs are literal: no nested emphasis inside backticks.
-      if (run.marker != '`' && depth < _maxInlineDepth) {
-        _appendInline(
-          text: text,
-          start: innerStart,
-          end: run.innerEnd,
-          contextStyle: runStyle,
-          baseColor: baseColor,
-          primary: primary,
-          reveal: reveal,
-          ghosts: ghosts,
-          out: out,
-          depth: depth + 1,
-        );
-      } else {
-        _emit(
-          text: text,
-          start: innerStart,
-          end: run.innerEnd,
-          style: runStyle,
-          baseColor: baseColor,
-          ghosts: ghosts,
-          out: out,
-          decoration: run.marker == '`'
-              ? _codeDecoration(contextStyle, baseColor)
-              : null,
-        );
-      }
-      out.add(TextSpan(text: run.marker, style: markerStyle));
-      styled = true;
-      pos = run.innerEnd + run.marker.length;
-      plainFrom = pos;
     }
     if (plainFrom < end) {
       _emit(
@@ -1934,6 +1780,22 @@ class MarkdownEditorSpanBuilder {
       );
     }
     return styled;
+  }
+
+  /// Chrome the grammar guarantees ghost-free — delimiter runs, backtick
+  /// fences, `{name:` and `}` — emitted as one span: the substring is
+  /// the range, so the code-unit inventory holds by construction and
+  /// the ghost split + debug inventory walk of [_emit] would be wasted.
+  static void _emitChrome(
+    String text,
+    int start,
+    int end,
+    TextStyle style,
+    List<InlineSpan> out,
+  ) {
+    if (start < end) {
+      out.add(TextSpan(text: text.substring(start, end), style: style));
+    }
   }
 
   /// Emits [start]..[end] in [style], splitting around ghost runs so
@@ -2076,120 +1938,36 @@ class MarkdownEditorSpanBuilder {
     }
   }
 
-  /// Matches `marker…marker` opening at [pos]: the run must be non-empty,
-  /// must not start or end with whitespace (so `2 * 3 * 4` stays plain),
-  /// and must not close inside a ghost. [wordBound] additionally requires
-  /// non-word characters around the run, so snake_case tokens are never
-  /// emphasized.
-  _InlineRun? _matchRun(
-    String text,
-    int pos,
-    int end,
-    String marker, {
-    required List<GhostMatch> ghosts,
-    bool wordBound = false,
-  }) {
-    final len = marker.length;
-    if (!text.startsWith(marker, pos)) return null;
-    if (wordBound && pos > 0 && _isWordChar(text.codeUnitAt(pos - 1))) {
-      return null;
-    }
-    final innerStart = pos + len;
-    if (innerStart >= end || _isSpace(text.codeUnitAt(innerStart))) {
-      return null;
-    }
-    var close = text.indexOf(marker, innerStart);
-    while (close != -1 && close + len <= end) {
-      if (close > innerStart &&
-          !_isSpace(text.codeUnitAt(close - 1)) &&
-          !_inGhost(ghosts, close) &&
-          (!wordBound ||
-              close + len == text.length ||
-              !_isWordChar(text.codeUnitAt(close + len)))) {
-        return _InlineRun(marker, innerStart, close);
-      }
-      close = text.indexOf(marker, close + 1);
-    }
-    return null;
-  }
-
-  /// Matches a `[text](url)` link opening at [pos]. Grammar comes from
-  /// [MarkdownLinkPatterns.matchInlineLinkAt] (shared with the preview
-  /// and the wrapper's tap interception), clamped to [end] so a link
-  /// inside an emphasis run never styles past the run's closing marker.
-  /// Rejected when the `[` is preceded by `!` (image syntax stays raw in
-  /// the editor — preview owns image rendering) or when a structural
-  /// character falls inside a ghost run.
-  MarkdownInlineLink? _matchLink(
-    String text,
-    int pos,
-    int end,
-    List<GhostMatch> ghosts,
-  ) {
-    if (pos > 0 && text.codeUnitAt(pos - 1) == 0x21) return null;
-    final link = MarkdownLinkPatterns.matchInlineLinkAt(text, pos, end);
-    if (link == null) return null;
-    if (_inGhost(ghosts, link.textEnd) || _inGhost(ghosts, link.urlEnd)) {
-      return null;
-    }
-    return link;
-  }
-
-  /// Returns the end (exclusive) of a bare `http(s)://` / `www.` URL
-  /// opening at [pos], or `-1`. Grammar comes from [MarkdownLinkPatterns]
-  /// (shared with the preview and the paste line-breaker); the match is
-  /// clamped to the current segment and to the first ghost run, so a URL
-  /// never styles past either.
-  int _matchBareUrl(String text, int pos, int end, List<GhostMatch> ghosts) {
-    if (!MarkdownTagSyntax.isWordBoundaryBefore(text, pos)) return -1;
-    var limit = end;
-    for (final g in ghosts) {
-      if (g.end <= pos) continue;
-      if (g.start <= pos) return -1;
-      if (g.start < limit) limit = g.start;
-      break;
-    }
-    return MarkdownLinkPatterns.matchBareUrlEnd(text, pos, limit);
-  }
-
   TextStyle _linkStyle(TextStyle context, Color primary) => context.copyWith(
     color: primary,
     decoration: TextDecoration.underline,
     decorationColor: primary,
   );
 
-  TextStyle _runStyle(TextStyle context, Color baseColor, String marker) {
-    switch (marker) {
-      case '***':
-        return context.copyWith(
-          fontWeight: FontWeight.bold,
-          fontStyle: FontStyle.italic,
-        );
-      case '**':
-      case '__':
-        return context.copyWith(fontWeight: FontWeight.bold);
-      case '*':
-      case '_':
-        return context.copyWith(fontStyle: FontStyle.italic);
-      case '~~':
-        return context.copyWith(
-          decoration: TextDecoration.lineThrough,
-          decorationColor: context.color,
-        );
-      case '==':
-        return context.copyWith(
-          backgroundColor: _isDark
-              ? MarkdownConstants.markBackgroundDark
-              : MarkdownConstants.markBackgroundLight,
-        );
-      case '`':
-        // The background is a painted chip (CodeDecoratedTextSpan) at
-        // the emit site, not a style backgroundColor — rounded corners
-        // and uniform height need real paint, not per-glyph rects.
-        return context;
-    }
-    return context;
-  }
+  /// The style a matched delimiter pair applies to its content. An
+  /// untinted `==highlight==` keeps the legacy amber, which is what the
+  /// palette's `yellow` preset resolves to; a tinted one never reaches
+  /// here (the caller applies the resolved highlight instead).
+  TextStyle _runStyle(
+    TextStyle context,
+    InlineEmphasisKind kind,
+  ) => switch (kind) {
+    InlineEmphasisKind.boldItalic => context.copyWith(
+      fontWeight: FontWeight.bold,
+      fontStyle: FontStyle.italic,
+    ),
+    InlineEmphasisKind.bold => context.copyWith(fontWeight: FontWeight.bold),
+    InlineEmphasisKind.italic => context.copyWith(fontStyle: FontStyle.italic),
+    InlineEmphasisKind.strikethrough => context.copyWith(
+      decoration: TextDecoration.lineThrough,
+      decorationColor: context.color,
+    ),
+    InlineEmphasisKind.highlight => context.copyWith(
+      backgroundColor: _isDark
+          ? MarkdownConstants.markBackgroundDark
+          : MarkdownConstants.markBackgroundLight,
+    ),
+  };
 
   /// Stadium pill behind a `#tag` run. Radius past half the chip height
   /// clamps to a stadium; the vertical inset trims the strut-height box
@@ -2241,68 +2019,7 @@ class MarkdownEditorSpanBuilder {
   TextStyle _concealStyle(TextStyle context) =>
       context.copyWith(color: _transparent, fontSize: _concealedFontSize);
 
-  bool _hasInlineCandidates(String text) {
-    for (var i = 0; i < text.length; i++) {
-      final c = text.codeUnitAt(i);
-      if (c == 0x2A ||
-          c == 0x7E ||
-          c == 0x60 ||
-          c == 0x5F ||
-          c == 0x3D ||
-          c == 0x23 ||
-          c == 0x5B ||
-          c == 0x5C ||
-          c == 0x7B) {
-        return true;
-      }
-      // Bare-URL candidates need the second scheme char too ("ht", "ww"),
-      // or every prose line containing an h/w would defeat this
-      // quick-reject and run the full inline scanner for nothing.
-      if ((c == 0x68 || c == 0x77) && i + 1 < text.length) {
-        final n = text.codeUnitAt(i + 1);
-        if ((c == 0x68 && n == 0x74) || (c == 0x77 && n == 0x77)) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  /// Returns the end (exclusive) of a `#tag` opening at [pos], or `-1`.
-  /// Grammar comes from [MarkdownTagSyntax] (shared with the preview);
-  /// the end is clamped into the current segment so a tag inside an
-  /// emphasis run never styles past the run's closing marker, and the
-  /// clamped tag must keep at least one body character.
-  int _matchTag(String text, int pos, int end) {
-    if (!MarkdownTagSyntax.isWordBoundaryBefore(text, pos)) return -1;
-    var tagEnd = MarkdownTagSyntax.tryParseTagAt(text, pos);
-    if (tagEnd == null) return -1;
-    if (tagEnd > end) tagEnd = end;
-    return tagEnd > pos + 1 ? tagEnd : -1;
-  }
-
   bool _isSpace(int codeUnit) => codeUnit == 0x20 || codeUnit == 0x09;
-
-  bool _isEscapablePunctuation(int c) =>
-      MarkdownConstants.isEscapablePunctuation(c);
-
-  bool _isWordChar(int c) =>
-      (c >= 0x61 && c <= 0x7A) ||
-      (c >= 0x41 && c <= 0x5A) ||
-      (c >= 0x30 && c <= 0x39) ||
-      c == 0x5F ||
-      c > 0x7F;
-
-  GhostMatch? _ghostAt(List<GhostMatch> ghosts, int pos) {
-    for (final g in ghosts) {
-      if (pos >= g.start && pos < g.end) return g;
-      if (g.start > pos) break;
-    }
-    return null;
-  }
-
-  bool _inGhost(List<GhostMatch> ghosts, int pos) =>
-      _ghostAt(ghosts, pos) != null;
 
   bool _ghostBlank(String text, GhostMatch g) {
     for (var i = g.innerStart; i < g.innerEnd; i++) {
@@ -2379,14 +2096,6 @@ class MarkdownEditorSpanBuilder {
     );
     return TextSpan(style: style, children: children);
   }
-}
-
-class _InlineRun {
-  final String marker;
-  final int innerStart;
-  final int innerEnd;
-
-  const _InlineRun(this.marker, this.innerStart, this.innerEnd);
 }
 
 /// The live editor's `$$` money total: a rounded chip with the running

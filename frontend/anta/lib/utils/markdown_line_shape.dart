@@ -30,6 +30,47 @@ class MarkdownLineShape {
   /// Mirrors `_MarkdownPatterns.tableRow` in the preview builder.
   static final _tableRow = RegExp(r'^\|.*\|$');
 
+  /// `---` / `***` / `___` (three or more of one marker), indent and
+  /// trailing blanks allowed. The single horizontal-rule predicate for
+  /// the preview, the live editor and the line-height calculator.
+  static final _horizontalRule = RegExp(r'^[ \t]*([-*_])\1{2,}[ \t]*$');
+
+  /// Whether [line] is a horizontal rule.
+  static bool isHorizontalRule(String line) => _horizontalRule.hasMatch(line);
+
+  /// The ATX heading [line] is, or `null`: after optional indent, one to
+  /// six `#` followed by a space or the line end — so `#tag` and
+  /// `#######` are prose, and a bare `###` is an empty heading. The
+  /// single heading predicate for every surface.
+  static MarkdownHeadingMatch? headingAt(String line) {
+    final n = line.length;
+    var i = 0;
+    while (i < n &&
+        (line.codeUnitAt(i) == 0x20 || line.codeUnitAt(i) == 0x09)) {
+      i++;
+    }
+    if (i >= n || line.codeUnitAt(i) != 0x23) return null;
+    final hashStart = i;
+    while (i < n && line.codeUnitAt(i) == 0x23) {
+      i++;
+    }
+    final level = i - hashStart;
+    if (level > 6) return null;
+    if (i == n) {
+      return MarkdownHeadingMatch(
+        level: level,
+        hashStart: hashStart,
+        contentStart: n,
+      );
+    }
+    if (line.codeUnitAt(i) != 0x20) return null;
+    return MarkdownHeadingMatch(
+      level: level,
+      hashStart: hashStart,
+      contentStart: i + 1,
+    );
+  }
+
   /// Whether [line] is a line-led construct that must stay one intact,
   /// unprefixed source line to keep its meaning.
   static bool isLineLedConstruct(String line) {
@@ -44,16 +85,32 @@ class MarkdownLineShape {
         return MarkdownChunker.isFenceDelimiter(trimmed);
       case 0x24: // $ — money row (full shape parse, not just the probe)
         return MarkdownMoneySyntax.parse(trimmed) != null;
-      case 0x23: // # — heading, incl. header-prefixed money rows
-        var i = 1;
-        while (i < trimmed.length && trimmed.codeUnitAt(i) == 0x23) {
-          i++;
-        }
-        return i <= 6 && (i == trimmed.length || trimmed.codeUnitAt(i) == 0x20);
+      case 0x23: // # — heading, or a space-less money heading (`##$$`)
+        return headingAt(trimmed) != null ||
+            (MarkdownMoneySyntax.leadsWithMoney(trimmed) &&
+                MarkdownMoneySyntax.parse(trimmed) != null);
     }
     // List-prefixed money rows (`- $+ 12.50`, `1. $$`): the probe is
     // cheap and rejects ordinary list prose before the full parse runs.
     return MarkdownMoneySyntax.leadsWithMoney(trimmed) &&
         MarkdownMoneySyntax.parse(trimmed) != null;
   }
+}
+
+/// An ATX heading's shape on one line: [level] hashes starting at
+/// [hashStart] (after any indent), content from [contentStart] (past
+/// the single space, or the line end for a bare `###`).
+class MarkdownHeadingMatch {
+  final int level;
+  final int hashStart;
+  final int contentStart;
+
+  const MarkdownHeadingMatch({
+    required this.level,
+    required this.hashStart,
+    required this.contentStart,
+  });
+
+  /// One past the last hash.
+  int get hashEnd => hashStart + level;
 }

@@ -2092,6 +2092,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
         isFenceLine: markdownRendering
             ? _markdownSpanBuilder.lineInFence
             : null,
+        colorPalette: _colorPalette,
         lineNumbersKey: _lineNumbersKey,
         scrollIndicatorKey: _scrollIndicatorKey,
         // Chunk debug visualization (matches preview mode)

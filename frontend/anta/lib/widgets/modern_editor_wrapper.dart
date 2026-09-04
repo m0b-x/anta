@@ -9,12 +9,12 @@ import '../constants/app_spacing.dart';
 import '../constants/font_constants.dart';
 import '../constants/markdown_constants.dart';
 import '../utils/ghost_text.dart';
+import '../utils/markdown_color_syntax.dart';
 import '../utils/markdown_editor_span_builder.dart';
-import '../utils/markdown_link_patterns.dart';
+import '../utils/markdown_inline_grammar.dart';
 import '../utils/markdown_list_syntax.dart';
 import '../utils/markdown_list_utils.dart';
 import '../utils/markdown_money_syntax.dart';
-import '../utils/markdown_tag_syntax.dart';
 import '../utils/re_editor_search_controller.dart';
 import 'editor_chunk_overlay.dart';
 import 'scroll_progress_indicator.dart';
@@ -54,6 +54,10 @@ class ModernEditorWrapper extends StatefulWidget {
   /// text renders raw, so taps there always fall through to editing.
   final bool Function(int lineIndex)? isFenceLine;
 
+  /// The palette the span builder renders with, so tap zones resolve
+  /// nested `{name:…}` runs exactly as drawn.
+  final MarkdownColorPalette colorPalette;
+
   final GlobalKey? lineNumbersKey;
   final GlobalKey? scrollIndicatorKey;
 
@@ -87,6 +91,7 @@ class ModernEditorWrapper extends StatefulWidget {
     this.onMoneyTap,
     this.onOpenTag,
     this.isFenceLine,
+    this.colorPalette = MarkdownColorPalette.presets,
     this.lineNumbersKey,
     this.scrollIndicatorKey,
     this.showScrollIndicator = true,
@@ -499,138 +504,33 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
   }
 
   /// The url of the `[text](url)` link covering [offset] in [text], or
-  /// null. Grammar comes from [MarkdownLinkPatterns] (shared with the
-  /// span builder's rendering). To stay aligned with what the editor
-  /// actually renders as a link: opens preceded by `!` or an odd run of
-  /// backslashes never count, brackets inside inline-code backtick runs
-  /// never count, and links whose structural chars sit inside ghost runs
-  /// never count. The zone excludes the construct's outermost boundary
-  /// offsets, so taps that resolve to the edges (including clamped taps
-  /// in blank space) still place the caret.
-  String? _linkUrlAt(String text, int offset) {
-    final ghosts = GhostText.mightContain(text)
-        ? GhostText.findGhosts(text)
-        : const <GhostMatch>[];
-    final codeRuns = _inlineCodeRuns(text);
-    var searchFrom = 0;
-    while (searchFrom < text.length) {
-      final open = text.indexOf('[', searchFrom);
-      if (open < 0) return null;
-      searchFrom = open + 1;
-      if (open > 0) {
-        final before = text.codeUnitAt(open - 1);
-        if (before == 0x21) continue;
-        if (before == 0x5C && _oddBackslashRunBefore(text, open)) continue;
-      }
-      if (_inRanges(codeRuns, open)) continue;
-      final link = MarkdownLinkPatterns.matchInlineLinkAt(text, open);
-      if (link == null) continue;
-      if (_inGhosts(ghosts, link.textEnd) || _inGhosts(ghosts, link.urlEnd)) {
-        continue;
-      }
-      if (offset <= link.start) return null;
-      if (offset < link.end) return link.urlOf(text);
-      searchFrom = link.end;
-    }
-    return null;
-  }
+  /// null. The zone is exactly the construct the editor renders as a
+  /// link, resolved through [MarkdownInlineGrammar] — the one inline
+  /// grammar both surfaces consume — at any nesting depth, so emphasis,
+  /// colour runs, inline code, escapes, images and ghosts all decide the
+  /// zone the same way they decide the paint. The construct's outermost
+  /// boundary offsets are excluded, so taps that resolve to the edges
+  /// (including clamped taps in blank space) still place the caret.
+  String? _linkUrlAt(String text, int offset) => MarkdownInlineGrammar.linkAt(
+    text,
+    offset,
+    palette: widget.colorPalette,
+  )?.urlOf(text);
 
   /// The `#tag` (leading `#` kept, as the preview's recognizer passes
-  /// it) covering [offset] in [text], or null. Grammar comes from
-  /// [MarkdownTagSyntax] — the one module both render surfaces scan
-  /// with — so the zone can never claim something the editor did not
-  /// paint as a tag: `#` must sit on a word boundary and be followed by
-  /// a letter-led body, so heading hashes (`## x`), `#3`, and `set #1`
-  /// are never tags. Tags conceal and substitute nothing, so the tapped
-  /// offset maps 1:1 onto source code units. Tags inside inline-code
-  /// backtick runs never count (code runs render literally), and tags
-  /// whose `#` sits in a ghost run never count — ghosts win. Like the
-  /// link zone, the construct's outermost boundary offsets are excluded
-  /// so taps that resolve to an edge still place the caret.
-  String? _tagAt(String text, int offset) {
-    final ghosts = GhostText.mightContain(text)
-        ? GhostText.findGhosts(text)
-        : const <GhostMatch>[];
-    final codeRuns = _inlineCodeRuns(text);
-    var searchFrom = 0;
-    while (searchFrom < text.length) {
-      final hash = text.indexOf('#', searchFrom);
-      if (hash < 0) return null;
-      searchFrom = hash + 1;
-      if (!MarkdownTagSyntax.isWordBoundaryBefore(text, hash)) continue;
-      final end = MarkdownTagSyntax.tryParseTagAt(text, hash);
-      if (end == null) continue;
-      if (_inRanges(codeRuns, hash)) continue;
-      if (_inGhosts(ghosts, hash)) continue;
-      if (offset <= hash) return null;
-      if (offset < end) return text.substring(hash, end);
-      searchFrom = end;
-    }
-    return null;
-  }
-
-  /// Inline-code backtick runs, mirroring the span builder's `` ` ``
-  /// rule (non-empty, no space just inside the opening backtick or
-  /// before the closing one): links never render inside them, so taps
-  /// there must edit, not open.
-  List<(int, int)> _inlineCodeRuns(String text) {
-    List<(int, int)>? runs;
-    var pos = 0;
-    while (true) {
-      final tick = text.indexOf('`', pos);
-      if (tick < 0) break;
-      final innerStart = tick + 1;
-      if (innerStart >= text.length ||
-          _isSpaceChar(text.codeUnitAt(innerStart))) {
-        pos = tick + 1;
-        continue;
-      }
-      var close = text.indexOf('`', innerStart);
-      var end = -1;
-      while (close != -1) {
-        if (close > innerStart && !_isSpaceChar(text.codeUnitAt(close - 1))) {
-          end = close;
-          break;
-        }
-        close = text.indexOf('`', close + 1);
-      }
-      if (end < 0) {
-        pos = tick + 1;
-        continue;
-      }
-      (runs ??= []).add((tick, end + 1));
-      pos = end + 1;
-    }
-    return runs ?? const [];
-  }
-
-  bool _oddBackslashRunBefore(String text, int index) {
-    var count = 0;
-    var i = index - 1;
-    while (i >= 0 && text.codeUnitAt(i) == 0x5C) {
-      count++;
-      i--;
-    }
-    return count.isOdd;
-  }
-
-  bool _isSpaceChar(int c) => c == 0x20 || c == 0x09;
-
-  bool _inRanges(List<(int, int)> ranges, int index) {
-    for (final (start, end) in ranges) {
-      if (index >= start && index < end) return true;
-      if (start > index) break;
-    }
-    return false;
-  }
-
-  bool _inGhosts(List<GhostMatch> ghosts, int index) {
-    for (final g in ghosts) {
-      if (index >= g.start && index < g.end) return true;
-      if (g.start > index) break;
-    }
-    return false;
-  }
+  /// it) covering [offset] in [text], or null. Like the link zone, it is
+  /// exactly the construct the editor renders as a tag, resolved through
+  /// [MarkdownInlineGrammar] at any nesting depth — so a tag inside
+  /// emphasis or a colour run is tappable while heading hashes, `#3`,
+  /// and tags inside code spans, escapes or ghost runs are not. Tags
+  /// conceal and substitute nothing, so the tapped offset maps 1:1 onto
+  /// source code units; the construct's outermost boundary offsets are
+  /// excluded so taps that resolve to an edge still place the caret.
+  String? _tagAt(String text, int offset) => MarkdownInlineGrammar.tagAt(
+    text,
+    offset,
+    palette: widget.colorPalette,
+  )?.tagOf(text);
 
   /// Drops the engaged-ghost state once the selection leaves the run or
   /// its line's text changes, so a much-later tap on the same ghost

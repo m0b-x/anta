@@ -34,8 +34,13 @@ void main() {
   }
 
   /// Mounts the wrapper over [text] and records every tag / link tap.
-  Future<({List<String> tags, List<String> links, CodeLineEditingController
-      controller})>
+  Future<
+    ({
+      List<String> tags,
+      List<String> links,
+      CodeLineEditingController controller,
+    })
+  >
   pumpEditor(
     WidgetTester tester, {
     required String text,
@@ -123,8 +128,9 @@ void main() {
     await teardownEditor(tester);
   });
 
-  testWidgets('the caret (reveal) line passes through — its markdown is raw',
-      (tester) async {
+  testWidgets('the caret (reveal) line passes through — its markdown is raw', (
+    tester,
+  ) async {
     final e = await pumpEditor(tester, text: 'see #project now\nsecond');
 
     await tester.tapAt(positionOf(tester, 0, 6));
@@ -136,8 +142,9 @@ void main() {
     await teardownEditor(tester);
   });
 
-  testWidgets('fence lines pass through — fence text renders raw',
-      (tester) async {
+  testWidgets('fence lines pass through — fence text renders raw', (
+    tester,
+  ) async {
     final e = await pumpEditor(
       tester,
       text: 'caret line\n```\nsee #project now\n```',
@@ -211,8 +218,9 @@ void main() {
     await teardownEditor(tester);
   });
 
-  testWidgets('a tag inside a ghost run passes through — ghosts win',
-      (tester) async {
+  testWidgets('a tag inside a ghost run passes through — ghosts win', (
+    tester,
+  ) async {
     final e = await pumpEditor(
       tester,
       text: 'caret line\nfill {{ #topic }} in',
@@ -227,8 +235,9 @@ void main() {
     await teardownEditor(tester);
   });
 
-  testWidgets('a heading line taps its own #tag, never its hashes',
-      (tester) async {
+  testWidgets('a heading line taps its own #tag, never its hashes', (
+    tester,
+  ) async {
     final e = await pumpEditor(tester, text: 'caret line\n## Title #done');
 
     await tester.tapAt(positionOf(tester, 0, 3));
@@ -250,7 +259,9 @@ void main() {
     await teardownEditor(tester);
   });
 
-  testWidgets('a claimed tap resolves the grammars exactly once', (tester) async {
+  testWidgets('a claimed tap resolves the grammars exactly once', (
+    tester,
+  ) async {
     // B11: the interceptor asks twice — once to claim at tap-down, once
     // to act at tap-up. The claim memoizes its action, so the second ask
     // costs nothing while position, line text, selection and fence role
@@ -269,8 +280,9 @@ void main() {
     await teardownEditor(tester);
   });
 
-  testWidgets('a pass-through tap resolves once and leaves no stale claim',
-      (tester) async {
+  testWidgets('a pass-through tap resolves once and leaves no stale claim', (
+    tester,
+  ) async {
     // A failed claim must not memoize anything: the next claimed tap has
     // to resolve for itself rather than reuse the previous position's
     // answer.
@@ -288,6 +300,177 @@ void main() {
 
     expect(e.tags, ['#project']);
     expect(ModernEditorWrapper.debugTapResolveCount, 1);
+    await teardownEditor(tester);
+  });
+
+  testWidgets('a link nested in bold still opens', (tester) async {
+    // `**[docs](https://x.dev)**`: `*` 0-1, `[` 2, `docs` 3-6, so the
+    // link runs [2, 23) inside the bold pair's inner range [2, 23).
+    final e = await pumpEditor(
+      tester,
+      text: 'caret line\n**[docs](https://x.dev)**',
+    );
+
+    await tester.tapAt(positionOf(tester, 0, 3));
+    await tester.pump();
+    // Inside `docs`.
+    await tester.tapAt(positionOf(tester, 1, 5));
+    await tester.pump();
+
+    expect(e.links, ['https://x.dev']);
+    expect(e.controller.selection.baseIndex, 0);
+    await teardownEditor(tester);
+  });
+
+  testWidgets('a link inside an inline-code run passes through', (
+    tester,
+  ) async {
+    // '`[docs](https://x.dev)`': backtick 0, `[` 1, `docs` 2-5. The code
+    // span is an atom, so the bracket inside it is literal text.
+    //
+    // The parking tap sits at column 9 here and in the other
+    // pass-through cases below: after a tap the Android selection
+    // handle hangs one line box under the caret, so a pass-through tap
+    // straight below the parking column lands on the handle instead of
+    // the text and the caret never moves.
+    final e = await pumpEditor(
+      tester,
+      text: 'caret line\n`[docs](https://x.dev)`',
+    );
+
+    await tester.tapAt(positionOf(tester, 0, 9));
+    await tester.pump();
+    // Inside `docs`.
+    await tester.tapAt(positionOf(tester, 1, 3));
+    await tester.pump();
+
+    expect(e.links, isEmpty);
+    expect(e.controller.selection.baseIndex, 1);
+    expect(e.controller.selection.baseOffset, 3);
+    await teardownEditor(tester);
+  });
+
+  testWidgets('an escaped link open passes through', (tester) async {
+    // `\[docs](https://x.dev)`: `\` 0, `[` 1, `docs` 2-5. The escape
+    // atom swallows the bracket, so no link exists.
+    final e = await pumpEditor(
+      tester,
+      text: 'caret line\n\\[docs](https://x.dev)',
+    );
+
+    await tester.tapAt(positionOf(tester, 0, 9));
+    await tester.pump();
+    // Inside `docs`.
+    await tester.tapAt(positionOf(tester, 1, 3));
+    await tester.pump();
+
+    expect(e.links, isEmpty);
+    expect(e.controller.selection.baseIndex, 1);
+    expect(e.controller.selection.baseOffset, 3);
+    await teardownEditor(tester);
+  });
+
+  testWidgets('a double-escaped link open still opens', (tester) async {
+    // `\\[docs](https://x.dev)`: the escape atom is [0, 2), so the `[` at
+    // 2 is free and the link runs [2, 23); `docs` sits at 3-6.
+    final e = await pumpEditor(
+      tester,
+      text: 'caret line\n\\\\[docs](https://x.dev)',
+    );
+
+    await tester.tapAt(positionOf(tester, 0, 3));
+    await tester.pump();
+    // Inside `docs`.
+    await tester.tapAt(positionOf(tester, 1, 4));
+    await tester.pump();
+
+    expect(e.links, ['https://x.dev']);
+    expect(e.controller.selection.baseIndex, 0);
+    await teardownEditor(tester);
+  });
+
+  testWidgets('an image passes through — images render raw', (tester) async {
+    // `![alt](https://x.dev/a.png)`: `!` 0, `[` 1, `alt` 2-4. The link is
+    // an image, which the zone never claims.
+    final e = await pumpEditor(
+      tester,
+      text: 'caret line\n![alt](https://x.dev/a.png)',
+    );
+
+    await tester.tapAt(positionOf(tester, 0, 9));
+    await tester.pump();
+    // Inside `alt`.
+    await tester.tapAt(positionOf(tester, 1, 3));
+    await tester.pump();
+
+    expect(e.links, isEmpty);
+    expect(e.controller.selection.baseIndex, 1);
+    expect(e.controller.selection.baseOffset, 3);
+    await teardownEditor(tester);
+  });
+
+  testWidgets('a link nested in a colour run still opens', (tester) async {
+    // `{red:see [docs](https://x.dev)}`: `{red:` 0-4, `see ` 5-8, `[` 9,
+    // `docs` 10-13. The colour's inner range [5, 30) carries the link.
+    final e = await pumpEditor(
+      tester,
+      text: 'caret line\n{red:see [docs](https://x.dev)}',
+    );
+
+    await tester.tapAt(positionOf(tester, 0, 3));
+    await tester.pump();
+    // Inside `docs`.
+    await tester.tapAt(positionOf(tester, 1, 12));
+    await tester.pump();
+
+    expect(e.links, ['https://x.dev']);
+    expect(e.controller.selection.baseIndex, 0);
+    await teardownEditor(tester);
+  });
+
+  testWidgets('a tag nested in bold still searches', (tester) async {
+    // `**#legs**`: `*` 0-1, `#` 2, `legs` 3-6, `*` 7-8. The tag runs
+    // [2, 7) inside the bold pair's inner range [2, 7).
+    final e = await pumpEditor(tester, text: 'caret line\n**#legs**');
+
+    await tester.tapAt(positionOf(tester, 0, 3));
+    await tester.pump();
+    // Inside `legs`.
+    await tester.tapAt(positionOf(tester, 1, 4));
+    await tester.pump();
+
+    expect(e.tags, ['#legs']);
+    expect(e.controller.selection.baseIndex, 0);
+    await teardownEditor(tester);
+  });
+
+  testWidgets('a link wrapped in emphasis opens inside and places the caret '
+      'on its boundary', (tester) async {
+    // `*[docs](https://x.dev)*`: `*` 0, `[` 1, `docs` 2-5, closing `*`
+    // 22. The link runs [1, 22), so offset 1 is its outermost boundary
+    // and belongs to caret placement even though the italic pair
+    // contains it. The interior tap runs first: it is intercepted, so
+    // the caret stays on line 0 and line 1 is still not the reveal line
+    // for the boundary tap.
+    final e = await pumpEditor(
+      tester,
+      text: 'caret line\n*[docs](https://x.dev)*',
+    );
+
+    await tester.tapAt(positionOf(tester, 0, 9));
+    await tester.pump();
+    // Inside `docs`.
+    await tester.tapAt(positionOf(tester, 1, 3));
+    await tester.pump();
+    expect(e.links, ['https://x.dev']);
+    expect(e.controller.selection.baseIndex, 0);
+
+    // Exactly on the `[`.
+    await tester.tapAt(positionOf(tester, 1, 1));
+    await tester.pump();
+    expect(e.links, ['https://x.dev']);
+    expect(e.controller.selection.baseIndex, 1);
+    expect(e.controller.selection.baseOffset, 1);
     await teardownEditor(tester);
   });
 }

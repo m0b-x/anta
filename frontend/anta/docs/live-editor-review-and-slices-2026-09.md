@@ -810,6 +810,115 @@ scanners consume it; the §1.3 divergences disappear.
 Exit: `___`, multi-backtick and `*a **b** c*` render identically on both
 surfaces; wrapper has no grammar of its own.
 
+**Outcome — DONE 2026-09-04, uncommitted on a183f11.** Full suite 2702 passing (5 benchmark cases skipped by default);
+`dart analyze lib test` clean. What landed, item by item:
+
+1. `lib/utils/markdown_inline_grammar.dart` — `MarkdownInlineGrammar.tokenize`
+   over a `[start, end)` range that reads nothing outside it (range edges
+   are line edges), so the preview's substrings and the editor's ranges
+   agree by construction; a pure function of the substring plus the line's
+   ghost runs. Phase 1 atoms (escape unless it would escape a ghost's `{{`
+   — ghosts win on both surfaces now; ghost; backtick fence closed by a run
+   of exactly the same length, unclosed runs literal, no "no space inside"
+   rule — CommonMark's `` ` a ` `` is code), phase 2 constructs (image /
+   link — structural chars outside atoms, colour, tag, bare URL clamped to
+   the next atom, delimiter runs of `*` `_` `~~` `==` with flanking:
+   opener followed by non-space, closer preceded by non-space, `_` also
+   needs a non-word char or the range edge outside — word = ASCII
+   alphanumeric, `_`, anything > 0x7F, so `ș_a_` stays plain like
+   `snake_case`), phase 3 CommonMark "process emphasis" (nearest same-char
+   opener, rule of three, delimiters between a pair drop out, opener spends
+   from the end of its run and closer from the start — `***a**` is `*` +
+   bold, `~~`/`==` two at a time, three-on-three is one `boldItalic`),
+   phase 4 sort + cover sweep so only top-level tokens return. Consumers
+   recurse into `InlineEmphasis.contentStart..innerEnd` (the tinted
+   `==name:` prefix is chrome), link text and colour inner with
+   `depth + 1`; past `maxNestingDepth = 8` the tokenizer returns nothing,
+   so both surfaces flatten at the same depth (the editor's silent
+   `_maxInlineDepth = 3` cut is gone). `hasCandidates` is the one-pass
+   quick reject in front of it and the editor's paragraph pre-check (the
+   units suite pins it as a superset of what tokenizes). `linkAt`/`tagAt`
+   walk the token tree for the wrapper. Cost: 0.03 µs for a construct-free
+   line, 0.3–0.6 µs for the benchmark's list lines.
+2. Preview `_parseInline` and editor `_appendInline` are emitters over the
+   tokens (exhaustive `switch` on the sealed `InlineToken`); the preview
+   drops what the editor conceals. Deleted: `_matchRun`, `_InlineRun`,
+   `_matchTag`, `_matchLink`, `_matchBareUrl`, `_isWordChar`, `_ghostAt`,
+   `_inGhost` (editor); `_tryParseEmphasisAt`, `_countRun`,
+   `_findClosingBacktick`, `_canOpen/CloseEmphasis`, `_tryParseLinkAt`,
+   `_tryParseBareUrlAt`, `_InlineEmphasis`, `_InlineAutoLink`,
+   `_EmphasisKind`, eleven `_k*` constants, `_MarkdownPatterns
+   .horizontalRule` (preview). Editor chrome the grammar guarantees
+   ghost-free (delimiter runs, fences, `{name:`/`}`) goes through
+   `_emitChrome` — one span, no ghost split, no debug inventory walk.
+3. Wrapper `_linkUrlAt`/`_tagAt` are one-liners over `linkAt`/`tagAt`;
+   `_inlineCodeRuns`, `_oddBackslashRunBefore`, `_inRanges`, `_inGhosts`
+   deleted. `ModernEditorWrapper.colorPalette` (page passes
+   `_colorPalette`) so zones resolve `{name:…}` nesting exactly as drawn.
+   The roadmap's "links clamped out by an emphasis-segment end still
+   intercept" residual is closed.
+4. `MarkdownLineShape.headingAt` / `isHorizontalRule` are the heading and
+   rule predicates for the preview, the editor, the line-height calculator
+   and the paste policies (four hand-scans and two regexes collapsed).
+   `###` alone is an empty heading on both surfaces; `-*-` is no longer a
+   rule anywhere (the preview's old `[-*_]{3,}` accepted mixed markers).
+   Found on the way: the preview's heading `contentOffset` was off by the
+   extra spaces of `#   x` (search highlights and preview→editor mapping
+   landed wrong there) — content now keeps its leading spaces at the exact
+   offset; and `isLineLedConstruct(r'##$$')` was `false` (the space-less
+   money heading was neither a heading nor reached the money fallback),
+   now protected.
+5. **B6 fixed**: `keep` in the `concealCount` branch bounds on
+   `layout.contentEnd`, so `*$^ 2*` conceals the count.
+6. Tests: `markdown_inline_grammar_test.dart` (158: every §1.3 row, the
+   roadmap's known-good cases, atoms/precedence, rule of three, leftovers,
+   `_` rules incl. non-ASCII, ghost opacity, depth, the range-edge
+   property over a 38-line corpus × sub-ranges, `linkAt`/`tagAt`),
+   `markdown_inline_agreement_test.dart` (117: 96 lines rendered through
+   BOTH builders and compared as visible text + per-code-unit style with
+   inherited `TextStyle`s — concealed editor leaves dropped, code chip ↔
+   monospace and tag chip ↔ tag background normalised; plus 18
+   preview-offset sweeps that highlight every source offset and require the
+   painted units to reconstruct the visible line in order, a bijection
+   proof of the offset threading; three self-checks keep the comparator
+   honest), `markdown_line_shape_test.dart` (18), units suite 119 → 142
+   (17 corpus lines + a "visible rendering" group + the candidate-superset
+   property), wrapper tap suite 11 → 19 (link in bold / code / colour /
+   emphasis, escaped and double-escaped opens, image, tag in bold,
+   boundary offset). Pinned, documented divergences in the agreement
+   suite (asserted to still reproduce): the whole-line image (preview
+   `🖼` + link, editor raw — a line-level branch, mid-line `![a](b)`
+   agrees), and the two whitespace-only heading shapes (indent and
+   trailing blanks: the editor may never drop a code unit). Closed on the
+   way: a ghost inside a code span rendered monospace in the preview and
+   plain in the editor — the preview now keeps the prose style there like
+   the editor's chip gap.
+7. Benchmark (`markdown_editor_span_builder_benchmark_test.dart`, same
+   machine, A/B via stash on a quiet box): the cold list-line pass went
+   from 528 µs (old code) to 598–608 µs (13.2 → 15.0 µs per line, +14 %),
+   of which the tokenizer itself is 0.3–0.6 µs per line — the rest is the
+   emitter's extra `_emit` calls, which carry the debug-only code-unit
+   inventory assert (release builds pay none of that). The warm memo-hit
+   row also moved (80 → 125–142 µs per pass) although the path before the
+   memo is byte-identical; a warm-only variant with a single cold pass
+   ahead of it reads 172–208 µs, so that row tracks JIT warm-up, not the
+   memo. The display-money row is unchanged (74–83 µs). Accepted: the
+   cold path is the after-a-theme-change / first-render path, and the
+   trade is one grammar for two hand-rolled scanners.
+
+Behaviour deltas, all deliberate: `___x___` bold-italic, matched-length
+backtick fences, `*a **b** c*` nests, `###` is a heading in the editor,
+`-*-` is not a rule, `\{{x}}` is a ghost in the preview, `` ` a ` `` is
+code in the editor, an image's URL no longer picks up a bare-URL tint in
+the editor, and `~~~x~~~` is `~` + strike + `~` on both surfaces.
+
+Test traps: on Android the selection handle hangs one line box under the
+caret after a tap, so a widget-test pass-through tap straight below the
+parking column lands on the handle and the caret never moves — park the
+caret in a different column; `dart format` rewraps agent-written lines, so
+text-anchored scripted edits must run after formatting; benchmark rows are
+useless while another `flutter test` runs on the machine.
+
 ### Session 5 — span builder decomposition + fork paragraph hardening
 
 Goal: the renderer is pure-Dart testable, the fork's paragraph layer
