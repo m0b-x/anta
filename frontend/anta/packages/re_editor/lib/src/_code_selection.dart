@@ -49,9 +49,13 @@ class _CodeSelectionGestureDetectorState
   /// Set at tap-down when [_CodeSelectionGestureDetector.tapInterceptor]
   /// claims the tap; consumed at tap-up. While set, the editor performs
   /// no selection change, no focus request, and no toolbar/handle work
-  /// for this gesture. On the pointer-event (desktop) path the claim is
-  /// tied to the claiming pointer id, so a second simultaneous pointer
-  /// can neither consume nor corrupt it.
+  /// for this gesture. Exactly one claim is live at a time: a press
+  /// arriving while these are set is never intercepted and takes the
+  /// normal path, so a second pointer can neither consume nor corrupt
+  /// the claim. On the pointer-event (desktop) path the claim is tied to
+  /// the claiming pointer id, and moving that pointer past the slop
+  /// releases the claim into a drag selection anchored at
+  /// [_interceptedTapDownOffset].
   CodeLinePosition? _interceptedTapPosition;
   Offset? _interceptedTapDownOffset;
   PointerDeviceKind? _interceptedTapKind;
@@ -64,14 +68,20 @@ class _CodeSelectionGestureDetectorState
   bool _suppressEnsureInputOnTapUp = false;
 
   /// Returns true when the interceptor claims the tap at [position];
-  /// the tap's action then fires from [_finishInterceptedTap]. A failed
-  /// claim leaves existing state untouched — it may belong to another
-  /// still-down pointer and dies with that pointer's up/cancel.
+  /// the tap's action then fires from [_finishInterceptedTap]. A claim
+  /// is refused while another one is live, so the second press falls
+  /// through to the normal, non-intercepted handling. A failed claim
+  /// leaves the live claim's state untouched — that claim dies with its
+  /// own pointer's up/cancel, or, on desktop, when that pointer moves
+  /// past the slop and is released into a drag.
   bool _tryInterceptTap(
     Offset position, {
     PointerDeviceKind? kind,
     int? pointer,
   }) {
+    if (_interceptedTapPosition != null) {
+      return false;
+    }
     final CodeEditorTapInterceptor? interceptor = widget.tapInterceptor;
     if (interceptor == null) {
       return false;
@@ -259,6 +269,25 @@ class _CodeSelectionGestureDetectorState
             // A trick, delay the focus request here to avoid loss.
             Future(widget.inputController.ensureInput);
             _onDesktopTapDown(event.position);
+          },
+          onPointerMove: (event) {
+            if (_interceptedTapPointer != event.pointer) {
+              return;
+            }
+            final Offset? downOffset = _interceptedTapDownOffset;
+            if (downOffset == null) {
+              return;
+            }
+            final double slop = _interceptedTapKind == PointerDeviceKind.mouse
+                ? kPrecisePointerHitSlop
+                : kTouchSlop;
+            if ((event.position - downOffset).distance <= slop) {
+              return;
+            }
+            _onDesktopTapDown(downOffset);
+            _tapping = true;
+            _cancelInterceptedTap();
+            Future(widget.inputController.ensureInput);
           },
           onPointerUp: (event) {
             if (_interceptedTapPointer == event.pointer &&

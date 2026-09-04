@@ -1,13 +1,13 @@
 # Live Markdown Editor — Review & Consolidation Slices (2026-09-03)
 
-**Status: Sessions 0–6 and 7a DONE (§3). Sessions 0–1 are committed as
+**Status: Sessions 0–6, 7a and 7b DONE (§3). Sessions 0–1 are committed as
 `38c7b50`, Session 2 and its same-day follow-up as `c716225`, Session 3 as
 `a183f11`, Session 4 as `1ed4a60`, Session 5 as `4cad6ec`, Session 6 as
-`b5fcdbd`, Session 7a's sync as "Session 7a of the live editor roadmap"
-(2026-09-04; its format-only and ownership-rule commits are still
-pending). Session 7 was re-sized against the code and split into
-7a/7b/7c on 2026-09-04; Sessions 7b–7c, 8–9 and 11 PLANNED, not
-implemented; Session 10 DROPPED (decision 4). All six §2
+`b5fcdbd`, Session 7a's sync as `fcfe704` (its format-only and
+ownership-rule commits are still pending), Session 7b as "Session 7b of
+the live editor roadmap" (2026-09-04). Session 7 was re-sized against the
+code and split into 7a/7b/7c on 2026-09-04; Sessions 7c, 8–9 and 11
+PLANNED, not implemented; Session 10 DROPPED (decision 4). All six §2
 decisions are taken (6, fork ownership, added 2026-09-04).** Baseline commit `bf2e7ba`
 (main). Line numbers below are as of that commit and will drift — re-grep
 before editing. This doc is the ledger for making the Obsidian-style live
@@ -1604,6 +1604,77 @@ Exit: both suites green, `dart analyze packages/re_editor/lib` clean, a
 desktop run (`flutter run -d windows`) confirming click-drag from a
 checkbox selects text and a click on it still toggles. Unblocks Session
 11's harness dependency.
+
+**Outcome — DONE 2026-09-04, on fcfe704 (the 7a sync).** Full suite
+2,988 → **2,998** passing (7 benchmark cases skipped by default);
+`test/re_editor/` is seven files, 46 passing + 1 skipped; `dart analyze
+lib` and `dart analyze packages/re_editor/lib` clean apart from the
+fork's two pre-existing `avoid_print` infos. One fork file changed
+(`_code_selection.dart`, +35/−6), two test files added, no wrapper or
+policy change. What landed:
+
+1. Item 3: `_tryInterceptTap` refuses a claim while one is live (first
+   statement, before the interceptor null-check, so the mobile path is
+   covered too — `_interceptedTapPointer` is always null there); a
+   refused press writes nothing and takes the plain path exactly like a
+   non-zone tap. Desktop `Listener.onPointerMove`: for the claiming
+   pointer only, past the slop (`kPrecisePointerHitSlop` mouse /
+   `kTouchSlop` touch, `<=` keeps the claim so the rule mirrors
+   `_finishInterceptedTap`'s `>`), it replays `_onDesktopTapDown` at the
+   ORIGINAL down offset (caret + pairing state as a plain press would have
+   set them; `_tryInterceptTap` had nulled the pairing state, so no
+   accidental double-click), flips `_tapping`, cancels the claim and
+   schedules the same deferred `ensureInput`. The `Listener` sees the
+   move before the wrapping `GestureDetector`'s recognizers (deepest
+   first), so the drag recognizer's own acceptance on that or the next
+   move finds `_tapping` already true and `onVerticalDragStart` /
+   `_onDrag` → `_extendSelection(drag)` run unchanged; `onPointerUp`
+   then finds no claim and runs the plain `_onDesktopTapUp`. The two doc
+   comments (claim fields, `_tryInterceptTap`) now state the one-claim
+   rule and the release-into-drag. No mobile `onPointerMove` (long-press /
+   tap-cancel already release there).
+2. Item 4, two files as planned. `tap_interceptor_test.dart` (Android
+   path, 5): claim→up fires once with the selection identical; two
+   consecutive claims both fire (400 ms apart so they never pair); a
+   claimed tap never focuses while a plain tap does; a held zone press
+   past `kLongPressTimeout` never fires; a non-zone tap moves the caret.
+   `tap_interceptor_desktop_test.dart` (5, `debugDefaultTargetPlatformOverride`
+   = linux resolved in `setUpAll` and cleared at once): `gesture.cancel()`
+   never fires and a fresh tap fires afterwards; a second mouse press
+   while a claim is live is refused and behaves as a plain press (caret
+   moves to it) while the first claim still fires on its own up; moving
+   past the slop releases into a drag whose base is line 0 offset 1 (the
+   down cell) and extent line 1 offset 6, with focus after the deferred
+   Future; a move inside the slop keeps the claim; a plain click fires,
+   selection untouched, no focus. Both suites mount a bare `CodeEditor`
+   with a fake zone (`index == 0 && offset < 3`) and read line geometry
+   from the editor's own `CodeIndicatorValueNotifier`.
+
+Docs: the markdown-engine skill's tap-policy sentence and a new
+COPILOT_CONTEXT fork-notes bullet carry the one-claim / release rules;
+the roadmap Done list.
+
+Desktop pass (`flutter run -d windows`, fresh workspace, a note with two
+task lines, a `[link](…)` line and two plain lines, driven by
+`SetCursorPos` + `mouse_event`): click-drag from the first checkbox
+selects from the line start through line 4 and the box stays `[ ]`; a
+plain click on the second box toggles it to `[x]`; a press on the first
+box released over the link becomes a selection through `[link` — the
+link does not open and the box does not toggle; DTD reports no runtime
+errors.
+
+Traps: `Future(ensureInput)` is a zero-duration `Timer`, and a bare
+`tester.pump()` only flushes microtasks — assert desktop focus after
+`pump(Duration.zero)`; the desktop suite's platform override must be
+resolved and cleared inside `setUpAll` (the finals cache on first read,
+and a debug variable left set fails the test); in PowerShell `Type` is
+the `Get-Content` alias, so a UI helper of that name reads a file instead
+of typing — name it `SendText`; `SendKeys` needs `{[}` `{]}` `{(}` `{)}`
+for the markdown brackets; a mouse cannot press a second zone while one
+is held (single pointer), so "a click on a link while another zone is
+pressed" is exercised on desktop as press-move-release, which the
+release rule turns into a selection — the two-pointer refusal is proven
+by the widget test, not the device.
 
 #### Session 7c — accessibility (item 1, decision 3)
 

@@ -192,6 +192,17 @@ lines bypass the memo.
       `re-editor-performance-2026-07.md`; `test/re_editor/` gained the
       layout-loop regression (reproduces the pre-port stack overflow) and
       the paragraph-cache identity contract.
+- [x] Tap interceptor hardening + harness (2026-09-04, Session 7b of the
+      review): the fork's `CodeEditorTapInterceptor` holds exactly one
+      claim at a time — a second press while a checkbox/link/money/tag
+      zone is held is never intercepted and behaves as a plain press —
+      and on desktop the claiming mouse moving past the slop releases the
+      claim into an ordinary drag selection anchored at the down offset,
+      so click-drag from a checkbox selects text while a plain click still
+      toggles it. `test/re_editor/tap_interceptor_test.dart` (Android
+      path) and `tap_interceptor_desktop_test.dart` are the first
+      `startGesture`-style suites against a bare `CodeEditor` with a fake
+      zone; Session 11's folding tests reuse the harness.
 
 ### Decision log
 
