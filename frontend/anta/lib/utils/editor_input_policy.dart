@@ -163,9 +163,16 @@ class EditorInputPolicy {
       return null;
     }
     if (offset >= lineText.length) return null;
-    if (GhostText.mightContain(lineText) &&
-        GhostText.ghostAtOffset(lineText, offset) != null) {
-      return null;
+    // The ghost runs are scanned once and then handed to the link and
+    // tag zones, which would otherwise rescan the line for them: first
+    // to decide whether the tap rides the selection change instead, then
+    // once per grammar descent.
+    final List<GhostMatch> ghostRuns = GhostText.mightContain(lineText)
+        ? GhostText.findGhosts(lineText)
+        : const <GhostMatch>[];
+    for (final GhostMatch ghost in ghostRuns) {
+      if (ghost.containsStrict(offset)) return null;
+      if (ghost.start > offset) break;
     }
     if (zones.checkbox) {
       final item = MarkdownListSyntax.parse(lineText);
@@ -191,6 +198,7 @@ class EditorInputPolicy {
         lineText,
         offset,
         palette: zones.palette,
+        ghosts: ghostRuns,
       );
       if (link != null) return EditorOpenLinkAction(link.urlOf(lineText));
     }
@@ -224,6 +232,7 @@ class EditorInputPolicy {
         lineText,
         offset,
         palette: zones.palette,
+        ghosts: ghostRuns,
       );
       if (tag != null) return EditorOpenTagAction(tag.tagOf(lineText));
     }

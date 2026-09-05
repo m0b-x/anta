@@ -160,6 +160,13 @@ class LineBasedMarkdownBuilder {
   final Map<String, TapGestureRecognizer> _linkRecognizers = {};
   final Map<int, TapGestureRecognizer> _checkboxRecognizers = {};
 
+  /// The subset of [_linkRecognizers] built for ghost runs. A ghost
+  /// nested in link text keeps its own recognizer when the link wraps
+  /// the subtree, mirroring the editor's zone precedence where ghosts
+  /// win over every other zone. Membership is identity-based, so this
+  /// must be kept in step with [_linkRecognizers] on every eviction.
+  final Set<TapGestureRecognizer> _ghostRecognizers = {};
+
   /// Sparse, sorted, non-overlapping list of multi-line blocks (e.g.
   /// fenced code). Single-line content is represented implicitly (any
   /// line not covered by a span is its own one-line block), so this
@@ -500,10 +507,10 @@ class LineBasedMarkdownBuilder {
     }
 
     // Remove link/tag/ghost recognizers whose source offset falls inside
-    // this chunk. For 'img:'/'tag:'/'ghost:' keys (and chunk-prefixed
-    // ones) parts[1] is the numeric source offset used for the range test.
+    // this chunk. Every prefixed key spells its numeric source offset as
+    // parts[1], which is what the range test reads.
     _linkRecognizers.removeWhere((key, recognizer) {
-      if (key.startsWith('$chunkIndex:') ||
+      if (key.startsWith('link:') ||
           key.startsWith('img:') ||
           key.startsWith('tag:') ||
           key.startsWith('ghost:')) {
@@ -517,6 +524,7 @@ class LineBasedMarkdownBuilder {
                 ? _lineOffsets[endLine]
                 : _source.length;
             if (offset >= chunkStart && offset < chunkEnd) {
+              _ghostRecognizers.remove(recognizer);
               recognizer.dispose();
               return true;
             }
@@ -536,6 +544,7 @@ class LineBasedMarkdownBuilder {
       recognizer.dispose();
     }
     _linkRecognizers.clear();
+    _ghostRecognizers.clear();
     for (final recognizer in _checkboxRecognizers.values) {
       recognizer.dispose();
     }
@@ -1981,7 +1990,7 @@ class LineBasedMarkdownBuilder {
   /// when the link text was split by nesting or search highlighting.
   InlineSpan _wrapLinkSpan(TextSpan inner, String url, int sourceOffset) {
     if (onLinkTap == null) return inner;
-    final cacheKey = '$sourceOffset:$url';
+    final cacheKey = 'link:$sourceOffset:$url';
     final recognizer = _linkRecognizers[cacheKey] ??= TapGestureRecognizer()
       ..onTap = () => onLinkTap!(url);
     return _attachRecognizer(inner, recognizer);
@@ -1989,11 +1998,17 @@ class LineBasedMarkdownBuilder {
 
   /// Returns a copy of [span] with [recognizer] set on every [TextSpan]
   /// node so hit-testing resolves to it at any leaf.
+  ///
+  /// A subtree already carrying a ghost recognizer is returned
+  /// untouched: a ghost nested in link text keeps its own tap, the same
+  /// precedence the editor's `EditorInputPolicy` applies. Every other
+  /// nested zone (a `#tag` inside link text) yields to the link.
   InlineSpan _attachRecognizer(
     InlineSpan span,
     TapGestureRecognizer recognizer,
   ) {
     if (span is TextSpan) {
+      if (_ghostRecognizers.contains(span.recognizer)) return span;
       return TextSpan(
         text: span.text,
         style: span.style,
@@ -2057,10 +2072,16 @@ class LineBasedMarkdownBuilder {
     final cacheKey = 'ghost:$absStart:$absEnd';
     final recognizer = _linkRecognizers[cacheKey] ??= TapGestureRecognizer()
       ..onTap = () => onGhostTap!(absStart, absEnd);
+    _ghostRecognizers.add(recognizer);
     return _attachRecognizer(span, recognizer);
   }
 
   /// Apply search highlighting to text.
+  ///
+  /// [text] is the run starting at source offset [sourceOffset]; every
+  /// [searchHighlights] range touching it paints its intersection with
+  /// the run. Overlapping and nested ranges are tolerated — the emitted
+  /// leaves always concatenate back to [text] exactly once.
   TextSpan _applyHighlighting(
     String text,
     TextStyle baseStyle,
@@ -2093,14 +2114,31 @@ class LineBasedMarkdownBuilder {
       return TextSpan(text: text, style: baseStyle);
     }
 
-    overlapping.sort((a, b) => a.start.compareTo(b.start));
+    // Deterministic order for overlapping or coincident ranges: earliest
+    // start first, then the widest (end descending) so a range nested in
+    // another is consumed by it, and finally the current match first so
+    // two coincident ranges paint in [style.currentHighlightColor].
+    overlapping.sort((a, b) {
+      final byStart = a.start.compareTo(b.start);
+      if (byStart != 0) return byStart;
+      final byEnd = b.end.compareTo(a.end);
+      if (byEnd != 0) return byEnd;
+      if (a.isCurrent == b.isCurrent) return 0;
+      return a.isCurrent ? -1 : 1;
+    });
 
     final children = <TextSpan>[];
     int pos = 0;
 
+    // Ranges may overlap or nest (a search term inside the current
+    // match, two terms sharing a suffix): [pos] only ever moves forward
+    // and each range paints only the part of itself not already painted,
+    // so every code unit of [text] is emitted exactly once.
     for (final range in overlapping) {
-      if (range.start > pos) {
-        children.add(TextSpan(text: text.substring(pos, range.start)));
+      if (range.end <= pos) continue;
+      final start = range.start > pos ? range.start : pos;
+      if (start > pos) {
+        children.add(TextSpan(text: text.substring(pos, start)));
       }
 
       final bgColor = range.isCurrent
@@ -2108,7 +2146,7 @@ class LineBasedMarkdownBuilder {
           : style.highlightColor;
       children.add(
         TextSpan(
-          text: text.substring(range.start, range.end),
+          text: text.substring(start, range.end),
           style: TextStyle(backgroundColor: bgColor),
         ),
       );

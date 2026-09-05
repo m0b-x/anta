@@ -191,6 +191,16 @@ final List<_Case> _corpus = <_Case>[
   const _Case('triple asterisk run', '***x***'),
   const _Case('triple underscore run', '___x___'),
   const _Case('bold outside italic', '*a **b** c*'),
+  // A ghost sitting in concealed chrome: the preview drops the whole
+  // url, the editor conceals it, so nothing of the ghost may paint.
+  const _Case('ghost inside a link url', '[docs]({{ url }})'),
+  _Case(
+    'image mid line',
+    'a ![x](y) b',
+    expectedDivergence:
+        'the preview renders `!` + a link on the alt text; the editor keeps '
+        'the image source raw',
+  ),
   const _Case('italic inside bold', '**a *b* c**'),
   const _Case('intraword underscores', '_a_b_'),
   const _Case('snake case is not emphasis', 'snake_case_word'),
@@ -198,6 +208,12 @@ final List<_Case> _corpus = <_Case>[
   const _Case('emphasis mid word', 'a*b*c'),
   const _Case('spaced asterisks stay plain', '2 * 3 * 4'),
   const _Case('three closed by two', '***a**'),
+  const _Case('emphasised bare url', 'see *https://a.com* now'),
+  const _Case('bold bare url', '**https://a.com**'),
+  const _Case(
+    'ghost past the nesting depth',
+    '{red:{red:{red:{red:{red:{red:{red:{red:{{g}}}}}}}}}}',
+  ),
   const _Case('two closed by three', '**a***'),
   const _Case('bare double asterisk', '**'),
   const _Case('trailing asterisk', 'a*'),
@@ -341,10 +357,14 @@ const List<String> _offsetCorpus = <String>[
   '*_~~==[a](b)==~~_*',
   'a ==teal:marked== b',
   '[#tag](url)',
+  '{red:**`a {{g}} b`**}',
+  r'{red:[a \* b](u)}',
   'see www.example.com/a now',
   '#   spaced heading',
   '# **Bold** and `code` #tag',
   '## *a **b** c*',
+  'see *https://a.com* now',
+  '{red:{red:{red:{red:{red:{red:{red:{red:{{g}}}}}}}}}}',
 ];
 
 // ---------------------------------------------------------------------------

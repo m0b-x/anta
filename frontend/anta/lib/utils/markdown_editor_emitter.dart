@@ -45,11 +45,21 @@ class EditorSpanEmitter {
 
   static bool isSpace(int codeUnit) => codeUnit == 0x20 || codeUnit == 0x09;
 
+  /// Whether [style] is the off-caret conceal style — transparent and
+  /// collapsed to [concealedFontSize]. Concealed chrome paints nothing,
+  /// so a ghost inside it must not be split out and tinted: at 0.01 px
+  /// the dimmed run is still a coloured sliver, while the preview drops
+  /// the chrome (and the ghost with it) outright.
+  static bool _isConcealed(TextStyle style) =>
+      style.color == transparent && style.fontSize == concealedFontSize;
+
   /// Emits [start]..[end] in [style], splitting around ghost runs so
   /// their markers render concealed and their inner text dimmed (with an
   /// underline when blank, so the empty slot stays findable) — the same
   /// treatment as the standalone ghost builder, but inheriting the
-  /// surrounding markdown style.
+  /// surrounding markdown style. When [style] is already the conceal
+  /// style the split is skipped: concealed chrome (a link's `](url)`,
+  /// a `{name:` opener) paints nothing at all, ghosts included.
   ///
   /// Guards the code-unit invariant in debug builds: the spans appended
   /// to [out] for `[start, end)` must total exactly `end - start` UTF-16
@@ -142,7 +152,7 @@ class EditorSpanEmitter {
     CodeTextDecoration? decoration,
   }) {
     if (start >= end) return;
-    if (ghosts.isEmpty) {
+    if (ghosts.isEmpty || _isConcealed(style)) {
       out.add(_plainSpan(text.substring(start, end), style, decoration));
       return;
     }

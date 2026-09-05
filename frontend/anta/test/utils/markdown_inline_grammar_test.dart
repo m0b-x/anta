@@ -364,6 +364,38 @@ void main() {
       expect(show('awww.a.com'), '');
     });
 
+    test('italic around a bare url keeps its closing star', () {
+      expect(show('*https://a.com*'), 'italic[0,15) inner[1,14)');
+      expect(show('*https://a.com*', start: 1, end: 14), 'url[1,14)');
+    });
+
+    test('bold around a bare url keeps both closing stars', () {
+      expect(show('**see https://a.com**'), 'bold[0,21) inner[2,19)');
+      expect(show('**see https://a.com**', start: 2, end: 19), 'url[6,19)');
+    });
+
+    test('strikethrough around a bare url keeps its tildes', () {
+      expect(show('~~https://a.com~~'), 'strikethrough[0,17) inner[2,15)');
+      expect(show('~~https://a.com~~', start: 2, end: 15), 'url[2,15)');
+    });
+
+    test('underscore italic around a bare www url', () {
+      expect(show('_www.a.com_'), 'italic[0,11) inner[1,10)');
+      expect(show('_www.a.com_', start: 1, end: 10), 'url[1,10)');
+    });
+
+    test('an interior underscore stays inside the url', () {
+      expect(show('https://a.com/a_b'), 'url[0,17)');
+    });
+
+    test('trailing stars are trimmed from a bare url', () {
+      expect(show('https://a.com/**'), 'url[0,14)');
+    });
+
+    test('base64 padding survives the trailing trim', () {
+      expect(show('https://a.com/x?q=YWI=='), 'url[0,23)');
+    });
+
     test('tagOf and urlOf return the source text', () {
       const String line = '[t](https://x.io) #done';
       final List<InlineToken> tokens = tok(line);
@@ -433,10 +465,14 @@ void main() {
   });
 
   group('nesting depth', () {
-    test('depth at the limit yields no tokens', () {
+    test('depth at the limit yields only the range ghosts', () {
       expect(
         tok('*a* `b` [c](d)', depth: MarkdownInlineGrammar.maxNestingDepth),
         isEmpty,
+      );
+      expect(
+        show('*a* {{g}} [c](d)', depth: MarkdownInlineGrammar.maxNestingDepth),
+        'ghost[4,9)',
       );
     });
 
@@ -447,11 +483,33 @@ void main() {
       );
     });
 
-    test('depth above the limit yields no tokens', () {
+    test('depth above the limit yields only the range ghosts', () {
       expect(
         tok('*a*', depth: MarkdownInlineGrammar.maxNestingDepth + 4),
         isEmpty,
       );
+      expect(
+        show(
+          '{{g}} *a* {{h}}',
+          depth: MarkdownInlineGrammar.maxNestingDepth + 4,
+        ),
+        'ghost[0,5) ghost[10,15)',
+      );
+    });
+
+    test('a ghost eight colour wrappers deep is still a ghost', () {
+      const String line =
+          '{red:{red:{red:{red:{red:{red:{red:{red:{{g}}}}}}}}}}';
+      expect(line.substring(40, 45), '{{g}}');
+      final List<InlineToken> tokens = MarkdownInlineGrammar.tokenize(
+        line,
+        start: 40,
+        end: 45,
+        palette: palette,
+        depth: MarkdownInlineGrammar.maxNestingDepth,
+      );
+      expect(tokens.single, isA<InlineGhost>());
+      expect(render(tokens), 'ghost[40,45)');
     });
 
     test('deep nesting rediscovers level by level', () {
@@ -470,6 +528,77 @@ void main() {
       expect(show(line, start: 1, end: 12, depth: 1), 'bold[1,12) inner[3,10)');
       expect(show(line, start: 3, end: 10, depth: 2), 'color[3,10) inner[8,9)');
       expect(show(line, start: 8, end: 9, depth: 3), '');
+    });
+  });
+
+  // Pinned from the pairing loop before it grew CommonMark's
+  // `openers_bottom` bound, so the bound is proven to be a pure speed-up:
+  // every line here is one whose closers repeatedly fail to find an
+  // opener, which is exactly what the bound short-circuits.
+  group('delimiter pairing', () {
+    const Map<String, String> pinned = <String, String>{
+      '*a **b** c*': 'italic[0,11) inner[1,10)',
+      '**a *b* c**': 'bold[0,11) inner[2,9)',
+      '*a*b*c*': 'italic[0,3) inner[1,2) italic[4,7) inner[5,6)',
+      '**a*b**': 'bold[0,7) inner[2,5)',
+      '*a **b* c**': 'italic[0,11) inner[1,10)',
+      '_a __b_ c__': 'italic[0,11) inner[1,10)',
+      '***a** b*': 'italic[0,9) inner[1,8)',
+      '*a* *b* *c*':
+          'italic[0,3) inner[1,2) italic[4,7) inner[5,6) '
+          'italic[8,11) inner[9,10)',
+      '~~a ~~b~~ c~~': 'strikethrough[0,13) inner[2,11)',
+      '==a ==b== c==': 'highlight[0,13) inner[2,11)',
+      '*a _b* c_': 'italic[0,6) inner[1,5)',
+      'a* b* c* *d*': 'italic[9,12) inner[10,11)',
+      '*a *b *c* d* e*': 'italic[0,15) inner[1,14)',
+      '**a** *b* ***c***':
+          'bold[0,5) inner[2,3) italic[6,9) inner[7,8) '
+          'boldItalic[10,17) inner[13,14)',
+      '*a**b*': 'italic[0,6) inner[1,5)',
+      '**a*b*c**': 'bold[0,9) inner[2,7)',
+      '*a**': 'italic[0,3) inner[1,2)',
+      '**a*': 'italic[1,4) inner[2,3)',
+      'a* b *c*': 'italic[5,8) inner[6,7)',
+      '*a b* c*': 'italic[0,5) inner[1,4)',
+      '***a***': 'boldItalic[0,7) inner[3,4)',
+      '****a****': 'italic[0,9) inner[1,8)',
+      '*****a*****': 'bold[0,11) inner[2,9)',
+      '__a__b__': 'bold[0,8) inner[2,6)',
+      '_a_b_c_': 'italic[0,7) inner[1,6)',
+      '==a== ==b==': 'highlight[0,5) inner[2,3) highlight[6,11) inner[8,9)',
+      '~~~a~~~ b~~': 'strikethrough[1,6) inner[3,4)',
+      '*a ~~b* c~~': 'italic[0,7) inner[1,6)',
+      '==a *b== c*': 'highlight[0,8) inner[2,6)',
+      '* a * b *c*': 'italic[8,11) inner[9,10)',
+      'a*b**c***d': 'italic[1,9) inner[2,8)',
+      '**a *b **c** d* e**': 'bold[0,19) inner[2,17)',
+      '*a**b**c*': 'italic[0,9) inner[1,8)',
+      '**a*b**c*d**': 'bold[0,7) inner[2,5)',
+      '_ a _ _b_': 'italic[6,9) inner[7,8)',
+      '~~a~~~~b~~':
+          'strikethrough[0,5) inner[2,3) strikethrough[5,10) inner[7,8)',
+      '====a====': 'highlight[0,9) inner[2,7)',
+      r'*a\*b*': 'italic[0,6) inner[1,5)',
+      '`a*b` *c*': 'code[0,5) inner[1,4) italic[6,9) inner[7,8)',
+      '*a `b*c` d*': 'italic[0,11) inner[1,10)',
+      '{red:*a*} *b*': 'color[0,9) inner[5,8) italic[10,13) inner[11,12)',
+      '==teal:a== *b*':
+          'highlight[0,10) inner[2,8) content7 tint '
+          'italic[11,14) inner[12,13)',
+      'a_b_c *d* e': 'italic[6,9) inner[7,8)',
+      '*a* b_c_d': 'italic[0,3) inner[1,2)',
+    };
+
+    pinned.forEach((String line, String expected) {
+      test('pairs "$line" exactly as before', () {
+        expect(show(line), expected);
+      });
+    });
+
+    test('a storm of unpairable closers still resolves the one real pair', () {
+      final String line = '${'a* ' * 400}*b*';
+      expect(show(line), 'italic[1200,1203) inner[1201,1202)');
     });
   });
 
@@ -683,6 +812,22 @@ void main() {
 
     test('a bare url is not an inline link', () {
       expect(linkAt('see www.a.com now', 8), isNull);
+    });
+
+    test('an explicit ghost list is honoured over rescanning', () {
+      const String line = 'a [b](c) d';
+      expect(linkAt(line, 4), isNotNull);
+      expect(
+        MarkdownInlineGrammar.linkAt(
+          line,
+          4,
+          palette: palette,
+          ghosts: const <GhostMatch>[
+            GhostMatch(start: 2, end: 8, innerStart: 4, innerEnd: 6),
+          ],
+        ),
+        isNull,
+      );
     });
   });
 

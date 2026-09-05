@@ -29,6 +29,8 @@ void main() {
 
   const lineCount = 40;
   const iterations = 40;
+  const stormLineCount = 20;
+  const stormIterations = 20;
 
   test('span build of $lineCount list lines, cold vs warm', () {
     final lines = _listLines(lineCount);
@@ -114,6 +116,69 @@ void main() {
       warmPerPass,
       lessThan(coldPerPass),
       reason: 'the span memo must make a repeat pass cheaper',
+    );
+  });
+
+  // The emphasis pairing worst case: every `*` closes and none opens, so
+  // every closer searches the whole delimiter stack unless the pairing
+  // loop keeps CommonMark's `openers_bottom` bound. Kept near the styled
+  // line-length ceiling, where an O(n²) loop is most visible.
+  test('span build of $stormLineCount unpairable-delimiter lines, cold', () {
+    final lines = _delimiterStormLines(stormLineCount);
+    final controller = CodeLineEditingController.fromText(lines.join('\n'));
+    addTearDown(controller.dispose);
+
+    final builder = MarkdownEditorSpanBuilder()..bind(controller);
+    builder.configureMoney(MoneyDisplayConfig.disabled);
+    controller.selection = const CodeLineSelection.collapsed(
+      index: 0,
+      offset: 0,
+    );
+
+    int buildAll() {
+      var built = 0;
+      for (var i = 0; i < stormLineCount; i++) {
+        final span = builder.build(
+          context: _renderContext,
+          index: i,
+          codeLine: controller.codeLines[i],
+        );
+        if (span != null) built++;
+      }
+      return built;
+    }
+
+    expect(buildAll(), stormLineCount);
+
+    final watch = Stopwatch();
+    var built = 0;
+    for (var run = 0; run < stormIterations; run++) {
+      builder.configureColors(
+        run.isEven ? _altPalette : MarkdownColorPalette.presets,
+      );
+      watch.start();
+      built += buildAll();
+      watch.stop();
+    }
+    expect(built, stormLineCount * stormIterations);
+
+    final perPass = watch.elapsedMicroseconds / stormIterations;
+
+    // ignore: avoid_print
+    print(
+      '\n=== MarkdownEditorSpanBuilder — $stormLineCount unpairable-delimiter '
+      'lines (${lines.first.length} chars each), '
+      '$stormIterations cold passes ===\n'
+      '  cold (memo cleared) : ${perPass.toStringAsFixed(1)} us/pass, '
+      '${(perPass / stormLineCount).toStringAsFixed(2)} us/line',
+    );
+
+    // Catastrophe-only bound: the O(n²) pairing loop cost ~800 us per line
+    // of this shape before the `openers_bottom` bound landed.
+    expect(
+      perPass / stormLineCount,
+      lessThan(2000),
+      reason: 'a cold span build should be well under 2 ms per line',
     );
   });
 
@@ -226,6 +291,13 @@ final EditorRenderContext _renderContext = EditorRenderContext.fromTheme(
 final MarkdownColorPalette _altPalette = MarkdownColorPalette.decode(
   'benchcold=ff112233',
 );
+
+/// Near-ceiling lines of `a* ` repeats: every `*` is flanked so it can
+/// only close, so no closer ever finds an opener. Each line carries its
+/// own prefix so the positional span memo holds one entry per line, and
+/// one real `**b**` at the end so the builder actually emits a span.
+List<String> _delimiterStormLines(int count) =>
+    List<String>.generate(count, (i) => 'row$i ${'a* ' * 1359}**b**');
 
 /// A realistic training-log list block: plain bullets, nested bullets,
 /// ordered rows, task boxes, and inline runs — the shapes the editor

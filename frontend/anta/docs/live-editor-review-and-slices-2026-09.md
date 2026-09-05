@@ -1144,6 +1144,145 @@ caret in a different column; `dart format` rewraps agent-written lines, so
 text-anchored scripted edits must run after formatting; benchmark rows are
 useless while another `flutter test` runs on the machine.
 
+#### Session 4 review — 2026-09-05
+
+Three read-only passes over the shipped inline grammar as it stands today
+(the tokenizer; the two emitters; the line-shape module and every caller)
+plus a grep sweep re-verifying each claim in the Outcome block above,
+then two implementation passes on disjoint files. Nothing committed; the
+tree sits on `2dd0667`. Three findings are bugs (A1, A2, B1), one of them
+a regression Session 4 itself introduced.
+
+**A. Tokenizer.** A1 (bug, regression):
+`MarkdownLinkPatterns.isTrailingPunctuation` trimmed `. , ; : ! ? ) ] ' "`
+but not `*` `_` `~`, so a bare URL inside emphasis swallowed its closer —
+`*https://a.com*` was a literal `*` plus a link whose href ended in `*`,
+identically on both surfaces (`hrefOf` included the marker). Before
+Session 4 the preview tried emphasis at the opener before its URL branch,
+so this is a deviation the Outcome's "behaviour deltas, all deliberate"
+list missed. The three GFM trailing characters are trimmed now; `=`
+deliberately is not (base64 padding in a query string is real, pinned).
+A2 (bug): the depth cutoff returned nothing at all, so a ghost nested
+eight containers deep rendered raw `{{g}}` in the preview and concealed
+in the editor (`EditorSpanEmitter.emit` splits ghosts on every path, the
+preview's no-token fallback prints the source). `tokenize` now returns
+only the range's ghost runs past `maxNestingDepth` (`_ghostsOnly`):
+placeholders are never styling, so they survive the cut. A3 (debt):
+`_pairDelimiters` had no `openers_bottom`, so every closer rescanned every
+earlier delimiter and a failed search recorded nothing — 0.8–1.2 ms per
+call on 4,095 chars of `a* ` repeats, on the caret line the editor
+rebuilds each keystroke with the memo bypassed. CommonMark's bound is in
+(24 slots: char × original run length mod 3 × closer-can-open; a failed
+search sets the slot to `ci - 1` and deactivates a closer that cannot
+open), allocated lazily on the first failed search so a cleanly pairing
+line allocates nothing; 44 hand-written pairing lines captured from the
+old code before the change pin that tokenization is unchanged, and a
+400-closer storm case pins the bound. A4 (debt): `_findFence` probed
+`_inGhost` from index 0 per backtick run and `_inAtom` scanned atoms from
+0 for every link/colour probe; both take the caller's cursor now (the
+atom loop's `gi`, the main loop's `ai` — atoms below it end at or before
+`p`, every probe lies at or after `p`). A5 (nit): `linkAt`/`tagAt` gained
+`ghosts`; `EditorInputPolicy.resolveTap` scans the line's runs once, uses
+them for its own ghost-at-offset check and hands them to both zones.
+
+**B. Emitters.** B1 (bug): the preview's `_attachRecognizer` rebuilt every
+`TextSpan` with the link's recognizer, so tapping `{{ what }}` inside
+`[see {{ what }}](u)` opened the link — the editor's `EditorInputPolicy`
+says ghosts win over every zone. A `_ghostRecognizers` set marks ghost
+subtrees, which the wrapper now leaves untouched; a `#tag` inside link
+text still yields to the link (the editor's precedence: checkbox, link,
+money, tag). The set is kept in step on chunk eviction and `clearCache`.
+B2 (debt): `EditorSpanEmitter._emitRange` split a ghost out of concealed
+chrome and painted its inner text in the ghost colour at 0.01 px —
+`[docs]({{ url }})` showed a coloured sliver the preview never had, and
+the agreement projection counted it as visible text. A concealed style
+(`_isConcealed`: transparent + `concealedFontSize`) now emits one
+invisible span; reveal lines use `dimStyle`, so their split is unchanged.
+B3 (debt): `_applyHighlighting` duplicated text on overlapping or nested
+`searchHighlights` (`pos` advanced unconditionally, an overlapping range
+re-emitted `[range.start, pos)`) — latent, since the page's literal search
+matches never overlap. The sort is deterministic now (start, end
+descending, current match first) and each range paints only its
+unpainted part. B4 (debt): link recognizer keys (`'$offset:$url'`) never
+matched the chunk-eviction prune's prefix list (`'$chunkIndex:'`, `img:`,
+`tag:`, `ghost:`), so they survived every eviction until `clearCache`;
+they are `link:`-prefixed now and the dead `'$chunkIndex:'` prefix is
+gone — nothing produced such keys. B5 (doc-drift): the Outcome's
+"mid-line `![a](b)` agrees" was false — the preview renders `!` plus a
+tappable link on the alt text, the editor keeps the source raw. That is
+by design (the preview owns images; the editor keeps the source
+editable) and is pinned as an expected divergence in the corpus now.
+
+**C. Line shapes.** Nothing to fix. Every heading/rule decision in `lib/`
+goes through `MarkdownLineShape` (the only other hash regex is the colour
+picker's hex pattern); the two dispatches agree in order (money → heading
+→ list → quote → rule; the preview's image/table checks between money
+and heading have no editor counterpart and cannot disagree). The
+`MarkdownLineHeightCalculator` ratios (H6 0.875, rule and empty line 0.5,
+fence 0.9) describe the preview — its only caller is the preview's
+`getLineHeightScales`, and the preview's own branches use the same
+constants — while the editor renders all of those at the base size; its
+class doc now says so, names `lineHeightOfLine` as the editor's source,
+and records that `flattenHeadings` is not applied. Predicate tests added:
+`#\tfoo` is prose (tab after the hashes — CommonMark accepts it, both
+surfaces agree, a product decision), bare `#` is an empty H1, four-space
+indent still heads, `- - -` / `* * *` / `_ _ _` are not rules,
+`---\t` / `\t---` are.
+
+**Not changed, on purpose.** A `{` or `}` inside a code span inside
+`{name:…}` still kills the colour run on both surfaces
+(`MarkdownColorSyntax._findClose` is atom-blind: `{red:a `}` b}` rejects
+the match at the concealed `}`, `{red:a `{` b}` never closes) — the fix
+needs the close search to skip atoms, i.e. the brace placement rule
+moving into the tokenizer; recorded as open debt, both surfaces agree.
+`matchBareUrlEnd` reads past `limit` before clamping — unobservable
+(2,132 exhaustive sub-ranges of a 44-line corpus and 60,000 random lines
+found no range-vs-substring mismatch). `hrefOf`'s `toLowerCase()` is dead
+(`www.` matches case-sensitively and `hasCandidates` agrees). Money
+recognizer keys (`'money:$lineIndex'`) are still not pruned on chunk
+eviction — a line index, not an offset, so the prune's range test does
+not apply. The preview's `buildLine` has no length cap
+(`maxStyledLineLength` is editor-only) — a deprecated surface. The
+Outcome's item 3 names wrapper members (`_linkUrlAt`, `_tagAt`) that
+Sessions 6/7c replaced with `EditorInputPolicy.resolveTap`/`zonesOf`, and
+item 1's "`linkAt`/`tagAt` walk the token tree for the wrapper" is true
+of the policy now — historical, left as written. Item 1's cost figures
+(0.03 µs construct-free, 0.3–0.6 µs list line) do not reproduce from
+`tokenize` directly (1.2 µs and 1.1–3.1 µs in the test VM); the number
+that mattered, the quadratic ceiling, was never recorded — it is now.
+
+Traps (the review's own): an all-unpairable line makes the span builder
+return `null` (nothing styled), so a benchmark row for the pairing bound
+must end each line with a real `**b**`; the LRU eviction path of the
+preview is reachable from outside with `linesPerChunk: 1` and more chunks
+than `_maxCachedChunks` (50), so the recognizer-prune test drives a real
+eviction rather than `clearCache`; the Bash heredoc ate a backslash again
+while capturing the pairing corpus (the Session 7 trap, re-confirmed);
+concurrent `flutter test` runs from a second worker skew micro-timings by
+about 1.5× — the before/after pairs below were taken in one sitting.
+
+Numbers. `tokenize` µs per call (200 iterations, debug VM, one sitting):
+`a* ` × 1365 (4,095 chars) 796 → 64; `a_ ` × 1365 787 → 46; `` `a` [b](c)
+`` × 400 (4,400 chars) 452 → 222; `{{g}} `a` ` × 200 (2,000 chars) 33 →
+21; 2,015 distinct unclosed backtick runs 72 → 72 (`_findFence`'s own
+forward scan, untouched); typical list line 1.1 → 1.2; construct-free
+44-char line 1.2 → 1.2. New benchmark row `span build of 20
+unpairable-delimiter lines, cold`: 63 µs per 4,087-char line. Tests:
+`markdown_inline_grammar_test.dart` 158 → 212, the agreement suite 117 →
+126 (five corpus lines incl. two pinned divergences, four offset-sweep
+lines), `markdown_line_shape_test.dart` 18 → 23, new
+`line_based_markdown_builder_test.dart` 10 (ghost/link/tag recognizer
+precedence, five highlight-overlap shapes, eviction and `clearCache`
+pruning), the benchmark file 2 → 3 rows (skipped by default),
+`editor_input_policy_test.dart` 174 and the units suite 144 unchanged.
+Full suite: **3,176** before (the Session 3 review's figure, tree clean
+on `2dd0667`) → **3,254** after (7 benchmark cases skipped), +78 — exactly
+the per-file deltas. `dart analyze lib`,
+`dart analyze test` and `dart analyze packages/re_editor/lib` (untouched:
+the two pre-existing `avoid_print` infos) clean; `dart format
+--set-exit-if-changed` over every touched file changes nothing. Nothing
+committed.
+
 ### Session 5 — span builder decomposition + fork paragraph hardening
 
 Goal: the renderer is pure-Dart testable, the fork's paragraph layer

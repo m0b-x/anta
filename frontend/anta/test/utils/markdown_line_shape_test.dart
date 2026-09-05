@@ -72,6 +72,29 @@ void main() {
       expect(h.contentStart, 2);
     });
 
+    test('a tab after the hashes is not the chrome space', () {
+      expect(MarkdownLineShape.headingAt('#\tfoo'), isNull);
+      expect(MarkdownLineShape.headingAt('###\tfoo'), isNull);
+    });
+
+    test('a lone hash is an empty level-1 heading', () {
+      final h = MarkdownLineShape.headingAt('#');
+      expect(h, isNotNull);
+      expect(h!.level, 1);
+      expect(h.hashStart, 0);
+      expect(h.hashEnd, 1);
+      expect(h.contentStart, 1);
+    });
+
+    test('the indent is unbounded — four spaces still lead a heading', () {
+      final h = MarkdownLineShape.headingAt('    # indented');
+      expect(h, isNotNull);
+      expect(h!.level, 1);
+      expect(h.hashStart, 4);
+      expect(h.contentStart, 6);
+      expect('    # indented'.substring(h.contentStart), 'indented');
+    });
+
     test('empty and blank lines are not headings', () {
       expect(MarkdownLineShape.headingAt(''), isNull);
       expect(MarkdownLineShape.headingAt('   '), isNull);
@@ -92,6 +115,17 @@ void main() {
       expect(MarkdownLineShape.isHorizontalRule('-*-'), isFalse);
       expect(MarkdownLineShape.isHorizontalRule('--- x'), isFalse);
       expect(MarkdownLineShape.isHorizontalRule(''), isFalse);
+    });
+
+    test('the markers must be adjacent — spaced runs are prose', () {
+      expect(MarkdownLineShape.isHorizontalRule('- - -'), isFalse);
+      expect(MarkdownLineShape.isHorizontalRule('* * *'), isFalse);
+      expect(MarkdownLineShape.isHorizontalRule('_ _ _'), isFalse);
+    });
+
+    test('tabs count as indent and as trailing blanks', () {
+      expect(MarkdownLineShape.isHorizontalRule('---\t'), isTrue);
+      expect(MarkdownLineShape.isHorizontalRule('\t---'), isTrue);
     });
   });
 

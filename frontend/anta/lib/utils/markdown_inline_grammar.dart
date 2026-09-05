@@ -53,9 +53,12 @@ class MarkdownInlineGrammar {
   MarkdownInlineGrammar._();
 
   /// Containers deeper than this render their inner range plain:
-  /// [tokenize] returns no tokens at all once `depth` reaches it, on
-  /// both surfaces alike, so pathological nesting is bounded without
-  /// the two renderers ever disagreeing about where the cut is.
+  /// [tokenize] returns only the range's ghost runs once `depth` reaches
+  /// it, on both surfaces alike, so pathological nesting is bounded
+  /// without the two renderers ever disagreeing about where the cut is.
+  /// Ghosts survive the cut because they are placeholders, never
+  /// styling — a run left un-concealed would leak its `{{` `}}` into the
+  /// preview and its name into the editor.
   static const int maxNestingDepth = 8;
 
   /// Tokenizes `[start, end)` of [text]. [ghosts] are the ghost runs of
@@ -63,7 +66,8 @@ class MarkdownInlineGrammar {
   /// omitted they are computed from [text]. [palette] resolves colour
   /// names for `{name:text}` and `==name:text==`. Returns the top-level
   /// tokens in source order, non-overlapping, each within the range —
-  /// or an empty list once [depth] reaches [maxNestingDepth].
+  /// or only the range's ghost runs once [depth] reaches
+  /// [maxNestingDepth].
   static List<InlineToken> tokenize(
     String text, {
     int start = 0,
@@ -72,7 +76,6 @@ class MarkdownInlineGrammar {
     required MarkdownColorPalette palette,
     int depth = 0,
   }) {
-    if (depth >= maxNestingDepth) return const [];
     final int hi = end ?? text.length;
     if (start >= hi || !hasCandidates(text, start, hi)) return const [];
     final List<GhostMatch> runs =
@@ -80,6 +83,7 @@ class MarkdownInlineGrammar {
         (GhostText.mightContain(text)
             ? GhostText.findGhosts(text)
             : const <GhostMatch>[]);
+    if (depth >= maxNestingDepth) return _ghostsOnly(runs, start, hi);
 
     final List<InlineToken>? atoms = _scanAtoms(text, start, hi, runs);
     final List<InlineToken> atomList = atoms ?? const <InlineToken>[];
@@ -103,7 +107,7 @@ class MarkdownInlineGrammar {
 
       if (c == _kBang) {
         if (p + 1 < hi && text.codeUnitAt(p + 1) == _kOpenBracket) {
-          final link = _tryLink(text, p, p + 1, hi, atomList, true);
+          final link = _tryLink(text, p, p + 1, hi, atomList, ai, true);
           if (link != null) {
             (constructs ??= <InlineToken>[]).add(link);
             p = link.end;
@@ -115,7 +119,7 @@ class MarkdownInlineGrammar {
       }
 
       if (c == _kOpenBracket) {
-        final link = _tryLink(text, p, p, hi, atomList, false);
+        final link = _tryLink(text, p, p, hi, atomList, ai, false);
         if (link != null) {
           (constructs ??= <InlineToken>[]).add(link);
           p = link.end;
@@ -127,7 +131,7 @@ class MarkdownInlineGrammar {
 
       if (c == _kOpenBrace) {
         final match = MarkdownColorSyntax.matchAt(text, p, palette, hi);
-        if (match != null && !_inAtom(atomList, match.innerEnd)) {
+        if (match != null && !_inAtom(atomList, ai, match.innerEnd)) {
           (constructs ??= <InlineToken>[]).add(
             InlineColor(
               start: p,
@@ -241,13 +245,21 @@ class MarkdownInlineGrammar {
   ///
   /// The outermost match wins, which is what makes a tap inside a link
   /// nested in another construct open the link the editor drew there.
+  ///
+  /// Pass the line's ghost runs as [ghosts] when you already have them;
+  /// they are scanned from [text] otherwise.
   static InlineLink? linkAt(
     String text,
     int offset, {
     required MarkdownColorPalette palette,
+    List<GhostMatch>? ghosts,
   }) {
     if (offset <= 0 || offset >= text.length) return null;
-    for (final InlineToken token in linksAndTags(text, palette: palette)) {
+    for (final InlineToken token in linksAndTags(
+      text,
+      palette: palette,
+      ghosts: ghosts,
+    )) {
       if (token is InlineLink && token.containsStrict(offset)) return token;
     }
     return null;
@@ -255,13 +267,21 @@ class MarkdownInlineGrammar {
 
   /// The `#tag` whose run strictly contains [offset] at any nesting
   /// depth, or `null`. Tags inside code spans and ghosts are not tags.
+  ///
+  /// Pass the line's ghost runs as [ghosts] when you already have them;
+  /// they are scanned from [text] otherwise.
   static InlineTag? tagAt(
     String text,
     int offset, {
     required MarkdownColorPalette palette,
+    List<GhostMatch>? ghosts,
   }) {
     if (offset <= 0 || offset >= text.length) return null;
-    for (final InlineToken token in linksAndTags(text, palette: palette)) {
+    for (final InlineToken token in linksAndTags(
+      text,
+      palette: palette,
+      ghosts: ghosts,
+    )) {
       if (token is InlineTag && token.containsStrict(offset)) return token;
     }
     return null;
@@ -402,7 +422,7 @@ class MarkdownInlineGrammar {
         while (r < hi && text.codeUnitAt(r) == _kBacktick) {
           r++;
         }
-        final int close = _findFence(text, r, hi, r - p, ghosts);
+        final int close = _findFence(text, r, hi, r - p, ghosts, gi);
         if (close < 0) {
           p = r;
           continue;
@@ -426,13 +446,22 @@ class MarkdownInlineGrammar {
   /// Start of the backtick run of exactly [fence] length that closes a
   /// code span, searching `[from, hi)` and skipping runs inside a ghost,
   /// or `-1` when the span never closes.
+  ///
+  /// [firstGhost] is the atom scanner's ghost cursor: every ghost below
+  /// it ends at or before the opening run, so it can never contain a
+  /// candidate closer. The local copy only moves forward, which keeps
+  /// the whole search linear in the number of ghosts instead of
+  /// rescanning them from zero for every backtick run.
   static int _findFence(
     String text,
     int from,
     int hi,
     int fence,
     List<GhostMatch> ghosts,
+    int firstGhost,
   ) {
+    final int ghostCount = ghosts.length;
+    int gi = firstGhost;
     int j = from;
     while (j < hi) {
       if (text.codeUnitAt(j) != _kBacktick) {
@@ -443,10 +472,39 @@ class MarkdownInlineGrammar {
       while (r < hi && text.codeUnitAt(r) == _kBacktick) {
         r++;
       }
-      if (r - j == fence && !_inGhost(ghosts, 0, j)) return j;
+      if (r - j == fence) {
+        while (gi < ghostCount && ghosts[gi].end <= j) {
+          gi++;
+        }
+        if (!_inGhost(ghosts, gi, j)) return j;
+      }
       j = r;
     }
     return -1;
+  }
+
+  /// The ghost runs contained in `[start, hi)` as tokens, in source
+  /// order — everything [tokenize] still reports once the nesting depth
+  /// is spent. A run may not straddle a range edge (the containers a
+  /// consumer recurses into never split one), so a partial overlap is an
+  /// assertion failure rather than a clipped token.
+  static List<InlineToken> _ghostsOnly(
+    List<GhostMatch> ghosts,
+    int start,
+    int hi,
+  ) {
+    List<InlineToken>? out;
+    for (int i = 0; i < ghosts.length; i++) {
+      final GhostMatch g = ghosts[i];
+      if (g.end <= start) continue;
+      if (g.start >= hi) break;
+      assert(
+        g.start >= start && g.end <= hi,
+        'a ghost may never straddle a tokenized range',
+      );
+      (out ??= <InlineToken>[]).add(InlineGhost(g));
+    }
+    return out ?? const [];
   }
 
   /// Whether [offset] falls inside a ghost at or after index [from].
@@ -459,9 +517,16 @@ class MarkdownInlineGrammar {
     return false;
   }
 
-  /// Whether [offset] falls inside one of the (sorted, disjoint) atoms.
-  static bool _inAtom(List<InlineToken> atoms, int offset) {
-    for (int i = 0; i < atoms.length; i++) {
+  /// Whether [offset] falls inside one of the (sorted, disjoint) atoms
+  /// at or after index [from].
+  ///
+  /// The main loop's atom cursor `ai` is always a valid [from]: it is
+  /// advanced past every atom whose end is at or before the current
+  /// position `p`, and every offset probed from there lies at or after
+  /// `p` — so no atom below it can contain the offset, and the scan
+  /// costs the atoms still ahead rather than the whole line's.
+  static bool _inAtom(List<InlineToken> atoms, int from, int offset) {
+    for (int i = from; i < atoms.length; i++) {
       final InlineToken a = atoms[i];
       if (a.start > offset) return false;
       if (offset < a.end) return true;
@@ -471,13 +536,16 @@ class MarkdownInlineGrammar {
 
   /// A `[text](url)` whose `[` sits at [open], reported as starting at
   /// [tokenStart] (the `!` for an image). Rejected when any structural
-  /// character sits inside an atom.
+  /// character sits inside an atom; [firstAtom] is the main loop's atom
+  /// cursor, the lower bound every one of those probes may start from
+  /// (see [_inAtom]).
   static InlineLink? _tryLink(
     String text,
     int tokenStart,
     int open,
     int hi,
     List<InlineToken> atoms,
+    int firstAtom,
     bool isImage,
   ) {
     final MarkdownInlineLink? match = MarkdownLinkPatterns.matchInlineLinkAt(
@@ -486,9 +554,9 @@ class MarkdownInlineGrammar {
       hi,
     );
     if (match == null) return null;
-    if (_inAtom(atoms, match.textEnd) ||
-        _inAtom(atoms, match.textEnd + 1) ||
-        _inAtom(atoms, match.urlEnd)) {
+    if (_inAtom(atoms, firstAtom, match.textEnd) ||
+        _inAtom(atoms, firstAtom, match.textEnd + 1) ||
+        _inAtom(atoms, firstAtom, match.urlEnd)) {
       return null;
     }
     return InlineLink(
@@ -502,22 +570,51 @@ class MarkdownInlineGrammar {
     );
   }
 
-  /// Phase 3: CommonMark's "process emphasis" over the delimiter stack.
+  /// Number of `openers_bottom` classes: four delimiter characters times
+  /// three closer lengths mod three times the two closer-can-open cases.
+  static const int _openersBottomSlots = 24;
+
+  /// The `openers_bottom` class of [closer] — its delimiter character,
+  /// its run's original length mod three, and whether it can also open.
+  ///
+  /// Those are exactly the closer-side inputs the opener search reads,
+  /// so once a search fails for one closer no later closer of the same
+  /// class can succeed any lower: every other rejection reason (a spent,
+  /// deactivated or non-opening run) only ever gets stronger.
+  static int _openersBottomSlot(_Delim closer) {
+    final int charSlot = closer.char == _kStar
+        ? 0
+        : closer.char == _kUnderscore
+        ? 1
+        : closer.char == _kTilde
+        ? 2
+        : 3;
+    return charSlot * 6 + (closer.origLen % 3) * 2 + (closer.canOpen ? 1 : 0);
+  }
+
+  /// Phase 3: CommonMark's "process emphasis" over the delimiter stack,
+  /// including its `openers_bottom` bound — without it every closer
+  /// rescans every earlier delimiter and a line of unpairable runs costs
+  /// O(n²). The table is allocated on the first failed search, so a line
+  /// whose delimiters all pair still allocates nothing.
   static List<InlineToken>? _pairDelimiters(
     String text,
     List<_Delim> delims,
     MarkdownColorPalette palette,
   ) {
     List<InlineToken>? pairs;
+    List<int>? openersBottom;
     for (int ci = 0; ci < delims.length; ci++) {
       final _Delim closer = delims[ci];
       if (!closer.canClose) continue;
       final bool twoWide = closer.char == _kTilde || closer.char == _kEquals;
+      final int slot = _openersBottomSlot(closer);
       while (closer.hi - closer.lo > 0) {
         if (twoWide && closer.hi - closer.lo < 2) break;
+        final int bottom = openersBottom == null ? -1 : openersBottom[slot];
         int oi = ci - 1;
         _Delim? opener;
-        while (oi >= 0) {
+        while (oi > bottom) {
           final _Delim candidate = delims[oi];
           if (candidate.active &&
               candidate.char == closer.char &&
@@ -537,7 +634,12 @@ class MarkdownInlineGrammar {
           }
           oi--;
         }
-        if (opener == null) break;
+        if (opener == null) {
+          (openersBottom ??= List<int>.filled(_openersBottomSlots, -1))[slot] =
+              ci - 1;
+          if (!closer.canOpen) closer.active = false;
+          break;
+        }
 
         final int openRemaining = opener.hi - opener.lo;
         final int closeRemaining = closer.hi - closer.lo;

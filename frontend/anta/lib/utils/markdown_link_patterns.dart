@@ -86,6 +86,13 @@ class MarkdownLinkPatterns {
   /// GFM-style trailing punctuation trimmed from bare autolinks so a
   /// sentence like `see https://example.com.` doesn't include the
   /// period: `.` `,` `;` `:` `!` `?` `)` `]` `'` `"`.
+  ///
+  /// The emphasis markers `*` `_` `~` are trimmed too, as GFM's autolink
+  /// extension does, so a URL wrapped in `*…*`, `**…**`, `~~…~~` or
+  /// `_…_` gives its closing delimiter back to the emphasis instead of
+  /// swallowing it — the inline grammar would otherwise see an unpaired
+  /// opener and render the whole run raw. `=` is deliberately *not*
+  /// trimmed: base64 `==` padding in a query string is real.
   static bool isTrailingPunctuation(int codeUnit) =>
       codeUnit == 0x2E ||
       codeUnit == 0x2C ||
@@ -96,7 +103,10 @@ class MarkdownLinkPatterns {
       codeUnit == 0x29 ||
       codeUnit == 0x5D ||
       codeUnit == 0x27 ||
-      codeUnit == 0x22;
+      codeUnit == 0x22 ||
+      codeUnit == 0x2A ||
+      codeUnit == 0x5F ||
+      codeUnit == 0x7E;
 
   /// Returns the end (exclusive) of a bare autolink opening at [start],
   /// or `-1`. Matches [bareUrl] anchored at [start], clamps to [limit]

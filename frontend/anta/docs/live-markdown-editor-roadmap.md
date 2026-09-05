@@ -81,6 +81,15 @@ lines bypass the memo.
       that the two render the same visible characters with the same styles.
       Headings (`###` alone is an empty heading on both surfaces) and rules
       come from `MarkdownLineShape`.
+- [x] Session 4 review (2026-09-05, Done): bare URLs give a closing `*`/`_`/`~`
+      back to the emphasis (`*https://a.com*` is italic again — a Session 4
+      regression), ghosts survive the nesting cap on both surfaces,
+      `openers_bottom` bounds delimiter pairing (≈800 µs → 65 µs on a 4 k-char
+      unpairable line), the preview keeps a ghost's own tap inside link text
+      and no longer duplicates text under overlapping search highlights, a
+      ghost inside concealed link chrome paints nothing; a mid-line
+      `![a](b)` is a pinned, by-design divergence (preview `!` + link, editor
+      raw). Details in the ledger's "Session 4 review" block.
 - [x] `==highlight==` — amber background matching preview (shared
       `MarkdownConstants.markBackground{Light,Dark}`)
 - [x] Blockquotes `> ` — `>` substituted 1:1 with `┃` (preview's bar glyph),

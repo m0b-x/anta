@@ -1,11 +1,23 @@
 import '../constants/markdown_constants.dart';
 import 'markdown_line_shape.dart';
 
-/// Utility class for calculating markdown line height scales.
+/// The **preview's** ratio table for markdown line heights.
 ///
-/// This calculator determines the relative height of each line based on its
-/// markdown content type. Used for accurate positioning in preview mode,
-/// particularly for double-tap line detection.
+/// Determines the relative height of each line from its markdown shape
+/// and is used for positioning inside the preview — double-tap line
+/// detection above all. Its only caller is
+/// `LineBasedMarkdownBuilder.getLineHeightScales`, and every ratio here
+/// (H6 at 0.875, rules and empty lines at 0.5, fence lines at 0.9)
+/// describes what the *preview* draws.
+///
+/// **Not for the live editor.** That surface renders H5/H6, horizontal
+/// rules, empty lines and fence lines at the base size, so these ratios
+/// would misplace anything anchored to an editor line; editor geometry
+/// comes from the render's `lineHeightOfLine` / `lineHeightAtOffset`
+/// instead. The table also predates `LineMarkdownStyle.flattenHeadings`
+/// and does not apply it: with flattened headings the preview draws
+/// every heading at the normal size while this still reports the
+/// per-level ratio.
 class MarkdownLineHeightCalculator {
   MarkdownLineHeightCalculator._();
 
