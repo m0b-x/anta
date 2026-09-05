@@ -23,10 +23,12 @@ class CodeLines {
   int _lastHitStart = 0;
   int _lastHitEnd = 0;
 
-  // Cache the joined-string form. Two slots because the editor concurrently
-  // asks for both the user-facing text (`asString(lineBreak, true)` via
-  // `controller.text`) and the highlight payload (`asString(lf, false)`).
-  // A single-slot cache would thrash between them on every keystroke.
+  // Cache the joined-string form, keyed per instance on (lineBreak,
+  // expandChunks). Two slots so a second consumer with its own combination
+  // — the highlight engine's payload is `asString(lf, false)` when a
+  // highlighter is configured; the app configures none today — cannot
+  // thrash with `controller.text` on every keystroke. Both slots are
+  // dropped by any mutation.
   String? _asStringCache0;
   TextLineBreak? _asStringCache0LineBreak;
   bool _asStringCache0ExpandChunks = true;
@@ -70,11 +72,11 @@ class CodeLines {
   factory CodeLines.of(Iterable<CodeLine> elements) {
     final List<CodeLineSegment> segments = [];
     int count = 0;
-    for (int i = 0; i < elements.length; i++) {
+    for (final CodeLine element in elements) {
       if (count == 0) {
         segments.add(CodeLineSegment.of(codeLines: []));
       }
-      segments.last.add(elements.elementAt(i));
+      segments.last.add(element);
       count++;
       if (count >= _kCodeLineSegamentDefaultSize) {
         count = 0;
@@ -219,8 +221,11 @@ class CodeLines {
     segment[index - segStart] = value;
     // Only the line's own aggregates can move (lineCount/charCount when
     // chunks differ, and the joined-string caches). The segment layout is
-    // untouched, so the prefix-sum index and the last-hit fields stay
-    // valid — and stay warm for the next lookup.
+    // untouched, so the prefix-sum index stays valid, and the segment just
+    // located is the one the next read most likely wants.
+    _lastHitSegment = segmentIndex;
+    _lastHitStart = segStart;
+    _lastHitEnd = ends[segmentIndex];
     _invalidateLineContent();
   }
 
@@ -254,11 +259,11 @@ class CodeLines {
         segments.last = segment.clone();
       }
     }
-    for (int i = 0; i < iterable.length; i++) {
+    for (final CodeLine element in iterable) {
       if (count == 0) {
         segments.add(CodeLineSegment.of(codeLines: []));
       }
-      segments.last.add(iterable.elementAt(i));
+      segments.last.add(element);
       count++;
       if (count >= _kCodeLineSegamentDefaultSize) {
         count = 0;
@@ -342,12 +347,7 @@ class CodeLines {
 
   CodeLines sublines(int start, [int? end]) {
     end ??= length;
-    if (end > length) {
-      throw RangeError.range(end, 0, length - 1);
-    }
-    if (start > end) {
-      throw RangeError('start $start should be less than end $end');
-    }
+    RangeError.checkValidRange(start, end, length);
     if (start == end) {
       return CodeLines.empty();
     }
@@ -397,9 +397,7 @@ class CodeLines {
   /// this document's, which is what an incremental per-line index can use as
   /// its dirty flag.
   CodeLines replaceLine(int index, CodeLine line) {
-    if (index < 0 || index >= length) {
-      throw RangeError.range(index, 0, length - 1);
-    }
+    RangeError.checkValidIndex(index, this, 'index', length);
     final CodeLines copy = CodeLines.from(this);
     copy[index] = line;
     return copy;
@@ -412,16 +410,12 @@ class CodeLines {
   /// already share them; only the segment the line sat in is rebuilt (and,
   /// per [addFrom]'s merge rule, possibly joined with the segment after it).
   ///
-  /// Removing the only line yields an empty `CodeLines`, which a controller
-  /// cannot render. A caller must either guarantee another line survives —
-  /// the page's Enter-on-empty-item path does, removing line `current - 1`
-  /// with `current > 0` — or route the result through the controller's
-  /// `codeLines` setter, which maps an empty document onto the initial
-  /// blank line.
+  /// Removing the only line yields an empty `CodeLines`. A controller
+  /// cannot render one, so both of its setters — `codeLines` and `value` —
+  /// map an empty document onto the initial blank line; a caller need not
+  /// guard for it.
   CodeLines removeLine(int index) {
-    if (index < 0 || index >= length) {
-      throw RangeError.range(index, 0, length - 1);
-    }
+    RangeError.checkValidIndex(index, this, 'index', length);
     final CodeLines result = sublines(0, index);
     if (index + 1 < length) {
       result.addFrom(this, index + 1);
@@ -557,8 +551,11 @@ class CodeLines {
     return codeLines;
   }
 
+  /// Structural, to match [operator ==]: two documents that compare equal
+  /// hash equal. Each segment's hash is cached, so this is one probe per
+  /// segment, never a walk over the lines.
   @override
-  int get hashCode => segments.hashCode;
+  int get hashCode => Object.hashAll(segments);
 
   @override
   bool operator ==(Object other) {
@@ -652,8 +649,11 @@ class CodeLineSegment with ListMixin<CodeLine> {
         codeLines: codeLines ?? this.codeLines, dirty: dirty ?? this.dirty);
   }
 
+  /// The same four fields the counting subclass hashes, so a segment and
+  /// its counting twin hash equal whenever they compare equal.
   @override
-  int get hashCode => Object.hash(codeLines.length, lineCount, dirty);
+  int get hashCode =>
+      Object.hash(codeLines.length, lineCount, charCount, dirty);
 
   @override
   bool operator ==(Object other) {

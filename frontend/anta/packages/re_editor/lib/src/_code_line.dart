@@ -25,6 +25,7 @@ class _CodeLineEditingControllerImpl extends ValueNotifier<CodeLineEditingValue>
   late int _preEditLineIndex;
   CodeLineEditingValue? _preValue;
   GlobalKey? _editorKey;
+  bool _restoringHistory = false;
 
   _CodeLineEditingControllerImpl({
     required CodeLines codeLines,
@@ -52,16 +53,21 @@ class _CodeLineEditingControllerImpl extends ValueNotifier<CodeLineEditingValue>
     return controller;
   }
 
+  /// An empty document is never published: the render needs a first and a
+  /// last line, so both this setter and [codeLines] map it onto the
+  /// initial blank line (the same substitution `fromText` makes for an
+  /// empty string).
   @override
   set value(CodeLineEditingValue value) {
     _preValue = super.value;
-    super.value = value;
+    super.value = value.codeLines.isEmpty
+        ? value.copyWith(codeLines: _kInitialCodeLines)
+        : value;
   }
 
   @override
   set codeLines(CodeLines newCodeLines) {
-    value = value.copyWith(
-        codeLines: newCodeLines.isEmpty ? _kInitialCodeLines : newCodeLines);
+    value = value.copyWith(codeLines: newCodeLines);
   }
 
   @override
@@ -899,10 +905,27 @@ class _CodeLineEditingControllerImpl extends ValueNotifier<CodeLineEditingValue>
   }
 
   @override
-  void undo() => _cache.undo();
+  void undo() {
+    _restoringHistory = true;
+    try {
+      _cache.undo();
+    } finally {
+      _restoringHistory = false;
+    }
+  }
 
   @override
-  void redo() => _cache.redo();
+  void redo() {
+    _restoringHistory = true;
+    try {
+      _cache.redo();
+    } finally {
+      _restoringHistory = false;
+    }
+  }
+
+  @override
+  bool get isRestoringHistory => _restoringHistory;
 
   @override
   Future<void> copy() {
@@ -2109,6 +2132,9 @@ class _CodeLineEditingControllerDelegate implements CodeLineEditingController {
 
   @override
   int get textLength => _delegate.textLength;
+
+  @override
+  bool get isRestoringHistory => _delegate.isRestoringHistory;
 
   @override
   set text(String value) {

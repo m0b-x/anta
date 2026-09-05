@@ -3,9 +3,10 @@ part of re_editor;
 class _CodeLineSegmentQuckLineCount extends CodeLineSegment {
   late int _lineCount;
   late int _charCount;
-  // Cache for hashCode. The default implementation in [CodeLineSegment] hashes
-  // the entire codeLines list, which is O(N). Equals/hashCode are hit on every
-  // controller value notification (highlight, find, chunk listeners).
+  // Cache for hashCode, reached through `CodeLines.hashCode` (which hashes
+  // its segments) and from there `CodeLineEditingValue.hashCode`. The base
+  // implementation in [CodeLineSegment] would fold the whole segment on
+  // every call; cached, a document hash costs one probe per segment.
   int? _hashCache;
 
   _CodeLineSegmentQuckLineCount({
@@ -65,9 +66,18 @@ class _CodeLineSegmentQuckLineCount extends CodeLineSegment {
     return listEquals(other.codeLines, codeLines);
   }
 
+  /// Shrinks only. Growing a `List<CodeLine>` through its length setter
+  /// would have to fill the gap with nulls, which the non-nullable element
+  /// type refuses, so the only way lines enter a segment is [add] (and the
+  /// `ListMixin` members that route through it), which keeps the counts
+  /// exact by delta.
   @override
   set length(int newLength) {
     final int oldLength = codeLines.length;
+    assert(
+      newLength <= oldLength,
+      'a segment cannot grow through its length setter; use add',
+    );
     int lineDelta = 0;
     int charDelta = 0;
     for (int i = newLength; i < oldLength; i++) {
@@ -76,13 +86,8 @@ class _CodeLineSegmentQuckLineCount extends CodeLineSegment {
       charDelta += removed.charCount;
     }
     super.length = newLength;
-    if (newLength > oldLength) {
-      _lineCount = super.lineCount;
-      _charCount = super.charCount;
-    } else {
-      _lineCount -= lineDelta;
-      _charCount -= charDelta;
-    }
+    _lineCount -= lineDelta;
+    _charCount -= charDelta;
     _hashCache = null;
   }
 

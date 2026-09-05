@@ -312,4 +312,32 @@ void main() {
     expect(e.controller.selection.baseOffset, 4);
     await teardownEditor(tester);
   });
+
+  testWidgets('a held Tab repeats the indent on Android', (tester) async {
+    // A physical keyboard auto-repeats through `KeyRepeatEvent`s, which
+    // the touch-platform key handler used to drop — so holding Tab (or
+    // Backspace) did nothing past the first press, unlike on desktop.
+    final e = await pumpEditor(
+      tester,
+      text: buildDocument(lineAt650: '- squat 5x5'),
+    );
+
+    e.focusNode.requestFocus();
+    await tester.pump();
+    e.controller.selection = const CodeLineSelection.collapsed(
+      index: taskLine,
+      offset: 4,
+    );
+    await tester.pump();
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.tab);
+    await tester.sendKeyRepeatEvent(LogicalKeyboardKey.tab);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+
+    expect(e.controller.codeLines[taskLine].text, '    - squat 5x5');
+    expect(e.controller.selection.baseOffset, 8);
+    expect(e.focusNode.hasFocus, isTrue);
+    await teardownEditor(tester);
+  });
 }

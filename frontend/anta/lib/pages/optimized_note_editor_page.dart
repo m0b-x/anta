@@ -1383,9 +1383,11 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
                   _contentController.text = content;
                   _contentLoaded = true;
                 });
-                // The assignment above notified the edit tracker with a
-                // whole document's worth of growth; adopt it as the
-                // baseline so the next keystroke does not read as a paste.
+                // The tracker never saw the assignment above — only the
+                // wrapper calls `onTextChanged`, and it is not mounted
+                // yet — so its baseline is still zero. Adopt the loaded
+                // length before the wrapper starts diffing, or the first
+                // keystroke reads as a whole-document paste.
                 _edits.syncLength();
                 _pushPreviewContent(content);
                 _markEditorReady();
@@ -1952,7 +1954,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     });
   }
 
-  void _handleShortcut(CustomMarkdownShortcut shortcut) {
+  Future<void> _handleShortcut(CustomMarkdownShortcut shortcut) async {
     // Ghost text has bespoke insert behavior (on an empty selection the
     // caret lands inside the placeholder), so it bypasses the generic
     // applier — mirroring how the header shortcut has its own handling.
@@ -1970,6 +1972,19 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       return;
     }
 
+    // Counter mutations and date resolution are awaited *first*, with the
+    // document untouched. The write below has to be synchronous: an insert
+    // landing in a microtask would arrive after both wrappers around it had
+    // returned, so the tracker would diff it as a paste (and a one-newline
+    // insert at the end of a list line as an Enter, growing a marker), and
+    // the reflow below would measure a length nothing had changed yet.
+    final text = await ShortcutApplier.resolve(
+      controller: _contentController,
+      shortcut: shortcut,
+      mutateCounter: _mutateShortcutCounter,
+    );
+    if (!mounted) return;
+
     // Store length before applying the shortcut to calculate inserted range
     final beforeLength = _contentController.textLength;
 
@@ -1979,11 +1994,19 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     // below. It also resyncs the length, so the next keystroke diffs
     // against what the shortcut actually left behind.
     //
-    // The revocable op inside it makes the whole shortcut one undo entry,
-    // so e.g. date insertion + repeat + wrapper text revert together.
+    // The revocable op inside it makes the whole shortcut one undo entry
+    // whatever the insert does — the header rewrite is a selectLine plus a
+    // replace, and an insert that wrote the value directly would otherwise
+    // merge into the typing burst before it.
     _edits.runGuarded(() {
       _contentController.runRevocableOp(() {
-        _applyShortcut(shortcut);
+        // A null resolution is the header shortcut: it rewrites the caret
+        // line rather than inserting at the selection.
+        if (text == null) {
+          ShortcutApplier.applyHeader(_contentController);
+        } else {
+          _contentController.replaceSelection(text);
+        }
       });
     });
 
@@ -2000,28 +2023,26 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     });
   }
 
-  Future<void> _applyShortcut(CustomMarkdownShortcut shortcut) {
-    return ShortcutApplier.apply(
-      controller: _contentController,
-      shortcut: shortcut,
-      mutateCounter: (counterId, op) async {
-        final counterState = context.read<CounterBloc>().state;
-        if (counterState is! CounterLoaded) return null;
-        if (!counterState.counters.any((c) => c.id == counterId)) return null;
-        switch (op) {
-          case CounterOp.increment:
-            return _incrementCounter(counterId);
-          case CounterOp.decrement:
-            return _decrementCounter(counterId);
-          case CounterOp.keep:
-            // Counter existence already confirmed by the .any() guard above.
-            final counter = counterState.counters.firstWhere(
-              (c) => c.id == counterId,
-            );
-            return counterState.counterValues[counterId] ?? counter.startValue;
-        }
-      },
-    );
+  /// Resolves one `{cN}` binding for [ShortcutApplier.resolve]: applies the
+  /// bound operation and reports the value the token expands to, or `null`
+  /// when the counter is unknown to the loaded state.
+  Future<int?> _mutateShortcutCounter(String counterId, CounterOp op) async {
+    if (!mounted) return null;
+    final counterState = context.read<CounterBloc>().state;
+    if (counterState is! CounterLoaded) return null;
+    if (!counterState.counters.any((c) => c.id == counterId)) return null;
+    switch (op) {
+      case CounterOp.increment:
+        return _incrementCounter(counterId);
+      case CounterOp.decrement:
+        return _decrementCounter(counterId);
+      case CounterOp.keep:
+        // Counter existence already confirmed by the .any() guard above.
+        final counter = counterState.counters.firstWhere(
+          (c) => c.id == counterId,
+        );
+        return counterState.counterValues[counterId] ?? counter.startValue;
+    }
   }
 
   /// Opens the bar switcher bottom sheet and applies the selection.

@@ -855,6 +855,155 @@ the seam balance (a trailing `$=` makes `$^ N` clamp to the period and hides
 the difference); `expectMatchesFresh` only queries `[0, n)`, so stale set
 entries pushed past the end by a delete need the set-for-set check.
 
+#### Session 3 review — 2026-09-05
+
+Three read-only passes over the *current* structural-edit code (A: the
+line index and its seam proofs; B: the fork's `CodeLines` mutation paths
+and the undo cap; C: the app-side callers — `EditorEditTracker`, every
+`replaceLine`/`removeLine` site, the Android key path), then two
+implementation passes plus one fork-only pass. Nothing committed; the
+working tree sits on `8c1bf28`. The class of bug the Outcome block named —
+a seam accepted on scalar equality while a regenerated slice differs — was
+hunted on all three passes and **not found**: fence parity is complete
+(the delimiter predicate is pure parity), the task proof compares all five
+frame fields and orphaned snapshots can never survive past a proven seam,
+and `MoneyFold` has exactly the six scalars plus the two histories the
+proof already covers. The line index and `CodeLines` came out with no
+bugs; the four real bugs were all in the **callers**.
+
+**C, callers.** C1 (bug): the Enter detector keyed on caret position
+alone — caret at the item above's indent column, on a line starting with
+that indent — so any growth that parked the caret there grew a list
+marker: a Tab indent at column 0 below a `  - item` produced `  - - x`
+(the wrapper's `_tryListIndent` runs `runRevocableOp` with no tracker to
+guard through), a second space typed on a blank line below a nested item
+produced `  - `, a space at column 1 of ` x` produced `  - x`, and a
+paste of `abc\n` (under the 20-unit paste threshold) at the end of a list
+line grew a marker on the blank line the list-aware paste transform had
+deliberately left bare. Fix: an Enter is recognised by its exact growth,
+`textLengthDiff == 1 + autoIndent` (one line break plus the indentation
+`applyNewLine` copies — `alignIndent` counts spaces only, matching
+`_autoIndentLength`), which nothing else produces. Seven tracker cases
+pin it; five fail against the old code. C2 (bug): undo/redo growth over
+the threshold was reflowed as a paste — `PasteLineBreaker` writes
+`controller.value` directly (so the reflow merges into the paste's node),
+which after an undo is a write in the middle of the chain and **drops
+the redo branch**; restoring a deleted 200-character typed line rewrapped
+it and lost redo. Fix: the fork's controller raises `isRestoringHistory`
+around `undo`/`redo` (interface + delegate), and the tracker returns —
+after adopting the length — while it is up. A listener-driven test
+proves it (a listener called after `undo()` returns never sees the flag —
+a harness trap). C3 (bug, half withdrawn): `ShortcutApplier.apply` is
+`async` and awaits before `replaceSelection` for every insert type but
+`header`, so the insert landed in a microtask after both
+`_edits.runGuarded` and `runRevocableOp` had returned: the tracker diffed
+it unguarded (a one-newline shortcut at the end of a list line grew a
+marker — the page test that pins it fails against the old code) and
+`reformatInserted` measured an unchanged length and was dead. The "merges
+into the previous undo node" half did **not** reproduce:
+`replaceSelection` opens its own revocable op. Fix: `ShortcutApplier`
+split into async `resolve` (returns the text, `null` for `header`) and
+sync `applyHeader`; the page resolves first, then inserts synchronously
+inside guard + revocable op; `apply` stays as a wrapper for the two event
+sheets (which still call it inside `runRevocableOp` — harmless there, no
+tracker, noted as follow-up). `applyHeader` now reads the level from
+`MarkdownLineShape.headingAt` instead of a private `^(#{1,6})\s` regex
+(house rule: one heading predicate); indented headings keep their indent,
+a bare `###` cycles to `#### `. C4 (bug, adjacent scope, found by the
+`controller.text` audit): `NoteSaveCoordinator._createNewNoteEarly`
+raised `_isCreatingNewNote` only after `await _titleExists`, so every
+keystroke during the lookup dispatched its own `CreateOptimizedNote` —
+one editor, several notes (three creates for three keystrokes in the
+test). The flag is raised before the await; because `saveBeforeExit`
+returned on that flag, a pop mid-lookup would then have dropped the
+create, so the in-flight future is kept in `_pendingCreate` and awaited
+there. C5 (debt): the Android/iOS `Focus.onKeyEvent` dropped
+`KeyRepeatEvent`, so a held Backspace/Enter/Tab did nothing past the
+first press while the desktop `Shortcuts` path repeats; repeats are
+honoured now (the stuck-key hazard the comment describes is about
+`isKeyPressed`, not the event type). C6 (doc-drift): the page comment at
+the content load claimed the tracker had been notified with a document's
+worth of growth; the wrapper is the only caller and is not mounted while
+loading, so it never was — `syncLength()` is still needed, the reason is
+now the true one.
+
+**A, line index.** A1 (debt): `_ensure` captured `entry = _states[p]` by
+reference before the `replaceRange`; with an empty old middle (a whole
+segment prepended: old `[A, B]`, new `[X, A, B]`) nothing is removed and
+the captured object survives in `_states` where the renumbering loop and
+the three passes write through it — benign only because every pass copies
+its fields out before its loop and the passes write disjoint fields. It
+is a `_SegmentState.copy` now, and the prepend case has a test (the only
+one reaching that branch). A2: the three scratch lists are cleared at
+pass exit as the stashes already were. A3: `configureMoney` no longer
+invalidates the whole index for a start-balance change while the pass is
+off. A4–A5 (deliberately not changed, documented): a structural edit
+renumbers and rebuilds all indeterminate results rather than those below
+the edit, and the money pass copies the whole history tail below the
+caret into the stash on every edit — both bounded by result/entry counts,
+not lines; a write-cursor `MoneyFold` would remove the copy but changes
+`resume`'s contract. Test shapes added (43 → 52): whole-segment prepend,
+**a suffix seam where only the anchors slice differs** (neutering the
+anchor loop in `_moneyProven` fails exactly this one test and no other —
+it is that loop's sole guard), a multi-line paste starting inside a fence
+interior, `$=` inserted by Enter above `$~ N` rows, a delete of a whole
+fence, shrink to one and to zero lines, task frames orphaned into the
+replaced region, deterministic last-line delete/replace, and the
+disabled-pass reseed pin. `configureColors` never touched the index; the
+task brief's claim that it reseeds was the drift.
+
+**B, fork.** No bug. B1: `CodeLines.hashCode` was the segment list's
+identity hash while `==` is structural, and the base `CodeLineSegment`
+hashed three fields where the counting subclass hashes four — equal
+documents hashed unequal (latent: no `Set`/`Map` keys on them). Both are
+structural now (`Object.hashAll(segments)`, four fields), which also
+makes the segment `_hashCache` live rather than dead. B2: the grow branch
+of the counting segment's length setter was unreachable (growing a
+non-nullable list through `length=` throws) and folded the whole segment;
+it is an assert. B3: `sublines` never rejected a negative start and threw
+the wrong bound for an exclusive end; it, `replaceLine` and `removeLine`
+use the SDK's `RangeError` helpers. B4: `CodeLines.of`/`addAll` used
+`elementAt(i)` in an index loop (O(n²) on a lazy iterable). B5: `[]=`
+leaves the last-hit window on the segment it located. B6: the
+controller's `value` setter maps an empty document onto the initial blank
+line exactly like the `codeLines` setter, so `removeLine`'s "guarantee a
+survivor" caveat is gone (the app's only `removeLine` site wrote through
+`value`, and was safe only by the `currentLineIndex <= 0` return). B7
+(doc): the two-slot `asString` rationale named a concurrent highlight
+consumer that is never live here (no highlighter configured) — the
+comment says so now; the slot stays. Deliberately not changed: the
+`from`-copy precondition (a source is never written after a copy) stays
+unenforced — writing dirty clones back over the source would change the
+source's own `[]=` contract that a test pins — every write site was
+traced clean; `copyWith` on segments is dead API and stays; the partial
+`clone` still folds (bounded by the 256-line segment cap — the ledger's
+"no fold on any mutation path" carries that qualifier now). The undo cap
+traced correct on every axis (off-by-one, redo after eviction, branch
+discard, coalescing).
+
+Traps (the review's own): a fork flag that is only up during a call must
+be observed from a controller **listener**, not after the call returns;
+`replaceSelection` runs its own `runRevocableOp`, so "merged into the
+previous undo node" claims need a direct `value =` write to be true; two
+`CodeLines.from` copies compare `==` but a copy is never `==` its source
+(dirtiness is part of segment equality); the Bash heredoc trap holds —
+Dart with backslashes goes through the Edit tool; the two index files
+were unformatted at HEAD, so the touched-file format gate reflowed them
+(mostly the test file).
+
+Numbers: `editor_edit_tracker_test.dart` 36 → 43,
+`markdown_editor_line_index_test.dart` 43 → 52,
+`code_lines_sharing_test.dart` +6, `modern_editor_wrapper_toggle_test.dart`
++1, `optimized_note_editor_page_test.dart` 11 → 14,
+`note_save_coordinator_test.dart` 25 → 27, new
+`shortcut_applier_test.dart` (11) and
+`test/re_editor/controller_empty_document_test.dart` (3). Full suite
+**3,176** passing (7 benchmark cases skipped), up 42 from 3,134; `dart
+analyze lib`, `dart analyze test` and `dart analyze packages/re_editor/lib`
+clean apart from the fork's two pre-existing `avoid_print` infos; `dart
+format --set-exit-if-changed` over all 18 touched files changes nothing.
+Nothing committed.
+
 ### Session 4 — one inline grammar for both surfaces
 
 Goal: emphasis / inline-code / escape rules live in one module; the three

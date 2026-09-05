@@ -165,9 +165,17 @@ class MarkdownEditorLineIndex {
   /// empty and [moneyValueAt] always returns null), so the index does
   /// exactly the work it did before the feature existed. A change
   /// invalidates the whole index (cheap, rare — a settings change), so
-  /// the next access rebuilds all passes.
+  /// the next access rebuilds all passes — except a start-balance change
+  /// while the pass stays off, which nothing below reads: the new value
+  /// is recorded and the built fence and task results are kept. Every
+  /// transition of [enabled] invalidates, so a later enable still seeds
+  /// the histories from whatever balance was recorded meanwhile.
   void configureMoney({required bool enabled, required int startCents}) {
     if (enabled == _moneyEnabled && startCents == _moneyStartCents) return;
+    if (!enabled && !_moneyEnabled) {
+      _moneyStartCents = startCents;
+      return;
+    }
     _moneyEnabled = enabled;
     _moneyStartCents = startCents;
     _lines = null;
@@ -282,7 +290,7 @@ class MarkdownEditorLineIndex {
       newMiddleLines += segs[s].codeLines.length;
     }
     final int delta = newMiddleLines - oldMiddleLines;
-    final _SegmentState entry = _states[p];
+    final _SegmentState entry = _SegmentState.copy(_states[p]);
 
     _lineCount = lines.length;
     _states.replaceRange(p, oldMiddleEnd, [
@@ -457,6 +465,7 @@ class MarkdownEditorLineIndex {
               _states[t].resultCount += shift;
             }
           }
+          _taskScratch.clear();
           return;
         }
       }
@@ -493,6 +502,7 @@ class MarkdownEditorLineIndex {
     }
     _closeFrames(frames, 0);
     _spliceResults(keep, _resultOrder.length);
+    _taskScratch.clear();
   }
 
   /// Swaps the rescanned region `[keep, oldCount)` of [_resultOrder] for
@@ -594,6 +604,8 @@ class MarkdownEditorLineIndex {
             _states[t].moneyCount += shift;
           }
         }
+        _moneyLineScratch.clear();
+        _moneyValueScratch.clear();
         _entryStash.clear();
         _anchorStash.clear();
         return;
@@ -624,6 +636,8 @@ class MarkdownEditorLineIndex {
     }
     _moneyLines.replaceRange(keep, _moneyLines.length, _moneyLineScratch);
     _moneyValues.replaceRange(keep, _moneyValues.length, _moneyValueScratch);
+    _moneyLineScratch.clear();
+    _moneyValueScratch.clear();
     _entryStash.clear();
     _anchorStash.clear();
   }
@@ -677,10 +691,7 @@ class MarkdownEditorLineIndex {
     }
   }
 
-  static bool _framesMatch(
-    List<_TaskFrame> frames,
-    List<_TaskSnapshot> snaps,
-  ) {
+  static bool _framesMatch(List<_TaskFrame> frames, List<_TaskSnapshot> snaps) {
     if (frames.length != snaps.length) return false;
     for (int i = 0; i < frames.length; i++) {
       final _TaskFrame frame = frames[i];
@@ -716,22 +727,52 @@ class MarkdownEditorLineIndex {
 /// segment, plus the backing `codeLines` list that identifies it. One
 /// mutable object per segment, so a structural edit is a single
 /// `replaceRange` over the state list.
+///
+/// [_SegmentState.copy] exists because the splice's resume state must not
+/// alias a live element of `_states`: when the old middle is empty the
+/// `replaceRange` removes nothing, so the captured entry object survives
+/// further down the list where the renumbering loop and the three passes
+/// would write through the alias into the state they are resuming from.
 class _SegmentState {
   List<CodeLine> backing;
-  bool fenceEntry = false;
-  int resultCount = 0;
-  List<_TaskSnapshot> taskEntry = const [];
-  int moneyCount = 0;
+  bool fenceEntry;
+  int resultCount;
+  List<_TaskSnapshot> taskEntry;
+  int moneyCount;
   int moneyEntry;
-  int entryCount = 1;
-  int periodStart = 0;
-  int anchorCount = 1;
-  int targetCents = -1;
+  int entryCount;
+  int periodStart;
+  int anchorCount;
+  int targetCents;
   int targetAnchor;
 
   _SegmentState(this.backing, int startCents)
-    : moneyEntry = startCents,
+    : fenceEntry = false,
+      resultCount = 0,
+      taskEntry = const [],
+      moneyCount = 0,
+      moneyEntry = startCents,
+      entryCount = 1,
+      periodStart = 0,
+      anchorCount = 1,
+      targetCents = -1,
       targetAnchor = startCents;
+
+  /// Detached copy of [other]. [taskEntry] is shared by reference: the
+  /// snapshots are immutable and the list itself is only ever replaced,
+  /// never mutated in place.
+  _SegmentState.copy(_SegmentState other)
+    : backing = other.backing,
+      fenceEntry = other.fenceEntry,
+      resultCount = other.resultCount,
+      taskEntry = other.taskEntry,
+      moneyCount = other.moneyCount,
+      moneyEntry = other.moneyEntry,
+      entryCount = other.entryCount,
+      periodStart = other.periodStart,
+      anchorCount = other.anchorCount,
+      targetCents = other.targetCents,
+      targetAnchor = other.targetAnchor;
 }
 
 /// Mutable accumulator for one open task item during a scan: how many

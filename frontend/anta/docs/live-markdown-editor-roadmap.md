@@ -233,6 +233,20 @@ lines bypass the memo.
       longer re-parses every visible line. `test/re_editor/` shares one
       harness (`support/editor_test_support.dart`); the German zone labels
       became "Kassenbuchdetails öffnen" / "Schlagwort suchen".
+- [x] Session 3 review (2026-09-05, three read-only passes over the
+      current line index, the fork's `CodeLines` paths and the app-side
+      callers): the seam proofs and `CodeLines` held; the bugs were in the
+      callers. The Enter continuation keyed on caret position and grew a
+      list marker on a Tab indent, a typed space at the indent column and
+      a short paste ending in a newline — it now requires an Enter's exact
+      growth; undo/redo growth was reflowed as a paste and dropped the
+      redo chain — the fork raises `isRestoringHistory` and the tracker
+      skips it; toolbar shortcuts inserted in a microtask after the guard
+      had returned — `ShortcutApplier.resolve` first, sync insert after;
+      typing during a new note's title lookup created several notes. Also:
+      Android key repeats honoured, `CodeLines.hashCode` structural, the
+      `value` setter maps an empty document, nine index test shapes incl.
+      the anchors-only seam.
 
 ### Decision log
 

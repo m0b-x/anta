@@ -83,6 +83,54 @@ void main() {
       });
     });
 
+    test('typing through a title lookup still creates once', () {
+      fakeAsync((async) {
+        final h = _Harness()..coordinator.start();
+
+        // A non-empty title sends the create through `titleExists`, so the
+        // next two keystrokes land while that lookup is still in flight —
+        // the window in which the coordinator used to dispatch one create
+        // per keystroke.
+        h.title = 'Named';
+        h.type('a');
+        h.type('ab');
+        h.type('abc');
+        async.flushMicrotasks();
+
+        expect(h.creates, hasLength(1));
+        expect(h.lookups, hasLength(1));
+        expect(
+          h.creates.single.content,
+          'a',
+          reason:
+              'the create captures the content it saw before the lookup; '
+              'the rest is picked up by auto-save once the id lands',
+        );
+
+        h.dispose();
+      });
+    });
+
+    test('a pop mid-lookup waits for the create instead of dropping it', () {
+      fakeAsync((async) {
+        final h = _Harness()..coordinator.start();
+
+        h.title = 'Named';
+        h.type('draft');
+        // No flush: the lookup is still pending, so the in-flight guard is
+        // already raised when the page pops.
+        var popped = false;
+        unawaited(h.coordinator.saveBeforeExit().then((_) => popped = true));
+        async.flushMicrotasks();
+
+        expect(popped, isTrue);
+        expect(h.creates, hasLength(1));
+        expect(h.creates.single.content, 'draft');
+
+        h.dispose();
+      });
+    });
+
     test('a colliding title creates the note untitled and warns', () {
       fakeAsync((async) {
         final h = _Harness()..coordinator.start();

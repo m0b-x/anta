@@ -96,6 +96,12 @@ class EditorEditTracker {
 
     if (textLengthDiff <= 0) return;
 
+    // Undo and redo restore text the user already had; growth from a
+    // restore is neither a paste to reflow (that would rewrite the restored
+    // lines and, writing the value directly, drop the redo chain) nor an
+    // Enter to continue.
+    if (_controller.isRestoringHistory) return;
+
     if (textLengthDiff > pasteThreshold) {
       _reformat(pasteEnd: selection.extent, pastedLength: textLengthDiff);
       return;
@@ -112,6 +118,13 @@ class EditorEditTracker {
     final prevLine = _controller.codeLines[prevLineIndex].text;
     final currentLine = _controller.codeLines[currentLineIndex];
     final autoIndent = _autoIndentLength(prevLine);
+
+    // An Enter grows the document by exactly the line break plus the
+    // indentation `applyNewLine` copied down — nothing else does. The
+    // caret checks below cannot tell an Enter from a Tab indent or a typed
+    // space that happens to park the caret at the indent column, so the
+    // growth is the discriminator.
+    if (textLengthDiff != 1 + autoIndent) return;
 
     // The caret has to sit exactly where the split parked it, and the line
     // has to actually start with the whitespace that was copied. Without

@@ -303,7 +303,10 @@ void main() {
       // chunks' lines back.
       expect(original[7].chunks, isNotEmpty);
       final dropChunks = original.replaceLine(7, _plain(902));
-      expect(dropChunks.lineCount, original.lineCount - original[7].lineCount + 1);
+      expect(
+        dropChunks.lineCount,
+        original.lineCount - original[7].lineCount + 1,
+      );
       _expectConsistent(dropChunks, 'replaceLine dropping chunks');
     });
 
@@ -502,22 +505,24 @@ void main() {
       _expectConsistent(copy, 'add');
     });
 
-    test('add onto a full tail opens a new segment and keeps all identities',
-        () {
-      final original = CodeLines.of(_document(1024));
-      final before = _backingLists(original);
-      final copy = CodeLines.from(original);
-      expect(before.length, 4);
+    test(
+      'add onto a full tail opens a new segment and keeps all identities',
+      () {
+        final original = CodeLines.of(_document(1024));
+        final before = _backingLists(original);
+        final copy = CodeLines.from(original);
+        expect(before.length, 4);
 
-      copy.add(const CodeLine('- [ ] overflow'));
+        copy.add(const CodeLine('- [ ] overflow'));
 
-      expect(copy.segments.length, 5);
-      for (int i = 0; i < 4; i++) {
-        expect(identical(copy.segments[i].codeLines, before[i]), isTrue);
-      }
-      expect(copy.segments.last.length, 1);
-      _expectConsistent(copy, 'add over the segment boundary');
-    });
+        expect(copy.segments.length, 5);
+        for (int i = 0; i < 4; i++) {
+          expect(identical(copy.segments[i].codeLines, before[i]), isTrue);
+        }
+        expect(copy.segments.last.length, 1);
+        _expectConsistent(copy, 'add over the segment boundary');
+      },
+    );
 
     test('addAll re-owns only the tail segment', () {
       final original = CodeLines.of(_document(1000));
@@ -725,6 +730,60 @@ void main() {
       expect(cloned.length, 25);
       _expectSegmentConsistent(cloned, 'clone');
     });
+
+    test('a segment never grows through its length setter', () {
+      final segment = CodeLineSegment.of(codeLines: _document(3));
+      expect(() => segment.length = 4, throwsAssertionError);
+      _expectSegmentConsistent(segment, 'rejected growth');
+    });
+  });
+
+  group('== and hashCode agree', () {
+    test('two equal documents hash equal', () {
+      final a = CodeLines.of(_document(600));
+      final b = CodeLines.of(_document(600));
+      expect(a == b, isTrue);
+      expect(a.hashCode, b.hashCode);
+    });
+
+    test('two copies of one source compare and hash equal', () {
+      // A copy is never `==` its source: `from` marks every segment dirty
+      // and dirtiness is part of segment equality. Two copies agree.
+      final source = CodeLines.of(_document(600));
+      final a = CodeLines.from(source);
+      final b = CodeLines.from(source);
+      expect(a == b, isTrue);
+      expect(a.hashCode, b.hashCode);
+
+      a[300] = _plain(999);
+      expect(a == b, isFalse);
+    });
+
+    test('a counting segment and a bare one hash equal when equal', () {
+      final lines = _document(20);
+      final counting = CodeLineSegment.of(codeLines: lines);
+      final bare = CodeLineSegment(codeLines: lines);
+      expect(counting == bare, isTrue);
+      expect(bare == counting, isTrue);
+      expect(counting.hashCode, bare.hashCode);
+    });
+  });
+
+  group('range checks', () {
+    test('sublines rejects a negative start and an end past the length', () {
+      final lines = CodeLines.of(_document(30));
+      expect(() => lines.sublines(-1, 10), throwsRangeError);
+      expect(() => lines.sublines(5, 31), throwsRangeError);
+      expect(() => lines.sublines(10, 5), throwsRangeError);
+      expect(lines.sublines(5, 30).length, 25);
+      expect(lines.sublines(30).isEmpty, isTrue);
+    });
+
+    test('replaceLine and removeLine reject an index past the end', () {
+      final lines = CodeLines.of(_document(3));
+      expect(() => lines.replaceLine(3, _plain(0)), throwsRangeError);
+      expect(() => lines.removeLine(-1), throwsRangeError);
+    });
   });
 }
 
@@ -735,10 +794,8 @@ CodeLine _chunked(int i) => CodeLine('## week $i', <CodeLine>[
   CodeLine('  - [x] row $i', <CodeLine>[CodeLine('    note $i')]),
 ]);
 
-List<CodeLine> _document(int count) => List<CodeLine>.generate(
-  count,
-  (i) => i % 7 == 0 ? _chunked(i) : _plain(i),
-);
+List<CodeLine> _document(int count) =>
+    List<CodeLine>.generate(count, (i) => i % 7 == 0 ? _chunked(i) : _plain(i));
 
 List<List<CodeLine>> _backingLists(CodeLines codeLines) => <List<CodeLine>>[
   for (final CodeLineSegment segment in codeLines.segments) segment.codeLines,

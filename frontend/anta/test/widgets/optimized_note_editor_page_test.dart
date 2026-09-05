@@ -17,6 +17,7 @@ import 'package:anta/constants/font_constants.dart';
 import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/models/custom_markdown_shortcut.dart';
 import 'package:anta/models/note_metadata.dart';
 import 'package:anta/pages/optimized_note_editor_page.dart';
 import 'package:anta/repositories/note_repository.dart';
@@ -563,6 +564,138 @@ void main() {
         ),
         isNull,
       );
+      await teardownPage(tester);
+    });
+  });
+
+  group('toolbar shortcuts land under the page\'s own guards', () {
+    const listContent = 'first line\n- squat 5x5\nthird line';
+
+    final listMetadata = NoteMetadata(
+      id: noteId,
+      folderId: folderId,
+      title: 'Training log',
+      preview: 'first line',
+      contentLength: listContent.length,
+      chunkCount: 1,
+      isCompressed: false,
+      createdAt: DateTime(2026, 9, 1),
+      updatedAt: DateTime(2026, 9, 1),
+    );
+
+    /// A plain symmetric wrapper: with an empty selection the applier
+    /// resolves it to [text] alone, so it is the simplest non-header
+    /// shortcut there is.
+    CustomMarkdownShortcut wrapper(String text) => CustomMarkdownShortcut(
+      id: 'test-wrap',
+      label: 'test',
+      iconCodePoint: 0xe000,
+      iconFontFamily: 'MaterialIcons',
+      beforeText: text,
+      afterText: text,
+    );
+
+    /// Fires the toolbar's own callback, the way B5 drives the font
+    /// buttons — the bar's shortcut row is behind a horizontal scroll
+    /// view whose layout is not what these cases are about.
+    void press(WidgetTester tester, CustomMarkdownShortcut shortcut) {
+      tester
+          .widget<MarkdownBar>(find.byType(MarkdownBar, skipOffstage: false))
+          .onShortcutPressed(shortcut);
+    }
+
+    Future<CodeLineEditingController> loadListNote(WidgetTester tester) async {
+      await pumpPage(tester);
+      noteBloc.emitContentLoaded(listMetadata, listContent);
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      return editorOf(tester).controller;
+    }
+
+    testWidgets('the insert is one undo step, not merged into the typing', (
+      tester,
+    ) async {
+      final controller = await loadListNote(tester);
+
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 'first line'.length,
+      );
+      controller.replaceSelection(' typed');
+      await tester.pump();
+      expect(controller.codeLines[0].text, 'first line typed');
+
+      press(tester, wrapper('**'));
+      await settle(tester, rounds: 3);
+      expect(controller.codeLines[0].text, 'first line typed**');
+
+      controller.undo();
+      await tester.pump();
+
+      expect(
+        controller.codeLines[0].text,
+        'first line typed',
+        reason: 'one undo reverts the shortcut, not the burst before it',
+      );
+      await teardownPage(tester);
+    });
+
+    testWidgets('the edit tracker never sees the insert as a typed Enter', (
+      tester,
+    ) async {
+      final controller = await loadListNote(tester);
+
+      // A one-newline insert at the end of a list line is exactly the
+      // shape the tracker's Enter branch continues a list on: growth of
+      // one, caret parked at column 0 of the new line, a list item above
+      // it. Only the tracker's guard tells the two apart — and while the
+      // insert landed in a microtask after the guard had been lowered, it
+      // did not.
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 1,
+        offset: '- squat 5x5'.length,
+      );
+      await tester.pump();
+
+      press(tester, wrapper('\n'));
+      await settle(tester, rounds: 3);
+
+      expect(controller.codeLines.length, 4);
+      expect(controller.codeLines[1].text, '- squat 5x5');
+      expect(
+        controller.codeLines[2].text,
+        '',
+        reason: 'a shortcut insert is not an Enter: no list marker follows',
+      );
+      expect(controller.codeLines[3].text, 'third line');
+      await teardownPage(tester);
+    });
+
+    testWidgets('the header shortcut cycles the caret line', (tester) async {
+      final controller = await loadListNote(tester);
+
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 0,
+      );
+      await tester.pump();
+
+      press(
+        tester,
+        const CustomMarkdownShortcut(
+          id: 'test-header',
+          label: 'header',
+          iconCodePoint: 0xe000,
+          iconFontFamily: 'MaterialIcons',
+          beforeText: '# ',
+          afterText: '',
+          insertType: 'header',
+        ),
+      );
+      await settle(tester, rounds: 3);
+
+      expect(controller.codeLines[0].text, '# first line');
+      expect(controller.codeLines[1].text, '- squat 5x5');
       await teardownPage(tester);
     });
   });

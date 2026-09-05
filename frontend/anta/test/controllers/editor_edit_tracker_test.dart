@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:re_editor/re_editor.dart';
 
 import 'package:anta/controllers/editor_edit_tracker.dart';
+import 'package:anta/utils/editor_input_policy.dart';
 import 'package:anta/utils/editor_width_calculator.dart';
 
 /// The tracker is the only thing standing between a controller
@@ -598,6 +599,140 @@ void main() {
 
       expect(h.lines, ['head aaaa bbbb cccc dddd', 'tail']);
       expect(h.reformatted, isEmpty);
+
+      h.dispose();
+    });
+  });
+
+  group('growth that is not an Enter', () {
+    // Every case here parks the caret exactly where an Enter below the
+    // item above would have parked it, on a line that starts with that
+    // item's indentation — the shape the continuation used to key on. The
+    // growth is what tells them apart: an Enter adds one line break plus
+    // the copied indentation, nothing else.
+
+    test('a Tab indent at column 0 below a nested item grows no marker', () {
+      final h = _Harness('  - alpha\n- beta');
+      h.editor.selection = const CodeLineSelection.collapsed(
+        index: 1,
+        offset: 0,
+      );
+      final lines = h.editor.codeLines;
+      final indent = EditorInputPolicy.listIndent(
+        lineText: lines[1].text,
+        outdent: false,
+      )!;
+      // Exactly what the wrapper's Tab override writes, and it holds no
+      // tracker to guard with.
+      h.editor.runRevocableOp(() {
+        h.editor.value = CodeLineEditingValue(
+          codeLines: lines.replaceLine(1, lines[1].copyWith(text: indent.text)),
+          selection: CodeLineSelection.collapsed(
+            index: 1,
+            offset: indent.delta,
+          ),
+        );
+      });
+      h.tracker.onTextChanged();
+
+      expect(h.lines, ['  - alpha', '  - beta']);
+      expect(h.editor.selection.baseOffset, 2);
+
+      h.dispose();
+    });
+
+    test('a second space typed on a blank line below a nested item', () {
+      final h = _Harness('  - alpha\n');
+      h.insertAt(1, 0, ' ');
+      h.insertAt(1, 1, ' ');
+
+      expect(h.lines, ['  - alpha', '  ']);
+
+      h.dispose();
+    });
+
+    test('a space typed at the indent column of an indented line', () {
+      final h = _Harness('  - alpha\n x');
+      h.insertAt(1, 1, ' ');
+
+      expect(h.lines, ['  - alpha', '  x']);
+
+      h.dispose();
+    });
+
+    test('a short paste ending in a line break continues nothing', () {
+      final h = _Harness('- alpha');
+      // Below the paste threshold, so the tracker sees typing-sized
+      // growth — and the list-aware paste transform deliberately leaves
+      // a trailing blank line alone, because a blank line ends a list.
+      h.insertAt(0, 7, 'abc\n');
+
+      expect(h.lines, ['- alphaabc', '']);
+
+      h.dispose();
+    });
+  });
+
+  group('undo and redo', () {
+    // These drive the tracker through a real controller listener, the way
+    // the page does: the restore flag is only up while `undo`/`redo` is
+    // executing, so a listener called after the fact would never see it.
+
+    test('restoring a deleted over-long line is never reflowed', () {
+      final h = _Harness('${'a' * 15} ${'b' * 15}\ntail');
+      h.editor.addListener(h.tracker.onTextChanged);
+      h.editor.selection = const CodeLineSelection(
+        baseIndex: 0,
+        baseOffset: 0,
+        extentIndex: 0,
+        extentOffset: 31,
+      );
+      h.editor.replaceSelection('');
+      expect(h.lines, ['', 'tail']);
+
+      h.editor.undo();
+
+      expect(h.lines, ['${'a' * 15} ${'b' * 15}', 'tail']);
+      expect(h.reformatted, isEmpty);
+      expect(h.editor.canRedo, isTrue);
+
+      h.dispose();
+    });
+
+    test('redoing an over-long paste is not the paste again', () {
+      // Pasted with auto-break off, so the line stays long; turning it on
+      // before the redo is what would expose a redo misread as a paste.
+      final h = _Harness('head', autoBreak: false);
+      h.editor.addListener(h.tracker.onTextChanged);
+      h.editor.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 4,
+      );
+      h.editor.replaceSelection(' aaaa bbbb cccc dddd eeee');
+      expect(h.lines, ['head aaaa bbbb cccc dddd eeee']);
+      h.autoBreak = true;
+
+      h.editor.undo();
+      expect(h.lines, ['head']);
+      h.editor.redo();
+
+      expect(h.lines, ['head aaaa bbbb cccc dddd eeee']);
+      expect(h.reformatted, isEmpty);
+
+      h.dispose();
+    });
+
+    test('the restore flag is down again once undo has returned', () {
+      final h = _Harness('head');
+      h.insertAt(0, 4, '!');
+      bool seenDuringUndo = false;
+      void probe() => seenDuringUndo = h.editor.isRestoringHistory;
+      h.editor.addListener(probe);
+      h.editor.undo();
+      h.editor.removeListener(probe);
+
+      expect(seenDuringUndo, isTrue);
+      expect(h.editor.isRestoringHistory, isFalse);
 
       h.dispose();
     });

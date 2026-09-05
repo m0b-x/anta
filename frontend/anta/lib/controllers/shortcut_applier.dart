@@ -2,6 +2,7 @@ import 'package:intl/intl.dart';
 import 'package:re_editor/re_editor.dart';
 
 import '../models/custom_markdown_shortcut.dart';
+import '../utils/markdown_line_shape.dart';
 
 /// Async callback that mutates a counter (increment or decrement) and
 /// returns the post-mutation value, or `null` when the counter doesn't
@@ -30,15 +31,23 @@ final RegExp _counterTokenPattern = RegExp(r'\{c(\d+)\}');
 class ShortcutApplier {
   ShortcutApplier._();
 
-  static Future<void> apply({
+  /// Resolves [shortcut] to the text it inserts, mutating counters along
+  /// the way but leaving the document untouched — so the caller can run
+  /// the insert itself, synchronously, under whatever guards it needs.
+  ///
+  /// Returns `null` for the `header` insert type, which is not an insert
+  /// at all but a rewrite of the caret's line: run [applyHeader] instead.
+  ///
+  /// Splitting the await off the write is what lets the note editor keep
+  /// a shortcut inside one undo entry and one edit-tracker guard: every
+  /// `await` here would otherwise land the insert in a microtask, long
+  /// after those wrappers returned.
+  static Future<String?> resolve({
     required CodeLineEditingController controller,
     required CustomMarkdownShortcut shortcut,
     required CounterMutator mutateCounter,
   }) async {
-    if (shortcut.insertType == 'header') {
-      _applyHeader(controller);
-      return;
-    }
+    if (shortcut.insertType == 'header') return null;
 
     final selectedText = controller.selectedText;
     final repeatCount = shortcut.repeatConfig?.count ?? 1;
@@ -114,7 +123,26 @@ class ShortcutApplier {
       wrapped = '$expandedBeforeRepeat$wrapped$expandedAfterRepeat';
     }
 
-    controller.replaceSelection(wrapped);
+    return wrapped;
+  }
+
+  /// Resolves [shortcut] and applies it to [controller] in one call, for
+  /// callers with no guards of their own to raise around the write.
+  static Future<void> apply({
+    required CodeLineEditingController controller,
+    required CustomMarkdownShortcut shortcut,
+    required CounterMutator mutateCounter,
+  }) async {
+    final text = await resolve(
+      controller: controller,
+      shortcut: shortcut,
+      mutateCounter: mutateCounter,
+    );
+    if (text == null) {
+      applyHeader(controller);
+      return;
+    }
+    controller.replaceSelection(text);
   }
 
   // ---------------------------------------------------------------------------
@@ -222,23 +250,29 @@ class ShortcutApplier {
     );
   }
 
-  static void _applyHeader(CodeLineEditingController controller) {
-    final selection = controller.selection;
-    final lineIndex = selection.startIndex;
-    final line = controller.codeLines[lineIndex];
-    final lineText = line.text;
+  /// Cycles the caret line's heading level: plain text becomes `# `, each
+  /// further application adds one `#`, and level 6 drops back to the bare
+  /// content.
+  ///
+  /// The level comes from [MarkdownLineShape.headingAt], the app's single
+  /// heading predicate, so the toolbar agrees with what both rendering
+  /// surfaces call a heading. One consequence worth knowing: a bare `###`
+  /// with no trailing space *is* a level-3 heading with empty content, so
+  /// cycling it yields `#### `.
+  static void applyHeader(CodeLineEditingController controller) {
+    final lineIndex = controller.selection.startIndex;
+    final lineText = controller.codeLines[lineIndex].text;
 
-    final headerMatch = RegExp(r'^(#{1,6})\s').firstMatch(lineText);
-    String newLineText;
-
-    if (headerMatch != null) {
-      final currentHashes = headerMatch.group(1)!;
-      final textWithoutHeader = lineText.substring(headerMatch.end);
-      newLineText = currentHashes.length >= 6
-          ? textWithoutHeader
-          : '$currentHashes# $textWithoutHeader';
-    } else {
+    final heading = MarkdownLineShape.headingAt(lineText);
+    final String newLineText;
+    if (heading == null) {
       newLineText = '# $lineText';
+    } else {
+      final indent = lineText.substring(0, heading.hashStart);
+      final content = lineText.substring(heading.contentStart);
+      newLineText = heading.level >= 6
+          ? '$indent$content'
+          : '$indent${'#' * (heading.level + 1)} $content';
     }
 
     controller.selectLine(lineIndex);

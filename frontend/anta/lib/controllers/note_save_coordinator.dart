@@ -75,6 +75,10 @@ class NoteSaveCoordinator {
   String? _effectiveNoteId;
   bool _isCreatingNewNote = false;
 
+  /// The fire-and-forget early create currently running, so a pop that
+  /// arrives mid-flight can wait for it instead of being dropped.
+  Future<void>? _pendingCreate;
+
   /// One-shot guard so auto-save does not raise the duplicate-title
   /// warning on every keystroke after a collision. Cleared the moment the
   /// user picks a title that does not collide.
@@ -156,7 +160,7 @@ class NoteSaveCoordinator {
     if (_effectiveNoteId != null) {
       unawaited(forceSave());
     } else {
-      unawaited(_createNewNoteEarly());
+      _startCreateNewNoteEarly();
     }
   }
 
@@ -169,7 +173,13 @@ class NoteSaveCoordinator {
       await forceSave();
       return;
     }
-    if (_isCreatingNewNote) return;
+    if (_isCreatingNewNote) {
+      // A create is already running, possibly still inside its title
+      // lookup. The caller is holding the pop, so wait for it rather than
+      // returning and letting `dispose` drop the dispatch.
+      await _pendingCreate;
+      return;
+    }
     final title = _title().trim();
     final content = _content().trim();
     if (title.isEmpty && content.isEmpty) return;
@@ -234,8 +244,16 @@ class NoteSaveCoordinator {
   void _maybeCreateNewNoteEarly() {
     if (_effectiveNoteId != null || _isCreatingNewNote) return;
     if (_title().trim().isNotEmpty || _content().trim().isNotEmpty) {
-      unawaited(_createNewNoteEarly());
+      _startCreateNewNoteEarly();
     }
+  }
+
+  /// Fires an early create without waiting for it, remembering the future
+  /// so [saveBeforeExit] can join a create that is still resolving.
+  void _startCreateNewNoteEarly() {
+    final pending = _createNewNoteEarly();
+    _pendingCreate = pending;
+    unawaited(pending);
   }
 
   /// Creates the note and switches the coordinator to update mode.
@@ -250,6 +268,13 @@ class NoteSaveCoordinator {
     final content = _content().trim();
     if (title.isEmpty && content.isEmpty) return;
 
+    // Raised before the title lookup, not after it: every keystroke while
+    // that round trip is in flight re-enters this method, and a flag set
+    // afterwards would let each of them dispatch its own create — one
+    // editor, several notes. The disposed early-returns below leave it
+    // raised on purpose; the coordinator is dead and nothing reads it.
+    _isCreatingNewNote = true;
+
     var titleToCreate = title;
     if (title.isNotEmpty) {
       final exists = await _titleExists(title: title);
@@ -261,7 +286,6 @@ class NoteSaveCoordinator {
       }
     }
 
-    _isCreatingNewNote = true;
     if (_disposed) return;
     _dispatch(
       CreateOptimizedNote(

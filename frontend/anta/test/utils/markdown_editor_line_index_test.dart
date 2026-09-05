@@ -7,8 +7,7 @@ import 'package:re_editor/re_editor.dart';
 import 'package:anta/utils/markdown_editor_line_index.dart';
 import 'package:anta/utils/markdown_editor_span_builder.dart'
     show MarkdownEditorSpanBuilder;
-import 'package:anta/utils/markdown_money_syntax.dart'
-    show MarkdownMoneySyntax;
+import 'package:anta/utils/markdown_money_syntax.dart' show MarkdownMoneySyntax;
 
 /// Equivalence suite for [MarkdownEditorLineIndex]'s incremental passes.
 ///
@@ -40,8 +39,11 @@ void main() {
         for (int i = 0; i < codeLines.length; i++)
           if (index.taskIndeterminate(codeLines, i)) i,
       ];
-      expect(indeterminate, isNotEmpty,
-          reason: 'the corpus must exercise taskIndeterminate');
+      expect(
+        indeterminate,
+        isNotEmpty,
+        reason: 'the corpus must exercise taskIndeterminate',
+      );
       final interior = <int>[
         for (int i = 0; i < codeLines.length; i++)
           if (index.fenceRoleAt(codeLines, i) == MarkdownFenceRole.interior) i,
@@ -85,9 +87,7 @@ void main() {
     });
 
     test('every line of a fence-free document has role none', () {
-      final lines = [
-        for (int i = 0; i < 300; i++) '- set $i x 5',
-      ];
+      final lines = [for (int i = 0; i < 300; i++) '- set $i x 5'];
       final CodeLines codeLines = codeLinesOf(lines);
       final index = newIndex(money: true);
       for (int i = 0; i < codeLines.length; i++) {
@@ -115,8 +115,12 @@ void main() {
           );
           addTearDown(controller.dispose);
           final index = newIndex(money: money);
-          expectMatchesFresh(index, controller.codeLines,
-              money: money, reason: 'initial');
+          expectMatchesFresh(
+            index,
+            controller.codeLines,
+            money: money,
+            reason: 'initial',
+          );
 
           final rng = Random(20260903);
           for (final int target in _boundaryTargets) {
@@ -163,8 +167,12 @@ void main() {
         final index = newIndex(money: money);
         for (int i = 0; i < 30; i++) {
           _replaceLine(controller, 300, '- rep $i x ${i + 1}');
-          expectMatchesFresh(index, controller.codeLines,
-              money: money, reason: 'in-segment edit $i');
+          expectMatchesFresh(
+            index,
+            controller.codeLines,
+            money: money,
+            reason: 'in-segment edit $i',
+          );
         }
       });
 
@@ -174,32 +182,51 @@ void main() {
         );
         addTearDown(controller.dispose);
         final index = newIndex(money: money);
-        expectMatchesFresh(index, controller.codeLines,
-            money: money, reason: 'initial');
+        expectMatchesFresh(
+          index,
+          controller.codeLines,
+          money: money,
+          reason: 'initial',
+        );
 
         // A lone opening fence at 256 leaves the rest of the document
         // inside a fence: every task/money line below it goes inert.
         _replaceLine(controller, 256, '```');
-        expectMatchesFresh(index, controller.codeLines,
-            money: money, reason: 'fence opened at 256');
+        expectMatchesFresh(
+          index,
+          controller.codeLines,
+          money: money,
+          reason: 'fence opened at 256',
+        );
         expect(
           index.fenceRoleAt(controller.codeLines, 256),
           MarkdownFenceRole.delimiter,
         );
         expect(
-          index.fenceRoleAt(controller.codeLines, controller.codeLines.length - 1),
+          index.fenceRoleAt(
+            controller.codeLines,
+            controller.codeLines.length - 1,
+          ),
           MarkdownFenceRole.interior,
         );
 
         // Closing it again restores every role below.
         _replaceLine(controller, 600, '```');
-        expectMatchesFresh(index, controller.codeLines,
-            money: money, reason: 'fence closed at 600');
+        expectMatchesFresh(
+          index,
+          controller.codeLines,
+          money: money,
+          reason: 'fence closed at 600',
+        );
 
         // And removing the opener re-flips the whole span once more.
         _replaceLine(controller, 256, '- back to a plain bullet');
-        expectMatchesFresh(index, controller.codeLines,
-            money: money, reason: 'opener removed');
+        expectMatchesFresh(
+          index,
+          controller.codeLines,
+          money: money,
+          reason: 'opener removed',
+        );
       });
 
       test('a task subtree toggled below its parent updates the parent', () {
@@ -215,26 +242,39 @@ void main() {
           '',
           for (int i = 0; i < 300; i++) 'tail $i',
         ];
-        final controller =
-            CodeLineEditingController(codeLines: codeLinesOf(lines));
+        final controller = CodeLineEditingController(
+          codeLines: codeLinesOf(lines),
+        );
         addTearDown(controller.dispose);
         final index = newIndex(money: money);
         expect(index.taskIndeterminate(controller.codeLines, 300), isTrue);
 
         _replaceLine(controller, 301, '  - [ ] a');
-        expectMatchesFresh(index, controller.codeLines,
-            money: money, reason: 'all children unchecked');
+        expectMatchesFresh(
+          index,
+          controller.codeLines,
+          money: money,
+          reason: 'all children unchecked',
+        );
         expect(index.taskIndeterminate(controller.codeLines, 300), isFalse);
 
         _replaceLine(controller, 302, '  - [x] b');
-        expectMatchesFresh(index, controller.codeLines,
-            money: money, reason: 'one child checked again');
+        expectMatchesFresh(
+          index,
+          controller.codeLines,
+          money: money,
+          reason: 'one child checked again',
+        );
         expect(index.taskIndeterminate(controller.codeLines, 300), isTrue);
 
         _replaceLine(controller, 301, '  - [x] a');
         _replaceLine(controller, 303, '  - [x] c');
-        expectMatchesFresh(index, controller.codeLines,
-            money: money, reason: 'all children checked');
+        expectMatchesFresh(
+          index,
+          controller.codeLines,
+          money: money,
+          reason: 'all children checked',
+        );
         expect(index.taskIndeterminate(controller.codeLines, 300), isFalse);
       });
     });
@@ -249,8 +289,9 @@ void main() {
           if (i % 37 == 0) r'$$',
         ],
       ];
-      final controller =
-          CodeLineEditingController(codeLines: codeLinesOf(lines));
+      final controller = CodeLineEditingController(
+        codeLines: codeLinesOf(lines),
+      );
       addTearDown(controller.dispose);
       final index = newIndex(money: true);
       final int last = _lastMoneyLine(index, controller.codeLines);
@@ -258,8 +299,12 @@ void main() {
       final int? before = index.moneyValueAt(controller.codeLines, last);
 
       _replaceLine(controller, 0, r'$= 2000');
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'set row changed at line 0');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'set row changed at line 0',
+      );
       final int? after = index.moneyValueAt(controller.codeLines, last);
       expect(after, isNotNull);
       expect(after, isNot(before));
@@ -269,31 +314,47 @@ void main() {
       final lines = <String>[
         r'$= 500',
         r'$! 300',
-        for (int i = 0; i < 600; i++)
-          i % 4 == 0 ? r'$- 1' : 'line $i',
+        for (int i = 0; i < 600; i++) i % 4 == 0 ? r'$- 1' : 'line $i',
         r'$!',
         r'$?',
         r'$^ 3',
         r'$~ 2',
       ];
-      final controller =
-          CodeLineEditingController(codeLines: codeLinesOf(lines));
+      final controller = CodeLineEditingController(
+        codeLines: codeLinesOf(lines),
+      );
       addTearDown(controller.dispose);
       final index = newIndex(money: true);
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'initial');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'initial',
+      );
 
       _replaceLine(controller, 1, r'$! 900');
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'target raised');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'target raised',
+      );
 
       _replaceLine(controller, 1, 'no target here any more');
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'target removed');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'target removed',
+      );
 
       _replaceLine(controller, 300, r'$= 42');
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'checkpoint inserted mid-document');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'checkpoint inserted mid-document',
+      );
     });
 
     test('configureMoney toggled mid-stream rebuilds correctly', () {
@@ -303,13 +364,21 @@ void main() {
       addTearDown(controller.dispose);
       final index = MarkdownEditorLineIndex(maxScannedLineLength: 4096)
         ..configureMoney(enabled: true, startCents: 0);
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'money on');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'money on',
+      );
 
       _replaceLine(controller, 257, r'$+ 77.77 side job');
       index.configureMoney(enabled: false, startCents: 0);
-      expectMatchesFresh(index, controller.codeLines,
-          money: false, reason: 'money turned off after an edit');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: false,
+        reason: 'money turned off after an edit',
+      );
 
       _replaceLine(controller, 258, r'$- 5 bus');
       index.configureMoney(enabled: true, startCents: 12345);
@@ -319,6 +388,91 @@ void main() {
         money: true,
         startCents: 12345,
         reason: 'money turned back on with a new start balance',
+      );
+    });
+
+    test(r'a $= typed above a $~ row re-folds its checkpoint window', () {
+      // `$~ N` reads back through the anchor history, so a checkpoint
+      // appearing above one changes its value without changing anything
+      // about the row itself. Enter first (a delta of +1 that renumbers
+      // every stored money line below), then the op typed on the new line.
+      final List<String> source = buildTrainingLog(minLines: 1500);
+      final int span = source.indexOf(r'$~ 2', 600);
+      expect(span, greaterThan(0));
+      expect(source[span - 1], r'$^ 2');
+      final controller = CodeLineEditingController(
+        codeLines: codeLinesOf(source),
+      );
+      addTearDown(controller.dispose);
+      final index = newIndex(money: true);
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'initial',
+      );
+
+      controller.selection = CodeLineSelection.collapsed(
+        index: span - 1,
+        offset: controller.codeLines[span - 1].length,
+      );
+      controller.applyNewLine();
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'a blank line opened above the span row',
+      );
+
+      _replaceLine(controller, span, r'$= 4200');
+      final scan = _scanOf(index, controller.codeLines);
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'a checkpoint typed above the span row',
+      );
+      expect(scan.rebuilt, isFalse);
+    });
+
+    test('a start-balance change while money is off keeps the built index', () {
+      // The disabled money pass never reads the start balance, so
+      // recording a new one must not throw away the fence and task
+      // results. Handed the very same `CodeLines` instance the index does
+      // nothing at all, which makes `debugLastScan` the exact probe: it
+      // still describes the edit before the settings change.
+      final controller = CodeLineEditingController(
+        codeLines: codeLinesOf(buildTrainingLog()),
+      );
+      addTearDown(controller.dispose);
+      final index = newIndex(money: false);
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: false,
+        reason: 'initial',
+      );
+
+      _replaceLine(controller, 257, '- edited while money is off');
+      final scan = _scanOf(index, controller.codeLines);
+      expect(scan.rebuilt, isFalse);
+
+      index.configureMoney(enabled: false, startCents: 5);
+      expect(
+        _scanOf(index, controller.codeLines),
+        scan,
+        reason:
+            'a start balance the disabled pass never reads must not '
+            'invalidate the fence and task results',
+      );
+
+      index.configureMoney(enabled: true, startCents: 5);
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        startCents: 5,
+        reason: 'the recorded start balance seeds the enabled pass',
       );
     });
   });
@@ -351,8 +505,12 @@ void main() {
         }
       }
 
-      expectMatchesFresh(windowed, controller.codeLines,
-          money: true, reason: 'after window-only querying');
+      expectMatchesFresh(
+        windowed,
+        controller.codeLines,
+        money: true,
+        reason: 'after window-only querying',
+      );
     });
   });
 
@@ -371,26 +529,34 @@ void main() {
       addTearDown(controller.dispose);
       expect(controller.codeLines.segments.length, greaterThanOrEqualTo(12));
       final index = newIndex(money: true);
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'initial');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'initial',
+      );
       expect(controller.codeLines[2].text, 'Bodyweight 78.4 kg.');
 
       _replaceLine(controller, 2, 'Bodyweight 79.1 kg.');
       final scan = _scanOf(index, controller.codeLines);
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'paragraph edited in segment 0');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'paragraph edited in segment 0',
+      );
       expect(scan.rebuilt, isFalse);
       expect(scan.fence, lessThanOrEqualTo(2));
       expect(scan.tasks, lessThanOrEqualTo(2));
       expect(scan.money, lessThanOrEqualTo(2));
     });
 
-    test('toggling a task child inside segment 1 shifts counts, not scans',
-        () {
+    test('toggling a task child inside segment 1 shifts counts, not scans', () {
       final List<String> lines = buildTrainingLog(minLines: 3000);
       final int parent = _findMixedTaskParent(lines, 256, 511);
-      final controller =
-          CodeLineEditingController(codeLines: codeLinesOf(lines));
+      final controller = CodeLineEditingController(
+        codeLines: codeLinesOf(lines),
+      );
       addTearDown(controller.dispose);
       final index = newIndex(money: true);
       expect(index.taskIndeterminate(controller.codeLines, parent), isTrue);
@@ -400,8 +566,12 @@ void main() {
       // unchanged frame stack at the segment-2 seam.
       _replaceLine(controller, parent + 2, '  - [x] main lift');
       final scan = _scanOf(index, controller.codeLines);
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'child checked in segment 1');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'child checked in segment 1',
+      );
       expect(index.taskIndeterminate(controller.codeLines, parent), isFalse);
       expect(scan.rebuilt, isFalse);
       expect(scan.tasks, lessThanOrEqualTo(2));
@@ -410,8 +580,12 @@ void main() {
       // applied above was wrong, this rescan resumes from a bogus offset.
       final int bottom = controller.codeLines.length - 20;
       _replaceLine(controller, bottom, '- [ ] tail task');
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'then an edit in the last segment');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'then an edit in the last segment',
+      );
     });
 
     test('a task subtree straddling a segment boundary stays equivalent', () {
@@ -425,8 +599,9 @@ void main() {
         for (int i = 0; i < 600; i++) 'tail $i',
       ];
       expect(lines[254], '- [ ] parent');
-      final controller =
-          CodeLineEditingController(codeLines: codeLinesOf(lines));
+      final controller = CodeLineEditingController(
+        codeLines: codeLinesOf(lines),
+      );
       addTearDown(controller.dispose);
       final index = newIndex(money: true);
       expect(index.taskIndeterminate(controller.codeLines, 254), isTrue);
@@ -436,14 +611,22 @@ void main() {
       // line in the *previous* segment.
       _replaceLine(controller, 257, '  - [x] c');
       final scan = _scanOf(index, controller.codeLines);
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'child checked across the boundary');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'child checked across the boundary',
+      );
       expect(scan.rebuilt, isFalse);
       expect(scan.tasks, lessThanOrEqualTo(3));
 
       _replaceLine(controller, 256, '  - [x] b');
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'all children checked');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'all children checked',
+      );
       expect(index.taskIndeterminate(controller.codeLines, 254), isFalse);
     });
 
@@ -462,8 +645,9 @@ void main() {
         for (int i = 0; i < 400; i++) 'tail $i',
       ];
       expect(lines[512], r'$^ 1');
-      final controller =
-          CodeLineEditingController(codeLines: codeLinesOf(lines));
+      final controller = CodeLineEditingController(
+        codeLines: codeLinesOf(lines),
+      );
       addTearDown(controller.dispose);
       final index = newIndex(money: true);
       expect(index.moneyValueAt(controller.codeLines, 512), 5000);
@@ -477,8 +661,12 @@ void main() {
       controller.replaceSelection('\$- 50\n\$+ 200');
       expect(controller.codeLines.length, lines.length);
       final scan = _scanOf(index, controller.codeLines);
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'two ops rewritten, same seam balance');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'two ops rewritten, same seam balance',
+      );
       expect(index.moneyValueAt(controller.codeLines, 512), 20000);
       expect(scan.rebuilt, isFalse);
       expect(scan.money, controller.codeLines.segments.length);
@@ -496,17 +684,73 @@ void main() {
         for (int i = 0; i < 400; i++) 'tail $i',
       ];
       expect(lines[512], r'$~ 2');
-      final controller =
-          CodeLineEditingController(codeLines: codeLinesOf(lines));
+      final controller = CodeLineEditingController(
+        codeLines: codeLinesOf(lines),
+      );
       addTearDown(controller.dispose);
       final index = newIndex(money: true);
       expect(index.moneyValueAt(controller.codeLines, 512), 10000);
 
       _replaceLine(controller, 0, r'$= 150');
       final scan = _scanOf(index, controller.codeLines);
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'first checkpoint rewritten');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'first checkpoint rewritten',
+      );
       expect(index.moneyValueAt(controller.codeLines, 512), 5000);
+      expect(scan.rebuilt, isFalse);
+      expect(scan.money, controller.codeLines.segments.length);
+    });
+
+    test('a seam where only the anchor slice differs still re-folds', () {
+      // The sharpest form of the checkpoint trap, and the only case the
+      // anchor comparison loop in the money seam proof catches on its
+      // own: across the rewritten rows the balance, period start, target
+      // scalars, both history *lengths* and the entry history *element
+      // for element* are all unchanged. `$= 50 / $+ 50 / $= 100` and
+      // `$+ 50 / $= 100 / $= 100` both leave the entry history
+      // [0, 5000, 10000, 10000] with period start 3 and balance 10000 —
+      // only the anchors move, [0, 5000, 10000] to [0, 10000, 10000], so
+      // the `$~ 2` row measuring back to the middle checkpoint drops from
+      // 50.00 to 0.
+      final lines = <String>[
+        r'$= 50',
+        r'$+ 50',
+        r'$= 100',
+        for (int i = 0; i < 509; i++) 'filler $i',
+        r'$~ 2',
+        for (int i = 0; i < 400; i++) 'tail $i',
+      ];
+      expect(lines[512], r'$~ 2');
+      final controller = CodeLineEditingController(
+        codeLines: codeLinesOf(lines),
+      );
+      addTearDown(controller.dispose);
+      final index = newIndex(money: true);
+      expect(
+        index.moneyValueAt(controller.codeLines, 512),
+        5000,
+        reason: r'the fixture must start with the $~ 2 row at 50.00',
+      );
+
+      controller.selection = CodeLineSelection(
+        baseIndex: 0,
+        baseOffset: 0,
+        extentIndex: 2,
+        extentOffset: controller.codeLines[2].length,
+      );
+      controller.replaceSelection('\$+ 50\n\$= 100\n\$= 100');
+      expect(controller.codeLines.length, lines.length);
+      final scan = _scanOf(index, controller.codeLines);
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'three rows rewritten, only the anchors move',
+      );
+      expect(index.moneyValueAt(controller.codeLines, 512), 0);
       expect(scan.rebuilt, isFalse);
       expect(scan.money, controller.codeLines.segments.length);
     });
@@ -521,8 +765,9 @@ void main() {
         for (int i = 0; i < 400; i++) 'tail $i',
       ];
       expect(lines[512], r'$$ still going');
-      final controller =
-          CodeLineEditingController(codeLines: codeLinesOf(lines));
+      final controller = CodeLineEditingController(
+        codeLines: codeLinesOf(lines),
+      );
       addTearDown(controller.dispose);
       final index = newIndex(money: true);
       expect(index.moneyValueAt(controller.codeLines, 512), 105000);
@@ -530,15 +775,23 @@ void main() {
 
       _replaceLine(controller, 1, r'$+ 75 bonus');
       final opScan = _scanOf(index, controller.codeLines);
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'op amount changed at the top');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'op amount changed at the top',
+      );
       expect(index.moneyValueAt(controller.codeLines, 512), 107500);
       expect(opScan.money, segments);
 
       _replaceLine(controller, 2, r'$$ running total so far');
       final labelScan = _scanOf(index, controller.codeLines);
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'display row label changed');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'display row label changed',
+      );
       expect(labelScan.rebuilt, isFalse);
       expect(labelScan.money, lessThanOrEqualTo(2));
       expect(labelScan.tasks, lessThanOrEqualTo(2));
@@ -561,8 +814,12 @@ void main() {
     test('Enter in the middle of segment 5 splices, never rebuilds', () {
       final controller = freshController();
       final index = newIndex(money: true);
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'initial');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'initial',
+      );
 
       const int target = 5 * 256 + 100;
       final String text = controller.codeLines[target].text;
@@ -573,8 +830,12 @@ void main() {
       controller.applyNewLine();
 
       final scan = _scanOf(index, controller.codeLines);
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'Enter inside segment 5');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'Enter inside segment 5',
+      );
       expect(scan.rebuilt, isFalse);
       expect(scan.fence, lessThanOrEqualTo(3));
       expect(scan.tasks, lessThanOrEqualTo(3));
@@ -584,17 +845,27 @@ void main() {
     test('deleting a line in segment 5 splices, never rebuilds', () {
       final controller = freshController();
       final index = newIndex(money: true);
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'initial');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'initial',
+      );
 
       const int target = 5 * 256 + 100;
-      controller.selection =
-          CodeLineSelection.collapsed(index: target, offset: 0);
+      controller.selection = CodeLineSelection.collapsed(
+        index: target,
+        offset: 0,
+      );
       controller.deleteSelectionLines();
 
       final scan = _scanOf(index, controller.codeLines);
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'line deleted in segment 5');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'line deleted in segment 5',
+      );
       expect(scan.rebuilt, isFalse);
       expect(scan.fence, lessThanOrEqualTo(3));
       expect(scan.tasks, lessThanOrEqualTo(3));
@@ -604,8 +875,12 @@ void main() {
     test('Enter at the very last line appends without rebuilding', () {
       final controller = freshController();
       final index = newIndex(money: true);
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'initial');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'initial',
+      );
 
       final int last = controller.codeLines.length - 1;
       controller.selection = CodeLineSelection.collapsed(
@@ -615,59 +890,97 @@ void main() {
       controller.applyNewLine();
 
       final scan = _scanOf(index, controller.codeLines);
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'Enter appended at EOF');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'Enter appended at EOF',
+      );
       expect(scan.rebuilt, isFalse);
     });
 
     test('Enter on line 0 and deleting line 0 stay equivalent', () {
       final controller = freshController();
       final index = newIndex(money: true);
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'initial');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'initial',
+      );
 
-      controller.selection =
-          const CodeLineSelection.collapsed(index: 0, offset: 0);
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 0,
+      );
       controller.applyNewLine();
       final enterScan = _scanOf(index, controller.codeLines);
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'Enter on line 0');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'Enter on line 0',
+      );
       expect(enterScan.rebuilt, isFalse);
 
-      controller.selection =
-          const CodeLineSelection.collapsed(index: 0, offset: 0);
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 0,
+      );
       controller.deleteSelectionLines();
       final deleteScan = _scanOf(index, controller.codeLines);
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'line 0 deleted');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'line 0 deleted',
+      );
       expect(deleteScan.rebuilt, isFalse);
     });
 
     test('undo after an Enter stays equivalent', () {
       final controller = freshController();
       final index = newIndex(money: true);
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'initial');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'initial',
+      );
 
       const int target = 5 * 256 + 100;
-      controller.selection =
-          CodeLineSelection.collapsed(index: target, offset: 3);
+      controller.selection = CodeLineSelection.collapsed(
+        index: target,
+        offset: 3,
+      );
       controller.applyNewLine();
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'Enter applied');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'Enter applied',
+      );
 
       controller.undo();
       final scan = _scanOf(index, controller.codeLines);
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'undone');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'undone',
+      );
       expect(scan.rebuilt, isFalse);
     });
 
     test('a multi-line paste across two segments stays equivalent', () {
       final controller = freshController();
       final index = newIndex(money: true);
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'initial');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'initial',
+      );
 
       controller.selection = CodeLineSelection(
         baseIndex: 250,
@@ -695,8 +1008,12 @@ void main() {
       // through `sublines` + `addFrom`, which share every untouched
       // segment's backing list.
       final scan = _scanOf(index, controller.codeLines);
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'multi-line paste across a boundary');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'multi-line paste across a boundary',
+      );
       expect(scan.rebuilt, isFalse);
     });
 
@@ -721,21 +1038,28 @@ void main() {
       ];
       expect(lines[1022], '- [ ] parent');
       expect(lines[1101], r'$$');
-      final controller =
-          CodeLineEditingController(codeLines: codeLinesOf(lines));
+      final controller = CodeLineEditingController(
+        codeLines: codeLinesOf(lines),
+      );
       addTearDown(controller.dispose);
       final index = newIndex(money: true);
       expect(index.taskIndeterminate(controller.codeLines, 1022), isTrue);
       expect(index.moneyValueAt(controller.codeLines, 1101), 52500);
 
       const int target = 2 * 256 + 100;
-      controller.selection =
-          CodeLineSelection.collapsed(index: target, offset: 3);
+      controller.selection = CodeLineSelection.collapsed(
+        index: target,
+        offset: 3,
+      );
       controller.applyNewLine();
 
       final scan = _scanOf(index, controller.codeLines);
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'Enter in segment 2 above the subtree');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'Enter in segment 2 above the subtree',
+      );
       expect(scan.rebuilt, isFalse);
       final fresh = newIndex(money: true);
       expect(
@@ -753,8 +1077,12 @@ void main() {
     test('deleting one whole segment leaves an empty new middle', () {
       final controller = freshController();
       final index = newIndex(money: true);
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'initial');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'initial',
+      );
       final int segmentsBefore = controller.codeLines.segments.length;
 
       controller.selection = const CodeLineSelection(
@@ -766,21 +1094,33 @@ void main() {
       controller.replaceSelection('');
 
       final scan = _scanOf(index, controller.codeLines);
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'segment 1 deleted whole');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'segment 1 deleted whole',
+      );
       expect(scan.rebuilt, isFalse);
       expect(controller.codeLines.segments.length, segmentsBefore - 1);
 
       _replaceLine(controller, 700, '- [ ] tail task');
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'then an edit below the splice');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'then an edit below the splice',
+      );
     });
 
     test('truncating the tail at a segment boundary (p == n < m)', () {
       final controller = freshController();
       final index = newIndex(money: true);
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'initial');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'initial',
+      );
 
       final int last = controller.codeLines.length - 1;
       controller.selection = CodeLineSelection(
@@ -792,13 +1132,21 @@ void main() {
       controller.replaceSelection('');
 
       final scan = _scanOf(index, controller.codeLines);
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'everything below 512 removed');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'everything below 512 removed',
+      );
       expect(scan.rebuilt, isFalse);
 
       _replaceLine(controller, 100, '- [x] still fine');
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'edit above the truncation');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'edit above the truncation',
+      );
     });
 
     test('the same backing list at two segment indexes', () {
@@ -811,20 +1159,318 @@ void main() {
 
       final CodeLines duplicated = CodeLines.from(base)..addFrom(base, 0, 256);
       final lists = [for (final s in duplicated.segments) s.codeLines];
-      expect(identical(lists.first, lists.last), isTrue,
-          reason: 'the fixture must actually alias one backing list');
-      expectMatchesFresh(index, duplicated,
-          money: true, reason: 'segment 0 appended a second time');
+      expect(
+        identical(lists.first, lists.last),
+        isTrue,
+        reason: 'the fixture must actually alias one backing list',
+      );
+      expectMatchesFresh(
+        index,
+        duplicated,
+        money: true,
+        reason: 'segment 0 appended a second time',
+      );
 
       final CodeLines front = CodeLines(<CodeLineSegment>[
         base.segments[0].cloneShallowDirty(),
         for (final CodeLineSegment s in base.segments) s.cloneShallowDirty(),
       ]);
-      expectMatchesFresh(index, front,
-          money: true, reason: 'segment 0 duplicated at the front');
+      expectMatchesFresh(
+        index,
+        front,
+        money: true,
+        reason: 'segment 0 duplicated at the front',
+      );
 
-      expectMatchesFresh(index, CodeLines.from(base),
-          money: true, reason: 'back to the base shape');
+      expectMatchesFresh(
+        index,
+        CodeLines.from(base),
+        money: true,
+        reason: 'back to the base shape',
+      );
+    });
+
+    test('a whole segment prepended leaves an empty old middle', () {
+      // Old `[A, B, …]` becomes new `[X, A, B, …]`: the prefix match ends
+      // at p = 0 and the suffix match covers every old segment, so the
+      // splice's old middle is empty and its `replaceRange` removes
+      // nothing. The captured entry state has to be detached from
+      // `_states` for that branch — the object it was captured from
+      // survives the splice at `p + newMiddleCount`, where the
+      // renumbering loop and all three passes write.
+      final CodeLines base = codeLinesOf(buildTrainingLog(minLines: 1500));
+      final index = newIndex(money: true);
+      expectMatchesFresh(index, base, money: true, reason: 'base');
+
+      final CodeLines front = CodeLines(<CodeLineSegment>[
+        CodeLineSegment.of(
+          codeLines: <CodeLine>[
+            CodeLine('- [ ] inserted parent'),
+            CodeLine('  - [x] child'),
+            CodeLine(r'$= 777'),
+          ],
+        ),
+        for (final CodeLineSegment s in base.segments) s.cloneShallowDirty(),
+      ]);
+      expect(front.length, base.length + 3);
+      expect(front.segments.length, base.segments.length + 1);
+
+      final scan = _scanOf(index, front);
+      expectMatchesFresh(
+        index,
+        front,
+        money: true,
+        reason: 'a fresh segment spliced in at the front',
+      );
+      expect(scan.rebuilt, isFalse);
+    });
+
+    test('a multi-line paste starting inside a fence stays equivalent', () {
+      // Half the pasted rows land above the closing fence the paste
+      // itself carries and stay inert; the rows below it are live, and
+      // the block's original closer becomes an opener that flips every
+      // role beneath it.
+      final List<String> source = buildTrainingLog(minLines: 3000);
+      final int body = source.indexWhere(
+        (l) => l.startsWith('final int reps = '),
+        600,
+      );
+      expect(body, greaterThan(0));
+      expect(source[body - 1], '```dart');
+      final controller = CodeLineEditingController(
+        codeLines: codeLinesOf(source),
+      );
+      addTearDown(controller.dispose);
+      final index = newIndex(money: true);
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'initial',
+      );
+      expect(
+        index.fenceRoleAt(controller.codeLines, body),
+        MarkdownFenceRole.interior,
+      );
+
+      controller.selection = CodeLineSelection.collapsed(
+        index: body,
+        offset: controller.codeLines[body].length,
+      );
+      controller.replaceSelection(
+        '\n'
+        '- [ ] inert parent\n'
+        '  - [x] inert a\n'
+        '  - [ ] inert b\n'
+        '\$= 4200 inert\n'
+        '```\n'
+        '- [ ] live parent\n'
+        '  - [x] live a\n'
+        '  - [ ] live b\n'
+        '\$+ 12.50 live',
+      );
+
+      final scan = _scanOf(index, controller.codeLines);
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'a paste landing inside a fence',
+      );
+      expect(scan.rebuilt, isFalse);
+    });
+
+    test('deleting a whole fence, then only a closer, stays equivalent', () {
+      final List<String> source = buildTrainingLog(minLines: 3000);
+      final int opener = source.indexOf('```dart', 600);
+      expect(opener, greaterThan(0));
+      expect(source[opener + 3], '```');
+      final controller = CodeLineEditingController(
+        codeLines: codeLinesOf(source),
+      );
+      addTearDown(controller.dispose);
+      final index = newIndex(money: true);
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'initial',
+      );
+
+      controller.selection = CodeLineSelection(
+        baseIndex: opener,
+        baseOffset: 0,
+        extentIndex: opener + 4,
+        extentOffset: 0,
+      );
+      controller.replaceSelection('');
+      final wholeScan = _scanOf(index, controller.codeLines);
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'opener, body and closer removed together',
+      );
+      expect(wholeScan.rebuilt, isFalse);
+
+      // The next block, now missing its closer: every role, task row and
+      // money row below it goes inert.
+      final int next = source.indexOf('```dart', opener + 4) - 4;
+      expect(controller.codeLines[next].text, '```dart');
+      expect(controller.codeLines[next + 3].text, '```');
+      controller.selection = CodeLineSelection(
+        baseIndex: next + 3,
+        baseOffset: 0,
+        extentIndex: next + 4,
+        extentOffset: 0,
+      );
+      controller.replaceSelection('');
+      final closerScan = _scanOf(index, controller.codeLines);
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'only the closing fence removed',
+      );
+      expect(closerScan.rebuilt, isFalse);
+      expect(
+        index.fenceRoleAt(
+          controller.codeLines,
+          controller.codeLines.length - 1,
+        ),
+        MarkdownFenceRole.interior,
+      );
+    });
+
+    test('a replacement that orphans a stored task frame stays equivalent', () {
+      // The parent sits in segment 0 and its children run past line 256,
+      // so segment 1's stored entry frame points back at the parent's
+      // line. A multi-line replacement with a non-zero delta *above* that
+      // line leaves the stored line inside the replaced range `[a, b)`,
+      // where `_TaskSnapshot.orphaned` must mark it unmatchable rather
+      // than shifting it onto some unrelated row.
+      final lines = <String>[
+        for (int i = 0; i < 253; i++) 'filler $i',
+        '- [ ] parent',
+        '  - [x] c0',
+        '  - [ ] c1',
+        '  - [x] c2',
+        '  - [ ] c3',
+        '  - [x] c4',
+        '',
+        for (int i = 0; i < 600; i++) 'tail $i',
+      ];
+      expect(lines[253], '- [ ] parent');
+      expect(lines[256], '  - [x] c2');
+      final controller = CodeLineEditingController(
+        codeLines: codeLinesOf(lines),
+      );
+      addTearDown(controller.dispose);
+      final index = newIndex(money: true);
+      expect(index.taskIndeterminate(controller.codeLines, 253), isTrue);
+
+      controller.selection = CodeLineSelection(
+        baseIndex: 254,
+        baseOffset: 0,
+        extentIndex: 255,
+        extentOffset: controller.codeLines[255].length,
+      );
+      controller.replaceSelection('  - [x] c0\n  - [ ] c1\n  - [x] c1b');
+      expect(controller.codeLines.length, lines.length + 1);
+
+      final scan = _scanOf(index, controller.codeLines);
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'a child row split under a straddling parent',
+      );
+      expect(scan.rebuilt, isFalse);
+      final fresh = newIndex(money: true);
+      expect(
+        index.debugIndeterminate(controller.codeLines),
+        fresh.debugIndeterminate(controller.codeLines),
+      );
+      expect(index.taskIndeterminate(controller.codeLines, 253), isTrue);
+    });
+
+    test('replacing and then deleting the very last line stays equivalent', () {
+      final controller = freshController();
+      final index = newIndex(money: true);
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'initial',
+      );
+
+      final int last = controller.codeLines.length - 1;
+      _replaceLine(controller, last, r'$+ 33.33 last line');
+      final replaceScan = _scanOf(index, controller.codeLines);
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'last line replaced',
+      );
+      expect(replaceScan.rebuilt, isFalse);
+
+      controller.selection = CodeLineSelection.collapsed(
+        index: last,
+        offset: 0,
+      );
+      controller.deleteSelectionLines();
+      expect(controller.codeLines.length, last);
+      final deleteScan = _scanOf(index, controller.codeLines);
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'last line deleted',
+      );
+      expect(deleteScan.rebuilt, isFalse);
+    });
+  });
+
+  group('degenerate documents', () {
+    test('the document collapses to one line and then to none', () {
+      final controller = CodeLineEditingController(
+        codeLines: codeLinesOf(buildTrainingLog(minLines: 1500)),
+      );
+      addTearDown(controller.dispose);
+      final index = newIndex(money: true);
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'initial',
+      );
+
+      final int last = controller.codeLines.length - 1;
+      controller.selection = CodeLineSelection(
+        baseIndex: 0,
+        baseOffset: 0,
+        extentIndex: last,
+        extentOffset: controller.codeLines[last].length,
+      );
+      controller.replaceSelection('x');
+      expect(controller.codeLines.length, 1);
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'select-all replaced by one line',
+      );
+
+      // A zero-line document has no segment at all: every pass must run
+      // its empty loop without touching a start index it does not have.
+      final CodeLines empty = CodeLines.empty();
+      expect(empty.length, 0);
+      expect(index.fenceRoleAt(empty, 0), MarkdownFenceRole.none);
+      expect(index.moneyValueAt(empty, 0), isNull);
+      expect(index.taskIndeterminate(empty, 0), isFalse);
+      expect(index.debugIndeterminate(empty), isEmpty);
+      expectMatchesFresh(index, empty, money: true, reason: 'no lines left');
     });
   });
 
@@ -860,8 +1506,12 @@ void main() {
       }
 
       expect(index.debugIndeterminate(controller.codeLines), isNotEmpty);
-      expectMatchesFresh(index, controller.codeLines,
-          money: true, reason: 'after 120 seeded edits');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'after 120 seeded edits',
+      );
     });
   });
 
@@ -971,7 +1621,8 @@ List<String> buildTrainingLog({int minLines = 700}) {
           r'$!',
           r'$^ 2',
           r'$~ 2',
-          '- ' r'$+ 10 snack',
+          '- '
+              r'$+ 10 snack',
           '',
         ]);
     }
@@ -1016,7 +1667,8 @@ void expectMatchesFresh(
   expect(
     mismatches,
     isEmpty,
-    reason: '$reason — incremental index diverged from a fresh one '
+    reason:
+        '$reason — incremental index diverged from a fresh one '
         '(${mismatches.length} shown, line text at first: '
         '${mismatches.isEmpty ? '' : _lineTextOf(lines, mismatches.first)})',
   );
@@ -1074,13 +1726,17 @@ void _applyEdit(
     case _EditKind.enterSplit:
       final String text = controller.codeLines[index].text;
       final int offset = text.isEmpty ? 0 : rng.nextInt(text.length + 1);
-      controller.selection =
-          CodeLineSelection.collapsed(index: index, offset: offset);
+      controller.selection = CodeLineSelection.collapsed(
+        index: index,
+        offset: offset,
+      );
       controller.applyNewLine();
     case _EditKind.deleteLine:
       if (controller.codeLines.length <= 1) return;
-      controller.selection =
-          CodeLineSelection.collapsed(index: index, offset: 0);
+      controller.selection = CodeLineSelection.collapsed(
+        index: index,
+        offset: 0,
+      );
       controller.deleteSelectionLines();
     case _EditKind.fenceToggle:
       final String text = controller.codeLines[index].text;

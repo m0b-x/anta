@@ -640,15 +640,17 @@ class _CodeEditorState extends State<CodeEditor> {
           autofocus: autofocus,
           focusNode: _focusNode,
           onKeyEvent: (node, event) {
-            // Only act on key-down events for the actual key in this event.
-            // Using `event.isKeyPressed(...)` (or the legacy raw key API)
-            // consults the global pressed-keys tracker, which can get stuck
-            // on a long-press (auto-repeat) when the matching key-up event
-            // is missed. That caused subsequent keystrokes (e.g. typing a
-            // letter after holding backspace) to also trigger
+            // Act on the key this event carries — a press or an auto-repeat,
+            // never a release. Using `event.isKeyPressed(...)` (or the
+            // legacy raw key API) consults the global pressed-keys tracker,
+            // which can get stuck on a long-press when the matching key-up
+            // event is missed. That caused subsequent keystrokes (e.g.
+            // typing a letter after holding backspace) to also trigger
             // `deleteBackward()`, making the typed character appear and
-            // then immediately disappear.
-            if (event is! KeyDownEvent) {
+            // then immediately disappear. Repeats are safe to honour: they
+            // name their own key, and the desktop `Shortcuts` path repeats
+            // Backspace, Enter and Tab too.
+            if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
               return KeyEventResult.ignored;
             }
             if (event.logicalKey == LogicalKeyboardKey.backspace) {

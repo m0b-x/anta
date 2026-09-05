@@ -314,6 +314,13 @@ abstract class CodeLineEditingController
   /// Updates the value on the stack to the next value.
   void redo();
 
+  /// Whether a value change being notified right now comes from [undo] or
+  /// [redo] restoring a history node rather than from an edit. Listeners
+  /// that classify growth (a paste heuristic, say) read it synchronously
+  /// from inside their notification; it is false again once the restore
+  /// has returned.
+  bool get isRestoringHistory;
+
   /// If the selection is currently collapsed, the whole line will be copied.
   /// Otherwise, copy the selected codes.
   Future<void> copy();
