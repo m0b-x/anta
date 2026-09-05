@@ -73,7 +73,11 @@ void main() {
       FocusNode focusNode,
     })
   >
-  pumpEditor(WidgetTester tester, {required String text}) async {
+  pumpEditor(
+    WidgetTester tester, {
+    required String text,
+    bool Function(int lineIndex)? isFenceLine,
+  }) async {
     final controller = CodeLineEditingController.fromText(text);
     final searchController = ReEditorSearchController();
     final scrollController = CodeScrollController();
@@ -97,6 +101,7 @@ void main() {
             wordWrap: false,
             checkboxTapToggle: true,
             showScrollIndicator: false,
+            isFenceLine: isFenceLine,
           ),
         ),
       ),
@@ -285,6 +290,39 @@ void main() {
     expect(e.controller.selection.baseIndex, 640);
     expect(e.controller.selection.baseOffset, indent.length);
     expect(e.controller.codeLines.length, documentLines);
+    expect(e.focusNode.hasFocus, isTrue);
+    await teardownEditor(tester);
+  });
+
+  testWidgets('Tab on a fenced list line falls back to the editor indent', (
+    tester,
+  ) async {
+    // Inside a ``` fence a `- squat` line is inert source text, not a
+    // list item — the tap path passes fenced lines through for the same
+    // reason, so the list-aware indent must decline here too and let the
+    // fork's own indent run.
+    final e = await pumpEditor(
+      tester,
+      text: buildDocument(lineAt650: '- squat 5x5'),
+      isFenceLine: (index) => index == taskLine,
+    );
+
+    e.focusNode.requestFocus();
+    await tester.pump();
+    e.controller.selection = const CodeLineSelection.collapsed(
+      index: taskLine,
+      offset: 4,
+    );
+    await tester.pump();
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+
+    // The fork's collapsed-caret indent pads to the next indent column
+    // **at the caret**, where the list-aware path would have moved the
+    // whole item and left the text reading `  - squat 5x5`.
+    expect(e.controller.codeLines[taskLine].text, '- sq  uat 5x5');
+    expect(e.controller.selection.baseOffset, 6);
     expect(e.focusNode.hasFocus, isTrue);
     await teardownEditor(tester);
   });

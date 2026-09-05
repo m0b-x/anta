@@ -72,10 +72,17 @@ class MarkdownLineShape {
   }
 
   /// Whether [line] is a line-led construct that must stay one intact,
-  /// unprefixed source line to keep its meaning.
+  /// unprefixed source line to keep its meaning: a horizontal rule, a
+  /// blockquote / callout, a table row, a fence delimiter, a heading, or
+  /// a money row (bare, heading-prefixed or list-prefixed).
   static bool isLineLedConstruct(String line) {
     final trimmed = line.trim();
     if (trimmed.isEmpty) return false;
+    // A rule is a run of one marker with no word boundary in it, so the
+    // width breaker would happily cut `-` * 60 into six lines and the
+    // list-aware paste would prefix it into `- ---`. Tested before the
+    // switch because a rule's lead char is also a bullet marker.
+    if (isHorizontalRule(trimmed)) return true;
     switch (trimmed.codeUnitAt(0)) {
       case 0x3E: // > — blockquote / callout
         return true;

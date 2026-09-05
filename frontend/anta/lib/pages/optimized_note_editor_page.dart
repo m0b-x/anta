@@ -95,6 +95,13 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   late TextHistoryObserver _historyObserver;
   late ReEditorSearchController _searchController;
   late final VocabularySuggestionController _vocabularySuggestions;
+
+  /// The two vocabulary settings [_refreshVocabularies] last applied, or
+  /// null before the first load. The settings bundle notifies on every
+  /// font-size tap too, and re-running the refresh there would await the
+  /// vocabulary service once per tap — on the typing path's own listener.
+  ({bool enabled, String trigger})? _appliedVocabularySettings;
+
   final GlobalKey _editorWrapperKey = GlobalKey();
   final GlobalKey _lineNumbersKey = GlobalKey();
   final GlobalKey _scrollIndicatorKey = GlobalKey();
@@ -237,6 +244,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
               liveRendering: _editorSettings.value.liveMarkdownRendering,
             ),
       ),
+      isFenceLine: _render.lineInFence,
     );
     _render.bind(_contentController);
     _vocabularySuggestions = VocabularySuggestionController(
@@ -263,6 +271,10 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       autoBreakLongLines: () => _editorSettings.value.autoBreakLongLines,
       pasteContext: _pasteReformatContext,
       onLinesReformatted: _showLinesFormatted,
+      // Unconditional: whether a line is fenced is a property of the
+      // document, not of the live-rendering setting.
+      isFenceLine: _render.lineInFence,
+      lineInFenceBody: _render.lineInFenceBody,
     );
     _saves = NoteSaveCoordinator(
       folderId: widget.folderId,
@@ -340,7 +352,15 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     if (settings.previewFontSize != _previewBloc.state.fontSize) {
       _previewBloc.add(PreviewFontSizeChanged(settings.previewFontSize));
     }
-    unawaited(_refreshVocabularies());
+    // Only when one of the two settings it consumes actually moved: the
+    // bundle notifies on every font-size tap as well.
+    if (_appliedVocabularySettings !=
+        (
+          enabled: settings.vocabularySuggestionsEnabled,
+          trigger: settings.vocabularyTriggerChar,
+        )) {
+      unawaited(_refreshVocabularies());
+    }
     _markEditorReady();
   }
 
@@ -429,9 +449,10 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
           currencySuffix: current.currencySuffix,
           errorMessages: messages,
         );
-        // No repaint nudge: only the wording of an error row changed,
-        // and the editor renders those the next time it lays the line
-        // out. The preview holds its config in bloc state.
+        // No repaint nudge: the editor never renders money error text —
+        // only the preview and the detail sheet do, so nothing on the
+        // editor surface changed. The preview holds its config in bloc
+        // state.
         _render.applyMoneyConfig(config);
         _previewBloc.add(PreviewMoneyConfigChanged(config));
       }
@@ -564,6 +585,10 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       }
     }
     if (!mounted) return;
+    _appliedVocabularySettings = (
+      enabled: settings.vocabularySuggestionsEnabled,
+      trigger: settings.vocabularyTriggerChar,
+    );
     _vocabularySuggestions.configure(
       enabled: settings.vocabularySuggestionsEnabled,
       trigger: settings.vocabularyTriggerChar,
@@ -1017,10 +1042,20 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     unawaited(_reloadSettings());
   }
 
+  /// Called when a route is pushed above the editor. The drawer's settings
+  /// route leads to the database switcher, which restarts the app through
+  /// `SystemNavigator.pop()` — the editor is never disposed and the
+  /// debounce never fires, so the flush has to happen on the way out.
+  @override
+  void didPushNext() {
+    unawaited(_saves.forceSave());
+  }
+
   @override
   void dispose() {
     AppNavigator.routeObserver.unsubscribe(this);
     _counterBloc.add(const SetNoteContext());
+    ShortcutHandlerFactory.counterHandler.setActiveNoteId(null);
     WidgetsBinding.instance.removeObserver(this);
     DrawerHostRegistry.unregister(_scaffoldKey);
     DevOptions.instance.removeListener(_onDevOptionsChanged);
@@ -1031,9 +1066,11 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     // _previewController is owned by _previewBloc — bloc disposes it.
     _previewBloc.close();
     _saves.dispose();
+    _titleController.removeListener(_onTextChanged);
     _titleController.dispose();
     _historyObserver.dispose();
     _vocabularySuggestions.dispose();
+    _contentController.removeListener(_onTextChanged);
     _contentController.dispose();
     _contentFocusNode.removeListener(_onContentFocusChanged);
     _contentFocusNode.dispose();
@@ -1394,6 +1431,10 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
           BlocListener<OptimizedNoteBloc, OptimizedNoteState>(
             listener: (context, state) {
               if (state is OptimizedNoteCreated) {
+                // One app-wide bloc serves every editor, and a buried one
+                // stays mounted: only the page that asked for this create
+                // may adopt its id.
+                if (widget.noteId != null || !_saves.isCreatingNewNote) return;
                 final id = state.metadata.id;
                 _saves.noteCreated(id);
                 // From here on the note has an id, so its reading
@@ -1402,6 +1443,10 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
                 _counterBloc.add(SetNoteContext(noteId: id));
                 ShortcutHandlerFactory.counterHandler.setActiveNoteId(id);
               } else if (state is OptimizedNoteContentLoaded) {
+                // Same shared bloc: without this an editor left behind on
+                // the stack would load another note's text over its own
+                // and then auto-save it there.
+                if (state.note.id != widget.noteId) return;
                 final content = state.note.content ?? '';
                 // Counted from the string rather than asked of the
                 // editor: it is exact and already in hand.
@@ -1422,6 +1467,11 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
                 // length before the wrapper starts diffing, or the first
                 // keystroke reads as a whole-document paste.
                 _edits.syncLength();
+                // `loadText` above fired the page's text listener, so
+                // auto-save thinks the note was edited from empty to this.
+                // Re-baseline before the debounce rewrites what was just
+                // read back, with a new `updatedAt`, version and HLC.
+                _saves.contentLoaded();
                 _pushPreviewContent(content);
                 _markEditorReady();
               }
@@ -1442,7 +1492,13 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
           canPop: false,
           onPopInvokedWithResult: (didPop, result) async {
             if (!didPop) {
-              await _saveBeforeExit();
+              // `canPop` is false, so this callback is the only way out:
+              // a save that throws must never strand the user on the page.
+              try {
+                await _saveBeforeExit();
+              } catch (e) {
+                debugPrint('[NoteEditor] save before exit failed: $e');
+              }
               if (context.mounted) {
                 AppNavigator.pop(context);
               }
@@ -1964,10 +2020,14 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// no selection, inserts an empty `{{  }}` and parks the caret between
   /// the markers so the user can type the placeholder.
   void _insertGhostText() {
+    final beforeLength = _contentController.textLength;
     _edits.runGuarded(
       () => MarkdownShortcutInserter.insertGhost(_contentController),
     );
     _onTextChanged();
+    // Same reflow the generic shortcut path gets: wrapping a wide
+    // selection in `{{ … }}` grows the line exactly as Bold does.
+    _edits.reformatInserted(beforeLength: beforeLength);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _contentController.makeCursorVisible();
     });
@@ -1977,6 +2037,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// selected ghost placeholder into the slot when there is no selection —
   /// see [MarkdownShortcutInserter.insertWithGhostSlot].
   void _insertWithGhostSlot(CustomMarkdownShortcut shortcut) {
+    final beforeLength = _contentController.textLength;
     _edits.runGuarded(
       () => MarkdownShortcutInserter.insertWithGhostSlot(
         _contentController,
@@ -1984,6 +2045,9 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       ),
     );
     _onTextChanged();
+    // Same reflow the generic shortcut path gets: `{name: … }` around a
+    // wide selection is exactly as likely to overflow as Bold's markers.
+    _edits.reformatInserted(beforeLength: beforeLength);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _contentController.makeCursorVisible();
     });

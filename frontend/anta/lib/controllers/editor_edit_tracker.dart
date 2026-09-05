@@ -8,6 +8,10 @@ import '../utils/paste_line_breaker.dart';
 /// for the editor's current font, and the text width it measured off the
 /// live widget tree. The host returns null when the editor is not laid out
 /// yet — nothing can be measured, so nothing is broken.
+///
+/// The fence predicate is deliberately *not* here: it is a property of the
+/// document's line index rather than of the widget tree's geometry, so it
+/// is passed once to [EditorEditTracker.new] instead of rebuilt per paste.
 typedef PasteReformatContext = ({
   EditorWidthCalculator calculator,
   double availableWidth,
@@ -35,10 +39,14 @@ class EditorEditTracker {
     required bool Function() autoBreakLongLines,
     required PasteReformatContext? Function() pasteContext,
     required void Function(int linesModified) onLinesReformatted,
+    bool Function(int lineIndex)? isFenceLine,
+    bool Function(int lineIndex)? lineInFenceBody,
   }) : _controller = controller,
        _autoBreakLongLines = autoBreakLongLines,
        _pasteContext = pasteContext,
-       _onLinesReformatted = onLinesReformatted;
+       _onLinesReformatted = onLinesReformatted,
+       _isFenceLine = isFenceLine,
+       _lineInFenceBody = lineInFenceBody;
 
   /// Growth beyond this many code units in one notification is a paste, not
   /// typing. Deliberately low: a fast typist never lands 20 characters in
@@ -50,6 +58,18 @@ class EditorEditTracker {
   final bool Function() _autoBreakLongLines;
   final PasteReformatContext? Function() _pasteContext;
   final void Function(int linesModified) _onLinesReformatted;
+
+  /// Whether the line at the given index is inside a ``` fence, or
+  /// `null` when the host cannot tell. A fenced line is inert markdown,
+  /// so Enter on `- foo` in a code block must not grow a marker.
+  final bool Function(int lineIndex)? _isFenceLine;
+
+  /// Whether the line at the given index sits **inside** a fence body
+  /// (delimiters excluded), or `null` when the host cannot tell. Seeds
+  /// the width breaker so a paste landing in the middle of a code block
+  /// is not hard-wrapped — a different question from [_isFenceLine],
+  /// which counts the delimiters as fenced too.
+  final bool Function(int lineIndex)? _lineInFenceBody;
 
   int _previousTextLength = 0;
   bool _isProcessing = false;
@@ -86,6 +106,20 @@ class EditorEditTracker {
 
   /// The controller reported a change. Reflows a paste, continues a list,
   /// or does nothing.
+  ///
+  /// The Enter shape is tested **before** the paste threshold, because the
+  /// two overlap: an item indented by [pasteThreshold] spaces or more
+  /// grows the document past the threshold on a plain Enter, and reflowing
+  /// it instead would swallow the continuation.
+  ///
+  /// The growth it diffs is a **net** length change, which bounds what it
+  /// can know. A paste that replaced a selection reports fewer code units
+  /// than it inserted, so [_reformat]'s range starts no earlier than the
+  /// true one (the safe direction: the reflow can under-cover a paste, but
+  /// never rewrite lines the paste did not touch); a paste that shrank the
+  /// document reports no growth at all and is never reflowed; and a paste
+  /// of exactly a line break plus the previous line's indentation is
+  /// indistinguishable from an Enter and is deliberately read as one.
   void onTextChanged() {
     if (_isProcessing) return;
 
@@ -102,19 +136,28 @@ class EditorEditTracker {
     // Enter to continue.
     if (_controller.isRestoringHistory) return;
 
+    if (_handleNewLine(selection, textLengthDiff)) return;
+
     if (textLengthDiff > pasteThreshold) {
       _reformat(pasteEnd: selection.extent, pastedLength: textLengthDiff);
-      return;
     }
+  }
 
+  /// Whether [textLengthDiff] is the growth of an Enter the tracker owns —
+  /// in which case the list continuation (or termination) has already been
+  /// applied and the paste branch must not run.
+  bool _handleNewLine(CodeLineSelection selection, int textLengthDiff) {
     // After Enter, the caret sits on the freshly split line just past the
     // whitespace re_editor copied down from the line above — column 0 for
     // a top-level line, column N for one indented by N. That line above is
     // the one whose list marker, if any, should carry over.
     final currentLineIndex = selection.baseIndex;
-    if (currentLineIndex <= 0) return;
+    if (currentLineIndex <= 0) return false;
 
     final prevLineIndex = currentLineIndex - 1;
+    // A fenced line is inert markdown on both rendering surfaces, so a
+    // `- foo` inside a code block must not grow a marker either.
+    if (_isFenceLine?.call(prevLineIndex) ?? false) return false;
     final prevLine = _controller.codeLines[prevLineIndex].text;
     final currentLine = _controller.codeLines[currentLineIndex];
     final autoIndent = _autoIndentLength(prevLine);
@@ -124,22 +167,29 @@ class EditorEditTracker {
     // caret checks below cannot tell an Enter from a Tab indent or a typed
     // space that happens to park the caret at the indent column, so the
     // growth is the discriminator.
-    if (textLengthDiff != 1 + autoIndent) return;
+    if (textLengthDiff != 1 + autoIndent) return false;
 
     // The caret has to sit exactly where the split parked it, and the line
     // has to actually start with the whitespace that was copied. Without
     // the second half, a caret that merely happens to rest at column N of
     // an unrelated line below a list item would grow a marker.
-    if (selection.baseOffset != autoIndent) return;
-    if (currentLine.text.length < autoIndent) return;
+    if (selection.baseOffset != autoIndent) return false;
+    if (currentLine.text.length < autoIndent) return false;
     if (currentLine.text.substring(0, autoIndent) !=
         prevLine.substring(0, autoIndent)) {
-      return;
+      return false;
     }
 
     _isProcessing = true;
     try {
-      if (MarkdownListUtils.isEmptyListItem(prevLine)) {
+      // The empty-item test reads the split **prefix**, which is only the
+      // whole item when the split left nothing behind: a caret parked just
+      // right of the marker (`- item` at offset 2) makes that prefix `- `
+      // too, and dropping the line there would delete the marker and merge
+      // the remainder into the line above. Requiring an empty remainder as
+      // well sends that split down the continuation branch instead.
+      if (currentLine.text.length == autoIndent &&
+          MarkdownListUtils.isEmptyListItem(prevLine)) {
         // Enter on an item with no content ends the list: the marker line
         // goes, and the copied indentation goes with it, so a nested item
         // ends the same way a top-level one does — on a bare line with the
@@ -160,11 +210,13 @@ class EditorEditTracker {
           ),
         );
         _previousTextLength = _controller.textLength;
-        return;
+        return true;
       }
 
       final listPrefix = MarkdownListUtils.getListPrefix(prevLine);
-      if (listPrefix == null) return;
+      // Still an Enter, just not on a list line: there is nothing to
+      // continue, and nothing for the paste branch to reflow either.
+      if (listPrefix == null) return true;
 
       // The prefix carries the item's own indentation, so the copy the
       // split already made has to come off or a nested item indents twice.
@@ -181,6 +233,7 @@ class EditorEditTracker {
         ),
       );
       _previousTextLength = _controller.textLength;
+      return true;
     } finally {
       _isProcessing = false;
     }
@@ -230,6 +283,7 @@ class EditorEditTracker {
         availableWidth: context.availableWidth,
         pasteEnd: pasteEnd,
         pastedLength: pastedLength,
+        lineInFenceBody: _lineInFenceBody,
       );
       if (result.reformatted) {
         _previousTextLength = _controller.textLength;

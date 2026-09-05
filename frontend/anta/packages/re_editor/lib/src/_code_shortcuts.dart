@@ -76,6 +76,16 @@ class _CodeShortcutActions extends StatelessWidget {
     required this.child,
   });
 
+  /// The intent types a read-only editor refuses to resolve — the same
+  /// [CodeShortcutEditableIntent] rule the action table below applies,
+  /// lifted out so the host's override actions are filtered by it too.
+  /// An override for Tab is still an edit of the document, whoever
+  /// carries it out.
+  static Set<Type> _editableIntentTypes() => {
+        for (final Intent intent in kCodeShortcutIntents.values)
+          if (intent is CodeShortcutEditableIntent) intent.runtimeType
+      };
+
   @override
   Widget build(BuildContext context) {
     final Map<Type, Action<Intent>> actions = {};
@@ -102,13 +112,18 @@ class _CodeShortcutActions extends StatelessWidget {
         },
       );
     }
+    final Set<Type> blocked =
+        readOnly ? _editableIntentTypes() : const <Type>{};
     return Actions(actions: {
       ...actions,
       ...{
         DoNothingAndStopPropagationTextIntent:
             DoNothingAction(consumesKey: false),
       },
-      if (overrideActions != null) ...overrideActions!
+      if (overrideActions != null)
+        for (final MapEntry<Type, Action<Intent>> entry
+            in overrideActions!.entries)
+          if (!blocked.contains(entry.key)) entry.key: entry.value
     }, child: child);
   }
 

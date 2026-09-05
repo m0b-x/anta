@@ -256,6 +256,26 @@ void main() {
         [false, true, true, true, false],
       );
     });
+
+    test('the body excludes the delimiters', () {
+      final controller = CodeLineEditingController.fromText(
+        ['plain', '```', 'code', '```', 'after'].join('\n'),
+      );
+      addTearDown(controller.dispose);
+      final render = EditorRenderController()..bind(controller);
+
+      // The narrow predicate: the ``` lines are still lines the user
+      // types on, so a caller that leaves verbatim code alone must not
+      // treat them as part of it.
+      expect(
+        [for (int i = 0; i < 5; i++) render.lineInFenceBody(i)],
+        [false, false, true, false, false],
+      );
+    });
+
+    test('the body is false with no controller bound', () {
+      expect(EditorRenderController().lineInFenceBody(0), isFalse);
+    });
   });
 
   group('buildSpan routing', () {
@@ -311,6 +331,69 @@ void main() {
         identical(fixture.build(liveRendering: true), fixture.fallback),
         isTrue,
       );
+    });
+
+    testWidgets('a rebuilt but value-equal theme keeps the span memo', (
+      tester,
+    ) async {
+      // An ancestor that builds its `ThemeData(...)` inside `build()` hands
+      // over a fresh instance every frame. `buildSpan` resolves the theme
+      // on every line of every layout pass, so if that instance became a
+      // new render generation the memos would be dropped continuously.
+      late BuildContext captured;
+      Future<void> pumpTheme(Brightness brightness) => tester.pumpWidget(
+        MaterialApp(
+          home: Theme(
+            data: ThemeData(useMaterial3: true, brightness: brightness),
+            child: Builder(
+              builder: (context) {
+                captured = context;
+                return const SizedBox.shrink();
+              },
+            ),
+          ),
+        ),
+      );
+
+      await pumpTheme(Brightness.light);
+      final controller = CodeLineEditingController.fromText(
+        ['pad', '- **bold** item', 'pad'].join('\n'),
+      );
+      addTearDown(controller.dispose);
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 0,
+      );
+      final render = EditorRenderController()..bind(controller);
+      TextSpan build() => render.buildSpan(
+        context: captured,
+        index: 1,
+        codeLine: controller.codeLines[1],
+        textSpan: TextSpan(text: controller.codeLines[1].text, style: _style),
+        style: _style,
+        liveRendering: true,
+      );
+
+      final firstTheme = Theme.of(captured);
+      final first = build();
+
+      await pumpTheme(Brightness.light);
+
+      expect(
+        identical(Theme.of(captured), firstTheme),
+        isFalse,
+        reason: 'the fixture must hand over a distinct theme instance',
+      );
+      expect(
+        identical(build(), first),
+        isTrue,
+        reason: 'an equal generation must hit the span memo',
+      );
+
+      // The control: a generation that really moved does drop it.
+      await pumpTheme(Brightness.dark);
+
+      expect(identical(build(), first), isFalse);
     });
   });
 }

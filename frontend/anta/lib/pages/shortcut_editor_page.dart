@@ -15,6 +15,7 @@ import '../constants/settings_keys.dart';
 import '../services/settings_service.dart';
 import '../utils/icon_utils.dart';
 import '../utils/markdown_color_syntax.dart';
+import '../utils/markdown_list_utils.dart';
 import '../utils/money_display_config.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/unified_app_bars.dart';
@@ -369,7 +370,7 @@ class _ShortcutEditorPageState extends State<ShortcutEditorPage> {
 
       String prevLine = text.substring(prevLineStart, selection.baseOffset - 1);
 
-      if (_isEmptyListItem(prevLine.trim())) {
+      if (MarkdownListUtils.isEmptyListItem(prevLine)) {
         final newText =
             text.substring(0, prevLineStart) +
             text.substring(selection.baseOffset);
@@ -386,7 +387,7 @@ class _ShortcutEditorPageState extends State<ShortcutEditorPage> {
         return;
       }
 
-      String? listPrefix = _getListPrefix(prevLine);
+      final String? listPrefix = MarkdownListUtils.getListPrefix(prevLine);
       if (listPrefix != null) {
         final beforeCursor = text.substring(0, selection.baseOffset);
         final afterCursor = text.substring(selection.baseOffset);
@@ -408,46 +409,6 @@ class _ShortcutEditorPageState extends State<ShortcutEditorPage> {
       }
       _isProcessingTextChange = false;
     }
-  }
-
-  bool _isEmptyListItem(String line) {
-    line = line.trim();
-
-    final emptyPatterns = ['•', '-', '- [ ]', '- [x]', '- [X]'];
-
-    for (var pattern in emptyPatterns) {
-      if (line == pattern) return true;
-    }
-
-    final numberedPattern = RegExp(r'^\d+\.$');
-    return numberedPattern.hasMatch(line);
-  }
-
-  String? _getListPrefix(String line) {
-    line = line.trimLeft();
-
-    if (line.startsWith('• ')) {
-      return '• ';
-    }
-
-    if (line.startsWith('- ') && !line.startsWith('- [')) {
-      return '- ';
-    }
-
-    if (line.startsWith('- [ ] ')) {
-      return '- [ ] ';
-    }
-    if (line.startsWith('- [x] ') || line.startsWith('- [X] ')) {
-      return '- [ ] ';
-    }
-
-    final numberedMatch = RegExp(r'^(\d+)\.\s').firstMatch(line);
-    if (numberedMatch != null) {
-      final currentNumber = int.parse(numberedMatch.group(1)!);
-      return '${currentNumber + 1}. ';
-    }
-
-    return null;
   }
 
   /// Resolves the active controller/focusNode at call time using focus state —

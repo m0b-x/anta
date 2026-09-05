@@ -787,6 +787,16 @@ class MarkdownEditorSpanBuilder {
     return _fenceRoleAt(controller, index) != MarkdownFenceRole.none;
   }
 
+  /// Whether [index] is a line *inside* a ``` code fence, excluding the
+  /// two delimiter lines. Public alongside [lineInFence] so a caller that
+  /// acts on fence bodies only — the delimiters still behave like
+  /// markdown — does not have to reason about roles it cannot see.
+  bool lineInFenceBody(int index) {
+    final controller = _controller;
+    if (controller == null) return false;
+    return _fenceRoleAt(controller, index) == MarkdownFenceRole.interior;
+  }
+
   /// Fence-awareness: grammar and positional state come from the shared
   /// incremental index ([MarkdownChunker.isFenceDelimiter] +
   /// [MarkdownEditorLineIndex]). Delimiter and interior lines carry

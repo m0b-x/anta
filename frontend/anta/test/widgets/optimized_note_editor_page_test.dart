@@ -30,6 +30,7 @@ import 'package:anta/services/note_storage_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/widgets/markdown_bar.dart';
 import 'package:anta/widgets/modern_editor_wrapper.dart';
+import 'package:anta/widgets/unified_app_bars.dart';
 
 /// The first page-level test in the app.
 ///
@@ -74,6 +75,20 @@ void main() {
     title: 'Training log',
     preview: 'first line',
     contentLength: content.length,
+    chunkCount: 1,
+    isCompressed: false,
+    createdAt: DateTime(2026, 9, 1),
+    updatedAt: DateTime(2026, 9, 1),
+  );
+
+  /// A sibling note, for the cases about the app-wide BLoC delivering one
+  /// editor's state to another's listener.
+  final otherMetadata = NoteMetadata(
+    id: 'note-2',
+    folderId: folderId,
+    title: 'Groceries',
+    preview: 'milk',
+    contentLength: 4,
     chunkCount: 1,
     isCompressed: false,
     createdAt: DateTime(2026, 9, 1),
@@ -249,6 +264,22 @@ void main() {
       ),
     );
   }
+
+  /// Mounts the page and hands it the note's text, returning the editor's
+  /// controller once both have landed.
+  Future<CodeLineEditingController> loadNote(WidgetTester tester) async {
+    await pumpPage(tester);
+    noteBloc.emitContentLoaded(metadata, content);
+    await tester.pump();
+    await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+    await settle(tester);
+    return editorOf(tester).controller;
+  }
+
+  /// The page's app bar, whose `hasChanges` is the dirty indicator the save
+  /// coordinator publishes.
+  NoteAppBar appBar(WidgetTester tester) =>
+      tester.widget<NoteAppBar>(find.byType(NoteAppBar, skipOffstage: false));
 
   group('B2 — the saved position survives either load order', () {
     testWidgets('content lands before the saved position', (tester) async {
@@ -705,15 +736,6 @@ void main() {
       find.byType(MarkdownBar, skipOffstage: false),
     );
 
-    Future<CodeLineEditingController> loadNote(WidgetTester tester) async {
-      await pumpPage(tester);
-      noteBloc.emitContentLoaded(metadata, content);
-      await tester.pump();
-      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
-      await settle(tester);
-      return editorOf(tester).controller;
-    }
-
     testWidgets('a freshly opened note has nothing to undo', (tester) async {
       final controller = await loadNote(tester);
 
@@ -762,6 +784,105 @@ void main() {
     });
   });
 
+  group('B1 — loading a note is not an edit', () {
+    /// The page's auto-save runs on the shipped defaults, so a case about
+    /// the debounce has to outlast the real one.
+    const pastDebounce = Duration(seconds: 6);
+
+    testWidgets('the loaded text is never written back', (tester) async {
+      await pumpPage(tester);
+      noteBloc.emitContentLoaded(metadata, content);
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      await settle(tester);
+      noteBloc.clearDispatched();
+
+      // `loadText` fires the page's text listener exactly like a keystroke:
+      // without a re-baseline the debounce rewrites the note it just read,
+      // with a fresh updatedAt, version and HLC behind it.
+      await tester.pump(pastDebounce);
+      await settle(tester);
+
+      expect(noteBloc.updates, isEmpty);
+      expect(appBar(tester).hasChanges, isFalse);
+      await teardownPage(tester);
+    });
+
+    testWidgets('an edit after the load still saves', (tester) async {
+      final controller = await loadNote(tester);
+      noteBloc.clearDispatched();
+
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 'first line'.length,
+      );
+      controller.replaceSelection(' typed');
+      await tester.pump();
+
+      await tester.pump(pastDebounce);
+      await settle(tester);
+
+      expect(noteBloc.updates, hasLength(1));
+      expect(noteBloc.updates.single.noteId, noteId);
+      expect(noteBloc.updates.single.content, startsWith('first line typed'));
+      await teardownPage(tester);
+    });
+  });
+
+  group('B3 — one bloc, many editors', () {
+    testWidgets('another note\'s content is not loaded over this one', (
+      tester,
+    ) async {
+      await loadNote(tester);
+      expect(editorOf(tester).controller.text, content);
+
+      // The bloc is app-wide (main.dart registers one), and an editor
+      // buried under another route stays mounted and listening.
+      noteBloc.reset();
+      await tester.pump();
+      noteBloc.emitContentLoaded(otherMetadata, 'a completely different note');
+      await tester.pump();
+      await settle(tester);
+
+      expect(editorOf(tester).controller.text, content);
+      await teardownPage(tester);
+    });
+  });
+
+  group('B7 — a route pushed over the editor flushes first', () {
+    testWidgets('a pending edit is force-saved on push', (tester) async {
+      final controller = await loadNote(tester);
+
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 'first line'.length,
+      );
+      controller.replaceSelection(' typed');
+      await tester.pump();
+      noteBloc.clearDispatched();
+
+      // The drawer's settings route leads to the database switcher, which
+      // restarts the app: the debounce never gets to fire.
+      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+      navigator.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('settings stand-in')),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      await settle(tester);
+
+      expect(noteBloc.updates, hasLength(1));
+      expect(noteBloc.updates.single.content, startsWith('first line typed'));
+
+      navigator.pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      await teardownPage(tester);
+    });
+  });
+
   group('B3 — editor settings apply on the way back', () {
     testWidgets('a flag changed under a pushed route lands on pop', (
       tester,
@@ -796,6 +917,146 @@ void main() {
       await teardownPage(tester);
     });
   });
+
+  group('the edit tracker reads the page\'s fence index', () {
+    // Line 2 is a list item as far as the list grammar is concerned, and
+    // inert markdown as far as the document is concerned — only the page's
+    // own line index knows which, so this is the wiring under test.
+    const fencedContent =
+        'intro\n'
+        '```\n'
+        '- squat 5x5\n'
+        'code\n'
+        '```\n'
+        'tail';
+
+    final fencedMetadata = NoteMetadata(
+      id: noteId,
+      folderId: folderId,
+      title: 'Training log',
+      preview: 'intro',
+      contentLength: fencedContent.length,
+      chunkCount: 1,
+      isCompressed: false,
+      createdAt: DateTime(2026, 9, 1),
+      updatedAt: DateTime(2026, 9, 1),
+    );
+
+    testWidgets('Enter on a list line inside a fence does not continue it', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+      noteBloc.emitContentLoaded(fencedMetadata, fencedContent);
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      final controller = editorOf(tester).controller;
+
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 2,
+        offset: '- squat 5x5'.length,
+      );
+      await tester.pump();
+
+      controller.applyNewLine();
+      await settle(tester, rounds: 4);
+
+      expect(controller.codeLines[2].text, '- squat 5x5');
+      expect(
+        controller.codeLines[3].text,
+        '',
+        reason: 'a fenced `- ` is code, not a list to grow a marker on',
+      );
+      expect(controller.codeLines[4].text, 'code');
+      await teardownPage(tester);
+    });
+
+    testWidgets('Enter on a list line outside the fence still continues', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+      noteBloc.emitContentLoaded(fencedMetadata, '- squat 5x5\n```\ncode\n```');
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      final controller = editorOf(tester).controller;
+
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: '- squat 5x5'.length,
+      );
+      await tester.pump();
+
+      controller.applyNewLine();
+      await settle(tester, rounds: 4);
+
+      expect(controller.codeLines[1].text, '- ');
+      await teardownPage(tester);
+    });
+  });
+
+  group('C11 — the colour shortcut reflows what it inserted', () {
+    /// One line far wider than any editor, so wrapping it in anything at
+    /// all leaves a line the auto-break setting has to break.
+    final wideContent = List<String>.filled(60, 'squat').join(' ');
+
+    final wideMetadata = NoteMetadata(
+      id: noteId,
+      folderId: folderId,
+      title: 'Training log',
+      preview: 'squat',
+      contentLength: wideContent.length,
+      chunkCount: 1,
+      isCompressed: false,
+      createdAt: DateTime(2026, 9, 1),
+      updatedAt: DateTime(2026, 9, 1),
+    );
+
+    const colorShortcut = CustomMarkdownShortcut(
+      id: 'default_color_text',
+      label: 'colour',
+      iconCodePoint: 0xe000,
+      iconFontFamily: 'MaterialIcons',
+      beforeText: '{red:',
+      afterText: '}',
+    );
+
+    testWidgets('an over-wide selection wrapped in a colour is broken up', (
+      tester,
+    ) async {
+      await tester.runAsync(() => settings.setAutoBreakLongLines(true));
+      addTearDown(
+        () => tester.runAsync(() => settings.setAutoBreakLongLines(false)),
+      );
+
+      await pumpPage(tester);
+      noteBloc.emitContentLoaded(wideMetadata, wideContent);
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      await settle(tester);
+      final controller = editorOf(tester).controller;
+      expect(controller.codeLines.length, 1);
+
+      controller.selection = CodeLineSelection(
+        baseIndex: 0,
+        baseOffset: 0,
+        extentIndex: 0,
+        extentOffset: wideContent.length,
+      );
+      await tester.pump();
+
+      tester
+          .widget<MarkdownBar>(find.byType(MarkdownBar, skipOffstage: false))
+          .onShortcutPressed(colorShortcut);
+      await settle(tester, rounds: 4);
+
+      expect(
+        controller.codeLines.length,
+        greaterThan(1),
+        reason: 'the colour path reflows like Bold does, not never',
+      );
+      expect(controller.text.replaceAll('\n', ' '), '{red:$wideContent}');
+      await teardownPage(tester);
+    });
+  });
 }
 
 /// A real [OptimizedNoteBloc] whose content load is inert, so the test owns
@@ -804,13 +1065,27 @@ void main() {
 class _TestNoteBloc extends OptimizedNoteBloc {
   _TestNoteBloc({required super.storageService, required super.searchService});
 
+  /// Every event the page dispatched, in order. The save cases assert on
+  /// what the page *asked* for rather than on what the database ended up
+  /// with, so they stay independent of whether the seeded note exists.
+  final List<OptimizedNoteEvent> dispatched = <OptimizedNoteEvent>[];
+
+  List<UpdateOptimizedNote> get updates =>
+      dispatched.whereType<UpdateOptimizedNote>().toList();
+
+  void clearDispatched() => dispatched.clear();
+
   @override
   void add(OptimizedNoteEvent event) {
+    dispatched.add(event);
     if (event is LoadNoteContent) return;
     super.add(event);
   }
 
-  void reset() => emit(OptimizedNoteInitial());
+  void reset() {
+    dispatched.clear();
+    emit(OptimizedNoteInitial());
+  }
 
   void emitContentLoaded(NoteMetadata metadata, String content) {
     emit(

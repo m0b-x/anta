@@ -619,6 +619,9 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
     final lineIndex = selection.extentIndex;
     final lines = controller.codeLines;
     if (lineIndex < 0 || lineIndex >= lines.length) return false;
+    // A fenced line is inert markdown — the tap path passes it through
+    // for the same reason, so Tab there is the fork's plain indent.
+    if (widget.isFenceLine?.call(lineIndex) ?? false) return false;
     final indent = EditorInputPolicy.listIndent(
       lineText: lines[lineIndex].text,
       outdent: outdent,
@@ -628,8 +631,7 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
     if (indent.delta == 0) return true;
 
     final newText = indent.text;
-    // Keep the caret on the same content character (never at offset 0,
-    // which would make the page's Enter-continuation logic misfire).
+    // Keep the caret on the same content character.
     final baseOffset = (selection.baseOffset + indent.delta).clamp(
       0,
       newText.length,

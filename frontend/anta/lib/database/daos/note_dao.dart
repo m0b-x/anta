@@ -225,6 +225,11 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
   }) async {
     final existing = await getNoteById(id);
     if (existing == null) return null;
+    // `getNoteById` does not filter tombstones, and an editor's auto-save
+    // can flush after the note was deleted from under it. Writing here
+    // would stamp the tombstone with a fresh HLC and version and resurrect
+    // it on the next merge.
+    if (existing.isDeleted) return null;
 
     final now = DateTime.now();
     final hlc = db.generateHlc();

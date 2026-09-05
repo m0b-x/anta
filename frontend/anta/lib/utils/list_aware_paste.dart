@@ -20,13 +20,23 @@ import 'markdown_list_syntax.dart';
 ///     table row ([MarkdownLineShape]) — since the text brought its
 ///     own structure and a list marker in front would break it;
 ///   * from the first blank pasted line on, the remainder pastes raw
-///     (a blank line ends a markdown list).
+///     (a blank line ends a markdown list);
+///   * the caret line is inside a ``` fence, where list syntax is inert.
 ///
 /// Only the copy/paste toolbar and Ctrl+V reach [paste]; text inserted
 /// by the IME's own paste key arrives as a plain insertion and is left
 /// alone by design.
 class ListAwarePasteController extends CodeLineEditingControllerDelegate {
-  ListAwarePasteController({required super.delegate});
+  ListAwarePasteController({
+    required super.delegate,
+    bool Function(int lineIndex)? isFenceLine,
+  }) : _isFenceLine = isFenceLine;
+
+  /// Whether the line at the given index is inside a ``` fence, or `null`
+  /// when the host keeps no fence index. A `- foo` in a code block is
+  /// inert markdown on both rendering surfaces, so a paste under it must
+  /// not grow list markers either.
+  final bool Function(int lineIndex)? _isFenceLine;
 
   @override
   void paste() {
@@ -34,16 +44,17 @@ class ListAwarePasteController extends CodeLineEditingControllerDelegate {
       final text = data?.text;
       if (text == null || text.isEmpty) return;
       final sel = selection;
-      final caretLine =
-          sel.extentIndex >= 0 && sel.extentIndex < codeLines.length
-          ? codeLines[sel.extentIndex].text
-          : '';
+      final inRange =
+          sel.extentIndex >= 0 && sel.extentIndex < codeLines.length;
+      final caretLine = inRange ? codeLines[sel.extentIndex].text : '';
+      final fenced = inRange && (_isFenceLine?.call(sel.extentIndex) ?? false);
       replaceSelection(
         ListAwarePaste.transform(
           caretLine: caretLine,
           caretOffset: sel.extentOffset,
           collapsed: sel.isCollapsed,
           pasted: text,
+          inFence: fenced,
         ),
       );
     });
@@ -55,13 +66,20 @@ class ListAwarePasteController extends CodeLineEditingControllerDelegate {
 class ListAwarePaste {
   ListAwarePaste._();
 
+  /// [pasted] with its line breaks normalised to `\n` and, when the caret
+  /// sits in a list item's content, every pasted line turned into a
+  /// sibling item. [inFence] is the one bail-out the line text cannot
+  /// show: inside a ``` fence a `- foo` line is inert, so nothing is
+  /// prefixed and only the normalisation applies.
   static String transform({
     required String caretLine,
     required int caretOffset,
     required bool collapsed,
     required String pasted,
+    bool inFence = false,
   }) {
     final normalized = pasted.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+    if (inFence) return normalized;
     if (!collapsed || !normalized.contains('\n')) return normalized;
     final item = MarkdownListSyntax.parse(caretLine);
     if (item == null || caretOffset < item.contentStart) return normalized;

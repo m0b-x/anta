@@ -362,6 +362,29 @@ void main() {
       );
     });
 
+    test('a busy key never starves one pending since before it', () async {
+      await settings.setEditorFontSize(24);
+
+      // A held +/- tap on the *other* row. The deadline belongs to the
+      // first pending write, not the latest one: restarting it on every
+      // schedule would keep the editor size unwritten for as long as the
+      // finger stays down, and the flush drains both keys anyway.
+      String? editorRow;
+      for (var i = 0; i < 20 && editorRow == null; i++) {
+        await Future<void>.delayed(debounce ~/ 4);
+        await settings.setPreviewFontSize(12 + i.toDouble());
+        editorRow = await db.userSettingsDao.getValue(
+          SettingsKeys.editorFontSize,
+        );
+      }
+
+      expect(
+        editorRow,
+        '24.0',
+        reason: 'the editor row was pending before the burst began',
+      );
+    });
+
     test('a flush with nothing pending issues no statement', () async {
       counter.reset();
       await settings.flushPendingWrites();

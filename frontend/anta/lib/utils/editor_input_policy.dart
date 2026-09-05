@@ -442,20 +442,48 @@ class EditorInputPolicy {
   /// convention indents the whole item at its start instead of inserting
   /// spaces at the caret. `null` means [lineText] is not a list line and
   /// the editor's own indent applies.
+  ///
+  /// The step **snaps to the [MarkdownListUtils.indentUnit] column grid**
+  /// exactly as the fork's own `_applyTextIndent` / `_applyTextOutdent`
+  /// do (`_code_line.dart`): a line already on the grid moves a whole
+  /// unit, one off it moves only as far as the nearest column. Without
+  /// that, a single-line Tab and the fork's multi-line Tab disagree on
+  /// the same line — ` - a` would become `   - a` here and `  - a`
+  /// there.
+  ///
+  /// One deliberate addition: the fork counts spaces alone, so it leaves
+  /// a tab-indented line untouched, while a Shift-Tab here still removes
+  /// a single leading tab. Nothing is lost by being more useful where
+  /// the fork does nothing at all.
   static EditorListIndent? listIndent({
     required String lineText,
     required bool outdent,
   }) {
     if (!MarkdownListUtils.isListLine(lineText)) return null;
-    const unit = '  '; // MarkdownListUtils.indentUnit spaces
-    if (!outdent) return EditorListIndent('$unit$lineText', unit.length);
-    if (lineText.startsWith(unit)) {
-      return EditorListIndent(lineText.substring(unit.length), -unit.length);
+    final int unit = MarkdownListUtils.indentUnit;
+    final int leading = _leadingSpaces(lineText);
+    final int mod = leading % unit;
+    final int step = mod == 0 ? unit : mod;
+    if (!outdent) {
+      return EditorListIndent('${' ' * step}$lineText', step);
     }
-    if (lineText.startsWith(' ') || lineText.startsWith('\t')) {
+    if (leading > 0) {
+      return EditorListIndent(lineText.substring(step), -step);
+    }
+    if (lineText.startsWith('\t')) {
       return EditorListIndent(lineText.substring(1), -1);
     }
     return EditorListIndent(lineText, 0);
+  }
+
+  /// How many spaces [text] starts with — the fork's
+  /// `_prefixWhitespaceCount`, which counts spaces and nothing else.
+  static int _leadingSpaces(String text) {
+    int index = 0;
+    while (index < text.length && text.codeUnitAt(index) == 0x20) {
+      index++;
+    }
+    return index;
   }
 }
 
@@ -562,6 +590,12 @@ class GhostEngagement {
     String? lineText,
   ) {
     if (!_armed) return const GhostNone();
+    // The arming belongs to the caret change it was armed for, whatever
+    // that change turns out to be. Leaving it up on the bail-outs below
+    // let the *next* caret change — a keyboard move inside the host's
+    // 350 ms arming window, which fires no pointer event — engage a run
+    // no tap ever reached.
+    _armed = false;
     if (!selection.isCollapsed) return const GhostNone();
     if (lineText == null) return const GhostNone();
     if (!GhostText.mightContain(lineText)) return const GhostNone();
@@ -573,7 +607,6 @@ class GhostEngagement {
         lineText == _text &&
         ghost.start == _start &&
         ghost.end == _end) {
-      _armed = false;
       _clear();
       return const GhostEditInPlace();
     }
@@ -581,7 +614,6 @@ class GhostEngagement {
     _start = ghost.start;
     _end = ghost.end;
     _text = lineText;
-    _armed = false;
     return GhostSelectRun(
       lineIndex: lineIndex,
       start: ghost.start,
@@ -602,6 +634,16 @@ class GhostEngagement {
     final extent = selection.extentOffset;
     final lo = base < extent ? base : extent;
     final hi = base < extent ? extent : base;
+    // A collapsed caret is "inside" only where `containsStrict` says a
+    // tap is: the run's own boundaries are outside it, so parking the
+    // caret on one drops the engagement and the next tap in the middle
+    // selects the run again instead of dropping straight into edit mode.
+    // The whole-run selection the engagement itself asks for is the one
+    // non-collapsed span that must survive, hence the wider test below.
+    if (lo == hi) {
+      if (lo <= _start || lo >= _end) _clear();
+      return;
+    }
     if (lo < _start || hi > _end) _clear();
   }
 

@@ -79,6 +79,15 @@ class NoteSaveCoordinator {
   /// arrives mid-flight can wait for it instead of being dropped.
   Future<void>? _pendingCreate;
 
+  /// The exact title and content the early create dispatched.
+  ///
+  /// Auto-save baselines on these when the id lands, never on whatever the
+  /// editor holds by then: a create takes a title lookup to resolve, and
+  /// everything typed during that round trip has to read as unsaved or the
+  /// first paragraph is silently dropped.
+  String? _createdTitle;
+  String? _createdContent;
+
   /// One-shot guard so auto-save does not raise the duplicate-title
   /// warning on every keystroke after a collision. Cleared the moment the
   /// user picks a title that does not collide.
@@ -115,30 +124,60 @@ class NoteSaveCoordinator {
     _track();
   }
 
+  /// The note's stored text has landed in the editor.
+  ///
+  /// The load fires the page's text listener like any edit would, and
+  /// auto-save's baseline — taken in [start], before the content existed —
+  /// is still the empty document. Re-baselining here is what stops the
+  /// note being rewritten verbatim five seconds after it was opened, with
+  /// a fresh `updatedAt`, `version` and HLC behind it.
+  void contentLoaded() {
+    if (_effectiveNoteId == null) return;
+    _track();
+    _setHasChanges(false);
+  }
+
   /// The editor's text changed: mark the page dirty, then either feed the
   /// auto-save debounce or — for a note that has never been written —
   /// persist it as soon as it holds anything worth keeping.
   void onContentChanged() {
-    markChanged();
     if (_effectiveNoteId != null) {
-      _autoSave.onContentChanged(_title());
+      markChanged();
     } else {
+      _setHasChanges(true);
       _maybeCreateNewNoteEarly();
     }
   }
 
-  /// The bloc reported the early create landed: adopt the new id and
-  /// start tracking, so the next keystroke auto-saves as an update.
+  /// The bloc reported the early create landed: adopt the new id and start
+  /// tracking against what the create actually wrote, then hand auto-save
+  /// anything typed since, so the tail of the first paragraph is scheduled
+  /// rather than treated as already saved.
   void noteCreated(String id) {
     _effectiveNoteId = id;
     _isCreatingNewNote = false;
-    _track();
+    final baselineTitle = _createdTitle ?? '';
+    final baselineContent = _createdContent ?? '';
+    _autoSave.startTracking(
+      baselineTitle,
+      baselineContent,
+      contentProvider: _content,
+    );
+    if (_title() != baselineTitle || _content() != baselineContent) {
+      _autoSave.onContentChanged(_title());
+    }
   }
 
   /// Marks the note dirty for the edits that bypass the text listener — a
   /// checkbox toggled through the tap interceptor, a search-and-replace
-  /// applied by the find controller.
-  void markChanged() => _setHasChanges(true);
+  /// applied by the find controller — and arms auto-save so they are
+  /// written like any other change.
+  void markChanged() {
+    _setHasChanges(true);
+    if (_effectiveNoteId != null) {
+      _autoSave.onContentChanged(_title());
+    }
+  }
 
   /// Writes now instead of waiting for the debounce; the preview toggle
   /// takes one as a natural checkpoint. [content] lets a caller that has
@@ -181,8 +220,7 @@ class NoteSaveCoordinator {
       return;
     }
     final title = _title().trim();
-    final content = _content().trim();
-    if (title.isEmpty && content.isEmpty) return;
+    if (title.isEmpty && _content().trim().isEmpty) return;
     // Awaited, unlike the fire-and-forget lifecycle path: the caller is
     // holding the pop, and the title lookup inside would otherwise finish
     // after this object is disposed and drop the create.
@@ -196,6 +234,7 @@ class NoteSaveCoordinator {
   }
 
   void _track() {
+    if (_effectiveNoteId == null) return;
     _autoSave.startTracking(_title(), _content(), contentProvider: _content);
   }
 
@@ -210,8 +249,13 @@ class NoteSaveCoordinator {
 
     var titleToSave = title;
     final trimmed = title?.trim() ?? '';
-    if (trimmed.isNotEmpty &&
-        trimmed.toLowerCase() != (originalTitle?.trim().toLowerCase() ?? '')) {
+    if (trimmed.isEmpty ||
+        trimmed.toLowerCase() == (originalTitle?.trim().toLowerCase() ?? '')) {
+      // Nothing to collide with, so this counts as a non-colliding title
+      // and re-arms the warning: clearing the field and retyping the same
+      // taken title has to be reported again.
+      _warnedDuplicateTitle = false;
+    } else {
       final exists = await _titleExists(title: trimmed, excludeId: noteId);
       if (exists) {
         titleToSave = originalTitle ?? '';
@@ -250,10 +294,20 @@ class NoteSaveCoordinator {
 
   /// Fires an early create without waiting for it, remembering the future
   /// so [saveBeforeExit] can join a create that is still resolving.
+  ///
+  /// The guard is the point: a lifecycle pause landing mid-create would
+  /// otherwise overwrite [_pendingCreate] with an already-complete future,
+  /// [saveBeforeExit] would return at once, and the real create — still
+  /// inside its title lookup — would find the coordinator disposed and
+  /// drop the note.
   void _startCreateNewNoteEarly() {
+    if (_effectiveNoteId != null || _isCreatingNewNote) return;
     final pending = _createNewNoteEarly();
-    _pendingCreate = pending;
     unawaited(pending);
+    // `_createNewNoteEarly` raises the in-flight flag synchronously once it
+    // commits; an empty note bails out before that, and remembering its
+    // finished future would give `saveBeforeExit` nothing to join.
+    if (_isCreatingNewNote) _pendingCreate = pending;
   }
 
   /// Creates the note and switches the coordinator to update mode.
@@ -265,8 +319,11 @@ class NoteSaveCoordinator {
   Future<void> _createNewNoteEarly() async {
     if (_effectiveNoteId != null || _isCreatingNewNote) return;
     final title = _title().trim();
-    final content = _content().trim();
-    if (title.isEmpty && content.isEmpty) return;
+    // Trimmed only to decide whether there is anything worth keeping: the
+    // text itself is persisted as typed, so an indented first list item
+    // does not lose its indent on the very first write.
+    final content = _content();
+    if (title.isEmpty && content.trim().isEmpty) return;
 
     // Raised before the title lookup, not after it: every keystroke while
     // that round trip is in flight re-enters this method, and a flag set
@@ -287,6 +344,8 @@ class NoteSaveCoordinator {
     }
 
     if (_disposed) return;
+    _createdTitle = titleToCreate;
+    _createdContent = content;
     _dispatch(
       CreateOptimizedNote(
         folderId: folderId,

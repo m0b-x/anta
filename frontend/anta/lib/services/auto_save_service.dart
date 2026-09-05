@@ -44,6 +44,7 @@ class AutoSaveService {
     String content, {
     required String Function() contentProvider,
   }) {
+    if (_disposed) return;
     stopTracking();
 
     _savedTitle = title;
@@ -69,6 +70,7 @@ class AutoSaveService {
   }
 
   void onContentChanged(String currentTitle) {
+    if (_disposed) return;
     _latestTitle = currentTitle;
     _hasPendingChanges = true;
     _updateStatus(SaveStatus.unsaved);
@@ -153,13 +155,16 @@ class AutoSaveService {
 
   Future<void> forceSave({String? title, String? content}) async {
     _debounceTimer?.cancel();
+    // Wait for any in-progress save to finish before forcing our own,
+    // otherwise _performSave's _isSaving guard would silently drop this.
+    if (_isSaving) await _inFlightSave?.future;
+    // Both values are resolved *after* that wait: anything typed while the
+    // earlier write was in flight has to land in this save, and reading
+    // them first would stamp it as already saved and lose it.
     final saveTitle = title ?? _latestTitle;
     final saveContent = content ?? _contentProvider?.call();
     if (saveContent == null) return;
     _latestTitle = saveTitle;
-    // Wait for any in-progress save to finish before forcing our own,
-    // otherwise _performSave's _isSaving guard would silently drop this.
-    if (_isSaving) await _inFlightSave?.future;
     await _performSave(saveTitle, saveContent);
   }
 

@@ -188,7 +188,11 @@ class NoteStorageService {
     await initialize();
 
     final existingNote = await _repository.getNoteById(noteId);
-    if (existingNote == null) return null;
+    // Tombstones come back from `getNoteById` too, and the repository
+    // writes the chunks *before* the DAO gets to refuse the row — so an
+    // auto-save flushing after a delete would repopulate a deleted note's
+    // content. The refusal has to happen here, above both.
+    if (existingNote == null || existingNote.isDeleted) return null;
 
     // Title-uniqueness backstop. Only run when the title is actually
     // changing to a non-empty value; otherwise saving an unchanged title

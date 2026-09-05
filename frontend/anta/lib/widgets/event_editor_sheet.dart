@@ -15,6 +15,7 @@ import '../constants/event_priorities.dart';
 import '../constants/font_constants.dart';
 import '../constants/occurrence_descriptions.dart';
 import '../constants/settings_keys.dart';
+import '../controllers/editor_edit_tracker.dart';
 import '../controllers/editor_render_controller.dart';
 import '../controllers/markdown_shortcut_inserter.dart';
 import '../controllers/shortcut_applier.dart';
@@ -262,6 +263,13 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   /// stored value is still plain markdown source on the event row — nothing
   /// about this widget is persisted.
   late final CodeLineEditingController _descriptionController;
+
+  /// Enter list continuation and the re-entrancy guard for programmatic
+  /// inserts — the same tracker the note editor and the description sheet
+  /// run, so a `- ` typed here continues exactly as it does there. Holds
+  /// no resources, so nothing to dispose.
+  late final EditorEditTracker _descriptionEdits;
+
   late final FocusNode _descriptionFocus;
   late final CodeScrollController _descriptionScroll;
 
@@ -495,6 +503,16 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     _titleController = TextEditingController(text: initial?.title ?? '');
     _descriptionController = ListAwarePasteController(
       delegate: CodeLineEditingController(spanBuilder: _buildDescriptionSpan),
+      isFenceLine: _descriptionSpanBuilder.lineInFence,
+    );
+    _descriptionEdits = EditorEditTracker(
+      controller: _descriptionController,
+      // No width reflow here: the field has no auto-break setting and no
+      // measured width, so the tracker is only ever the Enter half.
+      autoBreakLongLines: () => false,
+      pasteContext: () => null,
+      onLinesReformatted: (_) {},
+      isFenceLine: _descriptionSpanBuilder.lineInFence,
     );
     _templateBuffer = initial?.description ?? '';
     // Copy-on-write seed: a day with no row of its own starts from the
@@ -518,6 +536,9 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     // recurrence rule is known. Seeding is a load, not an edit: `set text`
     // would be revocable and undo could wipe what the sheet opened with.
     _descriptionController.loadText(_templateBuffer);
+    // Every seed is what the next keystroke diffs against; without this
+    // the whole loaded text reads as a paste.
+    _descriptionEdits.syncLength();
     _descriptionSpanBuilder.bind(_descriptionController);
     _descriptionFocus = FocusNode()..addListener(_onDescriptionFocusChanged);
     _descriptionScroll = CodeScrollController();
@@ -556,6 +577,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     if (_dayMaterialized && _scopeControlVisible) {
       _scope = _DescriptionScope.thisDay;
       _descriptionController.loadText(_dayBuffer);
+      _descriptionEdits.syncLength();
     }
     // Subscribed last, after every seeding write above, so opening the sheet
     // costs no spurious relay bump.
@@ -867,6 +889,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
       _descriptionController.loadText(
         next == _DescriptionScope.thisDay ? _dayBuffer : _templateBuffer,
       );
+      _descriptionEdits.syncLength();
     });
   }
 
@@ -880,6 +903,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
       _dayResetBaseline = _dayBuffer;
       if (_scope == _DescriptionScope.thisDay) {
         _descriptionController.loadText(_dayBuffer);
+        _descriptionEdits.syncLength();
       }
     });
   }
@@ -895,6 +919,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     _dayBuffer = _descriptionController.text;
     _scope = _DescriptionScope.allDays;
     _descriptionController.loadText(_templateBuffer);
+    _descriptionEdits.syncLength();
   }
 
   /// Label for the retroactive scope chip. Yearly rules read naturally as
@@ -1568,7 +1593,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
               scrollController: _descriptionScroll,
               searchController: _descriptionSearch,
               editorFontSize: FontConstants.defaultFontSize,
-              onTextChanged: () {},
+              onTextChanged: _descriptionEdits.onTextChanged,
               checkboxTapToggle: _liveMarkdownRendering,
               showScrollIndicator: false,
             ),
@@ -1659,17 +1684,22 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   /// everything else goes through the shared applier as one undo entry.
   /// Counter mutation is unreachable — those shortcuts never reach the bar.
   void _handleDescriptionShortcut(CustomMarkdownShortcut shortcut) {
-    if (MarkdownShortcutInserter.handles(shortcut)) {
-      MarkdownShortcutInserter.apply(_descriptionController, shortcut);
-    } else {
-      _descriptionController.runRevocableOp(() {
-        ShortcutApplier.apply(
-          controller: _descriptionController,
-          shortcut: shortcut,
-          mutateCounter: (_, _) async => null,
-        );
-      });
-    }
+    // Guarded like every programmatic insert in the note editor: the
+    // notification it fires must not be diffed as typing, and the length
+    // must be resynced or the next keystroke is.
+    _descriptionEdits.runGuarded(() {
+      if (MarkdownShortcutInserter.handles(shortcut)) {
+        MarkdownShortcutInserter.apply(_descriptionController, shortcut);
+      } else {
+        _descriptionController.runRevocableOp(() {
+          ShortcutApplier.apply(
+            controller: _descriptionController,
+            shortcut: shortcut,
+            mutateCounter: (_, _) async => null,
+          );
+        });
+      }
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _descriptionController.makeCursorVisible();
     });
@@ -1716,6 +1746,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     // and, while live rendering is off, the read-only preview.
     setState(() {
       _descriptionController.loadText(result);
+      _descriptionEdits.syncLength();
     });
   }
 

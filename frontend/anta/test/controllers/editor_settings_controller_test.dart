@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/font_constants.dart';
@@ -23,6 +24,10 @@ import '../database/support/db_test_support.dart';
 /// to notify even when nothing differs from the defaults, because that is what
 /// takes the page out of its loading skeleton and lets the editor mount.
 void main() {
+  // The database-switch case opens a second in-memory database on purpose —
+  // that is the whole point of it.
+  driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+
   const debounce = Duration(milliseconds: 20);
 
   late AppDatabase db;
@@ -230,6 +235,98 @@ void main() {
         await db.userSettingsDao.getValue(SettingsKeys.editorFontSize),
         '18.0',
       );
+    });
+  });
+
+  group('a database switched underneath the page', () {
+    test('every reload resolves the service again', () async {
+      var resolves = 0;
+      var current = settings;
+      final switching = EditorSettingsController(
+        resolveSettings: () async {
+          resolves++;
+          return current;
+        },
+      );
+
+      await switching.reload();
+
+      expect(resolves, 1);
+      expect(switching.value.showLineNumbers, isFalse);
+
+      // What the settings page does when the user picks another database:
+      // the singleton is dropped and the next lookup binds to the new one.
+      final second = await openTestDatabase();
+      addTearDown(second.close);
+      SettingsService.reset();
+      DatabaseLifecycle.notifyDatabaseSwitching();
+      current = SettingsService.forTesting(second, writeDebounce: debounce);
+      await current.setShowLineNumbers(true);
+
+      await switching.reload();
+
+      expect(
+        resolves,
+        2,
+        reason:
+            'a handle cached across the switch is a handle on a database '
+            'the user has left',
+      );
+      expect(switching.value.showLineNumbers, isTrue);
+
+      switching.dispose();
+    });
+  });
+
+  group('detached writes', () {
+    test('dispose flushes what a last-moment adjust scheduled', () async {
+      final closing = EditorSettingsController(
+        resolveSettings: () async => settings,
+      );
+      await closing.reload();
+      closing.adjustEditorFontSize(1);
+
+      // The page disposes on the way out; the tap the user made a moment
+      // before that still has to reach the database.
+      closing.dispose();
+      await Future<void>.delayed(debounce);
+
+      expect(
+        await db.userSettingsDao.getValue(SettingsKeys.editorFontSize),
+        '18.0',
+      );
+    });
+
+    test('a flush that fails on dispose does not reach the zone', () async {
+      final orphan = EditorSettingsController(
+        resolveSettings: () async => settings,
+      );
+      await orphan.reload();
+      orphan.adjustEditorFontSize(1);
+
+      // The database is gone before the page is: exactly what a switch (or
+      // a restore) does while the editor is still mounted.
+      await db.close();
+
+      orphan.dispose();
+      await Future<void>.delayed(debounce);
+    });
+
+    test('a resolve that fails on an early adjust does not reach the zone', () {
+      final unresolvable = EditorSettingsController(
+        resolveSettings: () =>
+            Future<SettingsService>.error(StateError('no database')),
+      );
+
+      // A tap before the first reload takes the resolve-then-write path,
+      // and nothing awaits it: an escaping error would take down the zone
+      // that owns the editor page over an unpersisted font size.
+      unresolvable.adjustEditorFontSize(1);
+
+      expect(unresolvable.value.editorFontSize, 18.0);
+
+      unresolvable.dispose();
+      return Future<void>.delayed(debounce);
     });
   });
 

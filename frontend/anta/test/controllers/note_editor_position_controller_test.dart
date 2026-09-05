@@ -149,6 +149,37 @@ void main() {
         expect(h.restored, isEmpty);
       });
     });
+
+    test('a read that throws never escapes and never opens the join', () {
+      fakeAsync((async) {
+        final restored = <NotePositionData>[];
+        final controller = NoteEditorPositionController(
+          noteId: 'note-1',
+          loadPosition: (id) => Future<NotePositionData>.error(
+            StateError('the position row is unreadable'),
+          ),
+          savePosition: (id, position) async {},
+          onRestore: restored.add,
+        );
+
+        // The page fires this unawaited: an escaping error would land in
+        // the zone rather than costing the user their place.
+        unawaited(controller.load());
+        async.flushMicrotasks();
+
+        expect(controller.saved, isNull);
+        expect(controller.savedIsPreviewMode, isNull);
+
+        // And the join stays shut for good — a note with nothing readable
+        // stored is a note that opens where it opens.
+        controller.contentReady();
+        controller.restoreWhenReady();
+
+        expect(restored, isEmpty);
+
+        controller.dispose();
+      });
+    });
   });
 
   group('a note with no id yet', () {
@@ -310,6 +341,24 @@ void main() {
 
         expect(ran, isEmpty);
         expect(h.saves, isEmpty);
+      });
+    });
+
+    test('a debounced save that fails dies inside the timer', () {
+      fakeAsync((async) {
+        final controller = NoteEditorPositionController(
+          noteId: 'note-1',
+          loadPosition: (id) async => _position(),
+          savePosition: (id, position) =>
+              Future<void>.error(StateError('the write failed')),
+          onRestore: (_) {},
+        );
+
+        controller.debounceSave(const Duration(milliseconds: 100), _position);
+        async.elapse(const Duration(milliseconds: 200));
+        async.flushMicrotasks();
+
+        controller.dispose();
       });
     });
   });

@@ -145,9 +145,7 @@ void main() {
         final h = _Harness()..track(initial: 'v0');
 
         h.type('v1');
-        async.elapse(
-          h.service.debounceDelay - const Duration(milliseconds: 1),
-        );
+        async.elapse(h.service.debounceDelay - const Duration(milliseconds: 1));
         expect(h.saver.callCount, 0);
 
         async.elapse(const Duration(milliseconds: 1));
@@ -162,13 +160,9 @@ void main() {
         final h = _Harness()..track(initial: 'v0');
 
         h.type('v1');
-        async.elapse(
-          h.service.debounceDelay - const Duration(milliseconds: 1),
-        );
+        async.elapse(h.service.debounceDelay - const Duration(milliseconds: 1));
         h.type('v2');
-        async.elapse(
-          h.service.debounceDelay - const Duration(milliseconds: 1),
-        );
+        async.elapse(h.service.debounceDelay - const Duration(milliseconds: 1));
         expect(h.saver.callCount, 0);
 
         async.elapse(const Duration(milliseconds: 1));
@@ -383,6 +377,34 @@ void main() {
       });
     });
 
+    test('text typed while it waits lands in the forced save', () {
+      fakeAsync((async) {
+        final h = _Harness()..track(initial: 'v0');
+        final gate = Completer<void>();
+        h.saver.gate = gate;
+
+        h.type('v1');
+        async.elapse(h.service.debounceDelay);
+        expect(h.saver.callCount, 1);
+
+        unawaited(h.service.forceSave());
+        async.flushMicrotasks();
+
+        // Typed while the first write is in flight and the forced save is
+        // parked behind it. Reading the provider before that wait would
+        // stamp 'v1' as saved and lose this on the pop that follows.
+        h.content = 'v2';
+
+        gate.complete();
+        async.flushMicrotasks();
+
+        expect(h.saver.callCount, 2);
+        expect(h.saver.calls[1].content, 'v2');
+
+        h.dispose();
+      });
+    });
+
     test('it is dropped, not queued, when the content did not move', () {
       fakeAsync((async) {
         final h = _Harness()..track(initial: 'v0');
@@ -470,9 +492,8 @@ void main() {
 
   group('retry ladder', () {
     _Harness failing() =>
-        _Harness(saveInterval: const Duration(minutes: 10))..track(
-          initial: 'v0',
-        );
+        _Harness(saveInterval: const Duration(minutes: 10))
+          ..track(initial: 'v0');
 
     test('a failing save is retried three times and then abandoned', () {
       fakeAsync((async) {
@@ -754,6 +775,36 @@ void main() {
         async.flushMicrotasks();
 
         expect(error, isNull);
+      });
+    });
+
+    test('a change announced after dispose is ignored', () {
+      fakeAsync((async) {
+        final h = _Harness()..track(initial: 'v0');
+
+        h.dispose();
+        h.type('v1');
+        async.elapse(const Duration(minutes: 10));
+
+        expect(h.changeFlags, isEmpty);
+        expect(h.saver.callCount, 0);
+      });
+    });
+
+    test('tracking cannot be restarted after dispose', () {
+      fakeAsync((async) {
+        final h = _Harness()..track(initial: 'v0');
+
+        h.dispose();
+        h.track(initial: 'v1');
+        async.elapse(const Duration(minutes: 10));
+
+        expect(
+          async.pendingTimers,
+          isEmpty,
+          reason: 'a dead service must not leave an interval timer running',
+        );
+        expect(h.saver.callCount, 0);
       });
     });
 

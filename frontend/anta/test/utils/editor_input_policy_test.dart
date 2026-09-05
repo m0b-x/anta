@@ -692,6 +692,22 @@ void main() {
       );
     });
 
+    test('an off-grid line snaps to the indent grid, like the fork', () {
+      // `_applyTextIndent` / `_applyTextOutdent` in the fork's
+      // `_code_line.dart` move by `leading % unit` when that is non-zero,
+      // so a multi-line Tab lands ` - a` on column 2. A single-line Tab
+      // that always moved a whole unit put it on column 3 instead, and
+      // the same line indented one way could not be outdented the other.
+      expect(
+        EditorInputPolicy.listIndent(lineText: ' - squat', outdent: false),
+        const EditorListIndent('  - squat', 1),
+      );
+      expect(
+        EditorInputPolicy.listIndent(lineText: '   - squat', outdent: true),
+        const EditorListIndent('  - squat', -1),
+      );
+    });
+
     test('outdenting at column 0 consumes the key and changes nothing', () {
       expect(
         EditorInputPolicy.listIndent(lineText: '- squat', outdent: true),
@@ -786,6 +802,53 @@ void main() {
         const GhostNone(),
       );
       expect(engagement.engaged, isFalse);
+    });
+
+    test('a bail-out spends the arming, so the next caret move is '
+        'not a tap', () {
+      // The arming belongs to the caret change it was armed for. Left up
+      // through a bail-out, it engaged the *next* change — and a keyboard
+      // caret move inside the host's 350 ms window fires no pointer event
+      // at all, so a run would select itself with nothing tapped.
+      final engagement = GhostEngagement()..arm();
+      expect(
+        engagement.caretChanged(
+          selection: const CodeLineSelection(
+            baseIndex: line,
+            baseOffset: 6,
+            extentIndex: line,
+            extentOffset: 9,
+          ),
+          lineText: ghostLine,
+        ),
+        const GhostNone(),
+      );
+      expect(engagement.armed, isFalse);
+
+      expect(
+        engagement.caretChanged(selection: caretAt(8), lineText: ghostLine),
+        const GhostNone(),
+      );
+      expect(engagement.engaged, isFalse);
+    });
+
+    test('a collapsed caret on a run boundary disengages it', () {
+      // `containsStrict` puts the boundaries outside the run, so a caret
+      // parked on one is outside too — otherwise the next tap in the
+      // middle reads as the second tap and edits in place instead of
+      // selecting the run.
+      for (final offset in const <int>[runStart, runEnd]) {
+        final engagement = engaged();
+        engagement.caretChanged(
+          selection: caretAt(offset),
+          lineText: ghostLine,
+        );
+        expect(
+          engagement.engaged,
+          isFalse,
+          reason: 'caret at $offset kept the engagement',
+        );
+      }
     });
 
     test('an out-of-range caret line never engages', () {

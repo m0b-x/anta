@@ -23,7 +23,12 @@ import 'package:anta/utils/editor_width_calculator.dart';
 /// in [_Harness] states that, and it is what makes the expected break
 /// points below exact rather than approximate.
 class _Harness {
-  _Harness(String text, {this.autoBreak = true, bool measurable = true}) {
+  _Harness(
+    String text, {
+    this.autoBreak = true,
+    bool measurable = true,
+    bool Function(int lineIndex)? isFenceLine,
+  }) {
     editor = CodeLineEditingController.fromText(text);
     calculator = EditorWidthCalculator(
       config: EditorWidthConfig(editorContainerKey: GlobalKey(), fontSize: 10),
@@ -38,6 +43,7 @@ class _Harness {
           ? (calculator: calculator, availableWidth: availableWidth)
           : null,
       onLinesReformatted: reformatted.add,
+      isFenceLine: isFenceLine,
     );
     tracker.syncLength();
   }
@@ -457,6 +463,141 @@ void main() {
       h.tracker.onTextChanged();
 
       expect(h.lines, ['    - item!', 'ab']);
+
+      h.dispose();
+    });
+  });
+
+  /// The Enter shape and the paste threshold overlap once an item is
+  /// indented far enough, and the split prefix is not the whole item once
+  /// the caret sits inside one. Both used to be resolved the wrong way.
+  group('Enter shapes the paste branch used to swallow', () {
+    test('a deeply indented item still continues past the paste '
+        'threshold', () {
+      // 20 spaces of indent: `applyNewLine` copies them all, so the Enter
+      // grows the document by 21 — one past `pasteThreshold`, which used
+      // to route it to the reflow and drop the continuation entirely.
+      const indent = '                    ';
+      expect(indent.length, EditorEditTracker.pasteThreshold);
+      final h = _Harness('$indent- item\nplain');
+
+      h.pressEnter(0, '$indent- item'.length);
+
+      expect(h.lines, ['$indent- item', '$indent- ', 'plain']);
+      expect(h.editor.selection.baseIndex, 1);
+      expect(h.editor.selection.baseOffset, '$indent- '.length);
+      expect(h.reformatted, isEmpty);
+
+      h.dispose();
+    });
+
+    test('a split just right of the marker continues instead of '
+        'dropping the item', () {
+      // The split prefix is `- ` here too, but the item is not empty —
+      // its content simply moved down. Reading the prefix alone deleted
+      // the marker line and left the document as plain `item`.
+      final h = _Harness('- item\nplain');
+
+      h.pressEnter(0, 2);
+
+      expect(h.lines, ['- ', '- item', 'plain']);
+      expect(h.editor.selection.baseIndex, 1);
+      expect(h.editor.selection.baseOffset, 2);
+      expect(h.tracker.previousTextLength, h.editor.textLength);
+
+      h.dispose();
+    });
+
+    test('a nested split just right of the marker keeps its depth', () {
+      final h = _Harness('  - item\nplain');
+
+      h.pressEnter(0, 4);
+
+      expect(h.lines, ['  - ', '  - item', 'plain']);
+      expect(h.editor.selection.baseOffset, 4);
+
+      h.dispose();
+    });
+
+    test('a split just right of a task box continues unchecked', () {
+      final h = _Harness('- [ ] task\nplain');
+
+      h.pressEnter(0, 6);
+
+      expect(h.lines, ['- [ ] ', '- [ ] task', 'plain']);
+      expect(h.editor.selection.baseOffset, '- [ ] '.length);
+
+      h.dispose();
+    });
+
+    test('an empty item is still dropped', () {
+      // The remainder rule must not cost the termination case: nothing
+      // followed the marker, so this is the empty item it always was.
+      final h = _Harness('- \nplain');
+
+      h.pressEnter(0, 2);
+
+      expect(h.lines, ['', 'plain']);
+
+      h.dispose();
+    });
+  });
+
+  group('fenced lines', () {
+    test('Enter inside a fence grows no marker', () {
+      // The fence index is the host's; the tracker only asks. Line 0 is
+      // fenced here, so its `- foo` is inert source text.
+      final h = _Harness('- foo\nplain', isFenceLine: (index) => index == 0);
+
+      h.pressEnter(0, '- foo'.length);
+
+      expect(h.lines, ['- foo', '', 'plain']);
+
+      h.dispose();
+    });
+
+    test('the same Enter outside the fence still continues', () {
+      final h = _Harness('- foo\nplain', isFenceLine: (index) => index == 5);
+
+      h.pressEnter(0, '- foo'.length);
+
+      expect(h.lines, ['- foo', '- ', 'plain']);
+
+      h.dispose();
+    });
+  });
+
+  /// The tracker sees a **net** length diff and nothing else, which puts a
+  /// hard floor under what it can tell apart. These pin the consequences
+  /// rather than fix them — there is nothing in a controller notification
+  /// that would.
+  group('what a net length diff cannot distinguish', () {
+    test('a paste of exactly a line break plus the indent reads as an '
+        'Enter', () {
+      final h = _Harness('  - alpha\nplain');
+
+      h.insertAt(0, '  - alpha'.length, '\n  ');
+
+      expect(h.lines, ['  - alpha', '  - ', 'plain']);
+
+      h.dispose();
+    });
+
+    test('Enter over a non-empty selection continues nothing', () {
+      // The replaced text pays for the line break, so the document does
+      // not grow and the tracker never looks at the edit at all.
+      final h = _Harness('- alpha\nplain');
+      h.editor.selection = const CodeLineSelection(
+        baseIndex: 0,
+        baseOffset: 5,
+        extentIndex: 0,
+        extentOffset: 7,
+      );
+      h.editor.applyNewLine();
+      h.tracker.onTextChanged();
+
+      expect(h.lines, ['- alp', '', 'plain']);
+      expect(h.tracker.previousTextLength, h.editor.textLength);
 
       h.dispose();
     });

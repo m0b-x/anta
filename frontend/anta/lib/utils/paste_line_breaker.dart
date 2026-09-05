@@ -66,15 +66,24 @@ class PasteLineBreaker {
   /// caret — the only two facts the caller can supply without measuring the
   /// document.
   ///
+  /// [lineInFenceBody] answers whether a given document line sits **inside**
+  /// a fence body (delimiters excluded). It is consulted once, for the
+  /// range's first line, so a paste landing in the middle of a code block
+  /// is recognised as such: the range carries no opening delimiter of its
+  /// own, and without the seed its code lines would be hard-wrapped. A
+  /// caller with no fence index passes nothing and gets the old,
+  /// slice-local reading.
+  ///
   /// Returns [PasteLineBreakerResult.empty] with the controller untouched
-  /// when nothing in the range needs breaking; otherwise the caret lands at
-  /// the end of the reformatted block.
+  /// when nothing in the range needs breaking; otherwise the caret follows
+  /// [pasteEnd] onto whichever output line now holds it.
   static PasteLineBreakerResult run({
     required CodeLineEditingController controller,
     required EditorWidthCalculator calculator,
     required double availableWidth,
     required CodeLinePosition pasteEnd,
     required int pastedLength,
+    bool Function(int lineIndex)? lineInFenceBody,
   }) {
     if (availableWidth <= 0) return PasteLineBreakerResult.empty;
 
@@ -88,6 +97,7 @@ class PasteLineBreaker {
       end: end,
       caretOffset: pasteEnd.offset,
       pastedLength: pastedLength,
+      lineBreakLength: controller.options.lineBreak.value.length,
     );
 
     assert(
@@ -101,7 +111,11 @@ class PasteLineBreaker {
       lines.add(codeLines[i].text);
     }
 
-    final result = calculator.breakLinesSmartly(lines, availableWidth);
+    final result = calculator.breakLinesSmartly(
+      lines,
+      availableWidth,
+      inCodeBlock: lineInFenceBody?.call(start) ?? false,
+    );
     if (result.linesModified == 0) return PasteLineBreakerResult.empty;
 
     final next = codeLines.sublines(0, start);
@@ -114,9 +128,10 @@ class PasteLineBreaker {
 
     controller.value = CodeLineEditingValue(
       codeLines: next,
-      selection: CodeLineSelection.collapsed(
-        index: start + result.lines.length - 1,
-        offset: result.lines.last.length,
+      selection: _caretAfter(
+        start: start,
+        caretOffset: pasteEnd.offset,
+        result: result,
       ),
     );
 
@@ -126,23 +141,56 @@ class PasteLineBreaker {
     );
   }
 
+  /// Where the caret goes once the range has been rebuilt: [caretOffset]
+  /// is an offset on the **last source line**, so it is mapped through
+  /// that line's pieces ([LineBreakResult.lastLineSourceOffsets]) onto the
+  /// output line that now holds it.
+  ///
+  /// Landing at the end of the last output line instead would drop the
+  /// caret past whatever text already followed the paste on its line, and
+  /// — when the last source line was skipped as a line-led construct or a
+  /// fence body — at the end of a line the paste never even reached.
+  static CodeLineSelection _caretAfter({
+    required int start,
+    required int caretOffset,
+    required LineBreakResult result,
+  }) {
+    final offsets = result.lastLineSourceOffsets;
+    int piece = offsets.length - 1;
+    while (piece > 0 && offsets[piece] > caretOffset) {
+      piece--;
+    }
+    final int index = result.lines.length - offsets.length + piece;
+    final String text = result.lines[index];
+    final int offset = (caretOffset - offsets[piece]).clamp(0, text.length);
+    return CodeLineSelection.collapsed(index: start + index, offset: offset);
+  }
+
   /// First line the paste touched, walking back from the caret line over
-  /// `text.length + 1` (the line and the newline that follows it) until the
-  /// pasted code units are accounted for.
+  /// `text.length + lineBreakLength` (the line and the break that follows
+  /// it) until the pasted code units are accounted for.
   ///
   /// A single-line paste consumes fewer units than the caret column, so the
   /// loop never runs and the range is the caret line alone.
+  ///
+  /// [pastedLength] is a **net** growth, so a paste that replaced a
+  /// selection reports fewer code units than it inserted and the walk stops
+  /// short. That is the safe direction — the range can only ever start at
+  /// or after the true first pasted line, so the reformat under-covers a
+  /// paste rather than rewriting lines it never touched — and a paste that
+  /// shrank the document reports no growth at all and is never reflowed.
   static int _startLine({
     required CodeLines codeLines,
     required int end,
     required int caretOffset,
     required int pastedLength,
+    required int lineBreakLength,
   }) {
     int start = end;
     int remaining = pastedLength - caretOffset;
     while (remaining > 0 && start > 0) {
       start--;
-      remaining -= 1 + codeLines[start].text.length;
+      remaining -= lineBreakLength + codeLines[start].text.length;
     }
     return start;
   }

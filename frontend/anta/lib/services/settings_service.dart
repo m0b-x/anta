@@ -107,12 +107,21 @@ class SettingsService {
   /// that, and a preview size the user never touched was rewritten on every
   /// editor zoom.
   final Map<String, String> _pendingWrites = {};
+
+  /// Runs from the *first* pending write rather than the latest one, so a
+  /// deadline is never pushed back by a write to a different key.
   Timer? _writeTimer;
 
+  /// Holds [key] back for [_writeDebounce], starting the deadline when the
+  /// first row goes pending.
+  ///
+  /// The timer is deliberately not restarted on every call: the flush drains
+  /// every pending key at once, so restarting it would let a key written
+  /// repeatedly (a held +/- tap) starve a different key that has been pending
+  /// since before the burst began.
   void _scheduleWrite(String key, String value) {
     _pendingWrites[key] = value;
-    _writeTimer?.cancel();
-    _writeTimer = Timer(_writeDebounce, () {
+    _writeTimer ??= Timer(_writeDebounce, () {
       _writeTimer = null;
       flushPendingWrites();
     });

@@ -55,6 +55,7 @@ void main() {
     required int endIndex,
     required int endOffset,
     required int pastedLength,
+    bool Function(int lineIndex)? lineInFenceBody,
   }) {
     return PasteLineBreaker.run(
       controller: controller,
@@ -62,6 +63,7 @@ void main() {
       availableWidth: width,
       pasteEnd: CodeLinePosition(index: endIndex, offset: endOffset),
       pastedLength: pastedLength,
+      lineInFenceBody: lineInFenceBody,
     );
   }
 
@@ -202,6 +204,164 @@ void main() {
       expect(controller.codeLines[0].text, heading);
       expect(controller.codeLines[1].text, moneyRow);
       expect(controller.codeLines[2].text, isNot(longLine));
+    });
+
+    test('a horizontal rule inside the range is never broken', () {
+      // A rule is one unbroken run of markers, so it is over-wide with no
+      // word boundary anywhere: the breaker used to cut it into six lines
+      // of `----------`, six rules where there was one.
+      const rule = '------------------------------------------------------';
+      expect(MarkdownLineShape.isHorizontalRule(rule), isTrue);
+      expect(MarkdownLineShape.isLineLedConstruct(rule), isTrue);
+
+      final lines = <String>[rule, longLine];
+      final text = lines.join('\n');
+      final controller = CodeLineEditingController.fromText(text);
+
+      final result = runOn(
+        controller,
+        endIndex: 1,
+        endOffset: longLine.length,
+        pastedLength: text.length,
+      );
+
+      expect(result.linesModified, 1);
+      expect(controller.codeLines[0].text, rule);
+    });
+
+    test('a starred and an underscored rule count too', () {
+      for (final rule in const <String>[
+        '****************************************************',
+        '____________________________________________________',
+        '  --------------------------------------------------  ',
+      ]) {
+        expect(
+          MarkdownLineShape.isLineLedConstruct(rule),
+          isTrue,
+          reason: 'not line-led: "$rule"',
+        );
+      }
+      // A bullet is still a bullet — the rule test must not swallow one.
+      expect(
+        MarkdownLineShape.isLineLedConstruct('- a real list item'),
+        isFalse,
+      );
+    });
+  });
+
+  group('measuring an over-wide line', () {
+    test('costs one layout for the width test and none to re-enter', () {
+      // `breakLinesSmartly` has already proven the line is over-wide, so
+      // the breaker takes its first loop test on trust. The pinned number
+      // is what a regression that re-measures on entry would raise.
+      final calculator = newCalculator();
+      EditorWidthCalculator.debugLayoutCount = 0;
+      final result = calculator.breakLinesSmartly([longLine], width);
+
+      expect(result.linesModified, 1);
+      expect(EditorWidthCalculator.debugLayoutCount, 26);
+    });
+  });
+
+  group('a range that starts inside a fence body', () {
+    // The reformatted range is a *slice* of the document, so a paste that
+    // lands between two delimiters carries no opening ``` of its own. The
+    // slice-local fence scan reads it as ordinary prose and hard-wraps
+    // code the editor renders as a fence.
+    List<String> document() => <String>['```dart', longLine, longLine, '```'];
+
+    test('is left unbroken when the caller can say so', () {
+      final controller = CodeLineEditingController.fromText(
+        document().join('\n'),
+      );
+
+      final result = runOn(
+        controller,
+        endIndex: 2,
+        endOffset: longLine.length,
+        pastedLength: longLine.length + 1 + longLine.length,
+        lineInFenceBody: (index) => index == 1 || index == 2,
+      );
+
+      expect(result.reformatted, isFalse);
+      expect(controller.codeLines[1].text, longLine);
+      expect(controller.codeLines[2].text, longLine);
+    });
+
+    test('is broken when the caller offers no fence index', () {
+      // The "before" behaviour, kept as the default: a caller with no
+      // fence index of its own still gets the slice-local reading.
+      final controller = CodeLineEditingController.fromText(
+        document().join('\n'),
+      );
+
+      final result = runOn(
+        controller,
+        endIndex: 2,
+        endOffset: longLine.length,
+        pastedLength: longLine.length + 1 + longLine.length,
+      );
+
+      expect(result.reformatted, isTrue);
+      expect(controller.codeLines[1].text, isNot(longLine));
+    });
+  });
+
+  group('where the caret lands after a reflow', () {
+    test('it follows the pasted text, not the end of the block', () {
+      // `tail` was already on the line; the paste went in before it. The
+      // caret belongs where the pasted text ends, which after the reflow
+      // is the end of its last piece — not past a suffix the user did not
+      // type.
+      final controller = CodeLineEditingController.fromText(' tail');
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 0,
+      );
+      const pasted = 'wwww xxxx yyyy zzzz aaaa bbbb';
+      controller.replaceSelection(pasted);
+      expect(controller.selection.baseOffset, pasted.length);
+
+      final result = PasteLineBreaker.run(
+        controller: controller,
+        calculator: newCalculator(),
+        availableWidth: width,
+        pasteEnd: controller.selection.extent,
+        pastedLength: pasted.length,
+      );
+
+      expect(result.reformatted, isTrue);
+      expect(
+        [for (final line in controller.codeLines.toList()) line.text],
+        ['wwww xxxx', 'yyyy zzzz', 'aaaa bbbb', 'tail'],
+      );
+      expect(controller.selection.baseIndex, 2);
+      expect(controller.selection.baseOffset, 'aaaa bbbb'.length);
+    });
+
+    test('a last line the breaker skipped keeps the caret where it was', () {
+      // The heading is line-led, so it comes back untouched — and a caret
+      // sent to "the end of the last output line" would be sent to the end
+      // of a line the reflow never rewrote.
+      const heading = '## a heading long enough to need several width lines';
+      final controller = CodeLineEditingController.fromText(
+        '$longLine\n$heading',
+      );
+
+      final result = runOn(
+        controller,
+        endIndex: 1,
+        endOffset: 10,
+        pastedLength: longLine.length + 1 + 10,
+      );
+
+      expect(result.reformatted, isTrue);
+      final lines = [
+        for (final line in controller.codeLines.toList()) line.text,
+      ];
+      expect(lines.last, heading);
+      expect(controller.selection.baseIndex, lines.length - 1);
+      expect(controller.selection.baseOffset, 10);
     });
   });
 

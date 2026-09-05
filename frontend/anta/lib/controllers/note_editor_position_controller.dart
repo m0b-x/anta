@@ -62,10 +62,20 @@ class NoteEditorPositionController {
   /// Reads the stored position for [noteId] and offers it to the join.
   /// Inert for a note that does not exist yet — there is nothing stored
   /// under an id that was never assigned.
+  ///
+  /// A read that fails is treated as "nothing stored": the join simply
+  /// never opens, which is the same outcome as a note that was never
+  /// scrolled. The page fires this unawaited, so an escaping error would
+  /// reach the zone instead of costing the user their place.
   Future<void> load() async {
     final id = noteId;
     if (id == null) return;
-    final position = await _loadPosition(id);
+    final NotePositionData position;
+    try {
+      position = await _loadPosition(id);
+    } catch (_) {
+      return;
+    }
     if (_disposed) return;
     _saved = position;
     restoreWhenReady();
@@ -120,7 +130,10 @@ class NoteEditorPositionController {
     _saveTimer = Timer(delay, () {
       _saveTimer = null;
       if (_disposed) return;
-      unawaited(save(snapshot()));
+      // Nobody is left to await this one, so a failed write dies here
+      // rather than in the zone; [save] itself still reports to the page,
+      // which awaits it before popping.
+      unawaited(save(snapshot()).catchError((Object _) {}));
     });
   }
 

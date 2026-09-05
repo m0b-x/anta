@@ -168,6 +168,62 @@ void main() {
         h.dispose();
       });
     });
+
+    test('the created content keeps its leading whitespace', () {
+      fakeAsync((async) {
+        final h = _Harness()..coordinator.start();
+
+        // An indented list item is the common case: trimming the text on
+        // the way to the bloc silently re-levels the user's first line.
+        h.type('  - a');
+        async.flushMicrotasks();
+
+        expect(h.creates.single.content, '  - a');
+
+        h.dispose();
+      });
+    });
+
+    test('a lifecycle pause mid-create does not release the pop early', () {
+      fakeAsync((async) {
+        final gate = Completer<void>();
+        final h = _Harness()
+          ..lookupGate = gate
+          ..coordinator.start();
+
+        // A non-empty title parks the create inside `titleExists`.
+        h.title = 'Named';
+        h.type('draft');
+        async.flushMicrotasks();
+        expect(h.lookups, hasLength(1));
+        expect(h.creates, isEmpty, reason: 'the create is still in the lookup');
+
+        // The OS suspends us mid-create. Nothing new may start, and the
+        // future the pop joins must stay the one that is still running.
+        h.coordinator.saveOnLifecyclePause();
+        async.flushMicrotasks();
+
+        var popped = false;
+        unawaited(h.coordinator.saveBeforeExit().then((_) => popped = true));
+        async.flushMicrotasks();
+
+        expect(
+          popped,
+          isFalse,
+          reason: 'the pop must wait for the create that is actually running',
+        );
+        expect(h.creates, isEmpty);
+
+        gate.complete();
+        async.flushMicrotasks();
+
+        expect(popped, isTrue);
+        expect(h.creates, hasLength(1));
+        expect(h.creates.single.content, 'draft');
+
+        h.dispose();
+      });
+    });
   });
 
   group('updates', () {
@@ -257,6 +313,51 @@ void main() {
           'Taken',
           'Taken',
         ], reason: 'a unique title re-arms the warning');
+
+        h.dispose();
+      });
+    });
+
+    test('clearing the title re-arms the duplicate warning', () {
+      fakeAsync((async) {
+        final h = _Harness.existing()..coordinator.start();
+        h.taken.add('taken');
+
+        h.rename('Taken');
+        async.elapse(_Harness.debounce);
+        expect(h.warnings, ['Taken']);
+
+        // An empty title has nothing to look up, so the one-shot guard was
+        // never lowered — and retyping the same taken title said nothing.
+        h.rename('');
+        async.elapse(_Harness.debounce);
+        expect(h.lookups, hasLength(1));
+
+        h.rename('Taken');
+        async.elapse(_Harness.debounce);
+
+        expect(h.warnings, ['Taken', 'Taken']);
+
+        h.dispose();
+      });
+    });
+
+    test('retyping the original title re-arms the duplicate warning', () {
+      fakeAsync((async) {
+        final h = _Harness.existing()..coordinator.start();
+        h.taken.add('taken');
+
+        h.rename('Taken');
+        async.elapse(_Harness.debounce);
+        expect(h.warnings, ['Taken']);
+
+        h.rename('Original');
+        async.elapse(_Harness.debounce);
+
+        h.rename('Taken');
+        async.elapse(_Harness.debounce);
+
+        expect(h.warnings, ['Taken', 'Taken']);
 
         h.dispose();
       });
@@ -438,6 +539,87 @@ void main() {
         h.dispose();
       });
     });
+
+    test('content typed while the create was in flight is still written', () {
+      fakeAsync((async) {
+        final h = _Harness()..coordinator.start();
+
+        h.type('h');
+        async.flushMicrotasks();
+        expect(h.creates.single.content, 'h');
+
+        // The rest of the word lands before the bloc reports the id, so
+        // the auto-save baseline has to be what the create wrote ('h'),
+        // not what the editor holds now.
+        h.type('hello');
+        h.coordinator.noteCreated('note-9');
+
+        unawaited(h.coordinator.saveBeforeExit());
+        async.flushMicrotasks();
+
+        expect(h.updates, hasLength(1));
+        expect(h.updates.single.noteId, 'note-9');
+        expect(h.updates.single.content, 'hello');
+
+        h.dispose();
+      });
+    });
+
+    test('a title typed while the create was in flight is still written', () {
+      fakeAsync((async) {
+        final h = _Harness()..coordinator.start();
+
+        h.type('body');
+        async.flushMicrotasks();
+        expect(h.creates.single.title, '');
+
+        h.title = 'Named';
+        h.coordinator.onContentChanged();
+        h.coordinator.noteCreated('note-9');
+
+        unawaited(h.coordinator.saveBeforeExit());
+        async.flushMicrotasks();
+
+        expect(h.updates.single.title, 'Named');
+
+        h.dispose();
+      });
+    });
+  });
+
+  group('contentLoaded', () {
+    test('the loaded text is a baseline, not an edit', () {
+      fakeAsync((async) {
+        final h = _Harness.existing()..coordinator.start();
+
+        // The page loads the stored text into the editor, which fires its
+        // text listener exactly like a keystroke would.
+        h.type('the stored text');
+        h.coordinator.contentLoaded();
+        async.elapse(_Harness.debounce * 10);
+
+        expect(h.events, isEmpty, reason: 'reading a note must not rewrite it');
+        expect(h.coordinator.hasChanges.value, isFalse);
+
+        h.dispose();
+      });
+    });
+
+    test('an edit after the load still saves', () {
+      fakeAsync((async) {
+        final h = _Harness.existing()..coordinator.start();
+
+        h.type('the stored text');
+        h.coordinator.contentLoaded();
+
+        h.type('the stored text, edited');
+        async.elapse(_Harness.debounce);
+
+        expect(h.updates.single.content, 'the stored text, edited');
+
+        h.dispose();
+      });
+    });
   });
 
   group('hasChanges', () {
@@ -454,6 +636,37 @@ void main() {
 
         expect(seen, [true]);
         expect(h.coordinator.hasChanges.value, isTrue);
+
+        h.dispose();
+      });
+    });
+
+    test('markChanged arms auto-save for a listener-bypassing edit', () {
+      fakeAsync((async) {
+        final h = _Harness.existing()..coordinator.start();
+
+        // A checkbox toggled through the tap interceptor: the document
+        // moved without the page's text listener ever running.
+        h.content = 'v0 [x]';
+        h.coordinator.markChanged();
+        async.elapse(_Harness.debounce);
+
+        expect(h.updates.single.content, 'v0 [x]');
+        expect(h.coordinator.hasChanges.value, isFalse);
+
+        h.dispose();
+      });
+    });
+
+    test('markChanged on a note that does not exist yet only flags it', () {
+      fakeAsync((async) {
+        final h = _Harness();
+
+        h.coordinator.markChanged();
+        async.elapse(_Harness.debounce * 10);
+
+        expect(h.coordinator.hasChanges.value, isTrue);
+        expect(h.events, isEmpty);
 
         h.dispose();
       });
@@ -526,6 +739,8 @@ class _Harness {
       content: () => content,
       titleExists: ({required String title, String? excludeId}) async {
         lookups.add((title: title, excludeId: excludeId));
+        final gate = lookupGate;
+        if (gate != null) await gate.future;
         return taken.contains(title.trim().toLowerCase());
       },
       dispatch: _dispatch,
@@ -554,6 +769,11 @@ class _Harness {
 
   /// Titles already used by a sibling note, lower-cased.
   final Set<String> taken = <String>{};
+
+  /// When set, every `titleExists` lookup suspends on this completer, so a
+  /// test can hold a create inside its round trip and drive what happens
+  /// while it is parked there.
+  Completer<void>? lookupGate;
 
   final List<OptimizedNoteEvent> events = <OptimizedNoteEvent>[];
   final List<_Lookup> lookups = <_Lookup>[];

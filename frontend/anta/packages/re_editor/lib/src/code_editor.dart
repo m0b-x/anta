@@ -671,13 +671,19 @@ class _CodeEditorState extends State<CodeEditor> {
               // and an ignored Tab walks focus out of the editor. Mirror
               // what the desktop branch does with the indent shortcut: a
               // host override for the intent wins, otherwise the
-              // controller's own indent runs unless the editor is read
-              // only. Shift comes from the hardware modifier state — the
+              // controller's own indent runs. Indent and outdent are both
+              // `CodeShortcutEditableIntent`s, so a read-only editor
+              // resolves neither — not the override either, which would
+              // otherwise mutate a document the editor promised not to
+              // touch. Shift comes from the hardware modifier state — the
               // same source `SingleActivator(tab, shift: true)` consults.
               // That read is exempt from the stuck-key warning above: it is
               // the same tracker the desktop shortcut uses, and a stuck
               // Shift only flips indent to outdent for one keystroke,
               // unlike the stuck-Backspace case that comment describes.
+              if (readOnly) {
+                return KeyEventResult.ignored;
+              }
               final bool shift = HardwareKeyboard.instance.isShiftPressed;
               final Intent intent = shift
                   ? const CodeShortcutOutdentIntent()
@@ -687,9 +693,6 @@ class _CodeEditorState extends State<CodeEditor> {
               if (override != null && override.isEnabled(intent)) {
                 const ActionDispatcher().invokeAction(override, intent);
                 return KeyEventResult.handled;
-              }
-              if (readOnly) {
-                return KeyEventResult.ignored;
               }
               if (shift) {
                 _editingController.applyOutdent();

@@ -92,6 +92,16 @@ class EditorRenderController {
   /// line as markdown.
   bool lineInFence(int lineIndex) => _spanBuilder.lineInFence(lineIndex);
 
+  /// Whether [lineIndex] is a line *inside* a ``` fence — the ```
+  /// delimiters themselves answer false.
+  ///
+  /// Narrower than [lineInFence] on purpose: a caller that only wants to
+  /// leave verbatim code alone (the editor's typing helpers) must still
+  /// treat the delimiter lines as ordinary markdown, or the line that
+  /// opens a fence stops behaving like the line the user is typing on.
+  bool lineInFenceBody(int lineIndex) =>
+      _spanBuilder.lineInFenceBody(lineIndex);
+
   /// Routes line rendering: live markdown styling when the editor setting
   /// is on (unhandled lines fall through), the ghost-text builder
   /// otherwise.

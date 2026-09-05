@@ -139,6 +139,57 @@ void main() {
     expect(result.value, [null]);
   });
 
+  /// The sheet mounts the same wrapper the note editor does, so Tab-indent
+  /// and the checkbox toggle came for free — but Enter-continuation lives in
+  /// [EditorEditTracker], which the sheet used to skip with an empty
+  /// `onTextChanged`, so a list typed here simply stopped at the first Enter.
+  group('list continuation', () {
+    /// Presses Enter at [offset] on line [index], the way the editor
+    /// delivers it: the controller edits and its listeners run.
+    Future<CodeLineEditingController> pressEnter(
+      WidgetTester tester, {
+      required int index,
+      required int offset,
+    }) async {
+      final controller = tester
+          .widget<CodeEditor>(find.byType(CodeEditor))
+          .controller!;
+      controller.selection = CodeLineSelection.collapsed(
+        index: index,
+        offset: offset,
+      );
+      controller.applyNewLine();
+      await tester.pump();
+      return controller;
+    }
+
+    testWidgets('Enter on a list item carries the marker down', (tester) async {
+      await openSheet(tester, initialText: '');
+      await setText(tester, '- squat');
+
+      final controller = await pressEnter(tester, index: 0, offset: 7);
+
+      expect(controller.text, '- squat\n- ');
+      expect(controller.selection.baseIndex, 1);
+      expect(controller.selection.baseOffset, 2);
+
+      await tester.tap(find.byIcon(Icons.close_rounded));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('Enter on an empty item ends the list', (tester) async {
+      await openSheet(tester, initialText: '');
+      await setText(tester, '- squat\n- ');
+
+      final controller = await pressEnter(tester, index: 1, offset: 2);
+
+      expect(controller.text, '- squat\n');
+
+      await tester.tap(find.byIcon(Icons.close_rounded));
+      await tester.pumpAndSettle();
+    });
+  });
+
   testWidgets('Done is disabled past the limit and comes back under it', (
     tester,
   ) async {

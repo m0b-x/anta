@@ -1794,6 +1794,200 @@ mangles em-dashes and emoji in test files — use the editor tools;
 bound, so per-file `reset()` in `tearDown` is what gives each suite its
 own database.
 
+#### Session 6 review — 2026-09-05
+
+Four read-only passes over the shipped controllers (A: the six
+controllers and their page wiring, B: auto-save end to end, C: paste,
+D: `EditorInputPolicy`'s non-tap members and list editing), then four
+implementation passes with disjoint file ownership — the fork edits in
+one worker, the page wiring last, after the tracker and paste APIs it
+depends on had landed. Nothing committed; the working tree sits on
+`83ef52e`. The wrapper's tap and semantics paths were not re-reviewed
+(2026-09-05, Session 7 review). Eight of the findings are real bugs, two
+of them data-loss.
+
+**A/B — saves.** A1 (bug, data loss): `noteCreated` re-baselined
+auto-save on the *live* editor text, so anything typed while the early
+create's title lookup and insert were in flight was stamped as already
+saved and never written (`h` → create dispatched → `ello` typed →
+`noteCreated` → `saveBeforeExit` sees no change). `_createNewNoteEarly`
+now remembers the title and content it dispatched, `noteCreated`
+baselines on those and arms the debounce when the editor has moved on.
+B2 (bug, data loss): `saveOnLifecyclePause` reached
+`_startCreateNewNoteEarly` without the in-flight guard, so an `inactive`
+transition mid-create overwrote `_pendingCreate` with an already-complete
+future; `saveBeforeExit` returned at once, the page popped, `dispose`
+raised `_disposed` and the real create's disposed check dropped the
+note — exactly the race the Outcome block claimed `saveBeforeExit` had
+closed. The starter now returns early unless a create actually begins.
+A2/B1 (bug): `_saves.start()` runs in `initState`, so the baseline was
+the empty string; `loadText` fires the page's own text listener, and
+every opened note was marked dirty and rewritten five seconds later
+(`updatedAt`, `version`, `hlcTimestamp` bumped; the folder list reordered
+on open). `NoteSaveCoordinator.contentLoaded()` re-baselines and clears
+`hasChanges`, called right after `_edits.syncLength()`. B3 (bug):
+`OptimizedNoteBloc` is one app-wide instance and `MaterialPageRoute`
+keeps a buried editor's `BlocListener` alive, so opening note B from the
+calendar over an editor holding unsaved note A replaced A's text with
+B's and auto-saved it into A; both listener branches are id-guarded
+(`state.note.id == widget.noteId`; a create is adopted only by a new-note
+page with `isCreatingNewNote`). B6 (bug, narrow): `forceSave` read the
+content *before* awaiting an in-flight save, so text typed during the
+wait was stamped as saved; title and content resolve after the await.
+B4 (bug, latent until sync): `NoteDao.updateNote` accepted a tombstone
+and `NoteRepository.updateNote` writes chunks *before* the DAO, so a late
+flush re-inserted live chunks under a deleted note; the DAO returns null
+for a deleted row and `NoteStorageService.updateNote` stops at one too
+(`test/database/note_tombstone_test.dart`). A3: the `PopScope` callback
+awaited `_saveBeforeExit()` unguarded under `canPop: false`, so a
+throwing position write or title lookup stranded the user on the page —
+try/catch, the pop always proceeds (no test: for an existing note nothing
+on that path throws without a fake singleton). A4: `_position.load()` was
+`unawaited` with no catch, so a failed read escaped to the zone and the
+restore join silently never opened. Debt: A8 the one-shot duplicate-title
+warning is re-armed when the title is cleared or restored; B10 the early
+create persisted `content.trim()`, dropping a leading indent — trimmed for
+the emptiness test only; B12 `markChanged` arms the save, not just the
+dot (its doc had promised listener-bypassing edits were covered); B11
+`onContentChanged`/`startTracking` are inert after `dispose` and the page
+removes both text listeners; A9 `counterHandler.setActiveNoteId(null)` in
+`dispose` beside the counter bloc reset; B7 `didPushNext` force-saves, so
+drawer → settings → database switch → `SystemNavigator.pop()` cannot
+lose the editor's text; A5 `EditorSettingsController` re-resolves the
+`SettingsService` on every reload instead of caching the instance across
+a `reset()`; A6 its dispose flush and pre-resolve font write are
+`unawaited` with an error guard; A7 `SettingsService._scheduleWrite` keeps
+the timer from the *first* pending row (`??=`) — a held `+` in preview
+mode starved a pending editor size indefinitely.
+
+**C — paste.** C1 (bug): Enter with the caret parked right after a list
+marker deleted the marker line — `applyNewLine` hands the tracker the
+split *prefix* `- `, which `isEmptyListItem` accepts, so `- item` at
+offset 2 became `item` and a nested item lost its indent too; the branch
+also requires the remainder to be empty, so the split falls through to
+continuation (`- `, `- item`). C2 (bug): `breakLinesSmartly` derived
+fence state from the pasted slice alone, so code pasted onto a line
+inside an open fence was hard-wrapped; `PasteLineBreaker.run` takes
+`lineInFenceBody` (`EditorRenderController.lineInFenceBody`, interior
+role only — `lineInFence` is true for the delimiters too) and seeds
+`inCodeBlock`. C3 (bug, low): horizontal rules were not line-led — a
+`---` pasted into a narrow editor became six lines and the list transform
+emitted `- ---`. C4: `ListAwarePasteController` takes `isFenceLine` and
+leaves a fenced caret line alone. C9: after a reflow the caret was parked
+at the end of the last range line, past any pre-existing suffix;
+`LineBreakResult.lastLineSourceOffsets` maps it to where the pasted text
+ends. C6: the line-break width comes from `controller.options.lineBreak`.
+C10: one over-wide line was measured twice (`knownExceeds`). Documented,
+not changed: C5 `pastedLength` is the net growth (a paste over a
+selection under-covers in the safe direction, a shrinking paste is never
+reflowed); C7 a paste of exactly `"\n" + indent` is indistinguishable from
+an Enter (pinned) and Enter over a selection continues nothing (pinned);
+C8 the direct `controller.value =` writes drop the composing range and a
+>20-code-unit IME commit is classified as a paste — SUSPECTED, needs a
+glide-typing device run before touching the guard. C12: the transform had
+no test at all; `test/utils/list_aware_paste_test.dart` (19) covers it.
+
+**D — lists and the policy.** D1 (bug): the paste branch ran before the
+Enter check, so Enter on an item indented ≥ 20 spaces (21 > the paste
+threshold) was reflowed as a paste and never continued; the Enter shape
+is tested first (the plain-typing early returns are unchanged). D8 (bug,
+narrow): `GhostEngagement._engage` disarmed only on its success paths, so
+a long-press selection on a ghost line followed by a Left/Right inside
+the 350 ms window auto-selected the run; one arming now feeds exactly one
+caret change. D9: a collapsed caret parked exactly on a run boundary
+disengages, matching `containsStrict`. D5: `listIndent` snaps to the
+fork's two-column grid like `_applyTextIndent`/`_applyTextOutdent`, so
+single-line and multi-line Tab agree on ` - a`; D10 its unit derives from
+`MarkdownListUtils.indentUnit`. D4: Tab and Enter continuation pass
+through on fence lines (`isFenceLine` on the wrapper's `_tryListIndent`
+and the tracker). D7: `shortcut_editor_page.dart` carried a second list
+grammar — no `*`/`+`, no `N)`, indentation dropped, two `RegExp`s built
+per keystroke and an unguarded `int.parse` (a 20-digit ordinal + Enter
+threw) — deleted in favour of `MarkdownListUtils`. D3: the event
+description sheet had Tab indent and checkbox toggle but no Enter
+continuation (the tracker was page-owned); both event sheets construct
+their own `EditorEditTracker` now. D11 (fork, latent):
+`shortcutOverrideActions` was consulted before `readOnly` on the Android
+key path and spread past the editable-intent filter on desktop, so Tab in
+a read-only editor would have run the app's indent; `readOnly` first,
+desktop filters overrides by `_editableIntentTypes()`. D12: a stale
+comment in `_tryListIndent` about offset 0 dropped.
+
+**Page wiring, last.** The page hands `_render.lineInFence` to
+`ListAwarePasteController` and both `lineInFence`/`lineInFenceBody` to
+`EditorEditTracker` unconditionally — fence-ness is document semantics,
+not the live-rendering setting the wrapper's `isFenceLine` is gated on —
+and the event editor sheet gained the same tracker as the description
+sheet (`_descriptionEdits`, `syncLength()` after each of its six
+`loadText` seeds, `_handleDescriptionShortcut` under `runGuarded`). C11:
+the ghost and colour shortcuts returned from `_handleShortcut` before the
+`reformatInserted` call, so wrapping an over-wide selection in `{red:…}`
+never reflowed while Bold did; `_insertGhostText` and
+`_insertWithGhostSlot` capture `beforeLength` and reflow themselves, which
+covers both entry points. A11: `_onEditorSettingsChanged` refreshed the
+vocabulary service on every notification, one `VocabularyService
+.getInstance()` await per font-size tap; it now compares the enabled flag
+and trigger character against `_appliedVocabularySettings` (the one new
+page field — `VocabularySuggestionController` exposes no last-configured
+values). A12: the `didChangeDependencies` comment claimed the editor
+re-renders money error wording on the next layout; it never renders error
+text (only the preview builder and `MoneyDetailSheet` read `errorText`),
+so the comment now says why no repaint is issued.
+
+**Not changed, on purpose.** Ordered lists are not renumbered on Enter or
+Tab (`1. a` / `2. b` + Enter reads `1.`, `2.`, `2.`) — a multi-line
+splice that changes the one-undo-step shape, an owner decision, now
+stated on `getListPrefix`. Ordered items never take a task box (`1. [ ]`
+parses as ordered with `[ ]` content; the continuation drops the box) —
+documented on `MarkdownListSyntax`, a grammar change for both surfaces
+if wanted. A permanent save failure still surfaces only as the app bar's
+red icon (B5) — the four `saveStatus*` ARB keys exist, wiring a dialog
+into the exit path is a UX decision. `NoteRepository` is not on the
+`DatabaseLifecycle` reset contract (B8) — the switch flow demands a
+restart, so nothing reaches the closed database in-process. Change
+detection stays `(length, hashCode)` (B9). `_getHandleDy` and `_zoneRect`
+as recorded under Session 7.
+
+**Ledger corrections.** The Outcome block's "26 fields" is 27 since the
+undo hotfix added `_builtHistory`, and 28 after this review's
+`_appliedVocabularySettings`; its test
+counts predate later reviews (page suite 16, saves 27, edits 43 before
+this review); `editor_input_policy_test.dart` had 15 ghost rows, not 16.
+
+Traps (this review's): `MaterialApp(theme:)` keeps the *old* `ThemeData`
+instance when the new one is value-equal, so a "rebuilt but equal theme"
+fixture must wrap the child in a plain `Theme`; a second in-memory drift
+database in one test needs
+`driftRuntimeOptions.dontWarnAboutMultipleDatabases`; the fork's
+`applyIndent` on a collapsed caret pads at the caret, not the line start,
+which is what makes the fenced-Tab fallback observable; `kIsAndroid`
+resolves once per test process, so a rule that differs by platform needs
+two files; the page suite runs the shipped 5 s debounce, so a "nothing
+was written" proof pumps six seconds before settling; `dart format` on a
+test directory reflows files other workers hold open — scope it to the
+touched files; the B1 proof needs the page-level test (the coordinator
+unit test cannot compile against the old API).
+
+Numbers: `note_save_coordinator_test.dart` 27 → 37,
+`auto_save_service_test.dart` 36 → 39, `optimized_note_editor_page_test
+.dart` 16 → 23, `editor_edit_tracker_test.dart` 43 → 52,
+`editor_input_policy_test.dart` 174 → 177, `paste_line_breaker_test.dart`
+17 → 24, `note_editor_position_controller_test.dart` 20 → 22,
+`editor_settings_controller_test.dart` 13 → 17, `editor_settings_test
+.dart` 14 → 15, `editor_render_controller_test.dart` 33 → 36,
+`modern_editor_wrapper_toggle_test.dart` 7 → 8,
+`event_description_sheet_test.dart` 10 → 12; new suites
+`list_aware_paste_test.dart` (19), `note_tombstone_test.dart` (4),
+`event_editor_sheet_description_test.dart` (3),
+`shortcut_editor_list_continuation_test.dart` (5, under `test/pages/`),
+`readonly_shortcut_override_test.dart` (3) and
+`readonly_shortcut_override_desktop_test.dart` (2) under
+`test/re_editor/`. The full suite is **3,451** passing (7 benchmark
+cases skipped), up from 3,363; `dart analyze lib`, `dart analyze test`
+and `dart analyze packages/re_editor/lib` clean apart from the fork's two
+pre-existing `avoid_print` infos; `dart format --set-exit-if-changed`
+over the 39 touched Dart files changes nothing. Nothing committed.
+
 ### Session 7 — fork sync, interceptor hardening, accessibility (split 2026-09-04)
 
 Originally six items in one session. Re-sized on 2026-09-04 against the

@@ -102,6 +102,21 @@ lines bypass the memo.
       paragraph LRU evicts CLOCK-style so identity-hot lines survive a burst
       of caret-line spans, and a decorated span survives the hanging split.
       Details in the ledger's "Session 5 review" block.
+- [x] Session 6 review (2026-09-05, Done): two data-loss bugs in the save
+      path — text typed while the early create was in flight was baselined
+      as saved, and a lifecycle pause mid-create let the pop drop the note;
+      opening any note no longer marks it dirty and rewrites it, a buried
+      editor ignores another note's load, `forceSave` reads after the
+      in-flight wait, a soft-deleted note is never updated, `didPushNext`
+      flushes. Enter after a list marker splits instead of deleting the
+      marker line, a 20-space-deep item still continues, paste inside a
+      fence body is never hard-wrapped, horizontal rules are line-led, the
+      reflow caret lands where the paste ends, both paste policies and
+      Tab/Enter are fence-aware, `listIndent` snaps to the fork's grid,
+      ghost engagement disarms on every bail-out, the shortcut editor uses
+      the one list grammar, both event sheets continue lists, and a
+      read-only editor never runs the app's Tab override. Details in the
+      ledger's "Session 6 review" block.
 - [x] `==highlight==` — amber background matching preview (shared
       `MarkdownConstants.markBackground{Light,Dark}`)
 - [x] Blockquotes `> ` — `>` substituted 1:1 with `┃` (preview's bar glyph),

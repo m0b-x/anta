@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../constants/font_constants.dart';
@@ -26,8 +28,16 @@ class EditorSettingsController extends ChangeNotifier {
 
   final Future<SettingsService> Function() _resolveSettings;
 
-  /// Cached after the first resolve: the service is a singleton, and an
-  /// `adjust*` must not pay for a lookup on every tap.
+  /// The service the last [_resolve] handed back, kept for the two paths
+  /// that cannot await one: the synchronous `adjust*` write and
+  /// [flushPendingWrites], which stays inert until a service has been
+  /// reached at all.
+  ///
+  /// Refreshed on every [_resolve] rather than cached once. The resolver is
+  /// [SettingsService.getInstance], and that singleton is dropped whenever
+  /// the active database is switched — a handle cached across the switch
+  /// would read and write the *previous* database for the rest of the
+  /// page's life.
   SettingsService? _settings;
 
   EditorSettings _value = EditorSettings.defaults;
@@ -98,10 +108,15 @@ class EditorSettingsController extends ChangeNotifier {
 
   /// Late [reload] completions stop notifying from here on, and whatever a
   /// last-moment `adjust*` scheduled is written out.
+  ///
+  /// The flush is detached and its failure swallowed: nothing is left to
+  /// await it, and a database closed underneath the page — the database
+  /// switch does exactly that — would otherwise turn a routine dispose into
+  /// an unhandled zone error.
   @override
   void dispose() {
     _disposed = true;
-    flushPendingWrites();
+    unawaited(flushPendingWrites().catchError((Object _) {}));
     super.dispose();
   }
 
@@ -126,7 +141,7 @@ class EditorSettingsController extends ChangeNotifier {
     } else {
       // A tap before the first [reload]: resolve, then write. One microtask
       // late, but never dropped.
-      _resolveThenWriteFontSize(next, preview: preview);
+      unawaited(_resolveThenWriteFontSize(next, preview: preview));
     }
   }
 
@@ -144,14 +159,21 @@ class EditorSettingsController extends ChangeNotifier {
     }
   }
 
+  /// Detached like [_writeFontSize], so a resolve that fails — the singleton
+  /// lookup opens the database — costs the user one unpersisted size step
+  /// rather than an unhandled error in the zone that owns the page.
   Future<void> _resolveThenWriteFontSize(
     double size, {
     required bool preview,
   }) async {
-    _writeFontSize(await _resolve(), size, preview: preview);
+    try {
+      _writeFontSize(await _resolve(), size, preview: preview);
+    } catch (_) {
+      return;
+    }
   }
 
   Future<SettingsService> _resolve() async {
-    return _settings ??= await _resolveSettings();
+    return _settings = await _resolveSettings();
   }
 }

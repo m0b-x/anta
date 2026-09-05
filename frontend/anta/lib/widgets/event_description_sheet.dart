@@ -6,6 +6,7 @@ import 'package:re_editor/re_editor.dart';
 import '../bloc/markdown_bar/markdown_bar_bloc.dart';
 import '../constants/font_constants.dart';
 import '../constants/settings_keys.dart';
+import '../controllers/editor_edit_tracker.dart';
 import '../controllers/editor_render_controller.dart';
 import '../controllers/markdown_shortcut_inserter.dart';
 import '../controllers/shortcut_applier.dart';
@@ -127,6 +128,14 @@ class EventDescriptionSheet extends StatefulWidget {
 
 class _EventDescriptionSheetState extends State<EventDescriptionSheet> {
   late final CodeLineEditingController _controller;
+
+  /// Enter-continuation for list lines, exactly as the note editor gets
+  /// it. Only that half is live: the sheet measures no editor width, so
+  /// [PasteReformatContext] is always null and the paste-reflow branch is
+  /// a no-op by construction — a description is a paragraph or two, not a
+  /// document to reflow.
+  late final EditorEditTracker _tracker;
+
   late final FocusNode _focus;
   late final CodeScrollController _scroll;
 
@@ -166,11 +175,22 @@ class _EventDescriptionSheetState extends State<EventDescriptionSheet> {
     super.initState();
     _controller = ListAwarePasteController(
       delegate: CodeLineEditingController(spanBuilder: _buildSpan),
+      isFenceLine: _spanBuilder.lineInFence,
     );
     // A load, not an edit: `set text` would be revocable and undo could
     // wipe what the sheet opened with.
     _controller.loadText(widget.initialText);
     _spanBuilder.bind(_controller);
+    _tracker = EditorEditTracker(
+      controller: _controller,
+      autoBreakLongLines: () => false,
+      pasteContext: () => null,
+      onLinesReformatted: (_) {},
+      isFenceLine: _spanBuilder.lineInFence,
+    );
+    // The seed above is what the next keystroke diffs against; without
+    // this the whole loaded text reads as a paste.
+    _tracker.syncLength();
     // The palette is passed in already resolved (the page holds a current
     // copy), so unlike the editor sheet there is no late colour swap to
     // repaint for.
@@ -282,17 +302,22 @@ class _EventDescriptionSheetState extends State<EventDescriptionSheet> {
   /// the shared applier as one undo entry. Counter mutation is unreachable —
   /// those shortcuts are filtered out of the bar.
   void _handleShortcut(CustomMarkdownShortcut shortcut) {
-    if (MarkdownShortcutInserter.handles(shortcut)) {
-      MarkdownShortcutInserter.apply(_controller, shortcut);
-    } else {
-      _controller.runRevocableOp(() {
-        ShortcutApplier.apply(
-          controller: _controller,
-          shortcut: shortcut,
-          mutateCounter: (_, _) async => null,
-        );
-      });
-    }
+    // Guarded like every programmatic insert in the note editor: the
+    // notification it fires must not be diffed as typing, and the length
+    // must be resynced or the next keystroke is.
+    _tracker.runGuarded(() {
+      if (MarkdownShortcutInserter.handles(shortcut)) {
+        MarkdownShortcutInserter.apply(_controller, shortcut);
+      } else {
+        _controller.runRevocableOp(() {
+          ShortcutApplier.apply(
+            controller: _controller,
+            shortcut: shortcut,
+            mutateCounter: (_, _) async => null,
+          );
+        });
+      }
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _controller.makeCursorVisible();
     });
@@ -485,7 +510,7 @@ class _EventDescriptionSheetState extends State<EventDescriptionSheet> {
               scrollController: _scroll,
               searchController: _search,
               editorFontSize: FontConstants.defaultFontSize,
-              onTextChanged: () {},
+              onTextChanged: _tracker.onTextChanged,
               checkboxTapToggle: _liveMarkdownRendering,
               showScrollIndicator: false,
             ),

@@ -37,7 +37,26 @@ class LineBreakResult {
   final List<String> lines;
   final int linesModified;
 
-  const LineBreakResult({required this.lines, required this.linesModified});
+  /// Where each piece of the **last** source line starts, in that line's
+  /// own coordinates: `lastLineSourceOffsets[i]` is the source offset the
+  /// i-th of its pieces begins at, and the list's length is how many
+  /// entries at the tail of [lines] that source line produced.
+  ///
+  /// A source line the breaker left alone — a fitting one, a fenced one,
+  /// a line-led construct — reports `[0]`, its single piece. That is all
+  /// a caller needs to map an offset on the last source line onto the
+  /// output: find the last start at or before it, and subtract.
+  ///
+  /// Only the last line is tracked because only the last line carries a
+  /// caret: recording every line would allocate per pasted line for an
+  /// answer nobody reads.
+  final List<int> lastLineSourceOffsets;
+
+  const LineBreakResult({
+    required this.lines,
+    required this.linesModified,
+    this.lastLineSourceOffsets = const <int>[0],
+  });
 }
 
 /// Identity of an ASCII advance table: everything about the measuring style
@@ -209,23 +228,37 @@ class EditorWidthCalculator {
 
   /// Smart line breaking for all lines, respecting code blocks and markdown syntax.
   /// Returns the result with new lines and count of modified lines.
-  LineBreakResult breakLinesSmartly(List<String> lines, double maxWidth) {
+  ///
+  /// [inCodeBlock] seeds the fence state: [lines] is usually a **slice**
+  /// of a document (the lines a paste landed on), and a slice starting
+  /// inside a fence body carries no opening delimiter of its own. Without
+  /// the seed such a slice reads as ordinary prose and its code lines are
+  /// hard-wrapped.
+  LineBreakResult breakLinesSmartly(
+    List<String> lines,
+    double maxWidth, {
+    bool inCodeBlock = false,
+  }) {
     final result = <String>[];
     int linesModified = 0;
-    bool inCodeBlock = false;
+    bool inFence = inCodeBlock;
+    List<int> lastLineSourceOffsets = const <int>[0];
 
-    for (final line in lines) {
+    for (int index = 0; index < lines.length; index++) {
+      final line = lines[index];
+      final bool isLast = index == lines.length - 1;
+      if (isLast) lastLineSourceOffsets = const <int>[0];
       final trimmed = line.trim();
 
       // Toggle code block state
       if (_codeBlockFencePattern.hasMatch(trimmed)) {
-        inCodeBlock = !inCodeBlock;
+        inFence = !inFence;
         result.add(line);
         continue;
       }
 
       // Skip lines inside code blocks
-      if (inCodeBlock) {
+      if (inFence) {
         result.add(line);
         continue;
       }
@@ -236,34 +269,62 @@ class EditorWidthCalculator {
         continue;
       }
 
-      // Line-led constructs (money rows, headings, quotes/callouts,
-      // table rows) are never width-broken: the split tail would lose
-      // the lead marker and the construct's meaning with it. Checked
-      // only for lines that would actually break, so fitting lines
-      // never pay the shape probe.
+      // Line-led constructs (horizontal rules, money rows, headings,
+      // quotes/callouts, table rows) are never width-broken: the split
+      // tail would lose the lead marker and the construct's meaning with
+      // it. Checked only for lines that would actually break, so fitting
+      // lines never pay the shape probe.
       if (MarkdownLineShape.isLineLedConstruct(trimmed)) {
         result.add(line);
         continue;
       }
 
-      // Break the line respecting markdown syntax
-      final brokenLines = _breakLineRespectingMarkdown(line, maxWidth);
+      // Break the line respecting markdown syntax. The width test above
+      // already settled it, so the breaker never re-measures it on entry.
+      final List<int>? pieceOffsets = isLast ? <int>[] : null;
+      final brokenLines = _breakLineRespectingMarkdown(
+        line,
+        maxWidth,
+        knownExceeds: true,
+        pieceOffsets: pieceOffsets,
+      );
       if (brokenLines.length > 1) {
         linesModified++;
+      }
+      if (pieceOffsets != null && pieceOffsets.isNotEmpty) {
+        lastLineSourceOffsets = pieceOffsets;
       }
       result.addAll(brokenLines);
     }
 
-    return LineBreakResult(lines: result, linesModified: linesModified);
+    return LineBreakResult(
+      lines: result,
+      linesModified: linesModified,
+      lastLineSourceOffsets: lastLineSourceOffsets,
+    );
   }
 
   /// Break a single line respecting markdown syntax.
   ///
-  /// The caller has already established that [line] is non-empty and wider
-  /// than [maxWidth], so the whole line is never re-measured on entry. A
-  /// line that does fit still comes back as `[line]`: the loop below simply
-  /// never runs.
-  List<String> _breakLineRespectingMarkdown(String line, double maxWidth) {
+  /// [knownExceeds] says the caller has already established that [line] is
+  /// wider than [maxWidth] — [breakLinesSmartly] always has, since that is
+  /// how it decided to call here at all — so the first loop test is taken
+  /// on trust and the whole line is measured once instead of twice. A line
+  /// that does fit still comes back as `[line]`, whether the loop skips its
+  /// first turn or never runs at all.
+  ///
+  /// [pieceOffsets], when given, collects the source offset every returned
+  /// piece starts at, so a caller can map an offset on [line] onto the
+  /// piece that now holds it. The gaps between consecutive entries are the
+  /// break points *plus* what the break dropped there: the trailing spaces
+  /// `trimRight` took off the emitted piece and the leading ones
+  /// `trimLeft` took off the remainder.
+  List<String> _breakLineRespectingMarkdown(
+    String line,
+    double maxWidth, {
+    bool knownExceeds = false,
+    List<int>? pieceOffsets,
+  }) {
     if (line.isEmpty) return [line];
 
     // Find all protected ranges (markdown syntax that shouldn't be broken)
@@ -272,8 +333,11 @@ class EditorWidthCalculator {
     final result = <String>[];
     var remaining = line;
     var offset = 0;
+    var exceeds = knownExceeds;
 
-    while (remaining.isNotEmpty && lineExceedsWidth(remaining, maxWidth)) {
+    while (remaining.isNotEmpty &&
+        (exceeds || lineExceedsWidth(remaining, maxWidth))) {
+      exceeds = false;
       // Find the optimal break point
       int breakPoint = findBreakPoint(remaining, maxWidth);
 
@@ -308,6 +372,7 @@ class EditorWidthCalculator {
       // Ensure we make progress
       if (breakPoint <= 0) breakPoint = 1;
 
+      pieceOffsets?.add(offset);
       result.add(remaining.substring(0, breakPoint).trimRight());
       // Track the leading-whitespace `trimLeft` strips so `offset` stays in
       // sync with the original-line coordinates that `protectedRanges` is
@@ -321,6 +386,7 @@ class EditorWidthCalculator {
     }
 
     if (remaining.isNotEmpty) {
+      pieceOffsets?.add(offset);
       result.add(remaining);
     }
 
