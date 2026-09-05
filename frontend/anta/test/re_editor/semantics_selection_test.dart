@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:re_editor/re_editor.dart';
 
+import 'support/editor_test_support.dart';
+
 void main() {
-  const double fontSize = 14.0;
   const double viewportWidth = 300.0;
   const double viewportHeight = 200.0;
   const int lineCount = 200;
@@ -57,7 +57,7 @@ void main() {
                 autofocus: false,
                 wordWrap: true,
                 padding: EdgeInsets.zero,
-                style: const CodeEditorStyle(fontSize: fontSize),
+                style: const CodeEditorStyle(fontSize: kTestFontSize),
                 indicatorBuilder: (context, editing, chunk, valueNotifier) {
                   notifier = valueNotifier;
                   return const SizedBox.shrink();
@@ -71,61 +71,6 @@ void main() {
     await tester.pump();
     await tester.pump();
     return (controller: controller, focusNode: focusNode, notifier: notifier);
-  }
-
-  Future<void> teardownEditor(WidgetTester tester) async {
-    await tester.pump(const Duration(milliseconds: 200));
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pump();
-  }
-
-  Future<void> settle(WidgetTester tester, [int frames = 14]) async {
-    for (var i = 0; i < frames; i++) {
-      await tester.pump(const Duration(milliseconds: 16));
-    }
-  }
-
-  Future<void> flushDeferredWork(WidgetTester tester) async {
-    await tester.pump(Duration.zero);
-    await tester.idle();
-    await tester.pump(Duration.zero);
-  }
-
-  List<String> watchTextInput(WidgetTester tester) {
-    final methods = <String>[];
-    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-      SystemChannels.textInput,
-      (MethodCall call) async {
-        methods.add(call.method);
-        return null;
-      },
-    );
-    addTearDown(tester.testTextInput.register);
-    return methods;
-  }
-
-  List<int> displayedIndices(CodeIndicatorValueNotifier notifier) {
-    final paragraphs =
-        notifier.value?.paragraphs ?? const <CodeLineRenderParagraph>[];
-    return paragraphs.map((p) => p.index).toList();
-  }
-
-  String expectedWindow(
-    CodeIndicatorValueNotifier notifier,
-    CodeLineEditingController controller,
-  ) {
-    return displayedIndices(
-      notifier,
-    ).map((index) => controller.codeLines[index].text).join('\n');
-  }
-
-  SemanticsFinder textField() =>
-      find.semantics.byFlag(SemanticsFlag.isTextField);
-
-  SemanticsNode textFieldNode() {
-    final finder = textField();
-    expect(finder, findsOne);
-    return finder.evaluate().single;
   }
 
   Future<List<int>> scrollToWindowBelowTop(
@@ -248,8 +193,7 @@ void main() {
     );
     final int last = indices.last;
     final int lastLength = e.controller.codeLines[last].text.length;
-    final int windowLength =
-        expectedWindow(e.notifier, e.controller).length;
+    final int windowLength = expectedWindow(e.notifier, e.controller).length;
 
     setSelection(tester, windowLength + 500, windowLength + 500);
     await flushDeferredWork(tester);
@@ -263,8 +207,44 @@ void main() {
     await teardownEditor(tester);
   });
 
-  testWidgets('a base after the extent stays a reversed selection',
-      (tester) async {
+  testWidgets('select all over the announced value stops at the window edges', (
+    tester,
+  ) async {
+    final handle = tester.ensureSemantics();
+    watchTextInput(tester);
+    final e = await pumpEditor(tester);
+    await settle(tester);
+
+    final indices = displayedIndices(e.notifier);
+    expect(indices.first, 0);
+    expect(indices.last, lessThan(lineCount - 1));
+    final int lastLength = e.controller.codeLines[indices.last].text.length;
+    final String window = expectedWindow(e.notifier, e.controller);
+    expect(textFieldNode().value, window);
+
+    setSelection(tester, 0, window.length);
+    await flushDeferredWork(tester);
+
+    expect(
+      e.controller.selection,
+      CodeLineSelection(
+        baseIndex: indices.first,
+        baseOffset: 0,
+        extentIndex: indices.last,
+        extentOffset: lastLength,
+      ),
+      reason:
+          'the window is what was announced, so select all can only cover '
+          'the displayed lines',
+    );
+
+    handle.dispose();
+    await teardownEditor(tester);
+  });
+
+  testWidgets('a base after the extent stays a reversed selection', (
+    tester,
+  ) async {
     final handle = tester.ensureSemantics();
     watchTextInput(tester);
     final e = await pumpEditor(tester);
@@ -325,8 +305,9 @@ void main() {
     await teardownEditor(tester);
   });
 
-  testWidgets('a caret outside the window is not announced at all',
-      (tester) async {
+  testWidgets('a caret outside the window is not announced at all', (
+    tester,
+  ) async {
     final handle = tester.ensureSemantics();
     watchTextInput(tester);
     final e = await pumpEditor(tester);
@@ -353,8 +334,45 @@ void main() {
     await teardownEditor(tester);
   });
 
-  testWidgets('setSelection changes no text and never asks for the keyboard',
-      (tester) async {
+  testWidgets('a selection with one end off screen is not announced either', (
+    tester,
+  ) async {
+    final handle = tester.ensureSemantics();
+    watchTextInput(tester);
+    final e = await pumpEditor(tester);
+    await settle(tester);
+    final indices = await scrollToWindowBelowTop(
+      tester,
+      e.controller,
+      e.notifier,
+    );
+    expect(indices, isNot(contains(0)));
+
+    e.controller.selection = CodeLineSelection(
+      baseIndex: indices.first,
+      baseOffset: 1,
+      extentIndex: 0,
+      extentOffset: 0,
+    );
+    await tester.pump();
+
+    final SemanticsNode node = textFieldNode();
+    expect(
+      node.textSelection,
+      isNull,
+      reason:
+          'the extent has no offset in the announced window, so no '
+          'selection can be expressed against it',
+    );
+    expect(node.value, expectedWindow(e.notifier, e.controller));
+
+    handle.dispose();
+    await teardownEditor(tester);
+  });
+
+  testWidgets('setSelection changes no text and never asks for the keyboard', (
+    tester,
+  ) async {
     final handle = tester.ensureSemantics();
     final methods = watchTextInput(tester);
     final e = await pumpEditor(tester);

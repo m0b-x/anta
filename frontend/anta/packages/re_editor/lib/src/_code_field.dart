@@ -28,7 +28,7 @@ class _CodeField extends SingleChildRenderObjectWidget {
   final LayerLink startHandleLayerLink;
   final LayerLink endHandleLayerLink;
   final VoidCallback onSemanticsTap;
-  final VoidCallback onSemanticsDidGainAccessibilityFocus;
+  final VoidCallback? onSemanticsDidGainAccessibilityFocus;
   final ValueChanged<CodeLineSelection> onSemanticsSetSelection;
   final List<CodeEditorSemanticsZone> Function(int lineIndex)? semanticsZonesOf;
   final ValueChanged<CodeLinePosition> onSemanticsPerformZone;
@@ -165,7 +165,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
   int? _maxLengthSingleLineRendering;
   Color? _chunkIndicatorColor;
   VoidCallback _onSemanticsTap;
-  VoidCallback _onSemanticsDidGainAccessibilityFocus;
+  VoidCallback? _onSemanticsDidGainAccessibilityFocus;
   ValueChanged<CodeLineSelection> _onSemanticsSetSelection;
   List<CodeEditorSemanticsZone> Function(int lineIndex)? _semanticsZonesOf;
   ValueChanged<CodeLinePosition> _onSemanticsPerformZone;
@@ -216,7 +216,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     required LayerLink startHandleLayerLink,
     required LayerLink endHandleLayerLink,
     required VoidCallback onSemanticsTap,
-    required VoidCallback onSemanticsDidGainAccessibilityFocus,
+    required VoidCallback? onSemanticsDidGainAccessibilityFocus,
     required ValueChanged<CodeLineSelection> onSemanticsSetSelection,
     required List<CodeEditorSemanticsZone> Function(int lineIndex)?
         semanticsZonesOf,
@@ -340,7 +340,6 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
           _selection.isCollapsed;
     }
     markNeedsLayout();
-    markNeedsSemanticsUpdate();
   }
 
   set highlightSelections(List<CodeLineSelection>? value) {
@@ -600,7 +599,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     markNeedsSemanticsUpdate();
   }
 
-  set onSemanticsDidGainAccessibilityFocus(VoidCallback value) {
+  set onSemanticsDidGainAccessibilityFocus(VoidCallback? value) {
     if (_onSemanticsDidGainAccessibilityFocus == value) {
       return;
     }
@@ -657,8 +656,12 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
       ..textDirection = TextDirection.ltr
       ..value = _visibleWindowText()
       ..onTap = _onSemanticsTap
-      ..onDidGainAccessibilityFocus = _onSemanticsDidGainAccessibilityFocus
       ..onSetSelection = _handleSemanticsSetSelection;
+    final VoidCallback? didGainAccessibilityFocus =
+        _onSemanticsDidGainAccessibilityFocus;
+    if (didGainAccessibilityFocus != null) {
+      config.onDidGainAccessibilityFocus = didGainAccessibilityFocus;
+    }
     final TextSelection? textSelection = _visibleWindowSelection();
     if (textSelection != null) {
       config.textSelection = textSelection;
@@ -755,8 +758,8 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     Offset origin,
     CodeEditorSemanticsZone zone,
   ) {
-    final List<Rect> rects = paragraph
-        .getRangeRects(TextRange(start: zone.start, end: zone.end));
+    final List<Rect> rects =
+        paragraph.getRangeRects(TextRange(start: zone.start, end: zone.end));
     if (rects.isEmpty) {
       return null;
     }
@@ -775,10 +778,10 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
   }
 
   void _handleSemanticsSetSelection(TextSelection selection) {
-    final CodeLinePosition? base = positionForWindowOffset(
-        selection.baseOffset);
-    final CodeLinePosition? extent = positionForWindowOffset(
-        selection.extentOffset);
+    final CodeLinePosition? base =
+        positionForWindowOffset(selection.baseOffset);
+    final CodeLinePosition? extent =
+        positionForWindowOffset(selection.extentOffset);
     if (base == null || extent == null) {
       return;
     }
@@ -1511,7 +1514,8 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     // applyContentDimensions will change the _verticalViewport.pixels, we should rebuild.
     if (_displayParagraphs.first.index > 0 &&
         _displayParagraphs.first.offset.dy >
-            _verticalViewport.pixels + paddingTop) {
+            _verticalViewport.pixels + paddingTop &&
+        cycle < _kMaxLayoutCycles) {
       _updateDisplayRenderParagraphs(cycle + 1);
       return;
     }

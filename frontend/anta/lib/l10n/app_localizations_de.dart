@@ -4541,8 +4541,8 @@ class AppLocalizationsDe extends AppLocalizations {
   String get editorZoneOpenLink => 'Link öffnen';
 
   @override
-  String get editorZoneOpenMoney => 'Kontodetails öffnen';
+  String get editorZoneOpenMoney => 'Kassenbuchdetails öffnen';
 
   @override
-  String get editorZoneSearchTag => 'Tag suchen';
+  String get editorZoneSearchTag => 'Schlagwort suchen';
 }

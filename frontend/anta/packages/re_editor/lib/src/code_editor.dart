@@ -617,7 +617,9 @@ class _CodeEditorState extends State<CodeEditor> {
       selectionOverlayController: _selectionOverlayController,
       onSemanticsTap: _handleSemanticsTap,
       onSemanticsDidGainAccessibilityFocus:
-          _handleSemanticsDidGainAccessibilityFocus,
+          defaultTargetPlatform == TargetPlatform.macOS
+              ? _handleSemanticsDidGainAccessibilityFocus
+              : null,
       onSemanticsSetSelection: _handleSemanticsSetSelection,
       semanticsZonesOf:
           widget.tapInterceptor?.zonesOf == null ? null : _semanticsZonesOf,
@@ -738,6 +740,10 @@ class _CodeEditorState extends State<CodeEditor> {
     _inputController.ensureInput();
   }
 
+  /// Only plumbed on macOS, where `material/text_field.dart` sets the
+  /// same action. Android and iOS set neither this nor its lose twin:
+  /// there a screen reader sweeping past the field would take keyboard
+  /// focus and, with no lose handler, never give it back.
   void _handleSemanticsDidGainAccessibilityFocus() {
     if (_focusNode.hasFocus || !_focusNode.canRequestFocus) {
       return;

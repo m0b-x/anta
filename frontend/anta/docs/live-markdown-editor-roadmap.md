@@ -11,7 +11,7 @@ listed here.
 
 2026-09-03: a whole-system review and the plan to retire the preview behind a
 "Deprecated features" setting live in `live-editor-review-and-slices-2026-09.md`
-(findings + Sessions 0–10). Pick the next session from there.
+(findings + Sessions 0–11). Pick the next session from there.
 
 ---
 
@@ -217,6 +217,22 @@ lines bypass the memo.
       the same actions a tap does with the caret untouched. The zones come
       from `EditorInputPolicy.zonesOf`, the range-enumerating sibling of
       `resolveTap`, pinned offset-by-offset against it.
+- [x] Session 7 review (2026-09-05, five read-only passes over the
+      shipped 7a/7b/7c code plus a docs-drift pass): two real bugs fixed —
+      three of the mobile handle-drag fields were `late` and assigned
+      after the detached-render guard, and the interceptor's slop test
+      was euclidean where the drag recognizers are per-axis, so a
+      sub-pixel diagonal jitter released the claim, moved the caret and
+      fired nothing. Also: the screen reader's accessibility-focus
+      handler is macOS-only now (on Android it took keyboard focus a
+      TalkBack sweep never gave back), the autoscroll loops survive a
+      null-render tick, the handle overlay detaches its own listeners on
+      dispose, the last six `as _CodeFieldRender?` casts became nullable
+      type-checks, `linkAt`/`tagAt` are expressed over `linksAndTags`, and
+      the wrapper memoises tap zones per line text so a semantics flush no
+      longer re-parses every visible line. `test/re_editor/` shares one
+      harness (`support/editor_test_support.dart`); the German zone labels
+      became "Kassenbuchdetails öffnen" / "Schlagwort suchen".
 
 ### Decision log
 

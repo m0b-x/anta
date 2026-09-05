@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:re_editor/re_editor.dart';
 
+import 'support/editor_test_support.dart';
+
 void main() {
-  const double fontSize = 14.0;
   const double viewportWidth = 300.0;
   const double viewportHeight = 200.0;
   const int lineCount = 200;
@@ -56,7 +56,7 @@ void main() {
                 autofocus: false,
                 wordWrap: true,
                 padding: EdgeInsets.zero,
-                style: const CodeEditorStyle(fontSize: fontSize),
+                style: const CodeEditorStyle(fontSize: kTestFontSize),
                 indicatorBuilder: (context, editing, chunk, valueNotifier) {
                   notifier = valueNotifier;
                   return const SizedBox.shrink();
@@ -72,41 +72,13 @@ void main() {
     return (controller: controller, scroll: scroll, notifier: notifier);
   }
 
-  Future<void> teardownEditor(WidgetTester tester) async {
-    await tester.pump(const Duration(milliseconds: 200));
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pump();
-  }
+  setUp(() {
+    CodeLines.debugAsStringCalls = 0;
+  });
 
-  Future<void> settle(WidgetTester tester, [int frames = 14]) async {
-    for (var i = 0; i < frames; i++) {
-      await tester.pump(const Duration(milliseconds: 16));
-    }
-  }
-
-  List<int> displayedIndices(CodeIndicatorValueNotifier notifier) {
-    final paragraphs =
-        notifier.value?.paragraphs ?? const <CodeLineRenderParagraph>[];
-    return paragraphs.map((p) => p.index).toList();
-  }
-
-  String expectedWindow(
-    CodeIndicatorValueNotifier notifier,
-    CodeLineEditingController controller,
-  ) {
-    return displayedIndices(
-      notifier,
-    ).map((index) => controller.codeLines[index].text).join('\n');
-  }
-
-  SemanticsNode textFieldNode() {
-    final finder = find.semantics.byFlag(SemanticsFlag.isTextField);
-    expect(finder, findsOne);
-    return finder.evaluate().single;
-  }
-
-  testWidgets('the announced value is the visible window, not the document',
-      (tester) async {
+  testWidgets('the announced value is the visible window, not the document', (
+    tester,
+  ) async {
     final handle = tester.ensureSemantics();
     final e = await pumpEditor(tester, buildDocument());
     await settle(tester);
@@ -125,8 +97,9 @@ void main() {
     await teardownEditor(tester);
   });
 
-  testWidgets('scrolling moves the announced value to the new window',
-      (tester) async {
+  testWidgets('scrolling moves the announced value to the new window', (
+    tester,
+  ) async {
     final handle = tester.ensureSemantics();
     final e = await pumpEditor(tester, buildDocument());
     await settle(tester);
@@ -151,13 +124,13 @@ void main() {
     await teardownEditor(tester);
   });
 
-  testWidgets('the semantics value never rebuilds the whole-document string',
-      (tester) async {
+  testWidgets('the semantics value never rebuilds the whole-document string', (
+    tester,
+  ) async {
     final handle = tester.ensureSemantics();
     final e = await pumpEditor(tester, buildDocument());
     await settle(tester);
 
-    CodeLines.debugAsStringCalls = 0;
     await settle(tester);
     expect(CodeLines.debugAsStringCalls, 0);
 
@@ -170,10 +143,7 @@ void main() {
 
     expect(CodeLines.debugAsStringCalls, 0);
     expect(textFieldNode().value, startsWith('xline 0'));
-    expect(
-      textFieldNode().value,
-      expectedWindow(e.notifier, e.controller),
-    );
+    expect(textFieldNode().value, expectedWindow(e.notifier, e.controller));
 
     handle.dispose();
     await teardownEditor(tester);

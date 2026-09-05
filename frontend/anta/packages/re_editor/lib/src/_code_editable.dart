@@ -47,7 +47,7 @@ class _CodeEditable extends StatefulWidget {
   final LayerLink toolbarLayerLink;
   final _SelectionOverlayController selectionOverlayController;
   final VoidCallback onSemanticsTap;
-  final VoidCallback onSemanticsDidGainAccessibilityFocus;
+  final VoidCallback? onSemanticsDidGainAccessibilityFocus;
   final ValueChanged<CodeLineSelection> onSemanticsSetSelection;
   final List<CodeEditorSemanticsZone> Function(int lineIndex)? semanticsZonesOf;
   final ValueChanged<CodeLinePosition> onSemanticsPerformZone;
@@ -117,6 +117,12 @@ class _CodeEditableState extends State<_CodeEditable>
 
   @override
   bool get wantKeepAlive => widget.focusNode.hasFocus;
+
+  _CodeFieldRender? get _render {
+    final RenderObject? renderObject =
+        widget.editorKey.currentContext?.findRenderObject();
+    return renderObject is _CodeFieldRender ? renderObject : null;
+  }
 
   @override
   void initState() {
@@ -419,8 +425,7 @@ class _CodeEditableState extends State<_CodeEditable>
       autocompleteState.dismiss();
       return;
     }
-    final _CodeFieldRender? render = widget.editorKey.currentContext
-        ?.findRenderObject() as _CodeFieldRender?;
+    final _CodeFieldRender? render = _render;
     if (render == null) {
       autocompleteState.dismiss();
       return;

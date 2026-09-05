@@ -10,6 +10,7 @@ import '../constants/font_constants.dart';
 import '../constants/markdown_constants.dart';
 import '../l10n/app_localizations.dart';
 import '../utils/editor_input_policy.dart';
+import '../utils/lru_cache.dart';
 import '../utils/markdown_color_syntax.dart';
 import '../utils/markdown_editor_span_builder.dart';
 import '../utils/re_editor_search_controller.dart';
@@ -104,6 +105,14 @@ class ModernEditorWrapper extends StatefulWidget {
   @visibleForTesting
   static int debugTapResolveCount = 0;
 
+  /// Number of lines whose tap zones have been enumerated against the
+  /// markdown grammars since the counter was last reset — memo misses
+  /// only. Only exists so tests can pin that a repeat semantics flush
+  /// over an unchanged document enumerates nothing; nothing in the app
+  /// reads it.
+  @visibleForTesting
+  static int debugZoneResolveCount = 0;
+
   @override
   State<ModernEditorWrapper> createState() => _ModernEditorWrapperState();
 }
@@ -180,6 +189,11 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
 
   static const Duration _ghostTapWindow = Duration(milliseconds: 350);
 
+  /// Bound of [_zoneMemo] — the semantics path enumerates only the
+  /// visible lines, so a few screens' worth of distinct line texts is
+  /// all it ever needs to hold.
+  static const int _zoneMemoSize = 256;
+
   /// The accessibility labels of the four tap zones, resolved once per
   /// locale instead of per enumerated zone — the interceptor itself has
   /// no [BuildContext], and rebuilding it per build would hand the fork
@@ -189,23 +203,52 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
   String? _zoneOpenMoneyLabel;
   String? _zoneSearchTagLabel;
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final l10n = AppLocalizations.of(context);
-    _zoneToggleTaskLabel = l10n?.editorZoneToggleTask;
-    _zoneOpenLinkLabel = l10n?.editorZoneOpenLink;
-    _zoneOpenMoneyLabel = l10n?.editorZoneOpenMoney;
-    _zoneSearchTagLabel = l10n?.editorZoneSearchTag;
-  }
+  /// Which zone kinds this host has enabled, resolved once per widget
+  /// configuration instead of per tap and per enumerated line.
+  late EditorTapZones _enabledZones;
+
+  /// The zone nodes of a line, keyed by the line's text. The semantics
+  /// path runs once per visible line on every layout, and the zones of a
+  /// line that is neither revealed, fenced nor over-long are a pure
+  /// function of its text under a fixed [_enabledZones] and a fixed set
+  /// of labels — so both of those drop the memo when they change.
+  final LruCache<String, List<CodeEditorSemanticsZone>> _zoneMemo = LruCache(
+    maxSize: _zoneMemoSize,
+  );
 
   @override
   void initState() {
     super.initState();
     widget.controller.addListener(_onControllerChanged);
+    _enabledZones = _resolveEnabledZones();
     _toolbarController = MobileSelectionToolbarController(
       builder: _buildSelectionToolbar,
     );
+  }
+
+  /// Re-reads the four zone labels for the current locale. Every cached
+  /// zone node carries a label, so a different locale invalidates the
+  /// whole memo; an unchanged one costs four comparisons and nothing
+  /// else.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final l10n = AppLocalizations.of(context);
+    final toggleLabel = l10n?.editorZoneToggleTask;
+    final linkLabel = l10n?.editorZoneOpenLink;
+    final moneyLabel = l10n?.editorZoneOpenMoney;
+    final tagLabel = l10n?.editorZoneSearchTag;
+    if (toggleLabel == _zoneToggleTaskLabel &&
+        linkLabel == _zoneOpenLinkLabel &&
+        moneyLabel == _zoneOpenMoneyLabel &&
+        tagLabel == _zoneSearchTagLabel) {
+      return;
+    }
+    _zoneToggleTaskLabel = toggleLabel;
+    _zoneOpenLinkLabel = linkLabel;
+    _zoneOpenMoneyLabel = moneyLabel;
+    _zoneSearchTagLabel = tagLabel;
+    _zoneMemo.clear();
   }
 
   /// Rebinds to a swapped-in controller: the page may hand the wrapper a
@@ -214,7 +257,9 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
   /// document's edits. The pending tap claim and the ghost engagement
   /// both describe the old document, so both are dropped. A swapped
   /// search controller is unbound here; the new one re-binds itself
-  /// through `findBuilder` on the next build.
+  /// through `findBuilder` on the next build. A host that enables or
+  /// disables a zone kind — or repaints with another palette — changes
+  /// what every line enumerates, so the zone memo goes with it.
   @override
   void didUpdateWidget(covariant ModernEditorWrapper oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -227,6 +272,14 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
     }
     if (oldWidget.searchController != widget.searchController) {
       oldWidget.searchController.clearFindController();
+    }
+    if (oldWidget.checkboxTapToggle != widget.checkboxTapToggle ||
+        (oldWidget.onOpenLink == null) != (widget.onOpenLink == null) ||
+        (oldWidget.onMoneyTap == null) != (widget.onMoneyTap == null) ||
+        (oldWidget.onOpenTag == null) != (widget.onOpenTag == null) ||
+        oldWidget.colorPalette != widget.colorPalette) {
+      _enabledZones = _resolveEnabledZones();
+      _zoneMemo.clear();
     }
   }
 
@@ -360,9 +413,7 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
 
   /// The action for a claimed tap's tap-up. Reuses the memo from
   /// [_claimTapAction] when nothing it was resolved from moved, and
-  /// re-resolves otherwise. Single-shot: the memo is dropped either way,
-  /// so an abandoned claim (slop, cancel, another pointer) can never be
-  /// consumed by a later tap.
+  /// re-resolves otherwise.
   VoidCallback? _consumeTapAction(CodeLinePosition position) {
     final claim = _tapClaim;
     _tapClaim = null;
@@ -388,7 +439,7 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
   /// both the pointer path ([_resolveTapAction]) and the accessibility
   /// path ([_semanticsZonesOf]) resolve against, so the nodes a screen
   /// reader reaches are exactly the offsets a tap would be claimed on.
-  EditorTapZones _enabledZones() => EditorTapZones(
+  EditorTapZones _resolveEnabledZones() => EditorTapZones(
     checkbox: widget.checkboxTapToggle,
     links: widget.onOpenLink != null,
     money: widget.onMoneyTap != null,
@@ -401,6 +452,11 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
   /// labels resolve (no [AppLocalizations] in scope), and empty on every
   /// line [EditorInputPolicy] enumerates nothing for — reveal lines,
   /// fence lines, over-long lines.
+  ///
+  /// Runs once per visible line on every semantics flush, so the three
+  /// pass-through rules are answered before any grammar is touched and
+  /// what remains goes through [_zoneMemo]. Nothing calls this unless an
+  /// assistive technology has enabled the semantics tree.
   List<CodeEditorSemanticsZone> _semanticsZonesOf(int lineIndex) {
     final toggleLabel = _zoneToggleTaskLabel;
     final linkLabel = _zoneOpenLinkLabel;
@@ -412,30 +468,46 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
         tagLabel == null) {
       return const [];
     }
+    final lineText = _lineTextAt(lineIndex);
+    if (lineText == null || lineText.isEmpty) return const [];
+    if (MarkdownEditorSpanBuilder.selectionCoversLine(
+      widget.controller.selection,
+      lineIndex,
+    )) {
+      return const [];
+    }
+    if (widget.isFenceLine?.call(lineIndex) ?? false) return const [];
+    if (lineText.length > MarkdownEditorSpanBuilder.maxStyledLineLength) {
+      return const [];
+    }
+    final memoized = _zoneMemo.get(lineText);
+    if (memoized != null) return memoized;
+
+    ModernEditorWrapper.debugZoneResolveCount++;
     final zones = EditorInputPolicy.zonesOf(
-      lineText: _lineTextAt(lineIndex),
+      lineText: lineText,
       lineIndex: lineIndex,
-      lineRevealed: MarkdownEditorSpanBuilder.selectionCoversLine(
-        widget.controller.selection,
-        lineIndex,
-      ),
-      inFence: widget.isFenceLine?.call(lineIndex) ?? false,
-      zones: _enabledZones(),
+      lineRevealed: false,
+      inFence: false,
+      zones: _enabledZones,
     );
-    if (zones.isEmpty) return const [];
-    return [
-      for (final zone in zones)
-        CodeEditorSemanticsZone(
-          start: zone.start,
-          end: zone.end,
-          label: switch (zone.action) {
-            EditorToggleTaskAction() => toggleLabel,
-            EditorOpenLinkAction() => linkLabel,
-            EditorOpenMoneyAction() => moneyLabel,
-            EditorOpenTagAction() => tagLabel,
-          },
-        ),
-    ];
+    final nodes = zones.isEmpty
+        ? const <CodeEditorSemanticsZone>[]
+        : <CodeEditorSemanticsZone>[
+            for (final zone in zones)
+              CodeEditorSemanticsZone(
+                start: zone.start,
+                end: zone.end,
+                label: switch (zone.action) {
+                  EditorToggleTaskAction() => toggleLabel,
+                  EditorOpenLinkAction() => linkLabel,
+                  EditorOpenMoneyAction() => moneyLabel,
+                  EditorOpenTagAction() => tagLabel,
+                },
+              ),
+          ];
+    _zoneMemo.put(lineText, nodes);
+    return nodes;
   }
 
   /// Resolves what a tap at [position] does instead of editing: toggle
@@ -460,7 +532,7 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
         lineIndex,
       ),
       inFence: widget.isFenceLine?.call(lineIndex) ?? false,
-      zones: _enabledZones(),
+      zones: _enabledZones,
     );
     // The toggle's haptic rides in [_toggleTaskLine], beside the edit it
     // confirms; the three openers confirm here. Either way the tactile

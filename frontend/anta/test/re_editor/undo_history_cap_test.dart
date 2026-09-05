@@ -17,10 +17,7 @@ void main() {
     controller.runRevocableOp(() {
       controller.value = CodeLineEditingValue(
         codeLines: CodeLines.fromText(text),
-        selection: CodeLineSelection.collapsed(
-          index: 0,
-          offset: text.length,
-        ),
+        selection: CodeLineSelection.collapsed(index: 0, offset: text.length),
       );
     });
   }

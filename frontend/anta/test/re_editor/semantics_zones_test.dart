@@ -3,6 +3,8 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:re_editor/re_editor.dart';
 
+import 'support/editor_test_support.dart';
+
 /// The editor's interactive text regions are pointer-only by nature: the
 /// host claims a tap at a text position, and nothing about that is
 /// reachable to a screen reader. `CodeEditorTapInterceptor.zonesOf` is
@@ -20,7 +22,6 @@ import 'package:re_editor/re_editor.dart';
 /// editor is settled frame by frame rather than with `pumpAndSettle`
 /// (the cursor blink never settles).
 void main() {
-  const double fontSize = 14.0;
   const double viewportWidth = 300.0;
   const double viewportHeight = 200.0;
   const String label = 'zone';
@@ -28,9 +29,17 @@ void main() {
   const int zoneEnd = 5;
   const TextRange zoneRange = TextRange(start: zoneStart, end: zoneEnd);
   const Set<int> zoneLines = {0, 2};
+  const String marker = 'zone';
 
   String buildDocument(int lineCount) {
     return List<String>.generate(lineCount, (i) => 'line $i').join('\n');
+  }
+
+  String buildMarkedDocument(int lineCount) {
+    return List<String>.generate(
+      lineCount,
+      (i) => zoneLines.contains(i) ? '$marker $i xxxx' : 'line $i',
+    ).join('\n');
   }
 
   Future<
@@ -47,6 +56,7 @@ void main() {
     required String text,
     bool withInterceptor = true,
     bool withZones = true,
+    bool zonesFollowText = false,
   }) async {
     final controller = CodeLineEditingController.fromText(text);
     final scroll = CodeScrollController();
@@ -70,7 +80,10 @@ void main() {
       zonesOf: withZones
           ? (lineIndex) {
               enumerated.add(lineIndex);
-              if (!zoneLines.contains(lineIndex)) {
+              final bool carries = zonesFollowText
+                  ? controller.codeLines[lineIndex].text.startsWith(marker)
+                  : zoneLines.contains(lineIndex);
+              if (!carries) {
                 return const <CodeEditorSemanticsZone>[];
               }
               return const [
@@ -98,7 +111,7 @@ void main() {
                 autofocus: false,
                 wordWrap: true,
                 padding: EdgeInsets.zero,
-                style: const CodeEditorStyle(fontSize: fontSize),
+                style: const CodeEditorStyle(fontSize: kTestFontSize),
                 tapInterceptor: withInterceptor ? interceptor : null,
                 indicatorBuilder: (context, editing, chunk, valueNotifier) {
                   notifier = valueNotifier;
@@ -121,48 +134,15 @@ void main() {
     );
   }
 
-  Future<void> teardownEditor(WidgetTester tester) async {
-    await tester.pump(const Duration(milliseconds: 200));
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pump();
-  }
-
-  Future<void> settle(WidgetTester tester, [int frames = 14]) async {
-    for (var i = 0; i < frames; i++) {
-      await tester.pump(const Duration(milliseconds: 16));
-    }
-  }
-
-  SemanticsNode textFieldNode() {
-    final finder = find.semantics.byFlag(SemanticsFlag.isTextField);
-    expect(finder, findsOne);
-    return finder.evaluate().single;
-  }
-
-  List<CodeLineRenderParagraph> paragraphs(
-    CodeIndicatorValueNotifier notifier,
-  ) {
-    return notifier.value?.paragraphs ?? const <CodeLineRenderParagraph>[];
-  }
-
-  String expectedWindow(
-    CodeIndicatorValueNotifier notifier,
-    CodeLineEditingController controller,
-  ) {
-    return paragraphs(
-      notifier,
-    ).map((p) => controller.codeLines[p.index].text).join('\n');
-  }
-
   /// The zone's rect as the render should have expressed it: the
   /// paragraph's own range rects, unioned, shifted by the paragraph's
   /// scroll-adjusted offset. The notifier hands out exactly those
   /// offsets (`paragraph.offset - paintOffset`), so this is the
   /// render-local space the field's child nodes live in.
   Rect expectedZoneRect(CodeIndicatorValueNotifier notifier, int lineIndex) {
-    final paragraph = paragraphs(notifier).firstWhere(
-      (p) => p.index == lineIndex,
-    );
+    final paragraph = displayedParagraphs(
+      notifier,
+    ).firstWhere((p) => p.index == lineIndex);
     final rects = paragraph.getRangeRects(zoneRange);
     expect(rects, isNotEmpty);
     var rect = rects.first;
@@ -181,8 +161,9 @@ void main() {
         : MatrixUtils.transformRect(transform, node.rect);
   }
 
-  testWidgets('one node per enumerated zone, covering the range it names',
-      (tester) async {
+  testWidgets('one node per enumerated zone, covering the range it names', (
+    tester,
+  ) async {
     final handle = tester.ensureSemantics();
     final e = await pumpEditor(tester, text: buildDocument(6));
     await settle(tester);
@@ -194,7 +175,10 @@ void main() {
       final lineIndex = zoneLines.elementAt(i);
       expect(nodes[i].parent, textFieldNode());
       expect(rectInParent(nodes[i]), expectedZoneRect(e.notifier, lineIndex));
-      expect(nodes[i].getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
+      expect(
+        nodes[i].getSemanticsData().hasAction(SemanticsAction.tap),
+        isTrue,
+      );
     }
 
     handle.dispose();
@@ -217,9 +201,7 @@ void main() {
     expect(e.intercepted, [
       const CodeLinePosition(index: 0, offset: zoneStart),
     ]);
-    expect(e.tapped, [
-      const CodeLinePosition(index: 0, offset: zoneStart),
-    ]);
+    expect(e.tapped, [const CodeLinePosition(index: 0, offset: zoneStart)]);
     expect(e.controller.selection, selection);
 
     handle.dispose();
@@ -249,8 +231,9 @@ void main() {
     await teardownEditor(tester);
   });
 
-  testWidgets('a zone scrolled out of the window loses its node',
-      (tester) async {
+  testWidgets('a zone scrolled out of the window loses its node', (
+    tester,
+  ) async {
     final handle = tester.ensureSemantics();
     final e = await pumpEditor(tester, text: buildDocument(200));
     await settle(tester);
@@ -261,7 +244,7 @@ void main() {
     );
     await settle(tester);
 
-    final visible = paragraphs(e.notifier).map((p) => p.index).toSet();
+    final visible = displayedIndices(e.notifier).toSet();
     expect(visible.contains(0), isFalse);
     expect(visible.contains(2), isFalse);
     expect(find.semantics.byLabel(label), findsNothing);
@@ -270,14 +253,11 @@ void main() {
     await teardownEditor(tester);
   });
 
-  testWidgets('without an interceptor the text field has no children',
-      (tester) async {
+  testWidgets('without an interceptor the text field has no children', (
+    tester,
+  ) async {
     final handle = tester.ensureSemantics();
-    await pumpEditor(
-      tester,
-      text: buildDocument(6),
-      withInterceptor: false,
-    );
+    await pumpEditor(tester, text: buildDocument(6), withInterceptor: false);
     await settle(tester);
 
     expect(find.semantics.byLabel(label), findsNothing);
@@ -287,8 +267,9 @@ void main() {
     await teardownEditor(tester);
   });
 
-  testWidgets('an interceptor without zonesOf contributes no children',
-      (tester) async {
+  testWidgets('an interceptor without zonesOf contributes no children', (
+    tester,
+  ) async {
     final handle = tester.ensureSemantics();
     final e = await pumpEditor(
       tester,
@@ -332,8 +313,67 @@ void main() {
   List<int> zoneIds() =>
       find.semantics.byLabel(label).evaluate().map((n) => n.id).toList();
 
-  testWidgets('a semantics teardown drops the zone node cache',
-      (tester) async {
+  testWidgets('a plain semantics rebuild keeps the same zone nodes', (
+    tester,
+  ) async {
+    final handle = tester.ensureSemantics();
+    final e = await pumpEditor(tester, text: buildDocument(6));
+    await settle(tester);
+    final before = zoneIds();
+    expect(before, hasLength(2));
+
+    tester.renderObject(find.byType(CodeEditor)).markNeedsSemanticsUpdate();
+    await settle(tester);
+    expect(zoneIds(), before);
+
+    await rebuildSemantics(tester, e.controller, 4);
+    expect(
+      zoneIds(),
+      before,
+      reason:
+          'the keyed cache exists so an unrelated rebuild does not hand '
+          'the platform a new node for an unchanged zone',
+    );
+
+    handle.dispose();
+    await teardownEditor(tester);
+  });
+
+  testWidgets('a line inserted above the zones renumbers their nodes', (
+    tester,
+  ) async {
+    final handle = tester.ensureSemantics();
+    final e = await pumpEditor(
+      tester,
+      text: buildMarkedDocument(6),
+      zonesFollowText: true,
+    );
+    await settle(tester);
+    final before = zoneIds();
+    expect(before, hasLength(2));
+
+    e.controller.selection = const CodeLineSelection.collapsed(
+      index: 0,
+      offset: 0,
+    );
+    e.controller.replaceSelection('\n');
+    await settle(tester);
+
+    final after = zoneIds();
+    expect(after, hasLength(2));
+    expect(
+      after.toSet().intersection(before.toSet()),
+      isEmpty,
+      reason:
+          'the cache key carries the line index, so a zone that shifts '
+          'down is a new node: the accepted cost of keying by line',
+    );
+
+    handle.dispose();
+    await teardownEditor(tester);
+  });
+
+  testWidgets('a semantics teardown drops the zone node cache', (tester) async {
     final handle = tester.ensureSemantics();
     final e = await pumpEditor(tester, text: buildDocument(6));
     await settle(tester);
@@ -352,8 +392,9 @@ void main() {
     await teardownEditor(tester);
   });
 
-  testWidgets('a window that moved across a teardown rebuilds cleanly',
-      (tester) async {
+  testWidgets('a window that moved across a teardown rebuilds cleanly', (
+    tester,
+  ) async {
     final handle = tester.ensureSemantics();
     final e = await pumpEditor(tester, text: buildDocument(200));
     await settle(tester);
@@ -383,8 +424,9 @@ void main() {
     await teardownEditor(tester);
   });
 
-  testWidgets('repeated teardowns never reuse a node from an earlier tree',
-      (tester) async {
+  testWidgets('repeated teardowns never reuse a node from an earlier tree', (
+    tester,
+  ) async {
     final handle = tester.ensureSemantics();
     final e = await pumpEditor(tester, text: buildDocument(6));
     await settle(tester);

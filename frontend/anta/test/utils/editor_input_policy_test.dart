@@ -128,6 +128,40 @@ void main() {
       offset: 7,
     ),
     tapRow(
+      'a bare url is not a link zone — it renders as itself',
+      text: 'see https://x.dev now',
+      offset: 8,
+    ),
+    tapRow(
+      'an unclosed link is literal text',
+      text: '[docs](https://x.dev',
+      offset: 3,
+    ),
+    tapRow(
+      'a link wrapped in a colour run still opens',
+      text: '{red:[docs](u)}',
+      offset: 7,
+      expected: const EditorOpenLinkAction('u'),
+    ),
+    tapRow(
+      'a link wrapped in emphasis still opens',
+      text: '*[docs](u)*',
+      offset: 3,
+      expected: const EditorOpenLinkAction('u'),
+    ),
+    tapRow(
+      'two adjacent links are two zones, not one',
+      text: '[a](b)[c](d)',
+      offset: 1,
+      expected: const EditorOpenLinkAction('b'),
+    ),
+    tapRow(
+      'the second of two adjacent links opens its own url',
+      text: '[a](b)[c](d)',
+      offset: 7,
+      expected: const EditorOpenLinkAction('d'),
+    ),
+    tapRow(
       'links disabled: the same tap passes through',
       text: linkLine,
       offset: 5,
@@ -252,6 +286,17 @@ void main() {
       offset: 0,
     ),
     tapRow(
+      'a money row carried by a list item still opens the sheet',
+      text: r'- $$ total',
+      offset: 2,
+      expected: const EditorOpenMoneyAction(lineIndex),
+    ),
+    tapRow(
+      "that row's list marker stays editable",
+      text: r'- $$ total',
+      offset: 0,
+    ),
+    tapRow(
       'money disabled: the same tap passes through',
       text: r'$$ balance',
       offset: 0,
@@ -322,6 +367,18 @@ void main() {
       offset: 3,
       links: false,
       expected: const EditorOpenTagAction('#project'),
+    ),
+    tapRow(
+      "a task line's box toggles while its link stays its own zone",
+      text: '- [ ] [docs](u)',
+      offset: 3,
+      expected: const EditorToggleTaskAction(lineIndex),
+    ),
+    tapRow(
+      "that task line's link still opens",
+      text: '- [ ] [docs](u)',
+      offset: 8,
+      expected: const EditorOpenLinkAction('u'),
     ),
 
     // --- a construct straddling a ghost run ----------------------------

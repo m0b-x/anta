@@ -1092,8 +1092,11 @@ class _CodeLineEditingControllerImpl extends ValueNotifier<CodeLineEditingValue>
     super.dispose();
   }
 
-  _CodeFieldRender? get _render =>
-      _editorKey?.currentContext?.findRenderObject() as _CodeFieldRender?;
+  _CodeFieldRender? get _render {
+    final RenderObject? renderObject =
+        _editorKey?.currentContext?.findRenderObject();
+    return renderObject is _CodeFieldRender ? renderObject : null;
+  }
 
   bool _isAlphanumeric(int codeUnit) {
     return (codeUnit <= 57 && codeUnit >= 48) ||

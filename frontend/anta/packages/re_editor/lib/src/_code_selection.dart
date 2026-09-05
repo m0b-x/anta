@@ -53,13 +53,17 @@ class _CodeSelectionGestureDetectorState
   /// arriving while these are set is never intercepted and takes the
   /// normal path, so a second pointer can neither consume nor corrupt
   /// the claim. On the pointer-event (desktop) path the claim is tied to
-  /// the claiming pointer id, and moving that pointer past the slop
-  /// releases the claim into a drag selection anchored at
-  /// [_interceptedTapDownOffset].
+  /// the claiming pointer id and device, and moving that pointer past
+  /// the slop releases the claim into the caret and pairing state a
+  /// plain press at [_interceptedTapDownOffset] would have produced.
+  /// A new press from the claiming mouse drops the claim first: one
+  /// mouse cannot hold two primary presses, so the old claim's up was
+  /// lost and would otherwise refuse every later zone tap.
   CodeLinePosition? _interceptedTapPosition;
   Offset? _interceptedTapDownOffset;
   PointerDeviceKind? _interceptedTapKind;
   int? _interceptedTapPointer;
+  int? _interceptedTapDevice;
 
   /// Set when an intercepted desktop tap-up was consumed, so the outer
   /// GestureDetector's onTapUp (which fires after the raw pointer-up)
@@ -74,10 +78,16 @@ class _CodeSelectionGestureDetectorState
   /// leaves the live claim's state untouched — that claim dies with its
   /// own pointer's up/cancel, or, on desktop, when that pointer moves
   /// past the slop and is released into a drag.
+  ///
+  /// The one-claim refusal is a desktop rule that mobile cannot reach:
+  /// there the only caller is `GestureDetector.onTapDown`, and a tap
+  /// recognizer sends at most one tap-down per gesture, always followed
+  /// by a tap-up or a tap-cancel that clears the claim.
   bool _tryInterceptTap(
     Offset position, {
     PointerDeviceKind? kind,
     int? pointer,
+    int? device,
   }) {
     if (_interceptedTapPosition != null) {
       return false;
@@ -94,6 +104,7 @@ class _CodeSelectionGestureDetectorState
     _interceptedTapDownOffset = position;
     _interceptedTapKind = kind;
     _interceptedTapPointer = pointer;
+    _interceptedTapDevice = device;
     // An intercepted tap must not pair with the taps before or after it
     // into a double-tap word-select.
     _pointerTapTimestamp = null;
@@ -101,21 +112,32 @@ class _CodeSelectionGestureDetectorState
     return true;
   }
 
+  /// Whether [delta] keeps a press inside the slop the drag recognizers
+  /// use to accept: per axis, against [computeHitSlop] for [kind] and
+  /// this view's [DeviceGestureSettings]. Euclidean distance would be
+  /// stricter than the recognizers on a diagonal move, leaving a window
+  /// where the claim is released but no drag ever starts.
+  bool _withinHitSlop(Offset delta, PointerDeviceKind kind) {
+    final double slop = computeHitSlop(
+      kind,
+      MediaQuery.maybeGestureSettingsOf(context),
+    );
+    return delta.dx.abs() <= slop && delta.dy.abs() <= slop;
+  }
+
   /// Fires the intercepted tap's action if this gesture was claimed at
-  /// tap-down and (for pointer-event callers) stayed within slop —
-  /// precise-pointer slop for mice, touch slop otherwise. Returns true
-  /// when the tap-up was consumed.
+  /// tap-down and (for pointer-event callers) stayed within slop.
+  /// Returns true when the tap-up was consumed.
   bool _finishInterceptedTap(Offset position) {
     final CodeLinePosition? tapped = _interceptedTapPosition;
     final Offset? downOffset = _interceptedTapDownOffset;
-    final PointerDeviceKind? kind = _interceptedTapKind;
+    final PointerDeviceKind kind =
+        _interceptedTapKind ?? PointerDeviceKind.touch;
     _cancelInterceptedTap();
     if (tapped == null) {
       return false;
     }
-    final double slop =
-        kind == PointerDeviceKind.mouse ? kPrecisePointerHitSlop : kTouchSlop;
-    if (downOffset != null && (position - downOffset).distance > slop) {
+    if (downOffset != null && !_withinHitSlop(position - downOffset, kind)) {
       return true;
     }
     widget.tapInterceptor?.onTap(tapped);
@@ -127,6 +149,7 @@ class _CodeSelectionGestureDetectorState
     _interceptedTapDownOffset = null;
     _interceptedTapKind = null;
     _interceptedTapPointer = null;
+    _interceptedTapDevice = null;
   }
 
   @override
@@ -252,6 +275,16 @@ class _CodeSelectionGestureDetectorState
         child: Listener(
           onPointerDown: (event) {
             _suppressEnsureInputOnTapUp = false;
+            // A mouse cannot hold two primary presses at once, so a live
+            // claim from this same mouse lost its up or cancel (a capture
+            // steal, a PointerRemovedEvent) and would refuse every later
+            // zone tap. Drop it before this press is considered.
+            if (event.kind == PointerDeviceKind.mouse &&
+                _interceptedTapKind == PointerDeviceKind.mouse &&
+                _interceptedTapPosition != null &&
+                _interceptedTapDevice == event.device) {
+              _cancelInterceptedTap();
+            }
             // Only plain primary-button presses are interceptable:
             // secondary/middle clicks keep their context-menu behavior
             // and shift-clicks keep selection extension.
@@ -261,13 +294,18 @@ class _CodeSelectionGestureDetectorState
                   event.position,
                   kind: event.kind,
                   pointer: event.pointer,
+                  device: event.device,
                 )) {
               _tapping = false;
               return;
             }
             _tapping = render?.isValidPointer2(event.position) ?? false;
             // A trick, delay the focus request here to avoid loss.
-            Future(widget.inputController.ensureInput);
+            Future(() {
+              if (mounted) {
+                widget.inputController.ensureInput();
+              }
+            });
             _onDesktopTapDown(event.position);
           },
           onPointerMove: (event) {
@@ -278,16 +316,20 @@ class _CodeSelectionGestureDetectorState
             if (downOffset == null) {
               return;
             }
-            final double slop = _interceptedTapKind == PointerDeviceKind.mouse
-                ? kPrecisePointerHitSlop
-                : kTouchSlop;
-            if ((event.position - downOffset).distance <= slop) {
+            if (_withinHitSlop(
+              event.position - downOffset,
+              _interceptedTapKind ?? event.kind,
+            )) {
               return;
             }
             _onDesktopTapDown(downOffset);
             _tapping = true;
             _cancelInterceptedTap();
-            Future(widget.inputController.ensureInput);
+            Future(() {
+              if (mounted) {
+                widget.inputController.ensureInput();
+              }
+            });
           },
           onPointerUp: (event) {
             if (_interceptedTapPointer == event.pointer &&
@@ -571,11 +613,10 @@ class _CodeSelectionGestureDetectorState
       }
       if (_dragging) {
         final _CodeFieldRender? render = this.render;
-        if (render == null) {
-          return;
+        if (render != null) {
+          render.autoScrollWhenDragging(_dragPosition!);
+          _extendSelection(_dragPosition!, _SelectionChangedCause.drag);
         }
-        render.autoScrollWhenDragging(_dragPosition!);
-        _extendSelection(_dragPosition!, _SelectionChangedCause.drag);
       }
       _autoScrollWhenDragging();
     }));
@@ -681,26 +722,31 @@ class _MobileSelectionOverlayController implements _SelectionOverlayController {
   late BuildContext _context;
   // The contact position of the gesture at the current start handle location.
   // Updated when the handle moves.
-  late double _startHandleDragPosition;
-  late Offset _startHandleDragLastPosition;
+  double _startHandleDragPosition = 0;
+  Offset _startHandleDragLastPosition = Offset.zero;
   bool _startHandleDragging = false;
 
   // The distance from _startHandleDragPosition to the center of the line that
   // it corresponds to.
-  late double _startHandleDragPositionToCenterOfLine;
+  double _startHandleDragPositionToCenterOfLine = 0;
 
   // The contact position of the gesture at the current end handle location.
   // Updated when the handle moves.
-  late double _endHandleDragPosition;
-  late Offset _endHandleDragLastPosition;
+  double _endHandleDragPosition = 0;
+  Offset _endHandleDragLastPosition = Offset.zero;
   bool _endHandleDragging = false;
 
   // The distance from _endHandleDragPosition to the center of the line that it
   // corresponds to.
-  late double _endHandleDragPositionToCenterOfLine;
+  double _endHandleDragPositionToCenterOfLine = 0;
 
   List<OverlayEntry>? _handles;
   bool? _handleCollapsed;
+
+  // The render's viewport notifiers this controller listened to in init(),
+  // kept so dispose() can detach without a key lookup.
+  ValueListenable<bool>? _startInViewport;
+  ValueListenable<bool>? _endInViewport;
 
   _MobileSelectionOverlayController({
     required BuildContext context,
@@ -731,6 +777,9 @@ class _MobileSelectionOverlayController implements _SelectionOverlayController {
     _handlesVisible = true;
     if (!_inited) {
       init();
+    }
+    if (!_inited) {
+      return;
     }
     _updateTextSelectionOverlayVisibilities();
     _buildHandles(context);
@@ -818,12 +867,10 @@ class _MobileSelectionOverlayController implements _SelectionOverlayController {
       return;
     }
     _inited = true;
-    render.selectionStartInViewport.addListener(
-      _updateTextSelectionOverlayVisibilities,
-    );
-    render.selectionEndInViewport.addListener(
-      _updateTextSelectionOverlayVisibilities,
-    );
+    _startInViewport = render.selectionStartInViewport;
+    _endInViewport = render.selectionEndInViewport;
+    _startInViewport!.addListener(_updateTextSelectionOverlayVisibilities);
+    _endInViewport!.addListener(_updateTextSelectionOverlayVisibilities);
   }
 
   @override
@@ -832,18 +879,13 @@ class _MobileSelectionOverlayController implements _SelectionOverlayController {
     _endHandleDragging = false;
     hideHandle();
     controller.removeListener(_updateTextSelectionHandle);
+    _startInViewport?.removeListener(_updateTextSelectionOverlayVisibilities);
+    _endInViewport?.removeListener(_updateTextSelectionOverlayVisibilities);
+    _startInViewport = null;
+    _endInViewport = null;
+    _inited = false;
     _effectiveStartHandleVisibility.dispose();
     _effectiveEndHandleVisibility.dispose();
-    final _CodeFieldRender? render = this.render;
-    if (render == null) {
-      return;
-    }
-    render.selectionStartInViewport.removeListener(
-      _updateTextSelectionOverlayVisibilities,
-    );
-    render.selectionEndInViewport.removeListener(
-      _updateTextSelectionOverlayVisibilities,
-    );
   }
 
   double get lineHeight => render?.lineHeight ?? 0;
@@ -1189,11 +1231,10 @@ class _MobileSelectionOverlayController implements _SelectionOverlayController {
         return;
       }
       final _CodeFieldRender? render = this.render;
-      if (render == null) {
-        return;
+      if (render != null) {
+        render.autoScrollWhenDragging(_startHandleDragLastPosition);
+        _handleStartHandleDragUpdate(_startHandleDragLastPosition);
       }
-      render.autoScrollWhenDragging(_startHandleDragLastPosition);
-      _handleStartHandleDragUpdate(_startHandleDragLastPosition);
       _autoScrollWhenStartHandleDragging();
     }));
   }
@@ -1204,11 +1245,10 @@ class _MobileSelectionOverlayController implements _SelectionOverlayController {
         return;
       }
       final _CodeFieldRender? render = this.render;
-      if (render == null) {
-        return;
+      if (render != null) {
+        render.autoScrollWhenDragging(_endHandleDragLastPosition);
+        _handleEndHandleDragUpdate(_endHandleDragLastPosition);
       }
-      render.autoScrollWhenDragging(_endHandleDragLastPosition);
-      _handleEndHandleDragUpdate(_endHandleDragLastPosition);
       _autoScrollWhenEndHandleDragging();
     }));
   }

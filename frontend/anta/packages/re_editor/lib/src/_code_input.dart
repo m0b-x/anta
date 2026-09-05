@@ -37,6 +37,12 @@ class _CodeInputController extends ChangeNotifier
     _editorKey = key;
   }
 
+  _CodeFieldRender? get _render {
+    final RenderObject? renderObject =
+        _editorKey?.currentContext?.findRenderObject();
+    return renderObject is _CodeFieldRender ? renderObject : null;
+  }
+
   set controller(CodeLineEditingController value) {
     if (_controller == value) {
       return;
@@ -188,8 +194,7 @@ class _CodeInputController extends ChangeNotifier
   @override
   void updateFloatingCursor(RawFloatingCursorPoint point) {
     _updateCausedByFloatingCursor = true;
-    final _CodeFieldRender? render =
-        _editorKey?.currentContext?.findRenderObject() as _CodeFieldRender?;
+    final _CodeFieldRender? render = _render;
     if (render == null) {
       return;
     }
@@ -383,8 +388,7 @@ class _CodeInputController extends ChangeNotifier
     if (!_hasInputConnection) {
       return;
     }
-    final _CodeFieldRender? render =
-        _editorKey?.currentContext?.findRenderObject() as _CodeFieldRender?;
+    final _CodeFieldRender? render = _render;
     if (render == null) {
       return;
     }
@@ -415,8 +419,7 @@ class _CodeInputController extends ChangeNotifier
     if (!_hasInputConnection) {
       return;
     }
-    final _CodeFieldRender? render =
-        _editorKey?.currentContext?.findRenderObject() as _CodeFieldRender?;
+    final _CodeFieldRender? render = _render;
     if (render == null || !render.hasSize) {
       return;
     }

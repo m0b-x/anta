@@ -37,33 +37,31 @@ void main() {
       expect(_CountingSpan.equalityCalls, 0);
     });
 
-    test(
-      'a distinct but value-equal span falls through to the L2 map',
-      () {
-        final CodeParagraphProviderForTesting provider = _provider();
-        final _CountingSpan first = _countingSpan('buy milk');
-        final IParagraph firstParagraph = provider.build(first, _maxWidth);
+    test('a distinct but value-equal span falls through to the L2 map', () {
+      final CodeParagraphProviderForTesting provider = _provider();
+      final _CountingSpan first = _countingSpan('buy milk');
+      final IParagraph firstParagraph = provider.build(first, _maxWidth);
 
-        _CountingSpan.resetCounters();
-        final _CountingSpan second = _countingSpan('buy milk');
-        expect(identical(first, second), isFalse);
-        expect(first, second, reason: 'must be value-equal for L2 to find it');
+      _CountingSpan.resetCounters();
+      final _CountingSpan second = _countingSpan('buy milk');
+      expect(identical(first, second), isFalse);
+      expect(first, second, reason: 'must be value-equal for L2 to find it');
 
-        final IParagraph secondParagraph = provider.build(second, _maxWidth);
+      final IParagraph secondParagraph = provider.build(second, _maxWidth);
 
-        expect(
-          identical(secondParagraph, firstParagraph),
-          isTrue,
-          reason: 'the L2 equality map should hand back the L1-cached impl',
-        );
-        expect(
-          _CountingSpan.hashCodeCalls,
-          greaterThan(0),
-          reason: 'the L1 identity miss must fall through to the L2 map, '
-              'which hashes the span to find its bucket',
-        );
-      },
-    );
+      expect(
+        identical(secondParagraph, firstParagraph),
+        isTrue,
+        reason: 'the L2 equality map should hand back the L1-cached impl',
+      );
+      expect(
+        _CountingSpan.hashCodeCalls,
+        greaterThan(0),
+        reason:
+            'the L1 identity miss must fall through to the L2 map, '
+            'which hashes the span to find its bucket',
+      );
+    });
 
     test('clearCache empties both levels: a rebuild is a new instance', () {
       final CodeParagraphProviderForTesting provider = _provider();
@@ -82,8 +80,16 @@ void main() {
       final IParagraph atFirstWidth = provider.build(span, _maxWidth);
 
       final IParagraph atOtherWidth = provider.build(span, _maxWidth + 40);
-
       expect(identical(atOtherWidth, atFirstWidth), isFalse);
+
+      final IParagraph backAtFirstWidth = provider.build(span, _maxWidth);
+      expect(
+        identical(backAtFirstWidth, atFirstWidth),
+        isFalse,
+        reason:
+            'the width change must evict, not shadow: rebuilding at the '
+            'original width may not hand back the pre-change instance',
+      );
     });
   });
 }

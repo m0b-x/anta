@@ -238,26 +238,19 @@ class MarkdownInlineGrammar {
   /// [offset] — `start < offset < end`, so the construct's outermost
   /// boundary offsets belong to caret placement — at any nesting depth,
   /// or `null`. Resolves against exactly what [tokenize] would render.
+  ///
+  /// The outermost match wins, which is what makes a tap inside a link
+  /// nested in another construct open the link the editor drew there.
   static InlineLink? linkAt(
     String text,
     int offset, {
     required MarkdownColorPalette palette,
   }) {
     if (offset <= 0 || offset >= text.length) return null;
-    final List<GhostMatch> ghosts = GhostText.mightContain(text)
-        ? GhostText.findGhosts(text)
-        : const <GhostMatch>[];
-    final InlineToken? found = _walk(
-      text,
-      0,
-      text.length,
-      ghosts,
-      palette,
-      0,
-      offset,
-      false,
-    );
-    return found is InlineLink ? found : null;
+    for (final InlineToken token in linksAndTags(text, palette: palette)) {
+      if (token is InlineLink && token.containsStrict(offset)) return token;
+    }
+    return null;
   }
 
   /// The `#tag` whose run strictly contains [offset] at any nesting
@@ -268,28 +261,21 @@ class MarkdownInlineGrammar {
     required MarkdownColorPalette palette,
   }) {
     if (offset <= 0 || offset >= text.length) return null;
-    final List<GhostMatch> ghosts = GhostText.mightContain(text)
-        ? GhostText.findGhosts(text)
-        : const <GhostMatch>[];
-    final InlineToken? found = _walk(
-      text,
-      0,
-      text.length,
-      ghosts,
-      palette,
-      0,
-      offset,
-      true,
-    );
-    return found is InlineTag ? found : null;
+    for (final InlineToken token in linksAndTags(text, palette: palette)) {
+      if (token is InlineTag && token.containsStrict(offset)) return token;
+    }
+    return null;
   }
 
   /// Every `[text](url)` link and every `#tag` [tokenize] renders in
-  /// [text], at any nesting depth — the whole-line form of [linkAt] and
-  /// [tagAt], for callers that need the constructs themselves instead of
-  /// the one under a single offset. It is the same depth-first walk over
-  /// the same tokenizer, collecting instead of stopping, so the two
-  /// forms can never disagree.
+  /// [text], at any nesting depth — the one descent behind [linkAt],
+  /// [tagAt] and every caller that needs the constructs themselves
+  /// instead of the one under a single offset, so no two of them can
+  /// disagree about what the tokenizer would render.
+  ///
+  /// [ghosts] are the ghost runs of [text] (as [GhostText.findGhosts]
+  /// returns them); a caller that already has them passes them through
+  /// instead of paying for a second scan.
   ///
   /// Outermost first, siblings in source order, so a run nested in an
   /// earlier token follows it: an image is not a link but its text is
@@ -299,13 +285,16 @@ class MarkdownInlineGrammar {
   static List<InlineToken> linksAndTags(
     String text, {
     required MarkdownColorPalette palette,
+    List<GhostMatch>? ghosts,
   }) {
     if (text.isEmpty) return const [];
-    final List<GhostMatch> ghosts = GhostText.mightContain(text)
-        ? GhostText.findGhosts(text)
-        : const <GhostMatch>[];
+    final List<GhostMatch> runs =
+        ghosts ??
+        (GhostText.mightContain(text)
+            ? GhostText.findGhosts(text)
+            : const <GhostMatch>[]);
     final List<InlineToken> found = <InlineToken>[];
-    _collect(text, 0, text.length, ghosts, palette, 0, found);
+    _collect(text, 0, text.length, runs, palette, 0, found);
     return found;
   }
 
@@ -627,77 +616,6 @@ class MarkdownInlineGrammar {
     }
   }
 
-  /// Depth-first search for the innermost link ([wantTag] false) or tag
-  /// ([wantTag] true) whose run strictly contains [offset].
-  static InlineToken? _walk(
-    String text,
-    int start,
-    int end,
-    List<GhostMatch> ghosts,
-    MarkdownColorPalette palette,
-    int depth,
-    int offset,
-    bool wantTag,
-  ) {
-    final List<InlineToken> tokens = tokenize(
-      text,
-      start: start,
-      end: end,
-      ghosts: ghosts,
-      palette: palette,
-      depth: depth,
-    );
-    for (int i = 0; i < tokens.length; i++) {
-      final InlineToken token = tokens[i];
-      if (token.start > offset) break;
-      if (offset >= token.end) continue;
-      if (token is InlineTag) {
-        return wantTag && token.containsStrict(offset) ? token : null;
-      }
-      if (token is InlineLink) {
-        if (!wantTag && !token.isImage && token.containsStrict(offset)) {
-          return token;
-        }
-        return _descend(
-          text,
-          token.textStart,
-          token.textEnd,
-          ghosts,
-          palette,
-          depth,
-          offset,
-          wantTag,
-        );
-      }
-      if (token is InlineEmphasis) {
-        return _descend(
-          text,
-          token.contentStart,
-          token.innerEnd,
-          ghosts,
-          palette,
-          depth,
-          offset,
-          wantTag,
-        );
-      }
-      if (token is InlineColor) {
-        return _descend(
-          text,
-          token.innerStart,
-          token.innerEnd,
-          ghosts,
-          palette,
-          depth,
-          offset,
-          wantTag,
-        );
-      }
-      return null;
-    }
-    return null;
-  }
-
   /// Depth-first collection of every link and tag in `[start, end)`.
   static void _collect(
     String text,
@@ -753,20 +671,6 @@ class MarkdownInlineGrammar {
         );
       }
     }
-  }
-
-  static InlineToken? _descend(
-    String text,
-    int start,
-    int end,
-    List<GhostMatch> ghosts,
-    MarkdownColorPalette palette,
-    int depth,
-    int offset,
-    bool wantTag,
-  ) {
-    if (offset < start || offset >= end) return null;
-    return _walk(text, start, end, ghosts, palette, depth + 1, offset, wantTag);
   }
 }
 

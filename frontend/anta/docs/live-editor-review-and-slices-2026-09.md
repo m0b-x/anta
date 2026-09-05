@@ -3,10 +3,13 @@
 **Status: Sessions 0–7 DONE (§3; 7c on 2026-09-05). Sessions 0–1 are committed as
 `38c7b50`, Session 2 and its same-day follow-up as `c716225`, Session 3 as
 `a183f11`, Session 4 as `1ed4a60`, Session 5 as `4cad6ec`, Session 6 as
-`b5fcdbd`, Session 7a as `fcfe704` (sync) + `72401b8` (format) + the
-ownership-rule commit after it, Session 7b as `d9621bb`. Session 7 was re-sized against the
-code and split into 7a/7b/7c on 2026-09-04; Sessions 7c, 8–9 and 11
-PLANNED, not implemented; Session 10 DROPPED (decision 4). All six §2
+`b5fcdbd`, Session 7a as `fcfe704` (sync) + `72401b8` (format) +
+`684b553` (ownership rule), Session 7b as `d9621bb`, Session 7c as
+`3866ef2`, `e403a35`, `12dad1e`, `f602056`, `be24f73`, `8cb585d` plus
+`b1da783` (docs). Session 7 was re-sized against the
+code and split into 7a/7b/7c on 2026-09-04, all three now shipped and
+reviewed (2026-09-05, see the review block under Session 7); Sessions
+8–9 and 11 PLANNED, not implemented; Session 10 DROPPED (decision 4). All six §2
 decisions are taken (6, fork ownership, added 2026-09-04).** Baseline commit `bf2e7ba`
 (main). Line numbers below are as of that commit and will drift — re-grep
 before editing. This doc is the ledger for making the Obsidian-style live
@@ -62,7 +65,8 @@ second order.
 the emphasis/inline-code grammar is **forked** between preview and editor —
 the only syntaxes without a shared module — with three confirmed visible
 divergences. The editor page is a 2.5 k-line State with ~50 fields and 24
-whole-page `setState`s. The fork's additions are well-built but have zero
+whole-page `setState`s. **As of the 2026-09-03 review — all three closed
+since (Sessions 0, 1, 5, 7a):** the fork's additions are well-built but have zero
 tests and zero asserts; the fork's nested `.git` is a trap. **The whole live
 rendering stack — span builder, line index, chunker, every grammar except
 money — has no automated test.** That is the first thing to fix, because
@@ -207,10 +211,16 @@ fontSize). They are just unguarded.
   all 37 `lib/` files as ordinary blobs and its status is clean** — the fork
   source is safely in ANTA's history. The nested repo is stale noise that a
   `git checkout`/`stash` inside it would use to revert the working tree.
-  Delete it or commit into it; do not leave it half-alive. (Session 0
+  Session 0 deleted it on 2026-09-03; the standing rule (COPILOT_CONTEXT,
+  `re-editor-performance-2026-07.md`) is that no repo is ever created
+  under `packages/re_editor/` again. (Session 0
   verified every claim here on 2026-09-03 and found nothing local-only — §3.)
-- Zero asserts in `_code_paragraph.dart`, `_code_selection.dart`,
-  `code_lines.dart`; zero tests. Four undocumented couplings the app relies
+- At review time: zero asserts in `_code_paragraph.dart`,
+  `_code_selection.dart`, `code_lines.dart`, and zero tests. Sessions 5
+  and 7a closed both — `_code_paragraph.dart` carries the two documented
+  debug asserts (five `assert` sites in all), `code_lines.dart` one
+  invariant assert (a second `assert` block guards the 7c debug counter),
+  and `test/re_editor/` is 11 suites. Four undocumented couplings the app relies
   on: root-span `fontSize` ⇒ line height (`_code_paragraph.dart:542-550`);
   placeholder height ≤ strut (`code_paragraph.dart:49-51`); per-segment
   backing-list identity as the dirty flag (`code_lines.dart:180-268` — sound,
@@ -218,20 +228,26 @@ fontSize). They are just unguarded.
   identity-keyed paragraph cache requiring identical span instances (a
   silent perf cliff if either memo is disabled).
 - Tap interceptor: state machine is sound on mobile (long-press, ancestor
-  scroll, second finger all reach cancel). Desktop: second claim steals the
-  first; claimed pointer cannot drag-select; right-click during a claimed
-  press moves the caret. `render` getter (`_code_selection.dart:38-39`) is an
-  unchecked cast now on the every-tap-down path (SUSPECTED crash class,
-  cf. upstream `b19f746` — which, checked 2026-09-04, is issue #68's
-  mobile-handle fix and already in the base; the getter fix is upstream
-  `dc27ee5`, taken in Session 7a).
+  scroll, second finger all reach cancel). Desktop, at review time: second
+  claim steals the first; claimed pointer cannot drag-select; right-click
+  during a claimed press moves the caret. Session 7b (`d9621bb`) closed
+  the first two — exactly one claim is live at a time, and the claiming
+  pointer past the slop releases into an ordinary drag; right-click is
+  unchanged. The `render` getter (then `_code_selection.dart:38-39`) was an
+  unchecked cast on the every-tap-down path; Session 7a (`fcfe704`) made
+  both getters nullable type-checks, deleted `ensureRender` and left zero
+  casts in that file (upstream `dc27ee5`; `b19f746` is issue #68's
+  mobile-handle fix, already in the base); the 2026-09-05 review replaced
+  the six `as _CodeFieldRender?` casts in the other fork files the same
+  way.
 - `getRangeForSpan` double-counts nested spans (upstream bug, hover cursor
   only); `_dropPrefix:664` dead branch; empty `TextSpan(text:'')` children
   retained.
 
 ### 1.6 Tests
 
-Zero references anywhere in `test/` to: `MarkdownEditorSpanBuilder`,
+**Review snapshot (2026-09-03); closed by Sessions 1–7c — see §3.** Zero
+references anywhere in `test/` to: `MarkdownEditorSpanBuilder`,
 `MarkdownEditorLineIndex`, `LineBasedMarkdownBuilder`, `MarkdownChunker`,
 `MarkdownListSyntax`, `GhostText`, `MarkdownLinkPatterns`,
 `MarkdownTagSyntax`, `MarkdownColorSyntax`, `MarkdownCalloutSyntax`,
@@ -320,7 +336,8 @@ snippet), `toolbarSplitEnabled` (toolbar layout).
    drag selection** (not documented away). Session 7 was planned as one
    whole session after Session 6, then split on 2026-09-04 into 7a
    (upstream sync, items 6/2/5), 7b (interceptor, items 3/4) and 7c
-   (this decision, item 1) — see §3; planned only, not implemented.
+   (this decision, item 1) — see §3; 7a and 7b shipped 2026-09-04
+   (`fcfe704`, `d9621bb`), 7c on 2026-09-05 (`3866ef2`…`8cb585d`).
 4. **Lite rendering tier** (Session 10): only if the Session 1 benchmarks
    and a real-device profile say the hanging layout or variable line heights
    dominate. Do not build it speculatively. **Decided 2026-09-04: dropped.**
@@ -342,7 +359,10 @@ snippet), `toolbarSplitEnabled` (toolbar layout).
    owned after 7a.** Concretely: watch, do not sync (the 7a provenance +
    patch list keep a one-off cherry-pick cheap; no tracking branch, no
    scheduled syncs); format the fork tree once as its own commit right
-   after 7a (32 of 37 files reflow under Dart 3.12 today); keep the
+   after 7a (measured at planning time as 32 of 37 files — that count
+   came from pubspec-less copies; under the fork's own `>=2.17.3` SDK
+   floor the tree was already clean and `72401b8` reflowed two lines);
+   keep the
    package name, import paths and frozen pubspec version; and **retire
    the "avoid API-breaking changes" rule** for the fork in CLAUDE.md and
    COPILOT_CONTEXT — the fork's API is whatever the app needs, which
@@ -1464,8 +1484,11 @@ Fork pubspec untouched (0.8.0). What landed, item by item:
    repo carried `dfbca60` + the fork tree as one commit with `reqable`
    fetched, so every cherry-pick ran outside ANTA's repo and only files
    were copied back. Format-both-sides diff (Dart 3.12.2) reproduced the
-   plan's figures **exactly** once measured with `git diff --no-index`:
-   19 files +1,877/−134 semantic, 34 files +3,718/−2,244 raw, reflow 66 %
+   plan's semantic figures exactly and its raw figures within four lines
+   once measured with `git diff --no-index`: 19 files +1,877/−134
+   semantic; the authoritative raw count is 34 files +3,718/−2,244 (the
+   plan's +3,722/−2,248 was the pre-sync measurement), as recorded in
+   `re-editor-performance-2026-07.md`. Reflow 66 %
    of raw churn, the paragraph pair 926/2,011 = 46 % of the semantic
    delta — the plan's "46 % not 58 %" stands. `re-editor-performance-2026-07.md`
    is now the fork reference: provenance block, the 19-entry patch list
@@ -1515,10 +1538,15 @@ Fork pubspec untouched (0.8.0). What landed, item by item:
    unmounted), toolbar, handles, handle drags and both handle-autoscroll
    loops. `_getHandleDy` takes the render as a parameter (a 0 fallback
    would divide by zero); `init()` leaves `_inited` false when detached so
-   a later `showHandle` retries; the handle drag-start guards sit after
-   the `late` assignments so a detached editor cannot trade the cast
-   crash for a `LateInitializationError`. Zero `as _CodeFieldRender`
-   casts remain. Interceptor state machine untouched (7b's).
+   a later `showHandle` retries. Zero `as _CodeFieldRender`
+   casts remain. Interceptor state machine untouched (7b's). (The
+   handle-drag guards were *not* safe as shipped — two of the three
+   start-handle fields were assigned after the guard; the 2026-09-05
+   review dropped `late` from all six handle-drag fields
+   (`_startHandleDragPositionToCenterOfLine`,
+   `_startHandleDragLastPosition`, `_startHandleDragPosition` and the
+   end-handle twins) and gave them defaults, so a detached render at drag
+   start can never leave one unassigned.)
 5. Item 5: `paragraph_cache_identity_test.dart` over
    `CodeParagraphProviderForTesting` with a `_CountingSpan extends
    TextSpan` counting `==`/`hashCode`: same instance twice ⇒ identical
@@ -1622,8 +1650,10 @@ fork's two pre-existing `avoid_print` infos. One fork file changed
 policy change. What landed:
 
 1. Item 3: `_tryInterceptTap` refuses a claim while one is live (first
-   statement, before the interceptor null-check, so the mobile path is
-   covered too — `_interceptedTapPointer` is always null there); a
+   statement, before the interceptor null-check; a desktop rule — on
+   mobile it is unreachable, because `_tryInterceptTap` runs only from
+   `GestureDetector.onTapDown`, which a tap recognizer sends at most once
+   per gesture and always follows with `onTapUp` or `onTapCancel`); a
    refused press writes nothing and takes the plain path exactly like a
    non-zone tap. Desktop `Listener.onPointerMove`: for the claiming
    pointer only, past the slop (`kPrecisePointerHitSlop` mouse /
@@ -1640,7 +1670,19 @@ policy change. What landed:
    then finds no claim and runs the plain `_onDesktopTapUp`. The two doc
    comments (claim fields, `_tryInterceptTap`) now state the one-claim
    rule and the release-into-drag. No mobile `onPointerMove` (long-press /
-   tap-cancel already release there).
+   tap-cancel already release there). **Three rules corrected by the
+   2026-09-05 review**: the slop test is per-axis through
+   `computeHitSlop(kind, MediaQuery.maybeGestureSettingsOf(context))` (a
+   private `_withinHitSlop`) at BOTH the move-release rule and
+   `_finishInterceptedTap`, so a claimed press either fires or becomes a
+   drag exactly where the drag recognizers would accept — the euclidean
+   rule above had a window (mouse jitter under 1 px per axis) that
+   released the claim, moved the caret and focused the editor while
+   firing nothing; a stranded claim (the claiming pointer's up/cancel
+   never reaching the `Listener` — capture steal, `PointerRemovedEvent`)
+   is recovered on the next primary press from the same mouse device
+   (`_interceptedTapDevice`); and both deferred `Future(ensureInput)`
+   sites are `mounted`-guarded.
 2. Item 4, two files as planned. `tap_interceptor_test.dart` (Android
    path, 5): claim→up fires once with the selection identical; two
    consecutive claims both fire (400 ms apart so they never pair); a
@@ -1827,13 +1869,14 @@ clean, the device pass recorded in this block.
 **Outcome — DONE 2026-09-05, six commits on top of 7b's `d9621bb` (after
 7a's deferred `72401b8` format + `684b553` ownership commits).** Full
 suite 2,998 → **3,102** passing (7 benchmark cases skipped);
-`test/re_editor/` is 14 files, 72 passing + 1 skipped; `dart analyze
+`test/re_editor/` is 11 suites, 72 passing + 1 skipped; `dart analyze
 lib`, `dart analyze test` and `dart analyze packages/re_editor/lib`
 clean apart from the fork's two pre-existing `avoid_print` infos.
-Commits: `3866ef2` (A), `12dad1e` (B1), `f602056` (B2), `e403a35` (C1:
-enumerator + agreement suite + labels), `be24f73` (C2: child nodes +
-wrapper wiring), `8cb585d` (C3: the teardown fix the device pass
-forced, below), then the docs commit. What landed, in plan order:
+Commits, in landing order: `3866ef2` (A), `e403a35` (C1: enumerator +
+agreement suite + labels), `12dad1e` (B1), `f602056` (B2), `be24f73`
+(C2: child nodes + wrapper wiring), `8cb585d` (C3: the teardown fix the
+device pass forced, below), then the docs commit. The review block below
+carries the post-review numbers. What landed, in plan order:
 
 0. **Risk check: passes on the same node.** A throwaway render with
    `isTextField` + `value` + `explicitChildNodes` + one
@@ -1872,8 +1915,18 @@ forced, below), then the docs commit. What landed, in plan order:
    bare `requestFocus` *does* raise the keyboard here (test 3 fails
    without that line). No `onDidLoseAccessibilityFocus`: the SDK's
    one-liner would unfocus the editor the moment TalkBack steps onto a
-   zone child. `semantics_actions_test.dart` (5), watching
-   `SystemChannels.textInput` for `TextInput.show` / `setClient`.
+   zone child. `semantics_actions_test.dart` (5, 6 after the review),
+   watching `SystemChannels.textInput` for `TextInput.show` / `setClient`.
+   **Corrected by the 2026-09-05 review**: the a11y-focus handler is
+   plumbed only when `defaultTargetPlatform == TargetPlatform.macOS`,
+   mirroring Material's `text_field.dart`, which sets
+   `onDidGainAccessibilityFocus` / `onDidLoseAccessibilityFocus` only
+   under macOS and neither on Android/iOS — the 7c version fired on
+   Android, where a TalkBack sweep across the editor would take keyboard
+   focus and never release it. `requestFocus()` + `consumeKeyboardToken()`
+   remain the focus-without-keyboard idiom for macOS; there is still no
+   lose handler. The 7c device pass never depended on it (double-tap →
+   `onTap` opens the keyboard).
 3. **(B2)** `positionForWindowOffset` / `windowOffsetForPosition` on the
    render (per displayed line `length + 1`; a separator offset resolves
    to the end of the line before it — falls out of the arithmetic;
@@ -1886,18 +1939,25 @@ forced, below), then the docs commit. What landed, in plan order:
    composing: TextRange.empty)` and `makeCursorVisible()` and skips its
    chunk-indicator, hit-test and pointer-bookkeeping branches;
    `ensureInput` is not called (it lives in `_onMobileTapUp`, not in
-   `_selectPosition`). `selection` setter now also marks semantics.
-   `semantics_selection_test.dart` (8).
+   `_selectPosition`). (`RenderObject.layout()` marks semantics after
+   every `performLayout`, so the setter's own `markNeedsSemanticsUpdate()`
+   was redundant and the review removed it.)
+   `semantics_selection_test.dart` (8, 10 after the review).
 4. **(C)** `EditorInputPolicy.zonesOf` + `EditorTapZone` (start, end,
    action) — grammar-driven, not offset-scanning: candidates from
    `MarkdownListSyntax.parse`, a new thin `MarkdownInlineGrammar.linksAndTags`
-   walker (the whole-line form of `linkAt`/`tagAt`, same tokenizer, same
-   descent), `MarkdownMoneySyntax.parse`; precedence and clipping by a
+   walker (the whole-line form of `linkAt`/`tagAt` — since the 2026-09-05
+   review `linkAt`/`tagAt` are expressed over it (first `InlineLink` /
+   `InlineTag` with `containsStrict`), so one descent exists; it takes
+   the line's ghost runs from the caller), `MarkdownMoneySyntax.parse`;
+   precedence and clipping by a
    per-offset owner array (first claim wins, ghost runs cleared last),
-   equal-owner runs coalesced. The agreement group runs every fixture row
+   equal-owner runs coalesced — since the review the claim table spans
+   only `[min candidate start, max candidate end)`, not the whole line.
+   The agreement group runs every fixture row
    × every offset (`resolveTap` ⇔ a covering range, same action);
    `editor_input_policy_test.dart` 66 → 154 with three ghost-in-link
-   fixtures added. `CodeEditorTapInterceptor.zonesOf` +
+   fixtures added (174 after the review). `CodeEditorTapInterceptor.zonesOf` +
    `CodeEditorSemanticsZone` (start/end/label) on the fork; the render
    gets `semanticsZonesOf` and `onSemanticsPerformZone` (the tap-down /
    tap-up pair at the zone start, which the wrapper's claim memo accepts
@@ -1906,9 +1966,26 @@ forced, below), then the docs commit. What landed, in plan order:
    line (rect = `getRangeRects` union shifted by `paragraph.offset −
    paintOffset`, clipped to the viewport; `OrdinalSortKey` in line
    order; `ValueKey('$line:$start:$end:$label')` cache). Wrapper: labels
-   resolved once in `didChangeDependencies`, `_enabledZones()` shared by
-   both paths, action type → label switch. `semantics_zones_test.dart`
-   (6 + 3) and `modern_editor_wrapper_semantics_test.dart` (6).
+   resolved once in `didChangeDependencies`, the enabled-zone set shared
+   by both paths, action type → label switch. `semantics_zones_test.dart`
+   (6 + 3; 11 after the review) and
+   `modern_editor_wrapper_semantics_test.dart` (6; 9 after the review).
+   Four things the 2026-09-05 review pinned or changed here: node ids are
+   keyed by line index, so an edit that shifts a zone's line renumbers
+   its semantics node (a TalkBack focus-continuity cost, now pinned as
+   the contract by `semantics_zones_test.dart` alongside a stability case
+   that proves ids survive a plain rebuild); the `attached`/`parent`
+   reuse guard is defensive with no known trigger; `zonesOf` ran a full
+   grammar parse per visible line on every layout while semantics were
+   enabled, so the wrapper now memoises zone lists per line text
+   (`LruCache`, 256 entries; revealed, fence, over-length and empty lines
+   return `const []` before the memo; cleared when the enabled-zone set
+   or the four labels change — `didChangeDependencies` compares the
+   resolved labels for that; `debugZoneResolveCount` is the proof
+   counter); and the fork's `set semanticsZonesOf` is unreachable from
+   the app because `CodeEditor` forwards its own bound method, so any
+   app-side cache of labelled zones must invalidate itself.
+   `CodeLines.debugAsStringCalls` increments only under `assert`.
 5. **C3 — found by the device, not the suites.** `uiautomator dump`
    enables semantics per dump; on the second dump the reused cached
    `SemanticsNode`s belonged to the disposed owner: `semantics.dart:3270
@@ -1942,15 +2019,22 @@ sequence (post-C3). TalkBack was switched off again afterwards. Not
 provable from here: TalkBack's spoken output.
 
 Deviations: B1 on the render, not a widget (above); a `consumeKeyboardToken`
-that the plan did not foresee; six commits instead of four (C split into
+that the plan did not foresee, plumbed on macOS only since the
+2026-09-05 review; six commits instead of four (C split into
 enumerator / nodes / teardown fix); the enumerator gained a grammar
 walker (`linksAndTags`) rather than scanning offsets; `didChangeDependencies`
-label resolution instead of a per-build interceptor.
+label resolution instead of a per-build interceptor; the "stable ids"
+the plan asked for are stable per line index, not per zone identity — an
+edit that shifts a zone's line renumbers its node, an accepted TalkBack
+focus-continuity cost now pinned as the contract.
 
 Traps: a `Semantics` widget never merges into a boundary render on this
 SDK — declare actions on the render; `FocusNode.requestFocus()` alone
 opens the IME in this fork — `consumeKeyboardToken()` right after it is
-the "focus without keyboard" idiom; keyed semantics child caches must be
+the "focus without keyboard" idiom, but the handler carrying it belongs
+on macOS only (the 2026-09-05 review: on Android a TalkBack sweep takes
+keyboard focus and no lose handler gives it back, which is why Material
+sets neither there); keyed semantics child caches must be
 dropped in `clearSemantics()` or the second platform enable reuses
 nodes of a dead owner; the test binding cannot reproduce that teardown —
 call `clearSemantics()` on the render yourself; `uiautomator dump` needs
@@ -1961,6 +2045,139 @@ enable pops a notification-permission dialog that steals every tap —
 and `#` in `adb shell input text` — double-quote a single-quoted
 string; `settings put secure enabled_accessibility_services ""` is "Bad
 arguments" — use `settings delete`.
+
+#### Session 7 review — 2026-09-05
+
+Five read-only passes over the shipped 7a/7b/7c code (7a fork sync, 7b
+interceptor, 7c fork semantics, 7c app policy/wrapper/l10n, docs drift),
+then two implementation passes applying what they found. Nothing
+committed; the working tree sits on `b1da783`. Two of the findings are
+real bugs (A1, B1), one of them a regression against 7a's own guard work.
+
+**7a.** A1 (bug): all six mobile handle-drag fields were `late`, and two
+of the three start-handle ones were assigned *after* the detached-render
+guard, so a drag start on a detached editor traded the cast crash for a
+`LateInitializationError` — 7a's outcome block claimed the opposite. All
+six are plain fields with defaults now. A2: the drag-autoscroll loop and
+both handle-autoscroll loops returned on a single null-render tick,
+ending the loop for good;
+they now skip that tick and reschedule. A3: `dispose()` looked the render
+up again to detach its viewport listeners and returned early when it was
+already gone — it stores the two `ValueListenable`s at `init()` time,
+detaches from those, and resets `_inited`. A4: the six remaining
+`as _CodeFieldRender?` casts outside `_code_selection.dart`
+(`_code_editable.dart`, `_code_input.dart` ×3, `_code_line.dart`,
+`code_scroll.dart`) became nullable `is` type-checks behind a private
+`_render` getter — the shape 7a gave the selection layer. A5:
+`showHandle` bails when `init()` left `_inited` false. A6: the top-gap
+recursion in `_updateDisplayRenderParagraphs` was the one self-call
+`04b240d`'s counter did not gate, so it could re-enter forever; it now
+publishes on the capped frame. A7: a `makePositionVisible` test asserted
+against the `first.index` formula the port replaced — it fails on the
+`last.index` one and was rewritten. A8: the paragraph-cache `maxWidth`
+case never changed the width it claimed to change (vacuous pass).
+
+**7b.** B1 (bug, and a regression against 7a): `_finishInterceptedTap`
+and the move-release rule compared euclidean distance against a
+hand-picked `kPrecisePointerHitSlop`/`kTouchSlop`, which is stricter than
+what the drag recognizers accept — a diagonal mouse jitter under one
+pixel per axis released the claim, moved the caret and focused the editor
+while firing neither the zone action nor a drag. Both sites now use a
+private `_withinHitSlop`, per axis, through
+`computeHitSlop(kind, MediaQuery.maybeGestureSettingsOf(context))`. B2: a
+claim whose pointer's up/cancel never reaches the `Listener` (capture
+steal, `PointerRemovedEvent`) stranded the interceptor — the next primary
+press from the same mouse device (`_interceptedTapDevice`) drops it
+first, because one mouse cannot hold two primary presses. B3: both
+deferred `Future(ensureInput)` sites are `mounted`-guarded. B4–B6, tests:
+the long-press case proves the release by tapping a *different* column
+(the old assertion passed on an unchanged selection either way);
+`pump(Duration.zero)` before every desktop focus assertion; a cancel from
+a non-claiming pointer leaves the live claim alone; and the same-device
+recovery case — where the "second press refused" test needed a genuinely
+different device, since two mouse `TestGesture`s share device 1, so it
+hand-builds a `PointerDownEvent` with `device: 2`. B7: the claim-field
+and `_tryInterceptTap` doc comments now say what is true (the one-claim
+refusal is a desktop rule mobile cannot reach; the replay produces the
+caret and pairing state a plain press would have). B8: the eleven
+`test/re_editor/` suites share `support/editor_test_support.dart` instead
+of copying the harness — `teardownEditor`, `settle`, `flushDeferredWork`,
+`watchTextInput`, `textField` / `textFieldNode`, `displayedParagraphs` /
+`displayedIndices` / `expectedWindow`, `pumpZoneEditor` + `zoneCellOf` +
+`expectSameSelection`, `kTestFontSize`, modelled on
+`test/database/support/db_test_support.dart`.
+
+**7c.** C1 (bug): `onDidGainAccessibilityFocus` was plumbed on every
+platform; Material's `text_field.dart` sets it only under macOS, and on
+Android a TalkBack sweep across the editor took keyboard focus that no
+lose handler gave back. It is macOS-only now. C2: the `selection` setter's
+`markNeedsSemanticsUpdate()` was redundant — `RenderObject.layout()`
+already marks semantics after `performLayout` — and is gone. C3:
+`CodeLines.debugAsStringCalls` incremented in release too; it is inside
+an `assert` block now. C4: zone-node ids are keyed by line index, so an
+edit that shifts a zone's line renumbers its node — the accepted cost is
+now a test, beside a stability case proving ids survive a plain rebuild.
+C5: `semantics_selection_test.dart` gained the one-end-off-screen case
+and a select-all that shrinks to the window.
+
+**App side.** `linkAt`/`tagAt` are expressed over `linksAndTags` (first
+`InlineLink`/`InlineTag` whose `containsStrict` holds), so one descent
+exists rather than two that can disagree; `linksAndTags` takes the
+line's ghost runs from the caller. `zonesOf`'s per-offset claim table is
+allocated over `[min candidate start, max candidate end)` instead of the
+whole line. The wrapper memoises zone lists per line text (`LruCache`,
+256) behind the three pass-through rules, holds the enabled-zone set as a
+field, drops the memo when that set or any of the four labels changes,
+and counts misses in `debugZoneResolveCount`. Tests: the money zone is
+exercised with a real `onMoneyTap` and a `$$ balance` line, an en→de
+locale switch re-labels every node, a repeat flush resolves zero lines,
+and ten agreement rows were added (bare URL, unclosed link,
+`{red:[docs](u)}`, `*[docs](u)*`, both halves of `[a](b)[c](d)`,
+`- $$ total` plus its marker, both halves of `- [ ] [docs](u)`). The
+German labels were wrong in sense: `editorZoneOpenMoney` is
+"Kassenbuchdetails öffnen" and `editorZoneSearchTag` "Schlagwort suchen"
+— the app has no hashtag-sense "Tag" precedent, every German "Tag" in the
+ARB is the calendar day.
+
+**Not changed, on purpose.** `_getHandleDy` still quantises by the flat
+`lineHeight`, so a handle drag over scaled headers steps by the base
+line — pre-existing, and a design decision, not a fix. `_zoneRect` unions
+the range rects across soft wraps with no 4 px padding, which is the
+shape Flutter's own `RenderParagraph` produces. Zone coalescing keys on
+candidate index rather than action, so two adjacent candidates with the
+same action stay two zones — only reachable if `valueSlot == amountStart`,
+which the money grammar rules out. `keyboardAppearance` is read once per
+input connection (upstream parity). The reviewers' "no code comments"
+flags were withdrawn: `///` doc comments are house style here (about
+19,100 doc-comment lines under `lib/`, 2,500 under `test/`), so Session
+7's test headers stayed and earlier suites were not touched.
+`dart format test/re_editor` also reflowed five lines of
+`undo_history_cap_test.dart`.
+
+Traps (the review's own): `debugDefaultTargetPlatformOverride` must be
+reset inside the test body (try/finally) — the binding's invariant check
+runs before `addTearDown`; two mouse `TestGesture`s share device 1, so a
+concurrent-press test needs `createGesture` + `downWithCustomEvent` with
+an explicit device; `SemanticsConfiguration.onDidGainAccessibilityFocus`
+force-unwraps its value, so guard the assignment instead of assigning
+null; a caret move always costs one zone-memo miss (the line the caret
+leaves was never memoised while revealed), so a zero-miss proof needs a
+caret round trip plus a non-vacuity guard (a toggle-node count flipping
+2 → 1 → 2); the Bash heredoc eats one level of backslash, so Dart source
+gets patched with the Edit tool, never a heredoc.
+
+Numbers: `test/re_editor/` is 81 passing + 1 skipped across 11 suites
+plus the shared harness (layout_loop 7, paragraph_cache_identity 4,
+tap_interceptor 5, tap_interceptor_desktop 8, semantics_value 4,
+semantics_actions 6, semantics_selection 10, semantics_zones 11, plus the
+two hanging-paragraph suites); `editor_input_policy_test.dart` is 174 and
+`modern_editor_wrapper_semantics_test.dart` 9; the full suite is
+**3,134** passing (7 benchmark cases skipped), up 32 from 7c's 3,102;
+`dart analyze lib`, `dart analyze
+test` and `dart analyze packages/re_editor/lib` clean apart from the
+fork's two pre-existing `avoid_print` infos; `dart format
+--set-exit-if-changed` over the fork, `test/re_editor` and the touched
+`lib`/`test` files changes nothing. Nothing committed.
 
 ### Session 8 — rendering parity features
 

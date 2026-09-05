@@ -248,6 +248,11 @@ class EditorInputPolicy {
   /// precedence — checkbox, link, money, tag, and outermost before
   /// nested within each — is resolved by claiming offsets in that order,
   /// so a zone nested in an earlier one is simply never reported.
+  ///
+  /// The claim table spans only the offsets some candidate reaches, not
+  /// the whole line: with a screen reader on, this runs once per visible
+  /// line on every layout, and a long line holding one short link should
+  /// cost the link's width, not the line's.
   static List<EditorTapZone> zonesOf({
     required String? lineText,
     required int lineIndex,
@@ -278,9 +283,21 @@ class EditorInputPolicy {
       }
     }
 
-    final List<InlineToken> inline = zones.links || zones.tags
-        ? MarkdownInlineGrammar.linksAndTags(lineText, palette: zones.palette)
-        : const <InlineToken>[];
+    final bool mightHaveGhosts = GhostText.mightContain(lineText);
+    List<GhostMatch>? ghostRuns;
+    final List<InlineToken> inline;
+    if (zones.links || zones.tags) {
+      ghostRuns = mightHaveGhosts
+          ? GhostText.findGhosts(lineText)
+          : const <GhostMatch>[];
+      inline = MarkdownInlineGrammar.linksAndTags(
+        lineText,
+        palette: zones.palette,
+        ghosts: ghostRuns,
+      );
+    } else {
+      inline = const <InlineToken>[];
+    }
 
     if (zones.links) {
       for (final InlineToken token in inline) {
@@ -335,32 +352,42 @@ class EditorInputPolicy {
 
     if (candidates.isEmpty) return const [];
 
-    final List<int> owner = List<int>.filled(length, -1);
+    int lo = candidates.first.start;
+    int hi = candidates.first.end;
+    for (int i = 1; i < candidates.length; i++) {
+      final _ZoneCandidate candidate = candidates[i];
+      if (candidate.start < lo) lo = candidate.start;
+      if (candidate.end > hi) hi = candidate.end;
+    }
+
+    final List<int> owner = List<int>.filled(hi - lo, -1);
     for (int i = 0; i < candidates.length; i++) {
       final _ZoneCandidate candidate = candidates[i];
       for (int o = candidate.start; o < candidate.end; o++) {
-        if (owner[o] < 0) owner[o] = i;
+        if (owner[o - lo] < 0) owner[o - lo] = i;
       }
     }
-    if (GhostText.mightContain(lineText)) {
-      for (final GhostMatch ghost in GhostText.findGhosts(lineText)) {
-        final int stop = ghost.end < length ? ghost.end : length;
-        for (int o = ghost.start + 1; o < stop; o++) {
-          owner[o] = -1;
+    if (mightHaveGhosts) {
+      final List<GhostMatch> runs = ghostRuns ?? GhostText.findGhosts(lineText);
+      for (final GhostMatch ghost in runs) {
+        final int from = ghost.start + 1 > lo ? ghost.start + 1 : lo;
+        final int to = ghost.end < hi ? ghost.end : hi;
+        for (int o = from; o < to; o++) {
+          owner[o - lo] = -1;
         }
       }
     }
 
     final List<EditorTapZone> result = <EditorTapZone>[];
-    int offset = 0;
-    while (offset < length) {
-      final int claim = owner[offset];
+    int offset = lo;
+    while (offset < hi) {
+      final int claim = owner[offset - lo];
       if (claim < 0) {
         offset++;
         continue;
       }
       int end = offset + 1;
-      while (end < length && owner[end] == claim) {
+      while (end < hi && owner[end - lo] == claim) {
         end++;
       }
       result.add(
@@ -375,6 +402,9 @@ class EditorInputPolicy {
     return result;
   }
 
+  /// Records `[start, end)` as a candidate, clipped to [length] — the
+  /// checkbox zone's `bracketStart + 4` reaches past a line that ends at
+  /// the box, and every other producer already ends inside the line.
   static void _addCandidate(
     List<_ZoneCandidate> candidates,
     int start,
@@ -382,9 +412,8 @@ class EditorInputPolicy {
     EditorTapAction action,
     int length,
   ) {
-    final int lo = start < 0 ? 0 : start;
     final int hi = end > length ? length : end;
-    if (lo < hi) candidates.add(_ZoneCandidate(lo, hi, action));
+    if (start < hi) candidates.add(_ZoneCandidate(start, hi, action));
   }
 
   /// [lineText] with its task box flipped, or `null` when it is not a

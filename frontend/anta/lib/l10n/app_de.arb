@@ -2535,6 +2535,6 @@
   },
   "editorZoneToggleTask": "Aufgabe umschalten",
   "editorZoneOpenLink": "Link öffnen",
-  "editorZoneOpenMoney": "Kontodetails öffnen",
-  "editorZoneSearchTag": "Tag suchen"
+  "editorZoneOpenMoney": "Kassenbuchdetails öffnen",
+  "editorZoneSearchTag": "Schlagwort suchen"
 }
