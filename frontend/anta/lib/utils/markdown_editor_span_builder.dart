@@ -47,8 +47,10 @@ import 'money_display_config.dart';
 /// three levels), task boxes as
 /// custom-painted placeholder marks (checked / unchecked / indeterminate
 /// when a parent's subtree is partially complete),
-/// every blockquote `>` as a `┃` bar — one per nesting level, so `>> a`
-/// reads `┃┃ a` — with italic dimmed content,
+/// every blockquote `>` as a `┃` bar — one bar per `>`, so `>> a` reads
+/// `┃┃ a` — with the quoted content italic and dimmed in a plain quote
+/// but plain (ambient style) inside a callout block, matching the
+/// preview,
 /// `| a | b |` table rows monospace with tinted pipes (delimiter rows
 /// dimmed whole),
 /// `---` rules as dimmed `─` runs, `#tag` tokens tinted (render-only),
@@ -559,11 +561,13 @@ class MarkdownEditorSpanBuilder {
   ///
   /// On reveal the raw `>` shows dimmed; line height never changes. The
   /// icon is sized off the line's own font size and clamped under the
-  /// line box exactly like the task checkbox. A line with exotic
-  /// (non-ASCII) leading whitespace is a blockquote line to
-  /// [MarkdownCalloutSyntax.isBlockquoteLine] but has no shape for
-  /// [MarkdownCalloutSyntax.quoteMarkers]; it renders as quoted content
-  /// with no bar rather than losing a code unit.
+  /// line box exactly like the task checkbox.
+  ///
+  /// The shapeless branch is unreachable by the grammar's own contract —
+  /// [MarkdownCalloutSyntax.quoteMarkers] returns a shape for every line
+  /// [MarkdownCalloutSyntax.isBlockquoteLine] accepts, and that predicate
+  /// is what routes a line here. It is kept so a future break of that
+  /// contract degrades to a plain line instead of throwing on a null.
   TextSpan _buildQuote({
     required String text,
     required EditorRenderContext ctx,
@@ -787,6 +791,15 @@ class MarkdownEditorSpanBuilder {
   /// (`**bold**`, tags, ghosts) through the shared emitter. A delimiter
   /// row (`| --- | :-: |`) is structure rather than content and renders
   /// dimmed as a whole, like a horizontal rule.
+  ///
+  /// Ghosts win over the cell split, as they do everywhere else: a `|`
+  /// inside a `{{ … }}` run is that ghost's content, not a separator, so
+  /// `| {{a|b}} |` is one cell. The pipe walk carries a cursor over the
+  /// (sorted, non-overlapping) [ghosts] instead of searching per pipe, so
+  /// a row with no ghost pays nothing. Splitting a cell mid-ghost would
+  /// hand the emitter a straddling range — the inline grammar's own
+  /// assert catches it in debug, and in release the ghost's markers would
+  /// render twice.
   TextSpan _buildTableRow({
     required String text,
     required EditorRenderContext ctx,
@@ -815,8 +828,13 @@ class MarkdownEditorSpanBuilder {
     );
     var from = 0;
     var seenPipe = false;
+    var gi = 0;
     for (var i = 0; i < text.length; i++) {
       if (text.codeUnitAt(i) != 0x7C) continue;
+      while (gi < ghosts.length && ghosts[gi].end <= i) {
+        gi++;
+      }
+      if (gi < ghosts.length && ghosts[gi].start <= i) continue;
       if (i > from) {
         if (seenPipe) {
           _emitTableCell(

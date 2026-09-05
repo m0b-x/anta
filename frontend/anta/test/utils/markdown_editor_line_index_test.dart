@@ -710,8 +710,12 @@ void main() {
       expect(scan.rebuilt, isFalse);
       expect(
         scan.callout,
-        lessThanOrEqualTo(2),
-        reason: 'the block ends inside its own segment',
+        1,
+        reason:
+            'the fixture opens and closes the block inside segment $k, so '
+            'the next seam already has its proven entry state and the pass '
+            'stops there. A block that spanned a 256-line seam could '
+            'legitimately take 2 — this one cannot',
       );
       for (final int line in <int>[lead, lead + 1, lead + 2]) {
         expect(
@@ -908,6 +912,7 @@ void main() {
         final int start = min(rng.nextInt(lines.length), lines.length - 1);
         for (int i = start; i < min(start + 40, lines.length); i++) {
           windowed.fenceRoleAt(lines, i);
+          windowed.calloutAt(lines, i);
           windowed.taskIndeterminate(lines, i);
           windowed.moneyValueAt(lines, i);
         }

@@ -24,9 +24,10 @@ typedef PositionalSpanKey = (int tag, int value, String text);
 ///   repeat build, which is what keeps re_editor's paragraph cache on
 ///   its fast path.
 /// * [positional] — the small LRU for lines whose rendering depends on
-///   the lines around them (fence roles, indeterminate task parents,
-///   money rows carrying a computed balance). The same text can render
-///   differently, so the role — and the value — go into the key: a
+///   the lines around them (fence roles, callout membership — the role
+///   and the block's type ride in the value slot — indeterminate task
+///   parents, money rows carrying a computed balance). The same text can
+///   render differently, so the role — and the value — go into the key: a
 ///   [PositionalSpanKey] record, never an interpolated string. Records
 ///   have structural equality and hashing in Dart 3, so the key is as
 ///   good as a composed string without copying the line on every

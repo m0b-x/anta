@@ -226,6 +226,14 @@ void main() {
     test('a callout body nests inside its block', () {
       expect(barsOf('>> note', above: <String>['> [!TIP] x']), '┃┃ note');
     });
+
+    // The shape walks every whitespace kind Dart trims, not just the
+    // space and the tab, so a line the block scan already counts as
+    // quoted cannot end up rendered as plain prose here.
+    test('exotic leading whitespace is indent, and the bar still draws', () {
+      expect(barsOf('\u000C> a'), '┃ a');
+      expect(barsOf('\u00A0> a'), '┃ a');
+    });
   });
 
   // The table predicates are [MarkdownLineShape]'s, shared with the

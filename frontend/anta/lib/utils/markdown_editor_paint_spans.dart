@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:re_editor/re_editor.dart';
 
-import 'lru_cache.dart';
-
 /// The live editor's custom-painted inline runs.
 ///
 /// Each one is a fork [CodeInlinePaintSpan]: a placeholder run that
@@ -82,49 +80,43 @@ class EditorMoneyTotalSpan extends CodeInlinePaintSpan {
 /// accent, so the mark scales with the editor's text size and matches
 /// the preview's header.
 ///
-/// The span is `const`, so the laid-out [TextPainter] cannot live on the
-/// instance: it comes from a small shared LRU keyed by the three things
-/// that decide the glyph's pixels — icon, colour and side. Callout leads
-/// are rare enough that a handful of entries covers every visible line,
-/// and a miss costs one icon-glyph layout.
+/// Like the money chip, the glyph's [TextPainter] is laid out once at
+/// construction and reused every frame: the span instance lives in the
+/// renderer's positional memo, so the painter's lifetime is the span's
+/// and a repeat build of the same lead line neither re-lays the glyph
+/// nor allocates a new one.
 class EditorCalloutIconSpan extends CodeInlinePaintSpan {
+  final TextPainter painter;
   final IconData icon;
   final Color accent;
 
-  const EditorCalloutIconSpan({
+  EditorCalloutIconSpan({
     required double side,
     required this.icon,
     required this.accent,
-  }) : super(width: side, height: side);
+  }) : painter = layoutPainter(icon, accent, side),
+       super(width: side, height: side);
 
-  static const int _painterCacheSize = 32;
-
-  static final LruCache<(IconData, Color, double), TextPainter> _painters =
-      LruCache(maxSize: _painterCacheSize);
-
-  static TextPainter _painterFor(IconData icon, Color accent, double side) {
-    final key = (icon, accent, side);
-    final cached = _painters.get(key);
-    if (cached != null) return cached;
-    final painter = TextPainter(
-      text: TextSpan(
-        text: String.fromCharCode(icon.codePoint),
-        style: TextStyle(
-          fontFamily: icon.fontFamily,
-          package: icon.fontPackage,
-          fontSize: side,
-          color: accent,
+  /// The laid-out icon glyph for one callout mark. Static so the
+  /// constructor can hand it to the `final` field, and so a caller that
+  /// already holds a painter (a test, a future variant) can build one
+  /// the same way.
+  static TextPainter layoutPainter(IconData icon, Color accent, double side) =>
+      TextPainter(
+        text: TextSpan(
+          text: String.fromCharCode(icon.codePoint),
+          style: TextStyle(
+            fontFamily: icon.fontFamily,
+            package: icon.fontPackage,
+            fontSize: side,
+            color: accent,
+          ),
         ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    _painters.put(key, painter);
-    return painter;
-  }
+        textDirection: TextDirection.ltr,
+      )..layout();
 
   @override
   void paint(Canvas canvas, Rect rect) {
-    final painter = _painterFor(icon, accent, rect.height);
     painter.paint(
       canvas,
       Offset(

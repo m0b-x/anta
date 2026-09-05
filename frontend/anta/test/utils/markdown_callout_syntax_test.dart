@@ -1,5 +1,6 @@
 import 'package:anta/constants/markdown_constants.dart';
 import 'package:anta/utils/markdown_callout_syntax.dart';
+import 'package:anta/utils/markdown_chunker.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// [MarkdownCalloutSyntax] is the one grammar three consumers scan with:
@@ -20,9 +21,16 @@ import 'package:flutter_test/flutter_test.dart';
 ///     about where a callout ends. Fences are the caller's business.
 ///   * [MarkdownCalloutSyntax.quoteMarkers] — the nested-quote shape both
 ///     surfaces render one `┃` per marker from; `depth`, the marker
-///     columns and `contentStart` must describe the same line.
+///     columns and `contentStart` must describe the same line. It has to
+///     answer `null` on exactly the lines
+///     [MarkdownCalloutSyntax.isBlockquoteLine] rejects, or one surface
+///     draws a bar the other does not.
 ///   * [MarkdownCalloutSyntax.parseLead] — unchanged behaviour, pinned
 ///     because the editor now tints and conceals by its exact offsets.
+///   * The block extents [MarkdownChunker] derives from the transition:
+///     the preview renders a callout out of those extents, not out of a
+///     per-line probe of its own, so a line the transition misreads
+///     changes what the reader sees a whole block away.
 void main() {
   group('isBlockquoteLine matches the trimLeft definition', () {
     for (final (line, expected) in _blockquoteCases) {
@@ -41,6 +49,67 @@ void main() {
         );
       });
     }
+  });
+
+  // The fast path decides from code units, so every whitespace kind is
+  // its own branch: the ASCII run it walks in place, and the non-ASCII
+  // whitespace that has to fall back. [MarkdownCalloutSyntax.quoteMarkers]
+  // walks the same indent, so the two must answer together — a line the
+  // probe calls a quote but the shape declines would draw no bar on
+  // either surface while still being scanned as callout body.
+  group('every whitespace lead answers the same on both probes', () {
+    for (final (unit, name) in _whitespaceLeads) {
+      for (final (suffix, shape) in const <(String, String)>[
+        ('> x', 'a quote'),
+        ('x', 'plain text'),
+      ]) {
+        final line = '$unit$suffix';
+        test('$name before $shape', () {
+          final expected = _trimLeftDefinition(line);
+          expect(
+            MarkdownCalloutSyntax.isBlockquoteLine(line),
+            expected,
+            reason: 'the fast path must match the trimming definition',
+          );
+          final markers = MarkdownCalloutSyntax.quoteMarkers(line);
+          expect(
+            markers != null,
+            expected,
+            reason:
+                'quoteMarkers must produce a shape for exactly the lines '
+                'isBlockquoteLine accepts',
+          );
+          if (markers != null) {
+            expect(
+              markers.markerOffsets,
+              <int>[1],
+              reason: 'one unit of indent precedes the marker',
+            );
+            expect(
+              markers.contentStart,
+              3,
+              reason: 'the marker and its single space are chrome',
+            );
+          }
+        });
+      }
+    }
+
+    test('a no-break space is indent, not content', () {
+      final shape = MarkdownCalloutSyntax.quoteMarkers(' > body');
+      expect(shape, isNotNull);
+      expect(shape!.depth, 1);
+      expect(shape.markerOffsets, <int>[1]);
+      expect(shape.contentStart, 3);
+    });
+
+    test('an ideographic space is indent, not content', () {
+      final shape = MarkdownCalloutSyntax.quoteMarkers('　> x');
+      expect(shape, isNotNull);
+      expect(shape!.depth, 1);
+      expect(shape.markerOffsets, <int>[1]);
+      expect(shape.contentStart, 3);
+    });
   });
 
   group('blockStep', () {
@@ -102,6 +171,65 @@ void main() {
         MarkdownCalloutSyntax.blockStep('>> [!TIP]', null),
         isNull,
         reason: 'the token is literal text inside a nested quote',
+      );
+    });
+
+    // Most lines of a document are neither quotes nor leads, and the
+    // transition runs on every one of them in both the chunker and the
+    // editor's line index. A line that cannot be a quote cannot be a
+    // lead either, so it must answer without a lead parse.
+    test('a line that is not a quote answers null whatever is open', () {
+      expect(MarkdownCalloutSyntax.blockStep('  - nested item', null), isNull);
+      expect(
+        MarkdownCalloutSyntax.blockStep('plain', MarkdownCalloutType.tip),
+        isNull,
+      );
+    });
+
+    test('exotic leading whitespace still continues an open block', () {
+      expect(
+        MarkdownCalloutSyntax.blockStep('> body', MarkdownCalloutType.tip),
+        MarkdownCalloutType.tip,
+        reason: 'a form feed is indent, so the line is still quoted',
+      );
+    });
+  });
+
+  // The chunker turns the transition into block extents, and the preview
+  // renders a callout out of those. These cases are the extents — not the
+  // chunk boundaries, which `markdown_chunker_test.dart` owns.
+  group('chunker block extents', () {
+    List<MarkdownBlock> calloutsOf(List<String> lines) =>
+        MarkdownChunker.computeLayout(
+          lineCount: lines.length,
+          chunkSize: 100,
+          lineAt: (i) => lines[i],
+        ).blocks.where((b) => b.kind == MarkdownBlockKind.callout).toList();
+
+    void expectSingleBlock(List<String> lines, int start, int end) {
+      final blocks = calloutsOf(lines);
+      expect(blocks, hasLength(1), reason: 'exactly one callout block');
+      expect(blocks.single.startLine, start, reason: 'block start');
+      expect(blocks.single.endLine, end, reason: 'block end (exclusive)');
+    }
+
+    test('a nested lead extends the open block instead of starting one', () {
+      expectSingleBlock(
+        const <String>['> [!TIP] a', '> [!NOTE] b', 'after'],
+        0,
+        2,
+      );
+    });
+
+    test('an exotic-whitespace quote line stays inside the block', () {
+      expectSingleBlock(const <String>['> [!TIP] a', '> b', 'after'], 0, 2);
+    });
+
+    test('a fenced lead opens no callout block at all', () {
+      expect(
+        calloutsOf(const <String>['```', '> [!TIP]', '```']),
+        isEmpty,
+        reason: 'the fence is consumed first, so the lead is code',
       );
     });
   });
@@ -221,6 +349,27 @@ bool _trimLeftDefinition(String line) {
   final trimmed = line.trimLeft();
   return trimmed.isNotEmpty && trimmed.codeUnitAt(0) == 0x3E;
 }
+
+/// Every whitespace unit a line may lead with, split across the fast
+/// path's two halves: `0x09`–`0x0D` and `0x20` are walked in place, and
+/// everything from `0x85` up (`U+FEFF` included, which Dart trims and
+/// Unicode does not call a space) falls back to `trimLeft`. The suite
+/// derives the answer for each from that fallback rather than hard-coding
+/// it, so the table stays right if Dart's definition ever moves.
+const List<(String, String)> _whitespaceLeads = <(String, String)>[
+  ('\u0009', 'a tab'),
+  ('\u000A', 'a line feed'),
+  ('\u000B', 'a vertical tab'),
+  ('\u000C', 'a form feed'),
+  ('\u000D', 'a carriage return'),
+  ('\u0020', 'a space'),
+  ('\u0085', 'a next line'),
+  ('\u00A0', 'a no-break space'),
+  ('\u1680', 'an ogham space mark'),
+  ('\u2003', 'an em space'),
+  ('\u3000', 'an ideographic space'),
+  ('\uFEFF', 'a byte-order mark'),
+];
 
 /// Both sides of the fast path: the ASCII shortcut (space, tab, `>`, any
 /// other ASCII), the empty and blank lines, and the non-ASCII whitespace

@@ -44,7 +44,9 @@ Settings → Editor → "Live Markdown Rendering"  (SettingsKeys.liveMarkdownRen
 
 **The one hard rule:** rendered spans keep the source line's exact UTF-16
 code-unit count. Markers are concealed (transparent + ~0.01 fontSize) or
-substituted 1:1 (`-`→`•`, `[`→MaterialIcons glyph) — never inserted/removed.
+substituted 1:1 (`-`→`•`/`◦`/`▪` by depth, `>`→`┃` per marker, a task's `[`→the
+painted checkbox, a callout lead's `[`→the painted type icon) — never
+inserted/removed.
 
 **Performance model:** O(visible lines) per layout pass and O(one segment)
 per edit. Span memo LRU (1024, keyed by line text, sentinel for raw lines)
@@ -66,7 +68,11 @@ lines bypass the memo.
 
 - [x] Headers `#`–`######` at preview scale factors (H1 2.0 / H2 1.5 / H3 1.25 /
       H4 1.125; H5–H6 clamped to 1.0, bold only) with real per-line heights
-- [x] Bullets (`-*+•` → `•`), ordered-list marker tint, indent preserved
+- [x] Bullets (`-*+•` → `•` / `◦` / `▪` cycling by nesting depth since
+      2026-09-05, Session 8 — the glyph comes from the shared
+      `MarkdownListSyntax.bulletGlyph(level)`, which the preview and the
+      money row's list marker read too), ordered-list marker tint, indent
+      preserved
 - [x] Task boxes as check glyphs (0.85× text size), checked content struck+dimmed
 - [x] Inline: `**bold**`, `*italic*`, `__bold__`, `_italic_` (word-boundary
       guarded — snake_case safe), `~~strike~~`, `` `code` `` (bg tint, literal inside)
@@ -119,8 +125,11 @@ lines bypass the memo.
       ledger's "Session 6 review" block.
 - [x] `==highlight==` — amber background matching preview (shared
       `MarkdownConstants.markBackground{Light,Dark}`)
-- [x] Blockquotes `> ` — `>` substituted 1:1 with `┃` (preview's bar glyph),
-      content italic + dimmed, inline styling composes inside
+- [x] Blockquotes `> ` — every `>` of the marker run substituted 1:1 with
+      `┃` (preview's bar glyph; `>>` and `> >` are two bars since 2026-09-05,
+      Session 8, shape from `MarkdownCalloutSyntax.quoteMarkers` on both
+      surfaces), plain-quote content italic + dimmed, inline styling composes
+      inside
 - [x] `#tag` tint matches preview (primary color + 12% bg); grammar
       extracted to shared `MarkdownTagSyntax` (preview now delegates); since
       2026-09-03 an off-caret tap on a tag opens global search (`onOpenTag`
@@ -137,9 +146,27 @@ lines bypass the memo.
       wrapper's tap zones — one grammar, three consumers
 - [x] Backslash escapes: `\*` renders a literal `*` with the `\` concealed
       (dimmed on reveal); the escaped char never opens a run/tag/link
-- [x] Callout lead lines `> [!TIP] title`: quote bar + `[!TYPE]` token tinted
-      with the type accent (palette moved to `MarkdownConstants.calloutAccent`,
-      shared with preview); token stays tinted on reveal (nothing concealed)
+- [x] Callout *blocks* (2026-09-05, Session 8): the block extent is positional —
+      `MarkdownEditorLineIndex`'s lazy `callout` pass (same seam pattern as the
+      fence pass, `MarkdownCalloutSyntax.blockStep` is the one per-line
+      transition the chunker uses too) gives every line a role (lead / body /
+      none) plus the block's type, and callout lines render through the
+      positional memo (`EditorSpanCache.positionalCallout`, packed role + type
+      in the key). Lead line off-caret: bars in the type accent (bold), the
+      `[` of `[!TYPE]` substituted 1:1 by a painted `EditorCalloutIconSpan`
+      (`MarkdownConstants.calloutIcon`), `!TYPE]` concealed, title accent +
+      bold; on reveal the whole token shows tinted (w600). Body lines: bars
+      in the block accent, content plain (not italic — preview parity). Accent
+      bar only, **no background band** (an empty `>` line cannot paint one).
+      Palette shared with the preview via `MarkdownConstants.calloutAccent`.
+- [x] Tables-lite (2026-09-05, Session 8): a row matching
+      `MarkdownLineShape.isTableRow` renders monospace with primary-tinted `|`
+      (a `|` inside a ghost run is content); `isTableSeparator` rows render
+      dimmed. No alignment, nothing concealed — the preview's real table stays
+      a documented divergence.
+- [x] Inline code content at `MarkdownConstants.inlineCodeScale` (0.9×, the
+      preview's factor) since 2026-09-05 — safe because the fork's strut comes
+      from the root span (`test/re_editor/line_height_contract_test.dart`).
 - [x] Code fences: delimiter lines monospace + dimmed, interior monospace over
       the inline-code background tint; positional, so fence lines use their
       own role+text-keyed memo (identical instances keep re_editor's paragraph
@@ -303,8 +330,23 @@ lines bypass the memo.
   intra-word `_` is never emphasis (matches preview).
 - Quote bar/highlight colors depend on theme brightness → `_isDark` joined the
   span-cache generation check (style/baseColor/primary/isDark).
-- Callout lines (`> [!TIP]`) get the plain-quote treatment in the editor for
-  now; dedicated type-token tinting stays on the roadmap.
+- Callout lead rendering (2026-09-05, Session 8; supersedes the earlier
+  "plain-quote treatment for now"): the `[` is the one code unit substituted
+  (a painted Material icon from `MarkdownConstants.calloutIcon`, in the type
+  accent, sized like the checkbox and clamped under the line box); `!TYPE]`
+  conceals; the title is accent + bold like the preview's header. The preview
+  keeps its emoji icon and synthesised label — the editor may not add code
+  units, so a title-less lead shows the icon alone (pinned divergence). A
+  nested `> [!NOTE]` inside an open block is body text: no icon, its token
+  still tints textually. Reveal shows the whole token tinted, not dimmed —
+  the recognised token stays readable while editing.
+- Bullet glyph set: `•` / `◦` / `▪` by `level % 3`, one code unit each, from
+  `MarkdownListSyntax.bulletGlyph` — the preview's old private cycle, moved so
+  both surfaces read one function (2026-09-05).
+- Inline code 0.9× in the editor (2026-09-05): allowed because the fork's
+  `forceStrutHeight` strut derives from the root span, so a smaller child can
+  never change a line's height; the contract test pins it. The chip geometry
+  keeps the context size.
 - Rule lines keep the base font size (same reasoning as H5/H6 — sub-base line
   heights buy nothing); the `─` run is only as wide as the source markers.
 - Tags conceal nothing, so they stay tinted on reveal lines. Editor tags
@@ -339,9 +381,10 @@ lines bypass the memo.
   emphasis or a colour run does.
 - Escapes vs ghosts: `\{{x}}` renders as a ghost on both surfaces (GhostText
   owns `{{` scanning; the escape rule yields to it in the shared tokenizer).
-- Callout tint is lead-line-only: continuation lines keep the plain grey quote
-  bar because the styling must stay purely textual for the span memo to be
-  valid (block-scoped bar tint would need a positional index like fences).
+- Callout tint was lead-line-only until 2026-09-05 because continuation
+  styling had to stay textual for the span memo; Session 8 added the
+  positional callout index, so body lines carry the block accent through the
+  positional memo (`positionalCallout`), never the text-keyed one.
 - Hanging indent applies only to live-rendered list lines with content; the
   plain-text path (rendering off) keeps flat wrapping. On reveal the marker
   glyphs change width slightly (`•` vs `-`, box glyph vs `[x]`), so wrapped
@@ -467,6 +510,11 @@ lines bypass the memo.
 - Batch of 2026-07-11, rendering: fence interior/delimiter styling on both
   themes (monospace metrics under the base strut), callout bar + token tint
   per type, H5/H6 primary blend readability, escaped-`\` conceal width
+- Session 8 (2026-09-05) on a real phone: callout icon glyph size and
+  vertical centring per type on both themes, body-bar accent continuity
+  down a long block, `◦`/`▪` legibility at small font sizes, table pipe tint
+  and monospace metrics, `┃┃` nesting, 0.9× inline code baseline alignment,
+  caret walk through each construct (emulator pass done, see the ledger)
 - Batch of 2026-07-11, interaction: checkbox tap on unfocused editor (keyboard
   must NOT rise), re-tap re-toggle, haptic strength of toggle/link taps,
   link confirm snackbar (host shown, Open action) + snackbar on bad scheme,
@@ -482,12 +530,13 @@ lines bypass the memo.
 
 ### Remaining gaps
 
-- [ ] Callout *block* treatment: continuation lines keep the plain quote bar;
-      a block-scoped accent bar needs a positional callout index (same lazy
-      pattern as the fence index) plus a positional cache-bypass for quote
-      lines — do it if callouts see real use
-- [ ] Callout dedicated rendering (icon, band background) stays preview-only
-      by design; revisit only if the tint proves insufficient
+- [x] Callout *block* treatment — shipped 2026-09-05 (Session 8), see Done.
+- [ ] Callout band background stays preview-only by design (an empty `>`
+      line cannot paint one, so a band would stripe); the icon shipped in the
+      editor with Session 8
+- [ ] Table alignment stays out: real column alignment is impossible under
+      the code-unit invariant without placeholder runs; tables-lite is the
+      ceiling unless a measured need appears
 
 ### Performance follow-ups (only if profiling says so)
 

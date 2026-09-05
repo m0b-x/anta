@@ -94,6 +94,29 @@ void main() {
         expect(row.mutateUs, lessThan(100000));
       });
 
+      // The keystroke that actually lands *inside* an open block: line
+      // 111 is the first body line of the block at 110..113, so every
+      // iteration rewrites a line the callout pass has to re-derive a
+      // role for while resuming from the lead above it. Compare against
+      // the row above, whose edited line sits far from any block.
+      test('segment k=0, money off, keystroke inside a callout body', () {
+        calloutRows.add(
+          _measure(
+            docLines: docLines,
+            iterations: iterations,
+            segment: 0,
+            money: false,
+            callouts: true,
+            editedLineOverride: 111,
+            warmText: _bodyWarm,
+            keyText: _bodyKey,
+          ),
+        );
+        final _Row row = calloutRows.last;
+        expect(row.indexUs, lessThan(100000));
+        expect(row.mutateUs, lessThan(100000));
+      });
+
       tearDownAll(() {
         void printRows(List<_Row> table) {
           // ignore: avoid_print
@@ -336,18 +359,33 @@ _StructuralRow _measureStructural({
   );
 }
 
+/// The keystroke a plain row takes, and the line it is typed into: a
+/// bullet the callout pass never has to look at twice.
+String _plainWarm(int i) => '- warm $i';
+String _plainKey(int i) => '- working set $i x 5';
+
+/// The same keystroke typed into a callout *body* line, which keeps the
+/// line quoted so the block above it stays open across every iteration.
+String _bodyWarm(int i) => '> warm $i';
+String _bodyKey(int i) => '> keep the bar loose $i';
+
 _Row _measure({
   required int docLines,
   required int iterations,
   required int segment,
   required bool money,
   bool callouts = false,
+  int? editedLineOverride,
+  String Function(int i) warmText = _plainWarm,
+  String Function(int i) keyText = _plainKey,
 }) {
-  final int editedLine = segment * 256 + 128;
+  final int editedLine = editedLineOverride ?? segment * 256 + 128;
   final List<String> text = callouts
       ? _buildCalloutNote(docLines, money: money)
       : _buildNote(docLines, money: money);
-  text[editedLine] = '- plain working set';
+  // An overridden line is picked for the shape it already has (a callout
+  // body), so it keeps its own text.
+  if (editedLineOverride == null) text[editedLine] = '- plain working set';
 
   CodeLines lines = CodeLines.of(text.map(CodeLine.new));
   final index = MarkdownEditorLineIndex(maxScannedLineLength: 4096)
@@ -359,7 +397,7 @@ _Row _measure({
   // whatever `k` it happened to be.
   index.fenceRoleAt(lines, 0);
   for (int i = 0; i < 200; i++) {
-    lines = _typeAt(lines, editedLine, '- warm $i');
+    lines = _typeAt(lines, editedLine, warmText(i));
     _layoutQuery(index, lines);
   }
 
@@ -380,7 +418,7 @@ _Row _measure({
   final indexWatch = Stopwatch();
   for (int i = 0; i < iterations; i++) {
     mutateWatch.start();
-    lines = _typeAt(lines, editedLine, '- working set $i x 5');
+    lines = _typeAt(lines, editedLine, keyText(i));
     mutateWatch.stop();
 
     indexWatch.start();

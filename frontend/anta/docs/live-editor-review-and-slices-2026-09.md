@@ -1,6 +1,10 @@
 # Live Markdown Editor — Review & Consolidation Slices (2026-09-03)
 
-**Status: Sessions 0–7 DONE (§3; 7c on 2026-09-05). Sessions 0–1 are committed as
+**Status: Sessions 0–8 DONE (§3; 7c and 8 on 2026-09-05). Session 8's
+Phase 1 is committed as `b0f5f52` (the owner's message reads "phase 9 +
+review of live editor roadmap"; it is Session 8's Phase 1), its review
+fixes and docs uncommitted on top — see the Outcome and review blocks under
+Session 8. Sessions 0–1 are committed as
 `38c7b50`, Session 2 and its same-day follow-up as `c716225`, Session 3 as
 `a183f11`, Session 4 as `1ed4a60`, Session 5 as `4cad6ec`, Session 6 as
 `b5fcdbd`, Session 7a as `fcfe704` (sync) + `72401b8` (format) +
@@ -9,7 +13,7 @@
 `b1da783` (docs). Session 7 was re-sized against the
 code and split into 7a/7b/7c on 2026-09-04, all three now shipped and
 reviewed (2026-09-05, see the review block under Session 7); Sessions
-8–9 and 11 PLANNED, not implemented; Session 10 DROPPED (decision 4). All six §2
+9 and 11 PLANNED, not implemented; Session 10 DROPPED (decision 4). All six §2
 decisions are taken (6, fork ownership, added 2026-09-04).** Baseline commit `bf2e7ba`
 (main). Line numbers below are as of that commit and will drift — re-grep
 before editing. This doc is the ledger for making the Obsidian-style live
@@ -2878,6 +2882,358 @@ lands on the loaded text and disables it again).
 4. Nested `>>` quote depth (1:1 per `>`); inline code 0.9× only if it does
    not change line height (it must not — root fontSize rule).
 
+**Outcome — DONE 2026-09-05, Phase 1 committed by the owner as `b0f5f52`
+(message "phase 9 + review of live editor roadmap" — it is this session's
+Phase 1: the 13 lib files and 12 test files below), the review fixes and
+the docs uncommitted on top of it.** Full suite **3,646** passing (7
+benchmark cases skipped), up 195 from 3,451 on `d51a79e` (3,606 after
+Phase 1, +40 from the review); `dart analyze lib`,
+`dart analyze test`, `dart analyze packages/re_editor/lib` (the fork's two
+pre-existing `avoid_print` infos only) clean. Planned against the code
+first (two read-only traces, then a written plan with the per-item
+single-source location, the positional key shape, the lead-line rendering
+and the test list); implemented by three workers on disjoint files
+(grammar, preview, editor), then two test workers. What landed, item by
+item:
+
+1. **Bullet glyph by depth.** `MarkdownListSyntax.bulletGlyph(level)`
+   (`•`/`◦`/`▪` by `level % 3`, one UTF-16 unit each) is the one glyph
+   function; the preview's private `_bulletForLevel` is gone and
+   `_buildListItem` + `_wrapMoneyList` read the shared one, the editor's
+   list branch substitutes it 1:1 for the source marker and the money
+   row's `_emitListMarker` derives the level with
+   `MarkdownListSyntax.indentLevel(text)` (the indent is exactly
+   `[0, listMarkerStart)`, so it reads the same columns `item.level`
+   does). Text-keyed — the level is the line's own indent. The units
+   suite's `_substitutions` table gained `◦` and `▪`.
+2. **Callout blocks, positional.** `MarkdownCalloutSyntax.blockStep(line,
+   open)` is the one per-line transition of the block scan (a lead opens,
+   every contiguous blockquote line continues with the open type, a
+   nested lead is body of the outer block, a blank or non-quote line
+   ends it; fences are the caller's business) — `MarkdownChunker
+   ._scanBlocks` consumes it instead of its own loop (block extents
+   byte-identical, the chunker suite untouched and green) and
+   `MarkdownEditorLineIndex` gained a fourth pass, `_scanCallouts`,
+   right after the fence pass: lazily allocated `List<int>? _callout`
+   (null until the first lead exists, exactly like `_fence`), packed
+   `((type.index + 1) << 2) | role` with role 1 lead / 2 body,
+   `_SegmentState.calloutEntry` (open type + 1) as the resume state on
+   both constructors, the seam `s > last && s >= settled &&
+   identical(backing) && st.calloutEntry == open`, fence-role lines
+   closing the block without consulting the grammar, the `delta != 0`
+   splice mirroring `_fence`'s `replaceRange`, `_rebuildAll` nulling the
+   array, and `debugLastScan` growing a `callout` count. Exposed as
+   `calloutAt` (packed) / `calloutRoleAt` plus the static decoders,
+   `MarkdownEditorSpanBuilder.calloutRoleAt(index)` and
+   `EditorRenderController.calloutRoleAt`. `_route` takes the callout
+   branch after the fence branch and before money — reveal builds go
+   straight to `_buildLine`, off-caret builds through the positional memo
+   under the new `EditorSpanCache.positionalCallout = 4` with the packed
+   value in the key, so a body under `[!TIP]` and the same text under
+   `[!WARNING]` never share a span and a callout line never reaches the
+   text-keyed memo. Rendering (`_buildQuote`, rewritten over
+   `quoteMarkers`): **lead off-caret** — bars in the type accent, bold; the
+   `[` of `[!TYPE]` substituted 1:1 by `EditorCalloutIconSpan` (a
+   `CodeInlinePaintSpan` painting `MarkdownConstants.calloutIcon(type)` in
+   the accent, side `min(baseSize, lineBox * 0.85)` like the checkbox,
+   painter laid out at construction like the money chip); `!TYPE]`
+   concealed; the gap before `[` and the spaces after `]` visible in the
+   ambient style; the title accent + bold like the preview's header.
+   **Lead on reveal** — raw `>` dimmed, the whole `[!TYPE]` visible in the
+   accent at w600 (the recognised token stays readable while editing),
+   title unchanged. **Body** — bars in the *block's* accent, content in the
+   ambient style (not italic, not dimmed — preview parity; the old
+   plain-quote treatment was the gap). A nested `> [!NOTE]` inside an open
+   block is body: no icon, its token still tints textually with its own
+   type. **Plain quote** — grey bars, italic + dimmed content as before.
+   Accent bar only, no band (decided 2026-09-04). Root span unchanged in
+   every state.
+3. **Tables-lite.** `MarkdownLineShape.isTableRow` / `isTableSeparator`
+   own the two regexes (the preview's `_MarkdownPatterns.tableRow` /
+   `tableSeparator` are deleted; `isLineLedConstruct` reads `isTableRow`);
+   the editor's `_buildLine` gained a `_leadsWithPipe` gate + `isTableRow`
+   branch after the rule branch: root at base style, every `|` its own
+   monospace span tinted `primary@0.55` (`_tablePipeAlpha`), cells through
+   the inline emitter in a monospace context style (bold, tags, ghosts
+   still work), blank cells emitted directly, separator rows whole-line
+   monospace at `_ruleAlpha`. Nothing concealed, identical on reveal,
+   text-keyed. A `|` inside a ghost run is content, not a separator (from
+   the review, item 1 below). Fence lines still win.
+4. **Nested quotes + inline code.** `MarkdownCalloutSyntax.quoteMarkers
+   (line) -> MarkdownQuoteShape? {depth, markerOffsets, contentStart}` (a
+   run of `>` markers each optionally followed by one space; non-null
+   exactly when `isBlockquoteLine`) is the shape both surfaces render bars
+   from — the editor substitutes every `>` with `┃` and keeps the single
+   spaces between them as source, the preview's `_buildBlockquote` takes a
+   `depth` and emits `'┃' * depth` (so `>> a` reads `┃┃ a` on both).
+   Inline code content renders at `MarkdownConstants.inlineCodeScale`
+   (0.9, the preview's hard-coded factor moved there) through
+   `EditorInlineEmitter._codeStyle`; the chip keeps the context size.
+   Proven safe rather than argued: the fork builds every paragraph with
+   `StrutStyle(forceStrutHeight: true)` from the ROOT span, so
+   `test/re_editor/line_height_contract_test.dart` gained two cases (a
+   0.9× child under a base root, a whole line of them) asserting
+   `lineHeightOfLine == lineHeight` with the fork's asserts silent — the
+   scale stays.
+
+Deviations from the Session 8 block, with reasons: (a) the callout extent
+is a *shared transition* (`blockStep`) rather than "the predicate the
+chunker uses" — the chunker had no predicate, only an inline loop, and
+two independent loops would have been the third scanner the rule
+forbids; (b) the icon is a painted Material icon (`calloutIcon`), not the
+preview's emoji — the preview's `'💡 '` is two-plus code units and the
+editor may substitute only one, so the surfaces differ by design and the
+agreement suite normalises both to one `<icon>` unit; (c) tables-lite
+tints `|` with primary instead of the preview's base@0.4 ` │ ` joiner —
+the editor keeps every unit and needs the pipes to read as structure;
+(d) `isTableRow` accepts trailing whitespace (the preview's regex ran on a
+left-trimmed line and rejected `| a |  `) — one shape for the paste
+policies (which already trimmed both ends), the preview and the editor,
+recorded as a preview delta; (e) the plan's "`> > a` reads `┃┃ a` on both
+surfaces" is true only for `>>` — the editor keeps the source space
+between the bars (`┃ ┃ a`), the preview drops it; whitespace-only, pinned.
+
+Behaviour deltas, all deliberate: nested bullets render `◦`/`▪` (a `•`
+typed at depth 1 renders `◦`); callout body content is no longer italic
+in the editor; a callout lead's `!TYPE]` conceals off-caret; `>>` is two
+bars on both surfaces; a quote's content offset in the preview is exact
+past extra blanks (`>   a` used to map two columns early — search
+highlights landed wrong); the preview emits a quote's gap space as its
+own ambient span instead of folding it into the bar run; table rows with
+trailing whitespace are rows in the preview; inline code is 0.9× in the
+editor; the preview's event-sheet and agenda consumers
+(`SimpleMarkdownPreview`, `MarkdownInlineText`) inherit the quote and
+table deltas.
+
+Tests (per file, before → after): `markdown_editor_span_builder_units_test
+.dart` 161 → 214 (corpus +40 lines incl. every callout type, two-space
+and no-space leads, nested lead as body, `>>` body, depth-3 quotes, five
+table shapes incl. a row inside a fence and a piped ghost, lead with a
+ghost / tag / money text, nested bulleted and display money rows, code
+inside a heading; a `visible rendering` group for the icon span, the
+reveal token, plain bodies vs italic quotes, bars, glyphs, pipes,
+separators, the 0.9× leaf under base and H2 roots; a `positional callout
+memo` group proving identity holds, breaks on a lead type change, holds
+across an unrelated edit and degrades to a plain quote),
+`markdown_editor_line_index_test.dart` 52 → 62 (`expectMatchesFresh`
+compares `calloutAt`; the corpus rotation is `i % 8` with a callout case
+and a lead right after a fence closer; `_EditKind.calloutToggle`; a
+`callout pass` group: lead inserted/removed mid-run, fence-open swallows a
+lead and fence-close restores it, `debugLastScan.callout == 1` for k ∈
+{0, 5, 11}, lead-type change rescans one segment, callout-free doc, decode
+round trip, three structural edits), `markdown_inline_agreement_test.dart`
+126 → 150 (`_Case.above`; both projections render inside the same
+padded document; normalisations 5 (band dropped) and 6 (`<icon>`); quote,
+nested quote, callout lead/body/nested-body corpus lines compared
+unpinned; pinned with the exact first-difference string: title-less lead,
+`| set | reps |`, `| --- | --- |`, `> > a`, `> > > a`, indented quote,
+nested lead as body; offset sweep +5 lines with explicit `painted:`
+expectations since block chrome has no source offset),
+`markdown_callout_syntax_test.dart` new, 68 (`isBlockquoteLine`
+against the `trimLeft` definition over every whitespace kind, `blockStep`
+transitions, `quoteMarkers` table, `parseLead` regressions, the chunker
+extents for a nested lead / exotic indent / fenced lead, the two
+constants), `markdown_line_shape_test.dart` 23 → 31,
+`markdown_list_syntax_test.dart` 57 → 76, `line_based_markdown_builder_test
+.dart` 10 → 19, `editor_render_controller_test.dart` 36 → 39,
+`line_height_contract_test.dart` 2 → 4 (`pumpScrollEditor` gained an
+optional `spanBuilder`), `markdown_chunker_test.dart` 43 untouched.
+
+Benchmarks (§5 has the tables; same box, quiet — no agent, emulator or
+suite running — `flutter test --tags benchmark --run-skipped <file>`,
+three span-builder runs and two index runs each side): the list-line
+rows are unchanged within noise (cold 629–676 → 643–674 µs per pass,
+warm 64–82 → 62–66), the display-money warm row improved (102–111 →
+76–83, JIT ordering — the new callout row now precedes it), the new
+callout row reads 212–220 µs cold / 38–40 µs warm per 40-line pass
+(5.3–5.5 / 0.96–1.0 µs per line), the index keystroke rows moved by the
+callout pass's measured cost (~1–3 µs per keystroke at k = 0/20/39, the
+k = 0 row still paying JIT first), the structural rows are within their
+run-to-run spread, and the two new index rows read 11.4–11.6 µs
+(callout block every 200 lines, k = 20) and 7.7–7.9 µs (keystroke inside
+a callout body — the seam holds, no k gradient). The unpairable-storm row
+is discussed in §5: it is not on this session's change surface and moves
+with test ordering.
+
+Device pass (2026-09-05, Pixel 9 Pro x86_64 emulator, debug build with
+the fork's asserts and the renderer's code-unit assert live, driven
+through `adb input`): a lead of type tip renders bar + icon + accent
+title; body lines and a `>>` body carry the block accent; a nested
+`> [!WARNING]` inside the tip block is body text with its own token tint;
+a plain `>>` quote shows two grey bars, italic; table rows monospace with
+tinted pipes and a dimmed separator (a keyboard-inserted indent on the
+separator still classified as a row); `` `code` `` chips at 0.9× in prose
+and inside a task; bullets at depths 2/3/4 read `▪`/`•`/`◦`; revealing
+the lead (raw `>` dimmed, `[!TIP]` tinted), a body (`>>` dimmed) and a
+table row moved no line below the caret; zero assertion output in the
+run log across the whole pass. Not verified on a physical phone (none
+attached); the roadmap's on-device list carries the visual checks
+(icon size per type on both themes, `◦`/`▪` legibility at small sizes).
+
+Traps for later sessions: the index test corpus's rotation length must
+stay coprime with 256 (an 11-line callout case made the cycle 48 and
+moved three pre-existing boundary fixtures onto different constructs;
+10 lines restored them); `EditorCalloutIconSpan` cannot be `const` once
+it holds its painter, so nothing may rely on identity across builds
+except through the memo; adding a corpus case to the units suite is
+free, but a `visible rendering` assertion is what makes a rendering
+mutation bite — the code-unit loop alone survives most of them (the
+review proved that on the two-space lead); `expectedDivergence` alone
+asserts only "some difference", so every pin now records its exact
+first-difference string; the fork's `forceStrutHeight` clamps a child in
+BOTH directions, so a contract case that only shrinks a child cannot
+prove the 0.9× *value* — the control (scaling the root) is what proves
+the harness live; `CodeLineEditingController.applyNewLine()` throws a
+`RangeError` when the collapsed offset exceeds the line length instead
+of clamping — a fixture bug reads as a fork crash.
+
+#### Session 8 review — 2026-09-05
+
+Four independent read-only passes over the Phase 1 tree (renderer
+correctness, preview/editor parity + single-source grammar, hot path,
+tests + docs — the last one mutating lib under a byte-for-byte restore
+discipline to prove the tests bite), then two fix workers on disjoint
+ownership (lib, tests), interrupted once by a session restart and
+resumed. One finding is a real bug (A1), the rest is debt the review
+paid or recorded. Nothing beyond `b0f5f52` is committed.
+
+**A. Renderer.** A1 (bug, CONFIRMED): `_buildTableRow` split cells on
+every `|`, including one inside a `{{ … }}` ghost run — `| {{a|b}} |`
+handed the inline emitter a range straddling the ghost, which trips the
+grammar's own straddle assert in debug and in release emitted the ghost's
+markers twice (15 units for an 11-unit line: caret, selection, search and
+tap offsets desync on that line). Ghosts win, as everywhere else: the pipe
+walk carries a cursor over the sorted ghost list and a pipe inside a run
+is content. A 12,000-line randomised corpus found no other code-unit
+break. A2 (debt): `isBlockquoteLine`'s new fast path skipped only space
+and tab before answering `false` for any other ASCII unit, while
+`String.trimLeft` (which `parseLead` still uses) also strips
+`0x0A..0x0D` — so `'\f> [!TIP] x'` was a lead to the index and not a
+quote to the renderer (role lead, render null), the chunker's extent
+differed from HEAD for such lines, and the doc's "byte-identical to the
+trimming form" was false. The fast path skips `0x09..0x0D` and `0x20` in
+place now and defers everything `>= 0x80` to `trimLeft`, which makes the
+claim true (every other unit Dart trims is non-ASCII). A3 (debt):
+`quoteMarkers` skipped only space/tab indent, so a no-break-space or
+ideographic-space indented quote had `isBlockquoteLine == true` and no
+shape — the preview kept a hand-rolled `indent + 1 + …` fallback at two
+sites (a second marker scanner) and the editor rendered the line with no
+bar. `quoteMarkers` now uses the same indent rule (ASCII in place,
+non-ASCII through `trimLeft`), its contract is "non-null exactly when
+`isBlockquoteLine`", the preview's blockquote branch is gated on the shape
+itself and its fallbacks are gone (the callout body branch keeps a bare
+`?? indent` default that is unreachable by the block's definition), and
+the editor's shapeless branch is documented as unreachable and kept only
+so a contract break degrades to a plain line. A4 (nit, not changed):
+`| |` and `|-|` classify as separator rows (`[\s:-]+` matches a lone
+space) — the regex moved verbatim from the preview, both surfaces agree.
+A5 (nit, not changed): `\|` inside a cell still splits the cell —
+tables-lite has no escape rule. A6 (nit, not changed): trailing blanks
+after the last pipe go through the cell path in monospace — invisible.
+
+**B. Parity / single source.** B1: no duplicate predicate survives in
+`lib/` — bullet literals only in `bulletGlyph`, table regexes only in
+`MarkdownLineShape`, the 0.9 only as `inlineCodeScale`, no
+`isBlockquoteLine` extent loop outside `blockStep`; the preview's
+`trimmed.startsWith('>')` gate is gone with A3. B2: chunker block extents
+and index roles coincide on every constructed case (nested lead, fence
+inside a run, `>`-prefixed fence, blank vs plain separators, lead right
+after a fence closer, lead inside a fence, NBSP-indented continuation).
+B3: bullet level derivation is identical on both surfaces for tab and
+three-space indents. B4 (debt, paid): every pinned agreement entry was
+masked by the visible-text short-circuit, so a second unrelated
+disagreement on a pinned line could hide behind the pin — pins now
+assert the exact first-difference string; and the `mono` projection was
+asymmetric (editor from the chip only, preview from the font family), so
+an editor-only monospace run could never register — the editor projects
+mono from either. B5 (recorded): whitespace-only divergences not in the
+corpus — `>a` (preview synthesises a space after the bar), `>  [!TIP]`
+(preview normalises two spaces to one), a tab between markers. B6: the
+preview's other consumers (`SimpleMarkdownPreview` in the event sheets
+and shortcut editor, `MarkdownInlineText` in the agenda and day summary)
+inherit the quote/table deltas with no crash path; `bulletGlyph` is not a
+preview delta at all (the preview already cycled).
+
+**C. Hot path.** C1 (debt, paid): `blockStep` ran `parseLead` on every
+line while no block was open — the allocation-free probe never executed
+on the common path, and `parseLead`'s `trimLeft` copies an indented line;
+measured 3.8–4.1 µs per 256-line segment vs 2.4 µs gated, and a single
+200 k-char indented line cost ~20 µs per keystroke through it. Gated on
+`isBlockquoteLine` first (semantically identical once A2 landed:
+`parseLead != null` implies `isBlockquoteLine`); the chunker gets the
+same saving. No `maxScannedLineLength` cap was added to the callout
+pass, on purpose: the chunker has none, so adding one would split the
+block extent between the surfaces, and after C1 an over-long non-quote
+line costs one probe (76 ns). C2 (recorded): the positional LRU (128) is
+now shared with callout lines; a 40-line viewport walk over a 300-line
+block measured 1,520 identical hits and 0 rebuilds (40 of 128 entries
+used), while a sweep touching more than 128 positional lines per pass
+degrades as a cliff — pre-existing fence/money behaviour, not reachable
+through re_editor's visible-window layout; recorded so nobody raises the
+viewport overscan past ~3× without raising 128. C3: `calloutAt` costs
+6.9 ns per lookup against 23.6 ns for the `fenceRoleAt` call already in
+`_route`; `_ensure` is an identity no-op on the second call. C4 (debt,
+paid): `EditorCalloutIconSpan` held its painters in a static 32-entry
+LRU because it was `const` — but no call site constructs it as `const`
+(the side is runtime), so it now mirrors `EditorMoneyTotalSpan`: the
+painter is a field laid out at construction, the span lives in the
+positional memo, no global cache, no per-paint record + map operations.
+C5 (nit, not changed): `_buildTableRow` runs `isTableRow` twice per row
+build (`isTableSeparator` re-checks it) — 230 ns, text-keyed, build-only.
+C6 (nit, not changed): `_codeStyle`'s `copyWith` per code span is the same
+order as the chip decoration that already existed. C7: seams — a
+keystroke in a callout-free document, inside a body, and one changing a
+lead's type all scan exactly one segment (`debugLastScan.callout == 1`);
+a block spanning a segment seam rescans until it closes, bounded by the
+block. C8: the benchmark rows measure what they claim; a body-edit row
+was added (the callout-block row edited a line outside every block, so
+it measured the pass's floor, not its seam).
+
+**D. Tests.** Eleven mutations: nine caught by named tests (glyph cycle,
+body role, the `s >= settled` seam — bitten by ten fence-toggle fixtures
+exactly as predicted — the callout branch removed from `_route`, italic
+body, a single bar, trailing-whitespace rows, the 0.9× leaf, a deleted
+pin); two not caught and closed: the two-space lead had a corpus entry
+but no visible-rendering assertion (the code-unit loop survives routing
+the token through the inline emitter), and the chunker suite had no
+adjacent-leads-without-a-blank case (both now pinned, the chunker's in
+the callout suite so `markdown_chunker_test.dart` stays untouched). The
+contract case passes for a 0.9×, 1.3× and 6× child alike —
+`forceStrutHeight` clamps both ways — and fails when the root is scaled,
+so it is live but proves "a child never changes the height", not the
+value. Honesty: `identical`, exact `Color` equality, `== 1` not `<= 1`,
+`expectMatchesFresh` really compares `calloutAt`, `calloutToggle` is
+reached by both seeded loops; the lead-type-change matcher was tightened
+from `<= 2` to `1` and the window-only test queries `calloutAt` too.
+
+**Ledger corrections.** The Session 8 block's "same lazy pattern as
+fences" holds; its "`_MarkdownPatterns.tableRow`" is deleted, not moved;
+the plan's `> > a` claim is corrected above (deviation e).
+
+**Not changed, on purpose.** A4–A6, C5–C6 above; the preview's band and
+emoji icon; the nested-lead token tint in a body (pinned, the editor
+hints recognition, the preview treats it as literal); `EditorMoneyTotalSpan`
+and `EditorCalloutIconSpan` never dispose their painters (house
+practice); the editor's shapeless quote branch (unreachable guard); the
+lead line reflows horizontally on caret entry (a 16 pt icon box replaces
+a ~4 pt `[`) — inherent to the placeholder design, identical to the task
+checkbox.
+
+Numbers: `markdown_editor_span_builder_units_test.dart` 207 → 214,
+`markdown_callout_syntax_test.dart` 37 → 68, `markdown_inline_agreement
+_test.dart` 149 → 150 (every pin now carries its exact first-difference
+string, twelve of them), `line_based_markdown_builder_test.dart` 18 → 19,
+`markdown_editor_line_index_test.dart` 62 (two assertions tightened, no
+new cases), the index benchmark file 13 → 14 rows. Full suite **3,646**
+passing (7 benchmark cases skipped), up 40 from Phase 1's 3,606 and 195
+from `d51a79e`'s 3,451; `dart analyze lib`, `dart analyze test` and
+`dart analyze packages/re_editor/lib` clean apart from the fork's two
+pre-existing `avoid_print` infos; `dart format --set-exit-if-changed`
+over the 25 touched Dart files changes nothing; no new `TODO`/`FIXME`
+and no new `//` comment in lib beyond three rewordings of pre-existing
+ones. Phase 1 is committed as `b0f5f52`; everything from the review on
+is not.
+
 ### Session 9 — wiki links `[[note]]` (decision 5)
 
 Same conceal pattern as `[text](url)`: `[[` and `]]` concealed off-caret,
@@ -3238,3 +3594,58 @@ redundant whole-line layouts went, the table seeds each search, and the
 remaining cost is the ~12 layouts a genuinely over-long line needs. Not
 in either column: the page used to compute the flat paste offsets with
 an O(lines) loop before calling the breaker; that loop no longer exists.
+
+Session 8 numbers (2026-09-05, same machine, quiet box — no agent,
+emulator or suite running — three span-builder runs and two index runs
+per side; "before" is the untouched `d51a79e` tree at the start of the
+session, "after" is the reviewed tree).
+
+Span builder (`markdown_editor_span_builder_benchmark_test.dart`; the
+new callout row sits second in the file, so the rows after it now run
+with a warmer JIT than before):
+
+| Path | Before Session 8 | After |
+|---|---|---|
+| list lines cold (memo cleared), per pass | 629–676 µs | 643–674 µs |
+| list lines warm (memo hit), per pass | 64–82 µs | 62–66 µs |
+| callout lines (lead + 39 body) cold, per pass — new | — | 212–220 µs (5.3–5.5 µs/line) |
+| callout lines warm (positional memo hit), per pass — new | — | 38–40 µs (0.96–1.0 µs/line) |
+| unpairable-delimiter storm cold, per pass | 1,118–1,183 µs | 1,399–1,438 µs in-file, 1,204–1,240 µs alone |
+| display-money warm, per pass | 102–111 µs | 76–83 µs |
+
+The storm row is not on this session's change surface (a 4,087-char
+`a* ` line takes the `isBlockquoteLine` fast path and the `|` gate at its
+first code unit and then the untouched tokenizer). Re-measured at
+`d51a79e` in a throwaway worktree in the same sitting it read 1,324–1,395
+µs alone and 1,478 µs in-file (with the list-line cold row at 843 µs in
+that run) — the machine had slowed since the morning's baseline, so the
+row tracks the box and the test order, not the code. Read the callout
+rows as the number that matters: a body line is a positional memo hit
+at one microsecond.
+
+Line index (`markdown_editor_line_index_benchmark_test.dart`, 10,240
+lines, µs of index work per keystroke; the corpus is byte-identical to
+Session 3's, the callout pass now runs on every `_ensure`):
+
+| money | k | Before Session 8 | After |
+|---|---|---|---|
+| off | 0 | 15.4–16.2 | 18.7–19.8 |
+| off | 20 | 8.3–8.8 | 8.0 |
+| off | 39 | 6.5–6.7 | 7.7–9.1 |
+| on | 0 | 22.3–23.6 | 26.1–26.5 |
+| on | 20 | 13.6–13.8 | 14.6–14.7 |
+| on | 39 | 9.9–10.1 | 10.8–10.9 |
+
+New rows: `k=20, money off, callout block every 200 lines` 11.4–11.6 µs
+(the pass with an allocated role array, editing a line outside every
+block); `k=0, money off, keystroke inside a callout body` 7.7–7.9 µs
+(the seam: one segment, no k gradient — this row prints last and so pays
+no JIT). The review's own measurement of the pass alone: 2.4 µs per
+256-line segment after the `blockStep` gate (3.8–4.1 before it), 76 ns
+for a 200 k-char indented non-quote line (19.7 µs before the gate).
+Structural rows (Enter + delete, µs of index work) stayed inside their
+run-to-run spread: off k=0/20/39 enter 36.6–41.0 → 39.7–48.1 /
+32.0–33.5 → 34.6–51.1 / 21.7–22.2 → 23.7–25.5; on 48.5–50.0 → 52.0–59.9 /
+48.2–50.8 → 47.8–56.5 / 24.7–29.0 → 26.9–28.1 — the callout array's
+`replaceRange` is the same O(lines) memmove the fence array already
+pays, and only when a callout exists.

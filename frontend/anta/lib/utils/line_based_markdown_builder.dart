@@ -604,7 +604,6 @@ class LineBasedMarkdownBuilder {
 
     // Detect line type and apply appropriate styling
     final trimmed = line.trimLeft();
-    final indent = line.length - trimmed.length;
 
     // Multi-line block lookup (single binary search). Code-fence lines
     // render monospaced; callout lines (`> [!TYPE]` runs) render with a
@@ -718,16 +717,14 @@ class LineBasedMarkdownBuilder {
     }
 
     // Blockquote
-    if (trimmed.startsWith('>')) {
-      final quote = MarkdownCalloutSyntax.quoteMarkers(line);
-      final markerEnd =
-          quote?.contentStart ??
-          indent + 1 + (trimmed.startsWith('> ') ? 1 : 0);
+    final quote = MarkdownCalloutSyntax.quoteMarkers(line);
+    if (quote != null) {
+      final markerEnd = quote.contentStart;
       final raw = line.substring(markerEnd);
       final skipped = raw.length - raw.trimLeft().length;
       return _buildBlockquote(
         raw.trim(),
-        quote?.depth ?? 1,
+        quote.depth,
         lineStart + markerEnd + skipped,
         lineEnd,
       );
@@ -1016,7 +1013,10 @@ class LineBasedMarkdownBuilder {
   /// (`>> note` nests inside the block); a lead is always depth 1 because
   /// `[!` must follow the first `>`. Per-line content offsets are
   /// identical to a plain blockquote, so search highlighting and scroll
-  /// mapping are unaffected.
+  /// mapping are unaffected. Every body line is a blockquote line by the
+  /// block's own definition, so the shape is always there and the body
+  /// branch's bare-indent fallback is a degenerate default rather than a
+  /// second marker scanner.
   TextSpan _buildCalloutLine(
     String line,
     int lineIndex,
@@ -1086,13 +1086,8 @@ class LineBasedMarkdownBuilder {
     } else {
       // Body line: the content after the `>` marker run, inline-formatted
       // at its true source offset (mirrors the blockquote offset maths).
-      final trimmed = line.trimLeft();
-      final indent = line.length - trimmed.length;
       final markerEnd =
-          quote?.contentStart ??
-          (trimmed.startsWith('>')
-              ? indent + 1 + (trimmed.startsWith('> ') ? 1 : 0)
-              : indent);
+          quote?.contentStart ?? (line.length - line.trimLeft().length);
       final raw = line.substring(markerEnd);
       final skipped = raw.length - raw.trimLeft().length;
       _appendFlattened(

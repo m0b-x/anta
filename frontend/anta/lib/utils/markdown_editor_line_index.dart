@@ -508,7 +508,10 @@ class MarkdownEditorLineIndex {
   /// Per line the cost is one allocation-free
   /// [MarkdownCalloutSyntax.isBlockquoteLine] probe, plus a
   /// [MarkdownCalloutSyntax.parseLead] only on lines that lead with `>`
-  /// while no block is open.
+  /// while no block is open. That rule is the grammar's, not this pass's:
+  /// [MarkdownCalloutSyntax.blockStep] gates on the probe before it ever
+  /// reaches [MarkdownCalloutSyntax.parseLead], so every caller of the
+  /// block scan gets it.
   void _scanCallouts(
     List<CodeLineSegment> segs,
     int first,

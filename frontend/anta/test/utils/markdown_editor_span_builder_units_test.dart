@@ -250,6 +250,24 @@ void main() {
       expect(token.style?.fontWeight, FontWeight.w600);
     });
 
+    test('a two-space lead keeps its gap and still paints the icon', () {
+      final render = _renderOffCaret('>  [!TIP] x');
+      final accent = MarkdownConstants.calloutAccent(
+        MarkdownCalloutType.tip,
+        dark: false,
+      );
+
+      // The bar, then both source spaces, then the icon standing in for
+      // the token's `[`, then the space after `]`, then the title.
+      expect(render.visibleText, '┃  ￼ x');
+      final icon = render.leaves
+          .singleWhere((leaf) => leaf.span is PlaceholderSpan)
+          .span;
+      expect(icon, isA<EditorCalloutIconSpan>());
+      expect((icon as EditorCalloutIconSpan).accent, accent);
+      expect(icon.icon, MarkdownConstants.calloutIcon(MarkdownCalloutType.tip));
+    });
+
     test('a callout body renders plain in the block accent', () {
       final render = _renderOffCaret(
         '> body',
@@ -287,6 +305,35 @@ void main() {
       );
       expect(_renderOffCaret('>>> deep').visibleText, '┃┃┃ deep');
       expect(_renderOffCaret('> > > deep').visibleText, '┃ ┃ ┃ deep');
+    });
+
+    // A line whose indent is exotic whitespace is a blockquote line to
+    // the grammar, so it must draw its bars like any other — the indent
+    // stays as source (the editor may not drop a code unit) and the bar
+    // takes the block accent when one is open.
+    test('an exotic-whitespace indent still draws the block bar', () {
+      final render = _renderOffCaret(
+        ' > body',
+        above: const <String>['> [!TIP] x'],
+      );
+      expect(render.visibleText, ' ┃ body');
+      final bar = render.leaves.singleWhere((leaf) => leaf.text == '┃');
+      expect(
+        bar.style?.color,
+        MarkdownConstants.calloutAccent(MarkdownCalloutType.tip, dark: false),
+      );
+    });
+
+    test('a form-feed indented quote is a plain grey quote', () {
+      final render = _renderOffCaret('> quoted');
+      expect(render.visibleText, '┃ quoted');
+      final bar = render.leaves.singleWhere((leaf) => leaf.text == '┃');
+      expect(bar.style?.color, Colors.grey.shade300);
+      expect(
+        bar.style?.fontWeight,
+        isNot(FontWeight.bold),
+        reason: 'only a callout bar is bold',
+      );
     });
 
     test('the bullet glyph cycles with nesting depth', () {
@@ -327,6 +374,41 @@ void main() {
         render.span.style?.fontFamily,
         _baseStyle.fontFamily,
         reason: 'the root keeps the base family, so the line height holds',
+      );
+    });
+
+    // A `|` the reader typed inside a ghost slot is content, not a cell
+    // boundary: splitting there would cut the ghost run in half and give
+    // the row a separator the table does not have.
+    test('a pipe inside a ghost run is cell content, not a separator', () {
+      const line = '| {{a|b}} |';
+      final render = _renderOffCaret(line);
+      expect(
+        render.span.toPlainText(includePlaceholders: true).length,
+        line.length,
+        reason: 'the ghost markers conceal, they do not disappear',
+      );
+      expect(render.visibleText, '| a|b |');
+
+      final tint = _renderContext.primary.withValues(alpha: _tablePipeAlpha);
+      final pipes = render.leaves
+          .where((leaf) => leaf.text == '|' && leaf.style?.color == tint)
+          .toList();
+      expect(
+        pipes.length,
+        2,
+        reason: 'only the row\'s own pipes are separators',
+      );
+      for (final pipe in pipes) {
+        expect(pipe.style?.fontFamily, 'monospace');
+      }
+      final inner = render.leaves.singleWhere(
+        (leaf) => leaf.text.contains('|') && leaf.style?.color != tint,
+      );
+      expect(
+        inner.style?.color,
+        _renderContext.baseColor.withValues(alpha: 0.45),
+        reason: 'the inner pipe is dimmed ghost content',
       );
     });
 
@@ -1107,6 +1189,14 @@ final List<_Case> _corpus = <_Case>[
     '>',
     above: const <String>['> [!TIP] x'],
   ),
+  // Exotic leading whitespace: a blockquote line to the grammar, so it
+  // renders bars — and the indent unit itself must survive.
+  _Case(
+    'callout body indented with a no-break space',
+    ' > body',
+    above: const <String>['> [!TIP] x'],
+  ),
+  const _Case('form-feed indented quote', '> quoted'),
   const _Case('nested quote depth 3', '>>> deep'),
   const _Case('nested quote depth 3 spaced', '> > > deep'),
   const _Case('empty quote', '>'),
@@ -1203,6 +1293,7 @@ final List<_Case> _corpus = <_Case>[
   const _Case('indented table row', '  | a | b |'),
   const _Case('table row with trailing space', '| a |  '),
   const _Case('table row with inline runs', '| **a** | `code` | #tag |'),
+  const _Case('table row with a piped ghost', '| {{a|b}} |'),
   _Case('table row inside a fence', '| a | b |', above: const <String>['```']),
 
   // Money: every row kind.

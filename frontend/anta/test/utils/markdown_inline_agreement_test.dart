@@ -26,10 +26,15 @@ import 'package:re_editor/re_editor.dart';
 /// Documented, by-design surface differences are normalised inside the
 /// projection so they do not read as disagreements:
 ///
-/// 1. **inline code** — the preview swaps in `monospace` at 0.9x with a
-///    `codeBackground`; the editor paints a `CodeDecoratedTextSpan` chip
-///    and changes no font. Both project to `mono`, and background/size
-///    are not compared for those units.
+/// 1. **monospace** — a unit reads as `mono` when the surface makes it
+///    look like code, by whichever mechanism that surface uses: the
+///    preview swaps in the `monospace` family (inline code at 0.9x with a
+///    `codeBackground`, and every cell of a table), while the editor
+///    either paints a `CodeDecoratedTextSpan` chip behind an inline code
+///    run *or* sets the family itself (a table row). The flag is the
+///    union of both on the editor side, so a real font disagreement is
+///    still a finding; background and size are not compared on those
+///    units.
 /// 2. **tags** — the preview sets a `primary@0.12` background; the editor
 ///    paints a chip. Both project to `tag` (primary + w600), background
 ///    ignored.
@@ -123,6 +128,15 @@ void main() {
                 '${_quote(entry.line)} ($reason) — drop the marker\n'
                 '${_dump(entry.line, editor, preview)}',
           );
+          expect(
+            diff,
+            entry.expectedDiff,
+            reason:
+                'the pinned divergence on ${_quote(entry.line)} changed '
+                'shape ($reason). Either the documented difference moved, '
+                'or a second and undocumented one now comes first\n'
+                '${_dump(entry.line, editor, preview)}',
+          );
         }
       });
     }
@@ -209,12 +223,22 @@ class _Case {
   /// divergence cannot rot into a silently skipped entry.
   final String? expectedDivergence;
 
+  /// The exact first difference [_firstDifference] reports for this
+  /// entry, pinned alongside [expectedDivergence]. Without it a pin
+  /// swallows *any* disagreement on the line, so a second, unrelated
+  /// regression would hide behind the documented one.
+  final String? expectedDiff;
+
   const _Case(
     this.label,
     this.line, {
     this.above = const <String>[],
     this.expectedDivergence,
-  });
+    this.expectedDiff,
+  }) : assert(
+         (expectedDivergence == null) == (expectedDiff == null),
+         'a documented divergence must pin the difference it produces',
+       );
 }
 
 final List<_Case> _corpus = <_Case>[
@@ -237,6 +261,7 @@ final List<_Case> _corpus = <_Case>[
     expectedDivergence:
         'the preview renders `!` + a link on the alt text; the editor keeps '
         'the image source raw',
+    expectedDiff: 'visible text: editor "a ![x](y) b" vs preview "a !x b"',
   ),
   const _Case('italic inside bold', '**a *b* c**'),
   const _Case('intraword underscores', '_a_b_'),
@@ -310,6 +335,7 @@ final List<_Case> _corpus = <_Case>[
     expectedDivergence:
         'the preview renders a whole line image as a 🖼 glyph plus the alt '
         'text; the editor leaves `![a](b)` raw so the source stays editable',
+    expectedDiff: 'visible text: editor "![a](b)" vs preview "🖼 a"',
   ),
 
   // Colours.
@@ -356,6 +382,8 @@ final List<_Case> _corpus = <_Case>[
         'the editor keeps a heading\'s leading indent visible (it may never '
         'drop a code unit); the preview drops it with the hashes. '
         'Whitespace-only, so the reader sees the same glyphs',
+    expectedDiff:
+        'visible text: editor "  Indented heading" vs preview "Indented heading"',
   ),
   _Case(
     'heading with trailing spaces',
@@ -364,6 +392,8 @@ final List<_Case> _corpus = <_Case>[
         'the preview trims a heading\'s trailing blanks; the editor keeps '
         'them, again because every source code unit must survive. '
         'Whitespace-only',
+    expectedDiff:
+        'visible text: editor "Trailing heading  " vs preview "Trailing heading"',
   ),
   const _Case('heading with inline runs', '# **Bold** and `code` #tag'),
   const _Case('heading with nested emphasis', '## *a **b** c*'),
@@ -384,6 +414,8 @@ final List<_Case> _corpus = <_Case>[
         '(`┃┃ `); the editor keeps the source space between the markers '
         '(`┃ ┃ `) because it may never drop a code unit. Whitespace-only, '
         'and the quoted content styles identically',
+    expectedDiff:
+        'visible text: editor "┃ ┃ spaced nested" vs preview "┃┃ spaced nested"',
   ),
   const _Case('deep quote', '>>> deep'),
   _Case(
@@ -392,6 +424,8 @@ final List<_Case> _corpus = <_Case>[
     expectedDivergence:
         'as the spaced nested quote: the preview drops the spaces between '
         'the `>` markers, the editor keeps them. Whitespace-only',
+    expectedDiff:
+        'visible text: editor "┃ ┃ ┃ deep spaced" vs preview "┃┃┃ deep spaced"',
   ),
   _Case(
     'indented quote',
@@ -400,6 +434,20 @@ final List<_Case> _corpus = <_Case>[
         'the same policy as the indented heading — the editor keeps the '
         'leading indent visible, the preview drops it with the marker run. '
         'Whitespace-only',
+    expectedDiff:
+        'visible text: editor "  ┃ indented quote" vs preview "┃ indented quote"',
+  ),
+  _Case(
+    'quote indented with a form feed',
+    '> flagged quote',
+    expectedDivergence:
+        'exotic leading whitespace is indent to both surfaces, so both draw '
+        'the bar and italicise the same content — but the editor keeps the '
+        'indent unit visible where the preview drops it, exactly as for the '
+        'space-indented quote above. Whitespace-only',
+    expectedDiff:
+        'visible text: editor "┃ flagged quote" vs '
+        'preview "┃ flagged quote"',
   ),
 
   // Callout leads: icon, `[!TYPE]` consumed, title accent + bold.
@@ -414,6 +462,7 @@ final List<_Case> _corpus = <_Case>[
         'the preview synthesises the type label ("Tip") as a header; the '
         'editor may not add code units the source does not have, so it '
         'shows the icon and nothing else',
+    expectedDiff: 'visible text: editor "┃ <icon>" vs preview "┃ <icon> Tip"',
   ),
 
   // Callout bodies: the block accent on the bars, plain content.
@@ -442,6 +491,8 @@ final List<_Case> _corpus = <_Case>[
         'token as literal body text while the editor keeps it tinted in the '
         "note accent at w600, so a lead you are still typing stays legible "
         'as the token it is',
+    expectedDiff:
+        'unit 2 "[" — weight: editor FontWeight.w600 vs preview FontWeight.w400',
   ),
 
   // Tables-lite: the editor keeps the row's own units, the preview lays
@@ -453,6 +504,8 @@ final List<_Case> _corpus = <_Case>[
         'the preview re-joins trimmed cells with " │ "; the editor keeps '
         'every source unit (pipes and padding included) so the row stays '
         'editable',
+    expectedDiff:
+        'visible text: editor "| set | reps |" vs preview "set │ reps"',
   ),
   _Case(
     'table separator row',
@@ -460,6 +513,8 @@ final List<_Case> _corpus = <_Case>[
     expectedDivergence:
         'the preview draws a fixed 30-glyph rule; the editor dims the row '
         'in place',
+    expectedDiff:
+        'visible text: editor "| --- | --- |" vs preview "──────────────────────────────"',
   ),
 
   // Plain prose.
@@ -720,7 +775,7 @@ List<_Unit> _project(InlineSpan root, {required bool editor}) {
     // Same intent, different mechanism: the editor paints a chip behind
     // the run, the preview restyles the text.
     final mono = editor
-        ? raw.chip == codeChip
+        ? raw.chip == codeChip || style.fontFamily == 'monospace'
         : style.fontFamily == 'monospace';
     final tag = editor
         ? raw.chip == tagChip

@@ -81,24 +81,36 @@ class MarkdownCalloutSyntax {
   static const int _gt = 0x3E; // >
   static const int _space = 0x20; // ' '
   static const int _tab = 0x09; // '\t'
+  static const int _cr = 0x0D; // '\r'
   static const int _openBracket = 0x5B; // [
   static const int _bang = 0x21; // !
+
+  /// Whether [c] is one of the ASCII code units [String.trimLeft] trims:
+  /// the space plus the `\t\n\v\f\r` run at `0x09..0x0D`. Every other
+  /// whitespace Dart trims is non-ASCII, so a scanner that skips these
+  /// in place and defers anything `>= 0x80` to [String.trimLeft] agrees
+  /// with the trimming form on every input.
+  static bool _isAsciiTrimmed(int c) => c == _space || (c >= _tab && c <= _cr);
 
   /// Whether [line] is a blockquote line (optional indent + `>`). A
   /// callout block continues for as long as following lines are
   /// blockquote lines; the first non-blockquote line ends it.
   ///
-  /// Allocation-free on the common path: the leading run of spaces and
-  /// tabs is walked in place and any other ASCII character answers the
-  /// question immediately. Exotic (non-ASCII) leading whitespace falls
-  /// back to [String.trimLeft], so the semantics are byte-identical to
-  /// the trimming form for every input.
+  /// Allocation-free on the common path: the leading run of ASCII
+  /// whitespace is walked in place and any other ASCII character answers
+  /// the question immediately. Exotic (non-ASCII) leading whitespace
+  /// falls back to [String.trimLeft], so the semantics are byte-identical
+  /// to the trimming form for every input.
+  ///
+  /// Paired with [quoteMarkers]: `quoteMarkers(line) != null` exactly
+  /// when this returns `true`, so a caller may gate on the cheap probe
+  /// and rely on the shape being there.
   static bool isBlockquoteLine(String line) {
     final n = line.length;
     var i = 0;
     while (i < n) {
       final c = line.codeUnitAt(i);
-      if (c == _space || c == _tab) {
+      if (_isAsciiTrimmed(c)) {
         i++;
         continue;
       }
@@ -123,29 +135,49 @@ class MarkdownCalloutSyntax {
   /// first and the editor's line index checks the fence role first — so
   /// a fenced line must be fed as "ends the block": the caller resets
   /// [open] to `null` on fence lines instead of calling this.
+  ///
+  /// Costs one allocation-free [isBlockquoteLine] probe per line;
+  /// [parseLead] — which allocates a `trimLeft` on an indented line —
+  /// runs only on `>`-led lines while no block is open. The gate is not
+  /// just an optimization made safe by luck: a lead line is a blockquote
+  /// line by construction, so `parseLead != null` implies
+  /// [isBlockquoteLine], and refusing everything else changes nothing.
   static MarkdownCalloutType? blockStep(
     String line,
     MarkdownCalloutType? open,
   ) {
-    if (open != null && isBlockquoteLine(line)) return open;
+    if (!isBlockquoteLine(line)) return null;
+    if (open != null) return open;
     return parseLead(line)?.type;
   }
 
   /// The nested-quote shape of [line], or `null` when it is not a
   /// blockquote line.
   ///
-  /// After optional space/tab indent the line carries a run of `>`
+  /// After optional whitespace indent the line carries a run of `>`
   /// markers, each optionally followed by a single space (`>`, `>>`,
   /// `> >`, `> > >`); the run stops at the first character that is
   /// neither, so `> [!TIP]` is depth 1 and `>  a` (two spaces) keeps the
   /// second space as content. Only quote lines pay the small allocation.
+  ///
+  /// The indent rule is [isBlockquoteLine]'s, exactly: ASCII whitespace
+  /// is skipped in place and the first non-ASCII unit defers to
+  /// [String.trimLeft]. That is the contract between the two — this
+  /// returns non-`null` exactly when [isBlockquoteLine] returns `true`,
+  /// so a line indented with an exotic space (a no-break space, an
+  /// ideographic space) still gets a shape whose first marker offset is
+  /// that trimmed indent.
   static MarkdownQuoteShape? quoteMarkers(String line) {
     final n = line.length;
     var i = 0;
     while (i < n) {
       final c = line.codeUnitAt(i);
-      if (c != _space && c != _tab) break;
-      i++;
+      if (_isAsciiTrimmed(c)) {
+        i++;
+        continue;
+      }
+      if (c >= 0x80) i = line.length - line.trimLeft().length;
+      break;
     }
     if (i >= n || line.codeUnitAt(i) != _gt) return null;
 
