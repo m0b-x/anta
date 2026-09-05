@@ -167,6 +167,10 @@ typedef ScrollEditor = ({
 /// size, which is how the app's markdown headers become taller than the
 /// base line height (the root keeps `fontFamily`/`height` untouched, or
 /// the fork's strut assert fires).
+///
+/// [spanBuilder] replaces that fixture entirely, for the suites that
+/// need a span shape of their own (a child run at a *smaller* size than
+/// the root, say). It wins over [scaledLines] when both are given.
 Future<ScrollEditor> pumpScrollEditor(
   WidgetTester tester, {
   required String text,
@@ -174,6 +178,7 @@ Future<ScrollEditor> pumpScrollEditor(
   required double height,
   bool wordWrap = true,
   Set<int> scaledLines = const <int>{},
+  CodeLineSpanBuilder? spanBuilder,
 }) async {
   TextSpan buildSpan({
     required BuildContext context,
@@ -193,7 +198,7 @@ Future<ScrollEditor> pumpScrollEditor(
   }
 
   final controller = CodeLineEditingController(
-    spanBuilder: scaledLines.isEmpty ? null : buildSpan,
+    spanBuilder: spanBuilder ?? (scaledLines.isEmpty ? null : buildSpan),
   )..loadText(text);
   final scroll = CodeScrollController();
   final focusNode = FocusNode();

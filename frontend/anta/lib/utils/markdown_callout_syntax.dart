@@ -49,21 +49,128 @@ class MarkdownCalloutLead {
   });
 }
 
+/// The nested-quote shape of one blockquote line: [depth] `>` markers
+/// standing at the line columns in [markerOffsets], with the quoted
+/// content starting at [contentStart] (past the last `>` and the single
+/// space that may follow it).
+///
+/// Produced by [MarkdownCalloutSyntax.quoteMarkers] and consumed by both
+/// surfaces, so a `>> a` reads as two bars followed by `a` in the
+/// preview and in the live editor alike.
+class MarkdownQuoteShape {
+  /// How many `>` markers lead the line (at least one).
+  final int depth;
+
+  /// The line column of each `>`, in source order; [depth] entries.
+  final List<int> markerOffsets;
+
+  /// Line-relative offset where the quoted content begins.
+  final int contentStart;
+
+  const MarkdownQuoteShape({
+    required this.depth,
+    required this.markerOffsets,
+    required this.contentStart,
+  });
+}
+
 /// Pure functions describing the callout grammar.
 class MarkdownCalloutSyntax {
   MarkdownCalloutSyntax._();
 
   static const int _gt = 0x3E; // >
   static const int _space = 0x20; // ' '
+  static const int _tab = 0x09; // '\t'
   static const int _openBracket = 0x5B; // [
   static const int _bang = 0x21; // !
 
   /// Whether [line] is a blockquote line (optional indent + `>`). A
   /// callout block continues for as long as following lines are
   /// blockquote lines; the first non-blockquote line ends it.
+  ///
+  /// Allocation-free on the common path: the leading run of spaces and
+  /// tabs is walked in place and any other ASCII character answers the
+  /// question immediately. Exotic (non-ASCII) leading whitespace falls
+  /// back to [String.trimLeft], so the semantics are byte-identical to
+  /// the trimming form for every input.
   static bool isBlockquoteLine(String line) {
-    final trimmed = line.trimLeft();
-    return trimmed.isNotEmpty && trimmed.codeUnitAt(0) == _gt;
+    final n = line.length;
+    var i = 0;
+    while (i < n) {
+      final c = line.codeUnitAt(i);
+      if (c == _space || c == _tab) {
+        i++;
+        continue;
+      }
+      if (c == _gt) return true;
+      if (c < 0x80) return false;
+      final trimmed = line.trimLeft();
+      return trimmed.isNotEmpty && trimmed.codeUnitAt(0) == _gt;
+    }
+    return false;
+  }
+
+  /// The one per-line transition of the callout block scan: given the
+  /// type of the block [open] on entry (`null` when none is), the type
+  /// of the block covering [line], or `null` when [line] leaves no block
+  /// open.
+  ///
+  /// A block is a lead line (`> [!TYPE]`) followed by every contiguous
+  /// blockquote line: a nested lead inside an open block is body text of
+  /// the outer block, and a blank or non-quote line ends it.
+  ///
+  /// Fences are the caller's business — the chunker consumes fences
+  /// first and the editor's line index checks the fence role first — so
+  /// a fenced line must be fed as "ends the block": the caller resets
+  /// [open] to `null` on fence lines instead of calling this.
+  static MarkdownCalloutType? blockStep(
+    String line,
+    MarkdownCalloutType? open,
+  ) {
+    if (open != null && isBlockquoteLine(line)) return open;
+    return parseLead(line)?.type;
+  }
+
+  /// The nested-quote shape of [line], or `null` when it is not a
+  /// blockquote line.
+  ///
+  /// After optional space/tab indent the line carries a run of `>`
+  /// markers, each optionally followed by a single space (`>`, `>>`,
+  /// `> >`, `> > >`); the run stops at the first character that is
+  /// neither, so `> [!TIP]` is depth 1 and `>  a` (two spaces) keeps the
+  /// second space as content. Only quote lines pay the small allocation.
+  static MarkdownQuoteShape? quoteMarkers(String line) {
+    final n = line.length;
+    var i = 0;
+    while (i < n) {
+      final c = line.codeUnitAt(i);
+      if (c != _space && c != _tab) break;
+      i++;
+    }
+    if (i >= n || line.codeUnitAt(i) != _gt) return null;
+
+    var scan = i;
+    var depth = 0;
+    var contentStart = i;
+    while (scan < n && line.codeUnitAt(scan) == _gt) {
+      depth++;
+      scan++;
+      if (scan < n && line.codeUnitAt(scan) == _space) scan++;
+      contentStart = scan;
+    }
+
+    final offsets = List<int>.filled(depth, 0);
+    var at = i;
+    for (var k = 0; k < depth; k++) {
+      offsets[k] = at;
+      at++;
+      if (at < n && line.codeUnitAt(at) == _space) at++;
+    }
+    return MarkdownQuoteShape(
+      depth: depth,
+      markerOffsets: offsets,
+      contentStart: contentStart,
+    );
   }
 
   /// Maps a `[!TYPE]` token (case-insensitive, surrounding spaces

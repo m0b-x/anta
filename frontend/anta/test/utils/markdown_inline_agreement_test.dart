@@ -1,6 +1,9 @@
+import 'package:anta/constants/markdown_constants.dart';
 import 'package:anta/utils/editor_render_context.dart';
 import 'package:anta/utils/line_based_markdown_builder.dart';
+import 'package:anta/utils/markdown_callout_syntax.dart';
 import 'package:anta/utils/markdown_color_syntax.dart';
+import 'package:anta/utils/markdown_editor_paint_spans.dart';
 import 'package:anta/utils/markdown_editor_span_builder.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -36,11 +39,30 @@ import 'package:re_editor/re_editor.dart';
 /// 4. **ghosts** — both dim the inner run to base@0.45 and hide the
 ///    `{{` / `}}`; only the editor underlines a *blank* ghost, so
 ///    underline is not compared on ghost-coloured units.
+/// 5. **callout band** — the preview tints every line of a callout
+///    block with `accent@0.10`; the editor paints no band (a run of
+///    lines cannot share a background there). The tint is dropped on
+///    the preview side, so the *text* colours are still compared.
+/// 6. **callout icon** — the preview writes the type's emoji plus a
+///    space; the editor substitutes one `EditorCalloutIconSpan` for the
+///    token's `[` and paints the matching [IconData]. Both project to a
+///    single `<icon>` unit (the emoji is 1–2 UTF-16 units, so this
+///    happens at the leaf, before the split into code units).
 ///
-/// Everything else that differs is a real finding. Block chrome (lists,
-/// tasks, quotes, rules, tables, money, fences, whole-line images) is
-/// deliberately out of scope — those surfaces differ by design and have
-/// their own suites.
+/// Everything else that differs is a real finding — including the gap
+/// space after a quote's bars, which both surfaces emit as its own
+/// ambient-styled unit (the preview used to fold it into the bar run).
+///
+/// Quote and callout lines — the block constructs whose *content* is
+/// still ordinary inline markdown — are in scope: a `_Case` may carry
+/// [_Case.above] context lines, which both surfaces see (the preview
+/// `prepare`s the whole document so the chunker's callout block exists,
+/// the editor builds the same line out of the same buffer). Lists,
+/// tasks, rules, money rows, fences and whole-line images stay out of
+/// scope: those surfaces do not render comparable spans at all — the
+/// preview lays them out as `WidgetSpan` rows and painted chips
+/// (`￼` placeholders with widgets inside), while the editor keeps a
+/// pure text run — so a unit-by-unit comparison would compare nothing.
 void main() {
   // Nothing here pumps a widget: both builders take resolved values,
   // not a `BuildContext`. The binding is still needed because painted
@@ -72,8 +94,8 @@ void main() {
   group('editor and preview agree', () {
     for (final entry in _corpus) {
       test(entry.label, () {
-        final editor = _editorUnits(entry.line);
-        final preview = _previewUnits(entry.line);
+        final editor = _editorUnits(entry.line, above: entry.above);
+        final preview = _previewUnits(entry.line, above: entry.above);
         // Agreement between two empty projections proves nothing, so
         // pin that both surfaces actually rendered something. A bare
         // `###` is the one line that legitimately shows nothing.
@@ -113,21 +135,25 @@ void main() {
   // dropped marker) or exactly its own character, and the offsets that do
   // paint, in order, reconstruct the visible line.
   group('preview offsets', () {
-    for (final line in _offsetCorpus) {
+    for (final entry in _offsetCorpus) {
+      final line = entry.line;
       test('every visible unit keeps its source offset: ${_quote(line)}', () {
         final style = _previewStyle;
-        final visible = _previewUnits(line).map((u) => u.unit).join();
+        final visible = _previewUnits(
+          line,
+          above: entry.above,
+        ).map((u) => u.unit).join();
+        final lineStart = _lineStart(entry.above);
 
         final painted = StringBuffer();
         for (var k = 0; k < line.length; k++) {
-          final builder = LineBasedMarkdownBuilder(
-            style: style,
-            colorPalette: MarkdownColorPalette.presets,
-            searchHighlights: <TextRange>[TextRange(start: k, end: k + 1)],
+          final span = _previewSpan(
+            line,
+            above: entry.above,
+            highlights: <TextRange>[
+              TextRange(start: lineStart + k, end: lineStart + k + 1),
+            ],
           );
-          addTearDown(builder.dispose);
-          builder.prepare(line);
-          final span = builder.buildLine(line, 0);
 
           final all = _walk(span, const TextStyle(), null);
           expect(
@@ -154,7 +180,7 @@ void main() {
 
         expect(
           painted.toString(),
-          visible,
+          entry.painted ?? visible,
           reason:
               'the offsets that paint must reconstruct the visible line for '
               '${_quote(line)}',
@@ -172,12 +198,23 @@ class _Case {
   final String label;
   final String line;
 
+  /// Lines placed directly above [line], for the block constructs whose
+  /// rendering depends on context: a callout body only knows its accent
+  /// from the lead line above it. Both surfaces render the same
+  /// document, so neither can be fed a shape the other never sees.
+  final List<String> above;
+
   /// Set when the two surfaces are known to differ here on purpose. The
   /// test then asserts the difference *still* reproduces, so a fixed
   /// divergence cannot rot into a silently skipped entry.
   final String? expectedDivergence;
 
-  const _Case(this.label, this.line, {this.expectedDivergence});
+  const _Case(
+    this.label,
+    this.line, {
+    this.above = const <String>[],
+    this.expectedDivergence,
+  });
 }
 
 final List<_Case> _corpus = <_Case>[
@@ -335,36 +372,147 @@ final List<_Case> _corpus = <_Case>[
   const _Case('deeply nested inline', '*_~~==[a](b)==~~_*'),
   const _Case('nine levels of emphasis', '*_*_*_*_*_x_*_*_*_*'),
 
+  // Blockquotes: one `┃` per `>` marker, content inline-formatted.
+  const _Case('quote', '> quote'),
+  const _Case('quote with an inline run', '> quote with **bold**'),
+  const _Case('nested quote', '>> nested'),
+  _Case(
+    'spaced nested quote',
+    '> > spaced nested',
+    expectedDivergence:
+        'the preview packs the bars together and writes one trailing space '
+        '(`┃┃ `); the editor keeps the source space between the markers '
+        '(`┃ ┃ `) because it may never drop a code unit. Whitespace-only, '
+        'and the quoted content styles identically',
+  ),
+  const _Case('deep quote', '>>> deep'),
+  _Case(
+    'deep spaced quote',
+    '> > > deep spaced',
+    expectedDivergence:
+        'as the spaced nested quote: the preview drops the spaces between '
+        'the `>` markers, the editor keeps them. Whitespace-only',
+  ),
+  _Case(
+    'indented quote',
+    '  > indented quote',
+    expectedDivergence:
+        'the same policy as the indented heading — the editor keeps the '
+        'leading indent visible, the preview drops it with the marker run. '
+        'Whitespace-only',
+  ),
+
+  // Callout leads: icon, `[!TYPE]` consumed, title accent + bold.
+  const _Case('callout lead tip', '> [!TIP] Rest between sets'),
+  const _Case('callout lead warning', '> [!WARNING] Watch the knee'),
+  const _Case('callout lead pr', '> [!PR] 140 kg deadlift'),
+  const _Case('callout lead with a bold title', '> [!NOTE] **big** day'),
+  _Case(
+    'callout lead without a title',
+    '> [!TIP]',
+    expectedDivergence:
+        'the preview synthesises the type label ("Tip") as a header; the '
+        'editor may not add code units the source does not have, so it '
+        'shows the icon and nothing else',
+  ),
+
+  // Callout bodies: the block accent on the bars, plain content.
+  const _Case(
+    'callout body',
+    '> keep the bar loose',
+    above: <String>['> [!TIP] x'],
+  ),
+  const _Case(
+    'nested callout body',
+    '>> nested note',
+    above: <String>['> [!TIP] x'],
+  ),
+  const _Case(
+    'callout body with inline code',
+    '> hold `3s` at the top',
+    above: <String>['> [!WARNING] x'],
+  ),
+  _Case(
+    'a nested lead is body text',
+    '> [!NOTE] inner',
+    above: <String>['> [!TIP] x'],
+    expectedDivergence:
+        'both surfaces agree the line is body text of the open tip block — '
+        'no icon, no second header — but the preview renders the `[!NOTE]` '
+        'token as literal body text while the editor keeps it tinted in the '
+        "note accent at w600, so a lead you are still typing stays legible "
+        'as the token it is',
+  ),
+
+  // Tables-lite: the editor keeps the row's own units, the preview lays
+  // a real table out.
+  _Case(
+    'table row',
+    '| set | reps |',
+    expectedDivergence:
+        'the preview re-joins trimmed cells with " │ "; the editor keeps '
+        'every source unit (pipes and padding included) so the row stays '
+        'editable',
+  ),
+  _Case(
+    'table separator row',
+    '| --- | --- |',
+    expectedDivergence:
+        'the preview draws a fixed 30-glyph rule; the editor dims the row '
+        'in place',
+  ),
+
   // Plain prose.
   const _Case('plain prose', 'just some ordinary words'),
 ];
 
+/// One line of the offset sweep.
+class _OffsetCase {
+  final String line;
+  final List<String> above;
+
+  /// What the offsets that *do* paint must spell, when that is not the
+  /// whole visible line. A block construct draws chrome of its own — a
+  /// quote's `┃` bars, a callout's icon, a table's ` │ ` separators —
+  /// which stands for no source unit and so can never be highlighted.
+  /// Everything else must still be a bijection.
+  final String? painted;
+
+  const _OffsetCase(this.line, {this.above = const <String>[], this.painted});
+}
+
 /// Lines whose source-offset threading is worth sweeping unit by unit:
-/// nesting, escapes, ghosts, code atoms, and the heading whose content
-/// keeps its leading spaces.
-const List<String> _offsetCorpus = <String>[
-  '*a **b** c*',
-  '***a**',
-  r'a \*not italic\* b',
-  r'\\*a*',
-  r'\{{x}}',
-  'a **bold {{ slot }} tail** b',
-  '`a {{b}} c` d',
-  'a ``x`y`` b',
-  '[a `]` x](b)',
-  '{red:a {{b}} c}',
-  '{{ #topic }}',
-  '*_~~==[a](b)==~~_*',
-  'a ==teal:marked== b',
-  '[#tag](url)',
-  '{red:**`a {{g}} b`**}',
-  r'{red:[a \* b](u)}',
-  'see www.example.com/a now',
-  '#   spaced heading',
-  '# **Bold** and `code` #tag',
-  '## *a **b** c*',
-  'see *https://a.com* now',
-  '{red:{red:{red:{red:{red:{red:{red:{red:{{g}}}}}}}}}}',
+/// nesting, escapes, ghosts, code atoms, the heading whose content
+/// keeps its leading spaces, and the block constructs whose content sits
+/// behind synthesized chrome.
+const List<_OffsetCase> _offsetCorpus = <_OffsetCase>[
+  _OffsetCase('*a **b** c*'),
+  _OffsetCase('***a**'),
+  _OffsetCase(r'a \*not italic\* b'),
+  _OffsetCase(r'\\*a*'),
+  _OffsetCase(r'\{{x}}'),
+  _OffsetCase('a **bold {{ slot }} tail** b'),
+  _OffsetCase('`a {{b}} c` d'),
+  _OffsetCase('a ``x`y`` b'),
+  _OffsetCase('[a `]` x](b)'),
+  _OffsetCase('{red:a {{b}} c}'),
+  _OffsetCase('{{ #topic }}'),
+  _OffsetCase('*_~~==[a](b)==~~_*'),
+  _OffsetCase('a ==teal:marked== b'),
+  _OffsetCase('[#tag](url)'),
+  _OffsetCase('{red:**`a {{g}} b`**}'),
+  _OffsetCase(r'{red:[a \* b](u)}'),
+  _OffsetCase('see www.example.com/a now'),
+  _OffsetCase('#   spaced heading'),
+  _OffsetCase('# **Bold** and `code` #tag'),
+  _OffsetCase('## *a **b** c*'),
+  _OffsetCase('see *https://a.com* now'),
+  _OffsetCase('{red:{red:{red:{red:{red:{red:{red:{red:{{g}}}}}}}}}}'),
+  _OffsetCase('> quote', painted: 'quote'),
+  _OffsetCase('>> nested', painted: 'nested'),
+  _OffsetCase('> [!TIP] Rest', painted: 'Rest'),
+  _OffsetCase('> keep it', above: <String>['> [!TIP] x'], painted: 'keep it'),
+  _OffsetCase('| a | b |', painted: 'ab'),
 ];
 
 // ---------------------------------------------------------------------------
@@ -401,22 +549,43 @@ final LineMarkdownStyle _previewStyle = LineMarkdownStyle.fromTheme(
   textColor: _baseColor,
 );
 
-/// Builds [line] off-caret (the caret parks on the padding line above, so
-/// nothing reveals) and projects the span tree down to visible units. A
-/// line the builder declines to style renders as plain text, which is
+/// The document a case renders inside: a padding line, the case's
+/// [above] context, the line under test, and a trailing padding line.
+/// Both surfaces see exactly this, so a block construct (a callout
+/// body's accent, a chunker block extent) resolves the same way on each.
+List<String> _document(String line, List<String> above) => <String>[
+  _pad,
+  ...above,
+  line,
+  _pad,
+];
+
+/// Index of the line under test inside [_document].
+int _lineIndex(List<String> above) => 1 + above.length;
+
+/// Source offset where the line under test starts inside [_document].
+int _lineStart(List<String> above) => _document(
+  '',
+  above,
+).take(_lineIndex(above)).fold(0, (sum, l) => sum + l.length + 1);
+
+/// Builds [line] off-caret (the caret parks on the first padding line,
+/// so nothing reveals) and projects the span tree down to visible units.
+/// A line the builder declines to style renders as plain text, which is
 /// exactly what the editor page falls back to.
-List<_Unit> _editorUnits(String line) {
+List<_Unit> _editorUnits(String line, {List<String> above = const <String>[]}) {
   final controller = CodeLineEditingController.fromText(
-    <String>[_pad, line, _pad].join('\n'),
+    _document(line, above).join('\n'),
   );
   addTearDown(controller.dispose);
   final builder = MarkdownEditorSpanBuilder()..bind(controller);
   builder.configureColors(MarkdownColorPalette.presets);
   controller.selection = const CodeLineSelection.collapsed(index: 0, offset: 0);
+  final index = _lineIndex(above);
   final span = builder.build(
     context: _editorContext,
-    index: 1,
-    codeLine: controller.codeLines[1],
+    index: index,
+    codeLine: controller.codeLines[index],
   );
   return _project(
     span ?? TextSpan(text: line, style: _baseStyle),
@@ -424,15 +593,29 @@ List<_Unit> _editorUnits(String line) {
   );
 }
 
-List<_Unit> _previewUnits(String line) {
+/// The preview's span for [line] inside [_document]. [prepare] takes the
+/// whole source — the chunker's block scan is what tells the renderer a
+/// line belongs to a callout — and [LineBasedMarkdownBuilder.buildLine]
+/// takes the line's index in that source.
+TextSpan _previewSpan(
+  String line, {
+  List<String> above = const <String>[],
+  List<TextRange>? highlights,
+}) {
   final builder = LineBasedMarkdownBuilder(
     style: _previewStyle,
     colorPalette: MarkdownColorPalette.presets,
+    searchHighlights: highlights,
   );
   addTearDown(builder.dispose);
-  builder.prepare(line);
-  return _project(builder.buildLine(line, 0), editor: false);
+  builder.prepare(_document(line, above).join('\n'));
+  return builder.buildLine(line, _lineIndex(above));
 }
+
+List<_Unit> _previewUnits(
+  String line, {
+  List<String> above = const <String>[],
+}) => _project(_previewSpan(line, above: above), editor: false);
 
 // ---------------------------------------------------------------------------
 // Projection
@@ -462,10 +645,30 @@ typedef _Raw = ({String text, TextStyle style, Color? chip});
 bool _concealed(TextStyle style) =>
     style.color == const Color(0x00000000) && style.fontSize == 0.01;
 
+/// The unit both surfaces' callout icon projects to: the editor paints
+/// an [IconData] into a placeholder, the preview writes an emoji, and
+/// the two carry a different number of UTF-16 units.
+const String _iconUnit = '<icon>';
+
+/// The preview's icon runs, one per callout type (`'💡 '`), matched
+/// whole at the leaf because an emoji may be a surrogate pair.
+final Set<String> _previewIconRuns = <String>{
+  for (final type in MarkdownCalloutType.values)
+    '${MarkdownCalloutSyntax.iconFor(type)} ',
+};
+
+/// The preview's callout band, one tint per type. Light theme only —
+/// the whole suite resolves from [_theme].
+final Set<Color> _calloutTints = <Color>{
+  for (final type in MarkdownCalloutType.values)
+    MarkdownConstants.calloutAccent(type, dark: false).withValues(alpha: 0.10),
+};
+
 /// Walks [root] in order, resolving each leaf's style by merging parents
 /// down (a child `TextSpan`'s style overrides only the fields it sets),
 /// and emits one entry per visible UTF-16 code unit. Placeholder spans
-/// count as the single `￼` unit they substitute.
+/// count as the single `￼` unit they substitute — except the callout
+/// icon, which projects to [_iconUnit] on both surfaces.
 List<_Raw> _walk(InlineSpan root, TextStyle inherited, Color? chip) {
   final out = <_Raw>[];
   void visit(InlineSpan span, TextStyle parent, Color? parentChip) {
@@ -476,8 +679,13 @@ List<_Raw> _walk(InlineSpan root, TextStyle inherited, Color? chip) {
           : parentChip;
       final text = span.text;
       if (text != null && text.isNotEmpty && !_concealed(style)) {
-        for (var i = 0; i < text.length; i++) {
-          out.add((text: text[i], style: style, chip: ownChip));
+        if (_previewIconRuns.contains(text)) {
+          out.add((text: _iconUnit, style: style, chip: ownChip));
+          out.add((text: ' ', style: style, chip: ownChip));
+        } else {
+          for (var i = 0; i < text.length; i++) {
+            out.add((text: text[i], style: style, chip: ownChip));
+          }
         }
       }
       final children = span.children;
@@ -489,7 +697,11 @@ List<_Raw> _walk(InlineSpan root, TextStyle inherited, Color? chip) {
       return;
     }
     if (span is PlaceholderSpan) {
-      out.add((text: '￼', style: style, chip: parentChip));
+      out.add((
+        text: span is EditorCalloutIconSpan ? _iconUnit : '￼',
+        style: style,
+        chip: parentChip,
+      ));
     }
   }
 
@@ -525,8 +737,12 @@ List<_Unit> _project(InlineSpan root, {required bool editor}) {
       ghost: style.color == ghostColor,
       color: style.color,
       // Both chip mechanisms reserve the background slot for themselves,
-      // so it carries no cross-surface meaning on those units.
-      background: mono || tag ? null : style.backgroundColor,
+      // so it carries no cross-surface meaning on those units — and the
+      // preview's callout band is a block-level tint the editor cannot
+      // paint at all, so it is dropped rather than compared.
+      background: mono || tag || _calloutTints.contains(style.backgroundColor)
+          ? null
+          : style.backgroundColor,
     );
   }).toList();
 }

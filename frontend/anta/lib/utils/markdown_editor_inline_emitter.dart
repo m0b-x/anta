@@ -141,7 +141,7 @@ class EditorInlineEmitter {
             text: text,
             start: token.innerStart,
             end: token.innerEnd,
-            style: contextStyle,
+            style: _codeStyle(contextStyle),
             baseColor: baseColor,
             ghosts: ghosts,
             out: out,
@@ -362,6 +362,21 @@ class EditorInlineEmitter {
       verticalInset: size * 0.22,
     );
   }
+
+  /// The style inline `` `code` `` content renders in: the surrounding
+  /// style at [MarkdownConstants.inlineCodeScale], the same factor the
+  /// preview applies, so code reads as code on both surfaces.
+  ///
+  /// Safe by construction: the fork builds every paragraph with a
+  /// `StrutStyle(forceStrutHeight: true)` derived from the **root**
+  /// span's fontSize, and the root here is untouched — a smaller child
+  /// therefore cannot change the line's height, and reveal states differ
+  /// in nothing but the markers. The chip decoration keeps its geometry
+  /// from the *context* size so the pill around a code run stays the
+  /// size it was.
+  static TextStyle _codeStyle(TextStyle context) => context.copyWith(
+    fontSize: (context.fontSize ?? 16.0) * MarkdownConstants.inlineCodeScale,
+  );
 
   /// Rounded chip behind inline `` `code` `` content (markers stay
   /// outside the chip).

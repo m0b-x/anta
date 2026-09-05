@@ -22,9 +22,10 @@ import 'money_display_config.dart';
 /// markdown rendering" editor setting, on by default).
 ///
 /// This library owns the renderer's entry point and its line shapes —
-/// [build]'s routing, the header / quote / rule / list-item / fence
-/// branches, and the two positional predicates (fence role,
-/// indeterminate task) it reads off [MarkdownEditorLineIndex]. The rest
+/// [build]'s routing, the header / quote / rule / table / list-item /
+/// fence branches, and the three positional predicates (fence role,
+/// callout role, indeterminate task) it reads off
+/// [MarkdownEditorLineIndex]. The rest
 /// of the renderer lives beside it, one responsibility per library:
 /// `editor_render_context.dart` carries the theme-derived values
 /// ([EditorRenderContext]) so nothing here touches a `BuildContext`;
@@ -36,18 +37,26 @@ import 'money_display_config.dart';
 /// [MarkdownInlineGrammar] tokens and owns the inline styles;
 /// `markdown_editor_money_row.dart` builds the money-ledger row; and
 /// `markdown_editor_paint_spans.dart` holds the custom-painted
-/// placeholder runs (money chip, task checkbox). Callers import this
-/// file alone.
+/// placeholder runs (money chip, task checkbox, callout icon). Callers
+/// import this file alone.
 ///
 /// Restyles one line at a time: headers at the preview's scale factors
 /// (the re_editor fork gives a line whose root span sets a non-base
-/// fontSize its own line height), bullets as `•`, task boxes as
+/// fontSize its own line height), bullets as the depth's
+/// [MarkdownListSyntax.bulletGlyph] (`•` / `◦` / `▪`, cycling every
+/// three levels), task boxes as
 /// custom-painted placeholder marks (checked / unchecked / indeterminate
 /// when a parent's subtree is partially complete),
-/// blockquote `>` as a `┃` bar with italic dimmed content,
+/// every blockquote `>` as a `┃` bar — one per nesting level, so `>> a`
+/// reads `┃┃ a` — with italic dimmed content,
+/// `| a | b |` table rows monospace with tinted pipes (delimiter rows
+/// dimmed whole),
 /// `---` rules as dimmed `─` runs, `#tag` tokens tinted (render-only),
 /// and `**bold**` / `*italic*` / `__bold__` / `_italic_` / `~~strike~~` /
-/// `==highlight==` / `` `code` `` runs styled inline. `[text](url)`
+/// `==highlight==` / `` `code` `` runs styled inline (code content at
+/// [MarkdownConstants.inlineCodeScale], the preview's factor — the
+/// fork's strut comes from the root span, so the line keeps its height).
+/// `[text](url)`
 /// links show their text tinted and underlined with the brackets + URL
 /// concealed (render-only — tapping places the caret and the line
 /// reveals raw for editing); bare `http(s)://` / `www.` URLs tint in
@@ -57,9 +66,11 @@ import 'money_display_config.dart';
 /// tokenizer the preview reads too — so this surface only decides how
 /// to *emit* a token, never what a token is; the line's shape (heading,
 /// horizontal rule) comes from [MarkdownLineShape] for the same reason.
-/// Callout lead lines
-/// (`> [!TIP] title`) tint the quote bar and the `[!TYPE]` token with
-/// the type's accent. Code-fence delimiter lines render monospace and
+/// Callout blocks (a `> [!TIP] title` lead plus every contiguous quote
+/// line under it) tint their bars with the type's accent: the lead
+/// paints the type's icon in place of the `[` with `!TYPE]` concealed
+/// and its title in accent + bold, and every body line renders plain in
+/// the block's colour. Code-fence delimiter lines render monospace and
 /// dimmed, fence interiors monospace over the inline-code background.
 /// H5/H6 stay at base size but blend toward the primary colour (H6
 /// additionally muted) so they read as headings. Ghost `{{ … }}`
@@ -79,13 +90,19 @@ import 'money_display_config.dart';
 /// and typing rebuild only the edited line and the caret's reveal
 /// lines; returning the identical span instance also keeps re_editor's
 /// paragraph cache on its fast path. Positional state (fence roles,
-/// indeterminate task parents) lives in [MarkdownEditorLineIndex],
+/// callout roles, indeterminate task parents) lives in
+/// [MarkdownEditorLineIndex],
 /// recomputed lazily per CodeLines instance and resumed at the first
 /// changed segment, so a keystroke rescans ~one segment instead of the
 /// whole document.
 class MarkdownEditorSpanBuilder {
   static const double _quoteContentAlpha = 0.8;
   static const double _ruleAlpha = 0.3;
+
+  /// Alpha of a table row's `|` separators, tinted with the primary
+  /// colour so the columns read as structure without competing with the
+  /// cell text.
+  static const double _tablePipeAlpha = 0.55;
   static const double _fenceDelimiterAlpha = 0.6;
   static const double _h56PrimaryBlend = 0.35;
   static const double _h6Alpha = 0.7;
@@ -98,7 +115,8 @@ class MarkdownEditorSpanBuilder {
 
   CodeLineEditingController? _controller;
 
-  /// Positional state (fence roles + indeterminate task parents) lives
+  /// Positional state (fence roles, callout roles, indeterminate task
+  /// parents, money balances) lives
   /// in the shared incremental index: one fused rebuild per [CodeLines]
   /// change, resumed at the first changed segment instead of rescanning
   /// the whole document per keystroke.
@@ -166,8 +184,9 @@ class MarkdownEditorSpanBuilder {
   ///
   /// Guards the code-unit invariant for *every* line shape in debug
   /// builds — [EditorSpanEmitter.emit] checks the ranges it emits, but
-  /// the money row, the list-marker runs, the chrome runs and the
-  /// painted placeholder spans never go through it. The check lives
+  /// the money row, the list-marker runs, the quote bars, the table
+  /// pipes, the chrome runs and the painted placeholder spans (money
+  /// chip, task box, callout icon) never go through it. The check lives
   /// entirely inside an `assert`, so release builds pay nothing.
   TextSpan? build({
     required EditorRenderContext context,
@@ -187,9 +206,12 @@ class MarkdownEditorSpanBuilder {
   }
 
   /// [build]'s routing, split out so the debug inventory assert can wrap
-  /// every path at one place: positional shapes (fence roles, money
-  /// display rows, indeterminate task parents) first, then the
-  /// text-keyed memo, then [_buildLine] for the line shapes themselves.
+  /// every path at one place: positional shapes first — fence roles,
+  /// callout membership, money display rows, indeterminate task parents,
+  /// in that order — then the text-keyed memo, then [_buildLine] for the
+  /// line shapes themselves. The order is the precedence: a fence wins
+  /// over everything (a `> [!TIP]` inside a fence is code), and a
+  /// callout line is never a money or task row.
   TextSpan? _route({
     required EditorRenderContext context,
     required int index,
@@ -221,6 +243,31 @@ class MarkdownEditorSpanBuilder {
     }
 
     final reveal = selectionCoversLine(controller.selection, index);
+
+    final callout = _lineIndex.calloutAt(controller.codeLines, index);
+    if (callout != 0) {
+      if (reveal) {
+        return _buildLine(
+          text: text,
+          ctx: context,
+          reveal: true,
+          callout: callout,
+        );
+      }
+      final calloutKey = (EditorSpanCache.positionalCallout, callout, text);
+      final cached = _cache.positional(calloutKey);
+      if (cached != null) return cached;
+      final span = _buildLine(
+        text: text,
+        ctx: context,
+        reveal: false,
+        callout: callout,
+      );
+      if (span != null) {
+        _cache.putPositional(calloutKey, span);
+      }
+      return span;
+    }
 
     // `$$` money totals, `$?` net-change, `$^` entry-diff, and `$~`
     // checkpoint-span lines display a value computed from every op line
@@ -308,6 +355,7 @@ class MarkdownEditorSpanBuilder {
     bool taskIndeterminate = false,
     MoneyLineMatch? money,
     int moneyBalance = 0,
+    int callout = 0,
   }) {
     final ghosts = GhostText.mightContain(text)
         ? GhostText.findGhosts(text)
@@ -374,11 +422,26 @@ class MarkdownEditorSpanBuilder {
     }
 
     if (MarkdownCalloutSyntax.isBlockquoteLine(text)) {
-      return _buildQuote(text: text, ctx: ctx, reveal: reveal, ghosts: ghosts);
+      return _buildQuote(
+        text: text,
+        ctx: ctx,
+        reveal: reveal,
+        ghosts: ghosts,
+        callout: callout,
+      );
     }
 
     if (MarkdownLineShape.isHorizontalRule(text)) {
       return _buildRule(text: text, ctx: ctx, reveal: reveal);
+    }
+
+    if (_leadsWithPipe(text) && MarkdownLineShape.isTableRow(text)) {
+      return _buildTableRow(
+        text: text,
+        ctx: ctx,
+        reveal: reveal,
+        ghosts: ghosts,
+      );
     }
 
     final hasCandidates = MarkdownInlineGrammar.hasCandidates(text);
@@ -470,49 +533,106 @@ class MarkdownEditorSpanBuilder {
     return TextSpan(style: headerStyle, children: children);
   }
 
-  /// Blockquote line: the `>` is substituted 1:1 with a `┃` bar (both a
-  /// single code unit) tinted like the preview's quote bar, and the
-  /// content renders italic and dimmed with inline styling intact.
-  /// Callout lead lines (`> [!TIP] title`) tint the bar and the
-  /// `[!TYPE]` token with the type's accent (palette shared with the
-  /// preview via [MarkdownConstants.calloutAccent]); the token stays
-  /// tinted on reveal since nothing in it is concealed. Continuation
-  /// lines keep the plain-quote treatment — the styling stays purely
-  /// textual so the span memo stays valid. On reveal the raw `>` shows
-  /// dimmed; line height never changes.
+  /// Blockquote and callout lines, shaped by
+  /// [MarkdownCalloutSyntax.quoteMarkers]: every `>` is substituted 1:1
+  /// with a `┃` bar (both a single code unit), so `>> a` reads `┃┃ a`
+  /// and a depth-3 quote shows three bars. The single spaces between
+  /// markers and the indent before them stay as source.
+  ///
+  /// [callout] is the packed role + type from
+  /// [MarkdownEditorLineIndex.calloutAt] (`0` for a plain quote), which
+  /// is what makes the three treatments positional rather than textual:
+  ///
+  ///   * **plain quote** — grey bars, content italic and dimmed;
+  ///   * **callout lead** (`> [!TIP] title`) — bars in the type's accent
+  ///     (palette shared with the preview via
+  ///     [MarkdownConstants.calloutAccent]); off-caret the `[` becomes an
+  ///     [EditorCalloutIconSpan] painting the type's icon and `!TYPE]`
+  ///     conceals beside it, on reveal the whole `[!TYPE]` token shows
+  ///     tinted so it stays readable while editing; the title renders
+  ///     accent + bold, matching the preview's header;
+  ///   * **callout body** — bars in the *block's* accent and content in
+  ///     the ambient style (not italic, not dimmed — preview parity). A
+  ///     textually lead-shaped body line (`> [!NOTE]` under an open
+  ///     block) keeps its token tinted with its own type's accent but
+  ///     paints no icon: it is body text, not a second header.
+  ///
+  /// On reveal the raw `>` shows dimmed; line height never changes. The
+  /// icon is sized off the line's own font size and clamped under the
+  /// line box exactly like the task checkbox. A line with exotic
+  /// (non-ASCII) leading whitespace is a blockquote line to
+  /// [MarkdownCalloutSyntax.isBlockquoteLine] but has no shape for
+  /// [MarkdownCalloutSyntax.quoteMarkers]; it renders as quoted content
+  /// with no bar rather than losing a code unit.
   TextSpan _buildQuote({
     required String text,
     required EditorRenderContext ctx,
     required bool reveal,
     required List<GhostMatch> ghosts,
+    int callout = 0,
   }) {
     final style = ctx.style;
-    var gt = 0;
-    while (text.codeUnitAt(gt) != 0x3E) {
-      gt++;
-    }
-    final lead = MarkdownCalloutSyntax.parseLead(text);
-    final accent = lead != null
-        ? MarkdownConstants.calloutAccent(lead.type, dark: ctx.isDark)
-        : null;
+    final role = MarkdownEditorLineIndex.calloutRoleOf(callout);
+    final blockType = MarkdownEditorLineIndex.calloutTypeOf(callout);
+    final blockAccent = blockType == null
+        ? null
+        : MarkdownConstants.calloutAccent(blockType, dark: ctx.isDark);
     final children = <InlineSpan>[];
-    if (gt > 0) {
-      children.add(TextSpan(text: text.substring(0, gt), style: style));
+    final shape = MarkdownCalloutSyntax.quoteMarkers(text);
+    final contentStyle = blockAccent == null
+        ? style.copyWith(
+            fontStyle: FontStyle.italic,
+            color: ctx.baseColor.withValues(alpha: _quoteContentAlpha),
+          )
+        : style;
+    if (shape == null) {
+      EditorInlineEmitter.append(
+        text: text,
+        start: 0,
+        end: text.length,
+        contextStyle: contentStyle,
+        context: ctx,
+        palette: _colorPalette,
+        reveal: reveal,
+        ghosts: ghosts,
+        out: children,
+        depth: 0,
+      );
+      return TextSpan(style: style, children: children);
     }
-    children.add(
-      TextSpan(
-        text: reveal ? '>' : '┃',
-        style: reveal
-            ? EditorSpanEmitter.dimStyle(style, ctx.baseColor)
-            : style.copyWith(
-                color:
-                    accent ??
-                    (ctx.isDark ? Colors.grey.shade700 : Colors.grey.shade300),
-              ),
-      ),
+
+    _emitQuoteBars(
+      text: text,
+      shape: shape,
+      style: style,
+      barStyle: reveal
+          ? EditorSpanEmitter.dimStyle(style, ctx.baseColor)
+          : style.copyWith(
+              color:
+                  blockAccent ??
+                  (ctx.isDark ? Colors.grey.shade700 : Colors.grey.shade300),
+              fontWeight: blockAccent == null ? null : FontWeight.bold,
+            ),
+      reveal: reveal,
+      out: children,
     );
-    var contentStart = gt + 1;
-    if (lead != null && accent != null) {
+
+    var contentStart = shape.contentStart;
+    var probe = contentStart;
+    while (probe < text.length && text.codeUnitAt(probe) == 0x20) {
+      probe++;
+    }
+    final lead =
+        role != MarkdownCalloutRole.none &&
+            probe < text.length &&
+            text.codeUnitAt(probe) == 0x5B
+        ? MarkdownCalloutSyntax.parseLead(text)
+        : null;
+    if (lead != null) {
+      final tokenAccent = MarkdownConstants.calloutAccent(
+        lead.type,
+        dark: ctx.isDark,
+      );
       if (lead.tokenStart > contentStart) {
         children.add(
           TextSpan(
@@ -521,23 +641,54 @@ class MarkdownEditorSpanBuilder {
           ),
         );
       }
-      children.add(
-        TextSpan(
-          text: text.substring(lead.tokenStart, lead.tokenEnd),
-          style: style.copyWith(color: accent, fontWeight: FontWeight.w600),
-        ),
-      );
-      contentStart = lead.tokenEnd;
+      if (role == MarkdownCalloutRole.lead && !reveal) {
+        final baseSize = style.fontSize ?? 16.0;
+        final lineBox =
+            baseSize * (style.height ?? MarkdownConstants.lineHeight);
+        var side = baseSize;
+        if (side > lineBox * 0.85) side = lineBox * 0.85;
+        children.add(
+          EditorCalloutIconSpan(
+            side: side,
+            icon: MarkdownConstants.calloutIcon(lead.type),
+            accent: tokenAccent,
+          ),
+        );
+        children.add(
+          TextSpan(
+            text: text.substring(lead.tokenStart + 1, lead.tokenEnd),
+            style: EditorSpanEmitter.concealStyle(style),
+          ),
+        );
+      } else {
+        children.add(
+          TextSpan(
+            text: text.substring(lead.tokenStart, lead.tokenEnd),
+            style: style.copyWith(
+              color: tokenAccent,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        );
+      }
+      if (lead.titleStart > lead.tokenEnd) {
+        children.add(
+          TextSpan(
+            text: text.substring(lead.tokenEnd, lead.titleStart),
+            style: style,
+          ),
+        );
+      }
+      contentStart = lead.titleStart;
     }
     if (contentStart < text.length) {
       EditorInlineEmitter.append(
         text: text,
         start: contentStart,
         end: text.length,
-        contextStyle: style.copyWith(
-          fontStyle: FontStyle.italic,
-          color: ctx.baseColor.withValues(alpha: _quoteContentAlpha),
-        ),
+        contextStyle: role == MarkdownCalloutRole.lead && blockAccent != null
+            ? style.copyWith(color: blockAccent, fontWeight: FontWeight.bold)
+            : contentStyle,
         context: ctx,
         palette: _colorPalette,
         reveal: reveal,
@@ -547,6 +698,32 @@ class MarkdownEditorSpanBuilder {
       );
     }
     return TextSpan(style: style, children: children);
+  }
+
+  /// A quote line's indent and `>` markers: the indent stays as source,
+  /// every `>` substitutes 1:1 with `┃` (raw and dimmed on reveal), and
+  /// the single space each marker may carry stays visible between the
+  /// bars. Emits exactly `[0, shape.contentStart)`.
+  static void _emitQuoteBars({
+    required String text,
+    required MarkdownQuoteShape shape,
+    required TextStyle style,
+    required TextStyle barStyle,
+    required bool reveal,
+    required List<InlineSpan> out,
+  }) {
+    final offsets = shape.markerOffsets;
+    if (offsets[0] > 0) {
+      out.add(TextSpan(text: text.substring(0, offsets[0]), style: style));
+    }
+    for (var i = 0; i < shape.depth; i++) {
+      out.add(TextSpan(text: reveal ? '>' : '┃', style: barStyle));
+      final gapStart = offsets[i] + 1;
+      final gapEnd = i + 1 < shape.depth ? offsets[i + 1] : shape.contentStart;
+      if (gapEnd > gapStart) {
+        out.add(TextSpan(text: text.substring(gapStart, gapEnd), style: style));
+      }
+    }
   }
 
   /// Horizontal rule: every `-` / `*` / `_` is substituted 1:1 with `─`
@@ -587,6 +764,141 @@ class MarkdownEditorSpanBuilder {
     );
   }
 
+  /// Whether the first non-blank code unit of [text] is a `|` — the
+  /// allocation-free gate in front of [MarkdownLineShape.isTableRow]'s
+  /// regex, mirroring the list branch's `scanListShape` gate.
+  static bool _leadsWithPipe(String text) {
+    final n = text.length;
+    var i = 0;
+    while (i < n && EditorSpanEmitter.isSpace(text.codeUnitAt(i))) {
+      i++;
+    }
+    return i < n && text.codeUnitAt(i) == 0x7C;
+  }
+
+  /// Tables-lite: a `| a | b |` row renders monospace with its pipes
+  /// tinted, so columns line up and the structure reads at a glance
+  /// without the editor ever laying out a real table (which would need
+  /// the neighbouring lines, and change the line's height).
+  ///
+  /// Nothing is concealed or substituted — the row is the same code
+  /// units in both reveal states — so the rendering stays purely
+  /// textual and memoizes by line text. Cells still carry inline runs
+  /// (`**bold**`, tags, ghosts) through the shared emitter. A delimiter
+  /// row (`| --- | :-: |`) is structure rather than content and renders
+  /// dimmed as a whole, like a horizontal rule.
+  TextSpan _buildTableRow({
+    required String text,
+    required EditorRenderContext ctx,
+    required bool reveal,
+    required List<GhostMatch> ghosts,
+  }) {
+    final style = ctx.style;
+    final mono = style.copyWith(fontFamily: 'monospace');
+    final children = <InlineSpan>[];
+    if (MarkdownLineShape.isTableSeparator(text)) {
+      EditorSpanEmitter.emit(
+        text: text,
+        start: 0,
+        end: text.length,
+        style: mono.copyWith(
+          color: ctx.baseColor.withValues(alpha: _ruleAlpha),
+        ),
+        baseColor: ctx.baseColor,
+        ghosts: ghosts,
+        out: children,
+      );
+      return TextSpan(style: style, children: children);
+    }
+    final pipeStyle = mono.copyWith(
+      color: ctx.primary.withValues(alpha: _tablePipeAlpha),
+    );
+    var from = 0;
+    var seenPipe = false;
+    for (var i = 0; i < text.length; i++) {
+      if (text.codeUnitAt(i) != 0x7C) continue;
+      if (i > from) {
+        if (seenPipe) {
+          _emitTableCell(
+            text: text,
+            start: from,
+            end: i,
+            mono: mono,
+            ctx: ctx,
+            reveal: reveal,
+            ghosts: ghosts,
+            out: children,
+          );
+        } else {
+          children.add(TextSpan(text: text.substring(from, i), style: style));
+        }
+      }
+      children.add(TextSpan(text: '|', style: pipeStyle));
+      seenPipe = true;
+      from = i + 1;
+    }
+    if (from < text.length) {
+      _emitTableCell(
+        text: text,
+        start: from,
+        end: text.length,
+        mono: mono,
+        ctx: ctx,
+        reveal: reveal,
+        ghosts: ghosts,
+        out: children,
+      );
+    }
+    return TextSpan(style: style, children: children);
+  }
+
+  /// One table cell, `[start, end)`: inline runs through the shared
+  /// emitter in the monospace cell style. A cell holding nothing but
+  /// spacing skips the tokenizer — the commonest cell content in a
+  /// hand-aligned table.
+  void _emitTableCell({
+    required String text,
+    required int start,
+    required int end,
+    required TextStyle mono,
+    required EditorRenderContext ctx,
+    required bool reveal,
+    required List<GhostMatch> ghosts,
+    required List<InlineSpan> out,
+  }) {
+    var blank = true;
+    for (var i = start; i < end; i++) {
+      if (!EditorSpanEmitter.isSpace(text.codeUnitAt(i))) {
+        blank = false;
+        break;
+      }
+    }
+    if (blank) {
+      EditorSpanEmitter.emit(
+        text: text,
+        start: start,
+        end: end,
+        style: mono,
+        baseColor: ctx.baseColor,
+        ghosts: ghosts,
+        out: out,
+      );
+      return;
+    }
+    EditorInlineEmitter.append(
+      text: text,
+      start: start,
+      end: end,
+      contextStyle: mono,
+      context: ctx,
+      palette: _colorPalette,
+      reveal: reveal,
+      ghosts: ghosts,
+      out: out,
+      depth: 0,
+    );
+  }
+
   TextSpan _buildListItem({
     required String text,
     required MarkdownListItem item,
@@ -609,7 +921,9 @@ class MarkdownEditorSpanBuilder {
         final markerEnd = item.indent.length + item.marker.length;
         children.add(
           TextSpan(
-            text: reveal ? item.marker : '•',
+            text: reveal
+                ? item.marker
+                : MarkdownListSyntax.bulletGlyph(item.level),
             style: reveal
                 ? EditorSpanEmitter.dimStyle(style, baseColor)
                 : style.copyWith(color: primary, fontWeight: FontWeight.bold),
@@ -795,6 +1109,17 @@ class MarkdownEditorSpanBuilder {
     final controller = _controller;
     if (controller == null) return false;
     return _fenceRoleAt(controller, index) == MarkdownFenceRole.interior;
+  }
+
+  /// The callout role of the line at [index] — whether it leads a
+  /// `> [!TYPE]` block, sits in one's body, or belongs to none. Public
+  /// alongside [lineInFence] for the same reason: membership is
+  /// positional, so a caller that reads a line as markdown cannot work
+  /// it out from the line's own text.
+  MarkdownCalloutRole calloutRoleAt(int index) {
+    final controller = _controller;
+    if (controller == null) return MarkdownCalloutRole.none;
+    return _lineIndex.calloutRoleAt(controller.codeLines, index);
   }
 
   /// Fence-awareness: grammar and positional state come from the shared

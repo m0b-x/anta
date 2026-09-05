@@ -5,6 +5,7 @@ import '../constants/settings_keys.dart';
 import '../utils/editor_render_context.dart';
 import '../utils/ghost_text.dart';
 import '../utils/markdown_color_syntax.dart';
+import '../utils/markdown_editor_line_index.dart';
 import '../utils/markdown_editor_span_builder.dart';
 import '../utils/money_display_config.dart';
 
@@ -101,6 +102,13 @@ class EditorRenderController {
   /// opens a fence stops behaving like the line the user is typing on.
   bool lineInFenceBody(int lineIndex) =>
       _spanBuilder.lineInFenceBody(lineIndex);
+
+  /// The callout role of [lineIndex] — lead, body, or none. Positional
+  /// like the fence predicates: a `> body` line reads as ordinary quote
+  /// text on its own, and only the lines above it say which block (if
+  /// any) it belongs to.
+  MarkdownCalloutRole calloutRoleAt(int lineIndex) =>
+      _spanBuilder.calloutRoleAt(lineIndex);
 
   /// Routes line rendering: live markdown styling when the editor setting
   /// is on (unhandled lines fall through), the ghost-text builder

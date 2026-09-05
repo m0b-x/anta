@@ -48,58 +48,97 @@ void main() {
   const int structuralIterations = 50;
   const List<int> segmentsUnderTest = [0, 20, 39];
 
-  group('line index keystroke cost — $docLines lines, $iterations keystrokes',
-      () {
-    final rows = <_Row>[];
+  group(
+    'line index keystroke cost — $docLines lines, $iterations keystrokes',
+    () {
+      final rows = <_Row>[];
 
-    for (final bool money in [false, true]) {
-      for (final int k in segmentsUnderTest) {
-        test('segment k=$k, money ${money ? 'on' : 'off'}', () {
-          rows.add(_measure(
+      for (final bool money in [false, true]) {
+        for (final int k in segmentsUnderTest) {
+          test('segment k=$k, money ${money ? 'on' : 'off'}', () {
+            rows.add(
+              _measure(
+                docLines: docLines,
+                iterations: iterations,
+                segment: k,
+                money: money,
+              ),
+            );
+            final _Row row = rows.last;
+            // Catastrophe-only bound: a keystroke that costs more than
+            // 100 ms of index work on a 10k-line note is a hang, not a
+            // regression.
+            expect(row.indexUs, lessThan(100000));
+            expect(row.mutateUs, lessThan(100000));
+          });
+        }
+      }
+
+      // The same document with a four-line callout block every 200 lines,
+      // so the callout pass has an array to write and a block to resume
+      // from. Compare it against the `off`/k=20 row above: the delta is
+      // what the pass costs per keystroke.
+      final calloutRows = <_Row>[];
+      test('segment k=20, money off, callout block every 200 lines', () {
+        calloutRows.add(
+          _measure(
             docLines: docLines,
             iterations: iterations,
-            segment: k,
-            money: money,
-          ));
-          final _Row row = rows.last;
-          // Catastrophe-only bound: a keystroke that costs more than
-          // 100 ms of index work on a 10k-line note is a hang, not a
-          // regression.
-          expect(row.indexUs, lessThan(100000));
-          expect(row.mutateUs, lessThan(100000));
-        });
-      }
-    }
+            segment: 20,
+            money: false,
+            callouts: true,
+          ),
+        );
+        final _Row row = calloutRows.last;
+        expect(row.indexUs, lessThan(100000));
+        expect(row.mutateUs, lessThan(100000));
+      });
 
-    tearDownAll(() {
-      // ignore: avoid_print
-      print('\n=== MarkdownEditorLineIndex keystroke cost '
-          '($docLines lines, $iterations keystrokes) ===');
-      // ignore: avoid_print
-      print('  money | k  | edited line | mutate us | index us | total us');
-      for (final _Row r in rows) {
+      tearDownAll(() {
+        void printRows(List<_Row> table) {
+          // ignore: avoid_print
+          print('  money | k  | edited line | mutate us | index us | total us');
+          for (final _Row r in table) {
+            // ignore: avoid_print
+            print(
+              '  ${(r.money ? 'on' : 'off').padRight(5)} '
+              '| ${r.segment.toString().padLeft(2)} '
+              '| ${r.editedLine.toString().padLeft(11)} '
+              '| ${r.mutateUs.toStringAsFixed(1).padLeft(9)} '
+              '| ${r.indexUs.toStringAsFixed(1).padLeft(8)} '
+              '| ${(r.mutateUs + r.indexUs).toStringAsFixed(1).padLeft(8)}',
+            );
+          }
+        }
+
         // ignore: avoid_print
-        print('  ${(r.money ? 'on' : 'off').padRight(5)} '
-            '| ${r.segment.toString().padLeft(2)} '
-            '| ${r.editedLine.toString().padLeft(11)} '
-            '| ${r.mutateUs.toStringAsFixed(1).padLeft(9)} '
-            '| ${r.indexUs.toStringAsFixed(1).padLeft(8)} '
-            '| ${(r.mutateUs + r.indexUs).toStringAsFixed(1).padLeft(8)}');
-      }
-      // ignore: avoid_print
-      print('  (cold full build: '
+        print(
+          '\n=== MarkdownEditorLineIndex keystroke cost '
+          '($docLines lines, $iterations keystrokes) ===',
+        );
+        printRows(rows);
+        // ignore: avoid_print
+        print('\n  with a 4-line callout block every 200 lines:');
+        printRows(calloutRows);
+        // ignore: avoid_print
+        print(
+          '  (cold full build: '
           '${rows.map((r) => '${r.money ? 'on' : 'off'}/k${r.segment}='
-              '${r.coldUs.toStringAsFixed(0)}us').join(', ')})');
-      // ignore: avoid_print
-      print('  k is the 256-line segment holding the edited line. Every '
-            'pass stops at the first proven seam, so all three k rows '
-            'should read the same; a gradient means a proof stopped '
-            'firing. The FIRST row of each money block still reads ~2x '
-            'the others whatever k it is — that row pays the isolate\'s '
-            'JIT; reverse `segmentsUnderTest` to confirm before blaming '
-            'k.\n');
-    });
-  });
+              '${r.coldUs.toStringAsFixed(0)}us').join(', ')})',
+        );
+        // ignore: avoid_print
+        print(
+          '  k is the 256-line segment holding the edited line. Every '
+          'pass stops at the first proven seam, so all three k rows '
+          'should read the same; a gradient means a proof stopped '
+          'firing. The FIRST row of each money block still reads ~2x '
+          'the others whatever k it is — that row pays the isolate\'s '
+          'JIT; reverse `segmentsUnderTest` to confirm before blaming '
+          'k.\n',
+        );
+      });
+    },
+  );
 
   group('line index structural-edit cost — $docLines lines, '
       '$structuralIterations enters', () {
@@ -108,12 +147,14 @@ void main() {
     for (final bool money in [false, true]) {
       for (final int k in segmentsUnderTest) {
         test('enter/delete in segment k=$k, money ${money ? 'on' : 'off'}', () {
-          rows.add(_measureStructural(
-            docLines: docLines,
-            iterations: structuralIterations,
-            segment: k,
-            money: money,
-          ));
+          rows.add(
+            _measureStructural(
+              docLines: docLines,
+              iterations: structuralIterations,
+              segment: k,
+              money: money,
+            ),
+          );
           final _StructuralRow row = rows.last;
           // Catastrophe-only bound, same spirit as the keystroke rows.
           expect(row.enterIndexUs, lessThan(200000));
@@ -126,29 +167,35 @@ void main() {
 
     tearDownAll(() {
       // ignore: avoid_print
-      print('\n=== MarkdownEditorLineIndex structural-edit cost '
-          '($docLines lines, $structuralIterations enter+delete pairs) ===');
+      print(
+        '\n=== MarkdownEditorLineIndex structural-edit cost '
+        '($docLines lines, $structuralIterations enter+delete pairs) ===',
+      );
       // ignore: avoid_print
-      print('  money | k  | edited line | enter mut | enter idx '
-          '| del mut | del idx | enter total');
+      print(
+        '  money | k  | edited line | enter mut | enter idx '
+        '| del mut | del idx | enter total',
+      );
       for (final _StructuralRow r in rows) {
         // ignore: avoid_print
-        print('  ${(r.money ? 'on' : 'off').padRight(5)} '
-            '| ${r.segment.toString().padLeft(2)} '
-            '| ${r.editedLine.toString().padLeft(11)} '
-            '| ${r.enterMutateUs.toStringAsFixed(1).padLeft(9)} '
-            '| ${r.enterIndexUs.toStringAsFixed(1).padLeft(9)} '
-            '| ${r.deleteMutateUs.toStringAsFixed(1).padLeft(7)} '
-            '| ${r.deleteIndexUs.toStringAsFixed(1).padLeft(7)} '
-            '| ${(r.enterMutateUs + r.enterIndexUs)
-                .toStringAsFixed(1)
-                .padLeft(11)}');
+        print(
+          '  ${(r.money ? 'on' : 'off').padRight(5)} '
+          '| ${r.segment.toString().padLeft(2)} '
+          '| ${r.editedLine.toString().padLeft(11)} '
+          '| ${r.enterMutateUs.toStringAsFixed(1).padLeft(9)} '
+          '| ${r.enterIndexUs.toStringAsFixed(1).padLeft(9)} '
+          '| ${r.deleteMutateUs.toStringAsFixed(1).padLeft(7)} '
+          '| ${r.deleteIndexUs.toStringAsFixed(1).padLeft(7)} '
+          '| ${(r.enterMutateUs + r.enterIndexUs).toStringAsFixed(1).padLeft(11)}',
+        );
       }
       // ignore: avoid_print
-      print('  Each iteration: applyNewLine mid-line + 40-line layout query, '
-          'then deleteSelectionLines of the split-off line + query. '
-          'Segment lengths change, so this is the path that used to force '
-          '_rebuildAll.\n');
+      print(
+        '  Each iteration: applyNewLine mid-line + 40-line layout query, '
+        'then deleteSelectionLines of the split-off line + query. '
+        'Segment lengths change, so this is the path that used to force '
+        '_rebuildAll.\n',
+      );
     });
   });
 }
@@ -239,8 +286,10 @@ _StructuralRow _measureStructural({
   }
 
   void deleteSplit() {
-    controller.selection =
-        CodeLineSelection.collapsed(index: editedLine + 1, offset: 0);
+    controller.selection = CodeLineSelection.collapsed(
+      index: editedLine + 1,
+      offset: 0,
+    );
     controller.deleteSelectionLines();
   }
 
@@ -292,9 +341,12 @@ _Row _measure({
   required int iterations,
   required int segment,
   required bool money,
+  bool callouts = false,
 }) {
   final int editedLine = segment * 256 + 128;
-  final List<String> text = _buildNote(docLines, money: money);
+  final List<String> text = callouts
+      ? _buildCalloutNote(docLines, money: money)
+      : _buildNote(docLines, money: money);
   text[editedLine] = '- plain working set';
 
   CodeLines lines = CodeLines.of(text.map(CodeLine.new));
@@ -408,6 +460,23 @@ List<String> _buildNote(int count, {required bool money}) {
       8 => '',
       _ => '- accessory work',
     };
+  }
+  return out;
+}
+
+/// [_buildNote] with a four-line callout block written over lines
+/// 110..113 of every 200-line cycle: a lead, two body lines and a nested
+/// lead that is body text of the outer block. The block sits clear of the
+/// ``` pair (100/105) and of every edited line (128 mod 256), so the only
+/// difference from the plain corpus is that the callout pass has an array
+/// to write and an open block to resume from.
+List<String> _buildCalloutNote(int count, {required bool money}) {
+  final List<String> out = _buildNote(count, money: money);
+  for (int i = 110; i + 3 < count; i += 200) {
+    out[i] = '> [!TIP] rest ${i ~/ 200}';
+    out[i + 1] = '> keep the bar loose';
+    out[i + 2] = '>> nested note';
+    out[i + 3] = '> [!NOTE] inner lead';
   }
   return out;
 }

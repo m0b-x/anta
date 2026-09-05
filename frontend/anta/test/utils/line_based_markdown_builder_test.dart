@@ -1,5 +1,7 @@
+import 'package:anta/constants/markdown_constants.dart';
 import 'package:anta/utils/line_based_markdown_builder.dart';
 import 'package:anta/utils/markdown_color_syntax.dart';
+import 'package:anta/utils/money_display_config.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -161,6 +163,152 @@ void main() {
     final second = _recognizerOf(<InlineSpan>[builder.buildLine(line, 0)], 'a');
     expect(identical(first, second), isFalse);
   });
+
+  // The bullet glyph cycles by nesting depth, and both list surfaces —
+  // a plain bullet row and a money row wearing list chrome — read it
+  // from the one [MarkdownListSyntax.bulletGlyph] table, so a nested
+  // `- $+ 5` cannot end up with a different marker than the `- b` above
+  // it.
+  group('bullet glyph by depth', () {
+    test('cycles through the three glyphs as the indent grows', () {
+      const lines = <String>['- a', '  - b', '    - c', '      - d'];
+      final builder = LineBasedMarkdownBuilder(
+        style: _style,
+        colorPalette: MarkdownColorPalette.presets,
+      );
+      addTearDown(builder.dispose);
+      builder.prepare(lines.join('\n'));
+
+      expect(
+        [
+          for (var i = 0; i < lines.length; i++)
+            _listMarker(builder.buildLine(lines[i], i)),
+        ],
+        ['• ', '◦ ', '▪ ', '• '],
+      );
+    });
+
+    test('a nested money row wears the same marker as its depth', () {
+      const line = '  - \$+ 5 x';
+      final builder = LineBasedMarkdownBuilder(
+        style: _style,
+        colorPalette: MarkdownColorPalette.presets,
+        moneyConfig: const MoneyDisplayConfig(enabled: true),
+      );
+      addTearDown(builder.dispose);
+      builder.prepare(line);
+
+      expect(_listMarker(builder.buildLine(line, 0)), '◦ ');
+    });
+  });
+
+  // A nested quote draws one bar per `>` marker, whatever spacing the
+  // source uses between them, and a callout body nests inside its block
+  // the same way.
+  group('nested quote bars', () {
+    String barsOf(String line, {List<String> above = const <String>[]}) {
+      final source = <String>[...above, line];
+      final builder = LineBasedMarkdownBuilder(
+        style: _style,
+        colorPalette: MarkdownColorPalette.presets,
+      );
+      addTearDown(builder.dispose);
+      builder.prepare(source.join('\n'));
+      return _text(builder.buildLine(line, above.length));
+    }
+
+    test('one bar per marker, packed however the source spaced them', () {
+      expect(barsOf('>> a'), '┃┃ a');
+      expect(barsOf('> > a'), '┃┃ a');
+      expect(barsOf('>>> a'), '┃┃┃ a');
+    });
+
+    test('a callout body nests inside its block', () {
+      expect(barsOf('>> note', above: <String>['> [!TIP] x']), '┃┃ note');
+    });
+  });
+
+  // The table predicates are [MarkdownLineShape]'s, shared with the
+  // live editor and the paste policies. A row with trailing whitespace
+  // is a table row now — the preview used to reject it, which is the
+  // one behaviour delta of moving the regexes.
+  group('table rows', () {
+    String render(String line) {
+      final builder = LineBasedMarkdownBuilder(
+        style: _style,
+        colorPalette: MarkdownColorPalette.presets,
+      );
+      addTearDown(builder.dispose);
+      builder.prepare(line);
+      return _text(builder.buildLine(line, 0));
+    }
+
+    test('a row with trailing whitespace is still a row', () {
+      expect(render('| a | b |  '), 'a │ b');
+    });
+
+    test('a separator row draws the rule', () {
+      expect(render('|---|'), '─' * 30);
+    });
+  });
+
+  test('inline code renders at the shared scale', () {
+    final builder = LineBasedMarkdownBuilder(
+      style: _style,
+      colorPalette: MarkdownColorPalette.presets,
+    );
+    addTearDown(builder.dispose);
+    const line = 'a `code` b';
+    builder.prepare(line);
+    final code = _leaves(
+      builder.buildLine(line, 0),
+    ).firstWhere((leaf) => leaf.text == 'code');
+
+    expect(
+      code.style?.fontSize,
+      _style.baseFontSize * MarkdownConstants.inlineCodeScale,
+    );
+  });
+
+  // A quote's content keeps its true source offset even when the marker
+  // run is followed by more blanks than the grammar consumes: the shape
+  // hands back one space, the extra two belong to the content, and a
+  // search highlight on the `a` must land on the `a`.
+  test('quote content keeps its source offset past extra blanks', () {
+    const line = '>   a';
+    final at = line.indexOf('a');
+    final builder = LineBasedMarkdownBuilder(
+      style: _style,
+      colorPalette: MarkdownColorPalette.presets,
+      searchHighlights: <TextRange>[TextRange(start: at, end: at + 1)],
+    );
+    addTearDown(builder.dispose);
+    builder.prepare(line);
+
+    final painted = _leaves(builder.buildLine(line, 0))
+        .where((leaf) => leaf.style?.backgroundColor == _style.highlightColor)
+        .map((leaf) => leaf.text)
+        .join();
+    expect(painted, 'a');
+  });
+}
+
+/// The marker text of a list row. The preview lays a list item — plain
+/// or money — out as a [WidgetSpan] holding a `Row` whose first child is
+/// the bullet / number.
+String _listMarker(InlineSpan root) {
+  final widgets = <WidgetSpan>[];
+  void visit(InlineSpan span) {
+    if (span is WidgetSpan) widgets.add(span);
+    if (span is TextSpan) span.children?.forEach(visit);
+  }
+
+  visit(root);
+  expect(widgets, hasLength(1), reason: 'the row is one WidgetSpan');
+  final padding = widgets.single.child as Padding;
+  final styled = padding.child! as DefaultTextStyle;
+  final row = styled.child as Row;
+  return (row.children.first as Text).data!;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:re_editor/re_editor.dart';
 
+import 'markdown_callout_syntax.dart';
 import 'markdown_chunker.dart';
 import 'markdown_list_syntax.dart';
 import 'markdown_money_syntax.dart';
@@ -12,10 +13,17 @@ import 'markdown_money_syntax.dart';
 /// same predicate the preview's block scan uses.
 enum MarkdownFenceRole { none, delimiter, interior }
 
+/// Positional role of a line inside a callout block: the `> [!TYPE]`
+/// [lead] line, one of the contiguous blockquote [body] lines under it,
+/// or [none] for every other line (a plain quote included). Grammar
+/// comes from [MarkdownCalloutSyntax.blockStep] — the same transition
+/// the preview's block scan runs.
+enum MarkdownCalloutRole { none, lead, body }
+
 /// Incremental positional index over the editor's [CodeLines]: per-line
-/// fence roles, the set of task lines whose unchecked box renders
-/// indeterminate (subtree partially complete), and the money ledger's
-/// per-row display values.
+/// fence roles, per-line callout roles, the set of task lines whose
+/// unchecked box renders indeterminate (subtree partially complete), and
+/// the money ledger's per-row display values.
 ///
 /// Replaces the independent O(total lines) rebuilds the span builder ran
 /// on every text mutation. The index exploits the fork's structural
@@ -30,7 +38,7 @@ enum MarkdownFenceRole { none, delimiter, interior }
 /// identical prefix `[0, p)`, an identical suffix, and a changed middle.
 /// The middle's states are spliced out with `replaceRange`, everything
 /// line-numbered below the middle is renumbered by the change in line
-/// count, and the three passes re-scan from `p` resuming from the
+/// count, and the four passes re-scan from `p` resuming from the
 /// retained entry state of segment `p`. A keystroke, an Enter, a line
 /// delete and a paste therefore all take the same path — only the
 /// replaced segments are rescanned — instead of the structural edits
@@ -40,9 +48,16 @@ enum MarkdownFenceRole { none, delimiter, interior }
 /// segment whose stored entry state equals the state the rescan carries
 /// into it resolves every line below it exactly as before, so the old
 /// results for those lines are appended back verbatim, shifted by the
-/// change in result count above them. The three entry states differ:
+/// change in result count above them. The four entry states differ:
 ///
 ///   * fence pass — one bit, the in-fence parity;
+///   * callout pass — the type of the callout block open on entry (0
+///     when none is). It has no result list of its own: the per-line
+///     packed roles live in an array the splice renumbers, so a proven
+///     seam simply stops the scan and leaves every value below it in
+///     place. The pass depends on the fence pass's own seam — a fence
+///     that opened above closes any block — so it never settles before
+///     the fence roles do;
 ///   * task pass — the open task-frame stack (line, level, checked and
 ///     the two descendant counters). The result *count* is deliberately
 ///     not part of the proof: toggling one child changes the count for
@@ -71,7 +86,7 @@ enum MarkdownFenceRole { none, delimiter, interior }
 /// document was replaced wholesale, or this is the first build) rebuilds
 /// everything. That is the same splice with `p = 0` and a synthetic
 /// document-start entry state, over state that has been reset first: the
-/// per-line fence array back to `null`, the result and money lists
+/// per-line fence and callout arrays back to `null`, the result and money lists
 /// emptied, and both money histories re-seeded with the configured start
 /// balance. All paths assume the fork's contract that a published
 /// [CodeLines] is never mutated in place — the same assumption the old
@@ -101,6 +116,15 @@ class MarkdownEditorLineIndex {
   /// gym-note case pays no per-line storage). Growable, because a
   /// structural edit splices its middle range.
   List<MarkdownFenceRole>? _fence;
+
+  /// Per-line callout roles, packed as `((type.index + 1) << 2) | role`
+  /// with role 1 = lead and 2 = body; `0` is "no callout here". `null`
+  /// means the document holds no callout at all (the common case pays no
+  /// per-line storage), and once the array exists every line writes its
+  /// value — zeros included — so a stale role can never survive a
+  /// rescan. Growable, because a structural edit splices its middle
+  /// range. Decoded by [calloutRoleOf] / [calloutTypeOf].
+  List<int>? _callout;
 
   final List<int> _resultOrder = <int>[];
   final Set<int> _indeterminate = <int>{};
@@ -143,6 +167,7 @@ class MarkdownEditorLineIndex {
 
   bool _lastRebuilt = false;
   int _lastFenceScans = 0;
+  int _lastCalloutScans = 0;
   int _lastTaskScans = 0;
   int _lastMoneyScans = 0;
 
@@ -153,9 +178,11 @@ class MarkdownEditorLineIndex {
   /// untouched; a fresh wrapper over identical backing lists (an undo to
   /// identical content) *is* an update, and reports all zeros.
   @visibleForTesting
-  ({bool rebuilt, int fence, int tasks, int money}) get debugLastScan => (
+  ({bool rebuilt, int fence, int callout, int tasks, int money})
+  get debugLastScan => (
     rebuilt: _lastRebuilt,
     fence: _lastFenceScans,
+    callout: _lastCalloutScans,
     tasks: _lastTaskScans,
     money: _lastMoneyScans,
   );
@@ -188,6 +215,35 @@ class MarkdownEditorLineIndex {
       return MarkdownFenceRole.none;
     }
     return fence[index];
+  }
+
+  /// The packed callout state of the line at [index] — `0` when the line
+  /// belongs to no callout block. Handed straight to the span builder's
+  /// positional memo key, so the role *and* the block's type both take
+  /// part in it without a second lookup; decode it with [calloutRoleOf]
+  /// and [calloutTypeOf].
+  int calloutAt(CodeLines lines, int index) {
+    _ensure(lines);
+    final callout = _callout;
+    if (callout == null || index < 0 || index >= callout.length) return 0;
+    return callout[index];
+  }
+
+  /// The callout role of the line at [index]; [MarkdownCalloutRole.none]
+  /// outside any block. Convenience over [calloutAt] for callers that do
+  /// not need the block's type.
+  MarkdownCalloutRole calloutRoleAt(CodeLines lines, int index) =>
+      calloutRoleOf(calloutAt(lines, index));
+
+  /// The role packed into [packed] by the callout pass.
+  static MarkdownCalloutRole calloutRoleOf(int packed) =>
+      MarkdownCalloutRole.values[packed & 3];
+
+  /// The callout type packed into [packed], or `null` when the line
+  /// belongs to no block.
+  static MarkdownCalloutType? calloutTypeOf(int packed) {
+    final type = packed >> 2;
+    return type == 0 ? null : MarkdownCalloutType.values[type - 1];
   }
 
   bool taskIndeterminate(CodeLines lines, int index) {
@@ -240,6 +296,7 @@ class MarkdownEditorLineIndex {
     _lines = null;
     _lastRebuilt = false;
     _lastFenceScans = 0;
+    _lastCalloutScans = 0;
     _lastTaskScans = 0;
     _lastMoneyScans = 0;
 
@@ -312,6 +369,7 @@ class MarkdownEditorLineIndex {
           ),
         );
       }
+      _callout?.replaceRange(a, b, List<int>.filled(newMiddleLines, 0));
       for (int i = 0; i < _resultOrder.length; i++) {
         if (_resultOrder[i] >= b) _resultOrder[i] += delta;
       }
@@ -334,6 +392,7 @@ class MarkdownEditorLineIndex {
 
     final int last = p + newMiddleCount - 1;
     final int settled = _scanFence(segs, p, last, entry);
+    _scanCallouts(segs, p, last, settled, entry);
     _scanTasks(segs, p, last, settled, entry);
     if (_moneyEnabled) _scanMoney(segs, p, last, settled, entry);
     if (_resultsRenumbered) {
@@ -363,6 +422,7 @@ class MarkdownEditorLineIndex {
     _lineCount = lines.length;
     _segStarts = _startsOf(segs);
     _fence = null;
+    _callout = null;
     _resultsRenumbered = false;
     _resultOrder.clear();
     _indeterminate.clear();
@@ -383,6 +443,7 @@ class MarkdownEditorLineIndex {
     final _SegmentState entry = _SegmentState(const [], _moneyStartCents);
     final int last = segs.length - 1;
     final int settled = _scanFence(segs, 0, last, entry);
+    _scanCallouts(segs, 0, last, settled, entry);
     _scanTasks(segs, 0, last, settled, entry);
     if (_moneyEnabled) _scanMoney(segs, 0, last, settled, entry);
   }
@@ -429,6 +490,69 @@ class MarkdownEditorLineIndex {
       }
     }
     return n;
+  }
+
+  /// Callout pass: walks [MarkdownCalloutSyntax.blockStep] down the
+  /// document and writes each line's packed role. Resumes at the first
+  /// replaced segment from [entry]'s open block and stops at the first
+  /// unchanged segment at or past [settled] that the scan enters with
+  /// the very same block open — every line below it then keeps the role
+  /// the array already holds.
+  ///
+  /// Fence lines end any open block and hold no role of their own: the
+  /// grammar leaves fences to its caller, so this pass answers them from
+  /// the fence array instead of calling [MarkdownCalloutSyntax.blockStep]
+  /// on them. That is also why the pass may not settle before the fence
+  /// pass has ([settled]).
+  ///
+  /// Per line the cost is one allocation-free
+  /// [MarkdownCalloutSyntax.isBlockquoteLine] probe, plus a
+  /// [MarkdownCalloutSyntax.parseLead] only on lines that lead with `>`
+  /// while no block is open.
+  void _scanCallouts(
+    List<CodeLineSegment> segs,
+    int first,
+    int last,
+    int settled,
+    _SegmentState entry,
+  ) {
+    final int n = segs.length;
+    int open = entry.calloutEntry;
+    final List<MarkdownFenceRole>? fence = _fence;
+    for (int s = first; s < n; s++) {
+      final _SegmentState st = _states[s];
+      if (s > last &&
+          s >= settled &&
+          identical(segs[s].codeLines, st.backing) &&
+          st.calloutEntry == open) {
+        return;
+      }
+      st.calloutEntry = open;
+      _lastCalloutScans++;
+      final List<CodeLine> lines = segs[s].codeLines;
+      int g = _segStarts[s];
+      List<int>? callout = _callout;
+      for (int j = 0; j < lines.length; j++, g++) {
+        if (fence != null && fence[g] != MarkdownFenceRole.none) {
+          open = 0;
+          if (callout != null) callout[g] = 0;
+          continue;
+        }
+        final MarkdownCalloutType? next = MarkdownCalloutSyntax.blockStep(
+          lines[j].text,
+          open == 0 ? null : MarkdownCalloutType.values[open - 1],
+        );
+        if (next == null) {
+          open = 0;
+          if (callout != null) callout[g] = 0;
+          continue;
+        }
+        final int role = open == 0 ? 1 : 2;
+        callout ??= _callout = List<int>.filled(_lineCount, 0, growable: true);
+        callout[g] = ((next.index + 1) << 2) | role;
+        open = next.index + 1;
+      }
+    }
   }
 
   void _scanTasks(
@@ -723,7 +847,7 @@ class MarkdownEditorLineIndex {
   }
 }
 
-/// Everything the three passes need to resume at the **entry** of one
+/// Everything the four passes need to resume at the **entry** of one
 /// segment, plus the backing `codeLines` list that identifies it. One
 /// mutable object per segment, so a structural edit is a single
 /// `replaceRange` over the state list.
@@ -731,11 +855,15 @@ class MarkdownEditorLineIndex {
 /// [_SegmentState.copy] exists because the splice's resume state must not
 /// alias a live element of `_states`: when the old middle is empty the
 /// `replaceRange` removes nothing, so the captured entry object survives
-/// further down the list where the renumbering loop and the three passes
+/// further down the list where the renumbering loop and the four passes
 /// would write through the alias into the state they are resuming from.
 class _SegmentState {
   List<CodeLine> backing;
   bool fenceEntry;
+
+  /// The callout block open at this segment's entry, as its type index
+  /// plus one; `0` when none is.
+  int calloutEntry;
   int resultCount;
   List<_TaskSnapshot> taskEntry;
   int moneyCount;
@@ -748,6 +876,7 @@ class _SegmentState {
 
   _SegmentState(this.backing, int startCents)
     : fenceEntry = false,
+      calloutEntry = 0,
       resultCount = 0,
       taskEntry = const [],
       moneyCount = 0,
@@ -764,6 +893,7 @@ class _SegmentState {
   _SegmentState.copy(_SegmentState other)
     : backing = other.backing,
       fenceEntry = other.fenceEntry,
+      calloutEntry = other.calloutEntry,
       resultCount = other.resultCount,
       taskEntry = other.taskEntry,
       moneyCount = other.moneyCount,

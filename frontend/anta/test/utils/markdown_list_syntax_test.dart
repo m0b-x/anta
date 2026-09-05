@@ -16,6 +16,16 @@ import 'package:flutter_test/flutter_test.dart';
 /// packed fields are checked against the parsed item on the same corpus,
 /// because a shape that agrees on "is a list" while disagreeing on
 /// kind, checked or level is just as wrong.
+///
+/// Two smaller contracts share the file because they serve the same
+/// "one grammar, two surfaces" rule. [MarkdownListSyntax.bulletGlyph] is
+/// the only place a nested bullet's glyph is chosen, and the live editor
+/// substitutes it for the source marker in place — so the cycle and the
+/// one-code-unit width are both load-bearing.
+/// [MarkdownListSyntax.indentLevel] called on a whole line must equal the
+/// parsed item's level, because the editor's money-row renderer derives a
+/// list-prefixed row's bullet level from the raw line rather than from a
+/// [MarkdownListItem] it never builds.
 void main() {
   group('scanListShape stays in lockstep with parse', () {
     for (final line in _corpus) {
@@ -50,6 +60,49 @@ void main() {
           MarkdownListSyntax.shapeLevel(shape),
           item.level,
           reason: 'packed level must match the parsed indent level',
+        );
+      });
+    }
+  });
+
+  group('bulletGlyph', () {
+    test('cycles • ◦ ▪ every three levels', () {
+      const expected = <String>['•', '◦', '▪', '•', '◦', '▪', '•', '◦', '▪'];
+      for (var level = 0; level < expected.length; level++) {
+        expect(
+          MarkdownListSyntax.bulletGlyph(level),
+          expected[level],
+          reason: 'level $level must render ${expected[level]}',
+        );
+      }
+    });
+
+    test('every glyph is one UTF-16 code unit, so the editor '
+        'substitutes it 1:1 for the source marker', () {
+      for (var level = 0; level < 3; level++) {
+        expect(
+          MarkdownListSyntax.bulletGlyph(level).length,
+          1,
+          reason:
+              'the editor swaps a one-unit source marker for the glyph, so a '
+              'wider glyph would add code units and desync caret and search '
+              'offsets; level $level',
+        );
+      }
+    });
+  });
+
+  group('indentLevel on a whole line equals the parsed level', () {
+    for (final line in _indentCorpus) {
+      test('"${_visible(line)}"', () {
+        final item = MarkdownListSyntax.parse(line);
+        expect(item, isNotNull, reason: 'the corpus is list items only');
+        expect(
+          MarkdownListSyntax.indentLevel(line),
+          item!.level,
+          reason:
+              'the whole-line indent scan is what the money row uses to pick '
+              'its bullet glyph, so it must equal the parsed item level',
         );
       });
     }
@@ -134,4 +187,29 @@ const List<String> _corpus = <String>[
   '_ underscore is not a bullet',
   '. leading dot',
   ') leading paren',
+];
+
+/// List items whose level the whole-line indent scan must reproduce:
+/// space and tab indents at several depths, a `•` source bullet, tasks,
+/// and the list-prefixed money rows the editor renders through the money
+/// path (where only the raw line is at hand).
+const List<String> _indentCorpus = <String>[
+  '- flat',
+  ' - one space',
+  '  - two spaces',
+  '    - four spaces',
+  '      • six spaces, glyph marker',
+  '\t- one tab',
+  '\t\t- two tabs',
+  '  - [ ] nested task',
+  '1. flat ordered',
+  '  1) nested ordered',
+  r'- $+ 5 x',
+  r'  - $+ 5 x',
+  r'    - $- 3.50 bus',
+  r'  - $$ total',
+  '\t'
+      r'1. $$',
+  '\t\t'
+      r'* $= 500 cash',
 ];

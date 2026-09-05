@@ -661,7 +661,7 @@ class LineBasedMarkdownBuilder {
     }
 
     // Table row detection
-    if (_MarkdownPatterns.tableRow.hasMatch(trimmed)) {
+    if (MarkdownLineShape.isTableRow(trimmed)) {
       return _buildTableRow(trimmed, lineStart, lineEnd);
     }
 
@@ -719,11 +719,18 @@ class LineBasedMarkdownBuilder {
 
     // Blockquote
     if (trimmed.startsWith('>')) {
-      // Calculate content offset: skip indent + '>' + optional space
-      final afterArrow = trimmed.substring(1);
-      final spaceAfter = afterArrow.startsWith(' ') ? 1 : 0;
-      final contentOffset = lineStart + indent + 1 + spaceAfter;
-      return _buildBlockquote(afterArrow.trim(), contentOffset, lineEnd);
+      final quote = MarkdownCalloutSyntax.quoteMarkers(line);
+      final markerEnd =
+          quote?.contentStart ??
+          indent + 1 + (trimmed.startsWith('> ') ? 1 : 0);
+      final raw = line.substring(markerEnd);
+      final skipped = raw.length - raw.trimLeft().length;
+      return _buildBlockquote(
+        raw.trim(),
+        quote?.depth ?? 1,
+        lineStart + markerEnd + skipped,
+        lineEnd,
+      );
     }
 
     // Horizontal rule
@@ -856,7 +863,7 @@ class LineBasedMarkdownBuilder {
     int contentStart,
     int lineEnd,
   ) {
-    final bullet = _bulletForLevel(level);
+    final bullet = MarkdownListSyntax.bulletGlyph(level);
 
     final baseStyle = TextStyle(
       fontSize: style.baseFontSize,
@@ -953,20 +960,16 @@ class LineBasedMarkdownBuilder {
   /// size; this is decorative only and never affects source offsets.
   double _listIndent(int level) => level * style.baseFontSize;
 
-  /// The bullet glyph for an unordered item at [level], cycling
-  /// `•` → `◦` → `▪` so nesting depth is visually distinguishable.
-  String _bulletForLevel(int level) {
-    switch (level % 3) {
-      case 0:
-        return '•';
-      case 1:
-        return '◦';
-      default:
-        return '▪';
-    }
-  }
-
-  TextSpan _buildBlockquote(String text, int contentStart, int lineEnd) {
+  /// Builds a (possibly nested) blockquote line: one `┃` bar per `>`
+  /// marker at [depth], then the quoted content at its true source
+  /// offset. [depth] comes from [MarkdownCalloutSyntax.quoteMarkers], so
+  /// `>> a` and `> > a` both read `┃┃ a` here and in the live editor.
+  TextSpan _buildBlockquote(
+    String text,
+    int depth,
+    int contentStart,
+    int lineEnd,
+  ) {
     final quoteStyle = TextStyle(
       fontSize: style.baseFontSize,
       height: MarkdownConstants.lineHeight,
@@ -976,9 +979,16 @@ class LineBasedMarkdownBuilder {
 
     final children = <InlineSpan>[
       TextSpan(
-        text: '┃ ',
+        text: '┃' * depth,
         style: quoteStyle.copyWith(
           color: style.blockquoteColor,
+          fontStyle: FontStyle.normal,
+        ),
+      ),
+      TextSpan(
+        text: ' ',
+        style: quoteStyle.copyWith(
+          color: style.textColor,
           fontStyle: FontStyle.normal,
         ),
       ),
@@ -1001,9 +1011,12 @@ class LineBasedMarkdownBuilder {
   /// The callout type is resolved from the block's lead line so every
   /// body line shares the same accent. Rendering mirrors [_buildBlockquote]
   /// (a coloured left bar + flattened inline content) but adds the type's
-  /// tint and an icon/label header on the lead line. Per-line content
-  /// offsets are identical to a plain blockquote, so search highlighting
-  /// and scroll mapping are unaffected.
+  /// tint and an icon/label header on the lead line. Body lines carry
+  /// their own quote depth through [MarkdownCalloutSyntax.quoteMarkers]
+  /// (`>> note` nests inside the block); a lead is always depth 1 because
+  /// `[!` must follow the first `>`. Per-line content offsets are
+  /// identical to a plain blockquote, so search highlighting and scroll
+  /// mapping are unaffected.
   TextSpan _buildCalloutLine(
     String line,
     int lineIndex,
@@ -1032,11 +1045,17 @@ class LineBasedMarkdownBuilder {
       fontWeight: FontWeight.bold,
     );
 
+    final isLead = lineIndex == block.startLine;
+    final quote = isLead ? null : MarkdownCalloutSyntax.quoteMarkers(line);
+
     // Coloured left bar (tinted background carries down every line so the
     // run reads as one block).
-    final children = <InlineSpan>[TextSpan(text: '┃ ', style: accentStyle)];
+    final children = <InlineSpan>[
+      TextSpan(text: '┃' * (quote?.depth ?? 1), style: accentStyle),
+      TextSpan(text: ' ', style: lineStyle),
+    ];
 
-    if (lineIndex == block.startLine) {
+    if (isLead) {
       // Lead line: icon + header. The `[!TYPE]` token is consumed as
       // decorative chrome (like emphasis markers); an optional custom
       // title stays offset-mapped so it is still searchable.
@@ -1065,21 +1084,23 @@ class LineBasedMarkdownBuilder {
         );
       }
     } else {
-      // Body line: the content after the `>` marker, inline-formatted at
-      // its true source offset (mirrors the blockquote offset maths).
+      // Body line: the content after the `>` marker run, inline-formatted
+      // at its true source offset (mirrors the blockquote offset maths).
       final trimmed = line.trimLeft();
       final indent = line.length - trimmed.length;
-      final afterArrow = trimmed.startsWith('>')
-          ? trimmed.substring(1)
-          : trimmed;
-      final spaceAfter = afterArrow.startsWith(' ') ? 1 : 0;
-      final contentOffset = lineStart + indent + 1 + spaceAfter;
+      final markerEnd =
+          quote?.contentStart ??
+          (trimmed.startsWith('>')
+              ? indent + 1 + (trimmed.startsWith('> ') ? 1 : 0)
+              : indent);
+      final raw = line.substring(markerEnd);
+      final skipped = raw.length - raw.trimLeft().length;
       _appendFlattened(
         children,
         _buildInlineFormatted(
-          afterArrow.trim(),
+          raw.trim(),
           lineStyle,
-          contentOffset,
+          lineStart + markerEnd + skipped,
           lineEnd,
         ),
       );
@@ -1494,7 +1515,7 @@ class LineBasedMarkdownBuilder {
     final ordered = c >= 0x30 && c <= 0x39;
     final marker = ordered
         ? '${line.substring(m.listMarkerStart, m.listMarkerEnd)} '
-        : '${_bulletForLevel(level)} ';
+        : '${MarkdownListSyntax.bulletGlyph(level)} ';
     return TextSpan(
       children: [
         WidgetSpan(
@@ -1674,7 +1695,7 @@ class LineBasedMarkdownBuilder {
     );
 
     // Check if this is a separator row (|---|---|)
-    if (_MarkdownPatterns.tableSeparator.hasMatch(line)) {
+    if (MarkdownLineShape.isTableSeparator(line)) {
       return TextSpan(
         text: '─' * 30,
         style: baseStyle.copyWith(
@@ -1839,7 +1860,7 @@ class LineBasedMarkdownBuilder {
           final codeStyle = baseStyle.copyWith(
             fontFamily: 'monospace',
             backgroundColor: style.codeBackground,
-            fontSize: baseStyle.fontSize! * 0.9,
+            fontSize: baseStyle.fontSize! * MarkdownConstants.inlineCodeScale,
           );
           var codeFrom = token.innerStart;
           if (GhostText.mightContain(text)) {
@@ -2178,10 +2199,4 @@ class _HighlightRange {
 class _MarkdownPatterns {
   /// Image pattern: ![alt text](url)
   static final image = RegExp(r'^!\[([^\]]*)\]\(([^)]+)\)$');
-
-  /// Table row pattern: | cell | cell | or |cell|cell|
-  static final tableRow = RegExp(r'^\|.*\|$');
-
-  /// Table separator pattern: |---|---| or | --- | --- |
-  static final tableSeparator = RegExp(r'^\|[\s:-]+\|[\s:|+-]*$');
 }

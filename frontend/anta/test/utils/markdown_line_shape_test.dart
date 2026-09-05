@@ -129,6 +129,55 @@ void main() {
     });
   });
 
+  group('isTableRow', () {
+    test('a line fenced by pipes, at least two units wide', () {
+      expect(MarkdownLineShape.isTableRow('| a | b |'), isTrue);
+      expect(MarkdownLineShape.isTableRow('|a|'), isTrue);
+      expect(MarkdownLineShape.isTableRow('||'), isTrue);
+    });
+
+    test('leading whitespace is indent, not content', () {
+      expect(MarkdownLineShape.isTableRow('  | a |'), isTrue);
+      expect(MarkdownLineShape.isTableRow('\t| a |'), isTrue);
+    });
+
+    test('trailing whitespace is ignored — the row still counts', () {
+      expect(MarkdownLineShape.isTableRow('| a |  '), isTrue);
+      expect(MarkdownLineShape.isTableRow('| a |\t'), isTrue);
+    });
+
+    test('an unclosed, unopened or lone pipe is prose', () {
+      expect(MarkdownLineShape.isTableRow('| a'), isFalse);
+      expect(MarkdownLineShape.isTableRow('a |'), isFalse);
+      expect(MarkdownLineShape.isTableRow('|'), isFalse);
+    });
+
+    test('empty and blank lines are not rows', () {
+      expect(MarkdownLineShape.isTableRow(''), isFalse);
+      expect(MarkdownLineShape.isTableRow('  '), isFalse);
+    });
+  });
+
+  group('isTableSeparator', () {
+    test('dashes, colons and spacing between the pipes', () {
+      expect(MarkdownLineShape.isTableSeparator('|---|---|'), isTrue);
+      expect(MarkdownLineShape.isTableSeparator('| --- | --- |'), isTrue);
+      expect(MarkdownLineShape.isTableSeparator('|:--:|'), isTrue);
+      expect(MarkdownLineShape.isTableSeparator('| :-- | --: |'), isTrue);
+      expect(MarkdownLineShape.isTableSeparator('|---|'), isTrue);
+    });
+
+    test('a cell holding content is a body row, not a delimiter', () {
+      expect(MarkdownLineShape.isTableSeparator('| a | b |'), isFalse);
+      expect(MarkdownLineShape.isTableSeparator('| --- | b |'), isFalse);
+    });
+
+    test('a separator must first be a table row', () {
+      expect(MarkdownLineShape.isTableSeparator('---'), isFalse);
+      expect(MarkdownLineShape.isTableSeparator(''), isFalse);
+    });
+  });
+
   group('isLineLedConstruct', () {
     test('headings and heading-prefixed money rows', () {
       expect(MarkdownLineShape.isLineLedConstruct('## x'), isTrue);
@@ -150,6 +199,13 @@ void main() {
       expect(MarkdownLineShape.isLineLedConstruct('>'), isTrue);
       expect(MarkdownLineShape.isLineLedConstruct('> [!TIP] hint'), isTrue);
       expect(MarkdownLineShape.isLineLedConstruct('| a |'), isTrue);
+      expect(
+        MarkdownLineShape.isLineLedConstruct('| a |  '),
+        isTrue,
+        reason:
+            'a trailing blank no longer disqualifies a row on either surface, '
+            'so the paste policies must keep the line intact too',
+      );
       expect(MarkdownLineShape.isLineLedConstruct('a | b'), isFalse);
       expect(MarkdownLineShape.isLineLedConstruct('```'), isTrue);
       expect(MarkdownLineShape.isLineLedConstruct('```dart'), isTrue);

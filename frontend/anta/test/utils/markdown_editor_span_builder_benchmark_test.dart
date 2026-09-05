@@ -119,6 +119,95 @@ void main() {
     );
   });
 
+  // Callout lines never touch the text-keyed memo: their rendering is a
+  // function of the block above them, so they style through the
+  // positional memo keyed on the packed role + type. Cold measures the
+  // lead's icon span and the body emission; warm measures that key.
+  test('span build of $lineCount callout lines (lead + ${lineCount - 1} body), '
+      'cold vs warm', () {
+    final lines = _calloutLines(lineCount);
+    final controller = CodeLineEditingController.fromText(lines.join('\n'));
+    addTearDown(controller.dispose);
+
+    final builder = MarkdownEditorSpanBuilder()..bind(controller);
+    builder.configureMoney(MoneyDisplayConfig.disabled);
+    controller.selection = const CodeLineSelection.collapsed(
+      index: 0,
+      offset: 0,
+    );
+
+    int buildAll() {
+      var built = 0;
+      for (var i = 0; i < lineCount; i++) {
+        final span = builder.build(
+          context: _renderContext,
+          index: i,
+          codeLine: controller.codeLines[i],
+        );
+        if (span != null) built++;
+      }
+      return built;
+    }
+
+    // Warm-up outside the measurement: the first touch also runs the
+    // shared line index's callout pass over the whole document.
+    expect(buildAll(), lineCount);
+
+    final coldWatch = Stopwatch();
+    var coldBuilt = 0;
+    for (var run = 0; run < iterations; run++) {
+      builder.configureColors(
+        run.isEven ? _altPalette : MarkdownColorPalette.presets,
+      );
+      coldWatch.start();
+      coldBuilt += buildAll();
+      coldWatch.stop();
+    }
+
+    final warmWatch = Stopwatch();
+    var warmBuilt = 0;
+    for (var run = 0; run < iterations; run++) {
+      warmWatch.start();
+      warmBuilt += buildAll();
+      warmWatch.stop();
+    }
+
+    expect(coldBuilt, lineCount * iterations);
+    expect(warmBuilt, lineCount * iterations);
+
+    final coldPerPass = coldWatch.elapsedMicroseconds / iterations;
+    final warmPerPass = warmWatch.elapsedMicroseconds / iterations;
+
+    // ignore: avoid_print
+    print(
+      '\n=== MarkdownEditorSpanBuilder — $lineCount callout lines '
+      '(lead + ${lineCount - 1} body), $iterations passes ===\n'
+      '  cold (memo cleared) : ${coldPerPass.toStringAsFixed(1)} us/pass, '
+      '${(coldPerPass / lineCount).toStringAsFixed(2)} us/line\n'
+      '  warm (memo hit)     : ${warmPerPass.toStringAsFixed(1)} us/pass, '
+      '${(warmPerPass / lineCount).toStringAsFixed(2)} us/line\n'
+      '  speedup             : '
+      '${(coldPerPass / (warmPerPass == 0 ? 1 : warmPerPass)).toStringAsFixed(1)}x',
+    );
+
+    // Catastrophe-only bounds, the same ones the list-line row carries.
+    expect(
+      coldPerPass / lineCount,
+      lessThan(2000),
+      reason: 'a cold span build should be well under 2 ms per line',
+    );
+    expect(
+      warmPerPass / lineCount,
+      lessThan(200),
+      reason: 'a warm build is an LRU probe; 200 us per line means no memo',
+    );
+    expect(
+      warmPerPass,
+      lessThan(coldPerPass),
+      reason: 'the positional memo must make a repeat pass cheaper',
+    );
+  });
+
   // The emphasis pairing worst case: every `*` closes and none opens, so
   // every closer searches the whole delimiter stack unless the pairing
   // loop keeps CommonMark's `openers_bottom` bound. Kept near the styled
@@ -298,6 +387,16 @@ final MarkdownColorPalette _altPalette = MarkdownColorPalette.decode(
 /// one real `**b**` at the end so the builder actually emits a span.
 List<String> _delimiterStormLines(int count) =>
     List<String>.generate(count, (i) => 'row$i ${'a* ' * 1359}**b**');
+
+/// One callout block: a `> [!TIP]` lead and nothing but body lines under
+/// it, each distinct in text so the positional memo holds one entry per
+/// line. Every line is inside the block, which is the shape the editor
+/// rebuilds while scrolling through a long admonition.
+List<String> _calloutLines(int count) => List<String>.generate(
+  count,
+  (i) =>
+      i == 0 ? '> [!TIP] Rest between sets' : '> keep the bar loose on set $i',
+);
 
 /// A realistic training-log list block: plain bullets, nested bullets,
 /// ordered rows, task boxes, and inline runs — the shapes the editor

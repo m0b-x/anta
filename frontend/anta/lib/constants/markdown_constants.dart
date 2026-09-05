@@ -1,5 +1,7 @@
 import 'dart:ui' show Color;
 
+import 'package:flutter/material.dart' show IconData, Icons;
+
 import '../utils/markdown_callout_syntax.dart';
 import '../utils/markdown_money_syntax.dart';
 
@@ -61,6 +63,11 @@ class MarkdownConstants {
 
   /// Scale for code block text (slightly smaller than normal)
   static const double codeBlockScale = 0.9;
+
+  /// Scale for inline code (`` `code` ``) relative to its surrounding
+  /// text. Read by both surfaces — the preview renderer and the live
+  /// editor's inline emitter — so a code chip is the same size in each.
+  static const double inlineCodeScale = 0.9;
 
   // Checkbox
   /// Multiplier for checkbox icon size relative to font size
@@ -199,6 +206,29 @@ class MarkdownConstants {
         return dark ? const Color(0xFF4DB6AC) : const Color(0xFF00897B);
       case MarkdownCalloutType.pr:
         return dark ? const Color(0xFFFFD54F) : const Color(0xFFF9A825);
+    }
+  }
+
+  /// The icon for a callout [type], painted in the type's accent by the
+  /// live editor's lead line (the preview keeps the emoji from
+  /// `MarkdownCalloutSyntax.iconFor` in its header run). Kept beside
+  /// [calloutAccent] so icon and colour are chosen from one table.
+  static IconData calloutIcon(MarkdownCalloutType type) {
+    switch (type) {
+      case MarkdownCalloutType.note:
+        return Icons.edit_note_rounded;
+      case MarkdownCalloutType.tip:
+        return Icons.lightbulb_outline_rounded;
+      case MarkdownCalloutType.important:
+        return Icons.priority_high_rounded;
+      case MarkdownCalloutType.warning:
+        return Icons.warning_amber_rounded;
+      case MarkdownCalloutType.caution:
+        return Icons.dangerous_outlined;
+      case MarkdownCalloutType.success:
+        return Icons.check_circle_outline_rounded;
+      case MarkdownCalloutType.pr:
+        return Icons.emoji_events_outlined;
     }
   }
 }

@@ -57,6 +57,12 @@ class EditorSpanCache {
   /// value; the key's `value` slot carries that row's balance.
   static const int positionalMoney = 3;
 
+  /// [PositionalSpanKey] tag: a line inside a `> [!TYPE]` callout block;
+  /// the key's `value` slot carries the packed role + block type, so a
+  /// body line rendered under one type never returns the span built
+  /// under another.
+  static const int positionalCallout = 4;
+
   static const int _spanCacheSize = 1024;
   static const int _positionalSpanCacheSize = 128;
   static const int _moneyParseMemoSize = 256;

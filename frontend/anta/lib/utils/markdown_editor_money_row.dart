@@ -8,6 +8,7 @@ import 'markdown_color_syntax.dart';
 import 'markdown_editor_emitter.dart';
 import 'markdown_editor_inline_emitter.dart';
 import 'markdown_editor_paint_spans.dart';
+import 'markdown_list_syntax.dart';
 import 'markdown_money_syntax.dart';
 import 'money_display_config.dart';
 
@@ -590,10 +591,17 @@ class EditorMoneyRowBuilder {
   }
 
   /// A money row's list-marker prefix, `[listMarkerStart, markerStart)`:
-  /// the bullet substitutes 1:1 with `•` exactly like a plain list item
+  /// the bullet substitutes 1:1 with the depth's
+  /// [MarkdownListSyntax.bulletGlyph] exactly like a plain list item
   /// (ordered numbers stay as typed, tinted), and the gap spaces keep
   /// their width — every code unit at its offset, reading as a list
   /// item. Callers emit `[0, listMarkerStart)` (the indent) themselves.
+  ///
+  /// The depth comes from [MarkdownListSyntax.indentLevel] over the
+  /// whole line: the indent is exactly `[0, listMarkerStart)`, so the
+  /// whole-line call reads the same columns
+  /// [MarkdownListItem.level] would and a nested money row takes the
+  /// same glyph as the nested bullets around it.
   static void _emitListMarker({
     required String text,
     required MoneyLineMatch m,
@@ -617,7 +625,9 @@ class EditorMoneyRowBuilder {
         TextSpan(
           text: reveal
               ? text.substring(m.listMarkerStart, m.listMarkerEnd)
-              : '•',
+              : MarkdownListSyntax.bulletGlyph(
+                  MarkdownListSyntax.indentLevel(text),
+                ),
           style: reveal
               ? EditorSpanEmitter.dimStyle(style, baseColor)
               : style.copyWith(color: primary, fontWeight: FontWeight.bold),

@@ -6,6 +6,7 @@ import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/controllers/editor_render_controller.dart';
 import 'package:anta/utils/editor_render_context.dart';
 import 'package:anta/utils/markdown_color_syntax.dart';
+import 'package:anta/utils/markdown_editor_line_index.dart';
 import 'package:anta/utils/money_display_config.dart';
 
 /// The editor page's rendering seam: what a line becomes, and what the
@@ -275,6 +276,57 @@ void main() {
 
     test('the body is false with no controller bound', () {
       expect(EditorRenderController().lineInFenceBody(0), isFalse);
+    });
+  });
+
+  // The callout role is positional — a line only knows it is body text
+  // because a lead stands above it — so the controller has to hand the
+  // question to the span builder's line index rather than answer it
+  // from the line's own text.
+  group('calloutRoleAt', () {
+    test('is none with no controller bound', () {
+      expect(
+        EditorRenderController().calloutRoleAt(0),
+        MarkdownCalloutRole.none,
+      );
+    });
+
+    test('reports the lead, its body, and the line after the block', () {
+      final controller = CodeLineEditingController.fromText(
+        ['> [!TIP] x', '> body', 'plain'].join('\n'),
+      );
+      addTearDown(controller.dispose);
+      final render = EditorRenderController()..bind(controller);
+
+      expect(
+        [for (int i = 0; i < 3; i++) render.calloutRoleAt(i)],
+        [
+          MarkdownCalloutRole.lead,
+          MarkdownCalloutRole.body,
+          MarkdownCalloutRole.none,
+        ],
+      );
+    });
+
+    test('a lead inside a fence is none', () {
+      final controller = CodeLineEditingController.fromText(
+        ['```', '> [!TIP] x', '> body', '```', '> [!NOTE] real'].join('\n'),
+      );
+      addTearDown(controller.dispose);
+      final render = EditorRenderController()..bind(controller);
+
+      // Fences win: the whole block is verbatim text, and the line
+      // after the close starts a callout of its own.
+      expect(
+        [for (int i = 0; i < 5; i++) render.calloutRoleAt(i)],
+        [
+          MarkdownCalloutRole.none,
+          MarkdownCalloutRole.none,
+          MarkdownCalloutRole.none,
+          MarkdownCalloutRole.none,
+          MarkdownCalloutRole.lead,
+        ],
+      );
     });
   });
 

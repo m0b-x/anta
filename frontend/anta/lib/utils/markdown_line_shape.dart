@@ -27,8 +27,27 @@ import 'markdown_money_syntax.dart';
 class MarkdownLineShape {
   MarkdownLineShape._();
 
-  /// Mirrors `_MarkdownPatterns.tableRow` in the preview builder.
-  static final _tableRow = RegExp(r'^\|.*\|$');
+  /// A table row: after optional leading whitespace the line starts
+  /// with `|` and, ignoring trailing whitespace, ends with `|`.
+  static final _tableRowPattern = RegExp(r'^[ \t]*\|.*\|[ \t]*$');
+
+  /// A table delimiter row (`| --- | :-: |`), tested against the
+  /// trimmed line once [isTableRow] has accepted it.
+  static final _tableSeparatorPattern = RegExp(r'^\|[\s:-]+\|[\s:|+-]*$');
+
+  /// Whether [line] is a table row: after optional leading whitespace it
+  /// starts with `|` and, ignoring trailing whitespace, ends with `|`,
+  /// so a lone `|` is prose (the shape needs at least two code units).
+  ///
+  /// The single table-row predicate for the preview, the editor and the
+  /// paste policies.
+  static bool isTableRow(String line) => _tableRowPattern.hasMatch(line);
+
+  /// Whether [line] is a table's delimiter row — a table row whose cells
+  /// hold only dashes, colons and spacing (`| --- | :-: |`). Rendered as
+  /// structure rather than content on both surfaces.
+  static bool isTableSeparator(String line) =>
+      isTableRow(line) && _tableSeparatorPattern.hasMatch(line.trim());
 
   /// `---` / `***` / `___` (three or more of one marker), indent and
   /// trailing blanks allowed. The single horizontal-rule predicate for
@@ -87,7 +106,7 @@ class MarkdownLineShape {
       case 0x3E: // > — blockquote / callout
         return true;
       case 0x7C: // | — table row
-        return _tableRow.hasMatch(trimmed);
+        return isTableRow(trimmed);
       case 0x60: // ` — fence delimiter
         return MarkdownChunker.isFenceDelimiter(trimmed);
       case 0x24: // $ — money row (full shape parse, not just the probe)

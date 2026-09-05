@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:re_editor/re_editor.dart';
 
+import 'lru_cache.dart';
+
 /// The live editor's custom-painted inline runs.
 ///
 /// Each one is a fork [CodeInlinePaintSpan]: a placeholder run that
 /// substitutes 1:1 for exactly one source code unit and paints itself
-/// after the paragraph is drawn. Both keep their box under the line's
-/// strut height so a line never grows, and both are value-equal so
-/// re_editor's paragraph cache stays on its fast path while nothing
-/// they draw has changed.
+/// after the paragraph is drawn. All of them keep their box under the
+/// line's strut height so a line never grows, and all of them are
+/// value-equal so re_editor's paragraph cache stays on its fast path
+/// while nothing they draw has changed.
 
 /// The live editor's `$$` money total: a rounded chip with the running
 /// balance custom-painted into a placeholder run, substituting 1:1 for
@@ -71,6 +73,79 @@ class EditorMoneyTotalSpan extends CodeInlinePaintSpan {
   @override
   int get hashCode =>
       Object.hash(label, accent, chip, radius, width, height, style);
+}
+
+/// The live editor's callout icon: the type's [IconData] custom-painted
+/// into a placeholder run, substituting 1:1 for the `[` of a
+/// `> [!TYPE]` lead token (the `!TYPE]` stays concealed beside it). Side
+/// and colour come from the line's own style and the shared callout
+/// accent, so the mark scales with the editor's text size and matches
+/// the preview's header.
+///
+/// The span is `const`, so the laid-out [TextPainter] cannot live on the
+/// instance: it comes from a small shared LRU keyed by the three things
+/// that decide the glyph's pixels — icon, colour and side. Callout leads
+/// are rare enough that a handful of entries covers every visible line,
+/// and a miss costs one icon-glyph layout.
+class EditorCalloutIconSpan extends CodeInlinePaintSpan {
+  final IconData icon;
+  final Color accent;
+
+  const EditorCalloutIconSpan({
+    required double side,
+    required this.icon,
+    required this.accent,
+  }) : super(width: side, height: side);
+
+  static const int _painterCacheSize = 32;
+
+  static final LruCache<(IconData, Color, double), TextPainter> _painters =
+      LruCache(maxSize: _painterCacheSize);
+
+  static TextPainter _painterFor(IconData icon, Color accent, double side) {
+    final key = (icon, accent, side);
+    final cached = _painters.get(key);
+    if (cached != null) return cached;
+    final painter = TextPainter(
+      text: TextSpan(
+        text: String.fromCharCode(icon.codePoint),
+        style: TextStyle(
+          fontFamily: icon.fontFamily,
+          package: icon.fontPackage,
+          fontSize: side,
+          color: accent,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    _painters.put(key, painter);
+    return painter;
+  }
+
+  @override
+  void paint(Canvas canvas, Rect rect) {
+    final painter = _painterFor(icon, accent, rect.height);
+    painter.paint(
+      canvas,
+      Offset(
+        rect.left + (rect.width - painter.width) / 2,
+        rect.top + (rect.height - painter.height) / 2,
+      ),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EditorCalloutIconSpan &&
+          other.icon == icon &&
+          other.accent == accent &&
+          other.width == width &&
+          other.height == height &&
+          other.style == style;
+
+  @override
+  int get hashCode => Object.hash(icon, accent, width, height, style);
 }
 
 /// Which glyph the editor checkbox paints. `indeterminate` is a purely

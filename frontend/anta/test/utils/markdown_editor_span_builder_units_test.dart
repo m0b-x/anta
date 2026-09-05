@@ -1,6 +1,9 @@
 import 'package:anta/constants/markdown_constants.dart';
 import 'package:anta/utils/editor_render_context.dart';
+import 'package:anta/utils/markdown_callout_syntax.dart';
 import 'package:anta/utils/markdown_color_syntax.dart';
+import 'package:anta/utils/markdown_editor_line_index.dart';
+import 'package:anta/utils/markdown_editor_paint_spans.dart';
 import 'package:anta/utils/markdown_editor_span_builder.dart';
 import 'package:anta/utils/markdown_editor_span_cache.dart';
 import 'package:anta/utils/markdown_inline_grammar.dart';
@@ -207,6 +210,266 @@ void main() {
         1,
         reason: 'the money chip is the row\'s only visible glyph',
       );
+    });
+
+    test('a callout lead paints its icon, bar and title in the accent', () {
+      final pair = _renderBothStates(
+        '> [!TIP] Rest between sets',
+        money: false,
+      );
+      final accent = MarkdownConstants.calloutAccent(
+        MarkdownCalloutType.tip,
+        dark: false,
+      );
+
+      expect(pair.off.visibleText, '┃ ￼ Rest between sets');
+      final icon = pair.off.leaves
+          .singleWhere((leaf) => leaf.span is PlaceholderSpan)
+          .span;
+      expect(icon, isA<EditorCalloutIconSpan>());
+      expect((icon as EditorCalloutIconSpan).accent, accent);
+      expect(icon.icon, MarkdownConstants.calloutIcon(MarkdownCalloutType.tip));
+      expect(pair.off.leaves.first.text, '┃');
+      expect(pair.off.leaves.first.style?.color, accent);
+      final title = pair.off.leaves.singleWhere(
+        (leaf) => leaf.text == 'Rest between sets',
+      );
+      expect(title.style?.color, accent);
+      expect(title.style?.fontWeight, FontWeight.bold);
+
+      // On reveal the recognised token stays readable while editing:
+      // tinted in place, with no icon standing in for the `[`.
+      expect(pair.on.visibleText, '> [!TIP] Rest between sets');
+      expect(
+        pair.on.leaves.any((leaf) => leaf.span is PlaceholderSpan),
+        isFalse,
+        reason: 'a reveal line paints no icon',
+      );
+      final token = pair.on.leaves.singleWhere((leaf) => leaf.text == '[!TIP]');
+      expect(token.style?.color, accent);
+      expect(token.style?.fontWeight, FontWeight.w600);
+    });
+
+    test('a callout body renders plain in the block accent', () {
+      final render = _renderOffCaret(
+        '> body',
+        above: const <String>['> [!TIP] x'],
+      );
+      final accent = MarkdownConstants.calloutAccent(
+        MarkdownCalloutType.tip,
+        dark: false,
+      );
+      expect(render.visibleText, '┃ body');
+      expect(render.leaves.first.style?.color, accent);
+      final content = render.leaves.singleWhere((leaf) => leaf.text == 'body');
+      expect(
+        content.style?.color,
+        _renderContext.baseColor,
+        reason: 'body text is preview-plain, not the dimmed quote alpha',
+      );
+      expect(content.style?.fontStyle, isNot(FontStyle.italic));
+    });
+
+    test('a plain quote keeps the italic dimmed treatment', () {
+      final render = _renderOffCaret('> quote');
+      final content = render.leaves.singleWhere((leaf) => leaf.text == 'quote');
+      expect(content.style?.fontStyle, FontStyle.italic);
+      expect(content.style?.color, isNot(_renderContext.baseColor));
+    });
+
+    test('every quote marker becomes its own bar', () {
+      expect(
+        _renderOffCaret(
+          '>> deeper',
+          above: const <String>['> [!TIP] x'],
+        ).visibleText,
+        '┃┃ deeper',
+      );
+      expect(_renderOffCaret('>>> deep').visibleText, '┃┃┃ deep');
+      expect(_renderOffCaret('> > > deep').visibleText, '┃ ┃ ┃ deep');
+    });
+
+    test('the bullet glyph cycles with nesting depth', () {
+      expect(_renderOffCaret('- a').visibleText, '• a');
+      expect(_renderOffCaret('  - a').visibleText, '  ◦ a');
+      expect(_renderOffCaret('    - a').visibleText, '    ▪ a');
+      expect(_renderOffCaret('      - a').visibleText, '      • a');
+    });
+
+    test('a nested money row takes the depth-1 glyph too', () {
+      final render = _renderOffCaret(r'  - $+ 5 x', money: true);
+      expect(
+        render.leaves.any((leaf) => leaf.text == '◦'),
+        isTrue,
+        reason: 'the money row shares the list glyph: ${render.visibleText}',
+      );
+    });
+
+    test('a table row tints its pipes and sets the cells monospace', () {
+      final render = _renderOffCaret('| set | reps |');
+      final pipes = render.leaves.where((leaf) => leaf.text == '|').toList();
+      expect(pipes.length, 3);
+      for (final pipe in pipes) {
+        expect(pipe.style?.fontFamily, 'monospace');
+        expect(
+          pipe.style?.color,
+          _renderContext.primary.withValues(alpha: _tablePipeAlpha),
+        );
+      }
+      for (final leaf in render.leaves) {
+        expect(
+          leaf.style?.fontFamily,
+          'monospace',
+          reason: 'cells align only if every leaf is monospace: "${leaf.text}"',
+        );
+      }
+      expect(
+        render.span.style?.fontFamily,
+        _baseStyle.fontFamily,
+        reason: 'the root keeps the base family, so the line height holds',
+      );
+    });
+
+    test('a delimiter row renders dimmed monospace as a whole', () {
+      final render = _renderOffCaret('| --- | --- |');
+      expect(render.visibleText, '| --- | --- |');
+      for (final leaf in render.leaves) {
+        expect(leaf.style?.fontFamily, 'monospace');
+        expect(
+          leaf.style?.color,
+          _renderContext.baseColor.withValues(alpha: _ruleAlpha),
+        );
+      }
+    });
+
+    test('a table row inside a fence is fence interior', () {
+      final render = _renderOffCaret('| a | b |', above: const <String>['```']);
+      final tinted = _renderContext.primary.withValues(alpha: _tablePipeAlpha);
+      for (final leaf in render.leaves) {
+        expect(leaf.style?.fontFamily, 'monospace');
+        expect(
+          leaf.style?.color,
+          isNot(tinted),
+          reason: 'a fence wins over the table shape',
+        );
+      }
+    });
+
+    test('inline code content shrinks without moving the root size', () {
+      final render = _renderOffCaret('a `code` b');
+      final code = render.leaves.singleWhere((leaf) => leaf.text == 'code');
+      expect(
+        code.style?.fontSize,
+        _baseStyle.fontSize! * MarkdownConstants.inlineCodeScale,
+      );
+      expect(render.span.style?.fontSize, _baseStyle.fontSize);
+
+      final heading = _renderOffCaret('## a `code` b');
+      final headerSize = heading.span.style!.fontSize!;
+      expect(headerSize, _baseStyle.fontSize! * MarkdownConstants.h2Scale);
+      expect(
+        heading.leaves
+            .singleWhere((leaf) => leaf.text == 'code')
+            .style
+            ?.fontSize,
+        headerSize * MarkdownConstants.inlineCodeScale,
+      );
+    });
+  });
+
+  // A callout body's rendering is a function of the lead above it, which
+  // is positional state. The memo has to key on that, or a body keeps
+  // the colour of a block that has since changed type.
+  group('positional callout memo', () {
+    test('a body follows the lead above it, not its own text', () {
+      final controller = CodeLineEditingController.fromText(
+        <String>['> [!TIP] x', '> body', _pad].join('\n'),
+      );
+      addTearDown(controller.dispose);
+      final builder = MarkdownEditorSpanBuilder()..bind(controller);
+      builder.configureMoney(MoneyDisplayConfig.disabled);
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 2,
+        offset: 0,
+      );
+
+      TextSpan? body() => builder.build(
+        context: _renderContext,
+        index: 1,
+        codeLine: controller.codeLines[1],
+      );
+
+      final tip = MarkdownConstants.calloutAccent(
+        MarkdownCalloutType.tip,
+        dark: false,
+      );
+      final warning = MarkdownConstants.calloutAccent(
+        MarkdownCalloutType.warning,
+        dark: false,
+      );
+
+      final first = body();
+      expect(first, isNotNull);
+      expect(_barColour(first!), tip);
+      expect(builder.calloutRoleAt(0), MarkdownCalloutRole.lead);
+      expect(builder.calloutRoleAt(1), MarkdownCalloutRole.body);
+      expect(builder.calloutRoleAt(2), MarkdownCalloutRole.none);
+      expect(
+        identical(body(), first),
+        isTrue,
+        reason: 'an unchanged block must hit the positional memo',
+      );
+
+      controller.codeLines = controller.codeLines.replaceLine(
+        0,
+        CodeLine('> [!WARNING] x'),
+      );
+      final warned = body();
+      expect(
+        identical(warned, first),
+        isFalse,
+        reason: 'the block changed type, so the body must re-render',
+      );
+      expect(_barColour(warned!), warning);
+      expect(builder.calloutRoleAt(1), MarkdownCalloutRole.body);
+
+      controller.codeLines = controller.codeLines.replaceLine(
+        2,
+        CodeLine('another padding line'),
+      );
+      expect(
+        identical(body(), warned),
+        isTrue,
+        reason: 'an edit outside the block must not disturb the memo',
+      );
+
+      controller.codeLines = controller.codeLines.replaceLine(
+        0,
+        CodeLine('> x'),
+      );
+      final plain = body();
+      expect(builder.calloutRoleAt(0), MarkdownCalloutRole.none);
+      expect(builder.calloutRoleAt(1), MarkdownCalloutRole.none);
+      final content = _visibleLeaves(
+        plain!,
+      ).singleWhere((leaf) => leaf.text == 'body');
+      expect(content.style?.fontStyle, FontStyle.italic);
+      expect(content.style?.color, isNot(warning));
+    });
+
+    test('a lead inside a fence renders as fence interior', () {
+      final render = _renderOffCaret(
+        '> [!TIP] x',
+        above: const <String>['```'],
+      );
+      expect(
+        render.leaves.any((leaf) => leaf.span is PlaceholderSpan),
+        isFalse,
+        reason: 'a fenced lead is code, not a callout',
+      );
+      for (final leaf in render.leaves) {
+        expect(leaf.style?.fontFamily, 'monospace');
+      }
     });
   });
 
@@ -552,6 +815,8 @@ const MoneyDisplayConfig _moneyEnabled = MoneyDisplayConfig(
 /// `lib/utils/markdown_editor_span_builder.dart`.
 const Map<int, String> _substitutions = <int, String>{
   0x2022: '-*+•', // • — list bullet (and a money row's list marker)
+  0x25E6: '-*+•', // ◦ — the same bullet one nesting level deeper
+  0x25AA: '-*+•', // ▪ — and two levels deeper (the cycle wraps at three)
   0x2503: '>', // ┃ — blockquote bar
   0x2500: '-*_', // ─ — horizontal rule
   0x03A3: r'$', // Σ — `$$` total marker with a value slot
@@ -666,6 +931,19 @@ Color? _labelColour(_Render render, String label) => render.leaves
     .style
     ?.color;
 
+/// The colour of a quote/callout line's first `┃` bar — grey for a plain
+/// quote, the block's accent inside a callout.
+Color? _barColour(TextSpan span) =>
+    _visibleLeaves(span).firstWhere((leaf) => leaf.text == '┃').style?.color;
+
+/// Mirrors `MarkdownEditorSpanBuilder._tablePipeAlpha`: a table row's `|`
+/// separators are the primary colour at this alpha.
+const double _tablePipeAlpha = 0.55;
+
+/// Mirrors `MarkdownEditorSpanBuilder._ruleAlpha`: the tone a horizontal
+/// rule and a table delimiter row render in.
+const double _ruleAlpha = 0.3;
+
 /// A marker span: transparent and shrunk to a 0.01 font size, which is
 /// exactly what the builder's `_concealStyle` produces.
 bool _concealed(TextStyle? style) =>
@@ -759,6 +1037,7 @@ final List<_Case> _corpus = <_Case>[
   const _Case('hashes with no trailing space', '###'),
   const _Case('indented heading', '  ## Indented heading'),
   const _Case('heading with inline runs', '## **Bold** and `code` #tag'),
+  const _Case('inline code inside a heading', '## a `code` b'),
 
   // Emphasis / code / strike / highlight.
   const _Case('bold', 'a **bold** b'),
@@ -799,6 +1078,48 @@ final List<_Case> _corpus = <_Case>[
   const _Case('indented quote', '  > an indented quote'),
   const _Case('callout lead', '> [!TIP] Rest between sets'),
   const _Case('callout continuation', '> body of the callout'),
+
+  // Callout leads: every recognised type, then the spacing shapes the
+  // grammar accepts and the ones it refuses.
+  const _Case('callout lead note', '> [!NOTE] Take it easy'),
+  const _Case('callout lead tip', '> [!TIP] Rest between sets'),
+  const _Case('callout lead important', '> [!IMPORTANT] Brace first'),
+  const _Case('callout lead warning', '> [!WARNING] Knees out'),
+  const _Case('callout lead caution', '> [!CAUTION] Belt on'),
+  const _Case('callout lead success', '> [!SUCCESS] Every set hit'),
+  const _Case('callout lead pr', '> [!PR] New best'),
+  const _Case('callout lead with no title', '> [!TIP]'),
+  const _Case('callout lead with two spaces', '>  [!TIP] x'),
+  const _Case('callout lead with no space', '>[!TIP] x'),
+  _Case('callout body', '> body', above: const <String>['> [!TIP] x']),
+  _Case(
+    'nested lead is body text',
+    '> [!NOTE] inner',
+    above: const <String>['> [!TIP] x'],
+  ),
+  _Case(
+    'callout body at quote depth 2',
+    '>> deeper',
+    above: const <String>['> [!TIP] x'],
+  ),
+  _Case(
+    'callout body that is only a marker',
+    '>',
+    above: const <String>['> [!TIP] x'],
+  ),
+  const _Case('nested quote depth 3', '>>> deep'),
+  const _Case('nested quote depth 3 spaced', '> > > deep'),
+  const _Case('empty quote', '>'),
+
+  // Callout leads composed with the inline constructs.
+  const _Case('callout lead with a ghost', '> [!TIP] {{ rest }} between sets'),
+  const _Case('callout lead with a tag', '> [!TIP] rest #legs'),
+  const _Case('callout lead with a money row', r'> [!TIP] $+ 5 snack'),
+  _Case(
+    'callout body with a ghost',
+    '> keep {{ what }} loose',
+    above: const <String>['> [!TIP] x'],
+  ),
   const _Case('rule dashes', '---'),
   const _Case('rule asterisks', '***'),
   const _Case('rule underscores', '_____'),
@@ -810,6 +1131,15 @@ final List<_Case> _corpus = <_Case>[
   const _Case('bullet plus', '+ squat'),
   const _Case('nested bullet', '  - deeper'),
   const _Case('double nested bullet', '    - deepest'),
+
+  // The bullet glyph cycles •/◦/▪ with the item's nesting level and
+  // wraps at three, so every depth is a 1:1 substitution of one marker
+  // code unit for one glyph code unit.
+  const _Case('bullet at depth 0', '- a'),
+  const _Case('bullet at depth 1', '  - a'),
+  const _Case('bullet at depth 2', '    - a'),
+  const _Case('bullet at depth 3 wraps', '      - a'),
+  const _Case('source bullet glyph at depth 1', '  • a'),
   const _Case('ordered dot', '1. first'),
   const _Case('ordered paren', '2) second'),
   const _Case('task unchecked', '- [ ] warm up'),
@@ -864,9 +1194,16 @@ final List<_Case> _corpus = <_Case>[
   const _Case('tab indented heading', '\t## tabbed heading'),
   _Case('over the raw-render length guard', _longLine),
 
-  // GFM table rows render raw in the editor.
+  // Tables-lite: rows render monospace with tinted pipes and delimiter
+  // rows dimmed whole — nothing is concealed or substituted, so the row
+  // carries the same code units in both reveal states.
   const _Case('table row', '| set | reps |'),
   const _Case('table divider', '| --- | --- |'),
+  const _Case('table divider with alignment', '|:--:|--:|'),
+  const _Case('indented table row', '  | a | b |'),
+  const _Case('table row with trailing space', '| a |  '),
+  const _Case('table row with inline runs', '| **a** | `code` | #tag |'),
+  _Case('table row inside a fence', '| a | b |', above: const <String>['```']),
 
   // Money: every row kind.
   const _Case('money set', r'$= 500'),
@@ -922,6 +1259,12 @@ final List<_Case> _corpus = <_Case>[
     above: const <String>[r'$= 500'],
   ),
   const _Case('money ordered list marker', r'1. $+ 50 tip'),
+  const _Case('money nested list marker', r'  - $+ 5 x'),
+  _Case(
+    'money nested list marker on a display row',
+    r'  - $$ total',
+    above: const <String>[r'$= 500'],
+  ),
   const _Case('money emphasis wrapper', r'*$~ 2 Change: $ *'),
   const _Case('money emphasis wrapped diff', r'*$^ 2*'),
   const _Case('money all four chrome layers', r'- ## **$= teal: 500**'),

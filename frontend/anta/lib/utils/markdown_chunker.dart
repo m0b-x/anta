@@ -168,18 +168,13 @@ class MarkdownChunker {
         continue;
       }
 
-      // Callout: a blockquote run whose first line is `> [!TYPE]`. The
-      // cheap `>`-prefix pre-filter keeps the common (non-quote) path to a
-      // single trimLeft per line — parseLead (which re-trims) only runs on
-      // blockquote lines. Continues across contiguous blockquote lines;
-      // the first non-blockquote line (or EOF) ends it.
-      final trimmed = line.trimLeft();
-      if (trimmed.startsWith('>') &&
-          MarkdownCalloutSyntax.parseLead(line) != null) {
+      // Callout: a blockquote run whose first line is `> [!TYPE]`.
+      final type = MarkdownCalloutSyntax.blockStep(line, null);
+      if (type != null) {
         final start = i;
         i++;
         while (i < lineCount &&
-            MarkdownCalloutSyntax.isBlockquoteLine(lineAt(i))) {
+            MarkdownCalloutSyntax.blockStep(lineAt(i), type) == type) {
           i++;
         }
         blocks.add(

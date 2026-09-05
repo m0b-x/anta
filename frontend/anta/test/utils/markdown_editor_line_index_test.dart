@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:re_editor/re_editor.dart';
 
+import 'package:anta/utils/markdown_callout_syntax.dart';
 import 'package:anta/utils/markdown_editor_line_index.dart';
 import 'package:anta/utils/markdown_editor_span_builder.dart'
     show MarkdownEditorSpanBuilder;
@@ -54,6 +55,32 @@ void main() {
           if (index.moneyValueAt(codeLines, i) != null) i,
       ];
       expect(money, isNotEmpty);
+
+      final leads = <int>[
+        for (int i = 0; i < codeLines.length; i++)
+          if (index.calloutRoleAt(codeLines, i) == MarkdownCalloutRole.lead) i,
+      ];
+      final bodies = <int>[
+        for (int i = 0; i < codeLines.length; i++)
+          if (index.calloutRoleAt(codeLines, i) == MarkdownCalloutRole.body) i,
+      ];
+      expect(leads, isNotEmpty, reason: 'the corpus must hold callout leads');
+      expect(bodies, isNotEmpty, reason: 'and their bodies');
+
+      // The lead the corpus places directly under a fence *closer*: the
+      // callout pass reads the fence roles first, so this line is a lead
+      // and not the continuation of anything above the fence.
+      final int afterFence = lines.indexOf('> [!WARNING] after fence');
+      expect(afterFence, greaterThan(0));
+      expect(lines[afterFence - 1], '```');
+      expect(
+        index.calloutRoleAt(codeLines, afterFence),
+        MarkdownCalloutRole.lead,
+      );
+      expect(
+        index.calloutRoleAt(codeLines, afterFence + 1),
+        MarkdownCalloutRole.body,
+      );
     });
 
     test('a single-line edit really takes the incremental path', () {
@@ -474,6 +501,387 @@ void main() {
         startCents: 5,
         reason: 'the recorded start balance seeds the enabled pass',
       );
+    });
+  });
+
+  group('callout pass', () {
+    // Callout membership is the third positional pass and the only one
+    // whose result for a line is decided entirely by the lines above it,
+    // so the seam proof and the fence interaction are the two things
+    // worth pinning beyond plain equivalence.
+
+    test('a lead typed into a plain-quote run flips every line below it', () {
+      final lines = <String>[
+        for (int i = 0; i < 520; i++) 'filler $i',
+        for (int i = 0; i < 40; i++) '> quoted $i',
+        for (int i = 0; i < 300; i++) 'tail $i',
+      ];
+      final controller = CodeLineEditingController(
+        codeLines: codeLinesOf(lines),
+      );
+      addTearDown(controller.dispose);
+      final index = newIndex(money: true);
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'initial',
+      );
+      for (int i = 520; i < 560; i++) {
+        expect(
+          index.calloutRoleAt(controller.codeLines, i),
+          MarkdownCalloutRole.none,
+          reason: 'a plain quote run is no callout: line $i',
+        );
+      }
+
+      _replaceLine(controller, 530, '> [!TIP] lead');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'a lead typed mid-run',
+      );
+      expect(
+        index.calloutRoleAt(controller.codeLines, 529),
+        MarkdownCalloutRole.none,
+        reason: 'the quotes above the lead are untouched',
+      );
+      expect(
+        index.calloutRoleAt(controller.codeLines, 530),
+        MarkdownCalloutRole.lead,
+      );
+      for (int i = 531; i < 560; i++) {
+        expect(
+          index.calloutRoleAt(controller.codeLines, i),
+          MarkdownCalloutRole.body,
+          reason: 'line $i',
+        );
+      }
+      expect(
+        index.calloutRoleAt(controller.codeLines, 560),
+        MarkdownCalloutRole.none,
+        reason: 'the first non-quote line ends the block',
+      );
+
+      _replaceLine(controller, 530, '> quoted 10');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'the lead removed again',
+      );
+      for (int i = 520; i < 560; i++) {
+        expect(
+          index.calloutRoleAt(controller.codeLines, i),
+          MarkdownCalloutRole.none,
+          reason: 'line $i',
+        );
+      }
+    });
+
+    test('a fence opened above a callout swallows its lead', () {
+      final lines = <String>[
+        for (int i = 0; i < 100; i++) 'filler $i',
+        'plain a',
+        'plain b',
+        '> [!TIP] lead',
+        '> body',
+        'after',
+        for (int i = 0; i < 300; i++) 'tail $i',
+      ];
+      final controller = CodeLineEditingController(
+        codeLines: codeLinesOf(lines),
+      );
+      addTearDown(controller.dispose);
+      final index = newIndex(money: true);
+      expect(
+        index.calloutRoleAt(controller.codeLines, 102),
+        MarkdownCalloutRole.lead,
+      );
+      expect(
+        index.calloutRoleAt(controller.codeLines, 103),
+        MarkdownCalloutRole.body,
+      );
+
+      _replaceLine(controller, 100, '```');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'a fence opened above the block',
+      );
+      expect(
+        index.fenceRoleAt(controller.codeLines, 102),
+        MarkdownFenceRole.interior,
+      );
+      expect(
+        index.calloutRoleAt(controller.codeLines, 102),
+        MarkdownCalloutRole.none,
+        reason: 'a fenced lead is code, not a callout',
+      );
+      expect(
+        index.calloutRoleAt(controller.codeLines, 103),
+        MarkdownCalloutRole.none,
+      );
+
+      _replaceLine(controller, 101, '```');
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'the fence closed above the block again',
+      );
+      expect(
+        index.calloutRoleAt(controller.codeLines, 102),
+        MarkdownCalloutRole.lead,
+      );
+      expect(
+        index.calloutRoleAt(controller.codeLines, 103),
+        MarkdownCalloutRole.body,
+      );
+    });
+
+    test('a keystroke in a body line rescans one segment, whatever k', () {
+      const int segments = 12;
+      final controller = CodeLineEditingController(
+        codeLines: codeLinesOf(_calloutSegments(segments)),
+      );
+      addTearDown(controller.dispose);
+      expect(controller.codeLines.segments.length, segments);
+      final index = newIndex(money: true);
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'initial',
+      );
+
+      for (final int k in <int>[0, 5, segments - 1]) {
+        final int line = k * 256 + 1;
+        expect(
+          index.calloutRoleAt(controller.codeLines, line),
+          MarkdownCalloutRole.body,
+          reason: 'the fixture must put a body line at $line',
+        );
+        _replaceLine(controller, line, '> body one $k typed');
+        final scan = _scanOf(index, controller.codeLines);
+        expectMatchesFresh(
+          index,
+          controller.codeLines,
+          money: true,
+          reason: 'keystroke in segment $k',
+        );
+        expect(scan.rebuilt, isFalse);
+        expect(
+          scan.callout,
+          1,
+          reason:
+              'segment $k: the callout pass must stop at the first seam, '
+              'so its cost cannot depend on k',
+        );
+      }
+    });
+
+    test('changing a lead type re-scans only until the block ends', () {
+      const int segments = 12;
+      final controller = CodeLineEditingController(
+        codeLines: codeLinesOf(_calloutSegments(segments)),
+      );
+      addTearDown(controller.dispose);
+      final index = newIndex(money: true);
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'initial',
+      );
+
+      const int k = 5;
+      const int lead = k * 256;
+      _replaceLine(controller, lead, '> [!WARNING] block $k');
+      final scan = _scanOf(index, controller.codeLines);
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'the lead retyped as another type',
+      );
+      expect(scan.rebuilt, isFalse);
+      expect(
+        scan.callout,
+        lessThanOrEqualTo(2),
+        reason: 'the block ends inside its own segment',
+      );
+      for (final int line in <int>[lead, lead + 1, lead + 2]) {
+        expect(
+          MarkdownEditorLineIndex.calloutTypeOf(
+            index.calloutAt(controller.codeLines, line),
+          ),
+          MarkdownCalloutType.warning,
+          reason: 'every line of the block carries the new type: $line',
+        );
+      }
+    });
+
+    test('a callout-free document stores no roles at all', () {
+      final controller = CodeLineEditingController(
+        codeLines: codeLinesOf(<String>[
+          for (int i = 0; i < 900; i++) '- set $i x 5',
+        ]),
+      );
+      addTearDown(controller.dispose);
+      final index = newIndex(money: true);
+      for (int i = 0; i < controller.codeLines.length; i++) {
+        expect(index.calloutAt(controller.codeLines, i), 0);
+        expect(
+          index.calloutRoleAt(controller.codeLines, i),
+          MarkdownCalloutRole.none,
+        );
+      }
+
+      // The pass still runs — it just never allocates the array.
+      _replaceLine(controller, 300, '- set 300 x 6');
+      final scan = _scanOf(index, controller.codeLines);
+      expect(scan.rebuilt, isFalse);
+      expect(scan.callout, 1);
+      for (int i = 0; i < controller.codeLines.length; i++) {
+        expect(index.calloutAt(controller.codeLines, i), 0);
+      }
+    });
+
+    test('the packed role and type decode for every pair', () {
+      final lines = <String>[
+        for (final MarkdownCalloutType type in MarkdownCalloutType.values) ...[
+          '> [!${type.name.toUpperCase()}] lead',
+          '> body',
+          '',
+        ],
+      ];
+      final CodeLines codeLines = codeLinesOf(lines);
+      final index = newIndex(money: false);
+
+      for (int t = 0; t < MarkdownCalloutType.values.length; t++) {
+        final MarkdownCalloutType type = MarkdownCalloutType.values[t];
+        final int lead = index.calloutAt(codeLines, t * 3);
+        final int body = index.calloutAt(codeLines, t * 3 + 1);
+        expect(
+          MarkdownEditorLineIndex.calloutRoleOf(lead),
+          MarkdownCalloutRole.lead,
+          reason: '${type.name} lead',
+        );
+        expect(MarkdownEditorLineIndex.calloutTypeOf(lead), type);
+        expect(
+          MarkdownEditorLineIndex.calloutRoleOf(body),
+          MarkdownCalloutRole.body,
+          reason: '${type.name} body',
+        );
+        expect(MarkdownEditorLineIndex.calloutTypeOf(body), type);
+        expect(index.calloutAt(codeLines, t * 3 + 2), 0);
+      }
+
+      expect(
+        MarkdownEditorLineIndex.calloutRoleOf(0),
+        MarkdownCalloutRole.none,
+      );
+      expect(MarkdownEditorLineIndex.calloutTypeOf(0), isNull);
+    });
+
+    test('Enter in a body and deleting the lead stay equivalent', () {
+      final controller = CodeLineEditingController(
+        codeLines: codeLinesOf(_calloutSegments(8)),
+      );
+      addTearDown(controller.dispose);
+      final index = newIndex(money: true);
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'initial',
+      );
+
+      const int lead = 5 * 256;
+      controller.selection = const CodeLineSelection.collapsed(
+        index: lead + 2,
+        offset: 3,
+      );
+      controller.applyNewLine();
+      final enterScan = _scanOf(index, controller.codeLines);
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'Enter inside a body line',
+      );
+      expect(enterScan.rebuilt, isFalse);
+
+      controller.selection = const CodeLineSelection.collapsed(
+        index: lead,
+        offset: 0,
+      );
+      controller.deleteSelectionLines();
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'the lead line deleted',
+      );
+      expect(
+        index.calloutRoleAt(controller.codeLines, lead),
+        MarkdownCalloutRole.none,
+        reason: 'with no lead the rest of the block is a plain quote',
+      );
+    });
+
+    test('a callout block pasted over a fence stays equivalent', () {
+      final List<String> source = buildTrainingLog(minLines: 3000);
+      final int opener = source.indexOf('```dart', 600);
+      expect(opener, greaterThan(0));
+      expect(source[opener + 3], '```');
+      final controller = CodeLineEditingController(
+        codeLines: codeLinesOf(source),
+      );
+      addTearDown(controller.dispose);
+      final index = newIndex(money: true);
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'initial',
+      );
+
+      controller.selection = CodeLineSelection(
+        baseIndex: opener,
+        baseOffset: 0,
+        extentIndex: opener + 3,
+        extentOffset: controller.codeLines[opener + 3].length,
+      );
+      controller.replaceSelection(
+        '> [!CAUTION] pasted lead\n'
+        '> pasted body\n'
+        '>> pasted deeper\n'
+        '> [!NOTE] pasted inner',
+      );
+
+      final scan = _scanOf(index, controller.codeLines);
+      expectMatchesFresh(
+        index,
+        controller.codeLines,
+        money: true,
+        reason: 'a callout block pasted over a whole fence',
+      );
+      expect(scan.rebuilt, isFalse);
+      expect(
+        index.calloutRoleAt(controller.codeLines, opener),
+        MarkdownCalloutRole.lead,
+      );
+      for (final int line in <int>[opener + 1, opener + 2, opener + 3]) {
+        expect(
+          index.calloutRoleAt(controller.codeLines, line),
+          MarkdownCalloutRole.body,
+          reason: 'line $line',
+        );
+      }
     });
   });
 
@@ -1532,7 +1940,7 @@ void main() {
 /// runs `_ensure`, and a second call with the same [CodeLines] is a
 /// no-op that leaves the record untouched, so this may be read before or
 /// after [expectMatchesFresh].
-({bool rebuilt, int fence, int tasks, int money}) _scanOf(
+({bool rebuilt, int fence, int callout, int tasks, int money}) _scanOf(
   MarkdownEditorLineIndex index,
   CodeLines lines,
 ) {
@@ -1572,7 +1980,7 @@ List<String> buildTrainingLog({int minLines = 700}) {
   final out = <String>[];
   int i = 0;
   while (out.length < minLines) {
-    switch (i % 7) {
+    switch (i % 8) {
       case 0:
         out.addAll(['## Week ${i ~/ 7 + 1}', '', 'Bodyweight 78.4 kg.', '']);
       case 1:
@@ -1625,11 +2033,45 @@ List<String> buildTrainingLog({int minLines = 700}) {
               r'$+ 10 snack',
           '',
         ]);
+      case 7:
+        // A callout block (lead, plain body, a `>>` body, and a nested
+        // lead that is body text of the outer block), then a fence whose
+        // closer is immediately followed by a second lead — the shape
+        // where the callout pass has to read the fence roles first. Ten
+        // lines, so the cycle stays odd and its blocks keep landing on
+        // different segment boundaries.
+        out.addAll([
+          '> [!TIP] Rest $i',
+          '> keep the bar loose',
+          '>> nested note',
+          '> [!NOTE] inner lead',
+          '',
+          '```',
+          'inert $i',
+          '```',
+          '> [!WARNING] after fence',
+          '> body',
+        ]);
     }
     i++;
   }
   return out;
 }
+
+/// A document whose every 256-line segment opens with one callout block
+/// (lead, two body lines, the blank that ends it) and is filled out to
+/// exactly one segment. A line's segment index is therefore `line ~/ 256`
+/// and the block never straddles a seam, which is what lets the seam
+/// proofs aim a keystroke at a chosen segment.
+List<String> _calloutSegments(int segments) => <String>[
+  for (int s = 0; s < segments; s++) ...[
+    '> [!TIP] block $s',
+    '> body one $s',
+    '> body two $s',
+    '',
+    for (int i = 0; i < 252; i++) 'filler $s-$i',
+  ],
+];
 
 CodeLines codeLinesOf(List<String> lines) =>
     CodeLines.of(lines.map(CodeLine.new));
@@ -1656,6 +2098,9 @@ void expectMatchesFresh(
     final MarkdownFenceRole a = index.fenceRoleAt(lines, i);
     final MarkdownFenceRole b = fresh.fenceRoleAt(lines, i);
     if (a != b) mismatches.add('line $i fence: $a != $b');
+    final int ca = index.calloutAt(lines, i);
+    final int cb = fresh.calloutAt(lines, i);
+    if (ca != cb) mismatches.add('line $i callout: $ca != $cb');
     final bool ta = index.taskIndeterminate(lines, i);
     final bool tb = fresh.taskIndeterminate(lines, i);
     if (ta != tb) mismatches.add('line $i task: $ta != $tb');
@@ -1691,7 +2136,7 @@ String _lineTextOf(CodeLines lines, String mismatch) {
 // Edits, driven through the real controller API
 // ---------------------------------------------------------------------------
 
-enum _EditKind { replace, enterSplit, deleteLine, fenceToggle }
+enum _EditKind { replace, enterSplit, deleteLine, fenceToggle, calloutToggle }
 
 const List<String> _replacements = [
   '- [x] done now',
@@ -1745,6 +2190,20 @@ void _applyEdit(
         index,
         text.trimLeft().startsWith('```') ? 'was a fence line' : '```',
       );
+    case _EditKind.calloutToggle:
+      // A three-state cycle over the callout grammar's own transitions:
+      // plain line -> lead -> plain quote body -> plain line. Every step
+      // flips the role of every contiguous `>` line below it.
+      final String text = controller.codeLines[index].text;
+      final String next;
+      if (MarkdownCalloutSyntax.parseLead(text) != null) {
+        next = '> toggled body';
+      } else if (MarkdownCalloutSyntax.isBlockquoteLine(text)) {
+        next = 'toggled';
+      } else {
+        next = '> [!TIP] toggled';
+      }
+      _replaceLine(controller, index, next);
   }
 }
 

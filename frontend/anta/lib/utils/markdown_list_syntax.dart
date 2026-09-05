@@ -247,6 +247,26 @@ class MarkdownListSyntax {
         c == 0xFEFF;
   }
 
+  /// The rendered bullet glyph for a list [level]: `•` (U+2022) at level
+  /// 0, `◦` (U+25E6) at level 1 and `▪` (U+25AA) at level 2, cycling
+  /// every three levels.
+  ///
+  /// The single source for both surfaces — the preview renderer and the
+  /// live editor — so a nested bullet can never look different in the
+  /// two. Each glyph is exactly one UTF-16 code unit, so the editor may
+  /// substitute it 1:1 for the source marker without adding or dropping
+  /// a code unit (caret and search offsets stay aligned).
+  static String bulletGlyph(int level) {
+    switch (level % 3) {
+      case 0:
+        return '•';
+      case 1:
+        return '◦';
+      default:
+        return '▪';
+    }
+  }
+
   /// Visual nesting level for a leading-whitespace string (or any line —
   /// only the leading whitespace is inspected). Tabs count as two
   /// columns; every [indentUnit] columns is one level.
