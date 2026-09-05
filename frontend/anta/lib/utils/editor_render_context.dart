@@ -74,11 +74,20 @@ class EditorRenderContext {
 /// [ThemeData] instance until the theme actually changes, and the fork
 /// reuses its line style, so the common path is two identity checks;
 /// only a real generation change allocates.
+///
+/// An ancestor that builds its `ThemeData(...)` inside `build()` hands
+/// over a fresh instance every frame, which no identity check can
+/// absorb — so a miss falls back to comparing the *derived* context by
+/// value and keeps returning the cached instance when it matches. That
+/// costs one derivation per layout pass instead of one per line, and it
+/// is what keeps the span memos (whose generation key this is) warm.
 class EditorRenderContextCache {
   ThemeData? _theme;
   TextStyle? _style;
   EditorRenderContext? _context;
 
+  /// The render context for [theme] and [style], reusing the cached
+  /// instance whenever the derived values have not moved.
   EditorRenderContext of(ThemeData theme, TextStyle style) {
     final cached = _context;
     if (cached != null &&
@@ -87,8 +96,11 @@ class EditorRenderContextCache {
       return cached;
     }
     final context = EditorRenderContext.fromTheme(theme, style);
+    // Adopt the new references either way, so a rebuilt-but-equal theme
+    // pays the value comparison once rather than on every line.
     _theme = theme;
     _style = style;
+    if (cached != null && context == cached) return cached;
     _context = context;
     return context;
   }

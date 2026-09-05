@@ -38,6 +38,7 @@ part '_isolate.dart';
 part 'code_autocomplete.dart';
 part 'code_chunk.dart';
 part 'code_editor.dart';
+part 'code_field_testing.dart';
 part 'code_find.dart';
 part 'code_formatter.dart';
 part 'code_indicator.dart';

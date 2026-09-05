@@ -1424,6 +1424,170 @@ read; under `BoxHeightStyle.max` with `height: 1.4` the first rect's top
 is 0.4, not 0; `dart format` leaves the fork package in the old style
 (its own language version) — do not "fix" it to match the app.
 
+#### Session 5 review — 2026-09-05
+
+Three read-only passes over the shipped code as it stands after Sessions
+6–7 (A: the seven renderer libraries + `EditorRenderController`; B: the
+fork's paragraph layer; C: every consumer of the render's per-line height
+contract), then two implementation workers — one for `lib/` + `test/utils`,
+one sequenced over `packages/re_editor/` + `test/re_editor/`. Nothing
+committed; the working tree sits on `197d000`. Five findings are real
+bugs (A1, B4, C1, C2, C3); everything else is debt the review either paid
+or recorded.
+
+**A. Span builder.** A1 (bug): the positional money branch was gated on
+`!reveal`, so a caret-line build of a display row (`$$`, `$?`, `$^`, `$~`,
+bare `$!`, any value-slot row) went through `_buildLine` with the default
+balance of 0 — the label's accent flipped from red to primary the moment
+the caret entered a negative total, and a bare `$!` with no target lost
+its warning tint. The balance is resolved for both reveal states now and
+only the memo is skipped on reveal. A2: the positional memo keys were
+string interpolations (`'m:$balance:$text'` etc.) that copied the whole
+line on every build, hits included — every visible fence line, display
+row and indeterminate task paid an O(line) allocation per layout pass;
+`EditorSpanCache` keys the positional LRU by a `PositionalSpanKey` record
+`(tag, value, text)` instead (four tag constants, the balance in the
+value slot). A3: the code-unit inventory assert lived only in
+`EditorSpanEmitter.emit`, which the money row, list-marker runs, chrome
+runs and paint spans bypass — `build()` is now a wrapper over a private
+`_route` with one debug assert over `toPlainText(includePlaceholders:
+true).length == text.length`, covering every shape. A4:
+`EditorRenderContextCache.of` compared `ThemeData` by identity only, so a
+surface whose ancestor constructs a `ThemeData` in `build()` allocated a
+context per line per pass; on an identity miss it now derives the
+candidate and hands back the cached instance when they compare equal.
+A5: `_buildLine` ran `MarkdownListSyntax.parse` (three regexes plus a
+content substring the builder never reads) on every non-money,
+non-heading line — the caret line on every keystroke, since reveal lines
+are never memoised; it is gated by the allocation-free `scanListShape`,
+and `test/utils/markdown_list_syntax_test.dart` (new, 58 cases) pins the
+lockstep between the scan and the three regexes, which had no test at
+all. A6: `EditorRenderController` seeded its own config from
+`defaultMoneyConfig` while the builder started from
+`MoneyDisplayConfig.disabled` — equal only while
+`SettingsKeys.defaultMoneyLedgerEnabled` is false; the controller's
+constructor applies the default to the builder, so `applyMoneyConfig`'s
+change report is true by construction (the pin cannot fail today and
+says so). A7: both event sheets fell back to the raw span with live
+rendering off, where the page falls back to `EditorRenderController.
+ghostSpan` — ghosts rendered raw in the sheets; both route through the
+same static now.
+
+**B. Fork paragraph layer.** B4 (bug): `set textStyle` took a sub-`layout`
+`RenderComparison` (the light↔dark `textColor` flip) to `markNeedsPaint`
+only, but the colour is baked into the `ui.Paragraph`s and
+`updateBaseStyle` is reached only from the highlighter during layout — a
+theme switch redrew the old-colour paragraphs until something else forced
+a relayout. The branch now clears the highlighter cache, drops
+`_displayParagraphs` and marks layout; `test/re_editor/text_style_repaint_test.dart`
+was written first and failed on the unmodified code. B1: `_measureMarker`
+accepted a marker up to 1.5× the preferred height while
+`_ParagraphImpl.lineCount` is `ceil(height / preferred)`, so a marker in
+`(1×, 1.5×]` would report two rows and push every following line down a
+row — latent (the app clamps its placeholders to 0.85×/0.9× of the line
+box), and the gate is `lineCount > 1` on the built marker now, one
+arithmetic for gate and consumers. B2: the placeholder assert only
+checked the declared box height, and a middle-aligned box at exactly the
+strut height can still grow a line — a second debug check after layout
+(`_debugLaidOutLineFitsStrut`, only when the tree holds a
+`CodeInlinePaintSpan`) asserts `height <= rows * preferred + 0.5` on
+plain, marker and content paragraphs. B3: the paragraph LRU evicted its
+L2 head and removed it from L1, but L2 was only touched on an L2 hit,
+never on the identity hits that serve every stable line — 128 distinct
+keystrokes on one line (each a fresh reveal span) walked the eviction
+through every still-visible line and forced a viewport-wide rebuild. The
+comment at the top of `build` claimed the opposite of what the eviction
+did. Eviction is CLOCK-style now: an L1 hit sets `_recentlyUsed` on the
+paragraph, a flagged head gets one lap's second chance, only an unflagged
+head leaves both maps — the hard 128 bound is untouched. B5 (doc drift):
+the Outcome's "no longer emit empty `TextSpan('')` nodes and the dead
+`remaining <= 0` branch is gone" was half true — `_dropPrefix`'s
+`remaining <= 0` branch is the load-bearing identity fast path and
+`trucate`'s top-level `TextSpan('')` return was still there (reachable
+only for `maxLength <= 0`); it returns `TextSpan(style:)` now. B6: a
+`CodeDecoratedTextSpan` cut in the middle by either split was rebuilt as
+a plain `TextSpan` and lost its chip — unreachable from the app's
+emitters (decorated runs start at or after the split point) but
+unenforced; both sites rebuild through `_rebuildSplit`, which keeps the
+decoration and deliberately strips a `CodeHangingTextSpan` root's tag.
+B7: `CodeHangingTextSpan.hangingChars` documents that it must fall on a
+word boundary (`getWord` resolves per part and never crosses the seam).
+B9: `_dropPrefix` skips a whole subtree by length before recursing, as
+`trucate` already did.
+
+**C. Per-line height consumers.** C1 (bug): `makePositionVisible`'s
+bottom-edge test and jump used the flat `_preferredLineHeight`, but
+`offset` is the caret's top and the caret is painted the paragraph's own
+height — on a `# H1` at the bottom edge the lower half stayed clipped
+under the keyboard and no scroll happened; this is the autoscroll behind
+every edit. C2 (bug): the same defect in `makePositionCenterIfInvisible`'s
+visible branch — the `goToMatch` re-centre and the note-open position
+restore left a matched heading half-cut. Both use
+`lineHeightOfLine(position.index)` now (safe: the branches only run when
+the paragraph is displayed). C3 (bug): the downward off-screen branch of
+the same function measured from `first.index` where its sibling uses
+`last.index` and *added* half a viewport where centring subtracts — a
+jump to a match below the window overshot by about two viewports and the
+`tryCount` retry walked it back, a visible flick. C4: the blinking-cursor
+painter's `_height` was written and never read (paint uses the
+paragraph's height); gone. C11: the retry forwards `animated`. The scroll
+coordinate model above the window is flat by design (`startIndex *
+preferred`, `correctBy(delta)` folding real heights back, capped
+re-entry), so the estimate-based off-window jumps are consistent, not
+wrong — the residual after convergence is exactly the target line's
+`actual − base`, which is C1/C2.
+
+**Not changed, on purpose.** `floatingCursorHeight` still reports the
+base height while the floating caret paints at `lineHeightAtOffset` (iOS
+only, sub-line); `showToolbar`'s whole-viewport heuristic uses the base
+height as slop (picks between two anchor strategies, bounded); the
+handle overlays are rebuilt from the controller listener only, so a
+handle built while its line is off-window keeps the base height until
+the next selection change (suspected, unconfirmed); the chunk-indicator
+dots and hit rect are base-height (in the contract's allowed-flat list);
+`size.width - _preferredLineHeight` as a horizontal margin; the
+autocomplete popup and gutter hit test (both unused by the app);
+`getRangeForSpan` double-counts a nested span with both text and children
+(upstream, dormant — no `MouseTrackerAnnotationTextSpan` exists);
+`_plainSpan` is built for every line the app then replaces
+(`buildTextSpan`'s contract). The B1 window `(1×, 1.5×]` is not reachable
+with the test font (a middle-aligned placeholder at exactly the strut
+height leaves the marker at one row), so B1 ships on the existing suite
+plus B2's post-layout assert.
+
+**Doc drift corrected.** The skill said "six libraries" and listed
+seven; the Outcome's emitter line count (210 → 220) and its `trucate`
+claim (B5); the skill's per-line-height list omitted the scroll helpers
+that C1/C2 live in.
+
+Traps: `CodeEditor` has no `spanBuilder` parameter — the builder is set
+on `CodeLineEditingController`, which is what the harness's
+`pumpScrollEditor(scaledLines:)` does to make a line twice as tall; a
+scaled root must keep `fontFamily`/`height` or the fork's strut assert
+fires; the render type is private, so `CodeFieldRenderForTesting.of(
+renderObject)` (`code_field_testing.dart`, `@visibleForTesting`) is the
+seam for `lineHeight` / `lineHeightOfLine` / `lineHeightAtOffset`; under
+`forceStrutHeight` a text-only paragraph's height is always an exact
+multiple of the strut step, so only a placeholder can reach a fractional
+row; the A2 record key cannot be proven by a failing test (the old string
+key also carried the balance), so its pin mutates the key instead.
+
+Numbers: `test/re_editor/` is 115 passing + 1 skipped across 16 suites
+(hanging_paragraph 17 → 28, paragraph_cache_identity 4 → 6,
+line_height_contract 2, scroll_to_position 3, text_style_repaint 1);
+`markdown_editor_span_builder_units_test.dart` 144 → 161 (the corpus
+gained empty-content list lines, a ghost-only line and `- $$ total`, and
+its reveal-parity loop now compares root `runtimeType`, `fontSize`,
+`height` and `fontFamily` across the two states — the reveal-versus-
+concealed line-height test over every shape); `editor_render_controller_test.dart`
+32 → 33; `markdown_list_syntax_test.dart` new, 58. Hanging benchmark:
+cold 37.95 → 38.7 µs/line (noise), warm 0.59 → 0.49 µs/line. Full suite
+**3,363** passing (7 benchmark cases skipped), up 95 from 3,268; `dart
+analyze lib`, `dart analyze test` and `dart analyze
+packages/re_editor/lib` clean apart from the fork's two pre-existing
+`avoid_print` infos; `dart format --set-exit-if-changed` over the 22
+touched files changes nothing. Nothing committed.
+
 ### Session 6 — editor page controllers
 
 Goal: settings apply without reopening, restore is deterministic, no

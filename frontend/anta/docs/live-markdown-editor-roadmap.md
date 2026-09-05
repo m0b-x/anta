@@ -90,6 +90,18 @@ lines bypass the memo.
       ghost inside concealed link chrome paints nothing; a mid-line
       `![a](b)` is a pinned, by-design divergence (preview `!` + link, editor
       raw). Details in the ledger's "Session 4 review" block.
+- [x] Session 5 review (2026-09-05, Done): a display money row keeps its
+      sign colour on the caret line (reveal built with balance 0), the
+      light/dark switch relays out the editor's cached paragraphs instead of
+      redrawing them in the old colour, autoscroll-to-caret and the
+      go-to-match re-centre use the target line's own height (a scaled
+      header at the bottom edge stayed half clipped) and the off-window
+      centring jump no longer overshoots by two viewports; positional memo
+      keys are records (no line copy per hit), the list branch is gated by
+      `scanListShape`, one code-unit assert covers every line shape, the
+      paragraph LRU evicts CLOCK-style so identity-hot lines survive a burst
+      of caret-line spans, and a decorated span survives the hanging split.
+      Details in the ledger's "Session 5 review" block.
 - [x] `==highlight==` — amber background matching preview (shared
       `MarkdownConstants.markBackground{Light,Dark}`)
 - [x] Blockquotes `> ` — `>` substituted 1:1 with `┃` (preview's bar glyph),

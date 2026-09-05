@@ -261,7 +261,6 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
           position: _selection.extent,
           color: cursorColor,
           width: cursorWidth,
-          height: 0.0,
           visible: _showCursorNotifier.value),
       _CodeFieldFloatingCursorPainter(
         position: _floatingCursorNotifier.value,
@@ -357,7 +356,17 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
       _calculatePreferredLineHeight();
       markNeedsLayout();
     } else {
-      markNeedsPaint();
+      // A change below `layout` — the light/dark textColor flip is the
+      // one that happens — still has to relay out. The colour is baked
+      // into the `ui.Paragraph`s the provider built, and the provider's
+      // `updateBaseStyle` is reached only from the highlighter DURING
+      // layout, so a bare markNeedsPaint would redraw the same
+      // paragraphs in the old colour. Drop the cached layouts (the two
+      // halves of [forceRepaint] that are safe to run outside layout)
+      // and let the next layout rebuild them.
+      _highlighter.clearCache();
+      _displayParagraphs.clear();
+      markNeedsLayout();
     }
   }
 
@@ -1006,12 +1015,16 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
       }
       return;
     }
+    // `offset` is the TOP of the caret and the caret is drawn the
+    // paragraph's own height tall, so a scaled line (markdown header)
+    // needs its own height here — the flat base height leaves its lower
+    // half clipped and reports it as visible.
+    final double lineHeight = lineHeightOfLine(position.index);
     if (offset.dy < 0) {
       _jumpVerticallyTo(_verticalViewport.pixels + offset.dy);
-    } else if (offset.dy > size.height - _preferredLineHeight) {
-      _jumpVerticallyTo(_verticalViewport.pixels +
-          offset.dy -
-          (size.height - _preferredLineHeight));
+    } else if (offset.dy > size.height - lineHeight) {
+      _jumpVerticallyTo(
+          _verticalViewport.pixels + offset.dy - (size.height - lineHeight));
     }
     if (_horizontalViewport != null) {
       if (offset.dx < 0) {
@@ -1049,11 +1062,19 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
         }
         final CodeLineRenderParagraph last = _displayParagraphs.last;
         if (position.index > last.index) {
-          final double target = min(
-            _verticalViewportSize!,
-            last.bottom +
-                size.height / 2 +
-                _preferredLineHeight * (position.index - first.index),
+          // Measured from the LAST displayed line (the sibling
+          // makePositionVisible does the same) and centred by
+          // SUBTRACTING half a viewport: adding it, from the first
+          // line, overshot by about two viewports and left the retry
+          // below to walk the scroll back — a visible flick.
+          final double target = max(
+            0,
+            min(
+              _verticalViewportSize!,
+              last.bottom +
+                  _preferredLineHeight * (position.index - last.index) -
+                  size.height / 2,
+            ),
           );
           scrollViewport(_verticalViewport, target);
         }
@@ -1065,22 +1086,24 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
               viewport.context.notificationContext == null) {
             return;
           }
-          makePositionCenterIfInvisible(position, tryCount: tryCount + 1);
+          makePositionCenterIfInvisible(position,
+              tryCount: tryCount + 1, animated: animated);
         });
       }
       return;
     }
+    // As in makePositionVisible: `offset` is the caret top, so the
+    // bottom-edge test and the target both need the paragraph's own
+    // height or a scaled line stays half clipped after re-centring.
+    final double lineHeight = lineHeightOfLine(position.index);
     if (offset.dy < paddingTop) {
       final double target =
           max(0, _verticalViewport.pixels + offset.dy - size.height / 2);
       scrollViewport(_verticalViewport, target);
-    } else if (offset.dy > size.height - _preferredLineHeight - paddingBottom) {
+    } else if (offset.dy > size.height - lineHeight - paddingBottom) {
       final double target = min(
         _verticalViewportSize!,
-        _verticalViewport.pixels +
-            offset.dy +
-            _preferredLineHeight -
-            size.height / 2,
+        _verticalViewport.pixels + offset.dy + lineHeight - size.height / 2,
       );
       scrollViewport(_verticalViewport, target);
     }
@@ -1632,8 +1655,6 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
       style: _textStyle,
     );
     _preferredLineHeight = painter.preferredLineHeight;
-    _foregroundRender.find<_CodeFieldCursorPainter>().height =
-        painter.preferredLineHeight;
     _foregroundRender.find<_CodeFieldFloatingCursorPainter>().height =
         painter.preferredLineHeight;
   }
@@ -2034,7 +2055,6 @@ class _CodeFieldCursorPainter extends _CodeFieldExtraPainter {
   CodeLinePosition _position;
   Color _color;
   double _width;
-  double _height;
   bool _visible;
   bool _willDraw;
 
@@ -2042,12 +2062,10 @@ class _CodeFieldCursorPainter extends _CodeFieldExtraPainter {
     required CodeLinePosition position,
     required Color color,
     required double width,
-    required double height,
     required bool visible,
   })  : _position = position,
         _color = color,
         _width = width,
-        _height = height,
         _visible = visible,
         _willDraw = true,
         _paint = Paint();
@@ -2075,14 +2093,6 @@ class _CodeFieldCursorPainter extends _CodeFieldExtraPainter {
       return;
     }
     _width = value;
-    notifyListeners();
-  }
-
-  set height(double value) {
-    if (_height == value) {
-      return;
-    }
-    _height = value;
     notifyListeners();
   }
 

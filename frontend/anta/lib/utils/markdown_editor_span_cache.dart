@@ -4,6 +4,16 @@ import 'editor_render_context.dart';
 import 'lru_cache.dart';
 import 'markdown_money_syntax.dart';
 
+/// Key of the positional span memo: the reason a line's rendering is
+/// positional ([EditorSpanCache.positionalFenceDelimiter] and friends),
+/// the value that distinguishes two renderings of the same text (a money
+/// row's balance; `0` for every tag that has none), and the line text.
+///
+/// A record rather than an interpolated string on purpose: the tag and
+/// the value fold into the key without copying the line, so a memo hit
+/// on the typing path allocates nothing but the key itself.
+typedef PositionalSpanKey = (int tag, int value, String text);
+
 /// The live editor renderer's memos, and the theme generation they are
 /// valid under.
 ///
@@ -16,7 +26,11 @@ import 'markdown_money_syntax.dart';
 /// * [positional] — the small LRU for lines whose rendering depends on
 ///   the lines around them (fence roles, indeterminate task parents,
 ///   money rows carrying a computed balance). The same text can render
-///   differently, so the role — and the value — go into the key.
+///   differently, so the role — and the value — go into the key: a
+///   [PositionalSpanKey] record, never an interpolated string. Records
+///   have structural equality and hashing in Dart 3, so the key is as
+///   good as a composed string without copying the line on every
+///   lookup — and every lookup here is on the typing path.
 /// * [parseMoney] — the money parse memo. The parse is a pure function
 ///   of the line text, so no configuration change can stale it and it
 ///   is never cleared; the LRU is its only bound.
@@ -28,6 +42,20 @@ class EditorSpanCache {
   /// Sentinel cached for lines the renderer leaves unhandled, so misses
   /// and "raw" lines are distinguishable with a single lookup.
   static const TextSpan unhandled = TextSpan();
+
+  /// [PositionalSpanKey] tag: a ``` fence delimiter line.
+  static const int positionalFenceDelimiter = 0;
+
+  /// [PositionalSpanKey] tag: a line inside a ``` fence.
+  static const int positionalFenceInterior = 1;
+
+  /// [PositionalSpanKey] tag: an unchecked task line whose subtree is
+  /// partially complete, so its box renders indeterminate.
+  static const int positionalTaskIndeterminate = 2;
+
+  /// [PositionalSpanKey] tag: a money row that displays a computed
+  /// value; the key's `value` slot carries that row's balance.
+  static const int positionalMoney = 3;
 
   static const int _spanCacheSize = 1024;
   static const int _positionalSpanCacheSize = 128;
@@ -51,7 +79,7 @@ class EditorSpanCache {
     maxSize: _spanCacheSize,
   );
 
-  final LruCache<String, TextSpan> _positionalSpanCache = LruCache(
+  final LruCache<PositionalSpanKey, TextSpan> _positionalSpanCache = LruCache(
     maxSize: _positionalSpanCacheSize,
   );
 
@@ -106,9 +134,11 @@ class EditorSpanCache {
       _spanCache.put(text, span ?? unhandled);
 
   /// The memoized span for a positionally-styled line, or `null`.
-  TextSpan? positional(String key) => _positionalSpanCache.get(key);
+  TextSpan? positional(PositionalSpanKey key) => _positionalSpanCache.get(key);
 
-  void putPositional(String key, TextSpan span) =>
+  /// Memoizes [span] under [key]. Only ever called for off-caret lines:
+  /// a reveal build is never memoized, positionally or textually.
+  void putPositional(PositionalSpanKey key, TextSpan span) =>
       _positionalSpanCache.put(key, span);
 
   /// [MarkdownMoneySyntax.parse] behind the parse memo. The result is a

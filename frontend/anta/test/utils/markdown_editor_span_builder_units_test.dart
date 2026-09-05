@@ -19,8 +19,9 @@ import 'package:re_editor/re_editor.dart';
 ///   back (see [_substitutions]),
 /// * an identical span instance on a repeated off-caret build (the memo
 ///   must return the same object or re_editor's paragraph cache misses),
-/// * a root `fontSize` that does not move between reveal states (a caret
-///   move must never change a line's height).
+/// * a root span whose type, `fontSize`, `height` and `fontFamily` do
+///   not move between reveal states — the fork keys a line's own height
+///   off exactly those, so a caret move must never reflow the document.
 void main() {
   // Nothing here pumps a widget: the renderer takes an
   // [EditorRenderContext], not a `BuildContext`. The binding is still
@@ -96,10 +97,28 @@ void main() {
           on == null,
           reason: 'handled-ness must not depend on reveal: $where',
         );
+        // Everything the fork reads off a line's root span to decide
+        // that line's own height. If any of it moved on a caret move,
+        // the document would reflow under the user's thumb.
+        expect(
+          off.runtimeType,
+          on.runtimeType,
+          reason: 'root span type must not move between reveal states: $where',
+        );
         expect(
           off?.style?.fontSize,
           on?.style?.fontSize,
           reason: 'root fontSize must not move between reveal states: $where',
+        );
+        expect(
+          off?.style?.height,
+          on?.style?.height,
+          reason: 'root height must not move between reveal states: $where',
+        );
+        expect(
+          off?.style?.fontFamily,
+          on?.style?.fontFamily,
+          reason: 'root fontFamily must not move between reveal states: $where',
         );
 
         controller.selection = const CodeLineSelection.collapsed(
@@ -189,6 +208,139 @@ void main() {
         reason: 'the money chip is the row\'s only visible glyph',
       );
     });
+  });
+
+  // A display row's accent — and with it the colour of its label — is a
+  // function of the balance above it, which is positional state. A
+  // reveal build paints no chip, but it still has to resolve that
+  // balance: colour must not depend on where the caret is.
+  group('money accent survives a caret move', () {
+    test('a negative total stays negative on the caret line', () {
+      final pair = _renderBothStates(
+        r'$$ balance',
+        above: const <String>[r'$= 500', r'$- 900 rent'],
+      );
+      final off = _labelColour(pair.off, 'balance');
+      final on = _labelColour(pair.on, 'balance');
+
+      expect(
+        on,
+        off,
+        reason:
+            'the row accent must not move between reveal states\n'
+            '  off-caret: ${pair.off.visibleText}\n'
+            '  on-caret:  ${pair.on.visibleText}',
+      );
+      expect(
+        off,
+        MarkdownConstants.moneyNegative(dark: false),
+        reason: 'the running balance is 500 - 900',
+      );
+      expect(
+        off,
+        isNot(_renderContext.primary),
+        reason: 'a zero balance would render primary — that is the bug',
+      );
+    });
+
+    test('a target status with no target stays warning-tinted', () {
+      final pair = _renderBothStates(r'$! left');
+      final off = _labelColour(pair.off, 'left');
+      final on = _labelColour(pair.on, 'left');
+
+      expect(on, off, reason: 'the no-target warning must survive reveal');
+      expect(off, MarkdownConstants.moneyWarning(dark: false));
+    });
+
+    test('a target status reads its declaration on the caret line', () {
+      final pair = _renderBothStates(
+        r'$! left',
+        above: const <String>[r'$! 1000', r'$= 200'],
+      );
+      final off = _labelColour(pair.off, 'left');
+
+      expect(_labelColour(pair.on, 'left'), off);
+      expect(
+        off,
+        isNot(MarkdownConstants.moneyWarning(dark: false)),
+        reason: 'a declaration precedes the row, so it is not a no-target',
+      );
+    });
+  });
+
+  // The positional memo's key carries the row's balance, so the same
+  // text renders differently above different ledgers — and identically
+  // above the same one.
+  group('positional money memo', () {
+    test('keys on the balance, not on the row text alone', () {
+      final controller = CodeLineEditingController.fromText(
+        <String>[r'$= 500', r'$$ balance', _pad].join('\n'),
+      );
+      addTearDown(controller.dispose);
+      final builder = MarkdownEditorSpanBuilder()..bind(controller);
+      builder.configureMoney(_moneyEnabled);
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 2,
+        offset: 0,
+      );
+
+      TextSpan? total() => builder.build(
+        context: _renderContext,
+        index: 1,
+        codeLine: controller.codeLines[1],
+      );
+
+      final first = total();
+      expect(first, isNotNull);
+      expect(
+        identical(total(), first),
+        isTrue,
+        reason: 'an unchanged balance must hit the positional memo',
+      );
+
+      controller.codeLines = controller.codeLines.replaceLine(
+        0,
+        CodeLine(r'$= 900'),
+      );
+      final moved = total();
+      expect(
+        identical(moved, first),
+        isFalse,
+        reason: 'editing the line above must re-render the total',
+      );
+
+      controller.codeLines = controller.codeLines.replaceLine(
+        0,
+        CodeLine(r'$= 500'),
+      );
+      expect(
+        identical(total(), first),
+        isTrue,
+        reason: 'the original balance must find its original span again',
+      );
+    });
+  });
+
+  // Enter-continuation leaves empty items behind constantly. They have a
+  // marker but no content paragraph, so the fork's hanging-indent root
+  // must not be used — there is nothing to hang.
+  group('empty list items', () {
+    for (final line in const <String>['- ', '* ', '1. ', '1) ', '- [ ] ']) {
+      test('"$line" keeps a plain root in both reveal states', () {
+        final pair = _renderBothStates(line, money: false);
+        for (final render in <_Render>[pair.off, pair.on]) {
+          expect(
+            render.span,
+            isA<TextSpan>().having(
+              (span) => span is CodeHangingTextSpan,
+              'is a hanging span',
+              isFalse,
+            ),
+            reason: 'an empty item has no content to hang under',
+          );
+        }
+      });
+    }
   });
 
   group('money parse is memoised', () {
@@ -286,6 +438,38 @@ void main() {
       );
       expect(cache.adoptContext(darker), isTrue);
       expect(cache.renderContext, darker);
+    });
+
+    test('a rebuilt but value-equal theme reuses the cached context', () {
+      // A surface whose ancestor builds `ThemeData(...)` inside its own
+      // `build()` hands the cache a fresh instance every frame. Identity
+      // cannot absorb that, so the value comparison has to — otherwise
+      // the span memos are dropped on every layout pass.
+      final cache = EditorRenderContextCache();
+      final first = cache.of(_freshTheme(), _baseStyle);
+      final second = cache.of(_freshTheme(), _baseStyle);
+
+      expect(
+        identical(_freshTheme(), _freshTheme()),
+        isFalse,
+        reason: 'the fixture must hand over two distinct instances',
+      );
+      expect(
+        identical(second, first),
+        isTrue,
+        reason: 'a value-equal generation must reuse the cached instance',
+      );
+
+      final dark = cache.of(
+        ThemeData(useMaterial3: true, brightness: Brightness.dark),
+        _baseStyle,
+      );
+      expect(identical(dark, first), isFalse);
+      expect(
+        identical(cache.of(_freshTheme(), _baseStyle), first),
+        isFalse,
+        reason: 'the cache holds one generation, not a history of them',
+      );
     });
 
     test('a rebuilt but equal context keeps the identical span', () {
@@ -392,6 +576,10 @@ class _Leaf {
 
 typedef _Render = ({TextSpan span, List<_Leaf> leaves, String visibleText});
 
+/// One line rendered in both reveal states: `off` with the caret
+/// elsewhere (markers concealed), `on` with the caret on the line.
+typedef _RevealPair = ({_Render off, _Render on});
+
 /// Builds [line] off-caret (the caret parks on the padding line 0, or a
 /// collapsed selection would reveal the line under test) and projects the
 /// span tree down to what the reader actually sees. A fresh builder per
@@ -421,6 +609,62 @@ _Render _renderOffCaret(
     visibleText: leaves.map((leaf) => leaf.text).join(),
   );
 }
+
+/// A freshly constructed light theme, value-equal to the one behind
+/// [_renderContext] and never identical to another call's result — the
+/// shape an ancestor that builds its `ThemeData(...)` inside `build()`
+/// hands to [EditorRenderContextCache] on every frame.
+ThemeData _freshTheme() =>
+    ThemeData(useMaterial3: true, brightness: Brightness.light);
+
+/// The same [line] built twice with one builder: once with the caret
+/// parked on the padding line (concealed markers) and once with it on
+/// the line itself (reveal). One builder for both, so the reveal build
+/// cannot be answered out of the memo the off-caret build filled.
+_RevealPair _renderBothStates(
+  String line, {
+  List<String> above = const <String>[],
+  bool money = true,
+}) {
+  final document = <String>[_pad, ...above, line, _pad];
+  final index = 1 + above.length;
+  final controller = CodeLineEditingController.fromText(document.join('\n'));
+  addTearDown(controller.dispose);
+  final builder = MarkdownEditorSpanBuilder()..bind(controller);
+  builder.configureMoney(money ? _moneyEnabled : MoneyDisplayConfig.disabled);
+
+  _Render at(int caretLine) {
+    controller.selection = CodeLineSelection.collapsed(
+      index: caretLine,
+      offset: 0,
+    );
+    final span = builder.build(
+      context: _renderContext,
+      index: index,
+      codeLine: controller.codeLines[index],
+    );
+    expect(span, isNotNull, reason: 'expected a styled span for: $line');
+    final leaves = _visibleLeaves(span!);
+    return (
+      span: span,
+      leaves: leaves,
+      visibleText: leaves.map((leaf) => leaf.text).join(),
+    );
+  }
+
+  return (off: at(0), on: at(index));
+}
+
+/// The colour a money row paints [label] in — its `labelStyle`, which
+/// carries the row's accent on both surfaces.
+Color? _labelColour(_Render render, String label) => render.leaves
+    .firstWhere(
+      (leaf) => leaf.text.trim() == label,
+      orElse: () =>
+          throw StateError('no "$label" leaf in: ${render.visibleText}'),
+    )
+    .style
+    ?.color;
 
 /// A marker span: transparent and shrunk to a 0.01 font size, which is
 /// exactly what the builder's `_concealStyle` produces.
@@ -577,6 +821,15 @@ final List<_Case> _corpus = <_Case>[
   ),
   const _Case('list with inline runs', '- **heavy** `3x5` #legs'),
 
+  // Empty list items — the shape Enter-continuation leaves behind. The
+  // marker still renders, but there is no content paragraph to hang
+  // under, so the root must stay a plain span.
+  const _Case('bullet with no content', '- '),
+  const _Case('bullet star with no content', '* '),
+  const _Case('ordered dot with no content', '1. '),
+  const _Case('ordered paren with no content', '1) '),
+  const _Case('task with no content', '- [ ] '),
+
   // Ghost text, on its own and composed.
   const _Case('ghost alone', 'hello {{ name }} there'),
   const _Case('ghost blank', 'hello {{}} there'),
@@ -584,6 +837,7 @@ final List<_Case> _corpus = <_Case>[
   const _Case('ghost inside link text', 'a [see {{ what }}](https://x.dev) b'),
   const _Case('ghost inside colour run', 'a {red:take {{ n }} pills} b'),
   const _Case('ghost with braces around', 'a {{ x }} and {red:y} b'),
+  const _Case('ghost is the whole line', '{{ topic }}'),
 
   // Escapes.
   const _Case('escaped asterisks', r'a \*not italic\* b'),
@@ -662,6 +916,11 @@ final List<_Case> _corpus = <_Case>[
   const _Case('money heading prefix', r'## $$'),
   const _Case('money heading no space', r'##$$'),
   const _Case('money list marker', r'- $= 500'),
+  _Case(
+    'money list marker on a display row',
+    r'- $$ total',
+    above: const <String>[r'$= 500'],
+  ),
   const _Case('money ordered list marker', r'1. $+ 50 tip'),
   const _Case('money emphasis wrapper', r'*$~ 2 Change: $ *'),
   const _Case('money emphasis wrapped diff', r'*$^ 2*'),

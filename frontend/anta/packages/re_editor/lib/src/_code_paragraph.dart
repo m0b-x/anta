@@ -395,6 +395,13 @@ class _CodeParagraphProvider {
 
   int get markerCacheLength => _markerMeasurements.length;
 
+  bool markerCacheContains(TextSpan markerSpan) =>
+      _markerMeasurements.containsKey(markerSpan);
+
+  int get paragraphCacheLength => _cachedParagraphs.length;
+
+  int get identityCacheLength => _identityParagraphs.length;
+
   void updateBaseStyle(TextStyle style) {
     // Called once per line per layout pass with the render's stable
     // _textStyle, so short-circuit on the Flutter style before paying
@@ -464,13 +471,16 @@ class _CodeParagraphProvider {
       _constraints = ui.ParagraphConstraints(width: maxWidth);
       clearCache();
     }
-    // Identity fast path: no deep span hashing. The equality LRU is NOT
-    // touched here — if it evicts an entry still hot in the identity
-    // map, the identity map keeps serving it (both maps are bounded).
+    // Identity fast path: no deep span hashing. The equality LRU is not
+    // re-ordered here (that would cost the deep hash this path exists to
+    // avoid); instead the hit sets the entry's second-chance bit, which
+    // is what [_evictIfNeeded] reads so an L1-hot line is not evicted
+    // just because it was BUILT long ago.
     IParagraph? cache = _identityParagraphs[span];
     if (cache != null) {
       _identityParagraphs.remove(span);
       _identityParagraphs[span] = cache;
+      cache._recentlyUsed = true;
       return cache;
     }
     cache = _cachedParagraphs[span];
@@ -492,17 +502,43 @@ class _CodeParagraphProvider {
       impl = _build(span, plainText, false);
     }
     _cachedParagraphs[span] = impl;
-    if (_cachedParagraphs.length > _kMaxCacheSize) {
-      // Evict the oldest entry (head of the insertion-ordered map) from
-      // both maps: the identity entry for the same span instance must
-      // not outlive the equality entry, or its native paragraph memory
-      // would be pinned past eviction.
-      final TextSpan evicted = _cachedParagraphs.keys.first;
-      _cachedParagraphs.remove(evicted);
-      _identityParagraphs.remove(evicted);
-    }
+    _evictIfNeeded();
     _rememberIdentity(span, impl);
     return impl;
+  }
+
+  /// Trims the equality LRU back to [_kMaxCacheSize] with a CLOCK
+  /// (second-chance) sweep, so the hard bound holds without evicting
+  /// lines that are still on screen.
+  ///
+  /// The head of the insertion-ordered map is the oldest-BUILT entry,
+  /// which is not the coldest one: every steady-state hit is served by
+  /// the identity L1 and never re-orders L2, so a line that has been
+  /// visible the whole time still sits at the head. A head whose
+  /// second-chance bit is set is therefore moved to the tail with the
+  /// bit cleared and the sweep tries the next one; only an unflagged
+  /// head is evicted. The sweep is bounded by the map's own size — each
+  /// step clears one bit, so at most one lap runs and the entry that
+  /// closes it is evicted regardless — which makes it amortised O(1).
+  ///
+  /// Eviction removes the entry from BOTH maps: the identity entry for
+  /// the same span instance must not outlive the equality entry, or its
+  /// native paragraph memory would be pinned past eviction.
+  void _evictIfNeeded() {
+    while (_cachedParagraphs.length > _kMaxCacheSize) {
+      int lap = _cachedParagraphs.length;
+      while (true) {
+        final TextSpan head = _cachedParagraphs.keys.first;
+        final IParagraph paragraph = _cachedParagraphs.remove(head)!;
+        if (paragraph._recentlyUsed && lap-- > 0) {
+          paragraph._recentlyUsed = false;
+          _cachedParagraphs[head] = paragraph;
+          continue;
+        }
+        _identityParagraphs.remove(head);
+        break;
+      }
+    }
   }
 
   void _rememberIdentity(TextSpan span, IParagraph paragraph) {
@@ -516,7 +552,10 @@ class _CodeParagraphProvider {
     int currentLength = 0;
     TextSpan truncateSpan(TextSpan span) {
       if (currentLength >= maxLength) {
-        return const TextSpan(text: '');
+        // Reachable only for a top-level `maxLength <= 0`, and even then
+        // it must not be a `TextSpan('')` node: an empty text node is
+        // what every other branch here goes out of its way to avoid.
+        return TextSpan(style: span.style);
       }
       // currentLength < maxLength here, so a non-empty own text always
       // keeps at least one code unit: the only spans that come back
@@ -560,10 +599,32 @@ class _CodeParagraphProvider {
           }
         }
       }
-      return TextSpan(text: keptText, style: span.style, children: children);
+      return _rebuildSplit(span, keptText, children);
     }
 
     return truncateSpan(span);
+  }
+
+  /// Rebuilds one node that a split cut in the middle.
+  ///
+  /// A [CodeDecoratedTextSpan] keeps its decoration, so a tag or
+  /// inline-code chip cut by the hanging marker/content seam still
+  /// paints on both halves instead of silently losing its background. A
+  /// [CodeHangingTextSpan] root deliberately does NOT keep its hanging
+  /// tag — the two halves ARE that split, and re-tagging them would ask
+  /// the provider to split them again. Everything else rebuilds as a
+  /// plain [TextSpan], as before.
+  TextSpan _rebuildSplit(
+      TextSpan source, String? text, List<InlineSpan>? children) {
+    if (source is CodeDecoratedTextSpan) {
+      return CodeDecoratedTextSpan(
+        decoration: source.decoration,
+        text: text,
+        style: source.style,
+        children: children,
+      );
+    }
+    return TextSpan(text: text, style: source.style, children: children);
   }
 
   void clearCache() {
@@ -610,6 +671,37 @@ class _CodeParagraphProvider {
     return true;
   }
 
+  /// Debug-only post-layout counterpart of [_debugPlaceholdersFitLine].
+  ///
+  /// The cheap pre-check compares the reserved box against the line's
+  /// preferred height, but a middle-aligned box exactly that tall is
+  /// centred on the text's own centre rather than clamped by the strut,
+  /// so it can still push the laid-out line past one row. This measures
+  /// the result instead of the input: the paragraph may be no taller
+  /// than its own row count times the strut step (half a pixel of slack
+  /// for rounding). Skipped entirely for the common line with no
+  /// placeholder in it.
+  bool _debugLaidOutLineFitsStrut(
+      TextSpan span, ui.Paragraph paragraph, double preferredLineHeight) {
+    bool hasPlaceholder = false;
+    span.visitChildren((child) {
+      if (child is CodeInlinePaintSpan) {
+        hasPlaceholder = true;
+        return false;
+      }
+      return true;
+    });
+    if (!hasPlaceholder) {
+      return true;
+    }
+    final int rows = paragraph.computeLineMetrics().length;
+    assert(
+        paragraph.height <= rows * preferredLineHeight + 0.5,
+        'A CodeInlinePaintSpan grew its line past the strut: '
+        '${paragraph.height} > $rows x $preferredLineHeight.');
+    return true;
+  }
+
   IParagraph _build(TextSpan span, String plainText, bool trucated) {
     ui.ParagraphStyle? style = _paragraphStyle;
     double? preferredLineHeight = _preferredLineHeight;
@@ -638,6 +730,7 @@ class _CodeParagraphProvider {
     span.build(builder);
     final ui.Paragraph paragraph = builder.build();
     paragraph.layout(_constraints!);
+    assert(_debugLaidOutLineFitsStrut(span, paragraph, preferredLineHeight!));
     return _ParagraphImpl(
       text: plainText,
       span: span,
@@ -687,6 +780,8 @@ class _CodeParagraphProvider {
     final ui.Paragraph contentParagraph = contentBuilder.build();
     contentParagraph
         .layout(ui.ParagraphConstraints(width: max(0, maxWidth - indent)));
+    assert(_debugLaidOutLineFitsStrut(
+        contentSpan, contentParagraph, preferredLineHeight));
     return _HangingParagraphImpl(
       rootSpan: span,
       marker: measured.paragraph,
@@ -726,10 +821,25 @@ class _CodeParagraphProvider {
     markerSpan.build(markerBuilder);
     final ui.Paragraph markerParagraph = markerBuilder.build();
     markerParagraph.layout(_constraints!);
-    // A marker that wraps can't anchor a hanging indent.
-    if (markerParagraph.height > preferredLineHeight * 1.5) {
+    final _ParagraphImpl markerImpl = _ParagraphImpl(
+      text: markerText,
+      span: markerSpan,
+      paragraph: markerParagraph,
+      trucated: false,
+      preferredLineHeight: preferredLineHeight,
+    );
+    // A marker that needs more than one row can't anchor a hanging
+    // indent — and the gate has to be the SAME arithmetic its consumers
+    // use. [_ParagraphImpl.lineCount] is `(height / plh).ceil()`, so a
+    // marker only a fraction taller than one row already reports two;
+    // the old `height > plh * 1.5` test accepted that window and let
+    // [_HangingParagraphImpl]'s `max` over the two parts claim a phantom
+    // second row, pushing every following line down.
+    if (markerImpl.lineCount > 1) {
       return null;
     }
+    assert(_debugLaidOutLineFitsStrut(
+        markerSpan, markerParagraph, preferredLineHeight));
     // Measure the marker via glyph boxes instead of longestLine: the
     // prefix always ends in the separator space and longestLine excludes
     // trailing whitespace, which would collapse the marker-content gap.
@@ -751,13 +861,7 @@ class _CodeParagraphProvider {
       }
     }
     final _MarkerMeasurement measured = _MarkerMeasurement(
-      paragraph: _ParagraphImpl(
-        text: markerText,
-        span: markerSpan,
-        paragraph: markerParagraph,
-        trucated: false,
-        preferredLineHeight: preferredLineHeight,
-      ),
+      paragraph: markerImpl,
       // Floored, not ceiled: the marker's selection and search rects
       // reach the unrounded advance, so a floored indent has them
       // overlap the content's rects by under a pixel instead of
@@ -804,6 +908,18 @@ class _CodeParagraphProvider {
       if (sourceChildren != null) {
         for (final InlineSpan child in sourceChildren) {
           if (child is TextSpan) {
+            // Mirror trucate's whole-subtree skip: a subtree lying
+            // entirely before the drop point is consumed by its length
+            // instead of being walked node by node (it would be dropped
+            // either way). Children after the drop point still take the
+            // identity path inside dropSpan.
+            if (remaining > 0) {
+              final int childLength = child.length;
+              if (remaining >= childLength) {
+                remaining -= childLength;
+                continue;
+              }
+            }
             final TextSpan kept = dropSpan(child);
             if (kept.text != null || kept.children != null) {
               (children ??= []).add(kept);
@@ -816,7 +932,7 @@ class _CodeParagraphProvider {
           }
         }
       }
-      return TextSpan(text: keptText, style: span.style, children: children);
+      return _rebuildSplit(span, keptText, children);
     }
 
     return dropSpan(span);

@@ -39,6 +39,16 @@ class EditorRenderController {
   MoneyDisplayConfig _moneyConfig = defaultMoneyConfig;
   MarkdownColorPalette _palette = MarkdownColorPalette.presets;
 
+  /// Seeds the builder with the same [defaultMoneyConfig] this
+  /// controller reports, so the two can never start out disagreeing.
+  /// The builder's own default is the disabled config, which matches
+  /// only while [SettingsKeys.defaultMoneyLedgerEnabled] is false —
+  /// seeding here makes [applyMoneyConfig]'s "changed" report true by
+  /// construction instead of by coincidence.
+  EditorRenderController() {
+    _spanBuilder.configureMoney(defaultMoneyConfig);
+  }
+
   /// The live-rendering span builder, exposed for the collaborators that
   /// need it directly — the tap interceptor's zone resolution and the
   /// vocabulary controller's line lookups.

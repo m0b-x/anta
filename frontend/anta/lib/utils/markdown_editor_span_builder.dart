@@ -163,7 +163,34 @@ class MarkdownEditorSpanBuilder {
   /// [context] is the theme generation every span is built under; the
   /// caller resolves it once per generation and hands the same instance
   /// to every line, and adopting a different one drops both span memos.
+  ///
+  /// Guards the code-unit invariant for *every* line shape in debug
+  /// builds — [EditorSpanEmitter.emit] checks the ranges it emits, but
+  /// the money row, the list-marker runs, the chrome runs and the
+  /// painted placeholder spans never go through it. The check lives
+  /// entirely inside an `assert`, so release builds pay nothing.
   TextSpan? build({
+    required EditorRenderContext context,
+    required int index,
+    required CodeLine codeLine,
+  }) {
+    final span = _route(context: context, index: index, codeLine: codeLine);
+    assert(
+      span == null ||
+          span.toPlainText(includePlaceholders: true).length ==
+              codeLine.text.length,
+      'code-unit invariant: build returned '
+      '${span.toPlainText(includePlaceholders: true).length} units for a '
+      '${codeLine.text.length}-unit line: ${codeLine.text}',
+    );
+    return span;
+  }
+
+  /// [build]'s routing, split out so the debug inventory assert can wrap
+  /// every path at one place: positional shapes (fence roles, money
+  /// display rows, indeterminate task parents) first, then the
+  /// text-keyed memo, then [_buildLine] for the line shapes themselves.
+  TextSpan? _route({
     required EditorRenderContext context,
     required int index,
     required CodeLine codeLine,
@@ -179,9 +206,13 @@ class MarkdownEditorSpanBuilder {
     // straight from their role and never touch the text-keyed cache.
     final fenceRole = _fenceRoleAt(controller, index);
     if (fenceRole != MarkdownFenceRole.none) {
-      final fenceKey = fenceRole == MarkdownFenceRole.delimiter
-          ? 'd:$text'
-          : 'i:$text';
+      final fenceKey = (
+        fenceRole == MarkdownFenceRole.delimiter
+            ? EditorSpanCache.positionalFenceDelimiter
+            : EditorSpanCache.positionalFenceInterior,
+        0,
+        text,
+      );
       final cached = _cache.positional(fenceKey);
       if (cached != null) return cached;
       final span = _buildFenceLine(text: text, role: fenceRole, ctx: context);
@@ -195,19 +226,32 @@ class MarkdownEditorSpanBuilder {
     // checkpoint-span lines display a value computed from every op line
     // above — positional state from the shared index — so they style
     // through the positional memo with the value folded into the key,
-    // mirroring fences. Reveal lines show raw `$$` / `$?` / `$^` / `$~`
-    // and skip the paint. A `$` value slot in the label makes any row
+    // mirroring fences. A `$` value slot in the label makes any row
     // display a computed value, so those join the positional path too;
     // the rest of the op lines (`$+ …`) are purely textual and stay on
     // the text-keyed path below.
-    if (!reveal &&
-        _moneyConfig.enabled &&
-        MarkdownMoneySyntax.leadsWithMoney(text)) {
+    //
+    // Reveal lines show raw `$$` / `$?` / `$^` / `$~` and paint no chip,
+    // but the row's accent (and with it the label's colour) still reads
+    // off the balance — a negative total is red on both sides of a caret
+    // move, and a `$!` with no target above it stays warning-tinted — so
+    // the balance is resolved for the reveal path too. Only the memo is
+    // skipped there: a reveal build is never cached.
+    if (_moneyConfig.enabled && MarkdownMoneySyntax.leadsWithMoney(text)) {
       final money = _cache.parseMoney(text);
       if (money != null && MarkdownMoneySyntax.needsBalance(money)) {
         final balance =
             _lineIndex.moneyValueAt(controller.codeLines, index) ?? 0;
-        final moneyKey = 'm:$balance:$text';
+        if (reveal) {
+          return _buildLine(
+            text: text,
+            ctx: context,
+            reveal: true,
+            money: money,
+            moneyBalance: balance,
+          );
+        }
+        final moneyKey = (EditorSpanCache.positionalMoney, balance, text);
         final cached = _cache.positional(moneyKey);
         if (cached != null) return cached;
         final span = _buildLine(
@@ -229,7 +273,7 @@ class MarkdownEditorSpanBuilder {
     // positional memo, mirroring fences. Reveal lines show raw markers
     // and skip the facet entirely.
     if (!reveal && _isTaskIndeterminate(controller, index)) {
-      final taskKey = 't:$text';
+      final taskKey = (EditorSpanCache.positionalTaskIndeterminate, 0, text);
       final cached = _cache.positional(taskKey);
       if (cached != null) return cached;
       final span = _buildLine(
@@ -271,10 +315,11 @@ class MarkdownEditorSpanBuilder {
 
     // Money lines (`$+ 12.50 label`, `$$` total, optionally
     // header-prefixed) — grammar shared with the preview via
-    // [MarkdownMoneySyntax]. Non-reveal totals arrive pre-parsed from
-    // the positional path with their balance; op lines and reveal-mode
-    // totals parse here (purely textual either way). A `#`-led line
-    // that fails the money parse falls through to the header branch.
+    // [MarkdownMoneySyntax]. Rows that display a computed value arrive
+    // pre-parsed from the positional path with their balance in both
+    // reveal states; op lines parse here (purely textual). A `#`-led
+    // line that fails the money parse falls through to the header
+    // branch.
     if (_moneyConfig.enabled && MarkdownMoneySyntax.leadsWithMoney(text)) {
       final m = money ?? _cache.parseMoney(text);
       if (m != null) {
@@ -306,16 +351,26 @@ class MarkdownEditorSpanBuilder {
       );
     }
 
-    final item = MarkdownListSyntax.parse(text);
-    if (item != null) {
-      return _buildListItem(
-        text: text,
-        item: item,
-        ctx: ctx,
-        reveal: reveal,
-        ghosts: ghosts,
-        indeterminate: taskIndeterminate,
-      );
+    // [MarkdownListSyntax.scanListShape] is the allocation-free
+    // companion of [MarkdownListSyntax.parse] and is documented to stay
+    // in lockstep with its three regexes, so this gate never hides a
+    // list line — it only spares every other line (the caret line
+    // included, which is rebuilt on each keystroke and never memoized)
+    // the regexes plus the content substring [_buildListItem] never
+    // reads. `test/utils/markdown_list_syntax_test.dart` pins the
+    // lockstep over a corpus.
+    if (MarkdownListSyntax.scanListShape(text) >= 0) {
+      final item = MarkdownListSyntax.parse(text);
+      if (item != null) {
+        return _buildListItem(
+          text: text,
+          item: item,
+          ctx: ctx,
+          reveal: reveal,
+          ghosts: ghosts,
+          indeterminate: taskIndeterminate,
+        );
+      }
     }
 
     if (MarkdownCalloutSyntax.isBlockquoteLine(text)) {

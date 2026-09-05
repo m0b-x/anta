@@ -15,6 +15,15 @@ part of re_editor;
 /// the prefix is empty, covers the whole line, is wider than half the
 /// viewport, or the line got truncated for length.
 class CodeHangingTextSpan extends TextSpan {
+  /// Code units of the marker prefix, counted in the line's plain text
+  /// (a placeholder counts as its one U+FFFC unit).
+  ///
+  /// Must fall on a **word boundary**: the split is a real seam for
+  /// word queries, since [IParagraph.getWord] resolves against whichever
+  /// of the two paragraphs the offset lands in and so can never return a
+  /// range that crosses it. A list marker always ends in its separator
+  /// space, which is exactly such a boundary — a prefix cut inside a
+  /// word would silently halve a double-tap selection.
   final int hangingChars;
 
   const CodeHangingTextSpan({
@@ -186,6 +195,12 @@ class CodeDecoratedTextSpan extends TextSpan {
 }
 
 abstract class IParagraph {
+  /// Second-chance ("CLOCK") bit owned by the paragraph provider's
+  /// bounded cache: set whenever the identity-keyed L1 serves this
+  /// paragraph, cleared when the eviction sweep passes over it. Nothing
+  /// about the paragraph's own geometry reads it.
+  bool _recentlyUsed = false;
+
   double get width;
   double get height;
   double get preferredLineHeight;

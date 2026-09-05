@@ -199,6 +199,167 @@ void main() {
     });
   });
 
+  group('piecewise geometry queries', () {
+    test('getWord resolves inside the marker and inside the content', () {
+      final provider = _provider();
+      final IParagraph paragraph = provider.build(
+        _bulletLine('buy milk'),
+        _maxWidth,
+      );
+      const int markerLen = 2;
+
+      final TextRange inMarker = paragraph.getWord(const Offset(3, 5));
+      expect(inMarker.start, 0);
+      expect(
+        inMarker.end,
+        lessThanOrEqualTo(markerLen),
+        reason: 'a marker word may never cross the seam',
+      );
+
+      // x = indent + one glyph: the second letter of 'buy'.
+      final TextRange inContent = paragraph.getWord(
+        const Offset(2 * kGlyph + kGlyph, 5),
+      );
+      expect(
+        inContent,
+        const TextRange(start: markerLen, end: markerLen + 3),
+        reason: 'the content result is offset by the marker length',
+      );
+    });
+
+    test('getLineBoundary maps the marker row and every wrapped row', () {
+      final provider = _provider();
+      final IParagraph paragraph = provider.build(
+        _wrappingBulletLine(),
+        _maxWidth,
+      );
+      expect(paragraph.lineCount, 4);
+
+      // Content rows are [0,9) [9,20) [20,31) [31,36) at this width, so
+      // the first visual row of the line is the marker plus [0,9).
+      const TextRange firstRow = TextRange(start: 0, end: 11);
+      expect(
+        paragraph.getLineBoundary(const TextPosition(offset: 0)),
+        firstRow,
+      );
+      expect(
+        paragraph.getLineBoundary(const TextPosition(offset: 1)),
+        firstRow,
+      );
+      expect(
+        paragraph.getLineBoundary(const TextPosition(offset: 5)),
+        firstRow,
+      );
+
+      final TextRange secondRow = paragraph.getLineBoundary(
+        const TextPosition(offset: 15),
+      );
+      expect(secondRow, const TextRange(start: 11, end: 22));
+      expect(
+        secondRow.start,
+        isNot(0),
+        reason: 'Home on a wrapped row must stay on that row',
+      );
+      expect(
+        paragraph.getLineBoundary(const TextPosition(offset: 25)),
+        const TextRange(start: 22, end: 33),
+      );
+    });
+
+    test('getRangeRects walks a mid-marker range through both parts', () {
+      final provider = _provider();
+      final IParagraph paragraph = provider.build(
+        _wrappingBulletLine(),
+        _maxWidth,
+      );
+
+      // From the middle of the marker to the middle of content row 2.
+      final List<Rect> rects = paragraph.getRangeRects(
+        const TextRange(start: 1, end: 25),
+      );
+
+      expect(rects, hasLength(4));
+      expect(rects.first.left, kGlyph, reason: 'starts mid-marker');
+      expect(rects.first.right, _indent);
+      for (final Rect rect in rects.skip(1)) {
+        expect(
+          rect.left,
+          greaterThanOrEqualTo(_indent),
+          reason: 'content rects are translated by the indent',
+        );
+      }
+      for (int i = 1; i < rects.length; i++) {
+        expect(rects[i].top, greaterThanOrEqualTo(rects[i - 1].top));
+      }
+      expect(
+        rects.last.top,
+        greaterThan(paragraph.preferredLineHeight * 2 - 1),
+        reason: 'the range ends on the third visual row',
+      );
+    });
+
+    test('getRangeRects for a range inside one wrapped content row', () {
+      final provider = _provider();
+      final IParagraph paragraph = provider.build(
+        _wrappingBulletLine(),
+        _maxWidth,
+      );
+
+      // Content offsets [11,16): entirely inside row 1.
+      final List<Rect> rects = paragraph.getRangeRects(
+        const TextRange(start: 13, end: 18),
+      );
+
+      expect(rects, hasLength(1));
+      expect(rects.single.left, _indent + 2 * kGlyph);
+      expect(rects.single.right, _indent + 7 * kGlyph);
+      expect(
+        rects.single.top,
+        greaterThanOrEqualTo(paragraph.preferredLineHeight),
+      );
+      expect(rects.single.top, lessThan(paragraph.preferredLineHeight * 2));
+    });
+  });
+
+  group('hanging fallbacks', () {
+    test('a non-positive hangingChars falls back to one paragraph', () {
+      final provider = _provider();
+      final span = CodeHangingTextSpan(
+        hangingChars: 0,
+        style: _base,
+        children: const [TextSpan(text: '• buy milk', style: _base)],
+      );
+
+      expect(provider.isHanging(provider.build(span, _maxWidth)), isFalse);
+      expect(provider.markerCacheLength, 0);
+    });
+
+    test('a hangingChars covering the whole line falls back', () {
+      final provider = _provider();
+      final CodeHangingTextSpan bullet = _bulletLine('buy milk');
+      final span = CodeHangingTextSpan(
+        hangingChars: bullet.toPlainText().length,
+        style: _base,
+        children: bullet.children,
+      );
+
+      expect(provider.isHanging(provider.build(span, _maxWidth)), isFalse);
+      expect(provider.markerCacheLength, 0);
+    });
+
+    test('a truncated line falls back', () {
+      final provider = _provider()..updateMaxLengthSingleLineRendering(4);
+      final IParagraph paragraph = provider.build(
+        _bulletLine('buy milk'),
+        _maxWidth,
+      );
+
+      expect(paragraph.trucated, isTrue);
+      expect(provider.isHanging(paragraph), isFalse);
+      expect(provider.markerCacheLength, 0);
+    });
+  });
+
   group('marker measurement cache', () {
     test('equal markers are measured once, and clearCache empties it', () {
       final provider = _provider();
@@ -223,6 +384,51 @@ void main() {
       provider.build(_headingLine(), _maxWidth);
 
       expect(provider.markerCacheLength, 2);
+    });
+
+    test('the cache is bounded at 128 and touched on every hit', () {
+      final provider = _provider();
+      for (var i = 1; i <= 128; i++) {
+        provider.build(_orderedLine('set $i', number: i), _maxWidth);
+      }
+      expect(provider.markerCacheLength, 128);
+
+      // A different line under marker 1: the paragraph cache misses, so
+      // the marker is looked up again and moves to the tail.
+      provider.build(_orderedLine('again', number: 1), _maxWidth);
+      expect(provider.markerCacheLength, 128);
+
+      provider.build(_orderedLine('overflow', number: 129), _maxWidth);
+
+      expect(provider.markerCacheLength, 128);
+      expect(
+        provider.markerCacheContains(_markerOf(provider, number: 1)),
+        isTrue,
+        reason: 'the re-used marker was touched, so it is not the head',
+      );
+      expect(
+        provider.markerCacheContains(_markerOf(provider, number: 2)),
+        isFalse,
+        reason: 'the untouched head is the one that goes',
+      );
+    });
+
+    test('updateBaseStyle empties the marker cache', () {
+      final provider = _provider();
+      provider.build(_bulletLine('buy milk'), _maxWidth);
+      expect(provider.markerCacheLength, 1);
+
+      provider.updateBaseStyle(_base.copyWith(color: const Color(0xFF123456)));
+      expect(provider.markerCacheLength, 0);
+    });
+
+    test('updateMaxLengthSingleLineRendering empties the marker cache', () {
+      final provider = _provider();
+      provider.build(_bulletLine('buy milk'), _maxWidth);
+      expect(provider.markerCacheLength, 1);
+
+      provider.updateMaxLengthSingleLineRendering(4096);
+      expect(provider.markerCacheLength, 0);
     });
   });
 
@@ -272,6 +478,38 @@ void main() {
       final TextSpan marker = provider.truncate(span, 4);
       expect(identical(marker.children!.first, bullet), isTrue);
       expect(marker.children, hasLength(2));
+    });
+
+    test('a decoration survives a split through the middle of its run', () {
+      final provider = _provider();
+      const CodeTextDecoration decoration = CodeTextDecoration(
+        color: Color(0xFF00FF00),
+        radius: 4,
+      );
+      const CodeDecoratedTextSpan chip = CodeDecoratedTextSpan(
+        decoration: decoration,
+        text: '#gym',
+        style: _base,
+      );
+      const CodeHangingTextSpan span = CodeHangingTextSpan(
+        hangingChars: 2,
+        style: _base,
+        children: [
+          TextSpan(text: '• ', style: _base),
+          chip,
+        ],
+      );
+
+      // Cut the chip in half: '• #g' | 'ym'.
+      final InlineSpan head = provider.truncate(span, 4).children!.last;
+      final InlineSpan tail = provider.dropPrefix(span, 4).children!.single;
+
+      expect(head, isA<CodeDecoratedTextSpan>());
+      expect((head as CodeDecoratedTextSpan).decoration, decoration);
+      expect(head.toPlainText(), '#g');
+      expect(tail, isA<CodeDecoratedTextSpan>());
+      expect((tail as CodeDecoratedTextSpan).decoration, decoration);
+      expect(tail.toPlainText(), 'ym');
     });
 
     test('a fully consumed subtree is dropped, not emitted empty', () {
@@ -350,6 +588,14 @@ void main() {
 const TextStyle _base = TextStyle(fontSize: 14, height: 1.4);
 const double _maxWidth = 200;
 
+/// The test font advances every glyph by the font size, so a column
+/// index times this is an exact x offset.
+const double kGlyph = 14;
+
+/// Advance of the two-character `• ` marker — the indent every content
+/// rect of a [_bulletLine] is translated by.
+const double _indent = 2 * kGlyph;
+
 CodeParagraphProviderForTesting _provider() =>
     CodeParagraphProviderForTesting()..updateBaseStyle(_base);
 
@@ -363,15 +609,29 @@ CodeHangingTextSpan _bulletLine(String content) => CodeHangingTextSpan(
   ],
 );
 
-/// An ordered list line: `1. ` marker.
-CodeHangingTextSpan _orderedLine(String content) => CodeHangingTextSpan(
-  hangingChars: 3,
-  style: _base,
-  children: [
-    const TextSpan(text: '1. ', style: _base),
-    TextSpan(text: content, style: _base),
-  ],
-);
+/// An ordered list line: `1. ` marker, or `$number. ` when given — the
+/// cheapest way to mint many distinct markers in one style.
+CodeHangingTextSpan _orderedLine(String content, {int number = 1}) {
+  final String marker = '$number. ';
+  return CodeHangingTextSpan(
+    hangingChars: marker.length,
+    style: _base,
+    children: [
+      TextSpan(text: marker, style: _base),
+      TextSpan(text: content, style: _base),
+    ],
+  );
+}
+
+/// The marker span the provider keys its measurement cache on for
+/// [_orderedLine] — the same `truncate` the hanging split runs.
+TextSpan _markerOf(
+  CodeParagraphProviderForTesting provider, {
+  required int number,
+}) {
+  final CodeHangingTextSpan line = _orderedLine('anything', number: number);
+  return provider.truncate(line, line.hangingChars);
+}
 
 /// A task line whose marker carries a painted placeholder box in place of
 /// the `[` code unit, exactly as the app's checkbox span does.

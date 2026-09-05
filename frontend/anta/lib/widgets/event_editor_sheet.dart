@@ -15,6 +15,7 @@ import '../constants/event_priorities.dart';
 import '../constants/font_constants.dart';
 import '../constants/occurrence_descriptions.dart';
 import '../constants/settings_keys.dart';
+import '../controllers/editor_render_controller.dart';
 import '../controllers/markdown_shortcut_inserter.dart';
 import '../controllers/shortcut_applier.dart';
 import '../l10n/app_localizations.dart';
@@ -673,7 +674,10 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
 
   /// Restyles one description line, exactly as the note editor does.
   /// Unhandled lines (and every line while live rendering is off) fall back
-  /// to re_editor's own span.
+  /// to the ghost-text builder, which leaves a line without a `{{ … }}` run
+  /// as re_editor's own span — the same routing
+  /// [EditorRenderController.buildSpan] does for the note editor, so a ghost
+  /// never renders raw on one surface and concealed on another.
   TextSpan _buildDescriptionSpan({
     required BuildContext context,
     required int index,
@@ -681,13 +685,21 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     required TextSpan textSpan,
     required TextStyle style,
   }) {
-    if (!_liveMarkdownRendering) return textSpan;
-    return _descriptionSpanBuilder.build(
-          context: _descriptionRenderContext.of(Theme.of(context), style),
-          index: index,
-          codeLine: codeLine,
-        ) ??
-        textSpan;
+    final render = _descriptionRenderContext.of(Theme.of(context), style);
+    if (_liveMarkdownRendering) {
+      final span = _descriptionSpanBuilder.build(
+        context: render,
+        index: index,
+        codeLine: codeLine,
+      );
+      if (span != null) return span;
+    }
+    return EditorRenderController.ghostSpan(
+      codeLine: codeLine,
+      textSpan: textSpan,
+      style: style,
+      baseColor: render.baseColor,
+    );
   }
 
   // --- Pure helpers -------------------------------------------------------

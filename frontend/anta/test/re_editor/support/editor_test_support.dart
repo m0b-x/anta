@@ -153,6 +153,107 @@ Offset zoneCellOf(
       Offset(column * kTestFontSize + 2, paragraph.top + paragraph.height / 2);
 }
 
+typedef ScrollEditor = ({
+  CodeLineEditingController controller,
+  CodeScrollController scroll,
+  CodeIndicatorValueNotifier notifier,
+});
+
+/// A [CodeEditor] in a fixed [width] x [height] box with a scroll
+/// controller the caller can read pixels off — the fixture for the
+/// scroll-helper and line-height suites.
+///
+/// Lines listed in [scaledLines] get a root span at twice the base font
+/// size, which is how the app's markdown headers become taller than the
+/// base line height (the root keeps `fontFamily`/`height` untouched, or
+/// the fork's strut assert fires).
+Future<ScrollEditor> pumpScrollEditor(
+  WidgetTester tester, {
+  required String text,
+  required double width,
+  required double height,
+  bool wordWrap = true,
+  Set<int> scaledLines = const <int>{},
+}) async {
+  TextSpan buildSpan({
+    required BuildContext context,
+    required int index,
+    required CodeLine codeLine,
+    required TextSpan textSpan,
+    required TextStyle style,
+  }) {
+    if (!scaledLines.contains(index)) {
+      return textSpan;
+    }
+    final TextStyle scaled = style.copyWith(fontSize: style.fontSize! * 2);
+    return TextSpan(
+      style: scaled,
+      children: [TextSpan(text: codeLine.text, style: scaled)],
+    );
+  }
+
+  final controller = CodeLineEditingController(
+    spanBuilder: scaledLines.isEmpty ? null : buildSpan,
+  )..loadText(text);
+  final scroll = CodeScrollController();
+  final focusNode = FocusNode();
+  late CodeIndicatorValueNotifier notifier;
+  addTearDown(() {
+    focusNode.dispose();
+    scroll.dispose();
+    controller.dispose();
+  });
+
+  await tester.pumpWidget(
+    MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: SizedBox(
+            width: width,
+            height: height,
+            child: CodeEditor(
+              controller: controller,
+              scrollController: scroll,
+              focusNode: focusNode,
+              autofocus: false,
+              wordWrap: wordWrap,
+              padding: EdgeInsets.zero,
+              style: const CodeEditorStyle(fontSize: kTestFontSize),
+              indicatorBuilder: (context, editing, chunk, valueNotifier) {
+                notifier = valueNotifier;
+                return const SizedBox.shrink();
+              },
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.pump();
+  await tester.pump();
+  return (controller: controller, scroll: scroll, notifier: notifier);
+}
+
+/// Vertical scroll offset of a [pumpScrollEditor] fixture.
+double pixelsOf(CodeScrollController scroll) =>
+    scroll.verticalScroller.position.pixels;
+
+/// The displayed paragraph for [index], or null when that line is
+/// outside the render's current window.
+CodeLineRenderParagraph? displayedParagraphAt(
+  CodeIndicatorValueNotifier notifier,
+  int index,
+) {
+  for (final CodeLineRenderParagraph paragraph in displayedParagraphs(
+    notifier,
+  )) {
+    if (paragraph.index == index) {
+      return paragraph;
+    }
+  }
+  return null;
+}
+
 void expectSameSelection(CodeLineSelection a, CodeLineSelection b) {
   expect(a.baseIndex, b.baseIndex);
   expect(a.baseOffset, b.baseOffset);

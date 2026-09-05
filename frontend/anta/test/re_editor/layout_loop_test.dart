@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:re_editor/re_editor.dart';
 
@@ -22,62 +21,18 @@ void main() {
     return buffer.toString();
   }
 
-  Future<
-    ({
-      CodeLineEditingController controller,
-      CodeScrollController scroll,
-      CodeIndicatorValueNotifier notifier,
-    })
-  >
-  pumpEditor(WidgetTester tester) async {
-    final controller = CodeLineEditingController.fromText(buildDocument());
-    final scroll = CodeScrollController();
-    final focusNode = FocusNode();
-    late CodeIndicatorValueNotifier notifier;
-    addTearDown(() {
-      focusNode.dispose();
-      scroll.dispose();
-      controller.dispose();
-    });
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: Center(
-            child: SizedBox(
-              width: viewportWidth,
-              height: viewportHeight,
-              child: CodeEditor(
-                controller: controller,
-                scrollController: scroll,
-                focusNode: focusNode,
-                autofocus: false,
-                wordWrap: true,
-                padding: EdgeInsets.zero,
-                style: const CodeEditorStyle(fontSize: kTestFontSize),
-                indicatorBuilder: (context, editing, chunk, valueNotifier) {
-                  notifier = valueNotifier;
-                  return const SizedBox.shrink();
-                },
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-    await tester.pump();
-    await tester.pump();
-    return (controller: controller, scroll: scroll, notifier: notifier);
-  }
+  Future<ScrollEditor> pumpEditor(WidgetTester tester) => pumpScrollEditor(
+    tester,
+    text: buildDocument(),
+    width: viewportWidth,
+    height: viewportHeight,
+  );
 
   bool showsLine(CodeIndicatorValueNotifier notifier, int index) {
     return displayedParagraphs(
       notifier,
     ).any((p) => p.index == index && p.bottom > 0 && p.top < viewportHeight);
   }
-
-  double pixelsOf(CodeScrollController scroll) =>
-      scroll.verticalScroller.position.pixels;
 
   void expectInRange(CodeScrollController scroll) {
     final position = scroll.verticalScroller.position;

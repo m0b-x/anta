@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:re_editor/re_editor.dart';
 
+import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/controllers/editor_render_controller.dart';
 import 'package:anta/utils/editor_render_context.dart';
 import 'package:anta/utils/markdown_color_syntax.dart';
@@ -99,6 +100,33 @@ void main() {
       expect(
         EditorRenderController().moneyConfig,
         EditorRenderController.defaultMoneyConfig,
+      );
+    });
+
+    test('the shipped defaults are already applied to the builder', () {
+      // The builder's own default is [MoneyDisplayConfig.disabled],
+      // which equals [defaultMoneyConfig] only while
+      // `SettingsKeys.defaultMoneyLedgerEnabled` is false. The
+      // constructor seeds the builder so the two agree by construction
+      // and re-applying the defaults is provably not a change.
+      final render = EditorRenderController();
+
+      expect(
+        render.applyMoneyConfig(EditorRenderController.defaultMoneyConfig),
+        isFalse,
+        reason: 'the builder already renders under the shipped defaults',
+      );
+      expect(
+        render.applyMoneyConfig(
+          const MoneyDisplayConfig(
+            enabled: !SettingsKeys.defaultMoneyLedgerEnabled,
+            startCents: SettingsKeys.defaultMoneyStartCents,
+            currencySymbol: SettingsKeys.defaultMoneyCurrencySymbol,
+            currencySuffix: SettingsKeys.defaultMoneyCurrencySuffix,
+          ),
+        ),
+        isTrue,
+        reason: 'flipping the ledger away from its default is a change',
       );
     });
 

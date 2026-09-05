@@ -74,6 +74,69 @@ void main() {
       expect(identical(after, before), isFalse);
     });
 
+    test('the L2 map is bounded: a 129th build evicts the oldest', () {
+      final CodeParagraphProviderForTesting provider = _provider();
+      final List<IParagraph> built = [
+        for (var i = 0; i < 128; i++)
+          provider.build(_countingSpan('line $i'), _maxWidth),
+      ];
+
+      expect(provider.paragraphCacheLength, 128);
+      expect(provider.identityCacheLength, 128);
+
+      provider.build(_countingSpan('line 128'), _maxWidth);
+      expect(provider.paragraphCacheLength, 128);
+
+      expect(
+        identical(
+          provider.build(_countingSpan('line 0'), _maxWidth),
+          built.first,
+        ),
+        isFalse,
+        reason: 'the oldest entry is gone, so it rebuilds',
+      );
+      expect(
+        identical(
+          provider.build(_countingSpan('line 64'), _maxWidth),
+          built[64],
+        ),
+        isTrue,
+        reason: 'everything younger than the head is still cached',
+      );
+    });
+
+    test('an L1-hot paragraph survives the eviction walk', () {
+      // The L2 LRU is never re-ordered on an identity hit, so its head is
+      // the oldest-BUILT entry, not the coldest one. Without the
+      // second-chance bit, typing 128 distinct spans on one line walks
+      // the eviction straight through every still-visible line.
+      final CodeParagraphProviderForTesting provider = _provider();
+      final List<_CountingSpan> visible = [
+        for (var i = 0; i < 30; i++) _countingSpan('visible $i'),
+      ];
+      final List<IParagraph> hot = [
+        for (final _CountingSpan span in visible)
+          provider.build(span, _maxWidth),
+      ];
+
+      for (var i = 0; i < 200; i++) {
+        provider.build(_countingSpan('keystroke $i'), _maxWidth);
+        for (final _CountingSpan span in visible) {
+          provider.build(span, _maxWidth);
+        }
+        expect(provider.paragraphCacheLength, lessThanOrEqualTo(128));
+        expect(provider.identityCacheLength, lessThanOrEqualTo(128));
+      }
+
+      for (var i = 0; i < visible.length; i++) {
+        expect(
+          identical(provider.build(visible[i], _maxWidth), hot[i]),
+          isTrue,
+          reason: 'still-visible line $i was evicted and rebuilt',
+        );
+      }
+    });
+
     test('a maxWidth change invalidates the cache for the same span', () {
       final CodeParagraphProviderForTesting provider = _provider();
       final _CountingSpan span = _countingSpan('buy milk');

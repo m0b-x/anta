@@ -35,4 +35,17 @@ class CodeParagraphProviderForTesting {
   bool isHanging(IParagraph paragraph) => paragraph is _HangingParagraphImpl;
 
   int get markerCacheLength => _provider.markerCacheLength;
+
+  /// Whether the marker measurement cache still holds [markerSpan],
+  /// keyed by value exactly as the provider keys it — so the span to
+  /// pass is `truncate(line, line.hangingChars)`.
+  bool markerCacheContains(TextSpan markerSpan) =>
+      _provider.markerCacheContains(markerSpan);
+
+  /// Entries held by the equality-keyed L2 LRU — the map the hard
+  /// 128-entry bound applies to.
+  int get paragraphCacheLength => _provider.paragraphCacheLength;
+
+  /// Entries held by the identity-keyed L1 in front of it.
+  int get identityCacheLength => _provider.identityCacheLength;
 }
