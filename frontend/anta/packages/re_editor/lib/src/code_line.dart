@@ -179,6 +179,20 @@ abstract class CodeLineEditingController
   /// actions, not during the build, layout, or paint phases.
   set textAsync(String value);
 
+  /// Replaces the whole document with [text] as the new history baseline.
+  ///
+  /// This is the load operation, not an edit: unlike [text] it is never
+  /// undoable, and it drops every undo and redo step recorded before it, so
+  /// afterwards [canUndo] and [canRedo] are both false and the first undo a
+  /// later edit allows lands on [text] — never on whatever the controller
+  /// held before the load (for a fresh controller, the empty document).
+  /// Use it wherever a controller is seeded or its content swapped
+  /// wholesale; use [text] only for a change the user should be able to
+  /// take back.
+  ///
+  /// Like [text] it notifies listeners, so call it between frames.
+  void loadText(String text);
+
   /// Only used in internal.
   void bindEditor(GlobalKey key);
 

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get_it/get_it.dart';
 import 'package:re_editor/re_editor.dart';
@@ -711,6 +712,35 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     _stats.onTextChanged(_contentController.textLength);
     _scheduleLivePreviewRefresh();
     _saves.onContentChanged();
+    _syncHistoryButtons();
+  }
+
+  /// The undo/redo state the toolbar was last built with, so a keystroke
+  /// rebuilds the page only when that state actually flips (the first edit
+  /// after a load, an undo that bottoms out, a redo that reaches the top) —
+  /// never per keystroke.
+  ({bool canUndo, bool canRedo}) _builtHistory = (
+    canUndo: false,
+    canRedo: false,
+  );
+
+  ({bool canUndo, bool canRedo}) get _historyState =>
+      (canUndo: _historyObserver.canUndo, canRedo: _historyObserver.canRedo);
+
+  /// Rebuilds the toolbar's undo/redo buttons when the history state moved
+  /// away from what they show. The controller can notify mid-build (the
+  /// editor's delegate handoff does), so a change seen during a frame's
+  /// build phase is applied after that frame instead of throwing.
+  void _syncHistoryButtons() {
+    if (_historyState == _builtHistory) return;
+    if (SchedulerBinding.instance.schedulerPhase ==
+        SchedulerPhase.persistentCallbacks) {
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _syncHistoryButtons();
+      });
+      return;
+    }
+    if (mounted) setState(() {});
   }
 
   /// Keeps the offstage preview hot while the user is typing so a
@@ -1379,8 +1409,11 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
                   lineCount: '\n'.allMatches(content).length + 1,
                   charCount: content.length,
                 ));
+                // A load, not an edit: the loaded text is the undo
+                // baseline, so undo can never reach the empty document the
+                // controller was constructed with.
                 setState(() {
-                  _contentController.text = content;
+                  _contentController.loadText(content);
                   _contentLoaded = true;
                 });
                 // The tracker never saw the assignment above — only the
@@ -1620,11 +1653,13 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   Widget _buildMarkdownBar({required bool enabled}) {
     final showPreview = _showPreview;
     final settings = _editorSettings.value;
+    final history = enabled ? _historyState : (canUndo: false, canRedo: false);
+    _builtHistory = history;
     return MarkdownBar(
       shortcuts: _shortcuts,
       isPreviewMode: showPreview,
-      canUndo: enabled ? _historyObserver.canUndo : false,
-      canRedo: enabled ? _historyObserver.canRedo : false,
+      canUndo: history.canUndo,
+      canRedo: history.canRedo,
       previewFontSize: enabled
           ? (showPreview ? _previewFontSize : settings.editorFontSize)
           : _previewFontSize,

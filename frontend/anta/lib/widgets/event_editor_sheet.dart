@@ -514,10 +514,9 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     _initialTemplateLength = _templateBuffer.length;
     _initialDayLength = _dayBuffer.length;
     // Seeded in the shared scope; the day scope is adopted below, once the
-    // recurrence rule is known. Seeding the text is itself a revocable op, so
-    // without clearHistory undo can wipe what the sheet opened with.
-    _descriptionController.text = _templateBuffer;
-    _descriptionController.clearHistory();
+    // recurrence rule is known. Seeding is a load, not an edit: `set text`
+    // would be revocable and undo could wipe what the sheet opened with.
+    _descriptionController.loadText(_templateBuffer);
     _descriptionSpanBuilder.bind(_descriptionController);
     _descriptionFocus = FocusNode()..addListener(_onDescriptionFocusChanged);
     _descriptionScroll = CodeScrollController();
@@ -555,8 +554,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     // text with nothing on screen to explain it.
     if (_dayMaterialized && _scopeControlVisible) {
       _scope = _DescriptionScope.thisDay;
-      _descriptionController.text = _dayBuffer;
-      _descriptionController.clearHistory();
+      _descriptionController.loadText(_dayBuffer);
     }
     // Subscribed last, after every seeding write above, so opening the sheet
     // costs no spurious relay bump.
@@ -841,10 +839,10 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
 
   /// Moves the field between the template and this day's text.
   ///
-  /// One controller throughout — only its content changes. `clearHistory()` is
-  /// mandatory, not tidiness: `set text` runs as a revocable op, so without it
-  /// the toolbar's undo would pull the *other* scope's text into the active
-  /// one and Save would persist it.
+  /// One controller throughout — only its content changes. The swap goes
+  /// through `loadText`, never `set text`: a revocable write would let the
+  /// toolbar's undo pull the *other* scope's text into the active one, and
+  /// Save would persist it.
   void _setScope(_DescriptionScope next) {
     if (next == _scope) return;
     if (_scope == _DescriptionScope.allDays) {
@@ -854,10 +852,9 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     }
     setState(() {
       _scope = next;
-      _descriptionController.text = next == _DescriptionScope.thisDay
-          ? _dayBuffer
-          : _templateBuffer;
-      _descriptionController.clearHistory();
+      _descriptionController.loadText(
+        next == _DescriptionScope.thisDay ? _dayBuffer : _templateBuffer,
+      );
     });
   }
 
@@ -870,8 +867,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
       _dayBuffer = _templateText;
       _dayResetBaseline = _dayBuffer;
       if (_scope == _DescriptionScope.thisDay) {
-        _descriptionController.text = _dayBuffer;
-        _descriptionController.clearHistory();
+        _descriptionController.loadText(_dayBuffer);
       }
     });
   }
@@ -886,8 +882,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     if (_scopeGateOpen || _scope == _DescriptionScope.allDays) return;
     _dayBuffer = _descriptionController.text;
     _scope = _DescriptionScope.allDays;
-    _descriptionController.text = _templateBuffer;
-    _descriptionController.clearHistory();
+    _descriptionController.loadText(_templateBuffer);
   }
 
   /// Label for the retroactive scope chip. Yearly rules read naturally as
@@ -1702,14 +1697,13 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
       colorPalette: _colorPalette,
     );
     if (result == null || !mounted || result == initial) return;
-    // `clearHistory` for the same reason a scope swap needs it: `set text` is
-    // a revocable op, so undo would otherwise pull back the text the sheet
+    // `loadText` for the same reason a scope swap uses it: `set text` is a
+    // revocable op, so undo would otherwise pull back the text the sheet
     // replaced. The active scope's buffer is the controller itself, so there
     // is nothing else to mirror into. `setState` refreshes the reset button
     // and, while live rendering is off, the read-only preview.
     setState(() {
-      _descriptionController.text = result;
-      _descriptionController.clearHistory();
+      _descriptionController.loadText(result);
     });
   }
 

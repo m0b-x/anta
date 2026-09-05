@@ -41,8 +41,8 @@ import 'modern_editor_wrapper.dart';
 ///   stays there as long as nobody calls `configureMoney` on it. Copying the
 ///   note editor's money wiring into this file is what would break the rule.
 /// * **Nothing listens to the controller directly** — see [_revision].
-/// * **`clearHistory()` after the seeding write**, or undo wipes the text the
-///   sheet opened with.
+/// * **Seed through `loadText`, never `set text`** — the load is the undo
+///   baseline, so undo cannot wipe the text the sheet opened with.
 /// * A late-resolving setting is applied with `forceRepaint()`, **never** by
 ///   remounting the editor.
 class EventDescriptionSheet extends StatefulWidget {
@@ -166,10 +166,9 @@ class _EventDescriptionSheetState extends State<EventDescriptionSheet> {
     _controller = ListAwarePasteController(
       delegate: CodeLineEditingController(spanBuilder: _buildSpan),
     );
-    // Seeding is itself a revocable op, so without clearHistory undo can wipe
-    // what the sheet opened with.
-    _controller.text = widget.initialText;
-    _controller.clearHistory();
+    // A load, not an edit: `set text` would be revocable and undo could
+    // wipe what the sheet opened with.
+    _controller.loadText(widget.initialText);
     _spanBuilder.bind(_controller);
     // The palette is passed in already resolved (the page holds a current
     // copy), so unlike the editor sheet there is no late colour swap to

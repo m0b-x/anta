@@ -1426,9 +1426,10 @@ Nothing pre-rendered is persisted or cached in the database.
     `String`. Swapping controllers would orphan `ModernEditorWrapper`'s
     listener (it binds in `initState` and has no `didUpdateWidget`), the span
     builder and the search controller, and drag re_editor through a delegate
-    handoff nothing else in this app exercises. `clearHistory()` after every
-    swap is mandatory: `set text` runs as a revocable op, so without it undo
-    pulls the *other* scope's text into the active one and Save persists it.
+    handoff nothing else in this app exercises. Every swap goes through the
+    fork's `loadText` (2026-09-05; it replaced the `text = …; clearHistory();`
+    pair): `set text` runs as a revocable op, so a revocable swap would let
+    undo pull the *other* scope's text into the active one and Save persist it.
     Flipping the form to one-time hides the control and calls
     `_syncScopeToRule`, which parks the day text unwritten — never merge an
     occurrence's text into the template. The sheet never persists: it reports
@@ -3028,7 +3029,9 @@ is the worst time to move it. The editor fills the rest of the height with
 - **Traps carried over from the editor sheet's inline field, all
   load-bearing**:
   `ListAwarePasteController(delegate: CodeLineEditingController(spanBuilder:))`;
-  `clearHistory()` after the seeding write; a `ValueNotifier<int>` relay
+  the seed written with `loadText`, never `set text` (2026-09-05 — the
+  fork's non-undoable load, which replaced `text = …; clearHistory();`); a
+  `ValueNotifier<int>` relay
   (`_revision`) with post-frame deferral instead of any `ListenableBuilder`
   on the controller directly — the bar's undo/redo enablement rides that
   relay too, not just the counter and Done; a late-resolving setting applied
@@ -3108,9 +3111,9 @@ is the worst time to move it. The editor fills the rest of the height with
   in exactly one place (§6.6). `grandfatheredLength` is the active scope's
   own (`_initialDayLength` / `_initialTemplateLength`); the caption reuses
   `eventDescriptionScopeThisDayHint` / `eventDescriptionScopeAllDaysHint`.
-- On return: `text = result; clearHistory();` inside a `setState` — the
-  active scope's buffer *is* the controller, so there is nothing to mirror;
-  `clearHistory()` for the same reason a scope swap needs it (§6.6). Cancel
+- On return: `loadText(result)` inside a `setState` — the active scope's
+  buffer *is* the controller, so there is nothing to mirror; a non-undoable
+  load for the same reason a scope swap uses one (§6.6). Cancel
   changes nothing. **The expanded sheet does not save the event** — it edits
   the in-flight controller and the form still saves; nothing about
   `_resolveOccurrenceOutcome`'s copy-on-write contract changes.

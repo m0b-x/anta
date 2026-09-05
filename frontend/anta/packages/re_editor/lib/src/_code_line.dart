@@ -48,7 +48,10 @@ class _CodeLineEditingControllerImpl extends ValueNotifier<CodeLineEditingValue>
         _CodeLineEditingControllerImpl(
             codeLines: _kInitialCodeLines, options: options);
     if (text != null && text.isNotEmpty) {
-      text.codeLinesAsync.then((value) => controller.codeLines = value);
+      text.codeLinesAsync.then((value) {
+        controller.codeLines = value;
+        controller.clearHistory();
+      });
     }
     return controller;
   }
@@ -197,6 +200,12 @@ class _CodeLineEditingControllerImpl extends ValueNotifier<CodeLineEditingValue>
     }).onError((error, stackTrace) {
       // Should not happen
     });
+  }
+
+  @override
+  void loadText(String text) {
+    value = CodeLineEditingValue(codeLines: text.codeLines);
+    _cache.clear();
   }
 
   @override
@@ -1996,7 +2005,13 @@ class _CodeLineEditingCache {
   }
 
   void _onValueChanged() {
-    if (_node.value == controller.value) {
+    final CodeLineEditingValue value = controller.value;
+    if (_node.value.codeLines.equals(value.codeLines)) {
+      // Only the caret, the selection or the composing range moved. That is
+      // never an undo step: it rides on the node the text belongs to, so a
+      // tap after a load leaves `canUndo` false and a caret move after an
+      // undo keeps the redo chain.
+      _node.value = value;
       return;
     }
     if (_node.isInitial) {
@@ -2208,6 +2223,11 @@ class _CodeLineEditingControllerDelegate implements CodeLineEditingController {
   @override
   void clearHistory() {
     _delegate.clearHistory();
+  }
+
+  @override
+  void loadText(String text) {
+    _delegate.loadText(text);
   }
 
   @override

@@ -2467,6 +2467,45 @@ fork's two pre-existing `avoid_print` infos; `dart format
 --set-exit-if-changed` over the fork, `test/re_editor` and the touched
 `lib`/`test` files changes nothing. Nothing committed.
 
+#### Hotfix 2026-09-05 — undo could wipe a freshly opened note
+
+Reported by the owner as a blocker: the toolbar's undo was enabled the
+moment a note opened, and pressing it deleted the whole note (auto-save
+then persisted the empty document). Two fork rules produced it. The
+controller is constructed around the empty document, and the page seeded
+the note with `set text`, a revocable op — so every open left exactly one
+undo step whose target was that empty document. The event sheets had
+worked around it with `text = …; clearHistory();` at six sites; the note
+page never had. And `_CodeLineEditingCache` appended a node for *any*
+change from the initial node, caret moves included, so a tap alone
+enabled undo too.
+
+Fixed in the fork rather than at the call sites:
+`CodeLineEditingController.loadText(text)` is the load operation —
+publishes the document, resets the history to it, `canUndo`/`canRedo`
+both false, the first undo a later edit allows lands on the loaded text —
+and `fromTextAsync` clears its history the same way once the async parse
+lands. The cache now folds a selection-only or composing-only change into
+the current node (never a step; a caret move after an undo keeps the redo
+chain). All seven seeding sites — the page's content load, the event
+editor's initial seed, day-scope adoption, `_setScope`,
+`_resetDayToTemplate`, `_syncScopeToRule`, expand-return, and the
+description sheet's seed — use `loadText`; the `clearHistory()` pairs are
+gone. The page also rebuilds its toolbar when `(canUndo, canRedo)` moves
+away from what the bar was built with (`_syncHistoryButtons`, deferred
+past the frame when the controller notifies mid-build, which the editor's
+delegate handoff does) — before, the buttons only refreshed on incidental
+page rebuilds such as a keyboard inset change, so with the baseline fixed
+the button would have stayed disabled while typing.
+
+Tests: `test/re_editor/undo_baseline_test.dart` (loadText baseline,
+contrast with `set text`, mid-session load drops both chains, empty load,
+selection reset, one notification, async factory, and four selection-only
+cases) and an "undo baseline" group in
+`test/widgets/optimized_note_editor_page_test.dart` (a fresh note has
+nothing to undo and undo is a no-op; typing enables the button, undo
+lands on the loaded text and disables it again).
+
 ### Session 8 — rendering parity features
 
 1. Bullet glyph by depth (`•`/`◦`/`▪` from `item.level`, 1:1, text-keyed).

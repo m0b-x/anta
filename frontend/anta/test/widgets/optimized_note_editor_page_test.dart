@@ -700,6 +700,68 @@ void main() {
     });
   });
 
+  group('undo baseline — the loaded note is the floor', () {
+    MarkdownBar bar(WidgetTester tester) => tester.widget<MarkdownBar>(
+      find.byType(MarkdownBar, skipOffstage: false),
+    );
+
+    Future<CodeLineEditingController> loadNote(WidgetTester tester) async {
+      await pumpPage(tester);
+      noteBloc.emitContentLoaded(metadata, content);
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      await settle(tester);
+      return editorOf(tester).controller;
+    }
+
+    testWidgets('a freshly opened note has nothing to undo', (tester) async {
+      final controller = await loadNote(tester);
+
+      expect(controller.canUndo, isFalse);
+      expect(bar(tester).canUndo, isFalse, reason: 'the button is disabled');
+
+      // The bug: seeding was a revocable write over the empty document the
+      // controller is constructed with, so this used to wipe the note.
+      controller.undo();
+      await tester.pump();
+
+      expect(controller.text, content);
+      await teardownPage(tester);
+    });
+
+    testWidgets('typing enables undo and undoing lands on the loaded text', (
+      tester,
+    ) async {
+      final controller = await loadNote(tester);
+
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 'first line'.length,
+      );
+      controller.replaceSelection(' typed');
+      await tester.pump();
+
+      expect(controller.canUndo, isTrue);
+      expect(
+        bar(tester).canUndo,
+        isTrue,
+        reason: 'the first edit after a load rebuilds the toolbar',
+      );
+
+      controller.undo();
+      await tester.pump();
+      expect(controller.text, content);
+      expect(controller.canUndo, isFalse);
+      expect(bar(tester).canUndo, isFalse);
+      expect(bar(tester).canRedo, isTrue);
+
+      controller.undo();
+      await tester.pump();
+      expect(controller.text, content, reason: 'never below the baseline');
+      await teardownPage(tester);
+    });
+  });
+
   group('B3 — editor settings apply on the way back', () {
     testWidgets('a flag changed under a pushed route lands on pop', (
       tester,
