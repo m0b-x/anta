@@ -516,6 +516,45 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     return result != null;
   }
 
+  /// Descendant-inclusive note counts for many folders in **one** statement.
+  ///
+  /// The browser draws one count per folder row, and a page of rows used to
+  /// cost two queries each. A single `WITH RECURSIVE` walk carries the seed
+  /// id along as `root`, so every folder reached from a seed is attributed
+  /// back to it and one `GROUP BY` answers the whole page.
+  ///
+  /// Folders missing from the result had no live rows to count; callers read
+  /// an absent key as zero. Soft-deleted folders are excluded from both the
+  /// seed and the traversal, matching [getAllDescendantIds].
+  Future<Map<String, int>> noteCountsWithDescendants(
+    List<String> folderIds,
+  ) async {
+    if (folderIds.isEmpty) return const {};
+    final placeholders = List.filled(folderIds.length, '?').join(',');
+    final rows = await db
+        .customSelect(
+          'WITH RECURSIVE tree(root, id) AS ('
+          '  SELECT id, id FROM folders '
+          '  WHERE id IN ($placeholders) AND is_deleted = 0 '
+          '  UNION ALL '
+          '  SELECT t.root, f.id FROM folders f '
+          '  JOIN tree t ON f.parent_id = t.id '
+          '  WHERE f.is_deleted = 0'
+          ') '
+          'SELECT t.root AS root, COUNT(n.id) AS note_count '
+          'FROM tree t '
+          'LEFT JOIN notes n ON n.folder_id = t.id AND n.is_deleted = 0 '
+          'GROUP BY t.root',
+          variables: [for (final id in folderIds) Variable<String>(id)],
+          readsFrom: {folders, db.notes},
+        )
+        .get();
+    return {
+      for (final row in rows)
+        row.read<String>('root'): row.read<int>('note_count'),
+    };
+  }
+
   /// Get total note count for a folder and all its descendants (for delete preview)
   Future<int> getNoteCountWithDescendants(String folderId) async {
     final descendantIds = await getAllDescendantIds(folderId);

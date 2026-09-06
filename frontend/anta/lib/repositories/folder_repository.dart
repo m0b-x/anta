@@ -393,6 +393,14 @@ class FolderRepository {
     return _folderDao.getAllDescendantIds(folderId);
   }
 
+  /// Descendant-inclusive note counts for a page of folder rows, in one
+  /// statement. Deliberately uncached: the counts move with every note
+  /// written anywhere in the subtree, and the page re-reads them off the
+  /// change streams rather than holding a value that can go stale.
+  Future<Map<String, int>> noteCountsWithDescendants(List<String> folderIds) {
+    return _folderDao.noteCountsWithDescendants(folderIds);
+  }
+
   /// Indexed uniqueness check. Always hits the database (no cache) because
   /// the cached `_parentFoldersCache` may be stale relative to a concurrent
   /// write, and the cost is a single indexed `LIMIT 1` lookup.

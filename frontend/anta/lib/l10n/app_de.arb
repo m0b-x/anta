@@ -1045,6 +1045,11 @@
   "@recentSearches": {
     "description": "Label für letzte Suchen"
   },
+  "everywhere": "Überall",
+  "thisFolder": "Dieser Ordner",
+  "recent": "Zuletzt",
+  "titlesSection": "Titel",
+  "inTextSection": "Im Text",
   "clearSearchHistory": "Suchverlauf löschen",
   "@clearSearchHistory": {
     "description": "Schaltfläche zum Löschen des Suchverlaufs"
@@ -1119,9 +1124,35 @@
   "@emptyNotesHint": {
     "description": "Hinweistext wenn keine Notizen im Ordner vorhanden sind"
   },
-  "tapPlusToCreate": "Tippe auf + um zu beginnen",
-  "@tapPlusToCreate": {
-    "description": "Hinweis auf den Plus-Button"
+  "createFromBarBelow": "Nutze die Leiste unten zum Anlegen",
+  "@createFromBarBelow": {
+    "description": "Empty-state hint pointing at the browser's bottom create bar"
+  },
+  "newFolder": "Neuer Ordner",
+  "@newFolder": {
+    "description": "Tooltip on the bottom bar's create-folder button"
+  },
+  "folderCountLabel": "{count, plural, =0{Keine Ordner} =1{1 Ordner} other{{count} Ordner}}",
+  "@folderCountLabel": {
+    "description": "How many folders a list holds",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "noteCountLabel": "{count, plural, =0{Keine Notizen} =1{1 Notiz} other{{count} Notizen}}",
+  "@noteCountLabel": {
+    "description": "How many notes a folder or list holds, counting subfolders on a folder row",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "folderAndNoteCount": "{folders}, {notes}",
+  "@folderAndNoteCount": {
+    "description": "Joins an already-pluralised folder count and note count",
+    "placeholders": {
+      "folders": { "type": "String" },
+      "notes": { "type": "String" }
+    }
   },
   "appSettings": "Einstellungen",
   "@appSettings": {
@@ -2539,5 +2570,6 @@
   "editorZoneOpenLink": "Link öffnen",
   "editorZoneOpenMoney": "Kassenbuchdetails öffnen",
   "editorZoneSearchTag": "Schlagwort suchen",
-  "editorZoneOpenWikiLink": "Verknüpfte Notiz öffnen"
+  "editorZoneOpenWikiLink": "Verknüpfte Notiz öffnen",
+  "showAncestors": "Übergeordnete Ordner anzeigen"
 }

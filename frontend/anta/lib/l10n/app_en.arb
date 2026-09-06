@@ -2483,6 +2483,26 @@
   "@recentSearches": {
     "description": "Label for recent searches section"
   },
+  "everywhere": "Everywhere",
+  "@everywhere": {
+    "description": "Search scope chip that searches every note in the app"
+  },
+  "thisFolder": "This folder",
+  "@thisFolder": {
+    "description": "Search scope chip for the current folder and its subfolders, used when the folder name is unavailable"
+  },
+  "recent": "Recent",
+  "@recent": {
+    "description": "Section label above recently edited notes shown before anything is typed into search"
+  },
+  "titlesSection": "Titles",
+  "@titlesSection": {
+    "description": "Search results section label for notes matched by their title"
+  },
+  "inTextSection": "In text",
+  "@inTextSection": {
+    "description": "Search results section label for notes matched inside their text"
+  },
   "clearSearchHistory": "Clear search history",
   "@clearSearchHistory": {
     "description": "Button to clear search history"
@@ -2557,11 +2577,36 @@
   "@emptyNotesHint": {
     "description": "Hint text shown when there are no notes in a folder"
   },
-  "tapPlusToCreate": "Tap + to get started",
-  "@tapPlusToCreate": {
-    "description": "Hint to tap the plus button"
-  }
-  ,
+  "createFromBarBelow": "Use the bar below to add one",
+  "@createFromBarBelow": {
+    "description": "Empty-state hint pointing at the browser's bottom create bar"
+  },
+  "newFolder": "New folder",
+  "@newFolder": {
+    "description": "Tooltip on the bottom bar's create-folder button"
+  },
+  "folderCountLabel": "{count, plural, =0{No folders} =1{1 folder} other{{count} folders}}",
+  "@folderCountLabel": {
+    "description": "How many folders a list holds",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "noteCountLabel": "{count, plural, =0{No notes} =1{1 note} other{{count} notes}}",
+  "@noteCountLabel": {
+    "description": "How many notes a folder or list holds, counting subfolders on a folder row",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "folderAndNoteCount": "{folders}, {notes}",
+  "@folderAndNoteCount": {
+    "description": "Joins an already-pluralised folder count and note count, e.g. \"3 folders, 5 notes\"",
+    "placeholders": {
+      "folders": { "type": "String" },
+      "notes": { "type": "String" }
+    }
+  },
   "charactersCount": "{current}/{max} characters",
   "@charactersCount": {
     "description": "Character count display",
@@ -5767,5 +5812,9 @@
   "editorZoneOpenWikiLink": "Open linked note",
   "@editorZoneOpenWikiLink": {
     "description": "Accessibility label of the editor tap zone over a [[wiki link]] to another note"
+  },
+  "showAncestors": "Show parent folders",
+  "@showAncestors": {
+    "description": "Accessibility action on the browser's back button, and hint on the parent name above the folder title, that lists every folder above this one"
   }
 }

@@ -4,9 +4,22 @@
 // based on context IDs (like folderId, parentId) to prevent cross-page
 // state pollution in navigation stacks.
 
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:stream_transform/stream_transform.dart';
+
 import '../bloc/optimized_folder/optimized_folder_state.dart';
 import '../bloc/optimized_note/optimized_note_state.dart';
 import '../models/note_metadata.dart';
+
+/// Waits out a burst of events and only runs the handler for the last one,
+/// cancelling any handler still in flight.
+///
+/// The `switchMap` half is what makes it safe on a typing path: without it a
+/// slow query for "squ" could still land after the one for "squat" and paint
+/// stale results over fresh ones.
+EventTransformer<T> debounce<T>(Duration duration) {
+  return (events, mapper) => events.debounce(duration).switchMap(mapper);
+}
 
 /// Mixin for states that have a parent folder context.
 /// Ensures states can be filtered by which folder they belong to.
@@ -58,8 +71,8 @@ extension OptimizedNoteStateExtensions on OptimizedNoteState {
     if (this is OptimizedNoteError) {
       return (this as OptimizedNoteError).folderId == expectedFolderId;
     }
-    // OptimizedNoteInitial and OptimizedNoteSearchResults have no folder context
-    return this is OptimizedNoteInitial || this is OptimizedNoteSearchResults;
+    // OptimizedNoteInitial has no folder context
+    return this is OptimizedNoteInitial;
   }
 
   /// Check if this state has any folder context information.
@@ -120,7 +133,7 @@ class NoteBlocFilters {
     String? folderId,
   ) {
     return (previous, current) {
-      // Allow initial and search states (no folder context)
+      // Allow states with no folder context (Initial)
       if (!current.hasContext) return true;
 
       // For states with context, must match the folder

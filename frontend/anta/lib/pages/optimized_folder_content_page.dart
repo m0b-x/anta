@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get_it/get_it.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:async';
+import 'dart:math' as math;
 import '../l10n/app_localizations.dart';
 import '../bloc/import_export/import_export_bloc.dart';
 import '../bloc/import_export/import_export_event.dart';
@@ -13,6 +14,7 @@ import '../bloc/optimized_folder/optimized_folder_state.dart';
 import '../bloc/optimized_note/optimized_note_bloc.dart';
 import '../bloc/optimized_note/optimized_note_event.dart';
 import '../bloc/optimized_note/optimized_note_state.dart';
+import '../constants/settings_keys.dart';
 import '../controllers/selection_controller.dart';
 import '../models/content_item.dart';
 import '../models/export_format.dart';
@@ -29,20 +31,39 @@ import '../services/note_storage_service.dart';
 import '../services/settings_service.dart';
 import '../widgets/infinite_scroll_list.dart';
 import '../widgets/app_drawer.dart';
+import '../widgets/content_rows.dart';
 import '../widgets/folder_overflow_menu.dart';
-import '../widgets/note_export_dialog.dart';
+import '../widgets/folder_row.dart';
+import '../widgets/folder_sliver_app_bar.dart';
+import '../widgets/note_row.dart';
 import '../widgets/selection_action_bar.dart';
 import '../widgets/selection_app_bar.dart';
-import '../widgets/unified_app_bars.dart';
 import '../utils/bloc_helpers.dart';
 import '../utils/custom_snackbar.dart';
 import '../widgets/app_dialogs.dart';
-import '../constants/app_colors.dart';
-import '../constants/folder_card_action.dart';
-import '../constants/note_card_action.dart';
 import '../services/app_navigator.dart';
 import '../services/drawer_host_registry.dart';
 import '../widgets/move_history_sheet.dart';
+
+/// One row of the browser's list: either a section label or a content item.
+///
+/// Both kinds live in the same sequence because there is exactly one
+/// reorderable sliver over the whole list; a label is simply a row nothing
+/// can pick up.
+sealed class _RowEntry {
+  const _RowEntry();
+}
+
+class _SectionEntry extends _RowEntry {
+  final String label;
+  const _SectionEntry(this.label);
+}
+
+class _ItemEntry extends _RowEntry {
+  final ContentItem item;
+  final RowGroupPosition position;
+  const _ItemEntry(this.item, this.position);
+}
 
 class OptimizedFolderContentPage extends StatefulWidget {
   final String? folderId;
@@ -59,8 +80,8 @@ class OptimizedFolderContentPage extends StatefulWidget {
       _OptimizedFolderContentPageState();
 }
 
-class _OptimizedFolderContentPageState
-    extends State<OptimizedFolderContentPage> {
+class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
+    with RouteAware {
   /// Lets a restored settings page raise this page's drawer when it is popped
   /// — see [DrawerHostRegistry].
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
@@ -68,16 +89,37 @@ class _OptimizedFolderContentPageState
   NotesSortOrder _notesSortOrder = NotesSortOrder.updatedDesc;
   FoldersSortOrder _foldersSortOrder = FoldersSortOrder.nameAsc;
   bool _folderSwipeEnabled = true;
-  bool _isSortSheetOpen = false;
+  bool _showNotePreview = SettingsKeys.defaultShowNotePreview;
 
   /// This page's own folder, for the overflow menu's rename/move/share/
   /// delete rows. Null on the root page, and until the first read answers.
   Folder? _folder;
 
+  /// Root → direct parent, excluding this folder. Feeds both the eyebrow
+  /// above the large title and the ancestor menu behind it. Null until the
+  /// walk answers, so the eyebrow appears once rather than saying "Folders"
+  /// and then correcting itself; empty for a folder directly under the root.
+  List<Folder>? _ancestors;
+
   // Per-page selection state. Long-press a card to enter selection mode,
   // tap to toggle, then act on the whole batch (move, delete, drag-and-drop).
   late final SelectionController _selection = SelectionController();
   StreamSubscription<Set<MovableItemRef>>? _selectionSub;
+
+  /// Selection mode swaps the tall sliver bar for a box [SelectionAppBar]
+  /// that lives outside the scroll view, so the same scroll offset would
+  /// carry every row up by the difference between the two bars — a 116 px
+  /// jump on every long press. These remember where the list was so the swap
+  /// can be paid for in the same frame: [_wasSelecting] detects the edge,
+  /// [_offsetBeforeSelection] is what to return to, and
+  /// [_offsetOnEnterSelection] is what was jumped to, so scrolling done while
+  /// selecting is added back rather than thrown away.
+  bool _wasSelecting = false;
+  double _offsetBeforeSelection = 0;
+  double _offsetOnEnterSelection = 0;
+
+  static const double _barSwapShift =
+      FolderSliverAppBar.expandedHeight - kToolbarHeight;
 
   // Latest visible items, kept up to date by [_buildFoldersSection] and
   // [_buildNotesSection] so SelectAll can act on them without re-querying.
@@ -101,6 +143,27 @@ class _OptimizedFolderContentPageState
   // mounted, so the [ImportExportBloc] listener can pop it exactly once on
   // the terminal state transition.
   bool _ioLoadingDialogOpen = false;
+
+  /// Descendant-inclusive note count per visible folder id. Read for the
+  /// whole page in one statement rather than two per row, which is what a
+  /// row could do when it owned its own counts.
+  Map<String, int> _folderNoteCounts = const {};
+
+  /// The id set the counts in [_folderNoteCounts] were read for, so a rebuild
+  /// that shows the same folders does not re-query.
+  List<String> _countedFolderIds = const [];
+
+  /// Coalesces bursts of folder/note changes — a bulk move, a cascade delete,
+  /// a batch reorder — into one trailing-edge count read for the page.
+  Timer? _countDebounce;
+  static const _countDebounceDuration = Duration(milliseconds: 120);
+  StreamSubscription<FolderChange>? _folderChangesSub;
+  StreamSubscription<NoteChange>? _noteChangesSub;
+
+  /// The rows as the list renders them: section labels and content items in
+  /// one flat sequence, rebuilt whenever the displayed items change. The
+  /// reorder handler reads it to translate a row index into a content index.
+  List<_RowEntry> _entries = const [];
 
   /// Sync the local list from the bloc list, preserving local order if it
   /// contains exactly the same set of ids (covers the case where we just
@@ -142,11 +205,104 @@ class _OptimizedFolderContentPageState
         if (!_selection.isActive) {
           _localMixed = null;
         }
+        _compensateBarSwap();
         setState(() {});
       }
     });
+    _subscribeToContentChanges();
     _loadSettings();
     _loadSortPreferencesAndData();
+  }
+
+  /// One subscription for the whole page, not one per row: any folder or note
+  /// write can change a descendant-inclusive count, and the debounce collapses
+  /// a burst into a single re-read of every visible folder.
+  void _subscribeToContentChanges() {
+    _folderChangesSub = _folderStorageService.changes.listen(
+      (_) => _scheduleCountRefresh(),
+    );
+    _noteChangesSub = GetIt.I<NoteStorageService>().changes.listen(
+      (_) => _scheduleCountRefresh(),
+    );
+  }
+
+  void _scheduleCountRefresh() {
+    if (!mounted) return;
+    _countDebounce?.cancel();
+    _countDebounce = Timer(_countDebounceDuration, () {
+      if (!mounted) return;
+      _loadFolderCounts(_countedFolderIds, force: true);
+    });
+  }
+
+  /// Reads every visible folder's count in one statement. Skips the read when
+  /// the same ids were already answered, which is what keeps a rebuild from
+  /// re-querying on every scroll frame.
+  ///
+  /// Called from the list's own builder, so the empty case assigns without a
+  /// `setState`: with no folder rows on screen there is nothing whose count
+  /// could repaint, and asking for a rebuild there is a rebuild during build.
+  Future<void> _loadFolderCounts(
+    List<String> folderIds, {
+    bool force = false,
+  }) async {
+    if (folderIds.isEmpty) {
+      _countedFolderIds = const [];
+      _folderNoteCounts = const {};
+      return;
+    }
+    if (!force && _sameIds(folderIds, _countedFolderIds)) return;
+    _countedFolderIds = List<String>.unmodifiable(folderIds);
+    try {
+      final counts = await _folderStorageService.getNoteCountsWithDescendants(
+        folderIds,
+      );
+      if (!mounted || !_sameIds(folderIds, _countedFolderIds)) return;
+      setState(() {
+        _folderNoteCounts = {for (final id in folderIds) id: counts[id] ?? 0};
+      });
+    } catch (e, stackTrace) {
+      debugPrint('[FolderPage] Failed to load folder counts: $e\n$stackTrace');
+    }
+  }
+
+  bool _sameIds(List<String> a, List<String> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  /// Pays for the app-bar swap in the same tick the rebuild is scheduled, so
+  /// the jump and the new bar land in one frame. A post-frame callback would
+  /// paint one frame at the wrong offset first, which is the jump this
+  /// exists to remove.
+  ///
+  /// Leaving restores the offset the user entered at plus whatever they
+  /// scrolled while selecting, which is what makes a partly expanded bar come
+  /// back exactly as it was. The result is deliberately not clamped against
+  /// `maxScrollExtent`: the new extent is not known until the swap has been
+  /// laid out, and the physics settle the rare case where the list shrank.
+  void _compensateBarSwap() {
+    final isSelecting = _selection.isActive;
+    if (isSelecting == _wasSelecting) return;
+    _wasSelecting = isSelecting;
+    if (!_scrollController.hasClients) {
+      _offsetBeforeSelection = 0;
+      _offsetOnEnterSelection = 0;
+      return;
+    }
+    final offset = _scrollController.offset;
+    if (isSelecting) {
+      _offsetBeforeSelection = offset;
+      _offsetOnEnterSelection = math.max(0, offset - _barSwapShift);
+      _scrollController.jumpTo(_offsetOnEnterSelection);
+      return;
+    }
+    _scrollController.jumpTo(
+      math.max(0, _offsetBeforeSelection + (offset - _offsetOnEnterSelection)),
+    );
   }
 
   Future<void> _loadSortPreferencesAndData() async {
@@ -162,8 +318,17 @@ class _OptimizedFolderContentPageState
           _foldersSortOrder = _parseFoldersSortOrder(folder.subfolderSortOrder);
         });
       }
+      await _loadAncestors();
     }
     _loadData();
+  }
+
+  Future<void> _loadAncestors() async {
+    final folderId = widget.folderId;
+    if (folderId == null) return;
+    final ancestors = await _folderStorageService.getAncestors(folderId);
+    if (!mounted) return;
+    setState(() => _ancestors = ancestors);
   }
 
   NotesSortOrder _parseNotesSortOrder(String? value) {
@@ -185,9 +350,11 @@ class _OptimizedFolderContentPageState
   Future<void> _loadSettings() async {
     final settings = await SettingsService.getInstance();
     final folderSwipe = await settings.getFolderSwipeEnabled();
+    final showPreview = await settings.getShowNotePreview();
     if (mounted) {
       setState(() {
         _folderSwipeEnabled = folderSwipe;
+        _showNotePreview = showPreview;
       });
     }
   }
@@ -196,13 +363,28 @@ class _OptimizedFolderContentPageState
   void didChangeDependencies() {
     super.didChangeDependencies();
     FocusManager.instance.primaryFocus?.unfocus();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute) {
+      AppNavigator.routeObserver.subscribe(this, route);
+    }
+    _loadSettings();
+  }
+
+  /// The note-preview switch lives in the settings page the drawer opens over
+  /// this one, so the only moment it can have changed is the pop back.
+  @override
+  void didPopNext() {
     _loadSettings();
   }
 
   @override
   void dispose() {
+    AppNavigator.routeObserver.unsubscribe(this);
     DrawerHostRegistry.unregister(_scaffoldKey);
     _selectionSub?.cancel();
+    _folderChangesSub?.cancel();
+    _noteChangesSub?.cancel();
+    _countDebounce?.cancel();
     _selection.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -537,53 +719,65 @@ class _OptimizedFolderContentPageState
               onSelectAll: _selectAll,
               onDeselectAll: _selection.deselectAll,
             )
-          : FolderAppBar(
-              title: _folder?.name ?? widget.title,
-              isRootPage: isRootPage,
-              actions: [
-                IconButton(
-                  icon: const Icon(Icons.search),
-                  tooltip: widget.folderId != null
-                      ? AppLocalizations.of(context)!.searchInFolder
-                      : AppLocalizations.of(context)!.searchAll,
-                  onPressed: () {
-                    AppNavigator.toSearch(
-                      context,
-                      folderId: widget.folderId,
-                    ).then((_) {
-                      if (mounted) {
-                        _loadData();
-                      }
-                    });
-                  },
-                ),
-                StreamBuilder<int>(
-                  stream: GetIt.I<MoveHistoryService>().changes,
-                  initialData: GetIt.I<MoveHistoryService>().undoableCount,
-                  builder: (context, snapshot) => FolderOverflowMenu(
-                    isRootPage: isRootPage,
-                    sortLabel: _sortLabel(AppLocalizations.of(context)!),
-                    moveHistoryCount: snapshot.data ?? 0,
-                    onSortBy: _showQuickSortOptions,
-                    onSelect: _selection.activate,
-                    onMoveHistory: () => showMoveHistorySheet(context),
-                    onImport: _pickAndImport,
-                    onSettings: () => _scaffoldKey.currentState?.openDrawer(),
-                    onRenameFolder: isRootPage ? null : _renameCurrentFolder,
-                    onMoveFolder: isRootPage ? null : _moveCurrentFolder,
-                    onShareFolder: isRootPage ? null : _shareCurrentFolder,
-                    onDeleteFolder: isRootPage ? null : _deleteCurrentFolder,
-                  ),
-                ),
-              ],
-            ),
+          : null,
       body: RefreshIndicator(
+        // Without this the spinner would drop from the very top of the body,
+        // which the expanded bar covers.
+        edgeOffset: isSelecting
+            ? 0
+            : MediaQuery.paddingOf(context).top +
+                  FolderSliverAppBar.expandedHeight,
         onRefresh: () async {
           _loadData();
         },
         child: CustomScrollView(
           controller: _scrollController,
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.manual,
           slivers: [
+            if (!isSelecting)
+              FolderSliverAppBar(
+                title: isRootPage
+                    ? AppLocalizations.of(context)!.folders
+                    : (_folder?.name ?? widget.title),
+                isRootPage: isRootPage,
+                eyebrow: isRootPage ? null : _eyebrowLabel(context),
+                onShowAncestors: isRootPage ? null : _showAncestorMenu,
+                actions: [
+                  IconButton(
+                    icon: const Icon(Icons.search),
+                    tooltip: widget.folderId != null
+                        ? AppLocalizations.of(context)!.searchInFolder
+                        : AppLocalizations.of(context)!.searchAll,
+                    onPressed: () {
+                      // No reload on the way back: search runs on its own
+                      // SearchBloc now, so it never touches the list here.
+                      AppNavigator.toSearch(
+                        context,
+                        folderId: widget.folderId,
+                        folderName: _folder?.name ?? widget.title,
+                      );
+                    },
+                  ),
+                  StreamBuilder<int>(
+                    stream: GetIt.I<MoveHistoryService>().changes,
+                    initialData: GetIt.I<MoveHistoryService>().undoableCount,
+                    builder: (context, snapshot) => FolderOverflowMenu(
+                      isRootPage: isRootPage,
+                      sortLabel: _sortLabel(AppLocalizations.of(context)!),
+                      moveHistoryCount: snapshot.data ?? 0,
+                      onSortBy: _showQuickSortOptions,
+                      onSelect: _selection.activate,
+                      onMoveHistory: () => showMoveHistorySheet(context),
+                      onImport: _pickAndImport,
+                      onSettings: () => _scaffoldKey.currentState?.openDrawer(),
+                      onRenameFolder: isRootPage ? null : _renameCurrentFolder,
+                      onMoveFolder: isRootPage ? null : _moveCurrentFolder,
+                      onShareFolder: isRootPage ? null : _shareCurrentFolder,
+                      onDeleteFolder: isRootPage ? null : _deleteCurrentFolder,
+                    ),
+                  ),
+                ],
+              ),
             ..._buildContentSlivers(isSelecting: isSelecting),
             _buildEmptyStateSection(),
           ],
@@ -596,23 +790,7 @@ class _OptimizedFolderContentPageState
               onShare: _shareSelected,
               onDelete: _deleteSelected,
             )
-          : null,
-      floatingActionButton: isSelecting
-          ? null
-          : AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              margin: EdgeInsets.only(bottom: _isSortSheetOpen ? 280 : 0),
-              child: FloatingActionButton(
-                onPressed: _showCreateOptions,
-                backgroundColor: AppColors.isDarkMode(context)
-                    ? Theme.of(context).colorScheme.surfaceContainerHigh
-                    : null,
-                foregroundColor: AppColors.isDarkMode(context)
-                    ? Theme.of(context).colorScheme.onSurface
-                    : null,
-                child: const Icon(Icons.add),
-              ),
-            ),
+          : _buildBottomBar(context, isRootPage: isRootPage),
     );
 
     // While in selection mode, intercept back to exit selection instead of
@@ -646,6 +824,121 @@ class _OptimizedFolderContentPageState
     }
 
     return _wrapWithImportExportListener(scaffold);
+  }
+
+  /// The create bar that replaced the floating action button and its sheet.
+  ///
+  /// One tap per action instead of two, and the row that used to be hidden
+  /// behind the `+` is now readable at a glance: what is here, and what the
+  /// two buttons will add to it. The right slot is Import at the root, where
+  /// a note has no folder to live in.
+  ///
+  /// The padding is `max(viewInsets, viewPadding)` on purpose: either alone
+  /// leaves the bar under the keyboard or under the gesture bar.
+  Widget _buildBottomBar(BuildContext context, {required bool isRootPage}) {
+    final l10n = AppLocalizations.of(context)!;
+    final colorScheme = Theme.of(context).colorScheme;
+    final media = MediaQuery.of(context);
+    final bottomInset = math.max(
+      media.viewInsets.bottom,
+      media.viewPadding.bottom,
+    );
+
+    return Material(
+      color: colorScheme.surface,
+      surfaceTintColor: colorScheme.surfaceTint,
+      elevation: 3,
+      child: Padding(
+        padding: EdgeInsets.only(bottom: bottomInset),
+        child: SizedBox(
+          height: kToolbarHeight,
+          child: Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.create_new_folder_outlined),
+                tooltip: l10n.newFolder,
+                onPressed: _showCreateFolderDialog,
+              ),
+              Expanded(child: Center(child: _buildCountLabel(context))),
+              if (isRootPage)
+                IconButton(
+                  icon: const Icon(Icons.file_download_outlined),
+                  tooltip: l10n.importNoteOrFolder,
+                  onPressed: _pickAndImport,
+                )
+              else
+                IconButton(
+                  icon: const Icon(Icons.note_add_outlined),
+                  tooltip: l10n.newNote,
+                  onPressed: _createNewNote,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// What this folder holds, read off the same paginated states the list
+  /// renders from — the totals they already carry, so the bar costs no query
+  /// of its own. Its own builders, because the bar is constructed before the
+  /// list's and would otherwise trail it by a frame.
+  Widget _buildCountLabel(BuildContext context) {
+    return BlocBuilder<OptimizedFolderBloc, OptimizedFolderState>(
+      buildWhen: FolderBlocFilters.forParentFolder(widget.folderId),
+      builder: (context, folderState) {
+        return BlocBuilder<OptimizedNoteBloc, OptimizedNoteState>(
+          buildWhen: NoteBlocFilters.forFolder(widget.folderId),
+          builder: (context, noteState) {
+            final folderCount = folderState is OptimizedFolderLoaded
+                ? folderState.paginatedFolders.totalCount
+                : 0;
+            final noteCount = _noteTotalCount(noteState);
+            final label = _countText(
+              AppLocalizations.of(context)!,
+              folderCount: folderCount,
+              noteCount: noteCount,
+            );
+            if (label.isEmpty) return const SizedBox.shrink();
+            return Text(
+              label,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  int _noteTotalCount(OptimizedNoteState state) {
+    if (widget.folderId == null) return 0;
+    if (state is OptimizedNoteLoaded) return state.paginatedNotes.totalCount;
+    if (state is OptimizedNoteContentLoaded &&
+        state.previousPaginatedNotes != null) {
+      return state.previousPaginatedNotes!.totalCount;
+    }
+    return 0;
+  }
+
+  /// "3 folders, 5 notes", or whichever half is non-empty. Two plural keys
+  /// plus a joiner rather than one nested-plural message, so each half stays
+  /// a translatable sentence in its own right.
+  String _countText(
+    AppLocalizations l10n, {
+    required int folderCount,
+    required int noteCount,
+  }) {
+    if (folderCount > 0 && noteCount > 0) {
+      return l10n.folderAndNoteCount(
+        l10n.folderCountLabel(folderCount),
+        l10n.noteCountLabel(noteCount),
+      );
+    }
+    if (folderCount > 0) return l10n.folderCountLabel(folderCount);
+    if (noteCount > 0) return l10n.noteCountLabel(noteCount);
+    return '';
   }
 
   /// Listens to [ImportExportBloc] from anywhere in the page subtree and
@@ -735,7 +1028,6 @@ class _OptimizedFolderContentPageState
   }
 
   void _showQuickSortOptions() {
-    setState(() => _isSortSheetOpen = true);
     final l10n = AppLocalizations.of(context)!;
 
     showModalBottomSheet(
@@ -766,13 +1058,10 @@ class _OptimizedFolderContentPageState
           ],
         ),
       ),
-    ).whenComplete(() {
-      if (mounted) setState(() => _isSortSheetOpen = false);
-    });
+    );
   }
 
   void _showFolderSortOptions() {
-    setState(() => _isSortSheetOpen = true);
     final l10n = AppLocalizations.of(context)!;
 
     showModalBottomSheet(
@@ -833,13 +1122,10 @@ class _OptimizedFolderContentPageState
           ],
         ),
       ),
-    ).whenComplete(() {
-      if (mounted) setState(() => _isSortSheetOpen = false);
-    });
+    );
   }
 
   void _showNoteSortOptions() {
-    setState(() => _isSortSheetOpen = true);
     final l10n = AppLocalizations.of(context)!;
 
     showModalBottomSheet(
@@ -918,9 +1204,7 @@ class _OptimizedFolderContentPageState
           ],
         ),
       ),
-    ).whenComplete(() {
-      if (mounted) setState(() => _isSortSheetOpen = false);
-    });
+    );
   }
 
   Widget _buildSortOption({
@@ -987,7 +1271,8 @@ class _OptimizedFolderContentPageState
   String _sortLabel(AppLocalizations l10n) {
     if (widget.folderId == null) {
       return switch (_foldersSortOrder) {
-        FoldersSortOrder.nameAsc || FoldersSortOrder.nameDesc => l10n.sortByName,
+        FoldersSortOrder.nameAsc ||
+        FoldersSortOrder.nameDesc => l10n.sortByName,
         FoldersSortOrder.createdAsc ||
         FoldersSortOrder.createdDesc => l10n.sortByCreated,
         FoldersSortOrder.positionAsc ||
@@ -1003,6 +1288,31 @@ class _OptimizedFolderContentPageState
       NotesSortOrder.positionAsc ||
       NotesSortOrder.positionDesc => l10n.sortByCustom,
     };
+  }
+
+  String? _eyebrowLabel(BuildContext context) {
+    final ancestors = _ancestors;
+    if (ancestors == null) return null;
+    if (ancestors.isEmpty) return AppLocalizations.of(context)!.folders;
+    return ancestors.last.name;
+  }
+
+  void _showAncestorMenu(BuildContext anchorContext) {
+    final ancestors = _ancestors;
+    if (ancestors == null) return;
+    showFolderAncestorMenu(
+      anchorContext,
+      ancestors: ancestors,
+      rootLabel: AppLocalizations.of(context)!.folders,
+      onSelected: (folder) {
+        if (!mounted) return;
+        AppNavigator.popToAncestor(
+          context,
+          folderId: folder?.id,
+          title: folder?.name,
+        );
+      },
+    );
   }
 
   Future<void> _renameCurrentFolder() async {
@@ -1049,6 +1359,7 @@ class _OptimizedFolderContentPageState
     final moved = await _folderStorageService.getFolderById(folder.id);
     if (!mounted || moved == null) return;
     setState(() => _folder = moved);
+    await _loadAncestors();
   }
 
   void _shareCurrentFolder() {
@@ -1090,17 +1401,15 @@ class _OptimizedFolderContentPageState
 
   /// Top-level slivers list selector. The mixed sliver is the *only* visible
   /// list in both modes — it just toggles between a reorderable list (in
-  /// selection mode) and an infinite-scroll list (otherwise). Rendering the
-  /// same merged ordering in both modes fixes the previous inconsistency
-  /// where folders always appeared above notes outside of selection mode,
-  /// hiding the user's manual cross-kind reorders.
+  /// selection mode) and an infinite-scroll list (otherwise), over the same
+  /// rows in the same order, so nothing moves when selection starts.
   ///
-  /// Default ordering (no manual reorder yet): each kind's `position` is
-  /// dense within its own table, and [mergeByPosition] breaks ties in favor
-  /// of folders, so legacy data and freshly-created items naturally show
-  /// folders above notes. Once the user drags a note above a folder in
-  /// selection mode, the explicit positions persist and that exact ordering
-  /// is what the non-selection view also renders.
+  /// Ordering is grouped, not interleaved: every folder, then every note,
+  /// each in its own sort order, with a section label above each group when
+  /// both are present. The two `position` columns still share one index
+  /// space, so a drag inside either group persists exactly as before — the
+  /// cross-kind orderings that space could express are simply no longer
+  /// drawn.
   List<Widget> _buildContentSlivers({required bool isSelecting}) {
     return [_buildMixedSliver(isSelecting: isSelecting)];
   }
@@ -1193,6 +1502,7 @@ class _OptimizedFolderContentPageState
             // Keep the SelectAll source-of-truth in sync with what's visible.
             _visibleFolders = folders;
             _visibleNotes = notes;
+            _loadFolderCounts([for (final f in folders) f.id]);
 
             // Kick off a small content preload for the first few notes so
             // tapping in feels instant. Was previously done by the notes
@@ -1206,10 +1516,13 @@ class _OptimizedFolderContentPageState
               return const SliverToBoxAdapter(child: SizedBox.shrink());
             }
 
-            final merged = mergeByPosition(folders: folders, notes: notes);
+            final grouped = groupFoldersThenNotes(
+              folders: folders,
+              notes: notes,
+            );
             final display = _syncLocal<ContentItem>(
               _localMixed,
-              merged,
+              grouped,
               (i) => i.id,
             );
             _localMixed = display;
@@ -1233,39 +1546,80 @@ class _OptimizedFolderContentPageState
     );
   }
 
+  /// The flat row sequence for [items]: a section label above each group,
+  /// then that group's rows carrying the corner and divider treatment that
+  /// makes a run of them read as one card.
+  ///
+  /// Labels appear only when both groups are present. A folder full of notes
+  /// does not need to be told they are notes, and the root — which never has
+  /// notes — gains its "Folders" label with the smart rows above it.
+  List<_RowEntry> _buildEntries(List<ContentItem> items, AppLocalizations l10n) {
+    final folders = [
+      for (final item in items)
+        if (item is FolderItem) item,
+    ];
+    final notes = [
+      for (final item in items)
+        if (item is NoteItem) item,
+    ];
+    final labelled = folders.isNotEmpty && notes.isNotEmpty;
+    final entries = <_RowEntry>[];
+
+    void addGroup(List<ContentItem> group, String label) {
+      if (group.isEmpty) return;
+      if (labelled) entries.add(_SectionEntry(label));
+      for (var i = 0; i < group.length; i++) {
+        entries.add(
+          _ItemEntry(group[i], _positionIn(index: i, length: group.length)),
+        );
+      }
+    }
+
+    addGroup(folders, l10n.folders);
+    addGroup(notes, l10n.notes);
+    return entries;
+  }
+
+  RowGroupPosition _positionIn({required int index, required int length}) {
+    if (length == 1) return RowGroupPosition.single;
+    if (index == 0) return RowGroupPosition.first;
+    if (index == length - 1) return RowGroupPosition.last;
+    return RowGroupPosition.middle;
+  }
+
   /// Render the actual sliver (reorderable in selection mode, otherwise
   /// infinite-scroll) from a final [display] list. Extracted so the
   /// "reuse cached list during a transient Loading state" path and the
   /// fresh-data path produce the same widget tree (no re-creation jank).
+  ///
+  /// There is exactly one reorderable sliver over the whole sequence,
+  /// headers included: two would let a drag leave one and never arrive in
+  /// the other. Headers carry no drag listener, so they cannot be lifted,
+  /// and [_onReorderEntry] refuses to let a row land outside its own group.
   Widget _buildMixedListFromDisplay({
     required List<ContentItem> display,
     required bool isSelecting,
     required bool hasMore,
     required bool isLoadingMore,
   }) {
+    final entries = _buildEntries(display, AppLocalizations.of(context)!);
+    _entries = entries;
+
     if (isSelecting) {
       return SliverReorderableList(
-        itemCount: display.length,
+        itemCount: entries.length,
         proxyDecorator: (child, index, animation) =>
             _buildReorderProxy(child, animation, _selection.count),
         onReorderStart: (_) => _onReorderStart(),
         onReorderEnd: (_) => _onReorderEnd(),
-        onReorderItem: (oldIndex, newIndex) {
-          final reordered = _applyMultiReorder<ContentItem>(
-            source: display,
-            oldIndex: oldIndex,
-            newIndex: newIndex,
-            refOf: _refForContentItem,
-          );
-          _handleReorderMixed(reordered);
-        },
+        onReorderItem: _onReorderEntry,
         itemBuilder: (context, index) =>
-            _buildMixedItem(display[index], index, isSelecting: true),
+            _buildEntry(entries[index], index, isSelecting: true),
       );
     }
 
-    return InfiniteScrollSliver<ContentItem>(
-      items: display,
+    return InfiniteScrollSliver<_RowEntry>(
+      items: entries,
       hasMore: hasMore,
       isLoadingMore: isLoadingMore,
       controller: _scrollController,
@@ -1274,49 +1628,108 @@ class _OptimizedFolderContentPageState
           LoadMoreNotes(folderId: widget.folderId),
         );
       },
-      itemBuilder: (context, item, index) =>
-          _buildMixedItem(item, index, isSelecting: false),
+      itemBuilder: (context, entry, index) =>
+          _buildEntry(entry, index, isSelecting: false),
     );
   }
 
-  /// Single source of truth for rendering a [ContentItem] inside the mixed
-  /// sliver, used by both the reorderable and the infinite-scroll branches.
-  /// [isSelecting] toggles the drag handle (`isReorderMode`) — outside of
-  /// selection the cards show their normal trailing menu.
-  Widget _buildMixedItem(
-    ContentItem item,
-    int index, {
-    required bool isSelecting,
-  }) {
-    switch (item) {
-      case FolderItem(:final folder):
-        return _FolderCard(
-          key: ValueKey('folder:${folder.id}'),
-          folder: folder,
-          parentId: widget.folderId,
-          onReturn: _loadData,
-          isReorderMode: isSelecting,
-          index: isSelecting ? index : null,
-          isMultiDragging: _isDraggingMulti,
-          selection: _selection,
-          onLongPressItem: _onCardLongPress,
-          onTapInSelection: _onCardTapInSelection,
-          onAcceptDrop: _onDropOnFolder,
+  /// Single source of truth for rendering a row, used by both the reorderable
+  /// and the infinite-scroll branches. [isSelecting] toggles the drag handle
+  /// (`isReorderMode`) — outside of selection the rows show their menu.
+  Widget _buildEntry(_RowEntry entry, int index, {required bool isSelecting}) {
+    switch (entry) {
+      case _SectionEntry(:final label):
+        return KeyedSubtree(
+          key: ValueKey('section:$label'),
+          child: ContentSectionHeader(label: label),
         );
-      case NoteItem(:final metadata):
-        return _NoteCard(
-          key: ValueKey('note:${metadata.id}'),
-          metadata: metadata,
-          folderId: widget.folderId!,
-          onReturn: _loadData,
-          isReorderMode: isSelecting,
-          index: isSelecting ? index : null,
-          isMultiDragging: _isDraggingMulti,
-          selection: _selection,
-          onLongPressItem: _onCardLongPress,
-          onTapInSelection: _onCardTapInSelection,
-        );
+      case _ItemEntry(:final item, :final position):
+        switch (item) {
+          case FolderItem(:final folder):
+            return FolderRow(
+              key: ValueKey('folder:${folder.id}'),
+              folder: folder,
+              parentId: widget.folderId,
+              noteCount: _folderNoteCounts[folder.id],
+              groupPosition: position,
+              onReturn: _loadData,
+              isReorderMode: isSelecting,
+              index: isSelecting ? index : null,
+              isMultiDragging: _isDraggingMulti,
+              selection: _selection,
+              onLongPressItem: _onCardLongPress,
+              onTapInSelection: _onCardTapInSelection,
+              onAcceptDrop: _onDropOnFolder,
+            );
+          case NoteItem(:final metadata):
+            return NoteRow(
+              key: ValueKey('note:${metadata.id}'),
+              metadata: metadata,
+              folderId: widget.folderId!,
+              groupPosition: position,
+              showPreview: _showNotePreview,
+              onReturn: _loadData,
+              isReorderMode: isSelecting,
+              index: isSelecting ? index : null,
+              isMultiDragging: _isDraggingMulti,
+              selection: _selection,
+              onLongPressItem: _onCardLongPress,
+              onTapInSelection: _onCardTapInSelection,
+            );
+        }
     }
+  }
+
+  /// Turns a drop on the flat row list into a reorder of the content items,
+  /// clamped to the dragged row's own group.
+  ///
+  /// `onReorderItem` reports [newIndex] against the list with the dragged row
+  /// already removed, so the group's bounds are measured there too: the
+  /// insertion point may sit anywhere from the group's first row to just past
+  /// its last. A drop aimed at a header, or across the boundary into the
+  /// other group, lands at the nearest edge of the group it started in.
+  void _onReorderEntry(int oldIndex, int newIndex) {
+    final entries = _entries;
+    if (oldIndex < 0 || oldIndex >= entries.length) return;
+    final moved = entries[oldIndex];
+    if (moved is! _ItemEntry) return;
+
+    final remaining = [...entries]..removeAt(oldIndex);
+    final kind = moved.item.kind;
+    var lower = -1;
+    var upper = -1;
+    for (var i = 0; i < remaining.length; i++) {
+      final entry = remaining[i];
+      if (entry is _ItemEntry && entry.item.kind == kind) {
+        if (lower < 0) lower = i;
+        upper = i;
+      }
+    }
+    final target = lower < 0 ? newIndex : newIndex.clamp(lower, upper + 1);
+
+    final source = [
+      for (final entry in entries)
+        if (entry is _ItemEntry) entry.item,
+    ];
+    final contentOld = _contentIndexBefore(entries, oldIndex);
+    final contentNew = _contentIndexBefore(remaining, target);
+    if (contentOld >= source.length) return;
+
+    final reordered = _applyMultiReorder<ContentItem>(
+      source: source,
+      oldIndex: contentOld,
+      newIndex: contentNew,
+      refOf: _refForContentItem,
+    );
+    _handleReorderMixed(regroupFoldersThenNotes(reordered));
+  }
+
+  int _contentIndexBefore(List<_RowEntry> entries, int rowIndex) {
+    var count = 0;
+    for (var i = 0; i < rowIndex && i < entries.length; i++) {
+      if (entries[i] is _ItemEntry) count++;
+    }
+    return count;
   }
 
   /// Persist a unified folder+note ordering. Mirrors [_handleReorderFolders]:
@@ -1433,7 +1846,7 @@ class _OptimizedFolderContentPageState
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          AppLocalizations.of(context)!.tapPlusToCreate,
+                          AppLocalizations.of(context)!.createFromBarBelow,
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             fontSize: 14,
@@ -1451,49 +1864,6 @@ class _OptimizedFolderContentPageState
 
             return const SliverToBoxAdapter(child: SizedBox.shrink());
           },
-        );
-      },
-    );
-  }
-
-  void _showCreateOptions() {
-    showModalBottomSheet(
-      context: context,
-      builder: (BuildContext bottomSheetContext) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: Icon(
-                  Icons.folder,
-                  color: AppColors.folderIcon(context),
-                ),
-                title: Text(AppLocalizations.of(context)!.createFolder),
-                onTap: () {
-                  AppNavigator.pop(bottomSheetContext);
-                  _showCreateFolderDialog();
-                },
-              ),
-              if (widget.folderId != null)
-                ListTile(
-                  leading: Icon(Icons.note, color: AppColors.noteIcon(context)),
-                  title: Text(AppLocalizations.of(context)!.createNote),
-                  onTap: () {
-                    AppNavigator.pop(bottomSheetContext);
-                    _createNewNote();
-                  },
-                ),
-              ListTile(
-                leading: const Icon(Icons.file_download_outlined),
-                title: Text(AppLocalizations.of(context)!.importNoteOrFolder),
-                onTap: () {
-                  AppNavigator.pop(bottomSheetContext);
-                  _pickAndImport();
-                },
-              ),
-            ],
-          ),
         );
       },
     );
@@ -1572,839 +1942,3 @@ class _OptimizedFolderContentPageState
   }
 }
 
-class _FolderCard extends StatefulWidget {
-  final Folder folder;
-  final String? parentId;
-  final VoidCallback onReturn;
-  final bool isReorderMode;
-  final int? index;
-  // True while a multi-selection drag is in flight on the parent list. Used
-  // to dim/scale this card if it is selected but not the lifted one, so the
-  // user sees that the whole batch will follow.
-  final bool isMultiDragging;
-
-  // Selection-mode wiring. Optional so the card can be reused outside of
-  // selection contexts in the future.
-  final SelectionController? selection;
-  final void Function(MovableItemRef ref)? onLongPressItem;
-  final void Function(MovableItemRef ref)? onTapInSelection;
-  final Future<void> Function(Folder target, Set<MovableItemRef> dropped)?
-  onAcceptDrop;
-
-  const _FolderCard({
-    super.key,
-    required this.folder,
-    this.parentId,
-    required this.onReturn,
-    this.isReorderMode = false,
-    this.index,
-    this.isMultiDragging = false,
-    this.selection,
-    this.onLongPressItem,
-    this.onTapInSelection,
-    this.onAcceptDrop,
-  });
-
-  @override
-  State<_FolderCard> createState() => _FolderCardState();
-}
-
-class _FolderCardState extends State<_FolderCard> {
-  int? _subfolderCount;
-  int? _noteCount;
-  StreamSubscription<FolderChange>? _folderSub;
-  StreamSubscription<NoteChange>? _noteSub;
-
-  /// Debounce timer for `_loadCounts`. Bursts of folder/note changes
-  /// (bulk move, cascade delete, batch reorder) can fire many events in
-  /// quick succession; without coalescing, every visible card would issue
-  /// 2 count queries per event. 120 ms is short enough that the count
-  /// still updates before the user looks away from a single card, but
-  /// long enough to collapse a burst into a single read.
-  Timer? _countDebounce;
-  static const _countDebounceDuration = Duration(milliseconds: 120);
-
-  @override
-  void initState() {
-    super.initState();
-    _loadCounts();
-    _subscribeToChanges();
-  }
-
-  @override
-  void didUpdateWidget(covariant _FolderCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.folder.id != widget.folder.id) {
-      _folderSub?.cancel();
-      _noteSub?.cancel();
-      _countDebounce?.cancel();
-      _loadCounts();
-      _subscribeToChanges();
-    }
-  }
-
-  @override
-  void dispose() {
-    _folderSub?.cancel();
-    _noteSub?.cancel();
-    _countDebounce?.cancel();
-    super.dispose();
-  }
-
-  void _subscribeToChanges() {
-    final folderService = GetIt.I<FolderStorageService>();
-    final noteService = GetIt.I<NoteStorageService>();
-    _folderSub = folderService
-        .changesForParent(widget.folder.id)
-        .listen((_) => _scheduleLoadCounts());
-    _noteSub = noteService
-        .changesForFolder(widget.folder.id)
-        .listen((_) => _scheduleLoadCounts());
-  }
-
-  /// Coalesce burst events into a single trailing-edge `_loadCounts` call.
-  void _scheduleLoadCounts() {
-    if (!mounted) return;
-    _countDebounce?.cancel();
-    _countDebounce = Timer(_countDebounceDuration, () {
-      if (!mounted) return;
-      _loadCounts();
-    });
-  }
-
-  Future<void> _loadCounts() async {
-    try {
-      final folderService = GetIt.I<FolderStorageService>();
-      final noteService = GetIt.I<NoteStorageService>();
-      final results = await Future.wait([
-        folderService.getSubfolderCount(widget.folder.id),
-        noteService.getNoteCount(widget.folder.id),
-      ]);
-      if (mounted) {
-        setState(() {
-          _subfolderCount = results[0];
-          _noteCount = results[1];
-        });
-      }
-    } catch (e, stackTrace) {
-      debugPrint('[_FolderCard] Failed to load counts: $e\n$stackTrace');
-    }
-  }
-
-  String? _buildCountText(AppLocalizations l10n) {
-    if (_subfolderCount == null && _noteCount == null) return null;
-    final parts = <String>[];
-    final folders = _subfolderCount ?? 0;
-    final notes = _noteCount ?? 0;
-    if (folders > 0) parts.add('${l10n.folders}: $folders');
-    if (notes > 0) parts.add('${l10n.notes}: $notes');
-    if (parts.isEmpty) return null;
-    return parts.join('  ·  ');
-  }
-
-  MovableItemRef get _ref => MovableItemRef(
-    kind: MovableItemKind.folder,
-    id: widget.folder.id,
-    name: widget.folder.name,
-    currentParentId: widget.parentId,
-  );
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final countText = _buildCountText(l10n);
-    final selection = widget.selection;
-    final isSelecting = selection != null && selection.isActive;
-    final isSelected = selection != null && selection.contains(_ref);
-    final colorScheme = Theme.of(context).colorScheme;
-
-    final card = Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      color: isSelected
-          ? colorScheme.primaryContainer.withValues(alpha: 0.5)
-          : null,
-      child: ListTile(
-        leading: isSelected
-            ? Icon(Icons.check_circle, size: 40, color: colorScheme.primary)
-            : Icon(
-                Icons.folder,
-                size: 40,
-                color: AppColors.folderIcon(context),
-              ),
-        title: Text(
-          widget.folder.name,
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-        ),
-        subtitle: countText != null
-            ? Text(
-                countText,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Theme.of(context).colorScheme.outline,
-                ),
-              )
-            : null,
-        trailing: widget.isReorderMode
-            ? ReorderableDragStartListener(
-                index: widget.index ?? 0,
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 4),
-                  child: Icon(Icons.drag_handle, color: Colors.grey),
-                ),
-              )
-            : isSelecting
-            ? null
-            : PopupMenuButton<FolderCardAction>(
-                icon: const Icon(Icons.more_vert),
-                onSelected: (value) {
-                  switch (value) {
-                    case FolderCardAction.rename:
-                      _showRenameDialog(context);
-                    case FolderCardAction.move:
-                      _showMoveDialog(context);
-                    case FolderCardAction.share:
-                      _shareFolder(context);
-                    case FolderCardAction.delete:
-                      _confirmDelete(context);
-                  }
-                },
-                itemBuilder: (context) => [
-                  PopupMenuItem(
-                    value: FolderCardAction.rename,
-                    child: Row(
-                      children: [
-                        const Icon(Icons.edit, size: 20),
-                        const SizedBox(width: 12),
-                        Text(AppLocalizations.of(context)!.rename),
-                      ],
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: FolderCardAction.move,
-                    child: Row(
-                      children: [
-                        const Icon(Icons.drive_file_move_outlined, size: 20),
-                        const SizedBox(width: 12),
-                        Text(AppLocalizations.of(context)!.moveToFolder),
-                      ],
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: FolderCardAction.share,
-                    child: Row(
-                      children: [
-                        const Icon(Icons.share_rounded, size: 20),
-                        const SizedBox(width: 12),
-                        Text(AppLocalizations.of(context)!.shareFolder),
-                      ],
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: FolderCardAction.delete,
-                    child: Row(
-                      children: [
-                        const Icon(Icons.delete, size: 20, color: Colors.red),
-                        const SizedBox(width: 12),
-                        Text(
-                          AppLocalizations.of(context)!.delete,
-                          style: const TextStyle(color: Colors.red),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-        onTap: isSelecting
-            ? () => widget.onTapInSelection?.call(_ref)
-            : () {
-                AppNavigator.toFolder(
-                  context,
-                  folderId: widget.folder.id,
-                  title: widget.folder.name,
-                ).then((_) {
-                  if (context.mounted) {
-                    widget.onReturn();
-                  }
-                });
-              },
-        onLongPress: () {
-          if (isSelecting) {
-            widget.onTapInSelection?.call(_ref);
-          } else if (widget.onLongPressItem != null) {
-            widget.onLongPressItem!(_ref);
-          } else {
-            _showRenameDialog(context);
-          }
-        },
-      ),
-    );
-
-    // Drag source: only when this card is itself selected, so the user
-    // explicitly opted in via long-press.
-    Widget result = card;
-    if (isSelecting && isSelected) {
-      result = LongPressDraggable<Set<MovableItemRef>>(
-        data: selection.items,
-        delay: const Duration(milliseconds: 250),
-        feedback: Material(
-          color: Colors.transparent,
-          child: _DragFeedback(count: selection.count),
-        ),
-        childWhenDragging: Opacity(opacity: 0.4, child: card),
-        child: result,
-      );
-    }
-
-    // Drop target: any folder card during selection mode (except folders
-    // that are themselves in the dragged set, but the page-level handler
-    // already filters that out).
-    if (widget.onAcceptDrop != null) {
-      final child = result;
-      result = DragTarget<Set<MovableItemRef>>(
-        onWillAcceptWithDetails: (details) {
-          // Don't highlight if dropping onto self.
-          return !details.data.any(
-            (r) => r.kind == MovableItemKind.folder && r.id == widget.folder.id,
-          );
-        },
-        onAcceptWithDetails: (details) {
-          widget.onAcceptDrop!(widget.folder, details.data);
-        },
-        builder: (context, candidate, rejected) {
-          if (candidate.isNotEmpty) {
-            return DecoratedBox(
-              decoration: BoxDecoration(
-                border: Border.all(color: colorScheme.primary, width: 2),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: child,
-            );
-          }
-          return child;
-        },
-      );
-    }
-
-    // Multi-drag visual: when a batch reorder is in flight and this card is
-    // a passenger (selected but not the lifted one), dim & shrink slightly
-    // so the user sees "this is going with the dragged card."
-    if (widget.isMultiDragging && isSelected) {
-      result = AnimatedScale(
-        duration: const Duration(milliseconds: 150),
-        scale: 0.96,
-        child: AnimatedOpacity(
-          duration: const Duration(milliseconds: 150),
-          opacity: 0.55,
-          child: result,
-        ),
-      );
-    }
-
-    return result;
-  }
-
-  void _showRenameDialog(BuildContext context) async {
-    final name = await AppDialogs.textInput(
-      context,
-      title: AppLocalizations.of(context)!.renameFolder,
-      hintText: AppLocalizations.of(context)!.enterNewName,
-      initialValue: widget.folder.name,
-    );
-    if (name == null || name.trim().isEmpty) return;
-    if (!context.mounted) return;
-    final trimmed = name.trim();
-    // Skip the network roundtrip when nothing actually changed.
-    if (trimmed.toLowerCase() == widget.folder.name.trim().toLowerCase()) {
-      return;
-    }
-    final exists = await GetIt.I<FolderStorageService>()
-        .folderNameExistsInParent(
-          parentId: widget.parentId,
-          name: trimmed,
-          excludeId: widget.folder.id,
-        );
-    if (!context.mounted) return;
-    if (exists) {
-      CustomSnackbar.showError(
-        context,
-        AppLocalizations.of(context)!.folderNameAlreadyExists(trimmed),
-      );
-      return;
-    }
-    context.read<OptimizedFolderBloc>().add(
-      UpdateOptimizedFolder(folderId: widget.folder.id, name: trimmed),
-    );
-  }
-
-  void _showMoveDialog(BuildContext context) {
-    MoveCoordinator.moveFolder(
-      context,
-      folder: widget.folder,
-      currentParentId: widget.parentId,
-    );
-  }
-
-  void _shareFolder(BuildContext context) {
-    context.read<ImportExportBloc>().add(
-      ExportFolderRequested(folderId: widget.folder.id, share: true),
-    );
-  }
-
-  void _confirmDelete(BuildContext context) async {
-    AppDialogs.showLoading(
-      context,
-      message: AppLocalizations.of(context)!.loadingContent,
-    );
-
-    final folderService = GetIt.I<FolderStorageService>();
-    final noteCount = await folderService.getNoteCountForDeletion(
-      widget.folder.id,
-    );
-
-    if (!context.mounted) return;
-    AppNavigator.pop(context);
-
-    final confirmed = await AppDialogs.confirm(
-      context,
-      title: AppLocalizations.of(context)!.deleteFolder,
-      content: noteCount > 0
-          ? AppLocalizations.of(
-              context,
-            )!.deleteFolderWithNotesConfirm(widget.folder.name, noteCount)
-          : AppLocalizations.of(
-              context,
-            )!.deleteFolderConfirm(widget.folder.name),
-      confirmText: AppLocalizations.of(context)!.delete,
-      isDestructive: true,
-    );
-    if (!confirmed) return;
-    if (!context.mounted) return;
-    context.read<OptimizedFolderBloc>().add(
-      DeleteOptimizedFolder(
-        folderId: widget.folder.id,
-        parentId: widget.parentId,
-      ),
-    );
-  }
-}
-
-class _NoteCard extends StatelessWidget {
-  final NoteMetadata metadata;
-  final String folderId;
-  final VoidCallback onReturn;
-  final bool isReorderMode;
-  final int? index;
-  final bool isMultiDragging;
-
-  // Selection-mode wiring.
-  final SelectionController? selection;
-  final void Function(MovableItemRef ref)? onLongPressItem;
-  final void Function(MovableItemRef ref)? onTapInSelection;
-
-  const _NoteCard({
-    super.key,
-    required this.metadata,
-    required this.folderId,
-    required this.onReturn,
-    this.isReorderMode = false,
-    this.index,
-    this.isMultiDragging = false,
-    this.selection,
-    this.onLongPressItem,
-    this.onTapInSelection,
-  });
-
-  MovableItemRef _refFor(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return MovableItemRef(
-      kind: MovableItemKind.note,
-      id: metadata.id,
-      name: metadata.title.isEmpty ? l10n.untitledNote : metadata.title,
-      currentParentId: folderId,
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final ref = _refFor(context);
-    final isSelecting = selection != null && selection!.isActive;
-    final isSelected = selection != null && selection!.contains(ref);
-    final colorScheme = Theme.of(context).colorScheme;
-
-    final card = Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      color: isSelected
-          ? colorScheme.primaryContainer.withValues(alpha: 0.5)
-          : null,
-      child: ListTile(
-        leading: isSelected
-            ? Icon(Icons.check_circle, size: 40, color: colorScheme.primary)
-            : Stack(
-                children: [
-                  const Icon(Icons.note, size: 40, color: Colors.blue),
-                  if (metadata.isCompressed)
-                    Positioned(
-                      right: 0,
-                      bottom: 0,
-                      child: Icon(
-                        Icons.compress,
-                        size: 16,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                ],
-              ),
-        title: Text(
-          metadata.title.isEmpty
-              ? AppLocalizations.of(context)!.untitledNote
-              : metadata.title,
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              metadata.preview.isEmpty
-                  ? AppLocalizations.of(context)!.emptyNote
-                  : metadata.preview,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 14),
-            ),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                Text(
-                  _formatDate(metadata.updatedAt),
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Theme.of(context).colorScheme.outline,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  _formatSize(metadata.contentLength),
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Theme.of(context).colorScheme.outline,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-        trailing: isReorderMode
-            ? ReorderableDragStartListener(
-                index: index ?? 0,
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 4),
-                  child: Icon(Icons.drag_handle, color: Colors.grey),
-                ),
-              )
-            : isSelecting
-            ? null
-            : PopupMenuButton<NoteCardAction>(
-                icon: const Icon(Icons.more_vert),
-                onSelected: (value) {
-                  switch (value) {
-                    case NoteCardAction.rename:
-                      _showRenameDialog(context);
-                    case NoteCardAction.move:
-                      _showMoveDialog(context);
-                    case NoteCardAction.share:
-                      _showExportFormatDialog(context);
-                    case NoteCardAction.delete:
-                      _confirmDelete(context);
-                  }
-                },
-                itemBuilder: (context) => [
-                  PopupMenuItem(
-                    value: NoteCardAction.rename,
-                    child: Row(
-                      children: [
-                        const Icon(Icons.edit, size: 20),
-                        const SizedBox(width: 12),
-                        Text(AppLocalizations.of(context)!.rename),
-                      ],
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: NoteCardAction.move,
-                    child: Row(
-                      children: [
-                        const Icon(Icons.drive_file_move_outlined, size: 20),
-                        const SizedBox(width: 12),
-                        Text(AppLocalizations.of(context)!.moveToFolder),
-                      ],
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: NoteCardAction.share,
-                    child: Row(
-                      children: [
-                        const Icon(Icons.share, size: 20),
-                        const SizedBox(width: 12),
-                        Text(AppLocalizations.of(context)!.shareNote),
-                      ],
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: NoteCardAction.delete,
-                    child: Row(
-                      children: [
-                        const Icon(Icons.delete, size: 20, color: Colors.red),
-                        const SizedBox(width: 12),
-                        Text(
-                          AppLocalizations.of(context)!.delete,
-                          style: const TextStyle(color: Colors.red),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-        onTap: isSelecting
-            ? () => onTapInSelection?.call(ref)
-            : () {
-                AppNavigator.toNoteEditorInstant(
-                  context,
-                  folderId: folderId,
-                  noteId: metadata.id,
-                  metadata: metadata,
-                ).then((_) {
-                  if (context.mounted) {
-                    onReturn();
-                  }
-                });
-              },
-        onLongPress: () {
-          if (isSelecting) {
-            onTapInSelection?.call(ref);
-          } else if (onLongPressItem != null) {
-            onLongPressItem!(ref);
-          } else {
-            _showOptionsBottomSheet(context);
-          }
-        },
-      ),
-    );
-
-    Widget result = card;
-    if (isSelecting && isSelected && selection != null) {
-      result = LongPressDraggable<Set<MovableItemRef>>(
-        data: selection!.items,
-        delay: const Duration(milliseconds: 250),
-        feedback: Material(
-          color: Colors.transparent,
-          child: _DragFeedback(count: selection!.count),
-        ),
-        childWhenDragging: Opacity(opacity: 0.4, child: card),
-        child: card,
-      );
-    }
-
-    // Multi-drag visual: passenger cards dim & shrink so the user sees the
-    // batch is travelling with the lifted card.
-    if (isMultiDragging && isSelected) {
-      result = AnimatedScale(
-        duration: const Duration(milliseconds: 150),
-        scale: 0.96,
-        child: AnimatedOpacity(
-          duration: const Duration(milliseconds: 150),
-          opacity: 0.55,
-          child: result,
-        ),
-      );
-    }
-
-    return result;
-  }
-
-  void _showOptionsBottomSheet(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
-    showModalBottomSheet(
-      context: context,
-      builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 4,
-              margin: const EdgeInsets.symmetric(vertical: 12),
-              decoration: BoxDecoration(
-                color: colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Text(
-                metadata.title.isEmpty
-                    ? AppLocalizations.of(context)!.untitledNote
-                    : metadata.title,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: colorScheme.onSurface,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            const Divider(),
-            ListTile(
-              leading: const Icon(Icons.edit_rounded),
-              title: Text(AppLocalizations.of(context)!.rename),
-              onTap: () {
-                AppNavigator.pop(sheetContext);
-                _showRenameDialog(context);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.drive_file_move_outlined),
-              title: Text(AppLocalizations.of(context)!.moveToFolder),
-              onTap: () {
-                AppNavigator.pop(sheetContext);
-                _showMoveDialog(context);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.share_rounded),
-              title: Text(AppLocalizations.of(context)!.shareNote),
-              onTap: () {
-                AppNavigator.pop(sheetContext);
-                _showExportFormatDialog(context);
-              },
-            ),
-            ListTile(
-              leading: Icon(Icons.delete_rounded, color: colorScheme.error),
-              title: Text(
-                AppLocalizations.of(context)!.delete,
-                style: TextStyle(color: colorScheme.error),
-              ),
-              onTap: () {
-                AppNavigator.pop(sheetContext);
-                _confirmDelete(context);
-              },
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showMoveDialog(BuildContext context) {
-    MoveCoordinator.moveNote(
-      context,
-      metadata: metadata,
-      currentFolderId: folderId,
-    );
-  }
-
-  void _showExportFormatDialog(BuildContext context) async {
-    final format = await NoteExportDialog.chooseFormat(context);
-    if (format == null || !context.mounted) return;
-    context.read<ImportExportBloc>().add(
-      ExportNoteRequested(metadata: metadata, format: format, share: true),
-    );
-  }
-
-  void _showRenameDialog(BuildContext context) async {
-    final name = await AppDialogs.textInput(
-      context,
-      title: AppLocalizations.of(context)!.renameNote,
-      hintText: AppLocalizations.of(context)!.enterNewName,
-      initialValue: metadata.title,
-    );
-    if (name == null || !context.mounted) return;
-    final trimmed = name.trim();
-    if (trimmed.toLowerCase() == metadata.title.trim().toLowerCase()) {
-      return;
-    }
-    // Empty titles are allowed (multiple "Untitled" notes can coexist) so
-    // we only enforce uniqueness when the user actually typed a name.
-    if (trimmed.isNotEmpty) {
-      final exists = await GetIt.I<NoteStorageService>()
-          .noteTitleExistsInFolder(
-            folderId: folderId,
-            title: trimmed,
-            excludeId: metadata.id,
-          );
-      if (!context.mounted) return;
-      if (exists) {
-        CustomSnackbar.showError(
-          context,
-          AppLocalizations.of(context)!.noteTitleAlreadyExists(trimmed),
-        );
-        return;
-      }
-    }
-    context.read<OptimizedNoteBloc>().add(
-      UpdateOptimizedNote(noteId: metadata.id, title: trimmed),
-    );
-  }
-
-  String _formatDate(DateTime date) {
-    return '${date.day}/${date.month}/${date.year} ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
-  }
-
-  String _formatSize(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-  }
-
-  void _confirmDelete(BuildContext context) async {
-    final confirmed = await AppDialogs.confirm(
-      context,
-      title: AppLocalizations.of(context)!.deleteNote,
-      content: AppLocalizations.of(context)!.deleteNoteConfirm(
-        metadata.title.isEmpty
-            ? AppLocalizations.of(context)!.deleteThisNote
-            : metadata.title,
-      ),
-      confirmText: AppLocalizations.of(context)!.delete,
-      isDestructive: true,
-    );
-    if (!confirmed || !context.mounted) return;
-    context.read<OptimizedNoteBloc>().add(DeleteOptimizedNote(metadata.id));
-  }
-}
-
-/// Floating chip displayed under the user's finger while a selection batch
-/// is being dragged onto a target folder.
-class _DragFeedback extends StatelessWidget {
-  final int count;
-
-  const _DragFeedback({required this.count});
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Card(
-      elevation: 8,
-      color: colorScheme.primary,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.drag_indicator, color: colorScheme.onPrimary, size: 18),
-            const SizedBox(width: 8),
-            Text(
-              '$count',
-              style: TextStyle(
-                color: colorScheme.onPrimary,
-                fontWeight: FontWeight.bold,
-                fontSize: 14,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}

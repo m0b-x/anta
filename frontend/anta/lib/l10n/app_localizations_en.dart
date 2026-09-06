@@ -2008,6 +2008,21 @@ class AppLocalizationsEn extends AppLocalizations {
   String get recentSearches => 'Recent searches';
 
   @override
+  String get everywhere => 'Everywhere';
+
+  @override
+  String get thisFolder => 'This folder';
+
+  @override
+  String get recent => 'Recent';
+
+  @override
+  String get titlesSection => 'Titles';
+
+  @override
+  String get inTextSection => 'In text';
+
+  @override
   String get clearSearchHistory => 'Clear search history';
 
   @override
@@ -2060,7 +2075,39 @@ class AppLocalizationsEn extends AppLocalizations {
   String get emptyNotesHint => 'Write your first note';
 
   @override
-  String get tapPlusToCreate => 'Tap + to get started';
+  String get createFromBarBelow => 'Use the bar below to add one';
+
+  @override
+  String get newFolder => 'New folder';
+
+  @override
+  String folderCountLabel(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count folders',
+      one: '1 folder',
+      zero: 'No folders',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String noteCountLabel(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count notes',
+      one: '1 note',
+      zero: 'No notes',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String folderAndNoteCount(String folders, String notes) {
+    return '$folders, $notes';
+  }
 
   @override
   String charactersCount(int current, int max) {
@@ -4522,4 +4569,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get editorZoneOpenWikiLink => 'Open linked note';
+
+  @override
+  String get showAncestors => 'Show parent folders';
 }

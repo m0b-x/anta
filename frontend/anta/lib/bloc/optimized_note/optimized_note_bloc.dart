@@ -1,18 +1,12 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:stream_transform/stream_transform.dart';
 import '../../models/note_change.dart';
 import '../../models/note_metadata.dart';
 import '../../services/note_storage_service.dart';
 import '../../services/folder_search_service.dart';
 import 'optimized_note_event.dart';
 import 'optimized_note_state.dart';
-
-/// Debounce transformer for search events - waits for user to stop typing
-EventTransformer<T> debounce<T>(Duration duration) {
-  return (events, mapper) => events.debounce(duration).switchMap(mapper);
-}
 
 class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
   final NoteStorageService _storageService;
@@ -36,12 +30,6 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
     on<CreateOptimizedNote>(_onCreateNote);
     on<UpdateOptimizedNote>(_onUpdateNote);
     on<DeleteOptimizedNote>(_onDeleteNote);
-    on<SearchNotes>(_onSearchNotes);
-    on<QuickSearchNotes>(
-      _onQuickSearchNotes,
-      transformer: debounce(const Duration(milliseconds: 200)),
-    );
-    on<ClearSearch>(_onClearSearch);
     on<RefreshNotes>(_onRefreshNotes);
     on<ReorderNotes>(_onReorderNotes);
 
@@ -260,98 +248,6 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
           folderId: _currentFolderId,
         ),
       );
-    }
-  }
-
-  Future<void> _onSearchNotes(
-    SearchNotes event,
-    Emitter<OptimizedNoteState> emit,
-  ) async {
-    emit(
-      const OptimizedNoteSearchResults(
-        results: [],
-        query: '',
-        isSearching: true,
-      ),
-    );
-
-    try {
-      await _searchService.initialize();
-
-      final results = await _searchService.search(
-        event.query,
-        filter: event.folderId != null
-            ? SearchFilter(folderId: event.folderId)
-            : null,
-      );
-
-      emit(
-        OptimizedNoteSearchResults(
-          results: results,
-          query: event.query,
-          isSearching: false,
-        ),
-      );
-    } catch (e, stackTrace) {
-      _logError('Search failed', e, stackTrace);
-      emit(OptimizedNoteError('Search failed: $e', folderId: event.folderId));
-    }
-  }
-
-  Future<void> _onQuickSearchNotes(
-    QuickSearchNotes event,
-    Emitter<OptimizedNoteState> emit,
-  ) async {
-    final currentState = state;
-
-    if (currentState is OptimizedNoteSearchResults) {
-      emit(currentState.copyWith(isSearching: true));
-    } else {
-      emit(
-        const OptimizedNoteSearchResults(
-          results: [],
-          query: '',
-          isSearching: true,
-        ),
-      );
-    }
-
-    try {
-      await _searchService.initialize();
-
-      final results = await _searchService.quickSearch(
-        event.query,
-        folderId: event.folderId,
-      );
-
-      emit(
-        OptimizedNoteSearchResults(
-          results: results,
-          query: event.query,
-          isSearching: false,
-        ),
-      );
-    } catch (e, stackTrace) {
-      _logError('Quick search failed', e, stackTrace);
-      emit(
-        OptimizedNoteError('Quick search failed: $e', folderId: event.folderId),
-      );
-    }
-  }
-
-  Future<void> _onClearSearch(
-    ClearSearch event,
-    Emitter<OptimizedNoteState> emit,
-  ) async {
-    if (_lastPaginatedNotes != null) {
-      emit(
-        OptimizedNoteLoaded(
-          paginatedNotes: _lastPaginatedNotes!,
-          folderId: _currentFolderId,
-        ),
-      );
-    } else {
-      add(LoadNotesPaginated(folderId: _currentFolderId));
     }
   }
 

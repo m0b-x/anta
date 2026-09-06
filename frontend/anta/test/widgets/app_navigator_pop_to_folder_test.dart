@@ -209,6 +209,102 @@ void main() {
     expect(observer.replacements, isEmpty);
     expect(find.text('training'), findsOneWidget);
   });
+
+  /// The browser's ancestor menu ends with the root, which is `home`: it
+  /// carries no folder id, so it is addressed by [Route.isFirst] rather than
+  /// by a stamp. `popUntilFirst` would have played one transition per level.
+  group('popToAncestor', () {
+    final winter = NavDestination.folder(folderId: 'f3', title: 'Winter block');
+
+    testWidgets('the root pops past every level in one transition', (
+      tester,
+    ) async {
+      await pumpApp(tester);
+      final home = observer.pushed.last;
+      await push(tester, pageRoute('training', destination: training));
+      final intermediate = observer.pushed.last;
+      await push(tester, pageRoute('winter', destination: winter));
+      final top = observer.pushed.last;
+      observer.clear();
+
+      await AppNavigator.popToAncestor(contexts['winter']!);
+      await tester.pumpAndSettle();
+
+      expect(observer.removed, [intermediate]);
+      expect(observer.popped, [top]);
+      expect(observer.replacements, isEmpty);
+      expect(home.isCurrent, isTrue);
+      expect(find.text('root'), findsOneWidget);
+    });
+
+    testWidgets('the root is left alone when it is already showing', (
+      tester,
+    ) async {
+      await pumpApp(tester);
+      observer.clear();
+
+      await AppNavigator.popToAncestor(contexts['root']!);
+      await tester.pumpAndSettle();
+
+      expect(observer.removed, isEmpty);
+      expect(observer.popped, isEmpty);
+      expect(observer.replacements, isEmpty);
+      expect(find.text('root'), findsOneWidget);
+    });
+
+    testWidgets('a folder id goes through popToFolder', (tester) async {
+      await pumpApp(tester);
+      await push(tester, pageRoute('training', destination: training));
+      final folderRoute = observer.pushed.last;
+      await push(tester, pageRoute('winter', destination: winter));
+      final intermediate = observer.pushed.last;
+      await push(
+        tester,
+        pageRoute(
+          'note a',
+          destination: NavDestination.note(noteId: 'a', folderId: 'f3'),
+        ),
+      );
+      final top = observer.pushed.last;
+      observer.clear();
+
+      await AppNavigator.popToAncestor(
+        contexts['note a']!,
+        folderId: 'f1',
+        title: 'Training',
+      );
+      await tester.pumpAndSettle();
+
+      expect(observer.removed, [intermediate]);
+      expect(observer.popped, [top]);
+      expect(folderRoute.isCurrent, isTrue);
+      expect(find.text('training'), findsOneWidget);
+    });
+
+    testWidgets('a folder id that is not on the stack rebuilds it', (
+      tester,
+    ) async {
+      await pumpApp(tester);
+      await push(tester, pageRoute('recipes', destination: recipes));
+      observer.clear();
+
+      AppNavigator.popToAncestor(
+        contexts['recipes']!,
+        folderId: 'f1',
+        title: 'Training',
+      ).ignore();
+
+      expect(observer.replacements, hasLength(1));
+      expect(
+        observer.replacements.single.newRoute!.settings.arguments,
+        training,
+      );
+      expect(observer.removed, isEmpty);
+      expect(observer.popped, isEmpty);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  });
 }
 
 class _Replacement {

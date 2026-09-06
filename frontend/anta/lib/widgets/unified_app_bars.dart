@@ -57,25 +57,31 @@ class UnifiedAppBar extends StatelessWidget implements PreferredSizeWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    final (startColor, endColor) = switch (style) {
-      AppBarStyle.main =>
-        isDark
-            ? (colorScheme.surface, colorScheme.surfaceContainerHighest)
-            : (
-                colorScheme.inversePrimary,
-                colorScheme.inversePrimary.withValues(alpha: 0.7),
-              ),
-      AppBarStyle.settings =>
-        isDark
-            ? (
-                colorScheme.surfaceContainerHigh,
-                colorScheme.surfaceContainerHighest,
-              )
-            : (
-                colorScheme.primaryContainer,
-                colorScheme.primary.withValues(alpha: 0.5),
-              ),
-    };
+    // The browser's bar is a `SliverAppBar.large` that a gradient cannot
+    // follow across 172 px of collapse, and the editor's bar is the shape it
+    // settles into — so the main style is flat Material 3 surface, and the
+    // scrolled-under tint is the only colour change either bar makes. The
+    // settings pages keep the gradient until they are redesigned.
+    if (style == AppBarStyle.main) {
+      return AppBar(
+        leading: leading,
+        leadingWidth: leadingWidth,
+        automaticallyImplyLeading: automaticallyImplyLeading,
+        title: title,
+        actions: actions,
+        elevation: elevation,
+      );
+    }
+
+    final (startColor, endColor) = isDark
+        ? (
+            colorScheme.surfaceContainerHigh,
+            colorScheme.surfaceContainerHighest,
+          )
+        : (
+            colorScheme.primaryContainer,
+            colorScheme.primary.withValues(alpha: 0.5),
+          );
 
     return Container(
       decoration: BoxDecoration(
@@ -150,48 +156,6 @@ class _NavButton extends StatelessWidget {
       icon: Icon(icon),
       onPressed: onPressed,
       visualDensity: VisualDensity.compact,
-    );
-  }
-}
-
-class FolderAppBar extends StatelessWidget implements PreferredSizeWidget {
-  final String title;
-  final bool isRootPage;
-  final List<Widget>? actions;
-  final VoidCallback? onMenuPressed;
-  final VoidCallback? onBackPressed;
-
-  const FolderAppBar({
-    super.key,
-    required this.title,
-    this.isRootPage = false,
-    this.actions,
-    this.onMenuPressed,
-    this.onBackPressed,
-  });
-
-  @override
-  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
-
-  @override
-  Widget build(BuildContext context) {
-    return UnifiedAppBar.main(
-      automaticallyImplyLeading: false,
-      leading: isRootPage
-          ? Builder(
-              builder: (ctx) => IconButton(
-                icon: const Icon(Icons.menu_rounded),
-                tooltip: MaterialLocalizations.of(ctx).openAppDrawerTooltip,
-                onPressed: onMenuPressed ?? () => Scaffold.of(ctx).openDrawer(),
-              ),
-            )
-          : IconButton(
-              icon: const BackButtonIcon(),
-              tooltip: MaterialLocalizations.of(context).backButtonTooltip,
-              onPressed: onBackPressed ?? () => AppNavigator.pop(context),
-            ),
-      title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-      actions: actions,
     );
   }
 }
@@ -500,7 +464,6 @@ class _SearchAppBarState extends State<SearchAppBar> {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return AppBar(
       title: TextField(
@@ -517,9 +480,6 @@ class _SearchAppBarState extends State<SearchAppBar> {
         onChanged: widget.onChanged,
         onSubmitted: widget.onSubmitted,
       ),
-      backgroundColor: isDark
-          ? colorScheme.surface
-          : colorScheme.inversePrimary,
       actions: [
         if (widget.controller.text.isNotEmpty)
           IconButton(icon: const Icon(Icons.clear), onPressed: widget.onClear),

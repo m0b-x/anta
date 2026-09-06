@@ -1,7 +1,8 @@
 # Navigation Round 2 — Roadmap & Slice Prompts (2026-09-06)
 
-**Status: Slice 1 DONE (2026-09-06, on `b0a8b87`, uncommitted). Slices 2–6
-planned.** Baseline: `b0a8b87` (Session 9's wiki links are committed).
+**Status: Slices 1–4 DONE (Slice 1 committed 2026-09-06 as `dad64be`;
+Slices 2, 3 and 4 uncommitted on top of it). Slices 5–6 planned.** Baseline:
+`b0a8b87` (Session 9's wiki links are committed).
 Design source: the round-2 mock artifact, revision 2.3 ("option 1"):
 https://claude.ai/code/artifact/82c94d9b-0793-47a9-ae29-a036181fcccc
 Research: four independent read-only passes on 2026-09-05 (browser page,
@@ -410,6 +411,86 @@ the spec you deviated from and why. Do not commit.
 
 ### Slice 2 — Large-title sliver bar with parent eyebrow, ancestor menu
 
+**Shipped 2026-09-06** on `dad64be`, uncommitted. Deviations from the plan
+below, each deliberate:
+
+- **The gradient decision: both bars lose it.** `UnifiedAppBar.main` —
+  `NoteAppBar` and `SelectionAppBar` — now renders a plain M3 `AppBar` on
+  `colorScheme.surface`, with `scrolledUnderElevation` supplying the only
+  colour change. The alternative (keeping it and matching the sliver's
+  `backgroundColor` to its top colour) would have put 172 px of
+  `inversePrimary` at the top of every folder in light mode, which is not
+  what the mock draws — its bars are flat `--m-ground` in both themes —
+  and a gradient cannot follow the collapse. `UnifiedAppBar.settings`
+  keeps its gradient: settings pages were explicitly out of scope, so
+  `AppBarStyle` still has two members. `SearchAppBar`'s hardcoded
+  `inversePrimary` went with them, in passing: it used to match
+  `FolderAppBar` and would otherwise have been the only lavender bar left
+  in the app. Slice 5 replaces that surface anyway.
+- **The ancestor menu lists nearest-parent first**, ending with the root
+  under a home icon — the mock's "Long-press on Back" panel shows
+  `Training` then `Folders` from inside `Winter block`, and a menu opened
+  by holding Back reads as a back stack, not as a breadcrumb. The scope
+  line's "top-down" is therefore reading order, not hierarchy order.
+- **The menu anchors under whichever control was touched**, not always
+  under the leading icon: the eyebrow's own context anchors the
+  eyebrow-tap menu. Sharing one `GlobalKey` across the toolbar and the
+  flexible space — two subtrees the delegate rebuilds on every scroll
+  tick — buys nothing, and the two anchors are within a few pixels of
+  each other horizontally.
+- **The back button's `CustomSemanticsAction` needs `MergeSemantics`.**
+  A bare `Semantics(customSemanticsActions:)` above an `IconButton`
+  settles the annotation on the node *enclosing* the button, so TalkBack
+  offered "Show parent folders" for the whole bar and not for the arrow;
+  the assertion in the suite is what caught it.
+- **`popToAncestor`'s root case is not `popUntilFirst`.** The plan named
+  it, but `popUntil` pops one route at a time — the very thing D7 exists
+  to avoid. The root is addressed by `Route.isFirst` (it is `home` and
+  carries no `NavDestination` stamp) and collapsed onto with the same
+  remove-then-one-pop helper `popToFolder` uses, now extracted as
+  `_livePageRoutes` / `_collapseOnto`.
+- **The selection-mode swap has to pay for itself.** The sliver is 172 px
+  of scroll extent *inside* the viewport; `SelectionAppBar` is
+  `kToolbarHeight` *outside* it. Keeping the offset would have carried
+  every row up by 116 px on each long press and back down on each exit —
+  the layout shift the project's UX bar forbids. The `_selection.changes`
+  listener now detects the edge and jumps the controller by
+  `FolderSliverAppBar.expandedHeight − kToolbarHeight` in the **same
+  synchronous tick** as the `setState` (a post-frame callback would paint
+  one frame at the wrong offset, which is the jump itself). Leaving
+  restores the offset entered at *plus* whatever was scrolled while
+  selecting, so a partly expanded bar comes back exactly — entering at 50
+  returns to 50, not 116. The result is clamped at 0 only; clamping
+  against `maxScrollExtent` is impossible there (the new extent is not
+  laid out yet) and the physics settle the rare shrunk-content case.
+- **`RefreshIndicator` gained an `edgeOffset`.** It still triggers — the
+  pinned sliver does not eat overscroll — but the spinner dropped from
+  the top of the body, which the expanded bar covers. `edgeOffset` is
+  purely positional in the framework, so nothing about the gesture
+  changed.
+- The collapsed bar is 64 px (the large variant's own collapsed height,
+  as the scope says) while `NoteAppBar` is `kToolbarHeight`, 56. Matching
+  exactly would mean hand-computing `collapsedHeight` from
+  `MediaQuery.paddingOf(context).top`, which fights the variant. Colours
+  and icon treatment match, which is what "match the collapsed look"
+  asked for.
+- **The root bar now reads "Folders", not "ANTA"** — the scope says
+  `l10n.folders` and the mock draws it, and the ancestor menu's home row
+  says the same word, but it does mean the app name has left the root
+  bar. `main.dart` still constructs the page with `title: 'ANTA'`; the
+  root simply no longer renders it.
+- The mock's "little extra top padding" at the root has no equivalent
+  here: the expanded title is bottom-aligned in both cases (that is what
+  makes it slide under the toolbar), so a missing eyebrow already leaves
+  the extra space above it.
+- `FolderAppBar` is deleted; `_IntegratedNavButtons` / `_NavButton` stay,
+  still used by `SettingsAppBar`.
+- **New l10n key: `showAncestors` only.** `folders` already existed and is
+  reused for both the root eyebrow and the menu's home row.
+- Device verification still owed: collapse and pull-back feel, no title
+  clipping at the largest font size, and TalkBack reading the back
+  button's custom action.
+
 Goal: the browser bar opens tall with the folder name large, the parent's
 name muted above it, and collapses on scroll into the editor-shaped bar;
 long-press on Back (or tap on the eyebrow) lists ancestors.
@@ -510,6 +591,79 @@ decision you took. Do not commit.
 ```
 
 ### Slice 3 — Grouped rows, note preview setting, bottom bar, FAB retired
+
+**Shipped 2026-09-06** on `dad64be`, uncommitted alongside Slice 2.
+Deviations from the plan below, each deliberate:
+
+- **The count string is three keys, not one.** The scope asks for one ICU
+  plural key with three shapes, but "3 folders, 5 notes" needs *two*
+  independently pluralised numbers, and a single message can only express
+  that as a plural nested inside a plural — 3 folder forms × 4 note forms
+  written out per language, with Romanian's `few` in both positions. It
+  would be unreadable and untranslatable in practice. Instead
+  `folderCountLabel` and `noteCountLabel` are ordinary plural keys and
+  `folderAndNoteCount` joins two already-rendered halves (`"{folders},
+  {notes}"`), so a locale can still change the separator. All three shapes
+  the scope lists are produced, each half stays a sentence a translator can
+  read, and the zero case renders nothing at all — the empty state already
+  says it.
+- **`tapPlusToCreate` was replaced, not reworded.** With the `+` gone the
+  key name would have been a lie; the new key is `createFromBarBelow` and
+  the old one is left in the ARBs untouched (nothing reads it, and deleting
+  a key is a separate, riskier edit than adding one).
+- **The note row's date is compact and locale-aware, not relative.** The
+  scope says "relative date"; a real one ("2 days ago") needs at least five
+  new plural/adverb keys in three languages, which is a bigger l10n change
+  than the whole rest of the slice. `intl` gives the same compactness for
+  free: the time for something edited today, day-and-month within this
+  year, the short date beyond it. Worth revisiting if the mock's exact
+  wording matters.
+- **The note row dropped the content size.** The old card showed
+  `12.4 KB` next to the date; the mock's row is title + date + preview, and
+  the second line has no room for a third field once the preview is on.
+- **Section labels appear only when both groups are present**, which is
+  the one rule that satisfies all three clauses of the scope's parenthesis
+  at once: a nested folder shows "Notes" only alongside folders, and the
+  root — which never has notes — gains its "Folders" label with the smart
+  rows in Slice 6, not before.
+- **`_loadFolderCounts` clears without `setState`.** It is called from the
+  list's own builder, so the empty-folder path would otherwise be a
+  rebuild during build; with no folder rows on screen there is nothing
+  whose count could repaint anyway. This was a real crash in three
+  existing cases before it was fixed.
+- **The bottom bar's count comes from `paginatedFolders.totalCount` /
+  `paginatedNotes.totalCount`**, in `BlocBuilder`s of its own rather than
+  off the page's `_visibleFolders`. The bar is constructed before the
+  list's builders run, so reading the fields would have shown last frame's
+  numbers; and the totals are exact where the loaded page is not.
+- **No `dragBoundaryProvider`, and the device check the scope asks for is
+  moot.** flutter#164064 is about the autoscroll trigger zone hiding
+  behind a tall pinned bar — but reordering only exists in selection mode,
+  and Slice 2 established that selection mode replaces the sliver with a
+  box `SelectionAppBar` outside the scroll view. There is no pinned sliver
+  over the reorderable list to hide anything.
+- `_FolderCard` / `_NoteCard` / `_DragFeedback` moved out of the page into
+  `lib/widgets/folder_row.dart`, `note_row.dart` and `content_rows.dart`
+  as `FolderRow` / `NoteRow` / `DragFeedbackChip`, which is what lets the
+  tests address them by type. The page lost ~840 lines.
+- **Test trap worth keeping.** `_handleReorderMixed`'s writes are
+  fire-and-forget *and started inside the case's fake clock*, so ending
+  the case strands sixteen row writes mid-transaction and the next case's
+  first query queues behind a lock nothing releases — the symptom is a
+  hang, not a failure. The reorder cases end with a `drainWrites` that
+  alternates real delays and pumps (`settle`); real time alone does not do
+  it. Separately, a settings write in a `testWidgets` body must go through
+  `tester.runAsync` for the same reason.
+- Device verification still owed: a 200-folder root scrolling without
+  count jank, drag-reorder autoscroll in selection mode, and the bottom
+  bar clearing the gesture bar on a real device.
+- Review pass (same day), three fixes: `_loadFolderCounts` drops a result
+  whose id list is no longer the one on screen (two in-flight reads could
+  otherwise land out of order and leave a fresh page showing zeros);
+  `FolderRow` always renders its subtitle line, so the row does not grow
+  by 16 px when the count arrives; the drop-target highlight moved into
+  `ContentRowShell` (`isDropTarget`), where it follows the row's own corner
+  radii instead of framing the 16 px inset around it.
 
 Goal: the list looks like the mock (folder rows with one count, note
 rows with date + optional preview, section labels), counts cost one
@@ -614,6 +768,109 @@ reasons, and whether a dragBoundaryProvider was needed. Do not commit.
 ```
 
 ### Slice 4 — SearchBloc, recursive scope, grouped results (standalone route)
+
+**Shipped 2026-09-06** on `dad64be`, uncommitted alongside Slices 2 and 3.
+Deviations from the plan below, each deliberate:
+
+- **The bloc talks to three services, not two.** The scope line says
+  "`FolderSearchService` and `NoteStorageService` only", but scope items 2
+  and 3 of the same list require `FolderStorageService.subtreeIds` and
+  `getAncestors`. The rule the "only" was protecting — never reach past a
+  service into a repository or DAO — holds: the bloc has no repository and
+  no DAO.
+- **`SearchSubmitted` carries its query; `SearchOpened` does not.** The plan
+  wrote `SearchSubmitted()` reading the query out of state, but
+  `SearchQueryChanged` is debounced with `switchMap`, so the tag path
+  (`SearchOpened` + query + submit) would have raced: the full search would
+  land, and 200 ms later the debounced quick pass would paint over it. The
+  field is the source of truth for what was submitted, so it is passed. Same
+  reason the page dispatches `SearchCleared()` rather than
+  `SearchQueryChanged('')` on an emptied field — clearing must not wait out
+  a debounce.
+- **One `SearchState` with a `phase`, not a sealed hierarchy.** Every phase
+  renders the same three regions and carries the same scope and query; a
+  hierarchy would have re-declared both in each case. Events stay sealed.
+- **Folder paths live in the state as a `folderId -> segments` map**, not on
+  each row. That *is* the "batch and dedupe by folder id" the scope asks
+  for — the map is the dedupe — and it keeps `recents` a plain
+  `List<NoteMetadata>` instead of a new pair type. `FolderStorageService.
+  folderPathSegments` returns segments rather than a joined string, so the
+  ` › ` separator stays in the widget with the rest of the rendering.
+- **Rows are a new `SearchResultRow`, not `NoteRow` itself.** The scope says
+  "the Slice 3 `NoteRow` look", and it is that look — same `ContentRowShell`,
+  same leading icon, same title style — but `NoteRow`'s second line is the
+  edit date joined to the stored preview, and a result has two more things
+  to say in that space (the folder path, and the highlighted excerpt).
+  Reusing the widget would have meant three new optional parameters and a
+  second layout inside it.
+- **Highlights come only from `SearchMatch.startIndex/endIndex`.** The old
+  page re-scanned the text with `toLowerCase().indexOf(query)`, which is a
+  second fold and disagreed with the service about diacritics; a row with an
+  out-of-range or empty span renders plain rather than throwing.
+- **`quickSearch` pages unscoped and filters in memory**, at 300 rows — the
+  scope's own fallback, because the DAO can page by one folder id and a
+  subtree is many. A `getNotesInFolders` DAO method is still the real fix
+  when the ceiling starts to bite.
+- **`SearchFilter.folderId` was replaced, not supplemented.** Its only two
+  callers were the handler being deleted and the service itself, so keeping
+  a single-folder field would have left a second, non-recursive way to scope
+  a search — exactly the divergence this slice exists to remove. An empty
+  set now means "nothing", which is what a scope on a deleted folder needs.
+- **`toSearch` gained `folderName`.** The chip needs a label and the page had
+  only an id; the browser passes `_folder?.name ?? widget.title`, and
+  `thisFolder` is the fallback when a caller has no name. Resolving the name
+  inside the bloc was the alternative and would have made every open await a
+  folder read before it could draw a chip.
+- **The `debounce` transformer moved to `lib/utils/bloc_helpers.dart`.** It
+  was a top-level function in `optimized_note_bloc.dart` whose only user was
+  the `QuickSearchNotes` registration this slice deletes; leaving it there
+  would have made the new bloc import the old one. `bloc_helpers.dart` was
+  being edited anyway — its `matchesFolderContext` named
+  `OptimizedNoteSearchResults`.
+- **`OptimizedNoteBloc` keeps its `searchService`.** Only the three search
+  handlers, events and the results state are gone; the bloc still calls
+  `updateIndex` / `removeFromIndex` / `dispose` on create, update and delete,
+  which is what keeps the index in step with the notes.
+- **The perf cap needed a real fix, not a verification.** Scope item 7 said
+  "it may already — verify": it did not. `search()` loaded the content of
+  every hit and then took `limit` *after* sorting. Relevance comes off the
+  index, so ranking, filtering and cutting all moved ahead of the first
+  content read. `test/services/folder_search_service_limit_test.dart` counts
+  `loadNoteContent` calls against a 60-hit query.
+- **Test traps worth keeping.** (1) `ContentSectionHeader` upper-cases its
+  label, so `find.text('Titles')` finds nothing — read `.label` off the
+  widget instead. (2) A folder name is on screen twice once results have
+  paths (the chip and a row), so chip assertions need
+  `find.widgetWithText(ChoiceChip, …)`. (3) The bloc suite's storage fakes
+  `extend` their services over a lazily-opened `NativeDatabase.memory()` that
+  is never queried — cheaper and less brittle than two dozen
+  `UnimplementedError` stubs. (4) `FolderSearchService.buildIndex` crosses
+  into a `compute` isolate above 50 notes; that works under `flutter test`,
+  but build the index explicitly before counting anything, or the bulk pass's
+  own content reads are in the total. (5) A stale `flutter_tester.exe` holds
+  `build/native_assets/windows/sqlite3.dll` and makes the *next*
+  `flutter test` die with a `PathAccessException` that looks like a tool bug.
+- Review pass (same day), one bug class, three fixes: **cross-event races in
+  `SearchBloc`**. bloc 9.2.0 defaults to a concurrent transformer and only
+  `SearchQueryChanged` overrides it, so handlers of *different* event types
+  overlap and the slowest one won. (1) A private `_generation` counter, bumped
+  by every handler that changes what is on screen and re-checked after the
+  last await immediately before each `emit` — without it a tag open's recents
+  landing after its own submitted search wiped the hits and blanked the query
+  while the field still showed the tag, and a quick pass landing after
+  `SearchCleared` repainted hits under an empty field. The widget test only
+  passed because real drift happened to answer the recents query first. (2) A
+  guard at the top of `_onQueryChanged`: a debounced quick pass for text a
+  full pass is already showing returns instead of downgrading it — typing and
+  pressing Enter inside 200 ms did exactly that, and carrying the query on
+  `SearchSubmitted` did not prevent it. (3) `_emitRecents` no longer takes or
+  emits a scope; every caller already has the right one in state, and the
+  captured copy snapped the chip back when a scope change raced the opening
+  recents load. Four regression cases under "races between event types" drive
+  the orderings through `Completer` gates on the fakes.
+- Device verification still owed: a tag tap from the editor landing in
+  grouped results, and search-from-a-folder finding a note two levels down,
+  both on a real device rather than the 800x600 test surface.
 
 Goal: search has its own bloc and widget, folder scope includes
 subfolders, results are grouped Titles / In text, idle shows recents.

@@ -127,6 +127,85 @@ void main() {
     );
   });
 
+  group('a page of folder rows and their counts', () {
+    // Every folder row in the browser shows how many notes live under it,
+    // descendants included. That used to be two statements per row, so a
+    // 40-folder page cost 80 round trips before it could finish painting.
+    test('one statement answers a whole page, however many rows', () async {
+      await _seedTree(db, roots: 30, depth: 3, notesPerFolder: 2);
+      final ids = [for (var i = 0; i < 30; i++) 'root$i'];
+
+      counter.reset();
+      final counts = await db.folderDao.noteCountsWithDescendants(ids);
+
+      expect(counts, hasLength(30));
+      expect(
+        counter.count,
+        1,
+        reason:
+            'the batched count must stay one WITH RECURSIVE statement. Per-row '
+            'counting is invisible in a query plan — 60 indexed statements '
+            'still lose to one. Issued:\n${counter.statements.join('\n')}',
+      );
+    });
+
+    test('the statement count does not move with the number of folders', () async {
+      await _seedTree(db, roots: 30, depth: 3, notesPerFolder: 2);
+
+      counter.reset();
+      await db.folderDao.noteCountsWithDescendants(const ['root0']);
+      final forOne = counter.count;
+
+      counter.reset();
+      await db.folderDao.noteCountsWithDescendants([
+        for (var i = 0; i < 30; i++) 'root$i',
+      ]);
+      final forThirty = counter.count;
+
+      expect(forOne, forThirty);
+    });
+
+    test('an empty folder list touches the database not at all', () async {
+      counter.reset();
+      expect(await db.folderDao.noteCountsWithDescendants(const []), isEmpty);
+      expect(counter.count, 0);
+    });
+
+    test('the count reaches every descendant, and stops at deleted ones', () async {
+      await _seedTree(db, roots: 2, depth: 3, notesPerFolder: 2);
+      // 2 notes in the root, 2 in its child, 2 in its grandchild.
+      expect(
+        await db.folderDao.noteCountsWithDescendants(const ['root0']),
+        {'root0': 6},
+      );
+
+      // Tombstoned directly rather than through
+      // `softDeleteFolderWithDescendants`: that path also rewrites `notes_fts`,
+      // which these batch-inserted rows were never added to.
+      await db.customStatement(
+        "UPDATE folders SET is_deleted = 1 WHERE id = 'root0_1'",
+      );
+      expect(
+        await db.folderDao.noteCountsWithDescendants(const ['root0']),
+        {'root0': 2},
+        reason:
+            'a tombstoned subtree must leave the traversal, notes and all — '
+            'the same rule getAllDescendantIds follows',
+      );
+    });
+
+    test('a folder with nothing under it still answers, with zero', () async {
+      await _seedTree(db, roots: 1, depth: 1, notesPerFolder: 0);
+      expect(
+        await db.folderDao.noteCountsWithDescendants(const ['root0']),
+        {'root0': 0},
+        reason:
+            'the row draws its count before it can be told there is none; a '
+            'missing key and a zero must not look different to it',
+      );
+    });
+  });
+
   test('reordering never reads a row to write it', () async {
     final positions = {for (var i = 0; i < 50; i++) 'n$i': 50 - i};
     counter.reset();
@@ -622,6 +701,53 @@ CalendarEventsCompanion _event(String id, {String category = 'gym'}) {
     createdAt: DateTime.now(),
     updatedAt: DateTime.now(),
   );
+}
+
+/// [roots] chains of folders [depth] deep, each folder holding
+/// [notesPerFolder] notes. Ids are `root<i>`, `root<i>_1`, `root<i>_2`, …, so
+/// a test can name any level without looking one up.
+Future<void> _seedTree(
+  AppDatabase db, {
+  required int roots,
+  required int depth,
+  required int notesPerFolder,
+}) async {
+  final now = DateTime.now();
+  await db.batch((batch) {
+    for (var r = 0; r < roots; r++) {
+      String? parent;
+      for (var d = 0; d < depth; d++) {
+        final id = d == 0 ? 'root$r' : 'root${r}_$d';
+        batch.insert(
+          db.folders,
+          FoldersCompanion.insert(
+            id: id,
+            name: id,
+            parentId: Value(parent),
+            hlcTimestamp: '0',
+            deviceId: 'test',
+            createdAt: now,
+            updatedAt: now,
+          ),
+        );
+        for (var n = 0; n < notesPerFolder; n++) {
+          batch.insert(
+            db.notes,
+            NotesCompanion.insert(
+              id: '${id}_n$n',
+              folderId: id,
+              title: '$id note $n',
+              hlcTimestamp: '0',
+              deviceId: 'test',
+              createdAt: now,
+              updatedAt: now,
+            ),
+          );
+        }
+        parent = id;
+      }
+    }
+  });
 }
 
 const _folderId = 'f1';

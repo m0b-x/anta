@@ -146,7 +146,11 @@ class SearchMatch {
 enum SearchMatchType { title, content }
 
 class SearchFilter {
-  final String? folderId;
+  /// The folder subtree a search is confined to: the scoped folder's id plus
+  /// every descendant, as [FolderStorageService.subtreeIds] builds it. `null`
+  /// searches everywhere; an **empty** set matches nothing, which is what a
+  /// scope pointing at a folder that has since been deleted must do.
+  final Set<String>? folderIds;
   final DateTime? fromDate;
   final DateTime? toDate;
   final int? minContentLength;
@@ -154,7 +158,7 @@ class SearchFilter {
   final bool caseSensitive;
 
   const SearchFilter({
-    this.folderId,
+    this.folderIds,
     this.fromDate,
     this.toDate,
     this.minContentLength,
@@ -163,7 +167,7 @@ class SearchFilter {
   });
 
   bool matches(NoteMetadata metadata) {
-    if (folderId != null && metadata.folderId != folderId) {
+    if (folderIds != null && !folderIds!.contains(metadata.folderId)) {
       return false;
     }
 
@@ -395,6 +399,7 @@ class SearchIndex {
 class FolderSearchService {
   static const int _maxRecentSearches = 10;
   static const String _recentSearchesKey = 'recent_searches';
+  static const int _quickSearchPageSize = 300;
 
   final NoteStorageService _storageService;
   final SearchIndex _searchIndex = SearchIndex();
@@ -497,58 +502,68 @@ class FolderSearchService {
     // Create a lookup map for O(1) access
     final notesMap = {for (final n in paginatedNotes.notes) n.id: n};
 
-    final results = <SearchResult>[];
-
-    // Process matches in parallel for better performance
-    final futures = matchingIds.map((noteId) async {
+    // Rank before loading anything. The relevance score comes off the index,
+    // so the whole hit set can be ordered and cut to [limit] without touching
+    // storage; only the notes that survive the cut pay for a content read. A
+    // 60-hit query used to load 60 note bodies to show ten.
+    final ranked = <({NoteMetadata metadata, double score})>[];
+    for (final noteId in matchingIds) {
       final metadata = notesMap[noteId];
-      if (metadata == null) return null;
+      if (metadata == null) continue;
+      if (filter != null && !filter.matches(metadata)) continue;
 
-      if (filter != null && !filter.matches(metadata)) {
-        return null;
-      }
+      ranked.add((
+        metadata: metadata,
+        score: _searchIndex.getRelevanceScore(
+          noteId,
+          query,
+          caseSensitive: effectiveCaseSensitive,
+        ),
+      ));
+    }
 
-      final content = await _storageService.loadNoteContent(noteId);
+    ranked.sort((a, b) => b.score.compareTo(a.score));
+
+    final futures = ranked.take(limit).map((entry) async {
+      final content = await _storageService.loadNoteContent(entry.metadata.id);
       final matches = _findMatches(
         query,
-        metadata.title,
+        entry.metadata.title,
         content,
-        caseSensitive: effectiveCaseSensitive,
-      );
-      final relevanceScore = _searchIndex.getRelevanceScore(
-        noteId,
-        query,
         caseSensitive: effectiveCaseSensitive,
       );
 
       return SearchResult(
-        metadata: metadata,
+        metadata: entry.metadata,
         matches: matches,
-        relevanceScore: relevanceScore,
+        relevanceScore: entry.score,
       );
     });
 
-    final searchResults = await Future.wait(futures);
-    results.addAll(searchResults.whereType<SearchResult>());
-
-    results.sort((a, b) => b.relevanceScore.compareTo(a.relevanceScore));
-
-    return results.take(limit).toList();
+    return (await Future.wait(futures)).toList();
   }
 
+  /// Title-and-preview pass over one page of notes, for the per-keystroke
+  /// surface. [folderIds] is a whole subtree (see [SearchFilter.folderIds]);
+  /// `null` searches everywhere.
+  ///
+  /// The page is always read unscoped and filtered in memory: the DAO can
+  /// page by one folder id, not by a set, and the scoped folder's notes are
+  /// spread across its descendants. [_quickSearchPageSize] is the ceiling
+  /// that keeps this honest for v1.
   Future<List<SearchResult>> quickSearch(
     String query, {
-    String? folderId,
+    Set<String>? folderIds,
     int limit = 10,
     bool caseSensitive = false,
   }) async {
     await initialize();
 
     if (query.trim().isEmpty) return [];
+    if (folderIds != null && folderIds.isEmpty) return [];
 
     final paginatedNotes = await _storageService.loadNotesPaginated(
-      folderId: folderId,
-      pageSize: 100,
+      pageSize: _quickSearchPageSize,
     );
 
     final normalizedQuery = normalizeForSearch(
@@ -558,6 +573,10 @@ class FolderSearchService {
     final results = <SearchResult>[];
 
     for (final metadata in paginatedNotes.notes) {
+      if (folderIds != null && !folderIds.contains(metadata.folderId)) {
+        continue;
+      }
+
       final normalizedTitle = normalizeForSearch(
         metadata.title,
         caseSensitive: caseSensitive,

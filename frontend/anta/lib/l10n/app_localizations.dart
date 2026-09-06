@@ -3520,6 +3520,36 @@ abstract class AppLocalizations {
   /// **'Recent searches'**
   String get recentSearches;
 
+  /// Search scope chip that searches every note in the app
+  ///
+  /// In en, this message translates to:
+  /// **'Everywhere'**
+  String get everywhere;
+
+  /// Search scope chip for the current folder and its subfolders, used when the folder name is unavailable
+  ///
+  /// In en, this message translates to:
+  /// **'This folder'**
+  String get thisFolder;
+
+  /// Section label above recently edited notes shown before anything is typed into search
+  ///
+  /// In en, this message translates to:
+  /// **'Recent'**
+  String get recent;
+
+  /// Search results section label for notes matched by their title
+  ///
+  /// In en, this message translates to:
+  /// **'Titles'**
+  String get titlesSection;
+
+  /// Search results section label for notes matched inside their text
+  ///
+  /// In en, this message translates to:
+  /// **'In text'**
+  String get inTextSection;
+
   /// Button to clear search history
   ///
   /// In en, this message translates to:
@@ -3616,11 +3646,35 @@ abstract class AppLocalizations {
   /// **'Write your first note'**
   String get emptyNotesHint;
 
-  /// Hint to tap the plus button
+  /// Empty-state hint pointing at the browser's bottom create bar
   ///
   /// In en, this message translates to:
-  /// **'Tap + to get started'**
-  String get tapPlusToCreate;
+  /// **'Use the bar below to add one'**
+  String get createFromBarBelow;
+
+  /// Tooltip on the bottom bar's create-folder button
+  ///
+  /// In en, this message translates to:
+  /// **'New folder'**
+  String get newFolder;
+
+  /// How many folders a list holds
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{No folders} =1{1 folder} other{{count} folders}}'**
+  String folderCountLabel(int count);
+
+  /// How many notes a folder or list holds, counting subfolders on a folder row
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{No notes} =1{1 note} other{{count} notes}}'**
+  String noteCountLabel(int count);
+
+  /// Joins an already-pluralised folder count and note count, e.g. "3 folders, 5 notes"
+  ///
+  /// In en, this message translates to:
+  /// **'{folders}, {notes}'**
+  String folderAndNoteCount(String folders, String notes);
 
   /// Character count display
   ///
@@ -7917,6 +7971,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Open linked note'**
   String get editorZoneOpenWikiLink;
+
+  /// Accessibility action on the browser's back button, and hint on the parent name above the folder title, that lists every folder above this one
+  ///
+  /// In en, this message translates to:
+  /// **'Show parent folders'**
+  String get showAncestors;
 }
 
 class _AppLocalizationsDelegate

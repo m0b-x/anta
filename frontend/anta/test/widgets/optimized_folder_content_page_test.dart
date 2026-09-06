@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -29,7 +30,9 @@ import 'package:anta/services/recent_destinations_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/widgets/app_drawer.dart';
 import 'package:anta/widgets/folder_overflow_menu.dart';
-import 'package:anta/widgets/unified_app_bars.dart';
+import 'package:anta/widgets/folder_row.dart';
+import 'package:anta/widgets/folder_sliver_app_bar.dart';
+import 'package:anta/widgets/note_row.dart';
 
 /// The first page-level test for the browser.
 ///
@@ -58,6 +61,9 @@ void main() {
   late ImportExportBloc exportBloc;
 
   late Folder folder;
+  late Folder child;
+  late Folder grandchild;
+  late Folder notesOnly;
 
   setUpAll(() async {
     tempDir = await Directory.systemTemp.createTemp('anta_folder_page');
@@ -115,6 +121,33 @@ void main() {
     );
 
     folder = await db.folderDao.createFolder(name: 'Training');
+    child = await db.folderDao.createFolder(
+      name: 'Winter block',
+      parentId: folder.id,
+    );
+    grandchild = await db.folderDao.createFolder(
+      name: 'Week 1',
+      parentId: child.id,
+    );
+    // Enough rows that the bar can actually be scrolled past its collapse
+    // threshold on the default 800x600 surface.
+    for (var i = 0; i < 15; i++) {
+      await noteService.createNote(
+        folderId: child.id,
+        title: 'Session ${i + 1}',
+        content: 'squat, bench, row',
+      );
+    }
+    // A folder holding notes and nothing else, so the bottom bar's third
+    // plural shape ("4 notes", no folder half) has somewhere to be read.
+    notesOnly = await db.folderDao.createFolder(name: 'Loose notes');
+    for (var i = 0; i < 3; i++) {
+      await noteService.createNote(
+        folderId: notesOnly.id,
+        title: 'Loose ${i + 1}',
+        content: 'jotted down',
+      );
+    }
   });
 
   tearDownAll(() async {
@@ -137,7 +170,16 @@ void main() {
       noteSortOrder: NotesSortOrder.updatedDesc.name,
       subfolderSortOrder: FoldersSortOrder.nameAsc.name,
     );
+    // The reorder cases flip this folder to position order and persist it.
+    await folderService.updateFolderSortPreferences(
+      folderId: child.id,
+      noteSortOrder: NotesSortOrder.updatedDesc.name,
+      subfolderSortOrder: FoldersSortOrder.nameAsc.name,
+    );
+    await settings.setShowNotePreview(true);
   });
+
+  final l10n = AppLocalizationsEn();
 
   /// Lets the page's real async work finish, then flushes the `setState`s it
   /// produced into frames — the database answers in real time, the widget
@@ -157,7 +199,12 @@ void main() {
     await tester.pump();
   }
 
-  Future<void> pumpPage(WidgetTester tester, {String? folderId}) async {
+  Future<void> pumpPage(
+    WidgetTester tester, {
+    String? folderId,
+    String? title,
+    List<NavigatorObserver> observers = const [],
+  }) async {
     await tester.pumpWidget(
       MultiBlocProvider(
         providers: [
@@ -168,10 +215,10 @@ void main() {
         child: MaterialApp(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          navigatorObservers: [AppNavigator.routeObserver],
+          navigatorObservers: [AppNavigator.routeObserver, ...observers],
           home: OptimizedFolderContentPage(
             folderId: folderId,
-            title: folderId == null ? 'ANTA' : 'Training',
+            title: title ?? (folderId == null ? 'ANTA' : 'Training'),
           ),
         ),
       ),
@@ -179,8 +226,93 @@ void main() {
     await settle(tester);
   }
 
+  /// Pushes a real folder route, the way tapping a folder card does, so the
+  /// ancestor menu has a stack to walk. The push future completes when the
+  /// route is popped, so it is deliberately not awaited.
+  Future<void> pushFolder(WidgetTester tester, Folder target) async {
+    AppNavigator.toFolder(
+      tester.element(find.byType(OptimizedFolderContentPage).first),
+      folderId: target.id,
+      title: target.name,
+    ).ignore();
+    await tester.pumpAndSettle();
+    await settle(tester);
+  }
+
   Future<void> openMenu(WidgetTester tester) async {
     await tester.tap(find.byType(FolderOverflowMenu));
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> dismissMenu(WidgetTester tester) async {
+    await tester.tapAt(const Offset(400, 8));
+    await tester.pumpAndSettle();
+  }
+
+  FolderSliverAppBar appBar(WidgetTester tester) =>
+      tester.widget<FolderSliverAppBar>(find.byType(FolderSliverAppBar));
+
+  FlexibleSpaceBarSettings barSettings(WidgetTester tester) => tester
+      .widget<FlexibleSpaceBarSettings>(find.byType(FlexibleSpaceBarSettings));
+
+  /// The opacity the framework is driving the *toolbar* copy of the title
+  /// towards. `SliverAppBar.large` keeps that copy at 0 until the bar is
+  /// fully collapsed, which is exactly the threshold under test — and the
+  /// flexible space holds a second copy of the same string, so the toolbar
+  /// one is addressed through [NavigationToolbar].
+  double collapsedTitleOpacity(WidgetTester tester, String title) {
+    return tester
+        .widgetList<AnimatedOpacity>(
+          find.ancestor(
+            of: find.descendant(
+              of: find.byType(NavigationToolbar),
+              matching: find.text(title),
+            ),
+            matching: find.byType(AnimatedOpacity),
+          ),
+        )
+        .first
+        .opacity;
+  }
+
+  ScrollPosition scrollPosition(WidgetTester tester) => tester
+      .state<ScrollableState>(
+        find.descendant(
+          of: find.byType(CustomScrollView),
+          matching: find.byType(Scrollable),
+        ),
+      )
+      .position;
+
+  /// Where every note row currently sits on screen. Comparing two of these
+  /// across the app-bar swap is the only way to say "nothing moved" that does
+  /// not depend on which rows happen to be in view.
+  Map<String, double> rowTops(WidgetTester tester) {
+    final tops = <String, double>{};
+    for (var i = 1; i <= 15; i++) {
+      final finder = find.text('Session $i');
+      if (finder.evaluate().isNotEmpty) {
+        tops['Session $i'] = tester.getTopLeft(finder).dy;
+      }
+    }
+    return tops;
+  }
+
+  Future<void> enterSelection(WidgetTester tester) async {
+    await openMenu(tester);
+    await tester.tap(find.text(l10n.select));
+    await tester.pumpAndSettle();
+    await settle(tester);
+  }
+
+  Future<void> leaveSelection(WidgetTester tester) async {
+    await tester.tap(find.byIcon(Icons.close_rounded));
+    await tester.pumpAndSettle();
+    await settle(tester);
+  }
+
+  Future<void> longPressBack(WidgetTester tester) async {
+    await tester.longPress(find.byType(BackButtonIcon));
     await tester.pumpAndSettle();
   }
 
@@ -198,17 +330,30 @@ void main() {
         .toList();
   }
 
-  final l10n = AppLocalizationsEn();
-
   group('one icon per corner', () {
     testWidgets('the root page keeps the drawer button and shows no back '
         'arrow', (tester) async {
       await pumpPage(tester);
 
-      final bar = tester.widget<FolderAppBar>(find.byType(FolderAppBar));
-      expect(bar.isRootPage, isTrue);
+      expect(appBar(tester).isRootPage, isTrue);
       expect(find.byIcon(Icons.menu_rounded), findsOneWidget);
       expect(find.byType(BackButtonIcon), findsNothing);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('the root drawer button still opens the drawer from inside '
+        'the scroll view', (tester) async {
+      await pumpPage(tester);
+      expect(find.byType(AppDrawer), findsNothing);
+
+      await tester.tap(find.byIcon(Icons.menu_rounded));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.state<ScaffoldState>(find.byType(Scaffold).first).isDrawerOpen,
+        isTrue,
+      );
 
       await teardownPage(tester);
     });
@@ -321,7 +466,7 @@ void main() {
       await tester.tap(find.text(l10n.select));
       await tester.pumpAndSettle();
 
-      expect(find.byType(FolderAppBar), findsNothing);
+      expect(find.byType(FolderSliverAppBar), findsNothing);
       expect(find.byType(FolderOverflowMenu), findsNothing);
 
       await teardownPage(tester);
@@ -345,4 +490,589 @@ void main() {
       await teardownPage(tester);
     });
   });
+
+  group('the large title bar', () {
+    testWidgets('a nested folder names its parent above the large title', (
+      tester,
+    ) async {
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+
+      expect(appBar(tester).eyebrow, 'Training');
+      expect(find.text('Training'), findsOneWidget);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('a folder directly under the root names the root', (
+      tester,
+    ) async {
+      await pumpPage(tester, folderId: folder.id);
+
+      expect(appBar(tester).eyebrow, l10n.folders);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('the root page has no eyebrow and no ancestor menu', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+
+      expect(appBar(tester).eyebrow, isNull);
+      expect(appBar(tester).onShowAncestors, isNull);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('the root title is Folders, not the route title', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+
+      expect(appBar(tester).title, l10n.folders);
+      expect(find.text('ANTA'), findsNothing);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('scrolling past the threshold hands the title to the toolbar', (
+      tester,
+    ) async {
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+
+      expect(barSettings(tester).isScrolledUnder, isFalse);
+      expect(collapsedTitleOpacity(tester, 'Winter block'), 0);
+
+      final position = tester
+          .state<ScrollableState>(
+            find.descendant(
+              of: find.byType(CustomScrollView),
+              matching: find.byType(Scrollable),
+            ),
+          )
+          .position;
+      // The framework flips at `shrinkOffset > maxExtent - minExtent`, so
+      // the threshold itself is still "expanded".
+      const pastThreshold =
+          FolderSliverAppBar.expandedHeight -
+          FolderSliverAppBar.collapsedHeight +
+          8;
+      expect(position.maxScrollExtent, greaterThan(pastThreshold));
+      position.jumpTo(pastThreshold);
+      await tester.pumpAndSettle();
+
+      expect(barSettings(tester).isScrolledUnder, isTrue);
+      expect(collapsedTitleOpacity(tester, 'Winter block'), 1);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('a list shorter than the screen leaves the bar expanded', (
+      tester,
+    ) async {
+      await pumpPage(tester, folderId: grandchild.id, title: 'Week 1');
+
+      expect(barSettings(tester).isScrolledUnder, isFalse);
+      expect(collapsedTitleOpacity(tester, 'Week 1'), 0);
+
+      await teardownPage(tester);
+    });
+  });
+
+  group('the ancestor menu', () {
+    testWidgets('long-pressing Back lists the ancestors nearest first and '
+        'ends at the root', (tester) async {
+      await pumpPage(tester, folderId: grandchild.id, title: 'Week 1');
+
+      await longPressBack(tester);
+
+      expect(menuLabels(tester), ['Winter block', 'Training', l10n.folders]);
+
+      await dismissMenu(tester);
+      await teardownPage(tester);
+    });
+
+    testWidgets('tapping the eyebrow opens the same menu', (tester) async {
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+
+      await tester.tap(find.text('Training'));
+      await tester.pumpAndSettle();
+
+      expect(menuLabels(tester), ['Training', l10n.folders]);
+
+      await dismissMenu(tester);
+      await teardownPage(tester);
+    });
+
+    testWidgets('a screen reader can reach it from the back button and from '
+        'the eyebrow', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+
+      final backButton = tester.getSemantics(
+        find.ancestor(
+          of: find.byType(BackButtonIcon),
+          matching: find.byType(IconButton),
+        ),
+      );
+      final actionIds =
+          backButton.getSemanticsData().customSemanticsActionIds ??
+          const <int>[];
+      expect(
+        actionIds.map((id) => CustomSemanticsAction.getAction(id)?.label),
+        contains(l10n.showAncestors),
+      );
+      expect(
+        tester.getSemantics(find.text('Training')),
+        isSemantics(isButton: true, label: 'Training'),
+      );
+
+      semantics.dispose();
+      await teardownPage(tester);
+    });
+
+    testWidgets('the root row removes the intermediates and pops once', (
+      tester,
+    ) async {
+      final observer = _RecordingObserver();
+      await pumpPage(tester, observers: [observer]);
+      await pushFolder(tester, folder);
+      await pushFolder(tester, child);
+      final top = observer.pushed.last;
+      final intermediate = observer.pushed[observer.pushed.length - 2];
+      observer.clear();
+
+      await longPressBack(tester);
+      await tester.tap(find.text(l10n.folders));
+      await tester.pumpAndSettle();
+      await settle(tester);
+
+      expect(observer.removed, [intermediate]);
+      expect(observer.popped, [top]);
+      expect(find.byType(OptimizedFolderContentPage), findsOneWidget);
+      expect(appBar(tester).isRootPage, isTrue);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('an ancestor row pops to that folder', (tester) async {
+      final observer = _RecordingObserver();
+      await pumpPage(tester, observers: [observer]);
+      await pushFolder(tester, folder);
+      await pushFolder(tester, child);
+      await pushFolder(tester, grandchild);
+      observer.clear();
+
+      await longPressBack(tester);
+      await tester.tap(find.text('Training'));
+      await tester.pumpAndSettle();
+      await settle(tester);
+
+      expect(observer.removed, hasLength(1));
+      expect(observer.popped, hasLength(1));
+      expect(appBar(tester).title, 'Training');
+      expect(appBar(tester).isRootPage, isFalse);
+
+      await teardownPage(tester);
+    });
+  });
+
+  group('the selection-mode bar swap', () {
+    // The tall sliver leaves the scroll view and a kToolbarHeight box bar
+    // takes its place outside it, so an uncompensated offset would carry
+    // every row up by the difference.
+    const shift = FolderSliverAppBar.expandedHeight - kToolbarHeight;
+
+    testWidgets('entering selection leaves the rows where they are, and '
+        'leaving puts the offset back', (tester) async {
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+      scrollPosition(tester).jumpTo(300);
+      await tester.pumpAndSettle();
+
+      final before = rowTops(tester);
+      expect(before, isNotEmpty);
+
+      await enterSelection(tester);
+
+      expect(scrollPosition(tester).pixels, 300 - shift);
+      final after = rowTops(tester);
+      final shared = before.keys.where(after.containsKey).toList();
+      expect(shared, isNotEmpty);
+      for (final row in shared) {
+        expect(after[row], moreOrLessEquals(before[row]!), reason: row);
+      }
+
+      await leaveSelection(tester);
+
+      expect(scrollPosition(tester).pixels, 300);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('scrolling while selecting is kept, not thrown away', (
+      tester,
+    ) async {
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+      scrollPosition(tester).jumpTo(300);
+      await tester.pumpAndSettle();
+
+      await enterSelection(tester);
+      scrollPosition(tester).jumpTo(300 - shift + 40);
+      await tester.pumpAndSettle();
+
+      await leaveSelection(tester);
+
+      expect(scrollPosition(tester).pixels, 340);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('a list shorter than the screen stays at the top through '
+        'both swaps', (tester) async {
+      await pumpPage(tester, folderId: grandchild.id, title: 'Week 1');
+      expect(scrollPosition(tester).pixels, 0);
+
+      await enterSelection(tester);
+      expect(scrollPosition(tester).pixels, 0);
+
+      await leaveSelection(tester);
+      expect(scrollPosition(tester).pixels, 0);
+
+      await teardownPage(tester);
+    });
+  });
+
+  group('grouped rows', () {
+    testWidgets('folders and notes are labelled when both are present', (
+      tester,
+    ) async {
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+
+      expect(find.text(l10n.folders.toUpperCase()), findsOneWidget);
+      expect(find.text(l10n.notes.toUpperCase()), findsOneWidget);
+      expect(find.byType(FolderRow), findsOneWidget);
+      expect(find.byType(NoteRow), findsWidgets);
+      // The label is what makes the group readable; with one group there is
+      // nothing to tell apart, so it would only cost a line.
+      expect(
+        tester.getTopLeft(find.byType(FolderRow).first).dy,
+        lessThan(tester.getTopLeft(find.byType(NoteRow).first).dy),
+      );
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('a folder holding only folders is not labelled', (
+      tester,
+    ) async {
+      await pumpPage(tester, folderId: folder.id);
+
+      expect(find.byType(FolderRow), findsOneWidget);
+      expect(find.byType(NoteRow), findsNothing);
+      expect(find.text(l10n.folders.toUpperCase()), findsNothing);
+      expect(find.text(l10n.notes.toUpperCase()), findsNothing);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('a folder row counts the notes below it, descendants '
+        'included', (tester) async {
+      await pumpPage(tester, folderId: folder.id);
+
+      // Training holds no notes itself; all fifteen live two levels down.
+      final row = tester.widget<FolderRow>(find.byType(FolderRow));
+      expect(row.noteCount, 15);
+      expect(find.text(l10n.noteCountLabel(15)), findsOneWidget);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('a note row shows the preview when the setting is on', (
+      tester,
+    ) async {
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+
+      expect(
+        tester.widget<NoteRow>(find.byType(NoteRow).first).showPreview,
+        isTrue,
+      );
+      expect(find.textContaining('squat, bench, row'), findsWidgets);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('the preview line disappears when the setting is off', (
+      tester,
+    ) async {
+      // Through `runAsync`: the test body itself runs in fake time, which the
+      // settings write — a real database round trip — never returns in.
+      await tester.runAsync(() => settings.setShowNotePreview(false));
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+
+      expect(
+        tester.widget<NoteRow>(find.byType(NoteRow).first).showPreview,
+        isFalse,
+      );
+      expect(find.textContaining('squat, bench, row'), findsNothing);
+      // The date it shared the line with stays.
+      expect(find.byType(NoteRow), findsWidgets);
+
+      await teardownPage(tester);
+    });
+  });
+
+  group('the bottom bar', () {
+    testWidgets('the floating action button and its sheet are gone', (
+      tester,
+    ) async {
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+
+      expect(find.byType(FloatingActionButton), findsNothing);
+      expect(find.byIcon(Icons.add), findsNothing);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('a nested folder offers New folder and New note', (
+      tester,
+    ) async {
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+
+      expect(find.byIcon(Icons.create_new_folder_outlined), findsOneWidget);
+      expect(find.byIcon(Icons.note_add_outlined), findsOneWidget);
+      // Import stays reachable from the overflow menu, not from the bar.
+      expect(find.byIcon(Icons.file_download_outlined), findsNothing);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('the root offers Import in the slot a note cannot use', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+
+      expect(find.byIcon(Icons.create_new_folder_outlined), findsOneWidget);
+      expect(find.byIcon(Icons.file_download_outlined), findsOneWidget);
+      expect(find.byIcon(Icons.note_add_outlined), findsNothing);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('New folder opens the create dialog', (tester) async {
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+
+      await tester.tap(find.byIcon(Icons.create_new_folder_outlined));
+      await tester.pumpAndSettle();
+
+      expect(find.text(l10n.createFolder), findsWidgets);
+      expect(find.byType(TextField), findsOneWidget);
+
+      await tester.tap(find.text(l10n.cancel));
+      await tester.pumpAndSettle();
+      await teardownPage(tester);
+    });
+
+    testWidgets('the count reads both halves when both are present', (
+      tester,
+    ) async {
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+
+      expect(
+        find.text(
+          l10n.folderAndNoteCount(
+            l10n.folderCountLabel(1),
+            l10n.noteCountLabel(15),
+          ),
+        ),
+        findsOneWidget,
+      );
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('the count drops the note half when there are none', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+
+      expect(find.text(l10n.folderCountLabel(2)), findsOneWidget);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('the count drops the folder half when there are none', (
+      tester,
+    ) async {
+      await pumpPage(tester, folderId: notesOnly.id, title: 'Loose notes');
+
+      expect(find.text(l10n.noteCountLabel(3)), findsOneWidget);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('an empty folder says nothing rather than "no folders, no '
+        'notes"', (tester) async {
+      await pumpPage(tester, folderId: grandchild.id, title: 'Week 1');
+
+      expect(find.text(l10n.folderCountLabel(0)), findsNothing);
+      expect(find.text(l10n.noteCountLabel(0)), findsNothing);
+      expect(find.text(l10n.createFromBarBelow), findsOneWidget);
+
+      await teardownPage(tester);
+    });
+  });
+
+  group('reordering stays inside its group', () {
+    /// The one reorderable sliver over the whole list, headers included.
+    SliverReorderableList reorderable(WidgetTester tester) =>
+        tester.widget<SliverReorderableList>(
+          find.byType(SliverReorderableList),
+        );
+
+    List<String> noteTitles(WidgetTester tester) => tester
+        .widgetList<NoteRow>(find.byType(NoteRow))
+        .map((row) => row.metadata.title)
+        .toList();
+
+    /// A surface tall enough to hold the folder, both labels and all fifteen
+    /// notes at once, so the rendered order is the whole order.
+    void useTallSurface(WidgetTester tester) {
+      tester.view.physicalSize = const Size(1080, 3000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+    }
+
+    /// Lets the reorder's position writes land before the case ends.
+    ///
+    /// `_handleReorderMixed` deliberately does not await them — the optimistic
+    /// list is what the user sees. They are started inside the case's fake
+    /// clock, though, so their continuations only run while that clock is
+    /// still being pumped: let the case end first and the sixteen row writes
+    /// are stranded mid-transaction, and the *next* case's very first query
+    /// queues behind a lock nothing will ever release. Real time alone does
+    /// not do it either — [settle] alternates the two, which is the point.
+    Future<void> drainWrites(WidgetTester tester) async {
+      await settle(tester, rounds: 60);
+    }
+
+    testWidgets('a note dropped among the folders lands at the top of the '
+        'notes instead', (tester) async {
+      useTallSurface(tester);
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+      await enterSelection(tester);
+
+      final before = noteTitles(tester);
+      expect(before, hasLength(15));
+      // Rows: [Folders label][Week 1][Notes label][15 notes] — 18 in all, so
+      // the last note is 17 and index 1 is inside the folder group.
+      reorderable(tester).onReorderItem!(17, 1);
+      await tester.pumpAndSettle();
+      await settle(tester);
+
+      final after = noteTitles(tester);
+      expect(after.first, before.last);
+      expect(after, [before.last, ...before.take(14)]);
+      expect(
+        tester.getTopLeft(find.byType(FolderRow).first).dy,
+        lessThan(tester.getTopLeft(find.byType(NoteRow).first).dy),
+        reason: 'the folder group must still come first',
+      );
+
+      await drainWrites(tester);
+      await teardownPage(tester);
+    });
+
+    testWidgets('a folder dropped among the notes stays a folder row', (
+      tester,
+    ) async {
+      useTallSurface(tester);
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+      await enterSelection(tester);
+
+      final before = noteTitles(tester);
+      reorderable(tester).onReorderItem!(1, 16);
+      await tester.pumpAndSettle();
+      await settle(tester);
+
+      expect(find.byType(FolderRow), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.byType(FolderRow).first).dy,
+        lessThan(tester.getTopLeft(find.byType(NoteRow).first).dy),
+      );
+      expect(noteTitles(tester), before, reason: 'the notes must not move');
+
+      await drainWrites(tester);
+      await teardownPage(tester);
+    });
+
+    testWidgets('a reorder inside the notes is kept', (tester) async {
+      useTallSurface(tester);
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+      await enterSelection(tester);
+
+      final before = noteTitles(tester);
+      // Third note to the front of its own group; nothing is clamped here.
+      reorderable(tester).onReorderItem!(5, 3);
+      await tester.pumpAndSettle();
+      await settle(tester);
+
+      expect(noteTitles(tester), [
+        before[2],
+        before[0],
+        before[1],
+        ...before.skip(3),
+      ]);
+
+      await drainWrites(tester);
+      await teardownPage(tester);
+    });
+
+    testWidgets('a section label cannot be dragged anywhere', (tester) async {
+      useTallSurface(tester);
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+      await enterSelection(tester);
+
+      final before = noteTitles(tester);
+      // No drag listener can produce this, but the handler must refuse it
+      // rather than reorder whatever happened to be at that index.
+      reorderable(tester).onReorderItem!(0, 10);
+      await tester.pumpAndSettle();
+      await settle(tester);
+
+      expect(noteTitles(tester), before);
+      expect(find.text(l10n.folders.toUpperCase()), findsOneWidget);
+
+      await drainWrites(tester);
+      await teardownPage(tester);
+    });
+  });
+}
+
+/// Records page routes only: the ancestor menu is itself a route, and its
+/// dismissal would otherwise read as a navigation.
+class _RecordingObserver extends NavigatorObserver {
+  final List<Route<dynamic>> pushed = [];
+  final List<Route<dynamic>> popped = [];
+  final List<Route<dynamic>> removed = [];
+
+  void clear() {
+    pushed.clear();
+    popped.clear();
+    removed.clear();
+  }
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (route is PageRoute) pushed.add(route);
+  }
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (route is PageRoute) popped.add(route);
+  }
+
+  @override
+  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (route is PageRoute) removed.add(route);
+  }
 }

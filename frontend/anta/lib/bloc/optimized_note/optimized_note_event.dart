@@ -87,30 +87,6 @@ class DeleteOptimizedNote extends OptimizedNoteEvent {
   List<Object?> get props => [noteId];
 }
 
-class SearchNotes extends OptimizedNoteEvent {
-  final String query;
-  final String? folderId;
-
-  const SearchNotes({required this.query, this.folderId});
-
-  @override
-  List<Object?> get props => [query, folderId];
-}
-
-class QuickSearchNotes extends OptimizedNoteEvent {
-  final String query;
-  final String? folderId;
-
-  const QuickSearchNotes({required this.query, this.folderId});
-
-  @override
-  List<Object?> get props => [query, folderId];
-}
-
-class ClearSearch extends OptimizedNoteEvent {
-  const ClearSearch();
-}
-
 class RefreshNotes extends OptimizedNoteEvent {
   final String? folderId;
 

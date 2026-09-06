@@ -2018,6 +2018,21 @@ class AppLocalizationsDe extends AppLocalizations {
   String get recentSearches => 'Letzte Suchen';
 
   @override
+  String get everywhere => 'Überall';
+
+  @override
+  String get thisFolder => 'Dieser Ordner';
+
+  @override
+  String get recent => 'Zuletzt';
+
+  @override
+  String get titlesSection => 'Titel';
+
+  @override
+  String get inTextSection => 'Im Text';
+
+  @override
   String get clearSearchHistory => 'Suchverlauf löschen';
 
   @override
@@ -2072,7 +2087,39 @@ class AppLocalizationsDe extends AppLocalizations {
   String get emptyNotesHint => 'Schreibe deine erste Notiz';
 
   @override
-  String get tapPlusToCreate => 'Tippe auf + um zu beginnen';
+  String get createFromBarBelow => 'Nutze die Leiste unten zum Anlegen';
+
+  @override
+  String get newFolder => 'Neuer Ordner';
+
+  @override
+  String folderCountLabel(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Ordner',
+      one: '1 Ordner',
+      zero: 'Keine Ordner',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String noteCountLabel(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Notizen',
+      one: '1 Notiz',
+      zero: 'Keine Notizen',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String folderAndNoteCount(String folders, String notes) {
+    return '$folders, $notes';
+  }
 
   @override
   String charactersCount(int current, int max) {
@@ -4556,4 +4603,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get editorZoneOpenWikiLink => 'Verknüpfte Notiz öffnen';
+
+  @override
+  String get showAncestors => 'Übergeordnete Ordner anzeigen';
 }

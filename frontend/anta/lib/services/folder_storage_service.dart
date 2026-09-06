@@ -121,6 +121,16 @@ class FolderStorageService {
     return _repository.getFolderCount(folderId);
   }
 
+  /// How many notes live under each of [folderIds], counting every
+  /// descendant folder. One statement for the whole page of rows; a folder
+  /// with nothing under it is absent from the map.
+  Future<Map<String, int>> getNoteCountsWithDescendants(
+    List<String> folderIds,
+  ) async {
+    await initialize();
+    return _repository.noteCountsWithDescendants(folderIds);
+  }
+
   Future<model.Folder> createFolder({
     required String name,
     String? parentId,
@@ -292,6 +302,41 @@ class FolderStorageService {
       current = parent;
     }
     return chain;
+  }
+
+  /// Every folder id a search scoped to [folderId] should reach: the folder
+  /// itself plus every descendant, from the one recursive CTE the move picker
+  /// already uses. Searching "in this folder" means the subtree — a note two
+  /// levels down is still inside it.
+  Future<Set<String>> subtreeIds(String folderId) async {
+    await initialize();
+    final descendants = await _repository.getAllDescendantIds(folderId);
+    return {folderId, ...descendants};
+  }
+
+  /// Display path for each of [folderIds], root-first and including the
+  /// folder's own name (`['Training', 'Winter block']`), for rows that show
+  /// where a note lives.
+  ///
+  /// Deduplicates its input and walks each folder once, so a page of twenty
+  /// notes from three folders costs three chains, not twenty — and the walks
+  /// share the repository's folder cache on top of that. A folder that can't
+  /// be resolved is absent from the map rather than mapped to an empty list.
+  Future<Map<String, List<String>>> folderPathSegments(
+    Iterable<String> folderIds,
+  ) async {
+    await initialize();
+    final paths = <String, List<String>>{};
+    for (final folderId in folderIds.toSet()) {
+      final folder = await getFolderById(folderId);
+      if (folder == null) continue;
+      final ancestors = await getAncestors(folderId);
+      paths[folderId] = [
+        for (final ancestor in ancestors) ancestor.name,
+        folder.name,
+      ];
+    }
+    return paths;
   }
 
   Stream<FolderChange> get changes => _repository.folderChanges;

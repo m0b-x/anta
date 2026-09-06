@@ -55,10 +55,7 @@ abstract final class AppNavigator {
   /// carry closures or live model objects simply go unstamped.
   static RouteSettings? _settingsFor(NavDestination? destination) {
     if (destination == null) return null;
-    return RouteSettings(
-      name: destination.kind.name,
-      arguments: destination,
-    );
+    return RouteSettings(name: destination.kind.name, arguments: destination);
   }
 
   static Future<T?> push<T>(
@@ -188,11 +185,7 @@ abstract final class AppNavigator {
     required String title,
   }) {
     final navigator = Navigator.of(context);
-    final routes = routeObserver.pageRoutes
-        .where(
-          (route) => route.isActive && identical(route.navigator, navigator),
-        )
-        .toList();
+    final routes = _livePageRoutes(navigator);
     final index = routes.lastIndexWhere((route) {
       final destination = route.settings.arguments;
       return destination is NavDestination &&
@@ -207,13 +200,67 @@ abstract final class AppNavigator {
         destination: NavDestination.folder(folderId: folderId, title: title),
       );
     }
-    if (index == routes.length - 1) return Future<void>.value();
+    _collapseOnto(navigator, routes, index);
+    return Future<void>.value();
+  }
 
+  /// Returns to an entry of the folder breadcrumb, which the browser's
+  /// ancestor menu lists.
+  ///
+  /// A null [folderId] means the root browser — it is `home`, carries no
+  /// folder id and therefore no `NavDestination` stamp, so it is addressed by
+  /// [Route.isFirst] instead. Everything else is a stamped folder route and
+  /// goes through [popToFolder], which is also what makes an ancestor that is
+  /// somehow not on the stack rebuild rather than dead-end.
+  ///
+  /// The root case is deliberately not `popUntilFirst`: `popUntil` pops one
+  /// route at a time, each with its own transition (flutter#59990), so five
+  /// levels up would play five of them.
+  static Future<void> popToAncestor(
+    BuildContext context, {
+    String? folderId,
+    String? title,
+  }) {
+    if (folderId != null) {
+      return popToFolder(context, folderId: folderId, title: title ?? '');
+    }
+
+    final navigator = Navigator.of(context);
+    final routes = _livePageRoutes(navigator);
+    final index = routes.indexWhere((route) => route.isFirst);
+    if (index < 0) {
+      popUntilFirst(context);
+      return Future<void>.value();
+    }
+    _collapseOnto(navigator, routes, index);
+    return Future<void>.value();
+  }
+
+  /// The page routes [routeObserver] recorded that are still live on
+  /// [navigator], bottom-first. A navigator torn down without popping leaves
+  /// its routes in the observer, so both checks are load-bearing.
+  static List<Route<dynamic>> _livePageRoutes(NavigatorState navigator) {
+    return routeObserver.pageRoutes
+        .where(
+          (route) => route.isActive && identical(route.navigator, navigator),
+        )
+        .toList();
+  }
+
+  /// Leaves `routes[index]` on top, playing exactly one transition: every
+  /// route above it except the current one is removed outright, and the
+  /// current one is popped so its page still gets the exit its own `PopScope`
+  /// arranged.
+  static void _collapseOnto(
+    NavigatorState navigator,
+    List<Route<dynamic>> routes,
+    int index,
+  ) {
+    if (index >= routes.length - 1) return;
     for (var i = routes.length - 2; i > index; i--) {
       navigator.removeRoute(routes[i]);
     }
     navigator.pop();
-    return Future<void>.value();
   }
 
   static Future<void> toNoteEditor(
@@ -252,12 +299,23 @@ abstract final class AppNavigator {
     );
   }
 
+  /// Deliberately unstamped: search is a query surface, not a place, so
+  /// launch restore never puts the user back into someone else's half-typed
+  /// search.
   static Future<void> toSearch(
     BuildContext context, {
     String? folderId,
+    String? folderName,
     String? query,
   }) {
-    return push(context, SearchPage(folderId: folderId, initialQuery: query));
+    return push(
+      context,
+      SearchPage(
+        folderId: folderId,
+        folderName: folderName,
+        initialQuery: query,
+      ),
+    );
   }
 
   static Future<SettingsResult?> toDatabaseSettings(BuildContext context) {

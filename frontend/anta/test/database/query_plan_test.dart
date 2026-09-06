@@ -106,6 +106,26 @@ void main() {
       expect(plan, usesIndex('idx_folders_position'));
       expect(plan, isNot(sortsInMemory));
     });
+
+    test('batched folder counts index both halves of the walk', () async {
+      final plan = await planOf(
+        () => db.folderDao.noteCountsWithDescendants(const ['f1', 'f2', 'f3']),
+      );
+      // The recursive step descends by parent_id, and the join counts by
+      // folder_id. Both are partial indexes (`WHERE is_deleted = 0`), which
+      // is why the CTE repeats that predicate on each side: drop either and
+      // this becomes a full scan of both tables per folder row on screen.
+      expect(
+        plan,
+        contains(contains('SEARCH f USING INDEX idx_folders_position')),
+      );
+      expect(
+        plan,
+        contains(contains('SEARCH n USING INDEX idx_notes_position')),
+      );
+      expect(plan, isNot(contains(contains('SCAN folders'))));
+      expect(plan, isNot(contains(contains('SCAN notes'))));
+    });
   });
 
   group('name uniqueness (expression indexes)', () {

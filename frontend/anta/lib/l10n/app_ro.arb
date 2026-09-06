@@ -590,6 +590,11 @@
   "searchInFolder": "Caută în acest folder",
   "searchAll": "Caută în toate notițele",
   "recentSearches": "Căutări recente",
+  "everywhere": "Peste tot",
+  "thisFolder": "Acest dosar",
+  "recent": "Recente",
+  "titlesSection": "Titluri",
+  "inTextSection": "În text",
   "clearSearchHistory": "Șterge istoricul căutărilor",
   "filterByDate": "Filtrează după dată",
   "fromDate": "De la",
@@ -606,7 +611,11 @@
   "lineCount": "{count} linii",
   "emptyFoldersHint": "Se pare că ai putea dori să creezi un folder",
   "emptyNotesHint": "Scrie prima ta notiță",
-  "tapPlusToCreate": "Apasă + pentru a începe",
+  "createFromBarBelow": "Folosește bara de jos pentru a adăuga",
+  "newFolder": "Folder nou",
+  "folderCountLabel": "{count, plural, =0{Niciun folder} =1{1 folder} few{{count} foldere} other{{count} de foldere}}",
+  "noteCountLabel": "{count, plural, =0{Nicio notiță} =1{1 notiță} few{{count} notițe} other{{count} de notițe}}",
+  "folderAndNoteCount": "{folders}, {notes}",
   "charactersCount": "{current}/{max} caractere",
   "databaseSettings": "Bază de Date",
   "databaseSettingsDesc": "Gestionează locația și stocarea bazei de date",
@@ -1400,5 +1409,6 @@
   "editorZoneOpenLink": "Deschide linkul",
   "editorZoneOpenMoney": "Deschide detaliile registrului",
   "editorZoneSearchTag": "Caută eticheta",
-  "editorZoneOpenWikiLink": "Deschide nota asociată"
+  "editorZoneOpenWikiLink": "Deschide nota asociată",
+  "showAncestors": "Arată folderele părinte"
 }

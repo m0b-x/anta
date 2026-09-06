@@ -2035,6 +2035,21 @@ class AppLocalizationsRo extends AppLocalizations {
   String get recentSearches => 'Căutări recente';
 
   @override
+  String get everywhere => 'Peste tot';
+
+  @override
+  String get thisFolder => 'Acest dosar';
+
+  @override
+  String get recent => 'Recente';
+
+  @override
+  String get titlesSection => 'Titluri';
+
+  @override
+  String get inTextSection => 'În text';
+
+  @override
   String get clearSearchHistory => 'Șterge istoricul căutărilor';
 
   @override
@@ -2088,7 +2103,41 @@ class AppLocalizationsRo extends AppLocalizations {
   String get emptyNotesHint => 'Scrie prima ta notiță';
 
   @override
-  String get tapPlusToCreate => 'Apasă + pentru a începe';
+  String get createFromBarBelow => 'Folosește bara de jos pentru a adăuga';
+
+  @override
+  String get newFolder => 'Folder nou';
+
+  @override
+  String folderCountLabel(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de foldere',
+      few: '$count foldere',
+      one: '1 folder',
+      zero: 'Niciun folder',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String noteCountLabel(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de notițe',
+      few: '$count notițe',
+      one: '1 notiță',
+      zero: 'Nicio notiță',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String folderAndNoteCount(String folders, String notes) {
+    return '$folders, $notes';
+  }
 
   @override
   String charactersCount(int current, int max) {
@@ -4592,4 +4641,7 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get editorZoneOpenWikiLink => 'Deschide nota asociată';
+
+  @override
+  String get showAncestors => 'Arată folderele părinte';
 }

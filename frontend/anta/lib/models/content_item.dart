@@ -53,6 +53,36 @@ class NoteItem extends ContentItem {
       metadata.title.isEmpty ? fallbackForEmptyNote : metadata.title;
 }
 
+/// The browser's display ordering: every folder, then every note, each group
+/// left in the order its own sort preference produced.
+///
+/// Cross-kind interleaving is no longer shown — folders are a group with a
+/// label of their own — but the two `position` columns still share one index
+/// space, so a reorder within either group round-trips through
+/// [MixedReorderService] unchanged.
+List<ContentItem> groupFoldersThenNotes({
+  required List<Folder> folders,
+  required List<NoteMetadata> notes,
+}) {
+  return [
+    for (final folder in folders) FolderItem(folder),
+    for (final note in notes) NoteItem(note),
+  ];
+}
+
+/// Re-sorts an arbitrary unified ordering back into folders-then-notes,
+/// preserving each group's relative order. A multi-selection drag can lift a
+/// folder and a note together; this is what keeps the optimistic render
+/// identical to what the next load will produce.
+List<ContentItem> regroupFoldersThenNotes(List<ContentItem> items) {
+  return [
+    for (final item in items)
+      if (item is FolderItem) item,
+    for (final item in items)
+      if (item is NoteItem) item,
+  ];
+}
+
 /// Stable client-side merge of two already-sorted (by `position` ascending)
 /// lists into a single unified ordering. When both items share the same
 /// position, folders win the tie so the result is deterministic.
