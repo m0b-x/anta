@@ -177,19 +177,18 @@ class FolderAppBar extends StatelessWidget implements PreferredSizeWidget {
   Widget build(BuildContext context) {
     return UnifiedAppBar.main(
       automaticallyImplyLeading: false,
-      leadingWidth: isRootPage ? null : 100,
       leading: isRootPage
           ? Builder(
               builder: (ctx) => IconButton(
                 icon: const Icon(Icons.menu_rounded),
+                tooltip: MaterialLocalizations.of(ctx).openAppDrawerTooltip,
                 onPressed: onMenuPressed ?? () => Scaffold.of(ctx).openDrawer(),
               ),
             )
-          : Builder(
-              builder: (ctx) => _IntegratedNavButtons(
-                onBack: onBackPressed ?? () => AppNavigator.pop(context),
-                onMenu: onMenuPressed ?? () => Scaffold.of(ctx).openDrawer(),
-              ),
+          : IconButton(
+              icon: const BackButtonIcon(),
+              tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+              onPressed: onBackPressed ?? () => AppNavigator.pop(context),
             ),
       title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
       actions: actions,
@@ -208,7 +207,6 @@ class NoteAppBar extends StatelessWidget implements PreferredSizeWidget {
   final List<Widget>? actions;
   final VoidCallback? onBackPressed;
   final VoidCallback? onTitleTap;
-  final bool showMenuButton;
 
   const NoteAppBar({
     super.key,
@@ -218,7 +216,6 @@ class NoteAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.actions,
     this.onBackPressed,
     this.onTitleTap,
-    this.showMenuButton = true,
   });
 
   @override
@@ -228,44 +225,11 @@ class NoteAppBar extends StatelessWidget implements PreferredSizeWidget {
   Widget build(BuildContext context) {
     return UnifiedAppBar.main(
       automaticallyImplyLeading: false,
-      leadingWidth: showMenuButton ? 96 : null,
-      leading: showMenuButton
-          ? Builder(
-              builder: (ctx) => Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SizedBox(
-                    width: 44,
-                    child: IconButton(
-                      icon: const Icon(Icons.arrow_back),
-                      onPressed:
-                          onBackPressed ?? () => AppNavigator.maybePop(context),
-                      tooltip: MaterialLocalizations.of(
-                        context,
-                      ).backButtonTooltip,
-                      padding: EdgeInsets.zero,
-                      visualDensity: VisualDensity.compact,
-                    ),
-                  ),
-                  SizedBox(
-                    width: 44,
-                    child: IconButton(
-                      icon: const Icon(Icons.menu),
-                      onPressed: () => Scaffold.of(ctx).openDrawer(),
-                      tooltip: MaterialLocalizations.of(
-                        context,
-                      ).openAppDrawerTooltip,
-                      padding: EdgeInsets.zero,
-                      visualDensity: VisualDensity.compact,
-                    ),
-                  ),
-                ],
-              ),
-            )
-          : IconButton(
-              icon: const Icon(Icons.arrow_back),
-              onPressed: onBackPressed ?? () => AppNavigator.maybePop(context),
-            ),
+      leading: IconButton(
+        icon: const BackButtonIcon(),
+        tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+        onPressed: onBackPressed ?? () => AppNavigator.maybePop(context),
+      ),
       title: GestureDetector(
         onTap: onTitleTap,
         child: Row(

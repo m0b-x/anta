@@ -79,6 +79,15 @@ class NoteStorageService {
     return _repository.getNoteCount(folderId);
   }
 
+  /// The note's metadata alone, freshly read — the folder it lives in now,
+  /// its stored title and timestamps. The editor's own menu needs those for
+  /// a move or an export, and it must not pay for the content to get them.
+  Future<NoteMetadata?> getNoteMetadata(String noteId) async {
+    await initialize();
+    final note = await _repository.getNoteById(noteId, forceRefresh: true);
+    return note == null ? null : _noteToMetadata(note);
+  }
+
   Future<LazyNote?> loadNoteWithContent(String noteId) async {
     await initialize();
 

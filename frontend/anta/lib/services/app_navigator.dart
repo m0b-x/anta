@@ -40,8 +40,10 @@ abstract final class AppNavigator {
   /// (e.g. the calendar reloads events after its settings page closes).
   /// Registered on the root `MaterialApp` alongside
   /// `NavigationHistoryObserver`, which is what tracks the restorable stack.
-  static final RouteObserver<PageRoute<dynamic>> routeObserver =
-      RouteObserver<PageRoute<dynamic>>();
+  ///
+  /// It also keeps the live page-route stack, which is what lets
+  /// [popToFolder] address a route several levels down.
+  static final AppRouteObserver routeObserver = AppRouteObserver();
 
   static NavigatorState get _navigator => navigatorKey.currentState!;
 
@@ -94,10 +96,14 @@ abstract final class AppNavigator {
     BuildContext context,
     Widget page, {
     TO? result,
+    NavDestination? destination,
   }) {
     return Navigator.pushReplacement<T, TO>(
       context,
-      MaterialPageRoute(builder: (_) => page),
+      MaterialPageRoute(
+        builder: (_) => page,
+        settings: _settingsFor(destination),
+      ),
       result: result,
     );
   }
@@ -160,6 +166,54 @@ abstract final class AppNavigator {
       OptimizedFolderContentPage(folderId: folderId, title: title),
       destination: NavDestination.folder(folderId: folderId, title: title),
     );
+  }
+
+  /// Returns to the page showing [folderId], playing exactly one transition.
+  ///
+  /// `popUntil` animates every route it passes through (flutter#59990), so a
+  /// jump three levels up flickers through two pages. The routes in between
+  /// are removed outright instead, and the single remaining pop is the
+  /// transition the user should see.
+  ///
+  /// Removal runs top-down and never touches the current route: that one is
+  /// popped, so its page still gets the exit its own `PopScope` arranged.
+  ///
+  /// The folder is not always on the stack: a note reached by launch restore,
+  /// or through a chain of `[[wiki links]]` that walked into another folder,
+  /// sits above routes that never included it. That case replaces the current
+  /// page with the folder rather than pushing a second copy of it.
+  static Future<void> popToFolder(
+    BuildContext context, {
+    required String folderId,
+    required String title,
+  }) {
+    final navigator = Navigator.of(context);
+    final routes = routeObserver.pageRoutes
+        .where(
+          (route) => route.isActive && identical(route.navigator, navigator),
+        )
+        .toList();
+    final index = routes.lastIndexWhere((route) {
+      final destination = route.settings.arguments;
+      return destination is NavDestination &&
+          destination.kind == NavDestinationKind.folder &&
+          destination.folderId == folderId;
+    });
+
+    if (index < 0) {
+      return pushReplacement<void, void>(
+        context,
+        OptimizedFolderContentPage(folderId: folderId, title: title),
+        destination: NavDestination.folder(folderId: folderId, title: title),
+      );
+    }
+    if (index == routes.length - 1) return Future<void>.value();
+
+    for (var i = routes.length - 2; i > index; i--) {
+      navigator.removeRoute(routes[i]);
+    }
+    navigator.pop();
+    return Future<void>.value();
   }
 
   static Future<void> toNoteEditor(
@@ -491,4 +545,51 @@ class _RestoredEntry {
 
   final NavDestination destination;
   final NoteMetadata? metadata;
+}
+
+/// The app's [RouteObserver], which additionally keeps the page routes it
+/// sees pass by.
+///
+/// A `NavigatorState` exposes no history, so a caller that wants to address
+/// a route several levels down — [AppNavigator.popToFolder] — has nothing to
+/// hand [NavigatorState.removeRoute] without a record of its own. Modal
+/// sheets and dialogs are `PopupRoute`s and never enter the list.
+class AppRouteObserver extends RouteObserver<PageRoute<dynamic>> {
+  final List<Route<dynamic>> _pageRoutes = [];
+
+  /// The page routes currently on the navigator, bottom-first. Callers must
+  /// still filter by [Route.isActive] and [Route.navigator]: a navigator torn
+  /// down without popping its routes leaves them here.
+  List<Route<dynamic>> get pageRoutes => List.unmodifiable(_pageRoutes);
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (route is PageRoute) _pageRoutes.add(route);
+    super.didPush(route, previousRoute);
+  }
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    _pageRoutes.remove(route);
+    super.didPop(route, previousRoute);
+  }
+
+  @override
+  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    _pageRoutes.remove(route);
+    super.didRemove(route, previousRoute);
+  }
+
+  @override
+  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
+    final index = oldRoute == null ? -1 : _pageRoutes.indexOf(oldRoute);
+    if (index >= 0) {
+      if (newRoute is PageRoute) {
+        _pageRoutes[index] = newRoute;
+      } else {
+        _pageRoutes.removeAt(index);
+      }
+    }
+    super.didReplace(newRoute: newRoute, oldRoute: oldRoute);
+  }
 }

@@ -94,6 +94,7 @@ class NoteSaveCoordinator {
   bool _warnedDuplicateTitle = false;
 
   bool _disposed = false;
+  bool _savesDisabled = false;
 
   static AutoSaveService _defaultAutoSave({
     required Future<void> Function(String? title, String? content) onSave,
@@ -141,6 +142,7 @@ class NoteSaveCoordinator {
   /// auto-save debounce or — for a note that has never been written —
   /// persist it as soon as it holds anything worth keeping.
   void onContentChanged() {
+    if (_savesDisabled) return;
     if (_effectiveNoteId != null) {
       markChanged();
     } else {
@@ -173,6 +175,7 @@ class NoteSaveCoordinator {
   /// applied by the find controller — and arms auto-save so they are
   /// written like any other change.
   void markChanged() {
+    if (_savesDisabled) return;
     _setHasChanges(true);
     if (_effectiveNoteId != null) {
       _autoSave.onContentChanged(_title());
@@ -187,7 +190,7 @@ class NoteSaveCoordinator {
   /// A note that has never been persisted has nothing to force: it is
   /// created through [saveOnLifecyclePause] / [saveBeforeExit] instead.
   Future<void> forceSave({String? content}) async {
-    if (_effectiveNoteId == null) return;
+    if (_savesDisabled || _effectiveNoteId == null) return;
     await _autoSave.forceSave(title: _title(), content: content);
   }
 
@@ -196,6 +199,7 @@ class NoteSaveCoordinator {
   /// a process death. Fire-and-forget by design: the lifecycle callback
   /// is synchronous and the platform will not wait for us.
   void saveOnLifecyclePause() {
+    if (_savesDisabled) return;
     if (_effectiveNoteId != null) {
       unawaited(forceSave());
     } else {
@@ -208,6 +212,7 @@ class NoteSaveCoordinator {
   /// deliberately not created — opening the editor and backing out must
   /// not litter the folder.
   Future<void> saveBeforeExit() async {
+    if (_savesDisabled) return;
     if (_effectiveNoteId != null) {
       await forceSave();
       return;
@@ -225,6 +230,21 @@ class NoteSaveCoordinator {
     // holding the pop, and the title lookup inside would otherwise finish
     // after this object is disposed and drop the create.
     await _createNewNoteEarly();
+  }
+
+  /// Stops every write this coordinator could still make, and cancels the
+  /// ones already scheduled.
+  ///
+  /// Deleting the note from the editor calls this *before* dispatching the
+  /// delete: a debounced auto-save landing afterwards would write into a
+  /// soft-deleted row, and the early create of a note that has never been
+  /// persisted would put it back. One-way on purpose — the page it belongs
+  /// to is on its way out.
+  void disableSaves() {
+    if (_savesDisabled) return;
+    _savesDisabled = true;
+    _autoSave.stopTracking();
+    _setHasChanges(false);
   }
 
   void dispose() {
@@ -245,7 +265,7 @@ class NoteSaveCoordinator {
   /// save.
   Future<void> _save(String? title, String? content) async {
     final noteId = _effectiveNoteId;
-    if (noteId == null) return;
+    if (noteId == null || _savesDisabled) return;
 
     var titleToSave = title;
     final trimmed = title?.trim() ?? '';
@@ -317,7 +337,9 @@ class NoteSaveCoordinator {
   /// than losing the content, and the user is told once — they can rename
   /// from the browser afterwards.
   Future<void> _createNewNoteEarly() async {
-    if (_effectiveNoteId != null || _isCreatingNewNote) return;
+    if (_effectiveNoteId != null || _isCreatingNewNote || _savesDisabled) {
+      return;
+    }
     final title = _title().trim();
     // Trimmed only to decide whether there is anything worth keeping: the
     // text itself is persisted as typed, so an indented first list item
@@ -343,7 +365,7 @@ class NoteSaveCoordinator {
       }
     }
 
-    if (_disposed) return;
+    if (_disposed || _savesDisabled) return;
     _createdTitle = titleToCreate;
     _createdContent = content;
     _dispatch(

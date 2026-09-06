@@ -10,6 +10,8 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../l10n/app_localizations.dart';
 import '../widgets/app_dialogs.dart';
+import '../bloc/import_export/import_export_bloc.dart';
+import '../bloc/import_export/import_export_event.dart';
 import '../bloc/optimized_note/optimized_note_bloc.dart';
 import '../bloc/optimized_note/optimized_note_event.dart';
 import '../bloc/optimized_note/optimized_note_state.dart';
@@ -40,7 +42,10 @@ import '../widgets/note_search_bar.dart';
 import '../widgets/app_drawer.dart';
 import '../services/app_navigator.dart';
 import '../services/drawer_host_registry.dart';
+import '../services/folder_storage_service.dart';
+import '../services/move_coordinator.dart';
 import '../services/note_storage_service.dart';
+import '../widgets/note_overflow_menu.dart';
 import '../widgets/unified_app_bars.dart';
 import '../utils/editor_width_calculator.dart';
 import '../utils/custom_snackbar.dart';
@@ -164,6 +169,16 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// the content listener cannot tell those two pages apart; this flag can,
   /// because only the page that asked has it raised (C1).
   bool _awaitingContentLoad = false;
+
+  /// The folder the note lives in *now*: `widget.folderId` until the note is
+  /// moved from the page's own menu, which is why it is not read straight
+  /// off the widget.
+  late String _folderId = widget.folderId;
+
+  /// That folder's name, for the menu's first row. Null until the read
+  /// answers, and at root — where a note cannot live, so the fallback is
+  /// only ever defensive.
+  String? _folderName;
 
   double _previousKeyboardHeight = 0;
 
@@ -296,7 +311,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       content: () => _contentController.text,
       titleExists: ({required String title, String? excludeId}) =>
           GetIt.I<NoteStorageService>().noteTitleExistsInFolder(
-            folderId: widget.folderId,
+            folderId: _folderId,
             title: title,
             excludeId: excludeId,
           ),
@@ -329,6 +344,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     _counterBloc.add(SetNoteContext(noteId: widget.noteId));
     _saves.start();
     unawaited(_position.load());
+    unawaited(_loadFolderName());
     // Last, so the settings listener can never fire against a
     // half-constructed page.
     _editorSettings.addListener(_onEditorSettingsChanged);
@@ -1417,7 +1433,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       // shows is bounded (C10).
       final note = await GetIt.I<NoteStorageService>().resolveNoteByTitle(
         title,
-        preferFolderId: widget.folderId,
+        preferFolderId: _folderId,
       );
       if (!mounted) return;
       if (!_isCurrentRoute) return;
@@ -1722,6 +1738,16 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
                         onPressed: () => _togglePreviewMode(),
                       ),
                     ),
+                  NoteOverflowMenu(
+                    folderName:
+                        _folderName ?? AppLocalizations.of(context)!.folders,
+                    onOpenFolder: _openFolder,
+                    onEditTitle: _editTitle,
+                    onMove: _moveNote,
+                    onShare: _showExportFormatDialog,
+                    onDelete: _deleteNote,
+                    onSettings: () => _scaffoldKey.currentState?.openDrawer(),
+                  ),
                 ],
               ),
             ),
@@ -2069,14 +2095,115 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     await _saves.saveBeforeExit();
   }
 
-  void _showExportFormatDialog() {
-    NoteExportDialog.show(
+  Future<void> _loadFolderName() async {
+    try {
+      final folder = await GetIt.I<FolderStorageService>().getFolderById(
+        _folderId,
+      );
+      if (!mounted || folder == null) return;
+      setState(() => _folderName = folder.name);
+    } catch (e) {
+      debugPrint('[NoteEditor] folder name lookup failed: $e');
+    }
+  }
+
+  /// The note as it is stored right now.
+  ///
+  /// Every menu row that hands the note to another layer — move, share —
+  /// needs the persisted row, not the editor's text: the move writes a new
+  /// `folderId` onto it, and the export re-reads the content by id. So the
+  /// editor flushes first and reads back what landed.
+  Future<NoteMetadata?> _currentNoteMetadata() async {
+    await _saves.saveBeforeExit();
+    final noteId = _saves.effectiveNoteId ?? widget.noteId;
+    if (noteId == null) return null;
+    return GetIt.I<NoteStorageService>().getNoteMetadata(noteId);
+  }
+
+  /// Returns to the folder this note lives in, playing one transition even
+  /// when the note was reached through a chain of wiki links.
+  Future<void> _openFolder() async {
+    try {
+      await _saveBeforeExit();
+    } catch (e) {
+      debugPrint('[NoteEditor] save before open folder failed: $e');
+    }
+    if (!mounted) return;
+    await AppNavigator.popToFolder(
       context,
-      title: _titleController.text,
-      content: _contentController.text,
-      noteId: widget.noteId,
-      createdAt: widget.metadata?.createdAt,
-      updatedAt: widget.metadata?.updatedAt,
+      folderId: _folderId,
+      title: _folderName ?? '',
+    );
+  }
+
+  Future<void> _moveNote() async {
+    final metadata = await _currentNoteMetadata();
+    if (!mounted) return;
+    if (metadata == null) {
+      CustomSnackbar.showError(
+        context,
+        AppLocalizations.of(context)!.noteNotFound,
+      );
+      return;
+    }
+    await MoveCoordinator.moveNote(
+      context,
+      metadata: metadata,
+      currentFolderId: _folderId,
+    );
+    if (!mounted) return;
+    final moved = await GetIt.I<NoteStorageService>().getNoteMetadata(
+      metadata.id,
+    );
+    if (!mounted || moved == null || moved.folderId == _folderId) return;
+    setState(() {
+      _folderId = moved.folderId;
+      _folderName = null;
+    });
+    unawaited(_loadFolderName());
+  }
+
+  /// Deletes the note the editor is showing, then leaves.
+  ///
+  /// The order is the whole point: saving is switched off *before* the
+  /// delete is dispatched, because a debounced auto-save landing afterwards
+  /// would write into a row that is already a tombstone, and the early
+  /// create of a never-persisted note would bring it back outright.
+  Future<void> _deleteNote() async {
+    final l10n = AppLocalizations.of(context)!;
+    final noteId = _saves.effectiveNoteId ?? widget.noteId;
+    final title = _titleController.text.trim();
+    final confirmed = await AppDialogs.confirm(
+      context,
+      title: l10n.deleteNote,
+      content: l10n.deleteNoteConfirm(
+        title.isEmpty ? l10n.deleteThisNote : title,
+      ),
+      confirmText: l10n.delete,
+      isDestructive: true,
+    );
+    if (!confirmed || !mounted) return;
+    _saves.disableSaves();
+    if (noteId != null) {
+      context.read<OptimizedNoteBloc>().add(DeleteOptimizedNote(noteId));
+    }
+    AppNavigator.pop(context);
+  }
+
+  Future<void> _showExportFormatDialog() async {
+    final format = await NoteExportDialog.chooseFormat(context);
+    if (format == null || !mounted) return;
+    final metadata = await _currentNoteMetadata();
+    if (!mounted) return;
+    if (metadata == null) {
+      CustomSnackbar.showError(
+        context,
+        AppLocalizations.of(context)!.noteNotFound,
+      );
+      return;
+    }
+    context.read<ImportExportBloc>().add(
+      ExportNoteRequested(metadata: metadata, format: format, share: true),
     );
   }
 

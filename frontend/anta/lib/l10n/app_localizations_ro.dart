@@ -1693,6 +1693,9 @@ class AppLocalizationsRo extends AppLocalizations {
   String get emptyNote => 'Notiță goală';
 
   @override
+  String get noteNotFound => 'Notița nu a fost găsită';
+
+  @override
   String get deleteNote => 'Șterge Notiță';
 
   @override

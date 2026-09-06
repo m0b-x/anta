@@ -1668,6 +1668,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get emptyNote => 'Empty note';
 
   @override
+  String get noteNotFound => 'Note not found';
+
+  @override
   String get deleteNote => 'Delete Note';
 
   @override

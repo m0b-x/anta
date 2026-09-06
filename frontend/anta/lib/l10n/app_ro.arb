@@ -481,6 +481,7 @@
   "renameFolder": "Redenumește Folder",
   "untitledNote": "Notiță fără titlu",
   "emptyNote": "Notiță goală",
+  "noteNotFound": "Notița nu a fost găsită",
   "deleteNote": "Șterge Notiță",
   "deleteNoteConfirm": "Ești sigur că vrei să ștergi \"{title}\"?",
   "deleteThisNote": "această notiță",

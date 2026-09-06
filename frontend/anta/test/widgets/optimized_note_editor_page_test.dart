@@ -9,6 +9,7 @@ import 'package:re_editor/re_editor.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/bloc/counter/counter_bloc.dart';
+import 'package:anta/bloc/import_export/import_export_bloc.dart';
 import 'package:anta/bloc/markdown_bar/markdown_bar_bloc.dart';
 import 'package:anta/bloc/optimized_note/optimized_note_bloc.dart';
 import 'package:anta/bloc/optimized_note/optimized_note_event.dart';
@@ -21,12 +22,17 @@ import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/models/custom_markdown_shortcut.dart';
+import 'package:anta/models/export_format.dart';
+import 'package:anta/models/nav_destination.dart';
 import 'package:anta/models/note_metadata.dart';
 import 'package:anta/pages/optimized_note_editor_page.dart';
+import 'package:anta/repositories/folder_repository.dart';
 import 'package:anta/repositories/note_repository.dart';
 import 'package:anta/services/app_navigator.dart';
 import 'package:anta/services/counter_service.dart';
 import 'package:anta/services/folder_search_service.dart';
+import 'package:anta/services/folder_storage_service.dart';
+import 'package:anta/services/import_export_service.dart';
 import 'package:anta/services/markdown_bar_service.dart';
 import 'package:anta/services/note_position_service.dart';
 import 'package:anta/services/note_storage_service.dart';
@@ -69,6 +75,9 @@ void main() {
   late NoteStorageService storageService;
   late _ThrowingStorage throwingStorage;
   late FolderSearchService searchService;
+  late FolderStorageService folderService;
+  late _TestExportService exportService;
+  late ImportExportBloc exportBloc;
   late _TestNoteBloc noteBloc;
   late MarkdownBarBloc barBloc;
   late CounterBloc counterBloc;
@@ -126,6 +135,10 @@ void main() {
     await throwingStorage.initialize();
     searchService = FolderSearchService(storageService: storageService);
     await searchService.initialize();
+    folderService = FolderStorageService(
+      repository: FolderRepository(database: db),
+    );
+    await folderService.initialize();
     // Everything the page's BLoCs need is built here, in real async:
     // inside `testWidgets` the database answers on a background isolate
     // that `FakeAsync` never lets run, so an `await` on one of these in a
@@ -146,13 +159,24 @@ void main() {
     counterBloc = CounterBloc(
       counterService: await CounterService.getInstance(),
     );
+    // A real export bloc over the real service, with only the share sheet
+    // stubbed out: the editor's share has to reach `shareExport`, which is
+    // exactly the call it used to make itself.
+    exportService = _TestExportService(
+      noteStorage: storageService,
+      folderStorage: folderService,
+      noteRepository: NoteRepository(database: db),
+    );
+    exportBloc = ImportExportBloc(service: exportService);
     GetIt.I.registerSingleton<NoteStorageService>(storageService);
+    GetIt.I.registerSingleton<FolderStorageService>(folderService);
   });
 
   tearDownAll(() async {
     await noteBloc.close();
     await barBloc.close();
     await counterBloc.close();
+    await exportBloc.close();
     await GetIt.I.reset();
     await db.close();
     try {
@@ -1586,6 +1610,227 @@ void main() {
       await teardownPage(tester);
     });
   });
+
+  group("the app bar's one icon per corner and its menu", () {
+    late Folder menuFolder;
+    late NoteMetadata menuNote;
+
+    setUp(() async {
+      menuFolder = await db.folderDao.createFolder(name: 'Training plans');
+      menuNote = await storageService.createNote(
+        folderId: menuFolder.id,
+        title: 'Squat day',
+        content: 'warm up',
+      );
+    });
+
+    tearDown(() async {
+      // The delete case already took the note out of the FTS index, and
+      // asking the external-content table to drop the same row twice is
+      // what reads as a malformed database image.
+      final note = await db.noteDao.getNoteById(menuNote.id);
+      if (note != null && !note.isDeleted) {
+        await db.noteDao.hardDeleteNote(menuNote.id);
+      } else if (note != null) {
+        await (db.delete(db.notes)..where((n) => n.id.equals(note.id))).go();
+      }
+      await db.folderDao.hardDeleteFolder(menuFolder.id);
+    });
+
+    /// The editor pushed over a route stamped as this note's folder — the
+    /// stack "Open folder" is meant to walk back to, and a page for delete
+    /// to pop onto. The folder page itself is a stand-in: what the helper
+    /// reads is the stamp, not the widget.
+    Future<void> pushEditorOverFolder(WidgetTester tester) async {
+      await tester.pumpWidget(
+        MultiBlocProvider(
+          providers: [
+            BlocProvider<OptimizedNoteBloc>.value(value: noteBloc),
+            BlocProvider<MarkdownBarBloc>.value(value: barBloc),
+            BlocProvider<CounterBloc>.value(value: counterBloc),
+            BlocProvider<ImportExportBloc>.value(value: exportBloc),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            navigatorObservers: [AppNavigator.routeObserver],
+            home: const Scaffold(body: Text('root')),
+          ),
+        ),
+      );
+      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+      final folder = NavDestination.folder(
+        folderId: menuFolder.id,
+        title: menuFolder.name,
+      );
+      navigator.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('the folder below')),
+          settings: RouteSettings(
+            name: folder.kind.name,
+            arguments: folder,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      navigator.push(
+        MaterialPageRoute<void>(
+          builder: (_) => OptimizedNoteEditorPage(
+            folderId: menuFolder.id,
+            noteId: menuNote.id,
+            metadata: menuNote,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      noteBloc.emitContentLoaded(menuNote, 'warm up');
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      await settle(tester);
+    }
+
+    Future<void> openMenu(WidgetTester tester) async {
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('one back button, and no drawer icon left in the bar', (
+      tester,
+    ) async {
+      await pushEditorOverFolder(tester);
+
+      expect(find.byType(BackButtonIcon), findsOneWidget);
+      expect(find.byIcon(Icons.menu), findsNothing);
+      expect(find.byIcon(Icons.menu_rounded), findsNothing);
+      expect(find.byIcon(Icons.more_vert), findsOneWidget);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('the menu opens on the note folder, then the note actions', (
+      tester,
+    ) async {
+      await pushEditorOverFolder(tester);
+      await openMenu(tester);
+
+      final l10n = AppLocalizationsEn();
+      // The item's type argument is private to the menu widget, so the rows
+      // are counted by predicate rather than by `byType`.
+      expect(
+        find.byWidgetPredicate((widget) => widget is PopupMenuItem),
+        findsNWidgets(6),
+      );
+      expect(find.text(menuFolder.name), findsOneWidget);
+      expect(find.text(l10n.openFolder), findsOneWidget);
+      expect(find.text(l10n.editTitle), findsOneWidget);
+      expect(find.text(l10n.moveToFolder), findsOneWidget);
+      expect(find.text(l10n.shareNote), findsOneWidget);
+      expect(find.text(l10n.deleteNote), findsOneWidget);
+      expect(find.text(l10n.settings), findsOneWidget);
+
+      await tester.tapAt(const Offset(400, 8));
+      await tester.pumpAndSettle();
+      await teardownPage(tester);
+    });
+
+    testWidgets('Open folder pops back to the page below', (tester) async {
+      await pushEditorOverFolder(tester);
+      await openMenu(tester);
+
+      await tester.tap(find.text(AppLocalizationsEn().openFolder));
+      await tester.pumpAndSettle();
+      // The row saves before it pops, and that save is a real round trip.
+      await settleUntil(tester, () => pages().evaluate().isEmpty);
+      await tester.pumpAndSettle();
+
+      expect(find.text('the folder below'), findsOneWidget);
+      expect(pages(), findsNothing);
+      await teardownPage(tester);
+    });
+
+    testWidgets('deleting dispatches the delete, saves nothing, and pops', (
+      tester,
+    ) async {
+      await pushEditorOverFolder(tester);
+      final controller = editorOf(tester).controller;
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 'warm up'.length,
+      );
+      controller.replaceSelection(' more');
+      await tester.pump();
+      noteBloc.clearDispatched();
+
+      await openMenu(tester);
+      await tester.tap(find.text(AppLocalizationsEn().deleteNote));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+      await tester.pumpAndSettle();
+      await settle(tester);
+
+      final deletes = noteBloc.dispatched
+          .whereType<DeleteOptimizedNote>()
+          .toList();
+      expect(deletes, hasLength(1));
+      expect(deletes.single.noteId, menuNote.id);
+      expect(
+        pages(),
+        findsNothing,
+        reason: 'the page pops itself once the delete is dispatched',
+      );
+      // The unsaved edit above is deliberate: the exit save the page runs on
+      // every other way out must not run on this one.
+      expect(
+        noteBloc.updates,
+        isEmpty,
+        reason: 'a save around the delete would write into a tombstone',
+      );
+
+      // Past the auto-save debounce, with the page still being torn down.
+      await tester.pump(const Duration(seconds: 8));
+      await settle(tester);
+      expect(noteBloc.updates, isEmpty);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('sharing goes through the import/export bloc, not the '
+        'share sheet', (tester) async {
+      await pushEditorOverFolder(tester);
+      exportService.shared.clear();
+
+      await openMenu(tester);
+      await tester.tap(find.text(AppLocalizationsEn().shareNote));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(AppLocalizationsEn().exportAsMarkdown));
+      await tester.pumpAndSettle();
+      await settleUntil(tester, () => exportService.shared.isNotEmpty);
+
+      expect(exportService.shared, hasLength(1));
+      expect(exportService.shared.single.format, ExportFormat.markdown);
+
+      await teardownPage(tester);
+    });
+  });
+}
+
+/// The real export service with only its last step stubbed: it still
+/// encodes and writes the file, so the assertion is about what the editor
+/// asked the bloc to export rather than about a mock's bookkeeping.
+class _TestExportService extends ImportExportService {
+  _TestExportService({
+    required super.noteStorage,
+    required super.folderStorage,
+    required super.noteRepository,
+  });
+
+  final List<ExportResult> shared = <ExportResult>[];
+
+  @override
+  Future<void> shareExport(ExportResult result) async {
+    shared.add(result);
+    await cleanupExport(result);
+  }
 }
 
 /// A [NoteStorageService] whose wiki-link lookup always fails, for the case

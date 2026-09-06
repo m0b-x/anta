@@ -29,6 +29,8 @@ import '../services/note_storage_service.dart';
 import '../services/settings_service.dart';
 import '../widgets/infinite_scroll_list.dart';
 import '../widgets/app_drawer.dart';
+import '../widgets/folder_overflow_menu.dart';
+import '../widgets/note_export_dialog.dart';
 import '../widgets/selection_action_bar.dart';
 import '../widgets/selection_app_bar.dart';
 import '../widgets/unified_app_bars.dart';
@@ -67,6 +69,10 @@ class _OptimizedFolderContentPageState
   FoldersSortOrder _foldersSortOrder = FoldersSortOrder.nameAsc;
   bool _folderSwipeEnabled = true;
   bool _isSortSheetOpen = false;
+
+  /// This page's own folder, for the overflow menu's rename/move/share/
+  /// delete rows. Null on the root page, and until the first read answers.
+  Folder? _folder;
 
   // Per-page selection state. Long-press a card to enter selection mode,
   // tap to toggle, then act on the whole batch (move, delete, drag-and-drop).
@@ -151,6 +157,7 @@ class _OptimizedFolderContentPageState
       );
       if (folder != null && mounted) {
         setState(() {
+          _folder = folder;
           _notesSortOrder = _parseNotesSortOrder(folder.noteSortOrder);
           _foldersSortOrder = _parseFoldersSortOrder(folder.subfolderSortOrder);
         });
@@ -531,7 +538,7 @@ class _OptimizedFolderContentPageState
               onDeselectAll: _selection.deselectAll,
             )
           : FolderAppBar(
-              title: widget.title,
+              title: _folder?.name ?? widget.title,
               isRootPage: isRootPage,
               actions: [
                 IconButton(
@@ -550,26 +557,23 @@ class _OptimizedFolderContentPageState
                     });
                   },
                 ),
-                IconButton(
-                  icon: const Icon(Icons.sort),
-                  tooltip: AppLocalizations.of(context)!.sortBy,
-                  onPressed: _showQuickSortOptions,
-                ),
                 StreamBuilder<int>(
                   stream: GetIt.I<MoveHistoryService>().changes,
                   initialData: GetIt.I<MoveHistoryService>().undoableCount,
-                  builder: (context, snapshot) {
-                    final count = snapshot.data ?? 0;
-                    return IconButton(
-                      icon: Badge(
-                        isLabelVisible: count > 0,
-                        label: Text('$count'),
-                        child: const Icon(Icons.history),
-                      ),
-                      tooltip: AppLocalizations.of(context)!.moveHistory,
-                      onPressed: () => showMoveHistorySheet(context),
-                    );
-                  },
+                  builder: (context, snapshot) => FolderOverflowMenu(
+                    isRootPage: isRootPage,
+                    sortLabel: _sortLabel(AppLocalizations.of(context)!),
+                    moveHistoryCount: snapshot.data ?? 0,
+                    onSortBy: _showQuickSortOptions,
+                    onSelect: _selection.activate,
+                    onMoveHistory: () => showMoveHistorySheet(context),
+                    onImport: _pickAndImport,
+                    onSettings: () => _scaffoldKey.currentState?.openDrawer(),
+                    onRenameFolder: isRootPage ? null : _renameCurrentFolder,
+                    onMoveFolder: isRootPage ? null : _moveCurrentFolder,
+                    onShareFolder: isRootPage ? null : _shareCurrentFolder,
+                    onDeleteFolder: isRootPage ? null : _deleteCurrentFolder,
+                  ),
                 ),
               ],
             ),
@@ -974,6 +978,112 @@ class _OptimizedFolderContentPageState
         noteSortOrder: order.name,
       );
     }
+  }
+
+  // ─── This folder's own actions (app-bar overflow menu) ──────────────────
+
+  /// The active ordering, for the menu's sort row. A folder's notes are what
+  /// the user reorders; the root has none, so it reports its folder order.
+  String _sortLabel(AppLocalizations l10n) {
+    if (widget.folderId == null) {
+      return switch (_foldersSortOrder) {
+        FoldersSortOrder.nameAsc || FoldersSortOrder.nameDesc => l10n.sortByName,
+        FoldersSortOrder.createdAsc ||
+        FoldersSortOrder.createdDesc => l10n.sortByCreated,
+        FoldersSortOrder.positionAsc ||
+        FoldersSortOrder.positionDesc => l10n.sortByCustom,
+      };
+    }
+    return switch (_notesSortOrder) {
+      NotesSortOrder.updatedAsc ||
+      NotesSortOrder.updatedDesc => l10n.sortByUpdated,
+      NotesSortOrder.createdAsc ||
+      NotesSortOrder.createdDesc => l10n.sortByCreated,
+      NotesSortOrder.titleAsc || NotesSortOrder.titleDesc => l10n.sortByTitle,
+      NotesSortOrder.positionAsc ||
+      NotesSortOrder.positionDesc => l10n.sortByCustom,
+    };
+  }
+
+  Future<void> _renameCurrentFolder() async {
+    final folder = _folder;
+    if (folder == null) return;
+    final l10n = AppLocalizations.of(context)!;
+    final name = await AppDialogs.textInput(
+      context,
+      title: l10n.renameFolder,
+      hintText: l10n.enterNewName,
+      initialValue: folder.name,
+    );
+    if (name == null || !mounted) return;
+    final trimmed = name.trim();
+    if (trimmed.isEmpty ||
+        trimmed.toLowerCase() == folder.name.trim().toLowerCase()) {
+      return;
+    }
+    final exists = await _folderStorageService.folderNameExistsInParent(
+      parentId: folder.parentId,
+      name: trimmed,
+      excludeId: folder.id,
+    );
+    if (!mounted) return;
+    if (exists) {
+      CustomSnackbar.showError(context, l10n.folderNameAlreadyExists(trimmed));
+      return;
+    }
+    context.read<OptimizedFolderBloc>().add(
+      UpdateOptimizedFolder(folderId: folder.id, name: trimmed),
+    );
+    setState(() => _folder = folder.copyWith(name: trimmed));
+  }
+
+  Future<void> _moveCurrentFolder() async {
+    final folder = _folder;
+    if (folder == null) return;
+    await MoveCoordinator.moveFolder(
+      context,
+      folder: folder,
+      currentParentId: folder.parentId,
+    );
+    if (!mounted) return;
+    final moved = await _folderStorageService.getFolderById(folder.id);
+    if (!mounted || moved == null) return;
+    setState(() => _folder = moved);
+  }
+
+  void _shareCurrentFolder() {
+    final folder = _folder;
+    if (folder == null) return;
+    context.read<ImportExportBloc>().add(
+      ExportFolderRequested(folderId: folder.id, share: true),
+    );
+  }
+
+  Future<void> _deleteCurrentFolder() async {
+    final folder = _folder;
+    if (folder == null) return;
+    final l10n = AppLocalizations.of(context)!;
+    AppDialogs.showLoading(context, message: l10n.loadingContent);
+    final noteCount = await _folderStorageService.getNoteCountForDeletion(
+      folder.id,
+    );
+    if (!mounted) return;
+    AppNavigator.pop(context);
+
+    final confirmed = await AppDialogs.confirm(
+      context,
+      title: l10n.deleteFolder,
+      content: noteCount > 0
+          ? l10n.deleteFolderWithNotesConfirm(folder.name, noteCount)
+          : l10n.deleteFolderConfirm(folder.name),
+      confirmText: l10n.delete,
+      isDestructive: true,
+    );
+    if (!confirmed || !mounted) return;
+    context.read<OptimizedFolderBloc>().add(
+      DeleteOptimizedFolder(folderId: folder.id, parentId: folder.parentId),
+    );
+    AppNavigator.pop(context);
   }
 
   // ─── Unified mixed (folders + notes) sliver ─────────────────────────────
@@ -2195,27 +2305,7 @@ class _NoteCard extends StatelessWidget {
   }
 
   void _showExportFormatDialog(BuildContext context) async {
-    final format = await AppDialogs.choose<ExportFormat>(
-      context,
-      title: AppLocalizations.of(context)!.chooseExportFormat,
-      options: [
-        (
-          value: ExportFormat.markdown,
-          label: AppLocalizations.of(context)!.exportAsMarkdown,
-          icon: Icons.description_rounded,
-        ),
-        (
-          value: ExportFormat.json,
-          label: AppLocalizations.of(context)!.exportAsJson,
-          icon: Icons.data_object_rounded,
-        ),
-        (
-          value: ExportFormat.text,
-          label: AppLocalizations.of(context)!.exportAsText,
-          icon: Icons.text_snippet_rounded,
-        ),
-      ],
-    );
+    final format = await NoteExportDialog.chooseFormat(context);
     if (format == null || !context.mounted) return;
     context.read<ImportExportBloc>().add(
       ExportNoteRequested(metadata: metadata, format: format, share: true),

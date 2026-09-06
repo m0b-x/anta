@@ -578,6 +578,7 @@
   "@emptyNote": {
     "description": "Text shown for empty notes"
   },
+  "noteNotFound": "Notiz nicht gefunden",
   "deleteNote": "Notiz löschen",
   "@deleteNote": {
     "description": "Delete note dialog title"

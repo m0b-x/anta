@@ -1674,6 +1674,9 @@ class AppLocalizationsDe extends AppLocalizations {
   String get emptyNote => 'Leere Notiz';
 
   @override
+  String get noteNotFound => 'Notiz nicht gefunden';
+
+  @override
   String get deleteNote => 'Notiz löschen';
 
   @override

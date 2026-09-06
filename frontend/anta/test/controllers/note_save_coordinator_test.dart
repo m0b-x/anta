@@ -725,6 +725,94 @@ void main() {
       });
     });
   });
+
+  /// What deleting the note from the editor arms before it dispatches the
+  /// delete: from that moment nothing this coordinator owns may write, or
+  /// the write lands on a row that is already a tombstone — and an early
+  /// create would put the note back outright.
+  group('disableSaves', () {
+    test('an armed debounce never fires', () {
+      fakeAsync((async) {
+        final h = _Harness.existing()..coordinator.start();
+
+        h.type('v1');
+        h.coordinator.disableSaves();
+        async.elapse(_Harness.debounce * 10);
+
+        expect(h.events, isEmpty);
+        h.dispose();
+      });
+    });
+
+    test('the interval save stops too', () {
+      fakeAsync((async) {
+        final h = _Harness.existing()..coordinator.start();
+
+        h.type('v1');
+        h.coordinator.disableSaves();
+        async.elapse(_Harness.interval * 3);
+
+        expect(h.events, isEmpty);
+        h.dispose();
+      });
+    });
+
+    test('later edits, forced saves and exits all dispatch nothing', () {
+      fakeAsync((async) {
+        final h = _Harness.existing()..coordinator.start();
+
+        h.coordinator.disableSaves();
+        h.type('v1');
+        h.coordinator.markChanged();
+        h.coordinator.saveOnLifecyclePause();
+        unawaited(h.coordinator.forceSave());
+        unawaited(h.coordinator.saveBeforeExit());
+        async.elapse(_Harness.debounce * 10);
+        async.flushMicrotasks();
+
+        expect(h.events, isEmpty);
+        expect(h.coordinator.hasChanges.value, isFalse);
+        h.dispose();
+      });
+    });
+
+    test('a brand-new note is not created on the way out', () {
+      fakeAsync((async) {
+        final h = _Harness()..coordinator.start();
+
+        h.content = 'first paragraph';
+        h.coordinator.disableSaves();
+        h.coordinator.onContentChanged();
+        unawaited(h.coordinator.saveBeforeExit());
+        async.elapse(_Harness.debounce * 10);
+        async.flushMicrotasks();
+
+        expect(h.creates, isEmpty);
+        expect(h.coordinator.effectiveNoteId, isNull);
+        h.dispose();
+      });
+    });
+
+    test('a create already inside its title lookup is dropped', () {
+      fakeAsync((async) {
+        final h = _Harness()
+          ..lookupGate = Completer<void>()
+          ..coordinator.start();
+
+        h.title = 'Squat day';
+        h.coordinator.onContentChanged();
+        async.flushMicrotasks();
+        expect(h.lookups, hasLength(1), reason: 'the create is in flight');
+
+        h.coordinator.disableSaves();
+        h.lookupGate!.complete();
+        async.flushMicrotasks();
+
+        expect(h.creates, isEmpty);
+        h.dispose();
+      });
+    });
+  });
 }
 
 typedef _Lookup = ({String title, String? excludeId});

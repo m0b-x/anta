@@ -43,6 +43,14 @@ class SelectionController {
     _emit();
   }
 
+  /// Enter selection mode with nothing selected yet. Use this for the menu
+  /// row that starts a selection the user has not long-pressed into.
+  void activate() {
+    if (_modeActive) return;
+    _modeActive = true;
+    _emit();
+  }
+
   /// Deselect every item but stay in selection mode. Use this for the
   /// app-bar "deselect all" action.
   void deselectAll() {

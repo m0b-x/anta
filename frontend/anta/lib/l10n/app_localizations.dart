@@ -2866,6 +2866,12 @@ abstract class AppLocalizations {
   /// **'Empty note'**
   String get emptyNote;
 
+  /// Error shown when a note action cannot find the note — it has no saved copy yet, or it was deleted elsewhere
+  ///
+  /// In en, this message translates to:
+  /// **'Note not found'**
+  String get noteNotFound;
+
   /// Delete note dialog title
   ///
   /// In en, this message translates to:

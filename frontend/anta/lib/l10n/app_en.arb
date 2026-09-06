@@ -2017,6 +2017,10 @@
   "@emptyNote": {
     "description": "Text shown for empty notes"
   },
+  "noteNotFound": "Note not found",
+  "@noteNotFound": {
+    "description": "Error shown when a note action cannot find the note — it has no saved copy yet, or it was deleted elsewhere"
+  },
   "deleteNote": "Delete Note",
   "@deleteNote": {
     "description": "Delete note dialog title"
