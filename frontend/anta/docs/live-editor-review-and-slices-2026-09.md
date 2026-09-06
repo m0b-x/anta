@@ -1,10 +1,12 @@
 # Live Markdown Editor — Review & Consolidation Slices (2026-09-03)
 
-**Status: Sessions 0–8 DONE (§3; 7c and 8 on 2026-09-05). Session 8's
-Phase 1 is committed as `b0f5f52` (the owner's message reads "phase 9 +
-review of live editor roadmap"; it is Session 8's Phase 1), its review
-fixes and docs uncommitted on top — see the Outcome and review blocks under
-Session 8. Sessions 0–1 are committed as
+**Status: Sessions 0–9 DONE (§3; 7c and 8 on 2026-09-05, 9 on
+2026-09-06). Session 8's Phase 1 is committed as `b0f5f52` (the owner's
+message reads "phase 9 + review of live editor roadmap"; it is Session 8's
+Phase 1) and its review fixes and docs as `74b5b67` ("phase 9 + more
+fixes" — Session 8's review). Session 9 (wiki links, schema v36) is
+uncommitted on top of `74b5b67` — see the Outcome and review blocks under
+Session 9. Sessions 0–1 are committed as
 `38c7b50`, Session 2 and its same-day follow-up as `c716225`, Session 3 as
 `a183f11`, Session 4 as `1ed4a60`, Session 5 as `4cad6ec`, Session 6 as
 `b5fcdbd`, Session 7a as `fcfe704` (sync) + `72401b8` (format) +
@@ -12,8 +14,8 @@ Session 8. Sessions 0–1 are committed as
 `3866ef2`, `e403a35`, `12dad1e`, `f602056`, `be24f73`, `8cb585d` plus
 `b1da783` (docs). Session 7 was re-sized against the
 code and split into 7a/7b/7c on 2026-09-04, all three now shipped and
-reviewed (2026-09-05, see the review block under Session 7); Sessions
-9 and 11 PLANNED, not implemented; Session 10 DROPPED (decision 4). All six §2
+reviewed (2026-09-05, see the review block under Session 7); Session
+11 PLANNED, not implemented; Session 10 DROPPED (decision 4). All six §2
 decisions are taken (6, fork ownership, added 2026-09-04).** Baseline commit `bf2e7ba`
 (main). Line numbers below are as of that commit and will drift — re-grep
 before editing. This doc is the ledger for making the Obsidian-style live
@@ -3243,6 +3245,580 @@ resolution) → `AppNavigator`; unresolved titles muted. Preview: add the
 token to the shared link grammar so `SimpleMarkdownPreview` renders it too.
 Grammar in `MarkdownLinkPatterns`. Tests: grammar + tap-zone table +
 navigation.
+
+**Outcome — DONE 2026-09-06, uncommitted on 74b5b67.** Full suite
+**3,869** passing (7 benchmark cases skipped), up 223 from 3,646 on
+`74b5b67`; `dart analyze lib`, `dart analyze test`, `dart analyze
+packages/re_editor/lib` (the fork's two pre-existing `avoid_print` infos
+only) clean; `flutter gen-l10n` leaves `untranslated.txt` empty. Planned
+against the code first (three read-only explorations: the tokenizer and
+both emitters, the tap path and its consumers, the note data layer and
+the page harness), then four decisions written down (9.1–9.4 below),
+then implemented by three workers on disjoint files (grammar; surfaces
+and tap path; data and pages) with the ARB keys on a fourth, and two test
+workers after them. What landed, decision by decision:
+
+1. **9.1 Grammar — one construct, one module.** `MarkdownLinkPatterns
+   .matchWikiLinkAt(text, open, [limit]) -> MarkdownWikiLink?` (`start`,
+   `titleStart`, `titleEnd`, `end`, `titleOf`) is a bounded character
+   scan beside `matchInlineLinkAt`: `[[` at `open`, the title is the run
+   up to the first `]`, it may hold no `[` `]` `|` CR LF, at least one
+   unit must be neither space nor tab, and the closing `]]` must sit
+   inside `limit` — unlike the link matcher's `indexOf` it never reads a
+   unit at or past `limit`. `MarkdownInlineGrammar` gained the sealed
+   `InlineWikiLink` (`titleStart`, `titleEnd`, `titleOf`), placed in
+   phase 2 inside the `[` arm **before** `_tryLink` (so `[[` wins over
+   `[` at one offset: `[[a]](b)` is a wiki link plus a literal `(b)`,
+   while `[[a](b)]]` fails the wiki probe and stays the inline link it
+   was) and accepted only when `wiki.end <= nextAtom` — no escape, ghost
+   or code-span atom may start inside the construct, so `[[a {{g}} b]]`
+   is literal text around a ghost, `` [[a `b` c]] `` is literal around a
+   code span, `\[[a]]` is literal through the escape atom and
+   `` `[[a]]` `` is code. The title is **literal**: it is the lookup key,
+   so nothing inside it tokenizes and no consumer recurses into it
+   (`[[**a**]]`, `[[#tag]]`, `[[https://a.com]]`, `[[a*]] b*` are wiki
+   links with raw titles; the `*` inside a title never reaches the
+   delimiter stack, so the trailing `*` stays unpaired). `[[a|b]]` is
+   rejected — no alias in v1, and because `|` is already excluded from
+   the title class an alias form later is not a grammar break. The first
+   `]]` closes (`[[a]]]` = wiki + `]`; `[[[a]]]` = `[` + wiki + `]`
+   because a title may not start with `[`). `![[a]]` is a literal `!`
+   plus the wiki link on both surfaces with no change to the `!` arm:
+   the image probe fails on the second `[` and the loop re-examines it.
+   `linksAndTags` / `_collect` report the token and stop; `wikiLinkAt`
+   is the exact sibling of `linkAt` / `tagAt`. `hasCandidates` needed no
+   code change — `[` was already a candidate — and the units suite's
+   superset property passed for every new corpus line unchanged.
+2. **9.2 Rendering — conceal, one style, no resolution at render time.**
+   Editor (`EditorInlineEmitter.append`): `[[` and `]]` go out in
+   `markerStyle` through `emitChrome` (the grammar admits no atom inside
+   a wiki link, so no run can split the markers — a link's chrome still
+   takes the ghost-aware `emit` because a ghost may sit in its url),
+   concealed off-caret and dimmed on reveal; the title through `emit` in
+   `_linkStyle` — primary, underline, the `[text](url)` text style — so
+   the two link forms read the same on the line. Preview
+   (`_parseInline`): brackets dropped, the title in `primaryColor` +
+   underline at source offset `contentStart + titleStart`, wrapped by
+   `_wrapWikiLinkSpan` (recognizer keyed `wiki:$sourceOffset:$title`,
+   attached through `_attachRecognizer` so ghost subtrees keep winning,
+   allocated only when `onWikiLinkTap` is set; `wiki:` joined the
+   chunk-eviction prune prefixes). No resolved-vs-unresolved split: the
+   span builder is synchronous and pure, and `NoteRepository` holds no
+   title set (a 200-entry LRU by id, per-folder lists, a change *event*
+   stream — no snapshot), so muting unresolved titles would need a live
+   title set with its own invalidation channel (create, rename, delete,
+   move, import, sync merge, database switch). Deferred to v2 with that
+   reason, see the roadmap decision log.
+3. **9.3 Resolution — Page → Service → Repository → DAO, one indexed
+   statement.** The only title index was `idx_notes_folder_ltitle
+   (folder_id, LOWER(TRIM(title)))` — folder-led, unable to serve a
+   lookup by title alone, which would have scanned `notes`. Rather than
+   ship the scan, **schema v36** (`DatabaseSchema.v36NoteTitleIndex`)
+   adds `idx_notes_ltitle ON notes(LOWER(TRIM(title))) WHERE is_deleted
+   = 0` through a public `DatabaseIndexes.createNoteTitleIndex()` called
+   from both `createAllIndexes()` and `_migrateV35ToV36` (the parity
+   scrape enforces the pair; no table changed, so no `build_runner`).
+   `NoteDao.getNotesByTitle(title)` is one `customSelect` — `SELECT *
+   FROM notes WHERE LOWER(TRIM(title)) = LOWER(?1) AND is_deleted = 0`,
+   rows through `notes.map(row.data)`, a blank title returns `const []`
+   with zero statements, no `ORDER BY` (no temp B-tree; the caller ranks
+   a handful of rows). The parameter is folded by SQLite's `LOWER`, not
+   Dart's, so both sides fold the same letters and a title always
+   matches its own spelling — ASCII case-insensitive, non-ASCII exact
+   (`Șold` finds `Șold`, `șold` does not; pinned as the documented
+   limit). Found on the way and left alone: `noteTitleExistsInFolder`
+   lowers its parameter in Dart, so a note titled `Șold` is not
+   reported there as a duplicate of `Șold` — pre-existing, recorded in
+   the DAO doc, a duplicate-title semantics change for another session.
+   `NoteRepository.getNotesByTitle` is a no-cache passthrough (the caches
+   are keyed by id and folder and this lookup has neither);
+   `NoteStorageService.resolveNoteByTitle(title, {preferFolderId})` picks
+   in Dart — the newest `updatedAt` inside the preferred folder, else the
+   newest overall, a tie broken by the smaller id — and returns
+   `NoteMetadata?`. FTS was rejected as the index: tokenised, not exact,
+   and its external-content table is maintained by hand. The page's
+   `_handleWikiLinkTap` trims, resolves with `preferFolderId:
+   widget.folderId` through `GetIt.I<NoteStorageService>()` (the page
+   harness registers exactly that singleton), shows the neutral
+   `CustomSnackbar.show(wikiLinkNoteNotFound(title))` on a miss (a
+   missing target is a fact about the text, not a failure — no
+   auto-create), swallows a self-link (resolved id equal to
+   `_saves.effectiveNoteId ?? widget.noteId`), and otherwise `await
+   _saveCurrentPosition()` then `AppNavigator.toNoteEditor(folderId,
+   noteId, metadata)` — not awaited, like the tag handler; `didPushNext`
+   force-saves the text and the buried route keeps its controller, so
+   caret and undo history survive the round trip by construction. Wired
+   as `onOpenWikiLink: markdownRendering ? _handleWikiLinkTap : null` on
+   the wrapper and `onTapWikiLink: _handleWikiLinkTap` on the deprecated
+   preview's view (threaded `MarkdownPreviewBlocView` → `bindCallbacks` →
+   `prepareWithStyle` → builder, beside the tag callback at every layer).
+4. **Tap path and a11y.** `EditorOpenWikiLinkAction(String title)` (the
+   raw title, untrimmed — resolving is the page's job) is the fifth
+   member of the sealed family; `EditorTapZones` gained a **required**
+   `wikiLinks` flag so the analyzer found every constructor; precedence
+   is checkbox → link → wiki link → money → tag in both `resolveTap` and
+   `zonesOf`, the zone is `[start + 1, end)` exactly like a link's
+   (the boundary `[` places the caret, the last `]` is inside), and the
+   pass-through rules are the link zone's. `resolveTap` now takes **one**
+   `linksAndTags` descent and reads link / wiki link / tag off it as
+   "the first token of that kind whose `containsStrict` holds" — which is
+   literally what `linkAt` / `wikiLinkAt` / `tagAt` compute, so
+   behaviour is unchanged and a line with several inline zones pays
+   once (it paid up to twice). The wrapper: `onOpenWikiLink` with
+   `selectionClick`, the interceptor enabled by any of the five
+   callbacks/flags, `_resolveEnabledZones` / `didUpdateWidget` /
+   `didChangeDependencies` extended to five, the semantics label
+   `editorZoneOpenWikiLink` ("Open linked note" / "Verknüpfte Notiz
+   öffnen" / "Deschide nota asociată") and the zone memo dropped when
+   that label changes too.
+5. **Surfaces beyond the page.** The calendar's `EventDetailSheet`
+   (read-only) gained `onOpenWikiLink` (ctor + `show`): the sheet never
+   navigates itself, so on a tap it `_close(null)`s **first** and then
+   hands the raw title to the host — a snackbar cannot be seen behind a
+   modal sheet and the editor must push over the calendar page, not over
+   a sheet about to be dismissed; the host's `await show` sees null and
+   its existing "no action" branch exits the reopen loop. The calendar
+   page's `_openWikiLink` resolves with no folder preference (an event
+   belongs to no folder), snackbars on a miss and pushes the editor with
+   the resolved metadata. Everything else renders a wiki link tinted and
+   **inert**, consistent with how `[text](url)` already behaves there:
+   the event editor sheet's preview (an unsaved form), the shortcut
+   editor's preview (a synthetic template), `MarkdownInlineText` in the
+   agenda and day summary (recognizer-free by contract), and the event
+   description editors' wrappers (which pass no link or tag callback
+   either).
+6. **9.4 Out of scope, on purpose:** `[[` autocomplete (the vocabulary
+   suggestion controller is the future home — `[[…]]` is already
+   reserved for it in that doc), backlinks, rename propagation, alias,
+   unresolved-title muting, embeds (`![[a]]` is `!` + wiki link, agreed
+   on both surfaces, like an image next to a link today) and
+   Unicode-aware case folding (needs a stored normalised column). The
+   plan also listed "the width line-breaker may split `[[a b]]` at its
+   inner space, the same exposure `[a b](u)` has" — the review disproved
+   the premise (A1 below) and the breaker protects wiki links now.
+
+Deviations from the Session 9 block and the brief, with reasons: (a) the
+block's "unresolved titles muted" is deferred (item 2 — a second source
+of truth); (b) the brief's `[[a](b)]]` expectation was off by one
+(`url[5,6)`: the link text is `[a`, so the url starts at `textEnd + 2`),
+and its "the last `]` → null" is not what `containsStrict` does — the
+last `]` is strictly inside, exactly like a link's `)`; only the closing
+boundary is null; (c) `hasCandidates` was "updated" only in its doc
+comment; (d) the event *editor* sheet stays inert (the brief's "both
+event sheets") — a tap that abandons an unsaved form is not a feature;
+(e) the snackbar is the neutral `show`, not the calendar's `showError`
+(a title that names no note is content, not an error); (f) the calendar
+path resolves with no folder preference; (g) the ARB copy uses the
+existing linked-note vocabulary in all three locales (German
+"Verknüpfte Notiz", never "Tag", which is the calendar day everywhere in
+this ARB).
+
+Behaviour deltas, all deliberate: `[[title]]` renders as a tinted,
+underlined title on both surfaces with its brackets concealed (editor)
+or dropped (preview); tapping it opens the note by title, or a snackbar;
+a `[[` followed by a `]` inside inline code, an escape, a ghost or `|`
+is still plain text; `[[a]](b)` no longer tokenizes as it did (it was
+literal text before too — nothing that rendered as a link stopped
+doing so); a `*` `_` `~` `=` or `#` inside a wiki title never opens or
+closes anything; schema version 35 → 36 (one `CREATE INDEX IF NOT
+EXISTS` on upgrade, index on both paths).
+
+Tests (per file, before → after): `markdown_inline_grammar_test.dart`
+212 → 268 (a `wiki links` group of 40, `wikiLinkAt` 12, `linksAndTags`
+4: the 9.1 table incl. every literal shape, atoms inside and around,
+nesting in every emphasis kind and a colour, `![[a]]`, adjacency,
+`[[a]](b)` vs `[[a](b)]]`, range edges over four lines, `hasCandidates`
+pinned), `markdown_inline_agreement_test.dart` 150 → 177 (27 corpus lines
+through both builders — all unpinned but two: `- [[a]]` and `- [ ] [[a]]`
+sit in the suite's documented list-row class, where the preview lays
+the row out as a `WidgetSpan`, and are pinned with the editor's full
+projection so the concealed brackets inside a list stay guarded; two
+offset-sweep lines with the dropped brackets declared unpainted like a
+link's), `markdown_editor_span_builder_units_test.dart` 214 → 254 (30
+corpus lines incl. wiki links in headings, lists, tasks, quotes, callout
+lead and body, table rows, money label / trailing region / bulleted
+display row, a fence body, and the literal shapes; a `visible rendering`
+group: concealed brackets + primary/underline title off-caret, dimmed
+brackets on reveal, `[[a|b]]` ambient, `[[a {{g}} b]]` brackets visible
+with the ghost concealed, `![[a]]` ambient `!`, bold title inside
+`**…**`, `[[**a**]]` one literal leaf), `line_based_markdown_builder_test
+.dart` 19 → 26 (recognizer with the raw title incl. `' a '`, inside
+bold, none without the callback, visible text `see a now`, `wiki:` keys
+pruned on eviction and `clearCache`, a `#tag` beside a wiki link keeps
+its own recognizer), `editor_input_policy_test.dart` 177 →
+227 (a `wikiLinks` flag on every row and helper; the wiki-zone rows —
+inside, both boundaries, the second `[`, the last `]`, the space after,
+disabled, code, `[[a|b]]`, ghost inside, bold, task line, money label,
+`![[a]]`, `[[ a ]]` raw, reveal, fence, over-length, precedence on one
+line — each swept offset by offset against `zonesOf` by the agreement
+group; exact zone ranges incl. the one-offset gaps beside a checkbox
+and a money marker), `test/database/`: `query_plan_test.dart` 20 → 22
+(`idx_notes_ltitle`, no `SCAN notes`, no temp B-tree; drop → run v35→v36
+→ present), `query_count_test.dart` 26 → 29 (one statement on hit and
+miss, zero on blank), `schema_parity_test.dart` 10 → 11 (the stored
+definition carries `LOWER(TRIM(title))` and `WHERE is_deleted = 0`),
+new `note_title_lookup_test.dart` 15 through the real stack (exact,
+ASCII folding both ways, trimmed on both sides incl. a stored `'Push
+Day  '`, partial titles rejected, `Șold`/`șold` both halves, tombstone
+invisible, a live namesake surviving a deleted twin, folder preference
+beating a newer outsider, fallback when the preferred folder is empty,
+recency overall and inside the folder with `updatedAt` set by
+`customUpdate` so nothing is wall-clock dependent, the id tiebreak
+twice); `test/widgets/`: new `modern_editor_wrapper_wiki_tap_test.dart`
+12 (concealed title fires once with the selection untouched and no
+focus, boundary `[` passes / second `[` fires, `[[ a ]]` raw, one
+grammar pass per claimed tap, reveal / fence / disabled pass through,
+only-wiki-enabled still intercepts, `[[a|b]]` passes, the ghost inside
+`[[a {{g}} b]]` selects its run and fires nothing, per-construct
+precedence on one line, a `didUpdateWidget` callback flip makes the
+zone live), `modern_editor_wrapper_semantics_test.dart` 9 → 11 (the node
+and its en/de labels, activation fires with the caret untouched,
+traversal order, absent without the callback), `optimized_note_editor
+_page_test.dart` 23 → 27 (real taps by *visible* column on the concealed
+line: resolved → position saved at the parked line and the editor
+pushed for the right note and folder; unresolved → the snackbar and one
+page; self-link → nothing; a padded title trims before the lookup), new
+`event_detail_sheet_wiki_link_test.dart` 4 (brackets dropped, the pop
+lands before the callback — a `NavigatorObserver` and the callback
+write one log, `['pop', 'wiki:Squat']`, and `show` completes with null —
+inert without the callback, `[text](url)` still inert there).
+
+Traps: `[[a|b]]` makes the span builder return `null` (no token, no line
+shape → the page's plain fallback), so a units assertion about its
+rendering must build the off-caret span through a helper that accepts
+`null`; on reveal `dimStyle` resets the weight, so the revealed
+brackets of `**[[a]]**` are w400 beside a w700 title — by design;
+`ModernEditorWrapper` hands `CodeEditor` no span builder of its own
+(the builder rides on the page's controller), so the bare wrapper suites
+tap by *source* column while the page suite must tap by *visible*
+column — the page conceals `[[` to ~0 width; parking the caret
+programmatically instead of by tap keeps the editor unfocused, which is
+the state the interception rules are about and what lets a suite assert
+`hasFocus` stays false; seeding a `notes` row through `insertNote` in a
+test and then `hardDeleteNote`-ing it throws `database disk image is
+malformed` from `DELETE FROM notes_fts WHERE rowid = ?` — the
+external-content FTS5 table has no row for it; index it the way
+`createNote` does before deleting (the review's C9 classifies whether
+any app path can hit this).
+
+#### Session 9 review — 2026-09-06
+
+Three independent read-only passes over the Phase 1 tree (grammar and
+rendering; tap path and accessibility; data and navigation), each tracing
+its branches with concrete inputs — the data pass also reproduced the SQL
+against a standalone SQLite 3.50.4 — then four fix workers on disjoint
+ownership (grammar/emitters/width breaker; the editor page; sheet, preview
+widget and calendar page; data layer and its tests), interrupted once by
+the owner's usage pause (three fix workers stopped mid-flight, their
+remaining tests finished by two fresh workers on resume), then the
+tests-and-docs pass (below). One finding is a real bug (C1, data loss),
+one a wrong premise of the plan (A1), the rest guards, doc drift and test
+gaps. Nothing beyond `74b5b67` is committed.
+
+**A. Grammar and rendering.** A1 (debt, CONFIRMED — the plan's premise
+was wrong): the paste width line-breaker protects `[a b](u)` (its
+`_linkPattern`) but had no shape for `[[a b]]`, so a wiki link pasted past
+the line-break width split at its inner space into two fragments neither
+surface renders as a link. `MarkdownLinkPatterns.wikiLink` (a deliberately
+wider protection regex, blank title included, never a render or tap rule)
+sits beside `bareUrl`, `EditorWidthCalculator` claims it before
+`_linkPattern` (the two shapes cannot claim one start: a title admits no
+`]`, a link needs one right after its text), and the golden corpus in
+`paste_line_breaker_test.dart` pins `see` / `[[the docs]]` / `for more`.
+A2 (nit): the two pinned list-row entries in the agreement suite said the
+preview half was covered by the builder suite — it was not; `- [[a]]` and
+`- [ ] [[a]]` preview cases exist now (a list row is a `WidgetSpan`, so
+the builder test unwraps it). A3 (nit): `_wrapWikiLinkSpan`'s doc claimed a
+ghost subtree inside a title keeps its own tap — a title admits no ghost by
+the grammar and the preview builds it through `_applyHighlighting`;
+reworded. A4 (nit, not changed): `wikiLinkAt` has no production caller —
+neither do `linkAt`/`tagAt` since the policy inlined the descent; kept
+as the offset form the tests and outside callers use, and the two docs
+that still said zones resolve "through `linkAt`/`tagAt`" now describe the
+one descent (B3). A5 (nit): `matchWikiLinkAt`'s doc conflated
+bounds-safety with range/substring equality (the link matcher also has
+the equality — every `indexOf` hit is checked against `max`); split. A6
+(nit): the wiki case's comment justified `emitChrome` for the brackets
+"rather than the ghost-aware emit" and then emitted the title through
+`emit` — the title stays on `emit` on purpose (it is content, and `emit`
+carries the debug code-unit inventory), the comment says so. A7 (nit):
+the atom-boundary equality `wiki.end == nextAtom` was reached only via
+`nextAtom == hi`; `[[a]]{{g}}` and `` [[a]]`x` `` pin a real atom start at
+the construct's end in the grammar suite and both surface corpora.
+Verified: the `[[` probe telescopes — a probe stops at the next `[`, so
+the scans are O(n) per line in aggregate and nothing new is quadratic
+(`_tryLink`'s `indexOf` was already the only per-`[` scan to the end);
+money labels reach `EditorInlineEmitter.append` on the editor and
+`_parseInline` on the preview, so a wiki link in a label conceals / drops
+on the right surface, and error rows keep it raw on both; a wiki link at
+`maxNestingDepth` degrades to raw on both surfaces; recognizer keys
+cannot collide across offsets; `MarkdownInlineText` allocates no
+recognizer for one.
+
+**B. Tap path and a11y.** B1/C8 (nit, guard hole): the sheet's
+`_openWikiLink` invoked the host handler even when `_close(null)` had
+early-returned on `_popped` — unreachable by pointer today (the modal
+scope ignores pointers once the route reverses; the `_popped` doc's
+"buttons stay hittable during the exit" premise was out of date), closed
+with `if (handler == null || _popped) return;` and pinned by a same-frame
+Edit-then-recognizer case. B2 (debt, CONFIRMED with its test): the
+interceptor fires on every re-tap by design, so two quick taps on one
+`[[link]]` each finished their lookup and position write and pushed
+their own editor — `_handleWikiLinkTap` and `_handleTagTap` (whose double
+tap opened two search pages) now bail after their awaits unless the page
+is still the current route. B3 (debt): the markdown-engine skill and
+COPILOT_CONTEXT still described four zones resolved through
+`linkAt`/`tagAt`; both say five zones and one descent now. B4 (nit):
+three policy rows the offset sweep lacked (`wikiLinks: false` on a mixed
+line, `{red:[[a]]}`, `[[a]][[b]]`). B5 (debt, latent): `SimpleMarkdownPreview
+._shouldRebuild` keyed on `onCheckboxTap`'s presence but not
+`onTapWikiLink`'s, so a null→callback flip after mount would have left the
+title inert for the widget's life — keyed like the checkbox now, pinned
+in both directions; `MarkdownRenderService.needsRebuild` ignores all five
+callbacks, a pre-existing shape with no live caller, recorded. B6 (nit,
+not changed): the new in-body `//` blocks sit inside switch arms whose
+sibling branches carry the same kind of block — consistent with the
+files, and `///` cannot attach to a statement. B7 (nit, not changed): in
+the detail sheet `[[a]]` and `[docs](url)` render identically and only
+the wiki link responds — the sheet passes no link opener today; an
+accepted asymmetry, pinned. B8 (nit, not changed, pre-existing for all
+five zones): the `_TapClaim` memo does not carry the enabled-zone set, so
+a `didUpdateWidget` between tap-down and tap-up that flips a callback
+fires the pre-flip closure — a settings change mid-press. Verified: the
+one-descent `resolveTap` is byte-equivalent to the old `linkAt`/`tagAt`
+calls (`containsStrict(0)` is false for every token, the length guard
+runs first); the zone `[start + 1, end)` starts on a ~0-width concealed
+cell, so hit-testing never lands there and the semantics rect unions to
+the painted title; the a11y node fires through `shouldIntercept` +
+`onTap` at `start + 1`; `_handleWikiLinkTap` is a method tear-off, so the
+preview chain never rebinds spuriously; the calendar's `didPushNext` does
+not fire for a push over a still-dismissing sheet route (a
+`RouteObserver<PageRoute>` reports page-route neighbours only) — exactly
+like the existing linked-note button.
+
+**C. Data and navigation.** C1 (bug, CONFIRMED by trace — data loss):
+note A holding `[[B]]` and B holding `[[A]]` — the canonical pattern —
+pushed a second editor for A whose `LoadNoteContent` the one app-wide
+bloc answered to every mounted editor; both pages have `widget.noteId ==
+A`, so the Session 6 review's id guard let the buried page `loadText` the
+same content — caret to the top, undo baseline and auto-save baseline
+reset — and after edits on the top page and two pops, one keystroke on
+the buried page auto-saved its stale text over them. Search → the same
+note had the same hop; wiki links made it the ordinary way to navigate.
+Fixed in two parts: a page adopts only the content it asked for
+(`_awaitingContentLoad`, raised at its own dispatch — not `isCurrent`,
+because a launch restore pushes the whole stack at once), and
+`didPopNext` runs `_reloadContentIfChanged`, which re-reads the note
+through the service when nothing local is unsaved and adopts a changed
+text through the same `_adoptLoadedContent` path as the first load,
+caret re-placed at its clamped (line, column), title refreshed, never
+when the content is equal. Pinned by three page cases (the buried page
+untouched by the second load; a changed note reloaded on return; an
+unchanged round trip keeping caret and undo, guarded against passing
+vacuously by asserting the reload's preconditions held). C2 (debt): the
+index doc claimed the uniqueness check and the resolver "can never
+disagree" — they share the index expression but not the parameter fold
+(`noteTitleExistsInFolder` lowers in Dart, the resolver in SQLite), so
+two `Șold` notes can share a folder and `[[Șold]]` picks one by the
+recency rule; the doc says so and the disagreement is pinned as
+behaviour. C3/C4 (debt): the new plan test lacked the file's own
+"portable half" (`sqlOf` containing the literal `is_deleted = 0` and
+`LOWER(TRIM(title))` — a `.equals(false)` rewrite stays green on this
+host's SQLite and scans on Android's), and the parity case's comment
+claimed to cover the DAO's spelling while reading `sqlite_master`; both
+guards exist now, plus a source scrape that `createUniqueNameIndexes`
+and `createNoteTitleIndex` spell one expression. C5 (nit): Dart `trim()`
+strips all Unicode white space, SQLite `TRIM()` only spaces, so a stored
+`'Leg Day\t'` is unreachable by `[[Leg Day]]` — no write path in the app
+stores one (documented in the DAO and service docs, pinned). C6 (nit): the
+row mapping's `updatedAt` — what the recency rule reads — was unpinned;
+the first lookup case asserts `updatedAt`, `createdAt`, `preview` and
+`position`. C7 (nit): recency is stored at one-second resolution; the
+service doc says so. C9 (nit, out of scope, recorded): the external-content
+FTS5 table throws `database disk image is malformed` on `DELETE FROM
+notes_fts WHERE rowid = ?` for a row never indexed or already deleted —
+not reachable from app code as written (`hardDeleteNote` has no app
+caller, `createNote`/`importNote`/backup restore index, `mergeNote`'s
+insert branch does not index but sync is not wired), one missing guard
+away: `softDeleteNote` has no `isDeleted` early return unlike
+`updateNote`, and `updateNote` writes the row before `_updateFtsIndex`,
+so `notes_fts` accumulates stale terms. All three belong to the sync /
+search work, not here. C10 (nit): a `[[…]]` longer than the column's 500
+units can never match, so `getNotesByTitle` returns `const []` with zero
+statements above `_maxTitleLength` and both snackbars show
+`WikiLinkTitle.forDisplay` (80 grapheme clusters in total — 79 plus `…`
+— never splitting a surrogate pair or a combining mark). C11 (nit): both tap handlers ran
+detached, so a throwing lookup was an unhandled async error — try/catch
+→ the `linkOpenFailed` error snackbar, pinned with a throwing service
+double swapped into get_it for one case. C12 (nit): the repository doc
+said the caches are keyed by folder; also by id. Verified:
+`LOWER(TRIM(title))` is byte-identical in both indexes and both queries;
+`notes.map(row.data)` is the generated mapper; a v36 database opened by
+an older build behaves like every prior downgrade (the index survives,
+`user_version` is stamped back); the database switch still restarts the
+app, so a tap cannot reach a closed database; a wiki tap from a
+brand-new unsaved note saves no position (`noteId` null) and loses
+nothing (`didPushNext` force-saves, the buried page adopts the create);
+the launch-restore replay handles a stack ending in two notes.
+
+**Not changed, on purpose.** A4, B6, B7, B8, C9 above; the padding of
+`[[ a ]]` is underlined and the recognizer key carries `' a '` (the
+resolver trims; a wider hit area than the name); `[[ ]]` is a wiki
+link whose title Dart trims to nothing (the grammar's blank rule is
+"not space/tab"; the snackbar reports an empty title); `\` before ASCII
+punctuation demotes a title (`[[snake\_case]]` is raw source — the escape
+atom, now spelled out in the token doc); the one-descent `resolveTap`
+pays one eager `linksAndTags` walk before the money branch where the old
+code paid none on a money row with links off — the quick reject makes it
+≈ free; the `SELECT *` index is never covering (each match costs a rowid
+lookup — a handful of rows); the calendar keeps no folder preference even
+though an event's linked note would give it one; a rename silently
+breaks inbound links (v1, recorded in the roadmap); a miss from the
+detail sheet costs the user the sheet (the snackbar cannot show behind
+it) while the editor page keeps its context — asymmetric by
+construction.
+
+Traps (the review's own): `navigator.pop()` bypasses the page's
+`PopScope(canPop: false)` — only `maybePop` consults `popDisposition` —
+so a pushed editor popped that way never runs `_saveBeforeExit`, which
+is what lets a page test change a row underneath a second editor without
+that editor writing it back; `OptimizedNoteContentLoaded` is `Equatable`
+through `LazyNote`, so re-emitting the same (metadata, content) pair is a
+no-op — `noteBloc.reset()` first; the pushed page's editor does not exist
+until *its* content lands, so "settle until two wrappers" must follow the
+emit; the buried wrapper is the FIRST in `evaluate()` order (the overlay
+renders the bottom route first) — capture its controller before the push
+and assert identity; `tester.tap` on a button runs `onPressed`
+synchronously with no frame, which is how a same-frame re-entry is
+staged, and a recognizer callback, not a pointer, is the only way to
+re-enter a dismissing modal (its scope ignores pointers); `dart format
+--set-exit-if-changed` without `--output=none` formats the file it
+reports; a mutation check on lib must not run while another worker is
+building a binary from it.
+
+Numbers: `markdown_inline_grammar_test.dart` 268 → 270,
+`markdown_inline_agreement_test.dart` 177 → 178,
+`markdown_editor_span_builder_units_test.dart` 254 → 255,
+`line_based_markdown_builder_test.dart` 26 → 28,
+`editor_input_policy_test.dart` 227 → 233, `paste_line_breaker_test.dart`
+24 (a corpus row, count unchanged), new `wiki_link_title_test.dart` 7,
+`query_plan_test.dart` 22 → 23, `query_count_test.dart` 29 → 31,
+`schema_parity_test.dart` 11 → 12, `note_title_lookup_test.dart` 15 → 17,
+`optimized_note_editor_page_test.dart` 27 → 32,
+`event_detail_sheet_wiki_link_test.dart` 4 → 5, new
+`simple_markdown_preview_wiki_link_test.dart` 3, new
+`custom_snackbar_keyboard_test.dart` 5 (from the device pass, below); the
+wrapper wiki-tap (12) and semantics (11) suites unchanged. Full suite
+**3,908** passing (7 benchmark cases skipped), up 39 from Phase 1's 3,869
+and 262 from `74b5b67`'s 3,646; `dart analyze lib`, `dart analyze test`
+and `dart analyze packages/re_editor/lib` clean apart from the fork's two
+pre-existing `avoid_print` infos; `dart format --set-exit-if-changed`
+over the 40 touched Dart files changes nothing; `flutter gen-l10n`
+leaves `untranslated.txt` empty; no new `TODO`. Nothing committed.
+
+Tests-and-docs pass (read-only, after the fixes; lib mutated under a
+byte-for-byte `cp` backup and restore, one mutation at a time, never
+while a binary was being built from the tree): 21 one-line reverts of
+what the suites pin, **20 caught by named tests** — the title's `|`
+rule, the atom check, the title style and the concealed `[[` (the
+agreement suite fails 20 cases on the first), the preview's underline
+and dropped brackets (+ two offset sweeps), the `resolveTap` wiki block
+(28 rows incl. 17 agreement rows), the `zonesOf` producer (20), the
+interceptor's enabling disjunct, the width-breaker pattern (through the
+golden corpus only — a focused case would name the failure better,
+recorded), `LOWER(?1)` (9 lookup cases), the literal `is_deleted = 0`
+(the `sqlOf` guard), the fresh-install index call (the scrape and the
+definition case), the folder preference, the `_awaitingContentLoad`
+guard, the `didPopNext` reload, the equal-content early return, the
+`_isCurrentRoute` bail, the sheet's `_popped` guard, the preview
+widget's rebuild key. The one that did not bite: dropping the wiki label
+from `didChangeDependencies`' five-way equality guard — a locale switch
+moves all five labels at once, so the toggle label trips the guard
+anyway; the clause is defensive redundancy no test can isolate,
+recorded, kept. Every claimed per-file count reproduced. Seven doc
+sentences were stale and are fixed: the snackbar-lift claim in this
+block and the roadmap was written ahead of its code (the fix and its
+widget test landed after the device pass, below); COPILOT_CONTEXT said
+"four labels" in the zone-memo sentence and named `_reloadEditorSettings`
+/ `_loadEditorSettings` (the page has one `_reloadSettings`, and the saved
+preview mode is re-applied by the position-restore callback); the
+feature-ideas "Fit" bullet still proposed a repository lookup from the
+page and a muted unresolved style; the roadmap's behaviour bullet still
+said zones "resolve through `linkAt` / `tagAt`"; and this block's C10
+said "80 clusters + `…`" where the helper keeps 80 in total.
+
+Device pass (2026-09-06, both driven by workers with screenshots in the
+session scratchpad). **Android** (Pixel 9 Pro XL x86_64 emulator, the
+debug build with the fork's asserts and the renderer's code-unit assert
+live, driven through `adb input` + `uiautomator dump`): `see [[Squat]]
+now` / `and [[Nope]] here` / `line three` renders both titles tinted and
+underlined with the brackets concealed and 46 chars in the stats bar;
+walking the caret onto line 1 shows dim `[[` `]]` with the title still
+tinted, and lines 2 and 3 never moved (same device-pixel rows in every
+frame) as line 1 gained four visible units; tapping `Squat` opened the
+note, BACK returned with the caret exactly where it was parked, and the
+toolbar undo then removed only the ` x` typed before the round trip;
+`Nope` showed `No note titled "Nope"` with no navigation; an incomplete
+`[[Sq` renders raw and turns into a link once closed and the caret leaves
+the line (the editor auto-pairs `[[` to `[[]]`, so the incomplete state
+is reached by deleting the closers); the bidirectional round trip `Log` →
+`Squat` → `Log(2)`, ` more` typed in the second editor, BACK, BACK: the
+original editor reloaded to `line three x[[Squat]] more` with its caret
+preserved, a further keystroke there was kept, and reopening the note
+after the save showed both edits — the C1 fix on a device; zero
+`assert` / `Error:` / `malformed` / `FlutterError` lines in logcat.
+**Windows** (`flutter build windows --debug`, driven through `SendInput` +
+`mouse_event`, inside a throw-away folder in the owner's local database,
+deleted afterwards — tombstones remain): a single primary click on the
+painted title opens the note with the caret untouched (a typed character
+landed at the parked spot after the return); shift-click extends the
+selection into the concealed title and opens nothing; a drag from the
+title selects `uat]] now` and opens nothing; `Nope` shows the snackbar;
+Ctrl+Z after the round trip removed the ` x` typed before it; the
+bidirectional round trip reloaded the buried `Log` editor with ` more`.
+Two findings from the devices, one fixed: **the editor's snackbars are
+hidden behind the soft keyboard** — the page's `Scaffold` has
+`resizeToAvoidBottomInset: false` and the floating bar lands at the screen
+bottom under the IME, so a dead link tapped mid-typing gave no feedback
+at all (the pre-existing link-open prompt had the same exposure) —
+`CustomSnackbar` now lifts a floating bar by the bottom view inset when
+the host scaffold does not resize — the scaffold is found upward, or,
+because the page shows its bars from a `State` context that sits *above*
+its own `Scaffold`, by a short downward element walk to the first
+`ScaffoldState` (`Scaffold.maybeOf` alone left the bug in place); only
+the keyboard inset is added, since `scaffold.dart` already clears the
+system navigation padding for a floating bar in both resize branches, so
+the sheet trap's `max(viewInsets, viewPadding)` would count the nav bar
+twice (`custom_snackbar_keyboard_test.dart`, 5, with a negative control
+that reproduces the device's 236 px shortfall); the two wiki snackbars
+keep the page's default `withToolbarOffset: false` like the link prompt
+beside them (only the paste-reflow notice lifts over the toolbar — a
+page-wide decision if wanted); and **a single-line
+note can never tap its own link**: the caret line is the reveal line and
+every zone passes through there by design (Session 2's rule, so the
+markers stay editable), and a one-line note has nowhere else to park the
+caret — the same holds for `[text](url)`, tags and money chips; recorded
+as a design decision for the roadmap (a long-press opener on the reveal
+line is the candidate), not changed. Pre-existing, non-wiki
+observations handed to the owner: the root folder list does not refresh
+after Create Folder until a navigation (delete refreshes at once); on
+Windows one Ctrl+Z after a caret click stepped to an *older* state
+(`line three x` → `line three xq`, reproduced twice) and a backspace and
+a later insert on one line separated by a route round trip undid as one
+record — SUSPECTED fork undo-node coalescing, needs a repro without the
+harness's synthetic focus taps; Ctrl+Shift+Z did nothing where the
+toolbar redo worked. Harness traps: with the soft IME attached
+`KEYCODE_DPAD_*`, `MOVE_HOME` and `FORWARD_DEL` do not move the caret
+(`input text`, `DEL`, `ENTER` do — walk with taps); `adb shell input
+text "'see%s[[Squat]]%snow'"` keeps brackets and `%s` spaces; the first
+`input text` into a freshly opened title field drops its first
+character; the emulator's `/data` was under Android's 500 MB low-storage
+reserve (`INSTALL_FAILED_INSUFFICIENT_STORAGE`) and the two
+`sys_storage_threshold_*` globals were lowered and left so; on Windows
+modifiers reach Flutter only through `SendInput` with scan codes
+(`keybd_event`/`SendKeys` `^z` are ignored), the ALT-tap focus trick
+swallows the next keystroke, and `@($a + $b, $c)` parses as a comma
+operator inside the addition.
 
 ### Session 10 — lite rendering tier (DROPPED 2026-09-04, decision 4)
 

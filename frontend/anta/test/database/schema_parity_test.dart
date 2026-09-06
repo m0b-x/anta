@@ -504,6 +504,75 @@ void main() {
         .getSingle();
     expect(sql.read<String>('sql'), contains('WHERE is_deleted = 0'));
   });
+
+  test(
+    'the note title index stores the expression it was declared with',
+    () async {
+      // The name scrape above only proves a fresh install has an index called
+      // this. This reads the **stored definition** back out of `sqlite_master`:
+      // an expression index is unusable unless a query repeats the expression
+      // exactly, so `LOWER(TRIM(title))` has to have survived verbatim into what
+      // SQLite actually built. And the predicate has to stay a literal: Drift's
+      // `.equals(false)` would emit a bound `?`, which older SQLite refuses to
+      // match against a partial index's `WHERE`.
+      //
+      // What this cannot see is the *query* side or the sibling index — for
+      // those, `query_plan_test.dart` asserts the DAO's own SQL text, and the
+      // source scrape below asserts the two declarations agree.
+      final sql = await db
+          .customSelect(
+            "SELECT sql FROM sqlite_master WHERE type = 'index' "
+            "AND name = 'idx_notes_ltitle'",
+          )
+          .getSingle();
+      expect(sql.read<String>('sql'), contains('LOWER(TRIM(title))'));
+      expect(sql.read<String>('sql'), contains('WHERE is_deleted = 0'));
+    },
+  );
+
+  test('both title indexes are declared with one spelling', () {
+    // `idx_notes_folder_ltitle` serves the per-folder uniqueness check and
+    // `idx_notes_ltitle` the wiki-link resolver. They are only both
+    // index-served while they spell the title expression character for
+    // character alike — one of them drifting to, say, `lower(trim(title))`
+    // costs that lookup its index with no error anywhere.
+    final source = File(
+      'lib/database/migrations/database_indexes.dart',
+    ).readAsStringSync();
+    for (final method in ['createUniqueNameIndexes', 'createNoteTitleIndex']) {
+      expect(
+        _methodBody(source, method),
+        contains('LOWER(TRIM(title))'),
+        reason:
+            '$method no longer spells the title expression as '
+            'LOWER(TRIM(title)), so the two indexes have diverged',
+      );
+    }
+  });
+}
+
+/// The body of `Future<void> [name]() async { … }` in [source], from its
+/// opening brace to the matching close.
+///
+/// Starts at the signature so the doc comment above it — which quotes the very
+/// expression being asserted — cannot satisfy the assertion by itself.
+String _methodBody(String source, String name) {
+  final start = source.indexOf('Future<void> $name(');
+  expect(
+    start,
+    isNonNegative,
+    reason: '$name not found in database_indexes.dart',
+  );
+  final open = source.indexOf('{', start);
+  var depth = 0;
+  for (var i = open; i < source.length; i++) {
+    if (source[i] == '{') depth++;
+    if (source[i] == '}') {
+      depth--;
+      if (depth == 0) return source.substring(open, i + 1);
+    }
+  }
+  fail('$name has no closing brace');
 }
 
 /// All capture-group-1 matches of [pattern] across `lib/database/**.dart`,

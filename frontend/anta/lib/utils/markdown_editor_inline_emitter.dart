@@ -28,14 +28,14 @@ class EditorInlineEmitter {
 
   /// Appends spans covering [start]..[end], styling every inline
   /// construct [MarkdownInlineGrammar] finds there — emphasis, strike,
-  /// highlight, inline code, `[text](url)` links and images, bare URLs,
-  /// `#tag` tokens, `{name:text}` colours, ghost runs and backslash
-  /// escapes — against [contextStyle]. The grammar is shared with the
-  /// preview: this method never scans for a construct of its own, it
-  /// only decides how each token is emitted (conceal vs drop is the one
-  /// difference between the two surfaces), and it recurses into a
-  /// container's inner range for the nested tokens. Gaps between tokens
-  /// are plain text.
+  /// highlight, inline code, `[text](url)` links and images, `[[note]]`
+  /// wiki links, bare URLs, `#tag` tokens, `{name:text}` colours, ghost
+  /// runs and backslash escapes — against [contextStyle]. The grammar is
+  /// shared with the preview: this method never scans for a construct of
+  /// its own, it only decides how each token is emitted (conceal vs drop
+  /// is the one difference between the two surfaces), and it recurses
+  /// into a container's inner range for the nested tokens. Gaps between
+  /// tokens are plain text.
   ///
   /// Ghost runs come back as tokens and are emitted through the
   /// ghost-aware [EditorSpanEmitter.emit] like everything else, so their
@@ -192,6 +192,46 @@ class EditorInlineEmitter {
             baseColor: baseColor,
             ghosts: ghosts,
             out: out,
+          );
+          styled = true;
+        case InlineWikiLink():
+          // `[[` and `]]` are concealed off-caret and dimmed on reveal,
+          // exactly like a `[text](url)` link's brackets. The markers go
+          // through [EditorSpanEmitter.emitChrome] because the grammar
+          // admits no atom inside a wiki link — no ghost, escape or code
+          // span may open there — so no run can ever split them.
+          //
+          // The title still goes through the ghost-aware
+          // [EditorSpanEmitter.emit]: it is content, not chrome, and the
+          // debug code-unit inventory that emit runs is exactly the net
+          // a future grammar change would have to trip.
+          //
+          // It is emitted, never recursed into — the title is literal, so
+          // a `#tag` or `*run*` in a note name is part of the name — and
+          // takes the link *text* style so the two link forms read the
+          // same on the line.
+          EditorSpanEmitter.emitChrome(
+            text,
+            token.start,
+            token.titleStart,
+            markerStyle,
+            out,
+          );
+          EditorSpanEmitter.emit(
+            text: text,
+            start: token.titleStart,
+            end: token.titleEnd,
+            style: _linkStyle(contextStyle, primary),
+            baseColor: baseColor,
+            ghosts: ghosts,
+            out: out,
+          );
+          EditorSpanEmitter.emitChrome(
+            text,
+            token.titleEnd,
+            token.end,
+            markerStyle,
+            out,
           );
           styled = true;
         case InlineColor():

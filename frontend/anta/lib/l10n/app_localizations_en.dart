@@ -3683,6 +3683,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get linkOpenAction => 'Open';
 
   @override
+  String wikiLinkNoteNotFound(String title) {
+    return 'No note titled \"$title\"';
+  }
+
+  @override
   String get moneySection => 'Money ledger';
 
   @override
@@ -4511,4 +4516,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get editorZoneSearchTag => 'Search tag';
+
+  @override
+  String get editorZoneOpenWikiLink => 'Open linked note';
 }

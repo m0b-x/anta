@@ -94,11 +94,81 @@ class CustomSnackbar {
       SnackBar(
         content: content,
         behavior: SnackBarBehavior.floating,
-        margin: AppSpacing.snackbarMargin(withToolbarOffset: withToolbarOffset),
+        margin: _floatingMargin(context, withToolbarOffset: withToolbarOffset),
         duration: duration,
         showCloseIcon: showCloseIcon,
       ),
     );
+  }
+
+  /// The margin every floating bar is laid out with: the shared
+  /// [AppSpacing.snackbarMargin], lifted by the keyboard's height when the
+  /// host [Scaffold] has opted out of avoiding the keyboard itself.
+  ///
+  /// `_ScaffoldLayout` anchors a floating bar's bottom edge at
+  /// `min(contentBottom, size.height - minViewPadding.bottom)`
+  /// (`material/scaffold.dart:1238-1241`), and `contentBottom` is the only
+  /// term that knows about the IME: it subtracts `minInsets.bottom`
+  /// (`scaffold.dart:1088-1091`), which carries the keyboard inset **only**
+  /// while `resizeToAvoidBottomInset` is true and is forced to zero otherwise
+  /// (`scaffold.dart:3220-3222`). A page that manages the inset itself — the
+  /// note editor pads its own body by it, so its toolbar rides the keyboard —
+  /// therefore leaves the bar anchored to the bottom of the screen, under the
+  /// IME, where a tap's only feedback is invisible. That missing lift is what
+  /// this adds; where the Scaffold does resize it adds nothing, because a
+  /// second lift would strand the bar mid-screen.
+  ///
+  /// The keyboard inset is the only term added. Safe-area padding is the
+  /// Scaffold's business in both branches: line 1238 already pulls a floating
+  /// bar up by `minViewPadding.bottom`, which stays at the full
+  /// `viewPadding.bottom` precisely when the Scaffold does not resize
+  /// (`scaffold.dart:3226-3230`). Lifting by `max(viewInsets, viewPadding)` —
+  /// the rule this project's bottom sheets need, since a sheet sits in a
+  /// full-bleed route with nothing else applying the system inset — would
+  /// count the navigation bar twice here.
+  static EdgeInsets _floatingMargin(
+    BuildContext context, {
+    required bool withToolbarOffset,
+  }) {
+    final margin = AppSpacing.snackbarMargin(
+      withToolbarOffset: withToolbarOffset,
+    );
+    final scaffold = _hostScaffold(context);
+    if (scaffold?.widget.resizeToAvoidBottomInset != false) return margin;
+    final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
+    if (keyboardInset <= 0) return margin;
+    return margin.copyWith(bottom: margin.bottom + keyboardInset);
+  }
+
+  /// The [Scaffold] that will lay this bar out, looked up in both directions.
+  ///
+  /// [Scaffold.maybeOf] only walks up (`scaffold.dart:2090-2092`), which
+  /// answers for callers inside the body — sheets, list rows, `Builder`s. This
+  /// app's pages, though, call in from their `State.context`, which sits
+  /// *above* the Scaffold their `build` returns, so the upward lookup alone
+  /// would answer null for exactly the pages that need the lift. The downward
+  /// walk stops at the first [ScaffoldState], a handful of elements below a
+  /// page's own context. Finding no Scaffold at all leaves the margin as it
+  /// was — the bar keeps whatever position it has today.
+  static ScaffoldState? _hostScaffold(BuildContext context) {
+    final above = Scaffold.maybeOf(context);
+    if (above != null) return above;
+
+    ScaffoldState? below;
+    void visit(Element element) {
+      if (below != null) return;
+      if (element is StatefulElement) {
+        final state = element.state;
+        if (state is ScaffoldState) {
+          below = state;
+          return;
+        }
+      }
+      element.visitChildElements(visit);
+    }
+
+    context.visitChildElements(visit);
+    return below;
   }
 }
 

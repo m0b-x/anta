@@ -457,6 +457,135 @@ void main() {
         headerSize * MarkdownConstants.inlineCodeScale,
       );
     });
+
+    test('a wiki link conceals its brackets and tints its title', () {
+      final render = _renderOffCaret('[[a]]');
+      expect(render.visibleText, 'a');
+      expect(
+        _concealedRuns(render.span),
+        <String>['[[', ']]'],
+        reason: 'all four bracket units are concealed chrome',
+      );
+      final title = render.leaves.single;
+      expect(title.text, 'a');
+      expect(title.style?.color, _renderContext.primary);
+      expect(
+        title.style?.decoration?.contains(TextDecoration.underline),
+        isTrue,
+        reason: 'the title wears the same style as a [text](url) link text',
+      );
+    });
+
+    test('a revealed wiki link dims its brackets and keeps the title', () {
+      final pair = _renderBothStates('[[a]]', money: false);
+      expect(pair.on.visibleText, '[[a]]');
+      expect(
+        _concealedRuns(pair.on.span),
+        isEmpty,
+        reason: 'a reveal line conceals nothing — the source is editable',
+      );
+      final dim = _renderContext.baseColor.withValues(alpha: _dimAlpha);
+      for (final marker in pair.on.leaves.where(
+        (leaf) => leaf.text == '[[' || leaf.text == ']]',
+      )) {
+        expect(marker.style?.color, dim);
+        expect(
+          marker.style?.fontSize,
+          _baseStyle.fontSize,
+          reason: 'a dimmed marker is visible, not collapsed',
+        );
+      }
+      final title = pair.on.leaves.singleWhere((leaf) => leaf.text == 'a');
+      expect(title.style?.color, _renderContext.primary);
+      expect(
+        title.style?.decoration?.contains(TextDecoration.underline),
+        isTrue,
+      );
+    });
+
+    // `|` is reserved for an alias form that does not exist yet, so a
+    // title holding one is not a wiki link at all: nothing conceals and
+    // nothing tints, and the line is left to the plain-text fallback.
+    test('an aliased title renders as plain source', () {
+      expect(
+        _buildOffCaret('[[a|b]]'),
+        isNull,
+        reason: 'a line with no construct on it is declined outright',
+      );
+
+      final render = _renderOffCaret('**b** [[a|b]]');
+      expect(render.visibleText, 'b [[a|b]]');
+      expect(_concealedRuns(render.span), <String>['**', '**']);
+      final aliased = render.leaves.singleWhere(
+        (leaf) => leaf.text.contains('|'),
+      );
+      expect(aliased.text, ' [[a|b]]');
+      expect(aliased.style?.color, _renderContext.baseColor);
+      expect(
+        aliased.style?.decoration ?? TextDecoration.none,
+        TextDecoration.none,
+      );
+      expect(aliased.style?.fontWeight, isNot(FontWeight.bold));
+    });
+
+    test('a ghost in the title keeps the brackets visible', () {
+      final render = _renderOffCaret('[[a {{g}} b]]');
+      expect(render.visibleText, '[[a g b]]');
+      expect(
+        _concealedRuns(render.span),
+        <String>['{{', '}}'],
+        reason: 'only the ghost markers conceal — the construct is literal',
+      );
+      for (final leaf in render.leaves.where(
+        (leaf) => leaf.text.contains('['),
+      )) {
+        expect(leaf.style?.color, _renderContext.baseColor);
+        expect(
+          leaf.style?.decoration ?? TextDecoration.none,
+          TextDecoration.none,
+        );
+      }
+    });
+
+    test('an image bang before a wiki link stays ambient', () {
+      final render = _renderOffCaret('![[a]]');
+      expect(render.visibleText, '!a');
+      expect(_concealedRuns(render.span), <String>['[[', ']]']);
+      final bang = render.leaves.first;
+      expect(bang.text, '!');
+      expect(bang.style?.color, _renderContext.baseColor);
+      expect(
+        bang.style?.decoration ?? TextDecoration.none,
+        TextDecoration.none,
+      );
+      final title = render.leaves.last;
+      expect(title.text, 'a');
+      expect(title.style?.color, _renderContext.primary);
+    });
+
+    test('a wiki link inside bold takes the weight and the link colour', () {
+      final render = _renderOffCaret('**[[a]]**');
+      expect(render.visibleText, 'a');
+      final title = render.leaves.single;
+      expect(title.style?.fontWeight, FontWeight.bold);
+      expect(title.style?.color, _renderContext.primary);
+      expect(
+        title.style?.decoration?.contains(TextDecoration.underline),
+        isTrue,
+      );
+    });
+
+    // The title is literal all the way down — a note really can be named
+    // `**a**` — so its markers are title text, not emphasis chrome.
+    test('emphasis markers inside a title are title text', () {
+      final render = _renderOffCaret('[[**a**]]');
+      expect(render.visibleText, '**a**');
+      expect(_concealedRuns(render.span), <String>['[[', ']]']);
+      final title = render.leaves.single;
+      expect(title.text, '**a**');
+      expect(title.style?.color, _renderContext.primary);
+      expect(title.style?.fontWeight, isNot(FontWeight.bold));
+    });
   });
 
   // A callout body's rendering is a function of the lead above it, which
@@ -1026,12 +1155,56 @@ const double _tablePipeAlpha = 0.55;
 /// rule and a table delimiter row render in.
 const double _ruleAlpha = 0.3;
 
+/// Mirrors `EditorSpanEmitter.dimAlpha`: the tone a marker renders in on
+/// a reveal (caret) line, where it is present but receding rather than
+/// concealed.
+const double _dimAlpha = 0.45;
+
 /// A marker span: transparent and shrunk to a 0.01 font size, which is
 /// exactly what the builder's `_concealStyle` produces.
 bool _concealed(TextStyle? style) =>
     style != null &&
     style.color == const Color(0x00000000) &&
     style.fontSize == 0.01;
+
+/// The text of every concealed run in [root], in document order — the
+/// counterpart of [_visibleLeaves] for the invariants that are about
+/// what a line *hides*. Each run is emitted whole (`emitChrome` appends
+/// one span per marker range), so the list reads as the markers
+/// themselves rather than as code units.
+List<String> _concealedRuns(InlineSpan root) {
+  final runs = <String>[];
+  void walk(InlineSpan span) {
+    if (span is TextSpan) {
+      final text = span.text;
+      if (text != null && text.isNotEmpty && _concealed(span.style)) {
+        runs.add(text);
+      }
+      span.children?.forEach(walk);
+    }
+  }
+
+  walk(root);
+  return runs;
+}
+
+/// The off-caret span for [line], `null` included. A line the builder
+/// declines renders as plain source through the page's own fallback,
+/// which is the assertion for every construct the grammar refuses.
+TextSpan? _buildOffCaret(String line) {
+  final controller = CodeLineEditingController.fromText(
+    <String>[_pad, line, _pad].join('\n'),
+  );
+  addTearDown(controller.dispose);
+  final builder = MarkdownEditorSpanBuilder()..bind(controller);
+  builder.configureMoney(MoneyDisplayConfig.disabled);
+  controller.selection = const CodeLineSelection.collapsed(index: 0, offset: 0);
+  return builder.build(
+    context: _renderContext,
+    index: 1,
+    codeLine: controller.codeLines[1],
+  );
+}
 
 List<_Leaf> _visibleLeaves(InlineSpan root) {
   final leaves = <_Leaf>[];
@@ -1149,6 +1322,52 @@ final List<_Case> _corpus = <_Case>[
   const _Case('bare www url', 'see www.example.com/a now'),
   const _Case('image stays raw', '![alt](https://example.com/a.png)'),
   const _Case('link inside emphasis', '*see [docs](https://example.com)*'),
+
+  // Wiki links: `[[` and `]]` conceal like a link's brackets, the title
+  // is literal, and every shape the grammar refuses has to survive as
+  // raw source — the four bracket units are never dropped either way.
+  const _Case('wiki link alone', '[[a]]'),
+  const _Case('wiki link in prose', 'see [[Squat Progression]] now'),
+  const _Case('wiki link with a padded title', '[[ a ]]'),
+  const _Case('wiki link inside bold', '**[[a]]**'),
+  const _Case('wiki link inside italic prose', '*x [[a]] y*'),
+  const _Case('wiki link inside a colour run', 'a {red:[[note]]} b'),
+  const _Case('wiki link inside a highlight', '==[[a]]=='),
+  const _Case('wiki link inside strikethrough', '~~[[a]]~~'),
+  const _Case('two adjacent wiki links', '[[a]][[b]]'),
+  const _Case('wiki link tight against a ghost', '[[a]]{{g}}'),
+  const _Case('wiki link beside a link and a tag', '[[a]] and [b](c) and #t'),
+  const _Case('wiki link followed by parens', '[[a]](b)'),
+  const _Case('image bang before a wiki link', '![[a]]'),
+  const _Case('an aliased title is literal', '[[a|b]]'),
+  const _Case('a ghost in the title is literal', '[[a {{g}} b]]'),
+  const _Case('escaped wiki open is literal', r'\[[a]]'),
+  const _Case('wiki link inside a code span is literal', '`[[a]]`'),
+  const _Case('emphasis markers in a title are raw', '[[**a**]]'),
+  const _Case('a hash in a title is raw', '[[#tag]]'),
+  const _Case('a url in a title is raw', '[[https://a.com]]'),
+  const _Case('a third bracket stays literal text', '[[a]]]'),
+  const _Case('a leading third bracket stays literal text', '[[[a]]]'),
+  const _Case('an empty title is literal', '[[]]'),
+  const _Case('a blank title is literal', '[[ ]]'),
+  const _Case('wiki link in a heading', '# [[a]]'),
+  const _Case('wiki link in a bullet', '- [[a]]'),
+  const _Case('wiki link in a task item', '- [ ] [[a]]'),
+  const _Case('wiki link in a quote', '> [[a]]'),
+  const _Case('wiki link in a table row', '| [[a]] |'),
+  const _Case('wiki link in a money label', r'$+ 50 [[groceries]]'),
+  _Case(
+    'wiki link in a bulleted money label',
+    r'- $$ [[a]]',
+    above: const <String>[r'$= 500'],
+  ),
+  const _Case('wiki link in a callout title', '> [!TIP] [[a]]'),
+  _Case(
+    'wiki link in a callout body',
+    '> see [[a]]',
+    above: const <String>['> [!TIP] x'],
+  ),
+  _Case('wiki link inside a fence', '[[a]]', above: const <String>['```']),
 
   // Tags.
   const _Case('tag', 'lifting #legs today'),

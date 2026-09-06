@@ -51,6 +51,11 @@ class MarkdownPreviewBlocView extends StatefulWidget {
   /// token (including `#`) so the page can search for it across notes.
   final void Function(String tag)? onTagTap;
 
+  /// Invoked when a `[[note]]` wiki link is tapped in the preview.
+  /// Carries the raw title between the brackets so the page can open the
+  /// note it names.
+  final void Function(String title)? onTapWikiLink;
+
   /// Invoked when a `$$` total or `$?` net-change row is tapped in the
   /// preview. Carries the tapped line index so the page can present
   /// the ledger entries feeding its value.
@@ -70,6 +75,7 @@ class MarkdownPreviewBlocView extends StatefulWidget {
     this.onDoubleTapLine,
     this.onGhostTap,
     this.onTagTap,
+    this.onTapWikiLink,
     this.onMoneyTap,
     this.onScrollProgress,
   });
@@ -146,6 +152,7 @@ class _MarkdownPreviewBlocViewState extends State<MarkdownPreviewBlocView> {
         oldWidget.onCheckboxToggle != widget.onCheckboxToggle ||
         oldWidget.onGhostTap != widget.onGhostTap ||
         oldWidget.onTagTap != widget.onTagTap ||
+        oldWidget.onTapWikiLink != widget.onTapWikiLink ||
         oldWidget.onMoneyTap != widget.onMoneyTap) {
       _bindCallbacks();
     }
@@ -174,6 +181,7 @@ class _MarkdownPreviewBlocViewState extends State<MarkdownPreviewBlocView> {
             },
       onGhostTap: widget.onGhostTap,
       onTagTap: widget.onTagTap,
+      onWikiLinkTap: widget.onTapWikiLink,
       onMoneyTap: widget.onMoneyTap,
     );
   }
@@ -237,6 +245,7 @@ class _MarkdownPreviewBlocViewState extends State<MarkdownPreviewBlocView> {
           colorPalette: state.colorPalette,
           onGhostTap: widget.onGhostTap,
           onTagTap: widget.onTagTap,
+          onTapWikiLink: widget.onTapWikiLink,
           onMoneyTap: widget.onMoneyTap,
           padding: widget.padding,
           onCheckboxToggle: widget.onCheckboxToggle,

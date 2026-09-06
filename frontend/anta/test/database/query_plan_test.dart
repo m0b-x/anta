@@ -143,6 +143,31 @@ void main() {
       );
       expect(plan, usesIndex('idx_folders_parent_lname'));
     });
+
+    test('getNotesByTitle uses idx_notes_ltitle', () async {
+      // The wiki-link resolver looks a title up across every folder, so the
+      // folder-led idx_notes_folder_ltitle cannot serve it: SQLite can only
+      // use an index from its leftmost column inward. v36 exists for this.
+      final plan = await planOf(() => db.noteDao.getNotesByTitle('Leg day'));
+      expect(plan, usesIndex('idx_notes_ltitle'));
+      expect(plan, isNot(contains(contains('SCAN notes'))));
+      // No ORDER BY on purpose — the expression index cannot supply one, so
+      // asking for it would buy a temp B-tree. The caller ranks in Dart.
+      expect(plan, isNot(sortsInMemory));
+    });
+
+    test('getNotesByTitle spells the index expression and predicate', () async {
+      // The portable half, the same guard the calendar delta loads carry. The
+      // plan above describes *this host's* SQLite; `idx_notes_ltitle` is both
+      // partial and an expression index, so two silent rewrites would leave it
+      // green while the shipped Android build fell back to a scan: a
+      // `.equals(false)` predicate (Drift emits a bound `?`, which older
+      // SQLite will not match against a partial index's `WHERE`), or any drift
+      // in `LOWER(TRIM(title))` away from the index's own spelling.
+      final sql = await sqlOf(() => db.noteDao.getNotesByTitle('Leg day'));
+      expect(sql, contains('is_deleted = 0'));
+      expect(sql, contains('LOWER(TRIM(title))'));
+    });
   });
 
   group('note content', () {
@@ -360,6 +385,24 @@ void main() {
         );
       },
     );
+
+    // v36 is the same index-only shape one more time: no table and no column,
+    // so a v35 database is a fresh one minus this single index and dropping it
+    // reproduces v35 exactly.
+    test('v35 → v36 creates the title index on an existing install', () async {
+      expect(await indexNames(db), contains('idx_notes_ltitle'));
+
+      await db.customStatement('DROP INDEX idx_notes_ltitle');
+      expect(await indexNames(db), isNot(contains('idx_notes_ltitle')));
+
+      await DatabaseMigrations(db).runMigrations(
+        db.createMigrator(),
+        DatabaseSchema.v35CalendarFilterPresets,
+        DatabaseSchema.v36NoteTitleIndex,
+      );
+
+      expect(await indexNames(db), contains('idx_notes_ltitle'));
+    });
   });
 }
 

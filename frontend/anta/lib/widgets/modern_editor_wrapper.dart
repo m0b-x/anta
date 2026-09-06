@@ -48,6 +48,12 @@ class ModernEditorWrapper extends StatefulWidget {
   /// preview's tag recognizer passes. Null disables tag tap-to-search.
   final void Function(String tag)? onOpenTag;
 
+  /// Opens the note a tapped `[[note]]` names (live markdown rendering),
+  /// receiving the raw title between the brackets — untrimmed, the same
+  /// string the preview's wiki-link recognizer passes. Null disables
+  /// wiki-link tap-to-open.
+  final void Function(String title)? onOpenWikiLink;
+
   /// Whether a line sits inside (or delimits) a ``` code fence — fence
   /// text renders raw, so taps there always fall through to editing.
   final bool Function(int lineIndex)? isFenceLine;
@@ -88,6 +94,7 @@ class ModernEditorWrapper extends StatefulWidget {
     this.onOpenLink,
     this.onMoneyTap,
     this.onOpenTag,
+    this.onOpenWikiLink,
     this.isFenceLine,
     this.colorPalette = MarkdownColorPalette.presets,
     this.lineNumbersKey,
@@ -194,12 +201,13 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
   /// all it ever needs to hold.
   static const int _zoneMemoSize = 256;
 
-  /// The accessibility labels of the four tap zones, resolved once per
+  /// The accessibility labels of the five tap zones, resolved once per
   /// locale instead of per enumerated zone — the interceptor itself has
   /// no [BuildContext], and rebuilding it per build would hand the fork
   /// a new instance on every frame.
   String? _zoneToggleTaskLabel;
   String? _zoneOpenLinkLabel;
+  String? _zoneOpenWikiLinkLabel;
   String? _zoneOpenMoneyLabel;
   String? _zoneSearchTagLabel;
 
@@ -226,9 +234,9 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
     );
   }
 
-  /// Re-reads the four zone labels for the current locale. Every cached
+  /// Re-reads the five zone labels for the current locale. Every cached
   /// zone node carries a label, so a different locale invalidates the
-  /// whole memo; an unchanged one costs four comparisons and nothing
+  /// whole memo; an unchanged one costs five comparisons and nothing
   /// else.
   @override
   void didChangeDependencies() {
@@ -236,16 +244,19 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
     final l10n = AppLocalizations.of(context);
     final toggleLabel = l10n?.editorZoneToggleTask;
     final linkLabel = l10n?.editorZoneOpenLink;
+    final wikiLabel = l10n?.editorZoneOpenWikiLink;
     final moneyLabel = l10n?.editorZoneOpenMoney;
     final tagLabel = l10n?.editorZoneSearchTag;
     if (toggleLabel == _zoneToggleTaskLabel &&
         linkLabel == _zoneOpenLinkLabel &&
+        wikiLabel == _zoneOpenWikiLinkLabel &&
         moneyLabel == _zoneOpenMoneyLabel &&
         tagLabel == _zoneSearchTagLabel) {
       return;
     }
     _zoneToggleTaskLabel = toggleLabel;
     _zoneOpenLinkLabel = linkLabel;
+    _zoneOpenWikiLinkLabel = wikiLabel;
     _zoneOpenMoneyLabel = moneyLabel;
     _zoneSearchTagLabel = tagLabel;
     _zoneMemo.clear();
@@ -277,6 +288,7 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
         (oldWidget.onOpenLink == null) != (widget.onOpenLink == null) ||
         (oldWidget.onMoneyTap == null) != (widget.onMoneyTap == null) ||
         (oldWidget.onOpenTag == null) != (widget.onOpenTag == null) ||
+        (oldWidget.onOpenWikiLink == null) != (widget.onOpenWikiLink == null) ||
         oldWidget.colorPalette != widget.colorPalette) {
       _enabledZones = _resolveEnabledZones();
       _zoneMemo.clear();
@@ -442,6 +454,7 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
   EditorTapZones _resolveEnabledZones() => EditorTapZones(
     checkbox: widget.checkboxTapToggle,
     links: widget.onOpenLink != null,
+    wikiLinks: widget.onOpenWikiLink != null,
     money: widget.onMoneyTap != null,
     tags: widget.onOpenTag != null,
     palette: widget.colorPalette,
@@ -460,10 +473,12 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
   List<CodeEditorSemanticsZone> _semanticsZonesOf(int lineIndex) {
     final toggleLabel = _zoneToggleTaskLabel;
     final linkLabel = _zoneOpenLinkLabel;
+    final wikiLabel = _zoneOpenWikiLinkLabel;
     final moneyLabel = _zoneOpenMoneyLabel;
     final tagLabel = _zoneSearchTagLabel;
     if (toggleLabel == null ||
         linkLabel == null ||
+        wikiLabel == null ||
         moneyLabel == null ||
         tagLabel == null) {
       return const [];
@@ -501,6 +516,7 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
                 label: switch (zone.action) {
                   EditorToggleTaskAction() => toggleLabel,
                   EditorOpenLinkAction() => linkLabel,
+                  EditorOpenWikiLinkAction() => wikiLabel,
                   EditorOpenMoneyAction() => moneyLabel,
                   EditorOpenTagAction() => tagLabel,
                 },
@@ -511,16 +527,18 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
   }
 
   /// Resolves what a tap at [position] does instead of editing: toggle
-  /// a task checkbox, open a concealed link, open a money row's ledger
-  /// detail, or search a `#tag`. Returns null when the tap should fall
-  /// through to normal caret placement — on reveal (selection-covered)
-  /// lines the raw markdown is showing and taps mean editing; fence
-  /// lines render raw; and ghost runs pass through because ghost
-  /// engagement rides the selection change (ghosts win).
+  /// a task checkbox, open a concealed link, open the note a `[[note]]`
+  /// names, open a money row's ledger detail, or search a `#tag`.
+  /// Returns null when the tap should fall through to normal caret
+  /// placement — on reveal (selection-covered) lines the raw markdown is
+  /// showing and taps mean editing; fence lines render raw; and ghost
+  /// runs pass through because ghost engagement rides the selection
+  /// change (ghosts win).
   VoidCallback? _resolveTapAction(CodeLinePosition position) {
     ModernEditorWrapper.debugTapResolveCount++;
     final lineIndex = position.index;
     final onOpenLink = widget.onOpenLink;
+    final onOpenWikiLink = widget.onOpenWikiLink;
     final onMoneyTap = widget.onMoneyTap;
     final onOpenTag = widget.onOpenTag;
     final action = EditorInputPolicy.resolveTap(
@@ -535,7 +553,7 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
       zones: _enabledZones,
     );
     // The toggle's haptic rides in [_toggleTaskLine], beside the edit it
-    // confirms; the three openers confirm here. Either way the tactile
+    // confirms; the four openers confirm here. Either way the tactile
     // click is the only feedback an intercepted tap gives — the caret and
     // the keyboard intentionally don't react.
     return switch (action) {
@@ -546,6 +564,10 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
       EditorOpenLinkAction(:final url) => () {
         HapticFeedback.selectionClick();
         onOpenLink?.call(url);
+      },
+      EditorOpenWikiLinkAction(:final title) => () {
+        HapticFeedback.selectionClick();
+        onOpenWikiLink?.call(title);
       },
       EditorOpenMoneyAction(:final lineIndex) => () {
         HapticFeedback.selectionClick();
@@ -748,7 +770,8 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
             (widget.checkboxTapToggle ||
                 widget.onOpenLink != null ||
                 widget.onMoneyTap != null ||
-                widget.onOpenTag != null)
+                widget.onOpenTag != null ||
+                widget.onOpenWikiLink != null)
             ? _tapInterceptor
             : null,
         chunkAnalyzer: const NonCodeChunkAnalyzer(),

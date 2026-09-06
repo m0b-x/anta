@@ -181,6 +181,11 @@ class DatabaseMigrations {
       toVersion: DatabaseSchema.v35CalendarFilterPresets,
       migrate: _migrateV34ToV35,
     ),
+    Migration(
+      fromVersion: DatabaseSchema.v35CalendarFilterPresets,
+      toVersion: DatabaseSchema.v36NoteTitleIndex,
+      migrate: _migrateV35ToV36,
+    ),
   ];
 
   Future<void> runMigrations(Migrator m, int from, int to) async {
@@ -1320,5 +1325,23 @@ class DatabaseMigrations {
         deleted_at INTEGER NULL
       )
     ''');
+  }
+
+  /// v35 → v36: indexes only, no schema change — the v25/v31 shape, which
+  /// also exists purely to hand an existing install a new index.
+  ///
+  /// `idx_notes_ltitle` backs the wiki-link resolver: `[[note]]` names a note
+  /// without a folder, so `NoteDao.getNotesByTitle` looks a title up across
+  /// every folder and the folder-led `idx_notes_folder_ltitle` cannot help it.
+  /// Without this index every link tap would scan `notes`; see
+  /// [DatabaseIndexes.createNoteTitleIndex] for why the expression is spelled
+  /// exactly like the folder index's second column.
+  ///
+  /// No `DROP INDEX` first, unlike v27: this is a new name, not a redefinition
+  /// of an existing index. Fresh installs already have it because
+  /// `createAllIndexes` calls the same method, and `CREATE INDEX IF NOT
+  /// EXISTS` makes the step idempotent either way. No data is read or written.
+  Future<void> _migrateV35ToV36(Migrator m, GeneratedDatabase db) async {
+    await DatabaseIndexes(_db).createNoteTitleIndex();
   }
 }

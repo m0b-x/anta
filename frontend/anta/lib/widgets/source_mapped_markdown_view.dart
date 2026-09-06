@@ -48,14 +48,15 @@ class SourceMappedMarkdownView extends StatefulWidget {
   /// `==name:text==` highlights.
   final MarkdownColorPalette colorPalette;
 
-  /// Ghost / tag / money tap callbacks. Threaded through so this
-  /// widget's own `prepareWithStyle` call (in [_buildCache], which can
-  /// win the shared render service's rebuild-key race against the
+  /// Ghost / tag / wiki-link / money tap callbacks. Threaded through so
+  /// this widget's own `prepareWithStyle` call (in [_buildCache], which
+  /// can win the shared render service's rebuild-key race against the
   /// bloc's async theme dispatch — the widget rebuilds synchronously on
   /// a Theme change while the bloc event is still queued) never
   /// rebuilds the builder with these recognizers missing.
   final GhostTapCallback? onGhostTap;
   final TagTapCallback? onTagTap;
+  final WikiLinkTapCallback? onTapWikiLink;
   final MoneyTapCallback? onMoneyTap;
 
   /// Optional externally-owned [MarkdownRenderService]. When supplied,
@@ -86,6 +87,7 @@ class SourceMappedMarkdownView extends StatefulWidget {
     this.colorPalette = MarkdownColorPalette.presets,
     this.onGhostTap,
     this.onTagTap,
+    this.onTapWikiLink,
     this.onMoneyTap,
     this.service,
   });
@@ -430,6 +432,7 @@ class SourceMappedMarkdownViewState extends State<SourceMappedMarkdownView> {
       onCheckboxTap: _handleCheckboxTap,
       onGhostTap: widget.onGhostTap,
       onTagTap: widget.onTagTap,
+      onWikiLinkTap: widget.onTapWikiLink,
       onMoneyTap: widget.onMoneyTap,
     );
   }

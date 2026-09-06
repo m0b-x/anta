@@ -92,6 +92,18 @@ class EditorWidthCalculator {
   /// reformatter never splits a URL the preview would render as a link.
   static final _bareUrlPattern = MarkdownLinkPatterns.bareUrl;
 
+  /// `[[title]]` protection shape, shared for the same reason: a wiki
+  /// title holds spaces, so a width break lands inside one unless the
+  /// construct is claimed as a protected range.
+  ///
+  /// Probed before [_linkPattern], the order the inline grammar uses for
+  /// a doubled `[`. The two shapes can never claim the same start — a
+  /// title admits no `]` and an inline link needs one right after its
+  /// text — so `[[a](b)]]` keeps the link claim it has always had either
+  /// way; matching the grammar's order just keeps the two readings of a
+  /// doubled bracket described in one place.
+  static final _wikiLinkPattern = MarkdownLinkPatterns.wikiLink;
+
   /// Cached TextPainter reused across measurements to avoid re-allocation.
   late final TextPainter _textPainter;
 
@@ -398,12 +410,15 @@ class EditorWidthCalculator {
     final ranges = <_Range>[];
 
     // Find all patterns and add their ranges.
-    // Images must come before links (they share the [text](url) syntax).
+    // Images must come before links (they share the [text](url) syntax),
+    // and wiki links likewise (see _wikiLinkPattern for why the order is
+    // the grammar's).
     // Bare URLs come last so a markdown link [text](https://...) is
     // already covered by _linkPattern and the URL portion is not
     // double-counted.
     for (final pattern in [
       _imagePattern,
+      _wikiLinkPattern,
       _linkPattern,
       _inlineCodePattern,
       _boldPattern,

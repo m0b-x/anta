@@ -14,6 +14,7 @@ class DatabaseIndexes {
     await createCalendarDeltaIndexes();
     await _createFtsTable();
     await createUniqueNameIndexes();
+    await createNoteTitleIndex();
     await createPositionIndexes();
   }
 
@@ -80,6 +81,45 @@ class DatabaseIndexes {
     await _db.customStatement(
       'CREATE INDEX IF NOT EXISTS idx_notes_folder_ltitle '
       'ON notes(folder_id, LOWER(TRIM(title))) '
+      'WHERE is_deleted = 0',
+    );
+  }
+
+  /// Expression index backing the wiki-link resolver's lookup by title alone
+  /// (`NoteDao.getNotesByTitle`), which searches **every** folder: a
+  /// `[[note]]` names a note, not a path, so the query has no `folder_id` to
+  /// narrow it with. Public because the v36 migration calls it.
+  ///
+  /// [createUniqueNameIndexes]' `idx_notes_folder_ltitle` cannot serve this.
+  /// It is folder-led — `(folder_id, LOWER(TRIM(title)))` — and SQLite can
+  /// only use an index from its leftmost column inward, so a title-only
+  /// predicate would scan `notes` outright.
+  ///
+  /// `LOWER(TRIM(title))` is spelled character-for-character like that index's
+  /// second column on purpose. An expression index is only usable when the
+  /// query repeats the expression exactly, so one shared spelling is what
+  /// keeps **both** lookups index-served: the uniqueness check on
+  /// `idx_notes_folder_ltitle`, the resolver on this one.
+  ///
+  /// That is agreement about the *index expression*, not about the answer.
+  /// The two normalise their **parameter** differently: `NoteDao`'s
+  /// `noteTitleExistsInFolder` lowers it in Dart, which is Unicode-aware,
+  /// while `NoteDao.getNotesByTitle` binds the raw trimmed title under
+  /// SQLite's ASCII-only `LOWER(?1)`. So they can and do disagree — two notes
+  /// titled `Șold` may coexist in one folder, and a `[[Șold]]` link then
+  /// resolves one of them by the recency-then-id rule. See
+  /// `NoteDao.getNotesByTitle`, and `test/database/note_title_lookup_test.dart`
+  /// where the disagreement is pinned.
+  ///
+  /// `is_deleted = 0` is a literal for the reason recorded on
+  /// [createCalendarDeltaIndexes]: Drift's `.equals(false)` emits a bound `?`,
+  /// and whether SQLite can prove a bound parameter implies the index's
+  /// `WHERE` is version-dependent. The DAO spells the same literal, so the
+  /// match is syntactic on every SQLite version the app ships against.
+  Future<void> createNoteTitleIndex() async {
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_notes_ltitle '
+      'ON notes(LOWER(TRIM(title))) '
       'WHERE is_deleted = 0',
     );
   }

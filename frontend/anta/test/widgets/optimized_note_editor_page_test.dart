@@ -13,10 +13,13 @@ import 'package:anta/bloc/markdown_bar/markdown_bar_bloc.dart';
 import 'package:anta/bloc/optimized_note/optimized_note_bloc.dart';
 import 'package:anta/bloc/optimized_note/optimized_note_event.dart';
 import 'package:anta/bloc/optimized_note/optimized_note_state.dart';
+import 'package:anta/constants/app_spacing.dart';
 import 'package:anta/constants/font_constants.dart';
+import 'package:anta/constants/markdown_constants.dart';
 import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/models/custom_markdown_shortcut.dart';
 import 'package:anta/models/note_metadata.dart';
 import 'package:anta/pages/optimized_note_editor_page.dart';
@@ -64,6 +67,7 @@ void main() {
   late NotePositionService positions;
   late SettingsService settings;
   late NoteStorageService storageService;
+  late _ThrowingStorage throwingStorage;
   late FolderSearchService searchService;
   late _TestNoteBloc noteBloc;
   late MarkdownBarBloc barBloc;
@@ -113,6 +117,13 @@ void main() {
       repository: NoteRepository(database: db),
     );
     await storageService.initialize();
+    // A second service over the same database whose title lookup always
+    // throws, for the case about the tap handler's own guard. Built here
+    // like every other service: a `testWidgets` body cannot await one.
+    throwingStorage = _ThrowingStorage(
+      repository: NoteRepository(database: db),
+    );
+    await throwingStorage.initialize();
     searchService = FolderSearchService(storageService: storageService);
     await searchService.initialize();
     // Everything the page's BLoCs need is built here, in real async:
@@ -276,10 +287,97 @@ void main() {
     return editorOf(tester).controller;
   }
 
+  /// [pumpPage] for a note that exists in the database. The reload cases
+  /// read their note back through the service, so a metadata-only
+  /// stand-in has nothing to read; everything else about the mount is
+  /// [pumpPage]'s.
+  Future<void> pumpPageFor(WidgetTester tester, NoteMetadata note) async {
+    await tester.pumpWidget(
+      MultiBlocProvider(
+        providers: [
+          BlocProvider<OptimizedNoteBloc>.value(value: noteBloc),
+          BlocProvider<MarkdownBarBloc>.value(value: barBloc),
+          BlocProvider<CounterBloc>.value(value: counterBloc),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          navigatorObservers: [AppNavigator.routeObserver],
+          home: OptimizedNoteEditorPage(
+            folderId: note.folderId,
+            noteId: note.id,
+            metadata: note,
+          ),
+        ),
+      ),
+    );
+  }
+
   /// The page's app bar, whose `hasChanges` is the dirty indicator the save
   /// coordinator publishes.
   NoteAppBar appBar(WidgetTester tester) =>
       tester.widget<NoteAppBar>(find.byType(NoteAppBar, skipOffstage: false));
+
+  /// The visible-column mapping the tap groups below address. The page
+  /// (unlike the bare wrapper suites) renders through the markdown span
+  /// builder, so a `[[title]]`'s brackets are concealed to ~0 width: the
+  /// *visible* columns are what geometry can address, and the title's own
+  /// glyphs start one visible column past `see `. Every tap lands in the
+  /// middle of the rendered title, which is the whole tap zone, so the
+  /// exact source offset it resolves to does not matter.
+  const lineBox = FontConstants.defaultFontSize * MarkdownConstants.lineHeight;
+
+  Offset visiblePoint(WidgetTester tester, int line, double column) {
+    final origin = tester.getTopLeft(
+      find.byType(CodeEditor, skipOffstage: false).first,
+    );
+    return origin +
+        Offset(
+          AppSpacing.lg + column * FontConstants.defaultFontSize,
+          AppSpacing.lg + line * lineBox + lineBox / 2,
+        );
+  }
+
+  NoteMetadata metadataFor(String text) => NoteMetadata(
+    id: noteId,
+    folderId: folderId,
+    title: 'Training log',
+    preview: text,
+    contentLength: text.length,
+    chunkCount: 1,
+    isCompressed: false,
+    createdAt: DateTime(2026, 9, 1),
+    updatedAt: DateTime(2026, 9, 1),
+  );
+
+  /// Loads [text] into the page and parks the caret on line 1, so line 0
+  /// — which carries the link in every case — is never the reveal line.
+  Future<CodeLineEditingController> loadAndPark(
+    WidgetTester tester,
+    String text,
+  ) async {
+    await pumpPage(tester);
+    noteBloc.emitContentLoaded(metadataFor(text), text);
+    await tester.pump();
+    await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+    await settle(tester);
+    final controller = editorOf(tester).controller;
+    controller.selection = const CodeLineSelection.collapsed(
+      index: 1,
+      offset: 0,
+    );
+    await tester.pump();
+    return controller;
+  }
+
+  Finder pages() => find.byType(OptimizedNoteEditorPage, skipOffstage: false);
+
+  /// Pops whatever the tap pushed, so the next test starts on one page.
+  Future<void> popPushed(WidgetTester tester) async {
+    tester.state<NavigatorState>(find.byType(Navigator)).pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+  }
 
   group('B2 — the saved position survives either load order', () {
     testWidgets('content lands before the saved position', (tester) async {
@@ -1057,6 +1155,452 @@ void main() {
       await teardownPage(tester);
     });
   });
+
+  group('wiki links — tap, resolve, navigate', () {
+    late Folder wikiFolder;
+    late NoteMetadata target;
+
+    setUp(() async {
+      // Plain `async` rather than `tester.runAsync`: a group `setUp` runs
+      // outside the widget test's fake clock, so a drift round trip here
+      // simply completes.
+      wikiFolder = await db.folderDao.createFolder(name: 'Wiki targets');
+      target = await storageService.createNote(
+        folderId: wikiFolder.id,
+        title: 'Squat Progression',
+        content: 'target',
+      );
+    });
+
+    tearDown(() async {
+      await db.noteDao.hardDeleteNote(target.id);
+      await db.folderDao.hardDeleteFolder(wikiFolder.id);
+    });
+
+    testWidgets('a resolved wiki link saves the position and pushes the '
+        'editor for that note', (tester) async {
+      final controller = await loadAndPark(
+        tester,
+        'see [[Squat Progression]] now\nsecond line',
+      );
+      expect(pages(), findsOneWidget);
+
+      // `see ` is four visible columns, then the seventeen glyphs of the
+      // title: column 12.5 is its middle.
+      await tester.tapAt(visiblePoint(tester, 0, 12.5));
+      await tester.pump();
+      await settleUntil(tester, () => pages().evaluate().length == 2);
+
+      final pushed = tester.widgetList<OptimizedNoteEditorPage>(pages()).last;
+      expect(pushed.noteId, target.id);
+      expect(pushed.folderId, target.folderId);
+      // The tap is intercepted, so the caret it saved is the one the user
+      // left behind, not one the tap moved.
+      expect(controller.selection.baseIndex, 1);
+      final stored = await tester.runAsync(() => positions.getPosition(noteId));
+      expect(stored!.editorLineIndex, 1);
+
+      await popPushed(tester);
+      await teardownPage(tester);
+    });
+
+    testWidgets('an unresolved wiki link shows the snackbar and pushes '
+        'nothing', (tester) async {
+      await loadAndPark(tester, 'see [[Nope]] now\nx');
+
+      // `see ` plus the four glyphs of `Nope`: column 6 is its middle.
+      await tester.tapAt(visiblePoint(tester, 0, 6));
+      await tester.pump();
+      await settleUntil(
+        tester,
+        () => find
+            .text(AppLocalizationsEn().wikiLinkNoteNotFound('Nope'))
+            .evaluate()
+            .isNotEmpty,
+      );
+
+      expect(pages(), findsOneWidget);
+      await teardownPage(tester);
+    });
+
+    testWidgets('a wiki link to the open note itself does nothing', (
+      tester,
+    ) async {
+      // The page's own note is not in the database in this file, so the
+      // self-link case has to seed it — under the title the metadata
+      // carries, which is what the link has to name.
+      await tester.runAsync(() async {
+        await db.noteDao.insertNote(
+          NotesCompanion.insert(
+            id: noteId,
+            folderId: wikiFolder.id,
+            title: 'Training log',
+            hlcTimestamp: '0',
+            deviceId: 'test',
+            createdAt: DateTime(2026, 9, 1),
+            updatedAt: DateTime(2026, 9, 1),
+          ),
+        );
+        // `insertNote` is the raw row write; the DAO's own create path
+        // indexes right after it, and the seed has to as well. `notes_fts`
+        // is an external-content FTS5 table, so hard-deleting a row that
+        // was never indexed makes SQLite delete a term list that does not
+        // exist — reported as a malformed database image.
+        await db.customStatement(
+          'INSERT OR REPLACE INTO notes_fts(rowid, title, preview) '
+          'SELECT rowid, ?, ? FROM notes WHERE id = ?',
+          ['Training log', '', noteId],
+        );
+      });
+
+      final controller = await loadAndPark(
+        tester,
+        'see [[Training log]] now\nx',
+      );
+
+      // `see ` plus the twelve glyphs of `Training log`: column 10 is its
+      // middle.
+      await tester.tapAt(visiblePoint(tester, 0, 10));
+      await tester.pump();
+      await settle(tester);
+
+      // The caret proves the tap was claimed rather than missed: a tap that
+      // fell through to caret placement would have landed on line 0.
+      expect(controller.selection.baseIndex, 1);
+      expect(pages(), findsOneWidget, reason: 'no second editor on the row');
+      expect(
+        find.byType(SnackBar, skipOffstage: false),
+        findsNothing,
+        reason: 'a link that resolves is not a missing note',
+      );
+
+      await teardownPage(tester);
+      // Later cases depend on the seeded note not existing.
+      await tester.runAsync(() => db.noteDao.hardDeleteNote(noteId));
+    });
+
+    testWidgets('the title is trimmed before the lookup', (tester) async {
+      await loadAndPark(tester, 'see [[  Squat Progression ]] now\nx');
+
+      // `see ` plus the twenty glyphs of `  Squat Progression `: column 14
+      // is its middle.
+      await tester.tapAt(visiblePoint(tester, 0, 14));
+      await tester.pump();
+      await settleUntil(tester, () => pages().evaluate().length == 2);
+
+      final pushed = tester.widgetList<OptimizedNoteEditorPage>(pages()).last;
+      expect(pushed.noteId, target.id);
+
+      await popPushed(tester);
+      await teardownPage(tester);
+    });
+  });
+
+  group('two editors on one note (C1) and tap races (B2, C11)', () {
+    /// Real rows, not metadata stand-ins: the reload cases read the note
+    /// back through the service on the way out of the pushed editor, and
+    /// the tap cases resolve a title through it.
+    late Folder stackFolder;
+    late NoteMetadata host;
+    late NoteMetadata linkTarget;
+
+    const targetTitle = 'Deadlift Cues';
+
+    setUp(() async {
+      // Plain `async` rather than `tester.runAsync`, like the wiki group's:
+      // a group `setUp` runs outside the widget test's fake clock, so a
+      // drift round trip here simply completes.
+      stackFolder = await db.folderDao.createFolder(name: 'Stacked editors');
+      host = await storageService.createNote(
+        folderId: stackFolder.id,
+        title: 'Reload host',
+        content: 'X',
+      );
+      linkTarget = await storageService.createNote(
+        folderId: stackFolder.id,
+        title: targetTitle,
+        content: 'target',
+      );
+    });
+
+    tearDown(() async {
+      // Both rows went in through the service, so the DAO's create path
+      // indexed them; hard-deleting an unindexed row out of the
+      // external-content `notes_fts` table is what reads as a malformed
+      // database image.
+      await db.noteDao.hardDeleteNote(host.id);
+      await db.noteDao.hardDeleteNote(linkTarget.id);
+      await db.folderDao.hardDeleteFolder(stackFolder.id);
+    });
+
+    /// Pushes a second editor over the one already mounted — what a
+    /// `[[wiki link]]` back to an open note does, minus the tap.
+    NavigatorState pushEditor(
+      WidgetTester tester, {
+      required String folderId,
+      required String noteId,
+      NoteMetadata? metadata,
+    }) {
+      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+      navigator.push(
+        MaterialPageRoute<void>(
+          builder: (_) => OptimizedNoteEditorPage(
+            folderId: folderId,
+            noteId: noteId,
+            metadata: metadata,
+          ),
+        ),
+      );
+      return navigator;
+    }
+
+    /// The dirty flag of the page *under* whatever is on top: with two
+    /// editors mounted there are two app bars, and the buried page's is the
+    /// first one — the overlay renders the bottom route first.
+    bool buriedHasChanges(WidgetTester tester) => tester
+        .widgetList<NoteAppBar>(find.byType(NoteAppBar, skipOffstage: false))
+        .first
+        .hasChanges;
+
+    testWidgets('a second editor for the same note leaves the buried page '
+        'untouched', (tester) async {
+      final buried = await loadNote(tester);
+      buried.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 'first line'.length,
+      );
+      buried.replaceSelection('!');
+      await tester.pump();
+      expect(buried.canUndo, isTrue);
+
+      buried.selection = const CodeLineSelection.collapsed(index: 1, offset: 3);
+      await tester.pump();
+
+      final navigator = pushEditor(tester, folderId: folderId, noteId: noteId);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      await settle(tester);
+      // The pushed page is still on its placeholder: its editor mounts
+      // only once the content *it* asked for lands.
+      expect(editorFinder, findsOneWidget);
+
+      // That answer, for the very note the buried page is showing — the
+      // shape the id guard alone cannot tell apart (C1). `reset` first
+      // because a bloc drops a state equal to the one it holds.
+      noteBloc.reset();
+      await tester.pump();
+      noteBloc.emitContentLoaded(metadata, content);
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().length == 2);
+      await settle(tester);
+
+      final wrappers = tester
+          .widgetList<ModernEditorWrapper>(editorFinder)
+          .toList();
+      expect(
+        identical(wrappers.first.controller, buried),
+        isTrue,
+        reason: 'the overlay renders the bottom route first',
+      );
+      expect(
+        wrappers.last.controller.text,
+        content,
+        reason: 'the page that asked is the one that adopted',
+      );
+
+      expect(buried.text, startsWith('first line!'));
+      expect(buried.selection.baseIndex, 1);
+      expect(buried.selection.baseOffset, 3);
+      expect(
+        buried.canUndo,
+        isTrue,
+        reason: 'an adoption here would have restarted the undo history',
+      );
+
+      navigator.pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      await teardownPage(tester);
+    });
+
+    testWidgets('returning to a buried editor reloads a note that changed '
+        'underneath', (tester) async {
+      await pumpPageFor(tester, host);
+      noteBloc.emitContentLoaded(host, 'X');
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      await settle(tester);
+      final buried = editorOf(tester).controller;
+      expect(buried.text, 'X');
+
+      final navigator = pushEditor(
+        tester,
+        folderId: host.folderId,
+        noteId: host.id,
+        metadata: host,
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      await settle(tester);
+      noteBloc.reset();
+      await tester.pump();
+      noteBloc.emitContentLoaded(host, 'X');
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().length == 2);
+      await settle(tester);
+
+      // What the editor on top would write, made directly through the
+      // service so the case does not depend on that page's debounce.
+      await tester.runAsync(
+        () => storageService.updateNote(noteId: host.id, content: 'XY'),
+      );
+      expect(
+        buried.text,
+        'X',
+        reason: 'the buried editor knows nothing about it yet',
+      );
+
+      navigator.pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      // The reload is a service round trip started from `didPopNext`.
+      await settleUntil(tester, () => buried.text == 'XY');
+
+      expect(buried.text, 'XY');
+      expect(
+        appBar(tester).hasChanges,
+        isFalse,
+        reason: 'adopting the row is not an edit of it',
+      );
+      await teardownPage(tester);
+    });
+
+    testWidgets('an unchanged round trip keeps caret and undo', (tester) async {
+      await pumpPageFor(tester, host);
+      noteBloc.emitContentLoaded(host, 'X');
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      await settle(tester);
+      final buried = editorOf(tester).controller;
+
+      buried.selection = const CodeLineSelection.collapsed(index: 0, offset: 1);
+      buried.replaceSelection('Y');
+      await tester.pump();
+      expect(buried.text, 'XY');
+      expect(buried.canUndo, isTrue);
+      expect(buriedHasChanges(tester), isTrue);
+      final caret = buried.selection;
+
+      // The push force-saves (B7), so the row and the editor agree by the
+      // time the pop asks for a reload — which is the case under test: the
+      // guards let it through and it finds nothing to adopt.
+      final navigator = pushEditor(
+        tester,
+        folderId: host.folderId,
+        noteId: host.id,
+        metadata: host,
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      await settleUntil(tester, () => !buriedHasChanges(tester));
+      expect(
+        buriedHasChanges(tester),
+        isFalse,
+        reason: 'a dirty page skips the reload, which would pass vacuously',
+      );
+      expect(
+        await tester.runAsync(() => storageService.loadNoteContent(host.id)),
+        'XY',
+        reason: 'the row the reload is about to read matches the editor',
+      );
+
+      navigator.pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      await settle(tester);
+
+      expect(buried.text, 'XY');
+      expect(buried.selection.baseIndex, caret.baseIndex);
+      expect(buried.selection.baseOffset, caret.baseOffset);
+      expect(buried.canUndo, isTrue);
+
+      // Not just the flag: the step itself is still there to take.
+      buried.undo();
+      await tester.pump();
+      expect(buried.text, 'X');
+      await teardownPage(tester);
+    });
+
+    testWidgets('two rapid taps on a wiki link push one editor', (
+      tester,
+    ) async {
+      await loadAndPark(tester, 'see [[$targetTitle]] now\nsecond line');
+      expect(pages(), findsOneWidget);
+      noteBloc.clearDispatched();
+
+      // Both taps get their whole round trip — the interceptor claims
+      // every tap on the zone by design — so only the `isCurrent` check
+      // after the awaits keeps the second one from pushing its own
+      // editor (B2).
+      final openWikiLink = editorOf(tester).onOpenWikiLink!;
+      openWikiLink(targetTitle);
+      openWikiLink(targetTitle);
+      await tester.pump();
+      await settleUntil(tester, () => pages().evaluate().length == 2);
+      // Long enough for a second push to have landed if one were coming.
+      await settle(tester);
+
+      expect(pages(), findsNWidgets(2));
+      final loads = noteBloc.dispatched.whereType<LoadNoteContent>().toList();
+      expect(loads, hasLength(1));
+      expect(loads.single.noteId, linkTarget.id);
+
+      await popPushed(tester);
+      await teardownPage(tester);
+    });
+
+    testWidgets('a throwing lookup shows the error snackbar and pushes '
+        'nothing', (tester) async {
+      await loadAndPark(tester, 'see [[$targetTitle]] now\nx');
+
+      GetIt.I.unregister<NoteStorageService>();
+      GetIt.I.registerSingleton<NoteStorageService>(throwingStorage);
+      try {
+        // `see ` is four visible columns, then the thirteen glyphs of the
+        // title: column 10.5 is its middle.
+        await tester.tapAt(visiblePoint(tester, 0, 10.5));
+        await tester.pump();
+        await settleUntil(
+          tester,
+          () => find
+              .text(AppLocalizationsEn().linkOpenFailed)
+              .evaluate()
+              .isNotEmpty,
+        );
+
+        expect(pages(), findsOneWidget, reason: 'a throw pushes nothing');
+      } finally {
+        GetIt.I.unregister<NoteStorageService>();
+        GetIt.I.registerSingleton<NoteStorageService>(storageService);
+      }
+      await teardownPage(tester);
+    });
+  });
+}
+
+/// A [NoteStorageService] whose wiki-link lookup always fails, for the case
+/// about the tap handler's own `try`. Everything else is the real service
+/// over the real database.
+class _ThrowingStorage extends NoteStorageService {
+  _ThrowingStorage({required super.repository});
+
+  @override
+  Future<NoteMetadata?> resolveNoteByTitle(
+    String title, {
+    String? preferFolderId,
+  }) async {
+    throw StateError('resolveNoteByTitle failed');
+  }
 }
 
 /// A real [OptimizedNoteBloc] whose content load is inert, so the test owns

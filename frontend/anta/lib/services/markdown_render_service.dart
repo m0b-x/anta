@@ -74,6 +74,7 @@ class MarkdownRenderService {
     CheckboxTapCallback? onCheckboxTap,
     GhostTapCallback? onGhostTap,
     TagTapCallback? onTagTap,
+    WikiLinkTapCallback? onWikiLinkTap,
     MoneyTapCallback? onMoneyTap,
   }) {
     final needsRebuild =
@@ -117,6 +118,7 @@ class MarkdownRenderService {
       onCheckboxTap: onCheckboxTap,
       onGhostTap: onGhostTap,
       onTagTap: onTagTap,
+      onWikiLinkTap: onWikiLinkTap,
       onMoneyTap: onMoneyTap,
       searchHighlights: searchHighlights,
       currentHighlightIndex: currentHighlightIndex,

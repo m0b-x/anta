@@ -459,6 +459,69 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
     return result != null;
   }
 
+  /// Mirrors `Notes.title`'s `withLength(max: 500)` — the cap Drift enforces
+  /// in Dart, in UTF-16 code units, on every insert and update, so a longer
+  /// title cannot be stored and cannot be matched.
+  ///
+  /// Duplicated as a literal rather than read off the table because the cap
+  /// is not readable at runtime: `withLength` compiles to a verification
+  /// closure on the generated column, and recovering the bound would mean
+  /// probing that closure with candidate strings. `query_count_test.dart`
+  /// holds the two together instead — a 500-unit title still queries, a
+  /// 501-unit one does not.
+  static const int _maxTitleLength = 500;
+
+  /// Every live note whose trimmed title equals [title], across all folders.
+  /// Backs the wiki-link resolver, where `[[note]]` names a note without
+  /// saying where it lives. Indexed by `idx_notes_ltitle`.
+  ///
+  /// Unordered on purpose: an `ORDER BY` would cost a temp B-tree that the
+  /// partial expression index cannot supply, and the caller ranks the handful
+  /// of rows this returns in Dart.
+  ///
+  /// The parameter is folded by SQLite's `LOWER`, not Dart's, so both sides of
+  /// the comparison fold exactly the same set of letters and a title always
+  /// matches its own spelling. SQLite's `LOWER` is ASCII-only, so `Șold` finds
+  /// `Șold` but `șold` does not — and that is a property of the SQLite build
+  /// `sqlite3_flutter_libs` bundles rather than of SQL. An ICU-enabled build
+  /// folds `Ș` to `ș`, and this match would widen without a line of Dart
+  /// changing, which is what makes the claim checkable.
+  ///
+  /// [noteTitleExistsInFolder] lowers its parameter in Dart instead, so the
+  /// two **disagree**: a note titled `Șold` is not reported there as a
+  /// duplicate of `Șold`, both can therefore exist in one folder, and a
+  /// `[[Șold]]` link picks between them by the resolver's recency-then-id
+  /// rule. Pre-existing behaviour, deliberately left alone and pinned in
+  /// `test/database/note_title_lookup_test.dart`.
+  ///
+  /// Trimming is asymmetric for a related reason. The stored side is trimmed
+  /// by SQLite's `TRIM`, which strips U+0020 and nothing else; the link side
+  /// by Dart's `String.trim`, which strips all Unicode white space. No write
+  /// path trims a title — [createNote], [importNote] and [updateNote] store
+  /// what they are handed, and only the rename dialog trims before calling —
+  /// so a stored `'Leg Day\t'` keeps its tab and no `[[Leg Day]]` can reach
+  /// it. The lenient side is the *link* on purpose: a sloppily typed link
+  /// should still find a cleanly stored title.
+  Future<List<Note>> getNotesByTitle(String title) async {
+    final normalized = title.trim();
+    if (normalized.isEmpty) return const [];
+    // Longer than the column can hold, so no stored title can equal it and
+    // the round trip is pure cost. A `[[…]]` can carry a whole pasted
+    // paragraph, which is how an over-long title reaches this at all.
+    if (normalized.length > _maxTitleLength) return const [];
+
+    final rows = await db
+        .customSelect(
+          'SELECT * FROM notes '
+          'WHERE LOWER(TRIM(title)) = LOWER(?1) '
+          'AND is_deleted = 0',
+          variables: [Variable<String>(normalized)],
+          readsFrom: {notes},
+        )
+        .get();
+    return [for (final row in rows) notes.map(row.data)];
+  }
+
   Future<List<Note>> searchNotes(String query, {String? folderId}) async {
     final searchQuery = '%${query.toLowerCase()}%';
 

@@ -21,6 +21,7 @@ import '../models/dev_options.dart';
 import '../models/markdown_bar_profile.dart';
 import '../models/note_metadata.dart';
 import '../models/utility_button_config.dart';
+import '../services/auto_save_service.dart';
 import '../services/dev_options_service.dart';
 import '../services/note_position_service.dart';
 import '../services/settings_service.dart';
@@ -46,6 +47,7 @@ import '../utils/custom_snackbar.dart';
 import '../utils/re_editor_search_controller.dart';
 import '../utils/text_history_observer.dart';
 import '../utils/text_position_utils.dart';
+import '../utils/wiki_link_title.dart';
 import '../utils/markdown_money_syntax.dart';
 import '../utils/money_display_config.dart';
 import '../widgets/money_detail_sheet.dart';
@@ -152,6 +154,16 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// Whether the note's text has reached the editor — the other half of
   /// [_isLoading].
   bool _contentLoaded = false;
+
+  /// Whether the [LoadNoteContent] *this page* dispatched is still
+  /// unanswered.
+  ///
+  /// One app-wide [OptimizedNoteBloc] serves every editor, and two editors
+  /// can be open over the same note at once — a `[[wiki link]]` from B back
+  /// to A, or the same note reached twice through search. The id guard in
+  /// the content listener cannot tell those two pages apart; this flag can,
+  /// because only the page that asked has it raised (C1).
+  bool _awaitingContentLoad = false;
 
   double _previousKeyboardHeight = 0;
 
@@ -729,8 +741,120 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     );
   }
 
+  /// Asks the shared bloc for this note's text. The only dispatch site of
+  /// [LoadNoteContent] in the app, and the only place [_awaitingContentLoad]
+  /// is raised — which is what makes the answer *this* page's (C1).
   Future<void> _loadNoteContent() async {
+    _awaitingContentLoad = true;
     context.read<OptimizedNoteBloc>().add(LoadNoteContent(widget.noteId!));
+  }
+
+  /// Puts [content] into the editor and re-baselines everything derived
+  /// from the text it replaces: the stats bar, the edit tracker's length,
+  /// and auto-save's saved-content baseline.
+  ///
+  /// The one path for both the first load and the reload
+  /// ([_reloadContentIfChanged]), so the two can never drift apart on which
+  /// of those re-baselines they remember to take.
+  ///
+  /// The undo history necessarily restarts at [content]: `loadText` resets
+  /// it, and that is the point — undo must never be able to reach the empty
+  /// document the controller was constructed with, nor, on a reload, text
+  /// the note no longer holds.
+  ///
+  /// [keepCaret] re-places the collapsed caret at the (line, column) it
+  /// held, clamped to the new document. The reload path needs it: coming
+  /// back to a note that changed underneath must not also throw the reader
+  /// back to the top of it.
+  void _adoptLoadedContent(String content, {bool keepCaret = false}) {
+    final previous = keepCaret ? _contentController.selection : null;
+    // Counted from the string rather than asked of the editor: it is
+    // exact and already in hand.
+    _stats.set((
+      lineCount: '\n'.allMatches(content).length + 1,
+      charCount: content.length,
+    ));
+    // A load, not an edit: the loaded text is the undo baseline.
+    setState(() {
+      _contentController.loadText(content);
+      _contentLoaded = true;
+    });
+    if (previous != null) {
+      final lines = _contentController.codeLines;
+      final index = previous.baseIndex.clamp(0, lines.length - 1);
+      final offset = previous.baseOffset.clamp(0, lines[index].text.length);
+      // The fork folds a selection-only change into the current undo node,
+      // so re-placing the caret here does not give the reload something to
+      // undo.
+      _contentController.selection = CodeLineSelection.collapsed(
+        index: index,
+        offset: offset,
+      );
+    }
+    // The tracker never saw the assignment above — only the wrapper calls
+    // `onTextChanged`, and on the first load it is not mounted yet — so its
+    // baseline is still the previous text's length. Adopt the loaded length
+    // before the wrapper starts diffing, or the next keystroke reads as a
+    // whole-document paste.
+    _edits.syncLength();
+    // `loadText` above fired the page's text listener, so auto-save thinks
+    // the note was edited into this. Re-baseline before the debounce
+    // rewrites what was just read back, with a new `updatedAt`, version and
+    // HLC.
+    _saves.contentLoaded();
+    _pushPreviewContent(content);
+    _markEditorReady();
+  }
+
+  /// Re-reads the note on the way back from a route pushed over this page,
+  /// for the case that route was *another editor for the same note* — a
+  /// `[[wiki link]]` back to a note already open, or the same note reached
+  /// twice through search. Without it this page would keep serving the text
+  /// it loaded, and its next keystroke would auto-save that stale text over
+  /// everything typed above (C1).
+  ///
+  /// Only a page with nothing of its own to lose reloads. [didPushNext]
+  /// force-saved on the way out, so `hasChanges` being false means the
+  /// editor's text is what the row held when we left; a page that is still
+  /// dirty (a save that failed, a write still in flight) holds the newer
+  /// text and auto-save will write it, so it is left exactly as it is.
+  ///
+  /// Layering: Page -> Service, like every other read this page owns. A
+  /// note that has been deleted meanwhile reads as null and changes
+  /// nothing — the page keeps its text rather than blanking under the user.
+  Future<void> _reloadContentIfChanged() async {
+    if (!_contentLoaded) return;
+    if (_saves.hasChanges.value) return;
+    if (_saves.saveStatus.value == SaveStatus.saving) return;
+    final noteId = _saves.effectiveNoteId ?? widget.noteId;
+    if (noteId == null) return;
+
+    final lazy = await GetIt.I<NoteStorageService>().loadNoteWithContent(
+      noteId,
+    );
+    if (!mounted || lazy == null) return;
+    // Re-checked after the await: a keystroke landing during the read makes
+    // the editor's text the newer one again.
+    if (_saves.hasChanges.value) return;
+
+    // The title is held in a plain controller seeded from `widget.metadata`,
+    // not by a bloc, so a rename made in the editor above this one would
+    // otherwise leave a stale app-bar title for as long as this page lives.
+    final titleChanged = lazy.metadata.title != _titleController.text;
+    if (titleChanged) {
+      setState(() => _titleController.text = lazy.metadata.title);
+    }
+
+    final content = lazy.content ?? '';
+    if (content == _contentController.text) {
+      // Nothing changed, so nothing is adopted: an unchanged round trip
+      // must cost neither the caret nor the undo history. The title write
+      // above still fired the page's text listener, so re-baseline
+      // auto-save on it before the debounce writes it back.
+      if (titleChanged) _saves.contentLoaded();
+      return;
+    }
+    _adoptLoadedContent(content, keepCaret: true);
   }
 
   void _onTextChanged() {
@@ -1031,15 +1155,18 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   }
 
   /// Called when a route pushed above the editor is popped — the drawer's
-  /// settings, backup and database pages among them. Editor flags live on
-  /// the main settings page, so without this every one of them would stay
-  /// stale until the note was closed and reopened.
+  /// settings, backup and database pages among them, and since wiki links
+  /// another editor. Editor flags live on the main settings page, so
+  /// without this every one of them would stay stale until the note was
+  /// closed and reopened; and the note itself may have been edited above
+  /// this page, which is what the second call covers.
   ///
   /// `RouteObserver<PageRoute>` only fires between page routes, so the
   /// toolbar, colour and money sheets do not reach here.
   @override
   void didPopNext() {
     unawaited(_reloadSettings());
+    unawaited(_reloadContentIfChanged());
   }
 
   /// Called when a route is pushed above the editor. The drawer's settings
@@ -1246,13 +1373,82 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     _saveCurrentPosition();
   }
 
+  /// Whether nothing has been pushed over this page yet. Both tap handlers
+  /// take it after their awaits, because the tap interceptor fires on every
+  /// re-tap by design: without it two quick taps on one `[[wiki link]]` (or
+  /// one `#tag`) each finish their round trip and push their own page (B2).
+  bool get _isCurrentRoute => ModalRoute.of(context)?.isCurrent ?? false;
+
   /// Opens cross-note search pre-filled with a tapped `#tag`. Searches
   /// across **all** notes (not just the current folder) so a tag works
   /// as a global filter. [tag] includes the leading `#`.
   Future<void> _handleTagTap(String tag) async {
     await _saveCurrentPosition();
     if (!mounted) return;
+    if (!_isCurrentRoute) return;
     AppNavigator.toSearch(context, query: tag);
+  }
+
+  /// Opens the note a tapped `[[title]]` names — from the editor's painted
+  /// link and from the preview's, which both hand over the raw inner text.
+  ///
+  /// Resolution prefers a note in the folder this one lives in, since a link
+  /// written here most likely means the neighbour of that name. A title that
+  /// resolves to nothing is a fact about the text, not a failure, so it
+  /// reports through the neutral snackbar rather than the error one.
+  ///
+  /// A link to the note already open is swallowed rather than pushed: a
+  /// second editor over the same note would give it two save coordinators
+  /// writing the same row, which is the shape the Session 6 review's B3
+  /// guards exist for. That check only covers *this* page's note, though —
+  /// a link back to a note open further down the stack still pushes, which
+  /// is what [_awaitingContentLoad] and [_reloadContentIfChanged] handle.
+  ///
+  /// The whole body is guarded: the wrapper calls this detached, so an
+  /// exception from the lookup or the position write would otherwise land
+  /// as an unhandled async error with nothing on screen to show for it
+  /// (C11).
+  Future<void> _handleWikiLinkTap(String rawTitle) async {
+    final title = rawTitle.trim();
+    if (title.isEmpty) return;
+
+    try {
+      // The lookup gets the full trimmed title; only what the snackbar
+      // shows is bounded (C10).
+      final note = await GetIt.I<NoteStorageService>().resolveNoteByTitle(
+        title,
+        preferFolderId: widget.folderId,
+      );
+      if (!mounted) return;
+      if (!_isCurrentRoute) return;
+      if (note == null) {
+        CustomSnackbar.show(
+          context,
+          AppLocalizations.of(
+            context,
+          )!.wikiLinkNoteNotFound(WikiLinkTitle.forDisplay(title)),
+        );
+        return;
+      }
+      if (note.id == (_saves.effectiveNoteId ?? widget.noteId)) return;
+
+      await _saveCurrentPosition();
+      if (!mounted) return;
+      if (!_isCurrentRoute) return;
+      AppNavigator.toNoteEditor(
+        context,
+        folderId: note.folderId,
+        noteId: note.id,
+        metadata: note,
+      );
+    } catch (e) {
+      debugPrint('[NoteEditor] wiki link tap failed: $e');
+      if (!mounted) return;
+      CustomSnackbar.showError(
+        context,
+        AppLocalizations.of(context)!.linkOpenFailed,
+      );
+    }
   }
 
   /// Opens the ledger detail sheet for a tapped `$$` / `$?` / bare `$!`
@@ -1443,37 +1639,22 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
                 _counterBloc.add(SetNoteContext(noteId: id));
                 ShortcutHandlerFactory.counterHandler.setActiveNoteId(id);
               } else if (state is OptimizedNoteContentLoaded) {
-                // Same shared bloc: without this an editor left behind on
-                // the stack would load another note's text over its own
-                // and then auto-save it there.
+                // Same shared bloc, so two guards, and the id alone is not
+                // enough. The id keeps *another note's* text out of this
+                // editor. The flag keeps out an emission for this very note
+                // that answers a *second editor over it* — a `[[wiki link]]`
+                // from B back to A leaves two live pages for A, and the load
+                // that fills the new one would otherwise reload the buried
+                // one too, resetting its caret, its undo baseline and its
+                // auto-save baseline under text the user is still editing
+                // (C1). Deliberately not `ModalRoute.isCurrent`: a launch
+                // restore pushes the whole saved stack at once, so a page
+                // can legitimately be covered when its own first content
+                // arrives.
                 if (state.note.id != widget.noteId) return;
-                final content = state.note.content ?? '';
-                // Counted from the string rather than asked of the
-                // editor: it is exact and already in hand.
-                _stats.set((
-                  lineCount: '\n'.allMatches(content).length + 1,
-                  charCount: content.length,
-                ));
-                // A load, not an edit: the loaded text is the undo
-                // baseline, so undo can never reach the empty document the
-                // controller was constructed with.
-                setState(() {
-                  _contentController.loadText(content);
-                  _contentLoaded = true;
-                });
-                // The tracker never saw the assignment above — only the
-                // wrapper calls `onTextChanged`, and it is not mounted
-                // yet — so its baseline is still zero. Adopt the loaded
-                // length before the wrapper starts diffing, or the first
-                // keystroke reads as a whole-document paste.
-                _edits.syncLength();
-                // `loadText` above fired the page's text listener, so
-                // auto-save thinks the note was edited from empty to this.
-                // Re-baseline before the debounce rewrites what was just
-                // read back, with a new `updatedAt`, version and HLC.
-                _saves.contentLoaded();
-                _pushPreviewContent(content);
-                _markEditorReady();
+                if (!_awaitingContentLoad) return;
+                _awaitingContentLoad = false;
+                _adoptLoadedContent(state.note.content ?? '');
               }
             },
           ),
@@ -1773,6 +1954,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       onDoubleTapLine: _handleDoubleTapLine,
       onGhostTap: _handleGhostTap,
       onTagTap: _handleTagTap,
+      onTapWikiLink: _handleWikiLinkTap,
       onMoneyTap: _handleMoneyTap,
       // Forward scroll progress to the preview controller so the
       // interactive scrollbar (which listens on the same controller)
@@ -1840,6 +2022,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
         // lines render raw so taps there stay plain editing.
         onOpenLink: markdownRendering ? _handleEditorLinkTap : null,
         onOpenTag: markdownRendering ? _handleTagTap : null,
+        onOpenWikiLink: markdownRendering ? _handleWikiLinkTap : null,
         onMoneyTap: markdownRendering && _render.moneyConfig.enabled
             ? _handleMoneyTap
             : null,

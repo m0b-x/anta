@@ -17,6 +17,11 @@ class SimpleMarkdownPreview extends StatefulWidget {
   /// read-only surface pays nothing for them.
   final CheckboxTapCallback? onCheckboxTap;
 
+  /// Opens the note a tapped `[[note]]` names, receiving the raw title
+  /// between the brackets. Null (the default) leaves wiki links rendered
+  /// but inert, exactly like [onTapLink] does for `[text](url)`.
+  final WikiLinkTapCallback? onTapWikiLink;
+
   /// Money ledger display config, mirroring [LineBasedMarkdownBuilder].
   /// The default leaves the ledger off — a caller that does not resolve
   /// `SettingsService.getMoneyConfig()` renders `$` lines as plain text,
@@ -34,6 +39,7 @@ class SimpleMarkdownPreview extends StatefulWidget {
     this.padding,
     this.onTapLink,
     this.onCheckboxTap,
+    this.onTapWikiLink,
     this.moneyConfig = MoneyDisplayConfig.disabled,
     this.colorPalette = MarkdownColorPalette.presets,
   });
@@ -50,6 +56,7 @@ class _SimpleMarkdownPreviewState extends State<SimpleMarkdownPreview> {
   MoneyDisplayConfig? _lastMoneyConfig;
   MarkdownColorPalette? _lastColorPalette;
   bool _lastInteractiveCheckboxes = false;
+  bool _lastInteractiveWikiLinks = false;
 
   @override
   void dispose() {
@@ -62,6 +69,13 @@ class _SimpleMarkdownPreviewState extends State<SimpleMarkdownPreview> {
   /// sticks and `$` lines stay plain text forever. The checkbox callback
   /// is compared by null-ness for the same reason: the builder decides
   /// once, at construction, whether checkboxes get recognizers.
+  ///
+  /// The wiki-link callback is compared the same way and for the same
+  /// reason: [LineBasedMarkdownBuilder] only allocates a recognizer per
+  /// `[[note]]` when `onWikiLinkTap` is non-null at construction, so a
+  /// host that wires the callback after its first frame (the sheet reads
+  /// it from `widget`, and the editor page resolves it from a setting)
+  /// would otherwise keep rendering inert titles against unchanged data.
   bool _shouldRebuild(ThemeData theme) {
     return _builder == null ||
         _lastData != widget.data ||
@@ -69,7 +83,8 @@ class _SimpleMarkdownPreviewState extends State<SimpleMarkdownPreview> {
         _lastTheme?.brightness != theme.brightness ||
         _lastMoneyConfig != widget.moneyConfig ||
         _lastColorPalette != widget.colorPalette ||
-        _lastInteractiveCheckboxes != (widget.onCheckboxTap != null);
+        _lastInteractiveCheckboxes != (widget.onCheckboxTap != null) ||
+        _lastInteractiveWikiLinks != (widget.onTapWikiLink != null);
   }
 
   void _buildCache(BuildContext context) {
@@ -87,6 +102,7 @@ class _SimpleMarkdownPreviewState extends State<SimpleMarkdownPreview> {
     _lastMoneyConfig = widget.moneyConfig;
     _lastColorPalette = widget.colorPalette;
     _lastInteractiveCheckboxes = widget.onCheckboxTap != null;
+    _lastInteractiveWikiLinks = widget.onTapWikiLink != null;
 
     final mdStyle = LineMarkdownStyle.fromTheme(theme, widget.fontSize);
 
@@ -94,6 +110,7 @@ class _SimpleMarkdownPreviewState extends State<SimpleMarkdownPreview> {
       style: mdStyle,
       onLinkTap: widget.onTapLink,
       onCheckboxTap: widget.onCheckboxTap,
+      onWikiLinkTap: widget.onTapWikiLink,
       moneyConfig: widget.moneyConfig,
       colorPalette: widget.colorPalette,
       linesPerChunk: 100,

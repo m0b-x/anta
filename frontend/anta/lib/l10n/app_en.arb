@@ -4691,6 +4691,15 @@
   "@linkOpenAction": {
     "description": "Snackbar action label that opens the tapped link"
   },
+  "wikiLinkNoteNotFound": "No note titled \"{title}\"",
+  "@wikiLinkNoteNotFound": {
+    "description": "Snackbar shown when a tapped [[wiki link]] matches no note title",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "moneySection": "Money ledger",
   "@moneySection": {
     "description": "Settings section header for the money ledger feature"
@@ -5750,5 +5759,9 @@
   "editorZoneSearchTag": "Search tag",
   "@editorZoneSearchTag": {
     "description": "Accessibility label of the editor tap zone over a #tag"
+  },
+  "editorZoneOpenWikiLink": "Open linked note",
+  "@editorZoneOpenWikiLink": {
+    "description": "Accessibility label of the editor tap zone over a [[wiki link]] to another note"
   }
 }

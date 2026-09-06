@@ -164,6 +164,22 @@ lines bypass the memo.
       (a `|` inside a ghost run is content); `isTableSeparator` rows render
       dimmed. No alignment, nothing concealed — the preview's real table stays
       a documented divergence.
+- [x] Wiki links `[[title]]` (2026-09-06, Session 9, decision 5): one construct
+      in `MarkdownLinkPatterns.matchWikiLinkAt` + the `InlineWikiLink` token
+      of `MarkdownInlineGrammar` (probed on `[[` before the link rule, literal
+      title, any atom inside rejects it, `[[a|b]]` literal, `![[a]]` = `!` +
+      wiki on both surfaces); editor conceals `[[`/`]]` off-caret and paints
+      the title in the link-text style, preview drops the brackets; a fifth
+      tap zone (`EditorOpenWikiLinkAction`, precedence checkbox → link → wiki
+      link → money → tag, label `editorZoneOpenWikiLink`) hands the raw title
+      to the page, which resolves it through `NoteStorageService
+      .resolveNoteByTitle` on the v36 `idx_notes_ltitle` (ASCII
+      case-insensitive, trimmed, tombstones out, current folder preferred,
+      else newest) and pushes the editor; a miss is a neutral snackbar, no
+      auto-create, no muted "unresolved" render. The calendar's detail sheet
+      pops first and hands the title to the calendar page; every other
+      preview surface is inert. The paste width line-breaker protects
+      `[[a b]]` like `[a b](u)`.
 - [x] Inline code content at `MarkdownConstants.inlineCodeScale` (0.9×, the
       preview's factor) since 2026-09-05 — safe because the fork's strut comes
       from the root span (`test/re_editor/line_height_contract_test.dart`).
@@ -374,8 +390,8 @@ lines bypass the memo.
   text, so tapping them places the caret (opening lives in preview). Only the
   partially-concealed `[text](url)` construct opens on tap.
 - Wrapper tap zones re-resolve at tap-up, so a text change between down and up
-  can never toggle the wrong line. Since 2026-09-04 the link and tag zones
-  resolve through `MarkdownInlineGrammar.linkAt` / `tagAt` — the exact token
+  can never toggle the wrong line. Since 2026-09-04 the link and tag zones (and since 2026-09-06 the wiki-link zone)
+  resolve through one `MarkdownInlineGrammar.linksAndTags` descent in `EditorInputPolicy` (`linkAt` / `wikiLinkAt` / `tagAt` are the same rule in offset form) — the exact token
   tree the span builder renders — so a `[x](y)` inside inline code, behind an
   escaped `[`, inside a ghost, or in an image never opens, and one nested in
   emphasis or a colour run does.
@@ -480,6 +496,49 @@ lines bypass the memo.
   a hard bound, not a coalescing window — the per-line node heuristic in
   `edit()` is unchanged.
 
+- Wiki links (Session 9, 2026-09-06), four decisions: **9.1 grammar** —
+  `[[title]]` with a literal title (no `[` `]` `|` CR LF, at least one
+  non-blank unit, the first `]]` closes), placed before the `[` link rule
+  so `[[` wins at one offset, and rejected when any phase-1 atom (escape,
+  ghost, code span) would start inside — the title is the lookup key, so
+  what renders is exactly what resolves, and nothing inside it tokenizes;
+  `|` is excluded so an alias form later is not a grammar break; `![[a]]`
+  is `!` + wiki on both surfaces. **9.2 rendering** — brackets concealed
+  (editor) / dropped (preview), the title in the link-text style, and
+  deliberately no resolved-vs-unresolved split at render time: the span
+  builder is synchronous and pure, and the repository holds no title set
+  (a bounded LRU by id, per-folder lists, a change-event stream — no
+  snapshot), so muting unresolved titles would need a live title set with
+  its own invalidation channel (create, rename, delete, move, import, sync
+  merge, database switch) — deferred to v2 with that reason. **9.3
+  resolution** — Page → `NoteStorageService.resolveNoteByTitle` →
+  `NoteRepository.getNotesByTitle` → `NoteDao.getNotesByTitle`, one
+  statement `LOWER(TRIM(title)) = LOWER(?)` on a new partial expression
+  index (schema v36 `idx_notes_ltitle`, both install paths) rather than a
+  scan — the only title index was folder-led; SQLite folds both sides, so a
+  title always matches its own spelling and case-insensitivity is
+  ASCII-only (an ICU build would fold more); the service prefers the
+  current folder, then the newest `updatedAt`, then the smaller id; a miss
+  is a neutral snackbar (a missing target is content, not an error), a
+  self-link does nothing, a resolved link saves the position and pushes
+  the editor. Two editors on one note (`[[A]]` → `[[B]]` → `[[A]]`) are
+  survivable since the Session 9 review: a page adopts only the content it
+  asked for, and a buried page re-reads the note on `didPopNext` when it
+  changed underneath and nothing local is unsaved. **9.4 out of scope** —
+  `[[` autocomplete (the vocabulary suggestion controller is its future
+  home), backlinks, rename propagation (a rename silently breaks inbound
+  links — by design for v1), alias, unresolved muting, embeds, Unicode
+  case folding (needs a stored normalised column). **Caret-line zones
+  pass through** (the device pass, 2026-09-06): every tap zone yields to
+  caret placement on the reveal line so the markers stay editable, which
+  means a single-line note can never tap its own `[[link]]` (nor a
+  `[text](url)`, a tag or a money chip) — the escape hatch is a second
+  line; a long-press opener on the reveal line is the v2 candidate, not
+  built. The editor's snackbars now clear the soft keyboard
+  (`CustomSnackbar` lifts a floating bar by the bottom view inset when the
+  scaffold does not resize) — the "no note titled" feedback was invisible
+  mid-typing on Android.
+
 ## Not verified on device yet
 
 - Session 3 batch (2026-09-03): Enter on a list line / empty item and
@@ -510,6 +569,11 @@ lines bypass the memo.
 - Batch of 2026-07-11, rendering: fence interior/delimiter styling on both
   themes (monospace metrics under the base strut), callout bar + token tint
   per type, H5/H6 primary blend readability, escaped-`\` conceal width
+- Session 9 (2026-09-06) on a real phone: the tap target of a concealed
+  `[[title]]` at small font sizes (the emulator pass used the default 16),
+  the snackbar's clearance above the keyboard on a device with a gesture
+  navigation inset, and the semantics node under TalkBack (the emulator
+  pass did not enable it — the widget suites cover the node)
 - Session 8 (2026-09-05) on a real phone: callout icon glyph size and
   vertical centring per type on both themes, body-bar accent continuity
   down a long block, `◦`/`▪` legibility at small font sizes, table pipe tint

@@ -2200,6 +2200,7 @@
   "linkSchemeNotAllowed": "Linktyp nicht unterstützt",
   "linkOpenPrompt": "{target} öffnen?",
   "linkOpenAction": "Öffnen",
+  "wikiLinkNoteNotFound": "Keine Notiz mit dem Titel \"{title}\"",
   "moneySection": "Kassenbuch",
   "moneyLedgerEnabledLabel": "Kassenbuch aktivieren",
   "moneyLedgerEnabledDesc": "$-Geldzeilen in Notizen und im Kalender anzeigen",
@@ -2536,5 +2537,6 @@
   "editorZoneToggleTask": "Aufgabe umschalten",
   "editorZoneOpenLink": "Link öffnen",
   "editorZoneOpenMoney": "Kassenbuchdetails öffnen",
-  "editorZoneSearchTag": "Schlagwort suchen"
+  "editorZoneSearchTag": "Schlagwort suchen",
+  "editorZoneOpenWikiLink": "Verknüpfte Notiz öffnen"
 }

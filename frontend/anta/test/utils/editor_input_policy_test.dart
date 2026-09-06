@@ -22,6 +22,16 @@ void main() {
   /// A `#project` tag at `[4, 12)`.
   const tagLine = 'see #project now';
 
+  /// A `[[Squat Progression]]` wiki link at `[4, 25)`: the opening `[[`
+  /// takes offsets 4 and 5, the title `[6, 23)`, the closing `]]` 23 and
+  /// 24, and the trailing space sits at 25.
+  const wikiLine = 'see [[Squat Progression]] now';
+
+  /// One line carrying all three inline zones side by side: a wiki link
+  /// at `[0, 5)`, a `#t` tag at `[6, 8)` and a `[l](u)` link at
+  /// `[9, 15)`. Nothing nests, so each construct answers for itself.
+  const mixedLine = '[[a]] #t [l](u)';
+
   /// A `{{ … }}` ghost run at `[4, 14)`.
   const ghostLine = 'see {{ name }} now';
 
@@ -341,7 +351,143 @@ void main() {
       tags: false,
     ),
 
-    // --- precedence: checkbox > link > money > tag ----------------------
+    // --- wiki-link zone ------------------------------------------------
+    tapRow(
+      'a tap inside the title opens the note it names',
+      text: wikiLine,
+      offset: 10,
+      expected: const EditorOpenWikiLinkAction('Squat Progression'),
+    ),
+    tapRow(
+      "the construct's first bracket passes through",
+      text: wikiLine,
+      offset: 4,
+    ),
+    tapRow(
+      'the second bracket already opens the note',
+      text: wikiLine,
+      offset: 5,
+      expected: const EditorOpenWikiLinkAction('Squat Progression'),
+    ),
+    tapRow(
+      'the last closing bracket is inside the zone',
+      text: wikiLine,
+      offset: 24,
+      expected: const EditorOpenWikiLinkAction('Squat Progression'),
+    ),
+    tapRow(
+      'the space after the construct passes through',
+      text: wikiLine,
+      offset: 25,
+    ),
+    tapRow(
+      'wiki links disabled: the same tap passes through',
+      text: wikiLine,
+      offset: 10,
+      wikiLinks: false,
+    ),
+    tapRow(
+      'wiki links disabled: the tag beside one still resolves',
+      text: mixedLine,
+      offset: 7,
+      wikiLinks: false,
+      expected: const EditorOpenTagAction('#t'),
+    ),
+    tapRow(
+      'a wiki link wrapped in a colour run still opens',
+      text: '{red:[[a]]}',
+      offset: 7,
+      expected: const EditorOpenWikiLinkAction('a'),
+    ),
+    tapRow(
+      'the second of two adjacent wiki links opens its own note',
+      text: '[[a]][[b]]',
+      offset: 7,
+      expected: const EditorOpenWikiLinkAction('b'),
+    ),
+    tapRow(
+      'a revealed line with a wiki link passes through',
+      text: wikiLine,
+      offset: 10,
+      revealed: true,
+    ),
+    tapRow(
+      'a fence line with a wiki link passes through',
+      text: wikiLine,
+      offset: 10,
+      inFence: true,
+    ),
+    tapRow(
+      'a wiki link past maxStyledLineLength passes through',
+      text: wikiLine.padRight(
+        MarkdownEditorSpanBuilder.maxStyledLineLength + 1,
+        'x',
+      ),
+      offset: 10,
+    ),
+    tapRow(
+      'the raw title is handed over untrimmed',
+      text: '[[ a ]]',
+      offset: 3,
+      expected: const EditorOpenWikiLinkAction(' a '),
+    ),
+    tapRow(
+      'a wiki link inside an inline-code run is literal',
+      text: '`[[a]]`',
+      offset: 3,
+    ),
+    tapRow(
+      'an aliased title is literal — the pipe is reserved, not used',
+      text: '[[a|b]]',
+      offset: 3,
+    ),
+    tapRow(
+      'a ghost in the title makes the whole construct literal',
+      text: '[[a {{g}} b]]',
+      offset: 2,
+    ),
+    tapRow(
+      'the ghost in that literal construct still wins',
+      text: '[[a {{g}} b]]',
+      offset: 6,
+    ),
+    tapRow(
+      'a wiki link nested in bold still opens',
+      text: '**[[a]]**',
+      offset: 4,
+      expected: const EditorOpenWikiLinkAction('a'),
+    ),
+    tapRow(
+      "a task line's box toggles while its wiki link stays its own zone",
+      text: '- [ ] [[a]]',
+      offset: 3,
+      expected: const EditorToggleTaskAction(lineIndex),
+    ),
+    tapRow(
+      "that task line's wiki link still opens",
+      text: '- [ ] [[a]]',
+      offset: 8,
+      expected: const EditorOpenWikiLinkAction('a'),
+    ),
+    tapRow(
+      "a wiki link in a money row's label opens the note, not the sheet",
+      text: r'$$ [[a]]',
+      offset: 5,
+      expected: const EditorOpenWikiLinkAction('a'),
+    ),
+    tapRow(
+      'an image bang before a wiki link passes through',
+      text: '![[a]]',
+      offset: 0,
+    ),
+    tapRow(
+      'the wiki link after that bang still opens',
+      text: '![[a]]',
+      offset: 3,
+      expected: const EditorOpenWikiLinkAction('a'),
+    ),
+
+    // --- precedence: checkbox > link > wiki link > money > tag ----------
     tapRow(
       'the checkbox zone outranks a link that starts inside it',
       text: '- [ ](https://x.dev)',
@@ -380,6 +526,24 @@ void main() {
       offset: 8,
       expected: const EditorOpenLinkAction('u'),
     ),
+    tapRow(
+      'three constructs on one line: the wiki link opens its note',
+      text: mixedLine,
+      offset: 2,
+      expected: const EditorOpenWikiLinkAction('a'),
+    ),
+    tapRow(
+      'three constructs on one line: the tag searches for itself',
+      text: mixedLine,
+      offset: 7,
+      expected: const EditorOpenTagAction('#t'),
+    ),
+    tapRow(
+      'three constructs on one line: the link opens its url',
+      text: mixedLine,
+      offset: 11,
+      expected: const EditorOpenLinkAction('u'),
+    ),
 
     // --- a construct straddling a ghost run ----------------------------
     tapRow(
@@ -414,6 +578,7 @@ void main() {
             zones: EditorTapZones(
               checkbox: row.checkbox,
               links: row.links,
+              wikiLinks: row.wikiLinks,
               money: row.money,
               tags: row.tags,
               palette: palette,
@@ -431,6 +596,7 @@ void main() {
     bool inFence = false,
     bool checkbox = true,
     bool links = true,
+    bool wikiLinks = true,
     bool money = true,
     bool tags = true,
   }) => EditorInputPolicy.zonesOf(
@@ -441,6 +607,7 @@ void main() {
     zones: EditorTapZones(
       checkbox: checkbox,
       links: links,
+      wikiLinks: wikiLinks,
       money: money,
       tags: tags,
       palette: palette,
@@ -456,6 +623,7 @@ void main() {
           inFence: row.inFence,
           checkbox: row.checkbox,
           links: row.links,
+          wikiLinks: row.wikiLinks,
           money: row.money,
           tags: row.tags,
         );
@@ -484,6 +652,7 @@ void main() {
             zones: EditorTapZones(
               checkbox: row.checkbox,
               links: row.links,
+              wikiLinks: row.wikiLinks,
               money: row.money,
               tags: row.tags,
               palette: palette,
@@ -623,9 +792,46 @@ void main() {
       ]);
     });
 
+    test('a wiki-link zone starts past the first bracket', () {
+      expect(zonesFor(wikiLine), const [
+        EditorTapZone(
+          start: 5,
+          end: 25,
+          action: EditorOpenWikiLinkAction('Squat Progression'),
+        ),
+      ]);
+    });
+
+    test('three constructs on one line are three zones in source order', () {
+      expect(zonesFor(mixedLine), const [
+        EditorTapZone(start: 1, end: 5, action: EditorOpenWikiLinkAction('a')),
+        EditorTapZone(start: 7, end: 8, action: EditorOpenTagAction('#t')),
+        EditorTapZone(start: 10, end: 15, action: EditorOpenLinkAction('u')),
+      ]);
+    });
+
+    test('disabling wiki links drops that zone and keeps the others', () {
+      expect(zonesFor(mixedLine, wikiLinks: false), const [
+        EditorTapZone(start: 7, end: 8, action: EditorOpenTagAction('#t')),
+        EditorTapZone(start: 10, end: 15, action: EditorOpenLinkAction('u')),
+      ]);
+    });
+
+    test('a task line with a wiki link produces two disjoint ranges', () {
+      expect(zonesFor('- [ ] [[a]]'), const [
+        EditorTapZone(
+          start: 0,
+          end: 6,
+          action: EditorToggleTaskAction(lineIndex),
+        ),
+        EditorTapZone(start: 7, end: 11, action: EditorOpenWikiLinkAction('a')),
+      ]);
+    });
+
     test('a disabled zone enumerates nothing for its construct', () {
       expect(zonesFor('- [ ] squat', checkbox: false), isEmpty);
       expect(zonesFor(linkLine, links: false), isEmpty);
+      expect(zonesFor(wikiLine, wikiLinks: false), isEmpty);
       expect(zonesFor(r'$$ balance', money: false), isEmpty);
       expect(zonesFor(tagLine, tags: false), isEmpty);
     });
@@ -958,6 +1164,7 @@ typedef TapRow = ({
   bool inFence,
   bool checkbox,
   bool links,
+  bool wikiLinks,
   bool money,
   bool tags,
   EditorTapAction? expected,
@@ -973,6 +1180,7 @@ TapRow tapRow(
   bool inFence = false,
   bool checkbox = true,
   bool links = true,
+  bool wikiLinks = true,
   bool money = true,
   bool tags = true,
   EditorTapAction? expected,
@@ -984,6 +1192,7 @@ TapRow tapRow(
   inFence: inFence,
   checkbox: checkbox,
   links: links,
+  wikiLinks: wikiLinks,
   money: money,
   tags: tags,
   expected: expected,

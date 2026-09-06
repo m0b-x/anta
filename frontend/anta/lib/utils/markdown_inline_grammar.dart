@@ -9,10 +9,11 @@ import 'markdown_tag_syntax.dart';
 /// The one inline grammar both render surfaces consume — emphasis,
 /// strikethrough, highlight, inline code, backslash escapes — together
 /// with the placement rules for the constructs that already own their
-/// own module (ghosts, `[text](url)` links, bare URLs, `#tag`s,
-/// `{name:text}` colours). The preview drops markers, the live editor
-/// conceals them, the editor's tap zones resolve against it; none of
-/// them may re-scan for any of these constructs on their own.
+/// own module (ghosts, `[text](url)` links, `[[title]]` wiki links,
+/// bare URLs, `#tag`s, `{name:text}` colours). The preview drops
+/// markers, the live editor conceals them, the editor's tap zones
+/// resolve against it; none of them may re-scan for any of these
+/// constructs on their own.
 ///
 /// [MarkdownInlineGrammar.tokenize] is a pure function of
 /// `text.substring(start, end)` plus the ghost runs intersecting that
@@ -31,7 +32,9 @@ import 'markdown_tag_syntax.dart';
 ///   backtick run closed by the next run of exactly the same length,
 ///   skipping runs inside ghosts; an unclosed run is literal). Nothing
 ///   inside an atom is scanned again.
-/// * Then, at each position outside an atom: `![text](url)` /
+/// * Then, at each position outside an atom: `[[title]]` wiki links
+///   (probed on a doubled `[` before the link rule, and rejected when
+///   any atom would start inside them), `![text](url)` /
 ///   `[text](url)` (structural characters must not sit inside an atom),
 ///   `{name:text}` (its closing brace likewise), `#tag` and bare URLs at
 ///   a word boundary (a URL stops at the next atom), and delimiter runs
@@ -48,7 +51,8 @@ import 'markdown_tag_syntax.dart';
 ///   literal.
 /// * Only top-level tokens are returned. A consumer recurses into an
 ///   emphasis, link-text or colour range and finds the nested tokens
-///   there; code spans are literal all the way down.
+///   there; code spans and wiki-link titles are literal all the way
+///   down.
 class MarkdownInlineGrammar {
   MarkdownInlineGrammar._();
 
@@ -119,6 +123,21 @@ class MarkdownInlineGrammar {
       }
 
       if (c == _kOpenBracket) {
+        if (p + 1 < hi && text.codeUnitAt(p + 1) == _kOpenBracket) {
+          final wiki = MarkdownLinkPatterns.matchWikiLinkAt(text, p, hi);
+          if (wiki != null && wiki.end <= nextAtom) {
+            (constructs ??= <InlineToken>[]).add(
+              InlineWikiLink(
+                start: p,
+                end: wiki.end,
+                titleStart: wiki.titleStart,
+                titleEnd: wiki.titleEnd,
+              ),
+            );
+            p = wiki.end;
+            continue;
+          }
+        }
         final link = _tryLink(text, p, p, hi, atomList, ai, false);
         if (link != null) {
           (constructs ??= <InlineToken>[]).add(link);
@@ -265,6 +284,32 @@ class MarkdownInlineGrammar {
     return null;
   }
 
+  /// The `[[title]]` wiki link whose run strictly contains [offset] —
+  /// `start < offset < end`, exactly like [linkAt], so the outer
+  /// brackets' boundary offsets belong to caret placement — at any
+  /// nesting depth, or `null`. Resolves against exactly what [tokenize]
+  /// would render, so a title that never became a link (`[[a|b]]`, a
+  /// title split by a code span) resolves to nothing.
+  ///
+  /// Pass the line's ghost runs as [ghosts] when you already have them;
+  /// they are scanned from [text] otherwise.
+  static InlineWikiLink? wikiLinkAt(
+    String text,
+    int offset, {
+    required MarkdownColorPalette palette,
+    List<GhostMatch>? ghosts,
+  }) {
+    if (offset <= 0 || offset >= text.length) return null;
+    for (final InlineToken token in linksAndTags(
+      text,
+      palette: palette,
+      ghosts: ghosts,
+    )) {
+      if (token is InlineWikiLink && token.containsStrict(offset)) return token;
+    }
+    return null;
+  }
+
   /// The `#tag` whose run strictly contains [offset] at any nesting
   /// depth, or `null`. Tags inside code spans and ghosts are not tags.
   ///
@@ -287,11 +332,12 @@ class MarkdownInlineGrammar {
     return null;
   }
 
-  /// Every `[text](url)` link and every `#tag` [tokenize] renders in
-  /// [text], at any nesting depth — the one descent behind [linkAt],
-  /// [tagAt] and every caller that needs the constructs themselves
-  /// instead of the one under a single offset, so no two of them can
-  /// disagree about what the tokenizer would render.
+  /// Every `[text](url)` link, every `[[title]]` wiki link and every
+  /// `#tag` [tokenize] renders in [text], at any nesting depth — the one
+  /// descent behind [linkAt], [wikiLinkAt], [tagAt] and every caller
+  /// that needs the constructs themselves instead of the one under a
+  /// single offset, so no two of them can disagree about what the
+  /// tokenizer would render.
   ///
   /// [ghosts] are the ghost runs of [text] (as [GhostText.findGhosts]
   /// returns them); a caller that already has them passes them through
@@ -301,7 +347,9 @@ class MarkdownInlineGrammar {
   /// earlier token follows it: an image is not a link but its text is
   /// still descended into, and a link's text is descended into as well,
   /// so a tag inside either is reported after the token that covers it
-  /// and the caller applies its own precedence.
+  /// and the caller applies its own precedence. A wiki link's title is
+  /// the one exception — it is literal, so nothing is ever reported
+  /// inside one.
   static List<InlineToken> linksAndTags(
     String text, {
     required MarkdownColorPalette palette,
@@ -319,7 +367,8 @@ class MarkdownInlineGrammar {
   }
 
   /// Whether `[start, end)` holds a code unit that can open any token —
-  /// `* ~ ` _ = # [ \ {` or a bare-URL scheme lead (`ht`, `ww`; a lone
+  /// `* ~ ` _ = # [ \ {` (`[` covers `[[` too, since a wiki link opens
+  /// on the same unit) or a bare-URL scheme lead (`ht`, `ww`; a lone
   /// `h`/`w` would defeat the check on every prose line). The one-pass
   /// quick reject in front of [tokenize], and the pre-check a renderer
   /// may use to skip inline work on the common construct-free line. An
@@ -718,7 +767,9 @@ class MarkdownInlineGrammar {
     }
   }
 
-  /// Depth-first collection of every link and tag in `[start, end)`.
+  /// Depth-first collection of every link, wiki link and tag in
+  /// `[start, end)`. A wiki link's title is literal, so the walk stops
+  /// at the token instead of descending into it.
   static void _collect(
     String text,
     int start,
@@ -751,6 +802,8 @@ class MarkdownInlineGrammar {
           depth + 1,
           out,
         );
+      } else if (token is InlineWikiLink) {
+        out.add(token);
       } else if (token is InlineEmphasis) {
         _collect(
           text,
@@ -874,6 +927,42 @@ final class InlineLink extends InlineToken {
   int get bracketStart => textStart - 1;
 
   String urlOf(String text) => text.substring(urlStart, urlEnd);
+}
+
+/// `[[title]]` — a wiki link to another note by title. The title
+/// `[titleStart, titleEnd)` is literal (never a nested range): it is the
+/// lookup key, so what renders is exactly what resolves.
+///
+/// Placement: the construct is refused outright when any atom would open
+/// inside it, and the atoms are exactly three — an escape (`\` before
+/// ASCII punctuation, so `[[snake\_case]]` is not a wiki link at all,
+/// only literal brackets around an escape, while `[[snake_case]]` is one
+/// with a literal underscore in its title), a ghost run, and a code
+/// span. Nothing else can start inside a title, which is why neither
+/// surface ever needs a nested pass over one.
+///
+/// A wiki link can never sit inside a `[text](url)` link's text either:
+/// [MarkdownLinkPatterns.matchInlineLinkAt] closes the text at the
+/// *first* `]`, and a wiki link always carries `]]`. So `_collect` not
+/// descending into a title and both emitters "never recursing into" one
+/// are the same fact rather than two rules that could drift apart.
+final class InlineWikiLink extends InlineToken {
+  /// Index where the title begins, just past the `[[`.
+  final int titleStart;
+
+  /// Index of the first `]` of the closing `]]`.
+  final int titleEnd;
+
+  const InlineWikiLink({
+    required super.start,
+    required super.end,
+    required this.titleStart,
+    required this.titleEnd,
+  });
+
+  /// The raw title of [text] — the note title this link resolves
+  /// against, with no markup of its own.
+  String titleOf(String text) => text.substring(titleStart, titleEnd);
 }
 
 /// `{name:text}` with a resolved colour. `[innerStart, innerEnd)` is a

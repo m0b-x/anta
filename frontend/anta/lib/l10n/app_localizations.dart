@@ -6502,6 +6502,12 @@ abstract class AppLocalizations {
   /// **'Open'**
   String get linkOpenAction;
 
+  /// Snackbar shown when a tapped [[wiki link]] matches no note title
+  ///
+  /// In en, this message translates to:
+  /// **'No note titled \"{title}\"'**
+  String wikiLinkNoteNotFound(String title);
+
   /// Settings section header for the money ledger feature
   ///
   /// In en, this message translates to:
@@ -7899,6 +7905,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Search tag'**
   String get editorZoneSearchTag;
+
+  /// Accessibility label of the editor tap zone over a [[wiki link]] to another note
+  ///
+  /// In en, this message translates to:
+  /// **'Open linked note'**
+  String get editorZoneOpenWikiLink;
 }
 
 class _AppLocalizationsDelegate

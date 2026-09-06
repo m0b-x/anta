@@ -47,6 +47,57 @@ void main() {
     expect(counter.count, 0);
   });
 
+  test('resolving a wiki link title is one statement', () async {
+    counter.reset();
+    final found = await db.noteDao.getNotesByTitle('Note 7');
+
+    expect(found, hasLength(1));
+    expect(
+      counter.count,
+      1,
+      reason:
+          'getNotesByTitle must stay one indexed SELECT. A tapped [[link]] '
+          'runs it on the interaction path, so a second statement is a second '
+          'round trip before the editor opens. Issued:\n'
+          '${counter.statements.join('\n')}',
+    );
+  });
+
+  test('a wiki link that matches nothing still costs one statement', () async {
+    counter.reset();
+    expect(await db.noteDao.getNotesByTitle('Nothing here'), isEmpty);
+    // A miss is the common case while a link is being typed; it must not
+    // widen into a fallback query.
+    expect(counter.count, 1);
+  });
+
+  test('a blank wiki link title touches the database not at all', () async {
+    counter.reset();
+    expect(await db.noteDao.getNotesByTitle('   '), isEmpty);
+    expect(await db.noteDao.getNotesByTitle(''), isEmpty);
+    expect(counter.count, 0);
+  });
+
+  test(
+    'an over-long wiki link title touches the database not at all',
+    () async {
+      counter.reset();
+      // `notes.title` is capped at 500, so nothing longer can be stored and
+      // nothing longer can match. A `[[…]]` can hold a whole pasted paragraph,
+      // which is how a title this long reaches the DAO at all.
+      expect(await db.noteDao.getNotesByTitle('x' * 501), isEmpty);
+      expect(counter.count, 0);
+    },
+  );
+
+  test('a title exactly at the column cap is still looked up', () async {
+    counter.reset();
+    // The boundary, counted in the UTF-16 code units Drift enforces the cap
+    // in: 500 is storable, so refusing it would make real notes unreachable.
+    expect(await db.noteDao.getNotesByTitle('x' * 500), isEmpty);
+    expect(counter.count, 1);
+  });
+
   test('listing a folder page is a constant number of statements', () async {
     counter.reset();
     await db.noteDao.getNotesPaginated(

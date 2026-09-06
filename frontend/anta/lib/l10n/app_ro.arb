@@ -1057,6 +1057,7 @@
   "linkSchemeNotAllowed": "Tip de link nesuportat",
   "linkOpenPrompt": "Deschizi {target}?",
   "linkOpenAction": "Deschide",
+  "wikiLinkNoteNotFound": "Nicio notă cu titlul \"{title}\"",
   "moneySection": "Registru de bani",
   "moneyLedgerEnabledLabel": "Activează registrul de bani",
   "moneyLedgerEnabledDesc": "Afișează liniile $ de bani în notițe și în calendar",
@@ -1397,5 +1398,6 @@
   "editorZoneToggleTask": "Comută sarcina",
   "editorZoneOpenLink": "Deschide linkul",
   "editorZoneOpenMoney": "Deschide detaliile registrului",
-  "editorZoneSearchTag": "Caută eticheta"
+  "editorZoneSearchTag": "Caută eticheta",
+  "editorZoneOpenWikiLink": "Deschide nota asociată"
 }

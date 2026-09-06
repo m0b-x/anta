@@ -40,6 +40,18 @@ final class EditorOpenLinkAction extends EditorTapAction {
   List<Object?> get props => [url];
 }
 
+/// Open the note a tapped `[[note]]` names, carrying the raw title
+/// between the brackets — untrimmed, exactly as the preview's wiki-link
+/// recognizer passes it, so resolving a name stays the page's job.
+final class EditorOpenWikiLinkAction extends EditorTapAction {
+  const EditorOpenWikiLinkAction(this.title);
+
+  final String title;
+
+  @override
+  List<Object?> get props => [title];
+}
+
 /// Open the ledger detail sheet for the money row on [lineIndex].
 final class EditorOpenMoneyAction extends EditorTapAction {
   const EditorOpenMoneyAction(this.lineIndex);
@@ -91,13 +103,14 @@ class EditorTapZone extends Equatable {
 }
 
 /// Which tap zones the host enabled — the wrapper's `checkboxTapToggle`
-/// flag and its three nullable callbacks — plus the palette the span
+/// flag and its four nullable callbacks — plus the palette the span
 /// builder renders with, so a zone resolves nested `{name:…}` runs
 /// exactly as they are drawn.
 class EditorTapZones {
   const EditorTapZones({
     required this.checkbox,
     required this.links,
+    required this.wikiLinks,
     required this.money,
     required this.tags,
     required this.palette,
@@ -105,6 +118,9 @@ class EditorTapZones {
 
   final bool checkbox;
   final bool links;
+
+  /// Whether a tapped `[[note]]` opens the note it names.
+  final bool wikiLinks;
   final bool money;
   final bool tags;
   final MarkdownColorPalette palette;
@@ -146,8 +162,9 @@ class EditorInputPolicy {
   /// to the line-end offset, and a tap inside a ghost run rides the
   /// selection change instead (ghosts win).
   ///
-  /// Zones resolve in precedence order — checkbox, link, money, tag —
-  /// so a construct nested in an earlier zone opens that zone's action.
+  /// Zones resolve in precedence order — checkbox, link, wiki link,
+  /// money, tag — so a construct nested in an earlier zone opens that
+  /// zone's action.
   static EditorTapAction? resolveTap({
     required String? lineText,
     required int lineIndex,
@@ -163,10 +180,10 @@ class EditorInputPolicy {
       return null;
     }
     if (offset >= lineText.length) return null;
-    // The ghost runs are scanned once and then handed to the link and
-    // tag zones, which would otherwise rescan the line for them: first
-    // to decide whether the tap rides the selection change instead, then
-    // once per grammar descent.
+    // The ghost runs are scanned once and then handed to the inline
+    // descent, which would otherwise rescan the line for them: first to
+    // decide whether the tap rides the selection change instead, then
+    // once for the grammar.
     final List<GhostMatch> ghostRuns = GhostText.mightContain(lineText)
         ? GhostText.findGhosts(lineText)
         : const <GhostMatch>[];
@@ -187,6 +204,21 @@ class EditorInputPolicy {
         return EditorToggleTaskAction(lineIndex);
       }
     }
+    // The link, wiki-link and tag zones are three readings of one
+    // descent over the shared grammar — the same whole-line walk
+    // [zonesOf] takes — so a line with no inline zone enabled pays for
+    // nothing, and a line with several pays once. Asking each zone for
+    // the first token of its kind whose [InlineToken.containsStrict]
+    // holds is exactly what `linkAt` / `wikiLinkAt` / `tagAt` compute,
+    // which is what keeps the two forms from ever disagreeing.
+    final List<InlineToken> inline =
+        (zones.links || zones.wikiLinks || zones.tags)
+        ? MarkdownInlineGrammar.linksAndTags(
+            lineText,
+            palette: zones.palette,
+            ghosts: ghostRuns,
+          )
+        : const <InlineToken>[];
     if (zones.links) {
       // The zone is exactly the construct the editor renders as a link,
       // resolved through the one inline grammar both surfaces consume,
@@ -194,13 +226,23 @@ class EditorInputPolicy {
       // escapes, images and ghosts all decide the zone the same way they
       // decide the paint. Outermost boundary offsets are excluded by the
       // grammar, so taps that resolve to the edges still place the caret.
-      final link = MarkdownInlineGrammar.linkAt(
-        lineText,
-        offset,
-        palette: zones.palette,
-        ghosts: ghostRuns,
-      );
-      if (link != null) return EditorOpenLinkAction(link.urlOf(lineText));
+      for (final InlineToken token in inline) {
+        if (token is InlineLink && token.containsStrict(offset)) {
+          return EditorOpenLinkAction(token.urlOf(lineText));
+        }
+      }
+    }
+    if (zones.wikiLinks) {
+      // A `[[note]]` conceals its brackets the way a link conceals
+      // `[` and `](url)`, so the tapped offset is a source offset inside
+      // the construct — and the outermost `[` is excluded by
+      // `containsStrict`, so a tap on the construct's own boundary still
+      // places the caret, exactly as it does on a link.
+      for (final InlineToken token in inline) {
+        if (token is InlineWikiLink && token.containsStrict(offset)) {
+          return EditorOpenWikiLinkAction(token.titleOf(lineText));
+        }
+      }
     }
     if (zones.money && MarkdownMoneySyntax.leadsWithMoney(lineText)) {
       final money = MarkdownMoneySyntax.parse(lineText);
@@ -228,13 +270,11 @@ class EditorInputPolicy {
       // resolved at any nesting depth, so a tag inside emphasis or a
       // colour run is tappable while heading hashes, `#3`, and tags
       // inside code spans, escapes or ghost runs are not.
-      final tag = MarkdownInlineGrammar.tagAt(
-        lineText,
-        offset,
-        palette: zones.palette,
-        ghosts: ghostRuns,
-      );
-      if (tag != null) return EditorOpenTagAction(tag.tagOf(lineText));
+      for (final InlineToken token in inline) {
+        if (token is InlineTag && token.containsStrict(offset)) {
+          return EditorOpenTagAction(token.tagOf(lineText));
+        }
+      }
     }
     return null;
   }
@@ -254,9 +294,9 @@ class EditorInputPolicy {
   /// actually tappable.
   ///
   /// The constructs come from the same grammars [resolveTap] reads;
-  /// precedence — checkbox, link, money, tag, and outermost before
-  /// nested within each — is resolved by claiming offsets in that order,
-  /// so a zone nested in an earlier one is simply never reported.
+  /// precedence — checkbox, link, wiki link, money, tag, and outermost
+  /// before nested within each — is resolved by claiming offsets in that
+  /// order, so a zone nested in an earlier one is simply never reported.
   ///
   /// The claim table spans only the offsets some candidate reaches, not
   /// the whole line: with a screen reader on, this runs once per visible
@@ -295,7 +335,7 @@ class EditorInputPolicy {
     final bool mightHaveGhosts = GhostText.mightContain(lineText);
     List<GhostMatch>? ghostRuns;
     final List<InlineToken> inline;
-    if (zones.links || zones.tags) {
+    if (zones.links || zones.wikiLinks || zones.tags) {
       ghostRuns = mightHaveGhosts
           ? GhostText.findGhosts(lineText)
           : const <GhostMatch>[];
@@ -316,6 +356,20 @@ class EditorInputPolicy {
             token.start + 1,
             token.end,
             EditorOpenLinkAction(token.urlOf(lineText)),
+            length,
+          );
+        }
+      }
+    }
+
+    if (zones.wikiLinks) {
+      for (final InlineToken token in inline) {
+        if (token is InlineWikiLink) {
+          _addCandidate(
+            candidates,
+            token.start + 1,
+            token.end,
+            EditorOpenWikiLinkAction(token.titleOf(lineText)),
             length,
           );
         }

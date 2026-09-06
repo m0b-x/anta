@@ -60,6 +60,7 @@ class MarkdownPreviewBloc
   CheckboxTapCallback? _onCheckboxTap;
   GhostTapCallback? _onGhostTap;
   TagTapCallback? _onTagTap;
+  WikiLinkTapCallback? _onWikiLinkTap;
   MoneyTapCallback? _onMoneyTap;
 
   /// Optional pull-style content source. When set, callers can
@@ -153,12 +154,14 @@ class MarkdownPreviewBloc
     CheckboxTapCallback? onCheckboxTap,
     GhostTapCallback? onGhostTap,
     TagTapCallback? onTagTap,
+    WikiLinkTapCallback? onWikiLinkTap,
     MoneyTapCallback? onMoneyTap,
   }) {
     _onLinkTap = onLinkTap;
     _onCheckboxTap = onCheckboxTap;
     _onGhostTap = onGhostTap;
     _onTagTap = onTagTap;
+    _onWikiLinkTap = onWikiLinkTap;
     _onMoneyTap = onMoneyTap;
   }
 
@@ -345,6 +348,7 @@ class MarkdownPreviewBloc
       onCheckboxTap: _onCheckboxTap,
       onGhostTap: _onGhostTap,
       onTagTap: _onTagTap,
+      onWikiLinkTap: _onWikiLinkTap,
       onMoneyTap: _onMoneyTap,
     );
 

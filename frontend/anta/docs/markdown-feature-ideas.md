@@ -80,12 +80,24 @@ Tiers are by value-to-effort for this app specifically.
 
 ## Tier 2 — Strong quality-of-life
 
-### 6. Wiki-links between notes — `[[Squat Progression]]`
+### 6. Wiki-links between notes — `[[Squat Progression]]` — ✅ SHIPPED (2026-09-06, Session 9)
+- **Status:** `[[title]]` is a token of the shared inline grammar
+  (`MarkdownLinkPatterns.matchWikiLinkAt` + `InlineWikiLink`; literal title,
+  `[[` wins over `[`, any atom inside leaves it literal), concealed in the
+  editor and dropped in the preview, tappable on both surfaces; a tap resolves
+  the title through `NoteStorageService.resolveNoteByTitle` (schema v36
+  `idx_notes_ltitle`, tombstones out, current folder preferred) and opens the
+  note. Unresolved titles show a snackbar rather than a muted style — the
+  render path never touches the database (reason in the live-editor roadmap's
+  decision log). Not yet: alias `[[a|b]]`, `[[` autocomplete, backlinks,
+  rename propagation, embeds.
 - **Why (gym):** link today's session to a program, a previous PR day, or an
   exercise's technique note. Turns a flat log into a connected training journal.
-- **Fit:** inline token in `_parseInline`; resolve the title via `NoteRepository`
-  (filter `is_deleted`, like the calendar's linked-note resolution), tap →
-  `AppNavigator`. Unresolved titles render in a muted "broken link" style.
+- **Fit (as shipped):** one token in the shared inline grammar consumed by both
+  surfaces; the page resolves the title through `NoteStorageService` (never the
+  repository from a page), tombstones filtered, tap → `AppNavigator`. The
+  original idea of a muted "broken link" style for unresolved titles was
+  deliberately not built — see the Status bullet.
 - **Effort:** M. **Offset risk:** none.
 
 ### 7. Table of contents — `[[toc]]` or auto for long notes
@@ -181,7 +193,7 @@ Tiers are by value-to-effort for this app specifically.
 2. **Tags `#`** (organizational backbone, ties into search) →
 3. **Callouts** (proves the block model beyond code fences) →
 4. **Set shorthand / 1RM** (the signature gym feature) →
-5. **Wiki-links** + **TOC** (connected journal) → then Tier 3 / UX as desired.
+5. **Wiki-links** (shipped 2026-09-06) + **TOC** (connected journal) → then Tier 3 / UX as desired.
 
 Everything here preserves the source-offset contract except where flagged
 "medium" (footnotes, reference links) — those need a document-level resolution

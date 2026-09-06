@@ -338,6 +338,54 @@ final List<_Case> _corpus = <_Case>[
     expectedDiff: 'visible text: editor "![a](b)" vs preview "🖼 a"',
   ),
 
+  // Wiki links: the editor conceals `[[` and `]]`, the preview drops
+  // them, and the title is literal on both — so a construct that renders
+  // at all must render the same raw title, and one the grammar refuses
+  // must stay the same raw source.
+  const _Case('wiki link alone', '[[a]]'),
+  const _Case('wiki link in prose', 'see [[Squat Progression]] now'),
+  const _Case('wiki link with a padded title', '[[ a ]]'),
+  const _Case('wiki link inside bold', '**[[a]]**'),
+  const _Case('wiki link inside italic prose', '*x [[a]] y*'),
+  const _Case('wiki link inside a colour run', 'a {red:[[note]]} b'),
+  const _Case('wiki link inside a highlight', '==[[a]]=='),
+  const _Case('wiki link inside strikethrough', '~~[[a]]~~'),
+  const _Case('two adjacent wiki links', '[[a]][[b]]'),
+  const _Case('wiki link tight against a ghost', '[[a]]{{g}}'),
+  const _Case('wiki link beside a link and a tag', '[[a]] and [b](c) and #t'),
+  const _Case('wiki link followed by parens', '[[a]](b)'),
+  const _Case('image bang before a wiki link', '![[a]]'),
+  const _Case('an aliased title is literal', '[[a|b]]'),
+  const _Case('a ghost in the title is literal', '[[a {{g}} b]]'),
+  const _Case('escaped wiki open is literal', r'\[[a]]'),
+  const _Case('wiki link inside a code span is literal', '`[[a]]`'),
+  const _Case('emphasis markers in a title are raw', '[[**a**]]'),
+  const _Case('a hash in a title is raw', '[[#tag]]'),
+  const _Case('a url in a title is raw', '[[https://a.com]]'),
+  const _Case('a third bracket stays literal text', '[[a]]]'),
+  const _Case('a leading third bracket stays literal text', '[[[a]]]'),
+  const _Case('wiki link in a heading', '# [[a]]'),
+  const _Case('wiki link in a quote', '> [[a]]'),
+  _Case(
+    'wiki link in a bullet',
+    '- [[a]]',
+    expectedDivergence:
+        'lists are out of the suite\'s scope: the preview lays a list item '
+        'out as a `WidgetSpan` row while the editor keeps a text run, so '
+        'there is nothing comparable to compare. The editor half of the '
+        'diff still pins the concealed brackets, and the preview half is '
+        'covered by line_based_markdown_builder_test.dart',
+    expectedDiff: 'visible text: editor "• a" vs preview "<box>"',
+  ),
+  _Case(
+    'wiki link in a task item',
+    '- [ ] [[a]]',
+    expectedDivergence:
+        'the same out-of-scope list shape as the bullet above, with the '
+        'editor\'s painted checkbox standing in for the `[`',
+    expectedDiff: 'visible text: editor "<box> a" vs preview "<box>"',
+  ),
+
   // Colours.
   const _Case('coloured text', 'a {red:danger} b'),
   const _Case('unresolved colour name', 'a {note:danger} b'),
@@ -555,6 +603,8 @@ const List<_OffsetCase> _offsetCorpus = <_OffsetCase>[
   _OffsetCase('*_~~==[a](b)==~~_*'),
   _OffsetCase('a ==teal:marked== b'),
   _OffsetCase('[#tag](url)'),
+  _OffsetCase('see [[Squat]] now'),
+  _OffsetCase('**[[a]]**'),
   _OffsetCase('{red:**`a {{g}} b`**}'),
   _OffsetCase(r'{red:[a \* b](u)}'),
   _OffsetCase('see www.example.com/a now'),

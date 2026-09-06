@@ -632,7 +632,7 @@ void main() {
       final calculator = newCalculator();
       final result = calculator.breakLinesSmartly(_corpus, width);
 
-      expect(result.linesModified, 9);
+      expect(result.linesModified, 10);
       expect(result.lines, _corpusGolden);
     });
   });
@@ -650,6 +650,7 @@ const List<String> _corpus = <String>[
   'final answer = compute(alpha, bravo, charlie, delta);',
   '```',
   'see [the docs](https://example.com/a/very/long/path) for more',
+  'see [[the docs]] for more',
   'visit https://example.com/a/very/long/path/that/never/ends now',
   'this **bold run must not be split** across a width boundary',
   'trailing spaces here                                   ',
@@ -679,6 +680,9 @@ const List<String> _corpusGolden = <String>[
   '```',
   'see',
   '[the docs](https://example.com/a/very/long/path)',
+  'for more',
+  'see',
+  '[[the docs]]',
   'for more',
   'visit',
   'https://example.com/a/very/long/path/that/never/ends',

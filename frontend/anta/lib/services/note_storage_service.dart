@@ -265,6 +265,56 @@ class NoteStorageService {
     );
   }
 
+  /// Resolves the note a `[[title]]` wiki link points at, or null when
+  /// nothing matches.
+  ///
+  /// The match is an **exact** title match — trimmed on both sides and
+  /// case-insensitive for ASCII letters, because SQLite's `LOWER` folds no
+  /// others (so `Șold` resolves `Șold` but not `șold`). Tombstones are
+  /// excluded: a deleted note reads as missing rather than opening a ghost.
+  ///
+  /// "Trimmed on both sides" is two different trims. The stored title is
+  /// trimmed by SQLite's `TRIM`, which strips U+0020 and nothing else; [title]
+  /// is trimmed by Dart, which strips all Unicode white space. No write path
+  /// trims a title on the way in — [createNote], [importNote] and [updateNote]
+  /// store what they are handed, and only the rename dialog trims before
+  /// calling — so a note saved as `'Leg Day\t'` keeps its tab and no
+  /// `[[Leg Day]]` reaches it. The lenient half is the link on purpose: a
+  /// sloppily typed link should still find a cleanly stored title.
+  ///
+  /// Titles are only unique within a folder, so several notes can answer.
+  /// [preferFolderId] wins first — a link written inside a folder means the
+  /// neighbour of that name — and within either group the most recently
+  /// updated note wins, with the smaller id breaking a tie so the same link
+  /// always opens the same note. Recency is only accurate to the second:
+  /// Drift stores a `DateTime` as unix seconds, so two namesakes edited
+  /// inside the same second tie and fall through to the id rule.
+  Future<NoteMetadata?> resolveNoteByTitle(
+    String title, {
+    String? preferFolderId,
+  }) async {
+    await initialize();
+    final matches = await _repository.getNotesByTitle(title);
+    if (matches.isEmpty) return null;
+
+    final preferred = preferFolderId == null
+        ? const <Note>[]
+        : [
+            for (final note in matches)
+              if (note.folderId == preferFolderId) note,
+          ];
+    final pool = preferred.isNotEmpty ? preferred : matches;
+
+    var best = pool.first;
+    for (final note in pool.skip(1)) {
+      final newer = note.updatedAt.compareTo(best.updatedAt);
+      if (newer > 0 || (newer == 0 && note.id.compareTo(best.id) < 0)) {
+        best = note;
+      }
+    }
+    return _noteToMetadata(best);
+  }
+
   Future<PaginatedNotes> loadNotePickerPage({
     String query = '',
     int page = 1,

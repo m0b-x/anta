@@ -26,6 +26,11 @@ typedef GhostTapCallback = void Function(int start, int end);
 /// it verbatim across notes.
 typedef TagTapCallback = void Function(String tag);
 
+/// Invoked when a `[[note]]` wiki link is tapped in the preview. [title]
+/// is the raw text between the brackets, untrimmed, so the caller owns
+/// how a note name is matched.
+typedef WikiLinkTapCallback = void Function(String title);
+
 /// Invoked when a `$$` total or `$?` net-change row is tapped in the
 /// preview. [lineIndex] identifies the tapped money line so the caller
 /// can collect and present the ledger entries feeding its value.
@@ -119,6 +124,11 @@ class LineBasedMarkdownBuilder {
   final CheckboxTapCallback? onCheckboxTap;
   final GhostTapCallback? onGhostTap;
   final TagTapCallback? onTagTap;
+
+  /// Opens the note a tapped `[[note]]` names. Null leaves wiki links
+  /// rendered but inert, so a read-only surface allocates no recognizer
+  /// for them.
+  final WikiLinkTapCallback? onWikiLinkTap;
   final MoneyTapCallback? onMoneyTap;
   final List<TextRange>? searchHighlights;
   final int? currentHighlightIndex;
@@ -198,6 +208,7 @@ class LineBasedMarkdownBuilder {
     this.onCheckboxTap,
     this.onGhostTap,
     this.onTagTap,
+    this.onWikiLinkTap,
     this.onMoneyTap,
     this.searchHighlights,
     this.currentHighlightIndex,
@@ -506,13 +517,16 @@ class LineBasedMarkdownBuilder {
       recognizer?.dispose();
     }
 
-    // Remove link/tag/ghost recognizers whose source offset falls inside
-    // this chunk. Every prefixed key spells its numeric source offset as
-    // parts[1], which is what the range test reads.
+    // Remove link/wiki/tag/ghost recognizers whose source offset falls
+    // inside this chunk. Every offset-keyed prefix — link:, img:, tag:,
+    // wiki:, ghost: — spells that offset as parts[1], which is what the
+    // range test reads; money: keys are line-index keyed and stay out of
+    // the prune.
     _linkRecognizers.removeWhere((key, recognizer) {
       if (key.startsWith('link:') ||
           key.startsWith('img:') ||
           key.startsWith('tag:') ||
+          key.startsWith('wiki:') ||
           key.startsWith('ghost:')) {
         // Check if the offset falls within this chunk
         final parts = key.split(':');
@@ -1914,6 +1928,24 @@ class LineBasedMarkdownBuilder {
               contentStart + token.bracketStart,
             ),
           );
+        // `[[note]]`: the brackets are dropped — the preview's split from
+        // the editor, which conceals them to keep the line's code units —
+        // and the title renders in the link style, literally. It is never
+        // re-parsed: a `#tag` or `*run*` in a note name is part of the
+        // name.
+        case InlineWikiLink():
+          final title = text.substring(token.titleStart, token.titleEnd);
+          final inner = _applyHighlighting(
+            title,
+            baseStyle.copyWith(
+              color: style.primaryColor,
+              decoration: TextDecoration.underline,
+            ),
+            contentStart + token.titleStart,
+          );
+          children.add(
+            _wrapWikiLinkSpan(inner, title, contentStart + token.start),
+          );
         // Coloured text: `{name:` and `}` are chrome, the content keeps
         // its source offsets and composes with everything else.
         case InlineColor():
@@ -2009,6 +2041,26 @@ class LineBasedMarkdownBuilder {
     final cacheKey = 'link:$sourceOffset:$url';
     final recognizer = _linkRecognizers[cacheKey] ??= TapGestureRecognizer()
       ..onTap = () => onLinkTap!(url);
+    return _attachRecognizer(inner, recognizer);
+  }
+
+  /// Wraps a rendered wiki-link title with a cached tap recognizer, the
+  /// `[[note]]` counterpart of [_wrapLinkSpan]. [sourceOffset] is the
+  /// absolute offset of the construct's first `[`, so the key is unique
+  /// per occurrence and prunes with its chunk; [title] is the raw text
+  /// between the brackets, which the callback receives untrimmed.
+  ///
+  /// Attached through [_attachRecognizer] like every other zone, for
+  /// uniformity rather than for that helper's ghost rule: the grammar
+  /// rejects a wiki link whose title would hold an atom, so a title can
+  /// never contain a ghost and the preview builds it through
+  /// `_applyHighlighting`, never `_parseInline`. The walk therefore only
+  /// ever tags plain leaves and the ghost guard is inert here.
+  InlineSpan _wrapWikiLinkSpan(TextSpan inner, String title, int sourceOffset) {
+    if (onWikiLinkTap == null) return inner;
+    final cacheKey = 'wiki:$sourceOffset:$title';
+    final recognizer = _linkRecognizers[cacheKey] ??= TapGestureRecognizer()
+      ..onTap = () => onWikiLinkTap!(title);
     return _attachRecognizer(inner, recognizer);
   }
 

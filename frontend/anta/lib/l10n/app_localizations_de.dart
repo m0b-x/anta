@@ -3713,6 +3713,11 @@ class AppLocalizationsDe extends AppLocalizations {
   String get linkOpenAction => 'Öffnen';
 
   @override
+  String wikiLinkNoteNotFound(String title) {
+    return 'Keine Notiz mit dem Titel \"$title\"';
+  }
+
+  @override
   String get moneySection => 'Kassenbuch';
 
   @override
@@ -4545,4 +4550,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get editorZoneSearchTag => 'Schlagwort suchen';
+
+  @override
+  String get editorZoneOpenWikiLink => 'Verknüpfte Notiz öffnen';
 }

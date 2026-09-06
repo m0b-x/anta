@@ -435,6 +435,15 @@ class NoteRepository {
     );
   }
 
+  /// Every live note titled [title] (trimmed, ASCII case-insensitive) in any
+  /// folder, for the wiki-link resolver. Always hits the database (no cache):
+  /// the caches here are keyed by note id ([_noteCache]) and by folder
+  /// ([_folderNotesCache], [_countCache]), and neither key can answer a
+  /// question asked by title — the cost is a single indexed read.
+  Future<List<Note>> getNotesByTitle(String title) {
+    return _noteDao.getNotesByTitle(title);
+  }
+
   Future<List<Note>> searchNotesPaginated(
     String query, {
     String? folderId,

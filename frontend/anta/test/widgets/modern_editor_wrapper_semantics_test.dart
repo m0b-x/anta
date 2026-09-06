@@ -37,12 +37,15 @@ void main() {
       '[link](https://x.dev)\n'
       'see #tag now\n'
       '- [ ] second task\n'
-      r'$$ balance';
+      r'$$ balance'
+      '\n'
+      'see [[Squat]] plan';
 
   const moneyLine = 5;
 
   /// Mounts the wrapper over [document] with every zone kind enabled and
-  /// records every tag / link / money tap. The returned `app` rebuilds
+  /// records every tag / link / money / wiki-link tap. [wikiLinks] picks
+  /// whether the newest zone is wired at all. The returned `app` rebuilds
   /// the same tree — same controller, same editor state — under another
   /// locale.
   Future<
@@ -50,14 +53,20 @@ void main() {
       List<String> tags,
       List<String> links,
       List<int> money,
+      List<String> wikis,
       CodeLineEditingController controller,
       Widget Function(Locale locale) app,
     })
   >
-  pumpEditor(WidgetTester tester, {Locale locale = const Locale('en')}) async {
+  pumpEditor(
+    WidgetTester tester, {
+    Locale locale = const Locale('en'),
+    bool wikiLinks = true,
+  }) async {
     final tags = <String>[];
     final links = <String>[];
     final money = <int>[];
+    final wikis = <String>[];
     final controller = CodeLineEditingController.fromText(document);
     final searchController = ReEditorSearchController();
     final scrollController = CodeScrollController();
@@ -85,6 +94,7 @@ void main() {
           onOpenLink: links.add,
           onMoneyTap: money.add,
           onOpenTag: tags.add,
+          onOpenWikiLink: wikiLinks ? wikis.add : null,
           showScrollIndicator: false,
         ),
       ),
@@ -96,6 +106,7 @@ void main() {
       tags: tags,
       links: links,
       money: money,
+      wikis: wikis,
       controller: controller,
       app: app,
     );
@@ -136,6 +147,22 @@ void main() {
     final e = await pumpEditor(tester);
     await parkCaret(tester, e.controller, 0);
 
+    expect(find.semantics.byLabel(l10n.editorZoneToggleTask), findsExactly(2));
+    expect(find.semantics.byLabel(l10n.editorZoneOpenLink), findsOne);
+    expect(find.semantics.byLabel(l10n.editorZoneSearchTag), findsOne);
+    expect(find.semantics.byLabel(l10n.editorZoneOpenMoney), findsOne);
+    expect(find.semantics.byLabel(l10n.editorZoneOpenWikiLink), findsOne);
+
+    handle.dispose();
+    await teardownEditor(tester);
+  });
+
+  testWidgets('an unwired wiki-link zone contributes no node', (tester) async {
+    final handle = tester.ensureSemantics();
+    final e = await pumpEditor(tester, wikiLinks: false);
+    await parkCaret(tester, e.controller, 0);
+
+    expect(find.semantics.byLabel(l10n.editorZoneOpenWikiLink), findsNothing);
     expect(find.semantics.byLabel(l10n.editorZoneToggleTask), findsExactly(2));
     expect(find.semantics.byLabel(l10n.editorZoneOpenLink), findsOne);
     expect(find.semantics.byLabel(l10n.editorZoneSearchTag), findsOne);
@@ -213,6 +240,30 @@ void main() {
       expect(e.money, [moneyLine]);
       expect(e.links, isEmpty);
       expect(e.tags, isEmpty);
+      expect(e.wikis, isEmpty);
+      expect(e.controller.selection, selection);
+
+      handle.dispose();
+      await teardownEditor(tester);
+    },
+  );
+
+  testWidgets(
+    'activating the wiki-link node opens the note it names and leaves the '
+    'caret alone',
+    (tester) async {
+      final handle = tester.ensureSemantics();
+      final e = await pumpEditor(tester);
+      await parkCaret(tester, e.controller, 0);
+      final selection = e.controller.selection;
+
+      tester.semantics.tap(find.semantics.byLabel(l10n.editorZoneOpenWikiLink));
+      await tester.pump();
+
+      expect(e.wikis, ['Squat']);
+      expect(e.links, isEmpty);
+      expect(e.tags, isEmpty);
+      expect(e.money, isEmpty);
       expect(e.controller.selection, selection);
 
       handle.dispose();
@@ -250,6 +301,7 @@ void main() {
         isSemantics(label: l10n.editorZoneSearchTag),
         isSemantics(label: l10n.editorZoneToggleTask),
         isSemantics(label: l10n.editorZoneOpenMoney),
+        isSemantics(label: l10n.editorZoneOpenWikiLink),
       ]),
     );
 
@@ -298,12 +350,23 @@ void main() {
     await parkCaret(tester, e.controller, 0);
 
     expect(find.semantics.byLabel(l10n.editorZoneToggleTask), findsExactly(2));
+    expect(find.semantics.byLabel(l10n.editorZoneOpenWikiLink), findsOne);
 
     await tester.pumpWidget(e.app(const Locale('de')));
     await tester.pumpAndSettle();
 
     expect(find.semantics.byLabel(de.editorZoneToggleTask), findsExactly(2));
     expect(find.semantics.byLabel(l10n.editorZoneToggleTask), findsNothing);
+    // The newest zone's label is translated too, and translated to
+    // something other than the English string — a missing ARB entry falls
+    // back to English and would otherwise pass the relabel assertion.
+    expect(
+      de.editorZoneOpenWikiLink,
+      isNot(l10n.editorZoneOpenWikiLink),
+      reason: 'the German label is a translation, not the English fallback',
+    );
+    expect(find.semantics.byLabel(de.editorZoneOpenWikiLink), findsOne);
+    expect(find.semantics.byLabel(l10n.editorZoneOpenWikiLink), findsNothing);
 
     handle.dispose();
     await teardownEditor(tester);

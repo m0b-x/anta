@@ -55,6 +55,112 @@ void main() {
     });
   });
 
+  // `[[note]]` drops its brackets here (the editor conceals them) and the
+  // title carries the tap. The title is the whole payload, so it reaches
+  // the callback exactly as typed — resolving a name is the page's job,
+  // not the renderer's.
+  group('wiki links', () {
+    test('the title renders in the link style with the brackets gone', () {
+      final calls = _Calls();
+      final builder = _builder(calls);
+      const line = 'see [[a]] now';
+      builder.prepare(line);
+      final span = builder.buildLine(line, 0);
+
+      expect(_text(span), 'see a now');
+      final title = _leaves(span).singleWhere((leaf) => leaf.text == 'a');
+      expect(title.style?.color, _style.primaryColor);
+      expect(
+        title.style?.decoration?.contains(TextDecoration.underline),
+        isTrue,
+      );
+    });
+
+    test('tapping the title hands the raw title over untrimmed', () {
+      final calls = _Calls();
+      final builder = _builder(calls);
+      const line = 'see [[ a ]] now';
+      builder.prepare(line);
+      final span = builder.buildLine(line, 0);
+
+      _fire(span, ' a ');
+      expect(calls.wikis, <String>[' a ']);
+      expect(calls.links, isEmpty, reason: 'a wiki link is not a url link');
+    });
+
+    test('a wiki link inside bold still carries its recognizer', () {
+      final calls = _Calls();
+      final builder = _builder(calls);
+      const line = '**[[a]]**';
+      builder.prepare(line);
+      final span = builder.buildLine(line, 0);
+
+      final title = _leaves(span).singleWhere((leaf) => leaf.text == 'a');
+      expect(title.style?.fontWeight, FontWeight.bold);
+      _fire(span, 'a');
+      expect(calls.wikis, <String>['a']);
+    });
+
+    test('a tag beside a wiki link keeps its own recognizer', () {
+      final calls = _Calls();
+      final builder = _builder(calls);
+      const line = '[[a]] #t';
+      builder.prepare(line);
+      final span = builder.buildLine(line, 0);
+
+      _fire(span, '#t');
+      expect(calls.tags, <String>['#t']);
+      expect(calls.wikis, isEmpty, reason: 'the two constructs never nest');
+
+      _fire(span, 'a');
+      expect(calls.wikis, <String>['a']);
+      expect(calls.tags, <String>['#t'], reason: 'the tag fired only once');
+    });
+
+    // The two list pins in markdown_inline_agreement_test.dart name this
+    // file as the preview half of their coverage: a list row is laid out
+    // as a `WidgetSpan`, so that suite can only compare the editor side
+    // and these two cases are the preview side it points at.
+    test('a bulleted wiki link drops its brackets and keeps its tap', () {
+      final calls = _Calls();
+      final builder = _builder(calls);
+      const line = '- [[a]]';
+      builder.prepare(line);
+      final content = _listRowContent(builder.buildLine(line, 0));
+
+      expect(_text(content), 'a');
+      _fire(content, 'a');
+      expect(calls.wikis, <String>['a']);
+    });
+
+    test('a task item wiki link drops its brackets and keeps its tap', () {
+      final calls = _Calls();
+      final builder = _builder(calls);
+      const line = '- [ ] [[a]]';
+      builder.prepare(line);
+      final content = _listRowContent(builder.buildLine(line, 0));
+
+      expect(_text(content), 'a');
+      _fire(content, 'a');
+      expect(calls.wikis, <String>['a']);
+    });
+
+    test('no callback means no recognizer is allocated', () {
+      final builder = LineBasedMarkdownBuilder(
+        style: _style,
+        colorPalette: MarkdownColorPalette.presets,
+      );
+      addTearDown(builder.dispose);
+      const line = 'see [[a]] now';
+      builder.prepare(line);
+
+      final title = _leaves(
+        builder.buildLine(line, 0),
+      ).singleWhere((leaf) => leaf.text == 'a');
+      expect(title.recognizer, isNull);
+    });
+  });
+
   group('search highlighting', () {
     const line = 'abcdefgh';
 
@@ -153,12 +259,53 @@ void main() {
     );
   });
 
+  // The same prune, for the `wiki:` prefix: a key the range test cannot
+  // parse leaks its recognizer, and a prefix left off the list leaks
+  // every one of them.
+  test('an evicted chunk drops its wiki-link recognizers', () {
+    final calls = _Calls();
+    final lines = <String>['[[a]]', for (var i = 0; i < 80; i++) 'line $i'];
+    final builder = LineBasedMarkdownBuilder(
+      style: _style,
+      colorPalette: MarkdownColorPalette.presets,
+      onWikiLinkTap: calls.onWiki,
+      linesPerChunk: 1,
+    );
+    addTearDown(builder.dispose);
+    builder.prepare(lines.join('\n'));
+
+    final first = _recognizerOf(builder.buildChunk(0), 'a');
+    expect(first, isNotNull);
+    for (var i = 1; i < 80; i++) {
+      builder.buildChunk(i);
+    }
+    final second = _recognizerOf(builder.buildChunk(0), 'a');
+    expect(second, isNotNull);
+    expect(
+      identical(first, second),
+      isFalse,
+      reason: 'the evicted chunk kept its wiki-link recognizer alive',
+    );
+  });
+
   test('clearCache drops every recognizer', () {
     final calls = _Calls();
     final builder = _builder(calls);
     const line = '[a](https://x.dev)';
     builder.prepare(line);
     final first = _recognizerOf(<InlineSpan>[builder.buildLine(line, 0)], 'a');
+    builder.clearCache();
+    final second = _recognizerOf(<InlineSpan>[builder.buildLine(line, 0)], 'a');
+    expect(identical(first, second), isFalse);
+  });
+
+  test('clearCache drops a wiki-link recognizer too', () {
+    final calls = _Calls();
+    final builder = _builder(calls);
+    const line = '[[a]]';
+    builder.prepare(line);
+    final first = _recognizerOf(<InlineSpan>[builder.buildLine(line, 0)], 'a');
+    expect(first, isNotNull);
     builder.clearCache();
     final second = _recognizerOf(<InlineSpan>[builder.buildLine(line, 0)], 'a');
     expect(identical(first, second), isFalse);
@@ -334,10 +481,12 @@ final LineMarkdownStyle _style = LineMarkdownStyle.fromTheme(
 /// Records which of the builder's tap callbacks fired.
 class _Calls {
   final List<String> links = <String>[];
+  final List<String> wikis = <String>[];
   final List<String> tags = <String>[];
   int ghosts = 0;
 
   void onLink(String url) => links.add(url);
+  void onWiki(String title) => wikis.add(title);
   void onTag(String tag) => tags.add(tag);
   void onGhost(int start, int end) => ghosts++;
 }
@@ -347,6 +496,7 @@ LineBasedMarkdownBuilder _builder(_Calls calls) {
     style: _style,
     colorPalette: MarkdownColorPalette.presets,
     onLinkTap: calls.onLink,
+    onWikiLinkTap: calls.onWiki,
     onTagTap: calls.onTag,
     onGhostTap: calls.onGhost,
   );
@@ -371,6 +521,19 @@ List<TextSpan> _leaves(InlineSpan root) {
 }
 
 String _text(InlineSpan root) => _leaves(root).map((s) => s.text).join();
+
+/// The inline content of a preview list row. A bullet or task row is a
+/// single `WidgetSpan` — a `Row` holding the marker and an `Expanded`
+/// `Text.rich` — so the row's own spans are unreachable from the root
+/// through [_leaves], which walks [TextSpan] children only.
+InlineSpan _listRowContent(InlineSpan root) {
+  final WidgetSpan row = (root as TextSpan).children!.single as WidgetSpan;
+  final Padding padding = row.child as Padding;
+  final DefaultTextStyle styled = padding.child! as DefaultTextStyle;
+  final Row layout = styled.child as Row;
+  final Expanded content = layout.children.last as Expanded;
+  return (content.child as Text).textSpan!;
+}
 
 /// Invokes the tap recognizer of the first leaf whose text is [text],
 /// which is exactly what a tap landing on that glyph would do.

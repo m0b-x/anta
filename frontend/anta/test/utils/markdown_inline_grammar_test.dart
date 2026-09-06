@@ -27,6 +27,10 @@ String describe(InlineToken t, [int shift = 0]) {
     return '$kind[$s,$e) text[${t.textStart + shift},${t.textEnd + shift}) '
         'url[${t.urlStart + shift},${t.urlEnd + shift})';
   }
+  if (t is InlineWikiLink) {
+    return 'wiki[$s,$e) '
+        'title[${t.titleStart + shift},${t.titleEnd + shift})';
+  }
   if (t is InlineColor) {
     return 'color[$s,$e) inner[${t.innerStart + shift},${t.innerEnd + shift})';
   }
@@ -401,6 +405,297 @@ void main() {
       final List<InlineToken> tokens = tok(line);
       expect((tokens[0] as InlineLink).urlOf(line), 'https://x.io');
       expect((tokens[1] as InlineTag).tagOf(line), '#done');
+    });
+  });
+
+  group('wiki links', () {
+    test('[[a]] is a wiki link', () {
+      expect(show('[[a]]'), 'wiki[0,5) title[2,3)');
+    });
+
+    test('a multi-word title keeps its spaces', () {
+      expect(show('[[Squat Progression]]'), 'wiki[0,21) title[2,19)');
+    });
+
+    test('a mid-sentence wiki link is found', () {
+      expect(show('see [[a]] now'), 'wiki[4,9) title[6,7)');
+    });
+
+    test('inner padding stays inside the title range', () {
+      expect(show('[[ a ]]'), 'wiki[0,7) title[2,5)');
+    });
+
+    test('an empty or blank title is literal', () {
+      expect(show('[[]]'), '');
+      expect(show('[[ ]]'), '');
+      expect(show('[[\t]]'), '');
+    });
+
+    test('a single closing bracket never closes a wiki link', () {
+      expect(show('[[a]'), '');
+    });
+
+    test('an unclosed wiki link is literal', () {
+      expect(show('[[a'), '');
+      expect(show('[['), '');
+    });
+
+    test('an alias pipe is not part of the title, so the run is literal', () {
+      expect(show('[[a|b]]'), '');
+    });
+
+    test('a bracket inside the title is literal', () {
+      expect(show('[[a[b]]'), '');
+    });
+
+    test('a newline inside the title is literal', () {
+      expect(show('[[a\nb]]'), '');
+    });
+
+    test('bare bracket runs are literal', () {
+      expect(show(']]'), '');
+      expect(show('[]'), '');
+    });
+
+    test('[[a]]] is a wiki link then a literal bracket', () {
+      expect(show('[[a]]]'), 'wiki[0,5) title[2,3)');
+    });
+
+    test('[[[a]]] starts the wiki link at the second bracket', () {
+      expect(show('[[[a]]]'), 'wiki[1,6) title[3,4)');
+    });
+
+    test('adjacent wiki links are two tokens', () {
+      expect(show('[[a]][[b]]'), 'wiki[0,5) title[2,3) wiki[5,10) title[7,8)');
+    });
+
+    test('separated wiki links are two tokens', () {
+      expect(show('[[a]] [[b]]'), 'wiki[0,5) title[2,3) wiki[6,11) title[8,9)');
+    });
+
+    test('a wiki link followed by parens is not an inline link', () {
+      expect(show('[[a]](b)'), 'wiki[0,5) title[2,3)');
+    });
+
+    test('[[a](b)]] stays the inline link it was before wiki links', () {
+      expect(show('[[a](b)]]'), 'link[0,7) text[1,3) url[5,6)');
+    });
+
+    test('an escaped opening bracket kills the wiki link', () {
+      expect(show(r'\[[a]]'), 'escape[0,2)');
+    });
+
+    test('an escaped backslash leaves the wiki link intact', () {
+      expect(show(r'\\[[a]]'), 'escape[0,2) wiki[2,7) title[4,5)');
+    });
+
+    test('a wiki link inside a code span is literal', () {
+      expect(show('`[[a]]`'), 'code[0,7) inner[1,6)');
+    });
+
+    test('a code span inside the title rejects the wiki link', () {
+      expect(show('[[a `b` c]]'), 'code[4,7) inner[5,6)');
+    });
+
+    test('a ghost inside the title rejects the wiki link', () {
+      expect(show('[[a {{g}} b]]'), 'ghost[4,9)');
+    });
+
+    test('a wiki link inside a ghost is swallowed by the ghost', () {
+      expect(show('{{[[a]]}}'), 'ghost[0,9)');
+    });
+
+    test('a wiki link before a ghost still tokenizes', () {
+      expect(show('[[a]] {{g}}'), 'wiki[0,5) title[2,3) ghost[6,11)');
+    });
+
+    // The placement rule is `wiki.end <= nextAtom`, and every case above
+    // reaches it with `nextAtom == hi`. These two are the equality: an
+    // atom opening on the very code unit the construct ends at must not
+    // reject it.
+    test('a ghost tight against the closing brackets still tokenizes', () {
+      expect(show('[[a]]{{g}}'), 'wiki[0,5) title[2,3) ghost[5,10)');
+    });
+
+    test('a code span tight against the closing brackets still tokenizes', () {
+      expect(show('[[a]]`x`'), 'wiki[0,5) title[2,3) code[5,8) inner[6,7)');
+    });
+
+    test('an escaped bracket is not a closer and not a title unit', () {
+      expect(show(r'[[a \] b]]'), 'escape[4,6)');
+    });
+
+    test('bold wraps a wiki link and the inner range rediscovers it', () {
+      expect(show('**[[a]]**'), 'bold[0,9) inner[2,7)');
+      expect(show('**[[a]]**', start: 2, end: 7), 'wiki[2,7) title[4,5)');
+    });
+
+    test('italic wraps a wiki link', () {
+      expect(show('*x [[a]] y*'), 'italic[0,11) inner[1,10)');
+      expect(show('*x [[a]] y*', start: 1, end: 10), 'wiki[3,8) title[5,6)');
+    });
+
+    test('a colour run wraps a wiki link', () {
+      expect(show('{red:[[a]]}'), 'color[0,11) inner[5,10)');
+      expect(show('{red:[[a]]}', start: 5, end: 10), 'wiki[5,10) title[7,8)');
+    });
+
+    test('a highlight wraps a wiki link', () {
+      expect(show('==[[a]]=='), 'highlight[0,9) inner[2,7)');
+      expect(show('==[[a]]==', start: 2, end: 7), 'wiki[2,7) title[4,5)');
+    });
+
+    test('strikethrough wraps a wiki link', () {
+      expect(show('~~[[a]]~~'), 'strikethrough[0,9) inner[2,7)');
+      expect(show('~~[[a]]~~', start: 2, end: 7), 'wiki[2,7) title[4,5)');
+    });
+
+    test('emphasis markers in a title stay literal', () {
+      expect(show('[[**a**]]'), 'wiki[0,9) title[2,7)');
+    });
+
+    test('a hash in a title is not a tag', () {
+      expect(show('[[#tag]]'), 'wiki[0,8) title[2,6)');
+    });
+
+    test('a url in a title is not a url', () {
+      expect(show('[[https://a.com]]'), 'wiki[0,17) title[2,15)');
+    });
+
+    test('a star in a title never pairs with one outside', () {
+      expect(show('[[a*]] b*'), 'wiki[0,6) title[2,4)');
+    });
+
+    test('underscores in a title stay literal', () {
+      expect(show('[[snake_case]]'), 'wiki[0,14) title[2,12)');
+    });
+
+    test('a leading bang is literal, never an image', () {
+      expect(show('![[a]]'), 'wiki[1,6) title[3,4)');
+      expect(show('![[a]](u)'), 'wiki[1,6) title[3,4)');
+    });
+
+    test('a tag, a wiki link and a url on one line keep their order', () {
+      expect(
+        show('#t [[a]] https://x.y'),
+        'tag[0,2) wiki[3,8) title[5,6) url[9,20)',
+      );
+    });
+
+    test('titleOf returns the raw source title', () {
+      const String line = '[[Squat Day]]';
+      final InlineWikiLink w = tok(line).single as InlineWikiLink;
+      expect(w.titleOf(line), 'Squat Day');
+      expect(w.end, 13);
+    });
+
+    test('a wiki link is a candidate line', () {
+      expect(MarkdownInlineGrammar.hasCandidates('[[a]]'), isTrue);
+      expect(MarkdownInlineGrammar.hasCandidates('see [[a]] now'), isTrue);
+      expect(MarkdownInlineGrammar.hasCandidates('see a now'), isFalse);
+    });
+
+    test('sub-ranges of a wiki line match substring tokenization', () {
+      expectRangeEdge('x [[a]] y');
+      expectRangeEdge('[[a]][[b]]');
+      expectRangeEdge('**[[a]]**');
+      expectRangeEdge('[[a {{g}} b]]');
+    });
+  });
+
+  group('wikiLinkAt', () {
+    InlineWikiLink? wikiAt(String text, int offset) =>
+        MarkdownInlineGrammar.wikiLinkAt(text, offset, palette: palette);
+
+    test('the opening boundary is not inside the wiki link', () {
+      expect(wikiAt('x [[a]] y', 2), isNull);
+    });
+
+    test('the second opening bracket is already inside', () {
+      final InlineWikiLink? w = wikiAt('x [[a]] y', 3);
+      expect(w, isNotNull);
+      expect(w!.start, 2);
+      expect(w.end, 7);
+    });
+
+    test('every strictly-inner offset resolves', () {
+      for (int i = 3; i <= 6; i++) {
+        final InlineWikiLink? w = wikiAt('x [[a]] y', i);
+        expect(w, isNotNull, reason: 'offset $i');
+        expect(w!.start, 2);
+        expect(w.end, 7);
+      }
+    });
+
+    test('the closing boundary is not inside the wiki link', () {
+      expect(wikiAt('x [[a]] y', 7), isNull);
+    });
+
+    test('offsets outside the string are null', () {
+      expect(wikiAt('[[a]]', 0), isNull);
+      expect(wikiAt('[[a]]', 5), isNull);
+      expect(wikiAt('[[a]]', -1), isNull);
+    });
+
+    test('a title offset resolves and exposes the raw title', () {
+      const String line = 'see [[Squat Day]] now';
+      final InlineWikiLink? w = wikiAt(line, 8);
+      expect(w, isNotNull);
+      expect(w!.titleOf(line), 'Squat Day');
+    });
+
+    test('a wiki link nested in bold is found', () {
+      final InlineWikiLink? w = wikiAt('**[[a]]**', 4);
+      expect(w, isNotNull);
+      expect(w!.start, 2);
+      expect(w.end, 7);
+    });
+
+    test('a wiki link inside a code span is not a wiki link', () {
+      expect(wikiAt('`[[a]]`', 3), isNull);
+    });
+
+    test('a wiki link inside a ghost is not a wiki link', () {
+      expect(wikiAt('{{ [[a]] }}', 5), isNull);
+    });
+
+    test('an aliased title is not a wiki link', () {
+      expect(wikiAt('[[a|b]] x', 3), isNull);
+    });
+
+    test('an inline link is not a wiki link', () {
+      expect(wikiAt('[a](b) x', 2), isNull);
+    });
+
+    test('plain text has no wiki link', () {
+      expect(wikiAt('nothing here at all', 5), isNull);
+    });
+  });
+
+  group('linksAndTags with wiki links', () {
+    List<InlineToken> walk(String text) =>
+        MarkdownInlineGrammar.linksAndTags(text, palette: palette);
+
+    test('a wiki link nested in bold is reported', () {
+      expect(render(walk('**[[a]]**')), 'wiki[2,7) title[4,5)');
+    });
+
+    test('a tag, a wiki link and a link keep source order', () {
+      expect(
+        render(walk('#t [[a]] [b](c)')),
+        'tag[0,2) wiki[3,8) title[5,6) link[9,15) text[10,11) url[13,14)',
+      );
+    });
+
+    test('outermost first: a nested wiki link precedes a later tag', () {
+      expect(
+        render(walk('{red:[[a]]} #t')),
+        'wiki[5,10) title[7,8) tag[12,14)',
+      );
+    });
+
+    test('a wiki link title is never descended into', () {
+      expect(render(walk('[[#tag]]')), 'wiki[0,8) title[2,6)');
     });
   });
 

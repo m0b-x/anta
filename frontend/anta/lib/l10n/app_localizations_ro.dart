@@ -3740,6 +3740,11 @@ class AppLocalizationsRo extends AppLocalizations {
   String get linkOpenAction => 'Deschide';
 
   @override
+  String wikiLinkNoteNotFound(String title) {
+    return 'Nicio notă cu titlul \"$title\"';
+  }
+
+  @override
   String get moneySection => 'Registru de bani';
 
   @override
@@ -4581,4 +4586,7 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get editorZoneSearchTag => 'Caută eticheta';
+
+  @override
+  String get editorZoneOpenWikiLink => 'Deschide nota asociată';
 }

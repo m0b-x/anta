@@ -38,6 +38,7 @@ import '../services/cell_tint_resolver.dart';
 import '../services/day_bars_resolver.dart';
 import '../services/day_rail_resolver.dart';
 import '../services/note_money_ledger_service.dart';
+import '../services/note_storage_service.dart';
 import '../services/public_holiday_service.dart';
 import '../services/settings_service.dart';
 import '../utils/calendar_week_start.dart';
@@ -45,6 +46,7 @@ import '../utils/custom_snackbar.dart';
 import '../utils/event_agenda.dart';
 import '../utils/keyboard_inset_tracker.dart';
 import '../utils/markdown_color_syntax.dart';
+import '../utils/wiki_link_title.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/calendar_add_fab.dart';
 import '../widgets/calendar_bottom_panel.dart';
@@ -563,6 +565,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
         },
         onPresenceChanged: (occurrenceDay, missed) =>
             _setOccurrenceMissed(bloc, current.id, occurrenceDay, missed),
+        onOpenWikiLink: (title) => _openWikiLink(context, title),
       );
       if (action == null || !context.mounted) return;
       switch (action) {
@@ -1370,6 +1373,57 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
       noteId: note.id,
       metadata: repository.noteToMetadata(note),
     );
+  }
+
+  /// Open the note a `[[title]]` in an event description names. Reached from
+  /// the detail sheet, which has already begun closing (it popped with no
+  /// action, its exit animation may still be running) by the time this runs —
+  /// so the editor pushes over this page and a snackbar for a title that
+  /// resolves to nothing is actually visible.
+  ///
+  /// That push still reaches this page's [RouteAware], exactly as the
+  /// linked-note button's does: a route the navigator has popped leaves the
+  /// "present" range of its history while it animates out, so
+  /// `RouteObserver<PageRoute>` reports the push against this page's own
+  /// [PageRoute] rather than against the dismissing sheet (a [PopupRoute],
+  /// which it would have ignored) — [didPushNext] and [didPopNext] pair up as
+  /// usual and the keyboard-inset folding stays suspended for the trip.
+  ///
+  /// The lookup takes the full trimmed title; only the "not found" message is
+  /// bounded, because a note can genuinely be named by a long line and a
+  /// snackbar cannot show one.
+  ///
+  /// No folder preference, unlike the editor's version of this: a calendar
+  /// event belongs to no folder, so there is no neighbourhood for the link to
+  /// prefer and the most recently updated match wins outright.
+  Future<void> _openWikiLink(BuildContext context, String rawTitle) async {
+    final title = rawTitle.trim();
+    if (title.isEmpty) return;
+    final l10n = AppLocalizations.of(context)!;
+    try {
+      final note = await GetIt.I<NoteStorageService>().resolveNoteByTitle(
+        title,
+      );
+      if (!context.mounted) return;
+      if (note == null) {
+        CustomSnackbar.show(
+          context,
+          l10n.wikiLinkNoteNotFound(WikiLinkTitle.forDisplay(title)),
+        );
+        return;
+      }
+      AppNavigator.toNoteEditor(
+        context,
+        folderId: note.folderId,
+        noteId: note.id,
+        metadata: note,
+      );
+    } catch (e) {
+      // The sheet is already gone, so a failed lookup would otherwise read as
+      // a tap that did nothing at all.
+      if (!context.mounted) return;
+      CustomSnackbar.showError(context, l10n.error('$e'));
+    }
   }
 
   /// Removes the public holiday resolved for [day] for this occurrence

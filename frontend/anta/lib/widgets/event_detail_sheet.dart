@@ -100,6 +100,19 @@ class EventDetailSheet extends StatefulWidget {
   /// immediately: a two-state toggle has nothing to coalesce.
   final void Function(DateTime day, bool missed)? onPresenceChanged;
 
+  /// Receives the raw inner text of a `[[title]]` the description's preview
+  /// reports as tapped, **after** this sheet has already closed. Null leaves
+  /// wiki links inert, exactly like [onOccurrenceChanged] — the caller opts in
+  /// by wiring the navigation.
+  ///
+  /// The sheet never navigates itself: it pops with an [EventDetailAction] and
+  /// the host acts. A wiki link has no action to pop with, so it pops with
+  /// null and hands the title over instead, and the order matters both ways —
+  /// a snackbar for an unresolvable title cannot be seen behind a modal sheet,
+  /// and the editor for a resolvable one has to be pushed over the calendar
+  /// page rather than over a sheet that is about to be dismissed.
+  final ValueChanged<String>? onOpenWikiLink;
+
   const EventDetailSheet({
     super.key,
     required this.event,
@@ -109,6 +122,7 @@ class EventDetailSheet extends StatefulWidget {
     this.onEventChanged,
     this.onOccurrenceChanged,
     this.onPresenceChanged,
+    this.onOpenWikiLink,
   });
 
   static Future<EventDetailAction?> show(
@@ -120,6 +134,7 @@ class EventDetailSheet extends StatefulWidget {
     ValueChanged<CalendarEvent>? onEventChanged,
     void Function(DateTime day, String description)? onOccurrenceChanged,
     void Function(DateTime day, bool missed)? onPresenceChanged,
+    ValueChanged<String>? onOpenWikiLink,
   }) {
     return showModalBottomSheet<EventDetailAction>(
       context: context,
@@ -139,6 +154,7 @@ class EventDetailSheet extends StatefulWidget {
           onEventChanged: onEventChanged,
           onOccurrenceChanged: onOccurrenceChanged,
           onPresenceChanged: onPresenceChanged,
+          onOpenWikiLink: onOpenWikiLink,
         ),
       ),
     );
@@ -280,9 +296,18 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
     );
   }
 
-  /// Whether this sheet has already asked to pop. The exit animation keeps the
-  /// buttons hittable for its whole duration, so a second tap would pop the
-  /// route *underneath* — the calendar page, or the sheet that opened this one.
+  /// Whether this sheet has already asked to pop, so a second exit can never
+  /// pop the route *underneath* — the calendar page, or the sheet that opened
+  /// this one.
+  ///
+  /// The window it guards is one frame, not the exit animation: Flutter's
+  /// `_ModalScopeState` (`packages/flutter/lib/src/widgets/routes.dart`) wraps
+  /// the route's page in `IgnorePointer(ignoring: _shouldIgnoreFocusRequest)`,
+  /// and that flag is true for as long as `route.animation.status ==
+  /// AnimationStatus.reverse`, so the controls stop taking pointers the moment
+  /// the pop starts. What can still re-enter is a second call in the *same*
+  /// frame — two handlers fired off one gesture, or a callback invoked
+  /// directly rather than through a hit test.
   bool _popped = false;
 
   /// Single exit funnel: a pending toggle is persisted **before** the pop so
@@ -293,6 +318,22 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
     _popped = true;
     _flushWrite();
     Navigator.of(context).pop(action);
+  }
+
+  /// Closes first, then hands [title] to the host — see
+  /// [EventDetailSheet.onOpenWikiLink] for why that order is the contract.
+  /// Popping with null lands on the host's existing "no action" branch, so
+  /// the loop that reopens this sheet stops instead of coming back.
+  ///
+  /// Reads [_popped] itself rather than leaning on [_close]: [_close] returns
+  /// silently on an already-popped sheet, so calling the host afterwards would
+  /// navigate off the back of an exit this call did not perform — and the host
+  /// pushes an editor over whatever the *earlier* exit routed to.
+  void _openWikiLink(String title) {
+    final handler = widget.onOpenWikiLink;
+    if (handler == null || _popped) return;
+    _close(null);
+    handler(title);
   }
 
   List<DateTime> _computeUpcoming() {
@@ -650,6 +691,9 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
                     colorPalette: colorPalette,
                     moneyConfig: MoneyDisplayConfig.disabled,
                     onCheckboxTap: _tasksInteractive ? _toggleTask : null,
+                    onTapWikiLink: widget.onOpenWikiLink == null
+                        ? null
+                        : _openWikiLink,
                   ),
                 ),
                 // With editing gone from this sheet, inert boxes are the only
