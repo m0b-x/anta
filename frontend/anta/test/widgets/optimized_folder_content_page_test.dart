@@ -1745,6 +1745,30 @@ void main() {
       await teardownPage(tester);
     });
 
+    /// Backspacing "down" away one character at a time: the last non-empty
+    /// keystroke is still inside its debounce when the field goes blank, and
+    /// it used to land 200 ms later as a search for "dow" under an empty
+    /// field.
+    testWidgets('emptying the field while a keystroke is still debounced '
+        'shows recents, not that keystroke', (tester) async {
+      await pumpPage(tester, folderId: notesOnly.id, title: 'Loose notes');
+
+      await openSearch(tester);
+      await type(tester, 'down');
+      expect(sectionLabels(tester), [l10n.titlesSection, l10n.inTextSection]);
+
+      await tester.enterText(find.byType(TextField), 'dow');
+      await tester.enterText(find.byType(TextField), '');
+      await tester.pump(const Duration(milliseconds: 250));
+      await flush(tester);
+
+      expect(sectionLabels(tester), [l10n.recent]);
+      expect(searchBloc(tester).state.query, isEmpty);
+      expect(searchBloc(tester).state.hasResults, isFalse);
+
+      await teardownPage(tester);
+    });
+
     testWidgets('back leaves search before it leaves the folder', (
       tester,
     ) async {

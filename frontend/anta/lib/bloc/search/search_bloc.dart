@@ -41,6 +41,20 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
   /// repainted hits under an empty field.
   int _generation = 0;
 
+  /// The text of the [SearchQueryChanged] still allowed to run, or null once
+  /// an event of another kind was added after it.
+  ///
+  /// [_generation] settles which *handler* wins; this settles which *event*
+  /// does. [SearchQueryChanged] is the only debounced event, so it is the
+  /// only one that can be delivered after events added later than it:
+  /// emptying the field dispatches an immediate [SearchCleared], and the
+  /// keystroke before it — the "p" of a "pr" backspaced away — used to fire
+  /// 200 ms later and search under a blank field. Recorded in [onEvent],
+  /// which runs synchronously inside `add`, ahead of the transformer. A scope
+  /// change deliberately leaves it alone: the keystroke it interrupted is
+  /// still what the field says, and should run under the new scope.
+  String? _pendingQuery;
+
   SearchBloc({
     required FolderSearchService searchService,
     required NoteStorageService noteService,
@@ -57,6 +71,19 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
     on<SearchSubmitted>(_onSubmitted);
     on<SearchScopeChanged>(_onScopeChanged);
     on<SearchCleared>(_onCleared);
+  }
+
+  @override
+  void onEvent(SearchEvent event) {
+    super.onEvent(event);
+    switch (event) {
+      case SearchQueryChanged(:final query):
+        _pendingQuery = query;
+      case SearchOpened() || SearchSubmitted() || SearchCleared():
+        _pendingQuery = null;
+      case SearchScopeChanged():
+        break;
+    }
   }
 
   Future<void> _onOpened(SearchOpened event, Emitter<SearchState> emit) async {
@@ -79,6 +106,8 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
     SearchQueryChanged event,
     Emitter<SearchState> emit,
   ) async {
+    if (event.query != _pendingQuery) return;
+
     if (event.query.trim().isEmpty) {
       final generation = ++_generation;
       await _emitRecents(emit, generation);

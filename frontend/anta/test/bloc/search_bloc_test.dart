@@ -461,6 +461,74 @@ void main() {
   /// the rule that decides the winner: the newest event owns the screen, and
   /// anything older that finishes afterwards is dropped rather than painted.
   group('races between event types', () {
+    test('a keystroke still in the debounce when the field is emptied is '
+        'dropped', () async {
+      searchService.quickResults = [
+        _hit(_note('a'), [SearchMatchType.title]),
+      ];
+      noteStorage.recents = [_note('r')];
+      final bloc = buildBloc();
+      bloc.add(const SearchOpened());
+      await pumpEventQueue();
+
+      bloc.add(const SearchQueryChanged('pr'));
+      await settleDebounce();
+      expect(bloc.state.phase, SearchPhase.quick);
+
+      bloc.add(const SearchQueryChanged('p'));
+      bloc.add(const SearchCleared());
+      await settleDebounce();
+
+      expect(searchService.quickCalls.map((call) => call.query), ['pr']);
+      expect(bloc.state.phase, SearchPhase.idle);
+      expect(bloc.state.query, isEmpty);
+      expect(bloc.state.hasResults, isFalse);
+      expect(bloc.state.recents.map((note) => note.id), ['r']);
+      await bloc.close();
+    });
+
+    test('a keystroke still in the debounce when the surface is reopened is '
+        'dropped', () async {
+      searchService.quickResults = [
+        _hit(_note('a'), [SearchMatchType.title]),
+      ];
+      final bloc = buildBloc();
+      bloc.add(const SearchOpened());
+      await pumpEventQueue();
+
+      bloc.add(const SearchQueryChanged('p'));
+      bloc.add(const SearchOpened(scope: SearchScope.folder(folderId: 'f1', name: 'Legs')));
+      await settleDebounce();
+
+      expect(searchService.quickCalls, isEmpty);
+      expect(bloc.state.phase, SearchPhase.idle);
+      expect(bloc.state.query, isEmpty);
+      expect(bloc.state.scope, const SearchScope.folder(folderId: 'f1', name: 'Legs'));
+      await bloc.close();
+    });
+
+    test('a scope change does not swallow the keystroke it interrupted', () async {
+      searchService.quickResults = [
+        _hit(_note('a'), [SearchMatchType.title]),
+      ];
+      folderStorage.subtrees = {
+        'f1': {'f1', 'f1a'},
+      };
+      final bloc = buildBloc();
+      bloc.add(const SearchOpened());
+      await pumpEventQueue();
+
+      bloc.add(const SearchQueryChanged('p'));
+      bloc.add(const SearchScopeChanged(SearchScope.folder(folderId: 'f1', name: 'Legs')));
+      await settleDebounce();
+
+      expect(searchService.quickCalls.single.query, 'p');
+      expect(searchService.quickCalls.single.folderIds, {'f1', 'f1a'});
+      expect(bloc.state.phase, SearchPhase.quick);
+      expect(bloc.state.query, 'p');
+      await bloc.close();
+    });
+
     test('a tag open whose recents resolve after the search keeps the '
         'results', () async {
       final gate = Completer<void>();
