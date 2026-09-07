@@ -12,11 +12,14 @@ import 'package:anta/bloc/import_export/import_export_bloc.dart';
 import 'package:anta/bloc/optimized_folder/optimized_folder_bloc.dart';
 import 'package:anta/bloc/optimized_note/optimized_note_bloc.dart';
 import 'package:anta/bloc/search/search_bloc.dart';
+import 'package:anta/constants/app_colors.dart';
+import 'package:anta/constants/app_theme.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/models/nav_destination.dart';
 import 'package:anta/models/search_scope.dart';
+import 'package:anta/pages/all_notes_page.dart';
 import 'package:anta/pages/optimized_folder_content_page.dart';
 import 'package:anta/repositories/folder_repository.dart';
 import 'package:anta/repositories/note_repository.dart';
@@ -220,6 +223,7 @@ void main() {
     String? folderId,
     String? title,
     List<NavigatorObserver> observers = const [],
+    ThemeData? theme,
   }) async {
     await tester.pumpWidget(
       MultiBlocProvider(
@@ -232,6 +236,7 @@ void main() {
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           navigatorObservers: [AppNavigator.routeObserver, ...observers],
+          theme: theme,
           home: OptimizedFolderContentPage(
             folderId: folderId,
             title: title ?? (folderId == null ? 'ANTA' : 'Training'),
@@ -841,6 +846,189 @@ void main() {
     });
   });
 
+  group('the mock palette', () {
+    Scaffold pageScaffold(WidgetTester tester) => tester.widget<Scaffold>(
+      find
+          .descendant(
+            of: find.byType(OptimizedFolderContentPage),
+            matching: find.byType(Scaffold),
+          )
+          .first,
+    );
+
+    /// The shell's own `Material` is the first one under it: everything the
+    /// row draws inside is an `InkWell`, which adds no `Material` of its own.
+    Color firstGroupColor(WidgetTester tester) => tester
+        .widget<Material>(
+          find
+              .descendant(
+                of: find.byType(ContentRowShell).first,
+                matching: find.byType(Material),
+              )
+              .first,
+        )
+        .color!;
+
+    for (final (name, theme, scheme) in [
+      ('light', AppTheme.light(), AppTheme.lightScheme),
+      ('dark', AppTheme.dark(), AppTheme.darkScheme),
+    ]) {
+      testWidgets('in $name the groups sit one tone above the ground', (
+        tester,
+      ) async {
+        await pumpPage(tester, folderId: child.id, theme: theme);
+
+        expect(pageScaffold(tester).backgroundColor, scheme.pageGround);
+        expect(firstGroupColor(tester), scheme.rowGroup);
+        // Not the same tone: an invisible step is the bug this replaced.
+        expect(scheme.rowGroup, isNot(scheme.pageGround));
+
+        await teardownPage(tester);
+      });
+
+      testWidgets('in $name the large bar sits on the same ground', (
+        tester,
+      ) async {
+        await pumpPage(tester, folderId: child.id, theme: theme);
+
+        final bar = tester.widget<SliverAppBar>(find.byType(SliverAppBar));
+        expect(bar.backgroundColor, scheme.pageGround);
+        // Both halves of "no tone change on scroll".
+        expect(bar.surfaceTintColor, Colors.transparent);
+        expect(bar.scrolledUnderElevation, 0);
+
+        await teardownPage(tester);
+      });
+    }
+
+    testWidgets('a folder row wears the one accent the mock has', (
+      tester,
+    ) async {
+      await pumpPage(tester, folderId: folder.id, theme: AppTheme.light());
+
+      final icon = tester.widget<Icon>(
+        find.descendant(
+          of: find.byType(FolderRow),
+          matching: find.byIcon(Icons.folder_rounded),
+        ),
+      );
+      expect(icon.color, AppTheme.lightScheme.primary);
+
+      await teardownPage(tester);
+    });
+  });
+
+  group('the root smart rows', () {
+    testWidgets('the root opens with All notes and Recent above its folders', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+
+      final allNotes = find.text(l10n.allNotes);
+      final recent = find.text(l10n.recent);
+      expect(allNotes, findsOneWidget);
+      expect(recent, findsOneWidget);
+      expect(
+        tester.getTopLeft(allNotes).dy,
+        lessThan(tester.getTopLeft(recent).dy),
+      );
+      expect(
+        tester.getTopLeft(recent).dy,
+        lessThan(tester.getTopLeft(find.byType(FolderRow).first).dy),
+      );
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('All notes carries the live global count', (tester) async {
+      await pumpPage(tester);
+
+      // Nineteen: fifteen sessions two levels down, three loose notes and
+      // the one titled "down day".
+      expect(find.text(l10n.noteCountLabel(19)), findsOneWidget);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('the folders below them are labelled, which a folder page '
+        'holding only folders is not', (tester) async {
+      await pumpPage(tester);
+
+      expect(find.text(l10n.folders.toUpperCase()), findsOneWidget);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('a nested folder has no smart rows', (tester) async {
+      await pumpPage(tester, folderId: folder.id);
+
+      expect(find.text(l10n.allNotes), findsNothing);
+      expect(find.text(l10n.recent), findsNothing);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('All notes pushes a route stamped for launch restore', (
+      tester,
+    ) async {
+      final history = NavigationHistoryService();
+      await pumpPage(tester, observers: [NavigationHistoryObserver(history)]);
+
+      await tester.tap(find.text(l10n.allNotes));
+      await tester.pumpAndSettle();
+      await settle(tester);
+
+      expect(history.stack, [
+        const NavDestination(NavDestinationKind.allNotes),
+      ]);
+      expect(find.byType(AllNotesPage), findsOneWidget);
+
+      AppNavigator.pop(tester.element(find.byType(AllNotesPage)));
+      await tester.pumpAndSettle();
+      await settle(tester);
+      history.dispose();
+      await teardownPage(tester);
+    });
+
+    testWidgets('Recent pushes the same page in its capped mode', (
+      tester,
+    ) async {
+      final history = NavigationHistoryService();
+      await pumpPage(tester, observers: [NavigationHistoryObserver(history)]);
+
+      await tester.tap(find.text(l10n.recent));
+      await tester.pumpAndSettle();
+      await settle(tester);
+
+      expect(history.stack, [
+        const NavDestination(NavDestinationKind.recentNotes),
+      ]);
+      expect(
+        tester.widget<AllNotesPage>(find.byType(AllNotesPage)).mode,
+        AllNotesMode.recent,
+      );
+
+      AppNavigator.pop(tester.element(find.byType(AllNotesPage)));
+      await tester.pumpAndSettle();
+      await settle(tester);
+      history.dispose();
+      await teardownPage(tester);
+    });
+
+    testWidgets('selection mode drops them — nothing here can be selected', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+      await enterSelection(tester);
+
+      expect(find.text(l10n.allNotes), findsNothing);
+      expect(find.text(l10n.recent), findsNothing);
+
+      await leaveSelection(tester);
+      await teardownPage(tester);
+    });
+  });
+
   group('the bottom bar', () {
     testWidgets('the floating action button and its sheet are gone', (
       tester,
@@ -1293,6 +1481,28 @@ void main() {
       );
       expect(find.byType(SearchResultRow), findsNWidgets(4));
       expect(sectionLabels(tester), [l10n.titlesSection, l10n.inTextSection]);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('the keyboard opening does not take the focus it was opened '
+        'for', (tester) async {
+      tester.view.padding = const FakeViewPadding(bottom: 48);
+      addTearDown(tester.view.reset);
+      await pumpPage(tester, folderId: notesOnly.id, title: 'Loose notes');
+      await openSearch(tester);
+
+      final focusNode = tester
+          .widget<TextField>(find.byType(TextField))
+          .focusNode!;
+      expect(focusNode.hasFocus, isTrue);
+
+      tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+      tester.view.padding = FakeViewPadding.zero;
+      await flush(tester);
+
+      expect(focusNode.hasFocus, isTrue);
+      expect(find.byType(TextField), findsOneWidget);
 
       await teardownPage(tester);
     });

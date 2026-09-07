@@ -14,6 +14,7 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
 
   String? _currentFolderId;
   int _currentPage = 1;
+  int _currentPageSize = NoteStorageService.defaultPageSize;
   NotesSortOrder _currentSortOrder = NotesSortOrder.updatedDesc;
   PaginatedNotes? _lastPaginatedNotes;
   StreamSubscription<NoteChange>? _changesSubscription;
@@ -57,6 +58,7 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
 
       _currentFolderId = event.folderId;
       _currentPage = event.page;
+      _currentPageSize = event.pageSize;
       _currentSortOrder = event.sortOrder;
 
       final paginatedNotes = await _storageService.loadNotesPaginated(
@@ -108,6 +110,7 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
       final morePaginatedNotes = await _storageService.loadNotesPaginated(
         folderId: event.folderId ?? _currentFolderId,
         page: _currentPage,
+        pageSize: _currentPageSize,
         sortOrder: _currentSortOrder,
       );
 
@@ -260,6 +263,7 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
     final paginatedNotes = await _storageService.loadNotesPaginated(
       folderId: event.folderId ?? _currentFolderId,
       page: 1,
+      pageSize: _currentPageSize,
       sortOrder: _currentSortOrder,
     );
 

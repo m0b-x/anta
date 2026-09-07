@@ -1957,9 +1957,6 @@ class AppLocalizationsRo extends AppLocalizations {
   String get increaseFontSize => 'Mărește Fontul';
 
   @override
-  String get settings => 'Setări';
-
-  @override
   String get dropPosition => 'Poziție de plasare';
 
   @override
@@ -2042,6 +2039,9 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get recent => 'Recente';
+
+  @override
+  String get allNotes => 'Toate notițele';
 
   @override
   String get titlesSection => 'Titluri';
@@ -2143,6 +2143,9 @@ class AppLocalizationsRo extends AppLocalizations {
   String charactersCount(int current, int max) {
     return '$current/$max caractere';
   }
+
+  @override
+  String get settings => 'Setări';
 
   @override
   String get databaseSettings => 'Bază de Date';

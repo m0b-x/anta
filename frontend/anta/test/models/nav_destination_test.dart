@@ -30,6 +30,31 @@ void main() {
       expect(NavDestination.decodeStack(encoded), isEmpty);
     });
 
+    test('a note opened from a smart row round-trips above it', () {
+      final stack = [
+        const NavDestination(NavDestinationKind.allNotes),
+        NavDestination.note(noteId: 'n1', folderId: 'f1'),
+      ];
+
+      expect(NavDestination.decodeStack(NavDestination.encodeStack(stack)),
+          stack);
+    });
+
+    test('the two note lists carry no params and need none', () {
+      for (final kind in [
+        NavDestinationKind.allNotes,
+        NavDestinationKind.recentNotes,
+      ]) {
+        expect(NavDestination(kind).params, isEmpty);
+        expect(
+          NavDestination.decodeStack(
+            NavDestination.encodeStack([NavDestination(kind)]),
+          ),
+          [NavDestination(kind)],
+        );
+      }
+    });
+
     test('counter management keeps an optional note id, and omits an empty one',
         () {
       expect(NavDestination.counterManagement(noteId: 'n1').noteId, 'n1');
@@ -107,6 +132,43 @@ void main() {
         () {
       expect(NavDestinationKind.calendar.reopensDrawerOnPop, isFalse);
     });
+
+    test('the note lists are substrate, and raise no drawer either', () {
+      for (final kind in [
+        NavDestinationKind.allNotes,
+        NavDestinationKind.recentNotes,
+      ]) {
+        expect(kind.isNoteSubstrate, isTrue);
+        expect(kind.reopensDrawerOnPop, isFalse);
+      }
+    });
+
+    test('the persisted names of the kinds that already shipped are unchanged',
+        () {
+      // Renaming or reordering any of these truncates every existing
+      // install's stored stack at that entry.
+      expect(
+        NavDestinationKind.values.take(11).map((kind) => kind.name),
+        [
+          'folder',
+          'note',
+          'calendar',
+          'calendarSettings',
+          'calendarCategories',
+          'eventTemplates',
+          'vocabularies',
+          'databaseSettings',
+          'settings',
+          'syncSettings',
+          'counterManagement',
+        ],
+      );
+    });
+
+    test('a new kind needs no envelope bump — unknown kinds already truncate',
+        () {
+      expect(NavDestination.stackVersion, 1);
+    });
   });
 
   group('restore modes', () {
@@ -128,6 +190,15 @@ void main() {
     test('notes takes a prefix, so the Back path it leaves is one that existed',
         () {
       expect(RestoreLocationMode.notes.apply(stack), stack.take(2));
+    });
+
+    test('notes keeps a note reached through All notes', () {
+      final chain = [
+        const NavDestination(NavDestinationKind.allNotes),
+        NavDestination.note(noteId: 'n1', folderId: 'f1'),
+      ];
+
+      expect(RestoreLocationMode.notes.apply(chain), chain);
     });
 
     test('notes drops a chain that starts above the substrate', () {

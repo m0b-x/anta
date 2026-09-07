@@ -12,6 +12,7 @@ import '../services/folder_storage_service.dart';
 import '../services/navigation_history_service.dart';
 import '../services/settings_service.dart';
 import '../pages/settings_page.dart';
+import '../pages/all_notes_page.dart';
 import '../pages/calendar_page.dart';
 import '../pages/calendar_settings_page.dart';
 import '../pages/calendar_categories_page.dart';
@@ -261,6 +262,27 @@ abstract final class AppNavigator {
       navigator.removeRoute(routes[i]);
     }
     navigator.pop();
+  }
+
+  /// The root browser's "All notes" row. Stamped: it holds no query and no
+  /// transient state, so a cold launch back into it lands exactly where the
+  /// user left.
+  static Future<void> toAllNotes(BuildContext context) {
+    return push(
+      context,
+      const AllNotesPage(),
+      destination: const NavDestination(NavDestinationKind.allNotes),
+    );
+  }
+
+  /// The root browser's "Recent" row — [AllNotesPage] capped and fixed to the
+  /// most recently edited notes.
+  static Future<void> toRecentNotes(BuildContext context) {
+    return push(
+      context,
+      const AllNotesPage(mode: AllNotesMode.recent),
+      destination: const NavDestination(NavDestinationKind.recentNotes),
+    );
   }
 
   static Future<void> toNoteEditor(
@@ -591,6 +613,10 @@ abstract final class AppNavigator {
       NavDestinationKind.syncSettings => const SyncSettingsPage(),
       NavDestinationKind.counterManagement => CounterManagementPage(
         noteId: destination.noteId,
+      ),
+      NavDestinationKind.allNotes => const AllNotesPage(),
+      NavDestinationKind.recentNotes => const AllNotesPage(
+        mode: AllNotesMode.recent,
       ),
     };
   }

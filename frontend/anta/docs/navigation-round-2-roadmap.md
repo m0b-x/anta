@@ -1,8 +1,11 @@
 # Navigation Round 2 — Roadmap & Slice Prompts (2026-09-06)
 
-**Status: Slices 1–5 DONE (Slice 1 committed 2026-09-06 as `dad64be`;
-Slices 2–4 as `d7f0d78`; Slice 5 uncommitted on top of it). Slice 6
-planned.** Baseline: `b0a8b87` (Session 9's wiki links are committed).
+**Status: DONE.** Slices 1–6 all shipped (Slice 1 committed 2026-09-06 as
+`dad64be`; Slices 2–4 as `d7f0d78`; Slice 5 as `9cc5f5f`; Slice 6
+uncommitted on top of it, 2026-09-07). Baseline: `b0a8b87` (Session 9's
+wiki links are committed). What is left is the device checklist in
+section 5 — including the one polish item that needs a device, trimming
+`drawerEdgeDragWidth`.
 Design source: the round-2 mock artifact, revision 2.3 ("option 1"):
 https://claude.ai/code/artifact/82c94d9b-0793-47a9-ae29-a036181fcccc
 Research: four independent read-only passes on 2026-09-05 (browser page,
@@ -103,6 +106,18 @@ Taken as defaults so the slices can be written; override before Slice 2.
 | D5 | Folder row count | **Notes including descendants** (mock: Training = 5 + 3 + 4 + 11 = 23). | One batched CTE (Slice 3) replaces two queries per card. |
 | D6 | Editor share | **Route through `ImportExportBloc`** like the card. | `NoteExportDialog` calls `SharePlus` directly today, which the import/export rules forbid. Fixed in passing in Slice 1. |
 | D7 | Pop-to-folder / pop-to-ancestor | **Remove intermediates, then one pop.** | flutter#59990. |
+
+Decided during Slice 6 and recorded here rather than in the slice, because
+each one is a standing rule the next feature will meet again:
+
+| # | Question | Answer | Why |
+| --- | --- | --- | --- |
+| D8 | All notes vs. Recent — what actually differs? | **The cap and search.** Both order by `updatedDesc`; Recent stops at 50 and never paginates, All notes paginates and hosts in-place search. | One page, one `AllNotesMode`. A sort control was considered and dropped: the only stored candidate, `SettingsKeys.defaultNotesSortOrder`, is dormant and its documented index mapping contradicts `NotesSortOrder`. |
+| D9 | Where does a flat row say which folder it is from? | **An eyebrow above the second line** (`NoteRow.pathLabel`), reserved while the ancestor walk runs. | Same lane the search surface uses, and the reserve is the standing answer to a late value resizing a row. |
+| D10 | Does a page reached from the root still host the drawer? | **Yes** — `AllNotesPage` registers with `DrawerHostRegistry`, keeps the edge drag, and ends its `⋮` with Settings. | The convention says three routes to the drawer and losing one is a bug; a restored settings page above it also needs a host that is not the obscured root. |
+| D11 | Does a new `NavDestinationKind` need a `stackVersion` bump? | **No, and it never will.** Unknown kinds already truncate; the bump is for a change in the *list's* semantics. | Confirmed against the decoder and pinned by a test that also freezes the eleven names that already shipped. |
+| D12 | Do the smart rows join the reorderable list? | **No** — their own group above it, dropped entirely in selection mode. | A smart row has no position and cannot be selected, renamed or dragged; a slot in that sliver would offer all four. |
+| D13 | Seed the palette, or declare it? | **Declare it.** `AppTheme.lightScheme` / `darkScheme` in `lib/constants/app_theme.dart` spell out every Material 3 baseline role as a `const Color`; `ColorScheme.fromSeed` is out of the app. | `fromSeed` cannot reach the mock. Its tonal-spot algorithm desaturates whatever it is handed: `deepPurple` produced `#68548E` against the mock's `#6750A4`, and seeding with `#6750A4` itself produces `#65558F` — the approved palette is not in the function's range at any seed. Declaring it also freezes it against a framework retune. The layering came with it: `SurfaceRoles` (`pageGround`, `rowGroup`, `rowDivider`, `menuSurface`), and the standing rule that **the page ground is one tone under the row groups in both themes** — light had it inverted (a `surface` ground under `surfaceContainerLow` groups, an invisible step *darker*). |
 
 ---
 
@@ -1162,6 +1177,118 @@ PopScopes compose. Do not commit.
 ```
 
 ### Slice 6 — Root smart rows (All notes, Recent) and polish
+
+**Shipped 2026-09-07** on `9cc5f5f`, uncommitted. 4,053 tests green (7
+skipped), `dart analyze lib` clean, `untranslated.txt` empty. Deviations
+from the plan below, each deliberate:
+
+- **No new SQL, and one cache fix that was needed.** `NoteDao.getNoteCount
+  (null)` is already the global count and `NoteRepository.getNoteCount`
+  already took `String?`; only `NoteStorageService.getNoteCount` insisted
+  on a non-null id, so it became nullable. But `_invalidateFolderCache`
+  dropped **only** the written folder's count key, so the `null` key — the
+  count of every note — went stale the moment anything was written
+  anywhere. It now always drops `null` too. That is the whole of item 1.
+- **`OptimizedNoteBloc` and `NoteBlocFilters.forFolder` were verified, and
+  they only half-accept null.** `forFolder(null)` does match a null-folder
+  state, and `LoadNotesPaginated(folderId: null)` does list everything —
+  but `NoteStateHelper.getNotesForFolder` and `hasMoreForFolder` return
+  null/false for a null id (they read it as "no context"), so the page
+  reads `paginatedNotes` itself; and `_onExternalChange` compares against
+  `_currentFolderId`, which a null id never matches, so the page reloads
+  off `NoteStorageService.changes` behind a 120 ms debounce of its own.
+  That subscription is also what keeps the recent mode's page size: the
+  bloc's own `RefreshNotes` reloads at `defaultPageSize`, not at 50.
+- **The in-place search host was extracted**, because sharing saved well
+  over a screen: `InPlaceSearchController` (bloc + field controller + focus
+  node + flag + the five event helpers) and `SearchFieldAppBar` (the plain
+  sliver bar with field, clear button and chips). The **scroll
+  compensation was deliberately not shared** — the browser's is three-way
+  and entangled with selection, the note lists' is two-way and 18 lines.
+  The browser's Slice 5 suite passed unchanged through the refactor.
+- **The All-notes count rides the trailing slot, not a reserved subtitle.**
+  The trap the roadmap records is a row *resizing* when a late count lands;
+  a trailing label changes a width and nothing else, so the rows below it
+  cannot move either way. The generation guard against a stale count
+  overwriting a newer one is still there.
+- **`AllNotesPage` gained a one-row `⋮` (Settings) and hosts the drawer**,
+  which the scope's "back, title, search icon" bar did not list. The
+  app-bar convention makes those two the reliable drawer routes on every
+  page, and without the registration a restored `[allNotes, settings]`
+  chain would pop onto the root page's drawer underneath instead.
+- **No sort control, and `SettingsKeys.defaultNotesSortOrder` was left
+  alone.** Both modes use `updatedDesc`; they differ by the cap and by
+  search. That dormant key has no writer, no reader, and a documented index
+  mapping (`0 = updatedDesc, 1 = updatedAsc, 2 = titleAsc…`) that
+  contradicts `NotesSortOrder`'s actual order — wiring it would have
+  shipped a wrong-order bug rather than a preference.
+- **The root's `FOLDERS` label is now always drawn** (outside selection
+  mode), not only when notes are present too: with the smart rows above it,
+  the label is what separates them from the folders.
+- **New l10n key: `allNotes` only.** `recent` was reused for the row and
+  the page title, `searchAll` for the search hint and `noteCountLabel` for
+  the count. `settings`, `folders`, `notes` and `emptyNotesHint` all
+  already existed.
+- **Polish items: one taken, three skipped.**
+  - *Taken*: the duplicate `settings` key in `app_en.arb` is gone. Both
+    entries were `"Settings"`, JSON-last-wins meant the earlier one was
+    already dead, so the earlier one was deleted and the generated output
+    is byte-identical.
+  - *Skipped — needs a device*: trimming `drawerEdgeDragWidth`. The
+    precondition is "if device testing shows the Android back gesture
+    opening the drawer", and this session has no device. Left for the
+    device pass on the checklist below.
+  - *Skipped — precondition unmet*: removing `UnifiedAppBar`. It still has
+    four users (`NoteAppBar`, `SelectionAppBar`, `SettingsAppBar`,
+    `VocabularyEditorPage`).
+  - *Skipped — already done*: rewording `emptyFoldersHint`. It reads
+    "Looks like you might want to create a folder" over
+    `createFromBarBelow`; Slice 3 took the "+" out.
+- **Restore replay is covered indirectly.** `AppNavigator._pageFor` is a
+  private exhaustive switch, so the two new kinds are compile-enforced
+  rather than test-enforced; what the tests assert is the recording and
+  round-trip side — a note pushed above `allNotes` is recorded as a
+  two-entry stack and survives encode/decode, `RestoreLocationMode.notes`
+  keeps that chain, and the browser suite proves each smart row pushes a
+  route carrying the right stamp. A case pinning the persisted names of the
+  eleven kinds that already shipped was added alongside.
+- **Review fix (Fable, 2026-09-07): the bloc now remembers its page size.**
+  `OptimizedNoteBloc` reloaded at the default 20 on its own `RefreshNotes`
+  (the path a card-menu delete takes) and on `LoadMoreNotes`, whatever
+  size the list was loaded with — so a delete on the Recent page shrank it
+  to 20 rows until the page's own 120 ms reload put 50 back. It keeps
+  `_currentPageSize` from the last `LoadNotesPaginated` and passes it on
+  both paths; folder listings are unaffected (they load at the default).
+- **Emulator fix (Fable, 2026-09-07): the search keyboard closed itself.**
+  The browser page's `didChangeDependencies` still carried a
+  `primaryFocus?.unfocus()` from the gym_notes era. On Android the keyboard
+  opening changes `MediaQuery.padding`, the page depends on that aspect via
+  the refresh spinner's `edgeOffset`, so the hook ran the moment the
+  keyboard was up and unfocused the field that had opened it. The line is
+  gone; `didPushNext` is the only place the page lets go of the field. A
+  browser test fakes the keyboard through `tester.view.viewInsets` /
+  `padding` and fails with the old line.
+- **The palette was matched to the mock (2026-09-07), which is D13.** New
+  `lib/constants/app_theme.dart` (`AppTheme.lightScheme` / `darkScheme` /
+  `light()` / `dark()`, menus on `surfaceContainerHigh` at radius 12) and a
+  `SurfaceRoles` extension in `lib/constants/app_colors.dart`, whose
+  `folderIcon` also became `primary`. Wired through `main.dart`; the ground
+  is taken by `optimized_folder_content_page.dart`, `all_notes_page.dart`
+  and `search_page.dart`; the no-scroll-tint bars are
+  `folder_sliver_app_bar.dart`, `search_field_app_bar.dart` and, through a
+  new optional `backgroundColor` on `UnifiedAppBar.main`,
+  `unified_app_bars.dart` (`SearchAppBar`) and `selection_app_bar.dart` —
+  `NoteAppBar` passes nothing and stays on the default surface. Groups and
+  the bottom bar are `content_rows.dart` and `_buildBottomBar` (a `Material`
+  in `rowGroup` with a painted 1 px `rowDivider` top line, no elevation and
+  no surface tint, same height, same `max(viewInsets, viewPadding)`
+  padding). Editor tones: `note_editor_chrome.dart` and
+  `note_search_bar.dart`. Guards: new `test/constants/app_theme_test.dart`,
+  a "the mock palette" group in the browser suite (`pumpPage` gained an
+  optional `theme`), and the two calendar contrast suites now measure
+  against `AppTheme` instead of a `deepPurple` seed — the floors held
+  unchanged (unmarked square 1.68:1 light, 2.02:1 dark, against a 1.6
+  minimum), so `month_dot_matrix.dart`'s comment only re-states the numbers.
 
 Goal: the root gains "All notes <count>" and "Recent" rows; both pages
 restore on launch; the leftovers of the redesign are closed.

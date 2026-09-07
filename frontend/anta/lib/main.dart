@@ -18,6 +18,7 @@ import 'bloc/markdown_bar/markdown_bar_bloc.dart';
 import 'constants/app_colors.dart';
 import 'constants/app_icon_sizes.dart';
 import 'constants/app_spacing.dart';
+import 'constants/app_theme.dart';
 import 'core/di/injection.dart';
 import 'pages/optimized_folder_content_page.dart';
 import 'pages/onboarding_page.dart';
@@ -300,17 +301,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             supportedLocales: const [Locale('en'), Locale('de'), Locale('ro')],
             locale: settingsState.locale,
             themeMode: settingsState.themeMode,
-            theme: ThemeData(
-              colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-              useMaterial3: true,
-            ),
-            darkTheme: ThemeData(
-              colorScheme: ColorScheme.fromSeed(
-                seedColor: Colors.deepPurple,
-                brightness: Brightness.dark,
-              ),
-              useMaterial3: true,
-            ),
+            theme: AppTheme.light(),
+            darkTheme: AppTheme.dark(),
             home: _buildHome(),
           );
         },

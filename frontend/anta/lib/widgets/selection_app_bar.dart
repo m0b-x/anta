@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
 
+import '../constants/app_colors.dart';
 import 'unified_app_bars.dart';
 
 /// App bar shown while the folder content page is in selection mode.
 ///
 /// It is a box app bar, not a sliver: selection mode drops
 /// `FolderSliverAppBar` entirely, because a large title that scrolls away
-/// would take the selection count with it. [UnifiedAppBar.main] keeps its
-/// background and icon colours identical to the collapsed browser bar, so the
-/// swap is visually seamless.
+/// would take the selection count with it. It hands [UnifiedAppBar.main] the
+/// page's own ground, which is what the collapsed browser bar sits on too, so
+/// the swap is visually seamless.
 class SelectionAppBar extends StatelessWidget implements PreferredSizeWidget {
   final int count;
   final bool allSelected;
@@ -32,6 +33,7 @@ class SelectionAppBar extends StatelessWidget implements PreferredSizeWidget {
   Widget build(BuildContext context) {
     return UnifiedAppBar.main(
       automaticallyImplyLeading: false,
+      backgroundColor: Theme.of(context).colorScheme.pageGround,
       leading: IconButton(
         icon: const Icon(Icons.close_rounded),
         onPressed: onCancel,

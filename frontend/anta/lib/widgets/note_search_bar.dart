@@ -264,7 +264,7 @@ class _NoteSearchBarState extends State<NoteSearchBar>
             ),
           ),
       child: Container(
-        color: colors.surfaceContainer,
+        color: colors.surfaceContainerHigh,
         child: SafeArea(
           bottom: false,
           child: FocusTraversalGroup(

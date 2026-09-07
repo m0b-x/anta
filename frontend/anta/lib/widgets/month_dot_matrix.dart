@@ -21,11 +21,11 @@ class MonthDotMatrix extends StatelessWidget {
   /// Alpha of an unmarked in-window square over the tile's background.
   ///
   /// Measured, not picked: `outline` at this alpha over `surfaceContainerHigh`
-  /// clears [MarkerContrast.minContrastRatio] in **both** schemes the app's
-  /// `deepPurple` seed produces — 1.67:1 light, 2.02:1 dark. The 0.25 it
-  /// replaced measured 1.32:1 and 1.47:1, which is a square you cannot see.
-  /// `test/widgets/month_dot_matrix_test.dart` re-measures both so the numbers
-  /// cannot drift.
+  /// clears [MarkerContrast.minContrastRatio] in **both** of the app's
+  /// declared Material 3 baseline schemes (`AppTheme`) — 1.68:1 light, 2.02:1
+  /// dark. The 0.25 it replaced measures 1.32:1 and 1.47:1, which is a square
+  /// you cannot see. `test/widgets/month_dot_matrix_test.dart` re-measures
+  /// both so the numbers cannot drift.
   static const double unmarkedAlpha = 0.45;
 
   /// Alpha of a square outside the window — about half [unmarkedAlpha], so the

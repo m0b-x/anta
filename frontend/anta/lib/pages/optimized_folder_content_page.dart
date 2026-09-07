@@ -15,7 +15,9 @@ import '../bloc/optimized_note/optimized_note_bloc.dart';
 import '../bloc/optimized_note/optimized_note_event.dart';
 import '../bloc/optimized_note/optimized_note_state.dart';
 import '../bloc/search/search_bloc.dart';
+import '../constants/app_colors.dart';
 import '../constants/settings_keys.dart';
+import '../controllers/in_place_search_controller.dart';
 import '../controllers/selection_controller.dart';
 import '../models/content_item.dart';
 import '../models/export_format.dart';
@@ -39,6 +41,7 @@ import '../widgets/folder_overflow_menu.dart';
 import '../widgets/folder_row.dart';
 import '../widgets/folder_sliver_app_bar.dart';
 import '../widgets/note_row.dart';
+import '../widgets/search_field_app_bar.dart';
 import '../widgets/search_surface.dart';
 import '../widgets/selection_action_bar.dart';
 import '../widgets/selection_app_bar.dart';
@@ -76,6 +79,60 @@ class _ItemEntry extends _RowEntry {
 /// from the normal bar, and selection replaces whichever of the other two is
 /// showing.
 enum _BarMode { normal, selection, search }
+
+/// One of the root's smart rows: a destination that is not a folder, drawn
+/// in the same shell as the rows below it so the whole page reads as one
+/// kind of list.
+///
+/// The count rides the trailing slot rather than a second line. A trailing
+/// label that arrives late changes the row's width and nothing else, so the
+/// rows below it never move — which is the same reason [FolderRow] reserves
+/// its subtitle instead of adding one when the count lands.
+class _SmartRow extends StatelessWidget {
+  const _SmartRow({
+    required this.icon,
+    required this.label,
+    required this.position,
+    required this.onTap,
+    this.trailing,
+  });
+
+  final IconData icon;
+  final String label;
+  final String? trailing;
+  final RowGroupPosition position;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final trailingLabel = trailing;
+
+    return ContentRowShell(
+      position: position,
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+        leading: Icon(icon, color: colorScheme.primary),
+        title: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+        ),
+        trailing: trailingLabel == null
+            ? null
+            : Text(
+                trailingLabel,
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+        onTap: onTap,
+      ),
+    );
+  }
+}
 
 class OptimizedFolderContentPage extends StatefulWidget {
   final String? folderId;
@@ -136,18 +193,15 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   /// Search runs on a bloc of this page's own, so results never touch the
   /// folder list underneath and query, scope and scroll all survive pushing
   /// a note and coming back — the page stays mounted below it.
-  late final SearchBloc _searchBloc = SearchBloc(
-    searchService: GetIt.I<FolderSearchService>(),
-    noteService: GetIt.I<NoteStorageService>(),
-    folderService: _folderStorageService,
+  late final InPlaceSearchController _search = InPlaceSearchController(
+    bloc: SearchBloc(
+      searchService: GetIt.I<FolderSearchService>(),
+      noteService: GetIt.I<NoteStorageService>(),
+      folderService: _folderStorageService,
+    ),
   );
-  final TextEditingController _searchController = TextEditingController();
-  final FocusNode _searchFocusNode = FocusNode();
 
-  /// Search is screen state, not a route: it is deliberately never stamped as
-  /// a `NavDestination`, so opening and closing it leaves the recorded
-  /// location stack exactly as it was.
-  bool _searching = false;
+  bool get _searching => _search.isSearching;
 
   // Latest visible items, kept up to date by [_buildFoldersSection] and
   // [_buildNotesSection] so SelectAll can act on them without re-querying.
@@ -180,6 +234,15 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   /// The id set the counts in [_folderNoteCounts] were read for, so a rebuild
   /// that shows the same folders does not re-query.
   List<String> _countedFolderIds = const [];
+
+  /// Every live note in the database, for the root's "All notes" row. Null
+  /// until the first read answers, which the row draws as no trailing label
+  /// rather than as a zero — a count that corrected itself would be worse
+  /// than one that arrives.
+  int? _allNotesCount;
+
+  /// Guards against a slow global count landing on top of a newer one.
+  int _allNotesCountGeneration = 0;
 
   /// Coalesces bursts of folder/note changes — a bulk move, a cascade delete,
   /// a batch reorder — into one trailing-edge count read for the page.
@@ -241,6 +304,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     _subscribeToContentChanges();
     _loadSettings();
     _loadSortPreferencesAndData();
+    if (widget.folderId == null) _loadAllNotesCount();
   }
 
   /// One subscription for the whole page, not one per row: any folder or note
@@ -261,7 +325,24 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     _countDebounce = Timer(_countDebounceDuration, () {
       if (!mounted) return;
       _loadFolderCounts(_countedFolderIds, force: true);
+      if (widget.folderId == null) _loadAllNotesCount();
     });
+  }
+
+  /// The global note count behind the root's "All notes" row.
+  ///
+  /// The generation guard is what keeps a slow read from painting a stale
+  /// total over a newer one: a bulk delete answers this twice, and the two
+  /// reads can land in either order.
+  Future<void> _loadAllNotesCount() async {
+    final generation = ++_allNotesCountGeneration;
+    try {
+      final count = await GetIt.I<NoteStorageService>().getNoteCount(null);
+      if (!mounted || generation != _allNotesCountGeneration) return;
+      setState(() => _allNotesCount = count);
+    } catch (e, stackTrace) {
+      debugPrint('[FolderPage] Failed to count all notes: $e\n$stackTrace');
+    }
   }
 
   /// Reads every visible folder's count in one statement. Skips the read when
@@ -360,20 +441,15 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   }
 
   void _openSearch() {
-    if (_searching) return;
     if (_selection.isActive) {
       _selection.clear();
       _compensateBarSwap(_BarMode.normal);
     }
-    _searchController.clear();
-    _searchBloc.add(
-      SearchOpened(scope: _folderScope ?? const SearchScope.everywhere()),
-    );
-    _searching = true;
+    if (!_search.open(_folderScope ?? const SearchScope.everywhere())) return;
     _compensateBarSwap();
     setState(() {});
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _searching) _searchFocusNode.requestFocus();
+      if (mounted && _searching) _search.requestFocus();
     });
   }
 
@@ -384,11 +460,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   /// skip giving the folder list its offset back before the selection swap
   /// measures from it. Selection and search are mutually exclusive.
   void _leaveSearch() {
-    if (!_searching) return;
-    _searching = false;
-    _searchFocusNode.unfocus();
-    _searchController.clear();
-    _searchBloc.add(const SearchCleared());
+    if (!_search.leave()) return;
     _compensateBarSwap(_BarMode.normal);
   }
 
@@ -396,35 +468,6 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     if (!_searching) return;
     _leaveSearch();
     setState(() {});
-  }
-
-  void _onSearchChanged(String query) {
-    if (query.trim().isEmpty) {
-      _searchBloc.add(const SearchCleared());
-      return;
-    }
-    _searchBloc.add(SearchQueryChanged(query));
-  }
-
-  void _onSearchSubmitted(String query) {
-    if (query.trim().isEmpty) return;
-    _searchBloc.add(SearchSubmitted(query));
-  }
-
-  /// Re-runs whichever pass is on screen so a note edited through a result
-  /// comes back with a fresh title and snippet.
-  void _refreshSearch() {
-    final state = _searchBloc.state;
-    final query = state.query.trim();
-    if (query.isEmpty) {
-      _searchBloc.add(SearchOpened(scope: state.scope));
-      return;
-    }
-    if (state.phase == SearchPhase.full) {
-      _searchBloc.add(SearchSubmitted(state.query));
-      return;
-    }
-    _searchBloc.add(SearchQueryChanged(state.query));
   }
 
   Future<void> _loadSortPreferencesAndData() async {
@@ -484,7 +527,6 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    FocusManager.instance.primaryFocus?.unfocus();
     final route = ModalRoute.of(context);
     if (route is PageRoute) {
       AppNavigator.routeObserver.subscribe(this, route);
@@ -501,7 +543,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   @override
   void didPopNext() {
     _loadSettings();
-    if (_searching) _refreshSearch();
+    if (_searching) _search.refresh();
   }
 
   /// A route regaining focus hands it back to the child that had it, and a
@@ -511,7 +553,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   /// keyboard down until the field is tapped again.
   @override
   void didPushNext() {
-    if (_searching) _searchFocusNode.unfocus();
+    if (_searching) _search.unfocus();
   }
 
   @override
@@ -523,9 +565,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     _noteChangesSub?.cancel();
     _countDebounce?.cancel();
     _selection.dispose();
-    _searchBloc.close();
-    _searchController.dispose();
-    _searchFocusNode.dispose();
+    _search.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -843,9 +883,11 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   Widget build(BuildContext context) {
     final isRootPage = widget.folderId == null;
     final isSelecting = _selection.isActive;
+    final colorScheme = Theme.of(context).colorScheme;
 
     final scaffold = Scaffold(
       key: _scaffoldKey,
+      backgroundColor: colorScheme.pageGround,
       drawer: isSelecting || _searching ? null : const AppDrawer(),
       drawerEnableOpenDragGesture:
           !isSelecting && !_searching && _folderSwipeEnabled,
@@ -874,17 +916,21 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
           _loadData();
         },
         child: BlocBuilder<SearchBloc, SearchState>(
-          bloc: _searchBloc,
+          bloc: _search.bloc,
           buildWhen: (previous, current) => _searching,
           builder: (context, searchState) => CustomScrollView(
             controller: _scrollController,
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.manual,
             slivers: _searching
                 ? [
-                    _buildSearchAppBar(
-                      context,
-                      isRootPage: isRootPage,
-                      searchState: searchState,
+                    SearchFieldAppBar(
+                      search: _search,
+                      hintText: isRootPage
+                          ? AppLocalizations.of(context)!.searchAll
+                          : AppLocalizations.of(context)!.searchInFolder,
+                      selectedScope: searchState.scope,
+                      folderScope: _folderScope,
+                      onLeave: _exitSearch,
                     ),
                     ...SearchSurface.resultSlivers(context, searchState),
                   ]
@@ -957,7 +1003,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     );
 
     return BlocProvider<SearchBloc>.value(
-      value: _searchBloc,
+      value: _search.bloc,
       child: _wrapWithImportExportListener(
         PopScope(
           canPop: !_backIsHandled(isRootPage: isRootPage),
@@ -998,76 +1044,6 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     AppNavigator.pop(context);
   }
 
-  /// The bar search wears: a field where the large title was, the scope chips
-  /// under it, and a back arrow that leaves search rather than the folder.
-  ///
-  /// It replaces the whole first sliver instead of dressing up
-  /// [FolderSliverAppBar]: `SliverAppBar.large` builds its `title` twice, so a
-  /// [TextField] there would be duplicated, and two of them would fight over
-  /// one [FocusNode].
-  Widget _buildSearchAppBar(
-    BuildContext context, {
-    required bool isRootPage,
-    required SearchState searchState,
-  }) {
-    final l10n = AppLocalizations.of(context)!;
-    final colorScheme = Theme.of(context).colorScheme;
-    final folderScope = _folderScope;
-
-    return SliverAppBar(
-      pinned: true,
-      automaticallyImplyLeading: false,
-      leading: IconButton(
-        icon: const BackButtonIcon(),
-        tooltip: MaterialLocalizations.of(context).backButtonTooltip,
-        onPressed: _exitSearch,
-      ),
-      title: TextField(
-        controller: _searchController,
-        focusNode: _searchFocusNode,
-        textInputAction: TextInputAction.search,
-        decoration: InputDecoration(
-          hintText: isRootPage ? l10n.searchAll : l10n.searchInFolder,
-          border: InputBorder.none,
-          hintStyle: TextStyle(
-            color: colorScheme.onSurface.withValues(alpha: 0.6),
-          ),
-        ),
-        style: const TextStyle(fontSize: 18),
-        onChanged: _onSearchChanged,
-        onSubmitted: _onSearchSubmitted,
-      ),
-      actions: [
-        ValueListenableBuilder<TextEditingValue>(
-          valueListenable: _searchController,
-          builder: (context, value, _) {
-            if (value.text.isEmpty) return const SizedBox.shrink();
-            return IconButton(
-              icon: const Icon(Icons.clear),
-              tooltip: l10n.clearSearch,
-              onPressed: () {
-                _searchController.clear();
-                _onSearchChanged('');
-                _searchFocusNode.requestFocus();
-              },
-            );
-          },
-        ),
-      ],
-      bottom: folderScope == null
-          ? null
-          : PreferredSize(
-              preferredSize: const Size.fromHeight(
-                SearchScopeChips.preferredHeight,
-              ),
-              child: SearchScopeChips(
-                folderScope: folderScope,
-                selected: searchState.scope,
-              ),
-            ),
-    );
-  }
-
   /// The create bar that replaced the floating action button and its sheet.
   ///
   /// One tap per action instead of two, and the row that used to be hidden
@@ -1087,13 +1063,16 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     );
 
     return Material(
-      color: colorScheme.surface,
-      surfaceTintColor: colorScheme.surfaceTint,
-      elevation: 3,
+      color: colorScheme.rowGroup,
       child: Padding(
         padding: EdgeInsets.only(bottom: bottomInset),
-        child: SizedBox(
+        child: Container(
           height: kToolbarHeight,
+          foregroundDecoration: BoxDecoration(
+            border: Border(
+              top: BorderSide(color: colorScheme.rowDivider, width: 1),
+            ),
+          ),
           child: Row(
             children: [
               IconButton(
@@ -1653,7 +1632,41 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   /// cross-kind orderings that space could express are simply no longer
   /// drawn.
   List<Widget> _buildContentSlivers({required bool isSelecting}) {
-    return [_buildMixedSliver(isSelecting: isSelecting)];
+    return [
+      if (widget.folderId == null && !isSelecting) _buildSmartRowsSliver(),
+      _buildMixedSliver(isSelecting: isSelecting),
+    ];
+  }
+
+  /// The root's two ways into the notes underneath its folders: every note
+  /// there is, and the handful touched most recently.
+  ///
+  /// They are their own group above the folders, not entries in the list: a
+  /// smart row has no position, cannot be selected, renamed or dragged, and
+  /// giving it a slot in the reorderable sliver would offer all four. Which
+  /// is also why they are dropped in selection mode rather than disabled.
+  Widget _buildSmartRowsSliver() {
+    final l10n = AppLocalizations.of(context)!;
+    final count = _allNotesCount;
+    return SliverToBoxAdapter(
+      child: Column(
+        children: [
+          _SmartRow(
+            icon: Icons.notes_rounded,
+            label: l10n.allNotes,
+            trailing: count == null ? null : l10n.noteCountLabel(count),
+            position: RowGroupPosition.first,
+            onTap: () => AppNavigator.toAllNotes(context),
+          ),
+          _SmartRow(
+            icon: Icons.history_rounded,
+            label: l10n.recent,
+            position: RowGroupPosition.last,
+            onTap: () => AppNavigator.toRecentNotes(context),
+          ),
+        ],
+      ),
+    );
   }
 
   MovableItemRef _refForContentItem(ContentItem item) => switch (item) {
@@ -1793,8 +1806,9 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   /// makes a run of them read as one card.
   ///
   /// Labels appear only when both groups are present. A folder full of notes
-  /// does not need to be told they are notes, and the root — which never has
-  /// notes — gains its "Folders" label with the smart rows above it.
+  /// does not need to be told they are notes — except at the root, where the
+  /// smart rows sit above and the label is what separates them from the
+  /// folders rather than the folders from the notes.
   List<_RowEntry> _buildEntries(
     List<ContentItem> items,
     AppLocalizations l10n,
@@ -1807,7 +1821,9 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
       for (final item in items)
         if (item is NoteItem) item,
     ];
-    final labelled = folders.isNotEmpty && notes.isNotEmpty;
+    final labelled =
+        (folders.isNotEmpty && notes.isNotEmpty) ||
+        (widget.folderId == null && !_selection.isActive);
     final entries = <_RowEntry>[];
 
     void addGroup(List<ContentItem> group, String label) {

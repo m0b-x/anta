@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get_it/get_it.dart';
 
 import '../bloc/search/search_bloc.dart';
+import '../constants/app_colors.dart';
 import '../l10n/app_localizations.dart';
 import '../models/search_scope.dart';
 import '../services/folder_search_service.dart';
@@ -112,6 +113,7 @@ class _SearchViewState extends State<_SearchView> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.pageGround,
       appBar: SearchAppBar(
         controller: _searchController,
         focusNode: _focusNode,

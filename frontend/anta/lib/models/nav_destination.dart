@@ -27,7 +27,9 @@ enum NavDestinationKind {
   databaseSettings,
   settings,
   syncSettings,
-  counterManagement;
+  counterManagement,
+  allNotes,
+  recentNotes;
 
   /// Whether popping this page should raise the drawer beneath it.
   ///
@@ -48,8 +50,17 @@ enum NavDestinationKind {
   /// Whether this destination belongs to the folder/note substrate rather
   /// than to the calendar or settings layered on top. Backs the "folders and
   /// notes" restore mode.
-  bool get isNoteSubstrate =>
-      this == NavDestinationKind.folder || this == NavDestinationKind.note;
+  ///
+  /// The two note lists count as substrate: they show nothing but notes, and
+  /// a note opened from one of them sits above it — a mode that dropped them
+  /// would truncate the chain below that note and lose it too.
+  bool get isNoteSubstrate => switch (this) {
+    NavDestinationKind.folder ||
+    NavDestinationKind.note ||
+    NavDestinationKind.allNotes ||
+    NavDestinationKind.recentNotes => true,
+    _ => false,
+  };
 
   /// Forward-compatible parsing: an unknown name (a kind written by a newer
   /// build) yields `null` so the caller can truncate rather than throw.

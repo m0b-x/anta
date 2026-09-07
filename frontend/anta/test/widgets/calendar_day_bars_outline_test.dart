@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/day_bar.dart';
@@ -16,12 +17,9 @@ import 'package:anta/widgets/calendar_day_bars.dart';
 /// These pin the direction: outlines appear where a marker would genuinely
 /// vanish, and nowhere else.
 void main() {
-  /// The app's real schemes, from `main.dart`.
-  final light = ColorScheme.fromSeed(seedColor: Colors.deepPurple);
-  final dark = ColorScheme.fromSeed(
-    seedColor: Colors.deepPurple,
-    brightness: Brightness.dark,
-  );
+  /// The app's real schemes, from `AppTheme`.
+  const light = AppTheme.lightScheme;
+  const dark = AppTheme.darkScheme;
 
   Future<void> pumpBars(
     WidgetTester tester, {

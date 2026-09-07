@@ -36,6 +36,15 @@ class NoteRow extends StatelessWidget {
   final int? index;
   final bool isMultiDragging;
 
+  /// The folder chain this note lives under, drawn as an eyebrow above the
+  /// second line.
+  ///
+  /// Null in a folder listing, where every row shares one folder and the lane
+  /// would say the same thing on every row. An **empty string** is not the
+  /// same as null: it reserves the lane while the ancestor walk is still
+  /// running, so a late answer fills it in rather than resizing the row.
+  final String? pathLabel;
+
   final SelectionController? selection;
   final void Function(MovableItemRef ref)? onLongPressItem;
   final void Function(MovableItemRef ref)? onTapInSelection;
@@ -46,6 +55,7 @@ class NoteRow extends StatelessWidget {
     required this.folderId,
     required this.groupPosition,
     required this.onReturn,
+    this.pathLabel,
     this.showPreview = true,
     this.isReorderMode = false,
     this.index,
@@ -105,12 +115,8 @@ class NoteRow extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
         ),
-        subtitle: Text(
-          _secondLine(context, l10n),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
-        ),
+        isThreeLine: pathLabel != null,
+        subtitle: _buildSubtitle(context, l10n, colorScheme),
         trailing: _buildTrailing(context, isSelecting),
         onTap: isSelecting
             ? () => onTapInSelection?.call(ref)
@@ -163,6 +169,40 @@ class NoteRow extends StatelessWidget {
     }
 
     return result;
+  }
+
+  /// The edit date and preview, with the folder path above them when this row
+  /// is listed outside its own folder.
+  Widget _buildSubtitle(
+    BuildContext context,
+    AppLocalizations l10n,
+    ColorScheme colorScheme,
+  ) {
+    final second = Text(
+      _secondLine(context, l10n),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
+    );
+    final path = pathLabel;
+    if (path == null) return second;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          path.isEmpty ? ' ' : path,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 11,
+            color: colorScheme.onSurfaceVariant.withValues(alpha: 0.8),
+          ),
+        ),
+        second,
+      ],
+    );
   }
 
   String _secondLine(BuildContext context, AppLocalizations l10n) {

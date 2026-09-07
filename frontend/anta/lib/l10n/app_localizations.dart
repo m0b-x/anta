@@ -3376,12 +3376,6 @@ abstract class AppLocalizations {
   /// **'Increase Font Size'**
   String get increaseFontSize;
 
-  /// Settings label
-  ///
-  /// In en, this message translates to:
-  /// **'Settings'**
-  String get settings;
-
   /// Accessibility label for drop indicator during drag
   ///
   /// In en, this message translates to:
@@ -3532,11 +3526,17 @@ abstract class AppLocalizations {
   /// **'This folder'**
   String get thisFolder;
 
-  /// Section label above recently edited notes shown before anything is typed into search
+  /// Section label above recently edited notes shown before anything is typed into search, and the title of the page the root browser's Recent row opens
   ///
   /// In en, this message translates to:
   /// **'Recent'**
   String get recent;
+
+  /// Root browser row and page title for the flat list of every note in every folder
+  ///
+  /// In en, this message translates to:
+  /// **'All notes'**
+  String get allNotes;
 
   /// Search results section label for notes matched by their title
   ///
@@ -3681,6 +3681,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{current}/{max} characters'**
   String charactersCount(int current, int max);
+
+  /// Settings label
+  ///
+  /// In en, this message translates to:
+  /// **'Settings'**
+  String get settings;
 
   /// Database settings menu item
   ///

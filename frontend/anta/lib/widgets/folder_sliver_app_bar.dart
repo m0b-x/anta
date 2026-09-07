@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 
+import '../constants/app_colors.dart';
 import '../l10n/app_localizations.dart';
 import '../models/folder.dart';
 import '../services/app_navigator.dart';
@@ -122,11 +123,15 @@ class FolderSliverAppBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return SliverAppBar.large(
       pinned: true,
       automaticallyImplyLeading: false,
       expandedHeight: expandedHeight,
       toolbarHeight: collapsedHeight,
+      backgroundColor: colorScheme.pageGround,
+      surfaceTintColor: Colors.transparent,
+      scrolledUnderElevation: 0,
       leading: isRootPage ? _menuButton() : _backButton(),
       title: Text(
         title,

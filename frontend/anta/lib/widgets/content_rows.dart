@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../constants/app_colors.dart';
+
 /// Where a row sits inside its rounded group, which is what decides its
 /// corner radii and whether it draws a trailing divider.
 enum RowGroupPosition {
@@ -49,7 +51,7 @@ class ContentRowShell extends StatelessWidget {
         clipBehavior: Clip.antiAlias,
         color: isSelected
             ? colorScheme.primaryContainer.withValues(alpha: 0.5)
-            : colorScheme.surfaceContainerLow,
+            : colorScheme.rowGroup,
         borderRadius: BorderRadius.vertical(
           top: position.isFirst ? radius : Radius.zero,
           bottom: position.isLast ? radius : Radius.zero,
@@ -74,7 +76,7 @@ class ContentRowShell extends StatelessWidget {
                   thickness: 1,
                   indent: 68,
                   endIndent: 0,
-                  color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+                  color: colorScheme.rowDivider,
                 ),
             ],
           ),

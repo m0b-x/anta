@@ -74,7 +74,11 @@ class NoteStorageService {
     return notes.map(_noteToMetadata).toList();
   }
 
-  Future<int> getNoteCount(String folderId) async {
+  /// How many live notes a folder holds, or — with a null [folderId] — how
+  /// many the whole database holds. The null case is what the root browser's
+  /// "All notes" row counts, and it is the same statement the paginated load
+  /// already issues for its total, not a new one.
+  Future<int> getNoteCount(String? folderId) async {
     await initialize();
     return _repository.getNoteCount(folderId);
   }

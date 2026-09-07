@@ -1930,9 +1930,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get increaseFontSize => 'Increase Font Size';
 
   @override
-  String get settings => 'Settings';
-
-  @override
   String get dropPosition => 'Drop position';
 
   @override
@@ -2015,6 +2012,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get recent => 'Recent';
+
+  @override
+  String get allNotes => 'All notes';
 
   @override
   String get titlesSection => 'Titles';
@@ -2113,6 +2113,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String charactersCount(int current, int max) {
     return '$current/$max characters';
   }
+
+  @override
+  String get settings => 'Settings';
 
   @override
   String get databaseSettings => 'Database';

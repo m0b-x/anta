@@ -487,9 +487,14 @@ class NoteRepository {
     _invalidateFolderCache(remote.folderId);
   }
 
+  /// Drops the caches keyed by [folderId], and always the `null` key with it:
+  /// that key holds the count of *every* note, which any write inside any
+  /// folder can change. Without this the root browser's "All notes" row would
+  /// keep answering with the total from before the write.
   void _invalidateFolderCache(String? folderId) {
     _folderNotesCache.remove(folderId);
     _countCache.remove(folderId);
+    _countCache.remove(null);
   }
 
   void invalidateAll() {

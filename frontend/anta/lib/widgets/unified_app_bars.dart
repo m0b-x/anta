@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../constants/app_colors.dart';
 import '../services/auto_save_service.dart';
 import '../services/app_navigator.dart';
 
@@ -15,6 +16,13 @@ class UnifiedAppBar extends StatelessWidget implements PreferredSizeWidget {
   final double? leadingWidth;
   final AppBarStyle style;
 
+  /// What the main-style bar sits on, for a host that owns a ground of its
+  /// own. Supplying it also switches the scroll tint off, so the bar cannot
+  /// drift off its page's colour the moment the list moves under it. Null
+  /// leaves the bar on the theme's default surface, which is what the editor
+  /// wants.
+  final Color? backgroundColor;
+
   const UnifiedAppBar({
     super.key,
     this.leading,
@@ -24,6 +32,7 @@ class UnifiedAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.elevation,
     this.toolbarHeight,
     this.leadingWidth,
+    this.backgroundColor,
     this.style = AppBarStyle.main,
   });
 
@@ -36,6 +45,7 @@ class UnifiedAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.elevation,
     this.toolbarHeight,
     this.leadingWidth,
+    this.backgroundColor,
   }) : style = AppBarStyle.main;
 
   const UnifiedAppBar.settings({
@@ -47,7 +57,8 @@ class UnifiedAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.elevation,
     this.toolbarHeight,
     this.leadingWidth,
-  }) : style = AppBarStyle.settings;
+  }) : style = AppBarStyle.settings,
+       backgroundColor = null;
 
   @override
   Size get preferredSize => Size.fromHeight(toolbarHeight ?? kToolbarHeight);
@@ -59,10 +70,12 @@ class UnifiedAppBar extends StatelessWidget implements PreferredSizeWidget {
 
     // The browser's bar is a `SliverAppBar.large` that a gradient cannot
     // follow across 172 px of collapse, and the editor's bar is the shape it
-    // settles into — so the main style is flat Material 3 surface, and the
-    // scrolled-under tint is the only colour change either bar makes. The
-    // settings pages keep the gradient until they are redesigned.
+    // settles into — so the main style is flat Material 3 surface, and a host
+    // that owns a ground of its own hands it over as `backgroundColor`, which
+    // also switches the scrolled-under tint off. The settings pages keep the
+    // gradient until they are redesigned.
     if (style == AppBarStyle.main) {
+      final ground = backgroundColor;
       return AppBar(
         leading: leading,
         leadingWidth: leadingWidth,
@@ -70,6 +83,9 @@ class UnifiedAppBar extends StatelessWidget implements PreferredSizeWidget {
         title: title,
         actions: actions,
         elevation: elevation,
+        backgroundColor: ground,
+        surfaceTintColor: ground == null ? null : Colors.transparent,
+        scrolledUnderElevation: ground == null ? null : 0,
       );
     }
 
@@ -466,6 +482,9 @@ class _SearchAppBarState extends State<SearchAppBar> {
     final colorScheme = Theme.of(context).colorScheme;
 
     return AppBar(
+      backgroundColor: colorScheme.pageGround,
+      surfaceTintColor: Colors.transparent,
+      scrolledUnderElevation: 0,
       title: TextField(
         controller: widget.controller,
         focusNode: widget.focusNode,

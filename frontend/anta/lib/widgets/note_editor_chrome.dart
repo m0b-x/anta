@@ -59,7 +59,7 @@ class NoteEditorStatsBar extends StatelessWidget {
         horizontal: AppSpacing.lg,
         vertical: AppSpacing.xs,
       ),
-      color: colorScheme.surfaceContainerHighest,
+      color: colorScheme.surfaceContainerHigh,
       child: ValueListenableBuilder<NoteEditorStats>(
         valueListenable: stats,
         builder: (context, value, _) {

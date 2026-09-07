@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/app_theme.dart';
 import 'package:anta/utils/marker_contrast.dart';
 import 'package:anta/widgets/month_dot_matrix.dart';
 
@@ -305,8 +306,8 @@ void main() {
   });
 
   group('MonthDotMatrix contrast', () {
-    /// The app's own seed, and the same `(hi + 0.05) / (lo + 0.05)` ratio the
-    /// marker outline rule uses — so these numbers move only when someone
+    /// The app's real palette, and the same `(hi + 0.05) / (lo + 0.05)` ratio
+    /// the marker outline rule uses — so these numbers move only when someone
     /// means to move them.
     double ratioAgainstTile(Color color, ColorScheme scheme) {
       final tile = scheme.surfaceContainerHigh;
@@ -316,12 +317,14 @@ void main() {
       );
     }
 
+    ColorScheme schemeFor(Brightness brightness) =>
+        brightness == Brightness.light
+        ? AppTheme.lightScheme
+        : AppTheme.darkScheme;
+
     for (final brightness in Brightness.values) {
       test('an unmarked square clears the marker floor in $brightness', () {
-        final scheme = ColorScheme.fromSeed(
-          seedColor: Colors.deepPurple,
-          brightness: brightness,
-        );
+        final scheme = schemeFor(brightness);
 
         expect(
           ratioAgainstTile(
@@ -334,10 +337,7 @@ void main() {
 
       test('an outside square stays fainter than an unmarked one '
           'in $brightness', () {
-        final scheme = ColorScheme.fromSeed(
-          seedColor: Colors.deepPurple,
-          brightness: brightness,
-        );
+        final scheme = schemeFor(brightness);
 
         expect(
           ratioAgainstTile(

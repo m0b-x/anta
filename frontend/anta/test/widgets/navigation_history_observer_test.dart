@@ -19,6 +19,7 @@ void main() {
   final folder = NavDestination.folder(folderId: 'f1', title: 'Training');
   final note = NavDestination.note(noteId: 'n1', folderId: 'f1');
   const calendar = NavDestination(NavDestinationKind.calendar);
+  const allNotes = NavDestination(NavDestinationKind.allNotes);
 
   setUp(() {
     history = NavigationHistoryService();
@@ -71,6 +72,23 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(history.stack, [folder, note]);
+  });
+
+  testWidgets('a note opened from All notes is recorded above it, and the '
+      'pair survives a round trip', (tester) async {
+    await pumpApp(tester);
+
+    navigatorKey.currentState!.push(
+      pageRoute('all notes', destination: allNotes),
+    );
+    navigatorKey.currentState!.push(pageRoute('note', destination: note));
+    await tester.pumpAndSettle();
+
+    expect(history.stack, [allNotes, note]);
+    expect(
+      NavDestination.decodeStack(NavDestination.encodeStack(history.stack)),
+      [allNotes, note],
+    );
   });
 
   testWidgets('a pop is seen — the gap the old design had', (tester) async {

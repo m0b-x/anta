@@ -1940,9 +1940,6 @@ class AppLocalizationsDe extends AppLocalizations {
   String get increaseFontSize => 'Schriftgröße vergrößern';
 
   @override
-  String get settings => 'Einstellungen';
-
-  @override
   String get dropPosition => 'Ablageposition';
 
   @override
@@ -2025,6 +2022,9 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get recent => 'Zuletzt';
+
+  @override
+  String get allNotes => 'Alle Notizen';
 
   @override
   String get titlesSection => 'Titel';
@@ -2125,6 +2125,9 @@ class AppLocalizationsDe extends AppLocalizations {
   String charactersCount(int current, int max) {
     return '$current/$max Zeichen';
   }
+
+  @override
+  String get settings => 'Einstellungen';
 
   @override
   String get databaseSettings => 'Datenbank';

@@ -2374,10 +2374,6 @@
   "@increaseFontSize": {
     "description": "Increase font size button tooltip"
   },
-  "settings": "Settings",
-  "@settings": {
-    "description": "Settings button tooltip"
-  },
   "dropPosition": "Drop position",
   "@dropPosition": {
     "description": "Accessibility label for drop indicator during drag"
@@ -2493,7 +2489,11 @@
   },
   "recent": "Recent",
   "@recent": {
-    "description": "Section label above recently edited notes shown before anything is typed into search"
+    "description": "Section label above recently edited notes shown before anything is typed into search, and the title of the page the root browser's Recent row opens"
+  },
+  "allNotes": "All notes",
+  "@allNotes": {
+    "description": "Root browser row and page title for the flat list of every note in every folder"
   },
   "titlesSection": "Titles",
   "@titlesSection": {
