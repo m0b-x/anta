@@ -1,8 +1,8 @@
 # Navigation Round 2 — Roadmap & Slice Prompts (2026-09-06)
 
-**Status: Slices 1–4 DONE (Slice 1 committed 2026-09-06 as `dad64be`;
-Slices 2, 3 and 4 uncommitted on top of it). Slices 5–6 planned.** Baseline:
-`b0a8b87` (Session 9's wiki links are committed).
+**Status: Slices 1–5 DONE (Slice 1 committed 2026-09-06 as `dad64be`;
+Slices 2–4 as `d7f0d78`; Slice 5 uncommitted on top of it). Slice 6
+planned.** Baseline: `b0a8b87` (Session 9's wiki links are committed).
 Design source: the round-2 mock artifact, revision 2.3 ("option 1"):
 https://claude.ai/code/artifact/82c94d9b-0793-47a9-ae29-a036181fcccc
 Research: four independent read-only passes on 2026-09-05 (browser page,
@@ -984,6 +984,90 @@ reasons. Do not commit.
 ```
 
 ### Slice 5 — Search hosted in place in the browser
+
+**Shipped 2026-09-06** on `d7f0d78`, uncommitted. Deviations from the plan
+below, each deliberate:
+
+- **The three `PopScope`s became one.** The scope says they "compose"; they
+  cannot. `ModalRoute.onPopInvokedWithResult` calls **every** registered
+  `PopEntry`'s callback, so nesting them would run the selection handler and
+  the search handler for a single gesture — which is why the page already
+  used mutually exclusive `if` branches. But branches are worse here than
+  they were: swapping between two sibling `PopScope`s changes the tree shape
+  above the `Scaffold`, so the whole subtree is rebuilt and the scroll
+  position — the thing this slice exists to preserve — goes with it. There
+  is now one `PopScope` whose `canPop` is false while any of the three
+  apply, and whose handler runs them in priority order: selection, search,
+  then the nested-folder swipe case. It also fixes a latent bug: the root
+  page had *no* `PopScope`, so entering selection mode there used to reset
+  the list to the top.
+- **`_compensateBarSwap` was generalized, not duplicated.** Slice 2's
+  selection compensation and this slice's "save the folder offset on enter,
+  put it back on exit" are the same requirement from two sides, so the
+  method now switches on a `_BarMode` (`normal` / `selection` / `search`).
+  Selection keeps its exact behaviour (shift by the bar difference, add
+  back anything scrolled meanwhile); search jumps to 0 on the way in —
+  results open at their own top, not 300 px into someone else's list — and
+  restores the saved offset untouched on the way out.
+- **The jump is synchronous, not "after the first frame".** The scope asks
+  for a post-frame `jumpTo` on exit; the same synchronous tick as the
+  `setState` is what Slice 2 established and it is correct here too. The
+  scroll activity re-evaluates itself in `applyNewDimensions` once the
+  folder slivers are laid out in that same frame, and a post-frame callback
+  would paint one frame at the wrong offset first. The offset-restore case
+  asserts the exact pixel value.
+- **`SearchSurface` needed no sliver mode.** Slice 4 already built its body
+  as slivers behind the static `SearchSurface.resultSlivers(context, state)`
+  and already had the chip row as its own `SearchScopeChips` widget, which
+  is exactly the seam the scope asked for. The only addition is
+  `SearchScopeChips.preferredHeight`, because `SliverAppBar.bottom` wants a
+  height up front (one chip at the default padded tap target plus the row's
+  own top padding — a widget test asserts the row fits it).
+- **One `CustomScrollView`, one `RefreshIndicator`, both always mounted.**
+  A second scroll view for search would be a different element and would
+  take the scroll position with it, so only the `slivers` list changes;
+  and lifting the `RefreshIndicator` out while searching would do the same
+  thing one level up, so it stays and is disabled through
+  `notificationPredicate` (pulling on results would refresh the folder list
+  hidden behind them). Its `edgeOffset` drops to 0 in search mode for the
+  same reason it does in selection mode.
+- **Selection is unreachable from search, so the guard is untestable from
+  the outside.** The scope's "entering selection exits search" case has no
+  user path: the overflow menu is the only door into selection mode and it
+  is off screen while searching, and long-press needs a row. The guard is
+  in the listener anyway (`_leaveSearch()` before the selection swap, so
+  the folder list gets its offset back before the swap measures from it);
+  the test asserts the unreachability instead.
+- **Review fixes (Fable, 2026-09-07).** (1) The guard above did not do
+  what it said: by the time the selection listener runs, selection is
+  already active, so `_compensateBarSwap()` inside `_leaveSearch()` saw
+  search → *selection*, not search → normal, and saved the results' offset
+  as the folder's. `_compensateBarSwap` now takes an optional explicit
+  target, `_leaveSearch` pays for search → normal, and `_openSearch` pays
+  for selection → normal before normal → search, so both cross-mode
+  handoffs land on the folder offset — latent today, since neither path
+  is reachable, but the mechanism is now right by construction. (2) The
+  page unfocuses the field in `didPushNext` while searching: a route
+  regaining focus hands it back to the child that had it, and a field
+  regaining focus reopens the keyboard, so coming back from a result would
+  have covered the results with the keyboard. Query, hits and scroll still
+  survive; only the keyboard stays down until the field is tapped again.
+- **No new l10n keys.** `searchInFolder` / `searchAll` are the hint,
+  `clearSearch` the clear button's tooltip, and the chips and sections
+  reuse Slice 4's keys. `untranslated.txt` is `{}`.
+- **Test traps worth keeping.** (1) `pumpAndSettle` never returns while a
+  pass is in flight — `SearchSurface` paints a `CircularProgressIndicator`
+  — so every search action goes through a `flush` helper that pumps a fixed
+  amount instead. (2) The field's `EditableText` puts a **second**
+  `Scrollable` inside the `CustomScrollView`, so the suite's
+  `scrollPosition` helper now takes the first (depth-first) match. (3) A
+  fourth note went into `Loose notes` so one query can hit a title and
+  three bodies and produce both sections; `quickSearch` sorts by relevance
+  before `take(limit)`, so a title hit will always crowd out body hits when
+  there are more than ten of them.
+- Device verification still owed: the one-handed flow end to end (search,
+  type, open a note, back to the same results at the same scroll, back to
+  the folder, back out), and that the keyboard survives scrolling results.
 
 Goal: the search icon turns the browser bar into a field with scope
 chips; the header and bottom bar fold away; Back leaves search before it

@@ -11,9 +11,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:anta/bloc/import_export/import_export_bloc.dart';
 import 'package:anta/bloc/optimized_folder/optimized_folder_bloc.dart';
 import 'package:anta/bloc/optimized_note/optimized_note_bloc.dart';
+import 'package:anta/bloc/search/search_bloc.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
+import 'package:anta/models/nav_destination.dart';
+import 'package:anta/models/search_scope.dart';
 import 'package:anta/pages/optimized_folder_content_page.dart';
 import 'package:anta/repositories/folder_repository.dart';
 import 'package:anta/repositories/note_repository.dart';
@@ -25,14 +28,18 @@ import 'package:anta/services/import_export_service.dart';
 import 'package:anta/services/mixed_reorder_service.dart';
 import 'package:anta/services/move_history_service.dart';
 import 'package:anta/services/move_history_store.dart';
+import 'package:anta/services/navigation_history_service.dart';
 import 'package:anta/services/note_storage_service.dart';
 import 'package:anta/services/recent_destinations_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/widgets/app_drawer.dart';
+import 'package:anta/widgets/content_rows.dart';
 import 'package:anta/widgets/folder_overflow_menu.dart';
 import 'package:anta/widgets/folder_row.dart';
 import 'package:anta/widgets/folder_sliver_app_bar.dart';
 import 'package:anta/widgets/note_row.dart';
+import 'package:anta/widgets/search_surface.dart';
+import 'package:anta/widgets/selection_app_bar.dart';
 
 /// The first page-level test for the browser.
 ///
@@ -91,6 +98,7 @@ void main() {
     GetIt.I.registerSingleton<FolderRepository>(FolderRepository(database: db));
     GetIt.I.registerSingleton<FolderStorageService>(folderService);
     GetIt.I.registerSingleton<NoteStorageService>(noteService);
+    GetIt.I.registerSingleton<FolderSearchService>(searchService);
     GetIt.I.registerSingleton<MoveHistoryService>(
       MoveHistoryService(store: InMemoryMoveHistoryStore()),
     );
@@ -148,6 +156,14 @@ void main() {
         content: 'jotted down',
       );
     }
+    // One note that carries "down" in its title next to three that carry it
+    // only in their body: the pair is what makes a search over this folder
+    // show both the Titles and the In text sections.
+    await noteService.createNote(
+      folderId: notesOnly.id,
+      title: 'down day',
+      content: 'nothing much',
+    );
   });
 
   tearDownAll(() async {
@@ -275,12 +291,16 @@ void main() {
         .opacity;
   }
 
+  /// Depth-first, so the first hit is the scroll view's own: in search mode
+  /// the field's `EditableText` puts a second [Scrollable] inside it.
   ScrollPosition scrollPosition(WidgetTester tester) => tester
       .state<ScrollableState>(
-        find.descendant(
-          of: find.byType(CustomScrollView),
-          matching: find.byType(Scrollable),
-        ),
+        find
+            .descendant(
+              of: find.byType(CustomScrollView),
+              matching: find.byType(Scrollable),
+            )
+            .first,
       )
       .position;
 
@@ -905,7 +925,7 @@ void main() {
     ) async {
       await pumpPage(tester, folderId: notesOnly.id, title: 'Loose notes');
 
-      expect(find.text(l10n.noteCountLabel(3)), findsOneWidget);
+      expect(find.text(l10n.noteCountLabel(4)), findsOneWidget);
 
       await teardownPage(tester);
     });
@@ -924,10 +944,8 @@ void main() {
 
   group('reordering stays inside its group', () {
     /// The one reorderable sliver over the whole list, headers included.
-    SliverReorderableList reorderable(WidgetTester tester) =>
-        tester.widget<SliverReorderableList>(
-          find.byType(SliverReorderableList),
-        );
+    SliverReorderableList reorderable(WidgetTester tester) => tester
+        .widget<SliverReorderableList>(find.byType(SliverReorderableList));
 
     List<String> noteTitles(WidgetTester tester) => tester
         .widgetList<NoteRow>(find.byType(NoteRow))
@@ -1043,6 +1061,239 @@ void main() {
       expect(find.text(l10n.folders.toUpperCase()), findsOneWidget);
 
       await drainWrites(tester);
+      await teardownPage(tester);
+    });
+  });
+
+  group('search hosted in place', () {
+    /// The page's own bloc, reached through the provider it wraps the
+    /// scaffold in — the only way to read the scope a chipless root opened on.
+    SearchBloc searchBloc(WidgetTester tester) =>
+        BlocProvider.of<SearchBloc>(tester.element(find.byType(Scaffold)));
+
+    /// Frames without waiting for an idle tree: a pass in flight paints a
+    /// `CircularProgressIndicator`, which `pumpAndSettle` never outlasts. The
+    /// 400 ms is a route transition's worth of fake time.
+    Future<void> flush(WidgetTester tester) async {
+      await tester.pump();
+      await settle(tester, rounds: 20);
+      await tester.pump(const Duration(milliseconds: 400));
+      await settle(tester, rounds: 10);
+    }
+
+    Future<void> openSearch(WidgetTester tester) async {
+      await tester.tap(find.byIcon(Icons.search));
+      await flush(tester);
+    }
+
+    Future<void> closeSearch(WidgetTester tester) async {
+      await tester.tap(find.byType(BackButtonIcon));
+      await flush(tester);
+    }
+
+    /// `SearchQueryChanged` is debounced 200 ms, so a plain [settle] — 60 ms
+    /// of fake time — never reaches the quick pass.
+    Future<void> type(WidgetTester tester, String query) async {
+      await tester.enterText(find.byType(TextField), query);
+      await tester.pump(const Duration(milliseconds: 250));
+      await flush(tester);
+    }
+
+    /// The system back gesture, which is what has to find the search surface
+    /// before it finds the route.
+    Future<void> systemBack(WidgetTester tester) async {
+      await tester
+          .state<NavigatorState>(find.byType(Navigator).first)
+          .maybePop();
+      await flush(tester);
+    }
+
+    /// Section labels are upper-cased by [ContentSectionHeader], so they are
+    /// read off the widget rather than found as text.
+    List<String> sectionLabels(WidgetTester tester) => tester
+        .widgetList<ContentSectionHeader>(find.byType(ContentSectionHeader))
+        .map((header) => header.label)
+        .toList();
+
+    testWidgets('the search icon swaps the whole bar for a field, chips and '
+        'recents', (tester) async {
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+
+      await openSearch(tester);
+
+      expect(find.byType(FolderSliverAppBar), findsNothing);
+      expect(find.byType(TextField), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'Winter block'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, l10n.everywhere), findsOneWidget);
+      // The bar reserves a fixed height for the chips, so a taller row would
+      // be cut off by the sliver's own extent rather than push it open.
+      expect(
+        tester.getSize(find.byType(SearchScopeChips)).height,
+        lessThanOrEqualTo(SearchScopeChips.preferredHeight),
+      );
+      expect(sectionLabels(tester), [l10n.recent]);
+      expect(find.byType(SearchResultRow), findsWidgets);
+      // The list it replaced, and the bar that created into it, are both gone.
+      expect(find.byType(NoteRow), findsNothing);
+      expect(find.byType(FolderRow), findsNothing);
+      expect(find.byIcon(Icons.create_new_folder_outlined), findsNothing);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('the root searches everywhere and offers no chips', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+
+      await openSearch(tester);
+
+      expect(find.byType(SearchScopeChips), findsNothing);
+      expect(searchBloc(tester).state.scope, const SearchScope.everywhere());
+      expect(find.text(l10n.searchAll), findsOneWidget);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('typing shows hits grouped where the folder list was', (
+      tester,
+    ) async {
+      await pumpPage(tester, folderId: notesOnly.id, title: 'Loose notes');
+
+      await openSearch(tester);
+      await type(tester, 'down');
+
+      expect(sectionLabels(tester), [l10n.titlesSection, l10n.inTextSection]);
+      expect(find.byType(SearchResultRow), findsNWidgets(4));
+      expect(find.byType(NoteRow), findsNothing);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('back leaves search before it leaves the folder', (
+      tester,
+    ) async {
+      final observer = _RecordingObserver();
+      await pumpPage(tester, observers: [observer]);
+      await pushFolder(tester, folder);
+      await openSearch(tester);
+      await type(tester, 'Session');
+      observer.clear();
+
+      await systemBack(tester);
+
+      expect(observer.popped, isEmpty);
+      expect(find.byType(FolderSliverAppBar), findsOneWidget);
+      expect(find.byType(SearchResultRow), findsNothing);
+
+      await systemBack(tester);
+
+      expect(observer.popped, hasLength(1));
+      expect(appBar(tester).isRootPage, isTrue);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('the folder list comes back at the offset it left', (
+      tester,
+    ) async {
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+      scrollPosition(tester).jumpTo(300);
+      await tester.pumpAndSettle();
+      final before = rowTops(tester);
+      expect(before, isNotEmpty);
+
+      await openSearch(tester);
+
+      // Results open at their own top, not 300 px into someone else's list.
+      expect(scrollPosition(tester).pixels, 0);
+
+      await closeSearch(tester);
+
+      expect(scrollPosition(tester).pixels, 300);
+      final after = rowTops(tester);
+      final shared = before.keys.where(after.containsKey).toList();
+      expect(shared, isNotEmpty);
+      for (final row in shared) {
+        expect(after[row], moreOrLessEquals(before[row]!), reason: row);
+      }
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('selection mode has no way in while search is up, and comes '
+        'back when it closes', (tester) async {
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+
+      await openSearch(tester);
+
+      // The overflow menu is the only door into selection, and long-press
+      // needs a row: neither is on screen while results are.
+      expect(find.byType(FolderOverflowMenu), findsNothing);
+      expect(find.byType(NoteRow), findsNothing);
+
+      await closeSearch(tester);
+      await enterSelection(tester);
+
+      expect(find.byType(SelectionAppBar), findsOneWidget);
+
+      await leaveSelection(tester);
+      await teardownPage(tester);
+    });
+
+    testWidgets('opening and closing search leaves the recorded location '
+        'stack alone', (tester) async {
+      final history = NavigationHistoryService();
+      addTearDown(history.dispose);
+      await pumpPage(tester, observers: [NavigationHistoryObserver(history)]);
+      await pushFolder(tester, folder);
+
+      final recorded = [
+        NavDestination.folder(folderId: folder.id, title: folder.name),
+      ];
+      expect(history.stack, recorded);
+
+      await openSearch(tester);
+      expect(history.stack, recorded);
+
+      await type(tester, 'Session');
+      expect(history.stack, recorded);
+
+      await closeSearch(tester);
+      expect(history.stack, recorded);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('coming back from a pushed route keeps the query and re-runs '
+        'it', (tester) async {
+      await pumpPage(tester, folderId: notesOnly.id, title: 'Loose notes');
+      await openSearch(tester);
+      await type(tester, 'down');
+
+      final navigator = tester.state<NavigatorState>(
+        find.byType(Navigator).first,
+      );
+      navigator
+          .push(
+            MaterialPageRoute<void>(
+              builder: (_) => const Scaffold(body: Text('a note')),
+            ),
+          )
+          .ignore();
+      await tester.pumpAndSettle();
+      expect(find.text('a note'), findsOneWidget);
+
+      navigator.pop();
+      await flush(tester);
+
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        'down',
+      );
+      expect(find.byType(SearchResultRow), findsNWidgets(4));
+      expect(sectionLabels(tester), [l10n.titlesSection, l10n.inTextSection]);
+
       await teardownPage(tester);
     });
   });

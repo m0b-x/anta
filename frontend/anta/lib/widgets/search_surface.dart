@@ -184,6 +184,12 @@ class SearchSurface extends StatelessWidget {
 /// The folder's name and "Everywhere". Only ever two chips: the scope the
 /// surface was opened on, and the whole app.
 class SearchScopeChips extends StatelessWidget {
+  /// What a host with a fixed box to fill has to reserve — the browser's
+  /// in-place bar puts this row in its `bottom`, which wants a height up
+  /// front. One chip at the default padded tap target plus the row's own top
+  /// padding.
+  static const double preferredHeight = 48 + AppSpacing.md;
+
   /// The folder chip's scope, fixed for the life of the surface.
   final FolderScope folderScope;
 

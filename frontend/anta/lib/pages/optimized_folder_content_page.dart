@@ -14,6 +14,7 @@ import '../bloc/optimized_folder/optimized_folder_state.dart';
 import '../bloc/optimized_note/optimized_note_bloc.dart';
 import '../bloc/optimized_note/optimized_note_event.dart';
 import '../bloc/optimized_note/optimized_note_state.dart';
+import '../bloc/search/search_bloc.dart';
 import '../constants/settings_keys.dart';
 import '../controllers/selection_controller.dart';
 import '../models/content_item.dart';
@@ -22,7 +23,9 @@ import '../models/folder.dart';
 import '../models/folder_change.dart';
 import '../models/movable_item.dart';
 import '../models/note_metadata.dart';
+import '../models/search_scope.dart';
 import '../repositories/note_repository.dart';
+import '../services/folder_search_service.dart';
 import '../services/folder_storage_service.dart';
 import '../services/mixed_reorder_service.dart';
 import '../services/move_coordinator.dart';
@@ -36,6 +39,7 @@ import '../widgets/folder_overflow_menu.dart';
 import '../widgets/folder_row.dart';
 import '../widgets/folder_sliver_app_bar.dart';
 import '../widgets/note_row.dart';
+import '../widgets/search_surface.dart';
 import '../widgets/selection_action_bar.dart';
 import '../widgets/selection_app_bar.dart';
 import '../utils/bloc_helpers.dart';
@@ -64,6 +68,14 @@ class _ItemEntry extends _RowEntry {
   final RowGroupPosition position;
   const _ItemEntry(this.item, this.position);
 }
+
+/// Which bar is occupying the top of the page, and therefore how much scroll
+/// extent the list underneath has lost or regained.
+///
+/// The three are mutually exclusive by construction: search is reachable only
+/// from the normal bar, and selection replaces whichever of the other two is
+/// showing.
+enum _BarMode { normal, selection, search }
 
 class OptimizedFolderContentPage extends StatefulWidget {
   final String? folderId;
@@ -106,20 +118,36 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   late final SelectionController _selection = SelectionController();
   StreamSubscription<Set<MovableItemRef>>? _selectionSub;
 
-  /// Selection mode swaps the tall sliver bar for a box [SelectionAppBar]
-  /// that lives outside the scroll view, so the same scroll offset would
-  /// carry every row up by the difference between the two bars — a 116 px
-  /// jump on every long press. These remember where the list was so the swap
-  /// can be paid for in the same frame: [_wasSelecting] detects the edge,
-  /// [_offsetBeforeSelection] is what to return to, and
-  /// [_offsetOnEnterSelection] is what was jumped to, so scrolling done while
-  /// selecting is added back rather than thrown away.
-  bool _wasSelecting = false;
-  double _offsetBeforeSelection = 0;
-  double _offsetOnEnterSelection = 0;
+  /// Both of the bars that can replace the tall sliver one are shorter than
+  /// it, so keeping the scroll offset across a swap would carry every row up
+  /// by the difference — a 116 px jump on every long press. These remember
+  /// where the folder list was so the swap can be paid for in the same frame:
+  /// [_barMode] against [_lastBarMode] detects the edge,
+  /// [_offsetBeforeSwap] is what to return to, and [_offsetOnEnterSwap] is
+  /// what was jumped to, so scrolling done in selection mode is added back
+  /// rather than thrown away.
+  _BarMode _lastBarMode = _BarMode.normal;
+  double _offsetBeforeSwap = 0;
+  double _offsetOnEnterSwap = 0;
 
   static const double _barSwapShift =
       FolderSliverAppBar.expandedHeight - kToolbarHeight;
+
+  /// Search runs on a bloc of this page's own, so results never touch the
+  /// folder list underneath and query, scope and scroll all survive pushing
+  /// a note and coming back — the page stays mounted below it.
+  late final SearchBloc _searchBloc = SearchBloc(
+    searchService: GetIt.I<FolderSearchService>(),
+    noteService: GetIt.I<NoteStorageService>(),
+    folderService: _folderStorageService,
+  );
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+
+  /// Search is screen state, not a route: it is deliberately never stamped as
+  /// a `NavDestination`, so opening and closing it leaves the recorded
+  /// location stack exactly as it was.
+  bool _searching = false;
 
   // Latest visible items, kept up to date by [_buildFoldersSection] and
   // [_buildNotesSection] so SelectAll can act on them without re-querying.
@@ -205,6 +233,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
         if (!_selection.isActive) {
           _localMixed = null;
         }
+        if (_selection.isActive) _leaveSearch();
         _compensateBarSwap();
         setState(() {});
       }
@@ -274,35 +303,128 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     return true;
   }
 
+  _BarMode get _barMode {
+    if (_selection.isActive) return _BarMode.selection;
+    return _searching ? _BarMode.search : _BarMode.normal;
+  }
+
   /// Pays for the app-bar swap in the same tick the rebuild is scheduled, so
   /// the jump and the new bar land in one frame. A post-frame callback would
   /// paint one frame at the wrong offset first, which is the jump this
   /// exists to remove.
   ///
-  /// Leaving restores the offset the user entered at plus whatever they
-  /// scrolled while selecting, which is what makes a partly expanded bar come
-  /// back exactly as it was. The result is deliberately not clamped against
-  /// `maxScrollExtent`: the new extent is not known until the swap has been
-  /// laid out, and the physics settle the rare case where the list shrank.
-  void _compensateBarSwap() {
-    final isSelecting = _selection.isActive;
-    if (isSelecting == _wasSelecting) return;
-    _wasSelecting = isSelecting;
+  /// Selection keeps the same rows under a shorter bar, so entering shifts by
+  /// the height the bar gave back and leaving restores the offset entered at
+  /// *plus* whatever was scrolled meanwhile — which is what makes a partly
+  /// expanded bar come back exactly as it was. Search replaces the rows
+  /// outright, so it opens its results at the top and gives the folder list
+  /// back the offset it had, untouched by any scrolling done through results.
+  ///
+  /// The result is deliberately not clamped against `maxScrollExtent`: the
+  /// new extent is not known until the swap has been laid out, and the
+  /// physics settle the rare case where the list shrank.
+  ///
+  /// A caller tearing one mode down on the way into another passes the
+  /// intermediate [target] so the two swaps are paid for one at a time: the
+  /// folder list gets its offset back first, and the next swap measures from
+  /// there rather than from the offset the outgoing mode had.
+  void _compensateBarSwap([_BarMode? target]) {
+    final mode = target ?? _barMode;
+    if (mode == _lastBarMode) return;
+    final previous = _lastBarMode;
+    _lastBarMode = mode;
     if (!_scrollController.hasClients) {
-      _offsetBeforeSelection = 0;
-      _offsetOnEnterSelection = 0;
+      _offsetBeforeSwap = 0;
+      _offsetOnEnterSwap = 0;
       return;
     }
     final offset = _scrollController.offset;
-    if (isSelecting) {
-      _offsetBeforeSelection = offset;
-      _offsetOnEnterSelection = math.max(0, offset - _barSwapShift);
-      _scrollController.jumpTo(_offsetOnEnterSelection);
+    if (mode != _BarMode.normal) {
+      _offsetBeforeSwap = offset;
+      _offsetOnEnterSwap = mode == _BarMode.selection
+          ? math.max(0, offset - _barSwapShift)
+          : 0;
+      _scrollController.jumpTo(_offsetOnEnterSwap);
       return;
     }
-    _scrollController.jumpTo(
-      math.max(0, _offsetBeforeSelection + (offset - _offsetOnEnterSelection)),
+    final restored = previous == _BarMode.selection
+        ? _offsetBeforeSwap + (offset - _offsetOnEnterSwap)
+        : _offsetBeforeSwap;
+    _scrollController.jumpTo(math.max(0, restored));
+  }
+
+  FolderScope? get _folderScope {
+    final folderId = widget.folderId;
+    if (folderId == null) return null;
+    return FolderScope(folderId: folderId, name: _folder?.name ?? widget.title);
+  }
+
+  void _openSearch() {
+    if (_searching) return;
+    if (_selection.isActive) {
+      _selection.clear();
+      _compensateBarSwap(_BarMode.normal);
+    }
+    _searchController.clear();
+    _searchBloc.add(
+      SearchOpened(scope: _folderScope ?? const SearchScope.everywhere()),
     );
+    _searching = true;
+    _compensateBarSwap();
+    setState(() {});
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _searching) _searchFocusNode.requestFocus();
+    });
+  }
+
+  /// Tears search down without asking for a frame, so the selection listener
+  /// can run it and its own swap back to back in one tick. The swap is paid
+  /// for as search → normal explicitly: by the time the listener runs,
+  /// selection is already active and [_barMode] would report it, which would
+  /// skip giving the folder list its offset back before the selection swap
+  /// measures from it. Selection and search are mutually exclusive.
+  void _leaveSearch() {
+    if (!_searching) return;
+    _searching = false;
+    _searchFocusNode.unfocus();
+    _searchController.clear();
+    _searchBloc.add(const SearchCleared());
+    _compensateBarSwap(_BarMode.normal);
+  }
+
+  void _exitSearch() {
+    if (!_searching) return;
+    _leaveSearch();
+    setState(() {});
+  }
+
+  void _onSearchChanged(String query) {
+    if (query.trim().isEmpty) {
+      _searchBloc.add(const SearchCleared());
+      return;
+    }
+    _searchBloc.add(SearchQueryChanged(query));
+  }
+
+  void _onSearchSubmitted(String query) {
+    if (query.trim().isEmpty) return;
+    _searchBloc.add(SearchSubmitted(query));
+  }
+
+  /// Re-runs whichever pass is on screen so a note edited through a result
+  /// comes back with a fresh title and snippet.
+  void _refreshSearch() {
+    final state = _searchBloc.state;
+    final query = state.query.trim();
+    if (query.isEmpty) {
+      _searchBloc.add(SearchOpened(scope: state.scope));
+      return;
+    }
+    if (state.phase == SearchPhase.full) {
+      _searchBloc.add(SearchSubmitted(state.query));
+      return;
+    }
+    _searchBloc.add(SearchQueryChanged(state.query));
   }
 
   Future<void> _loadSortPreferencesAndData() async {
@@ -372,9 +494,24 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
 
   /// The note-preview switch lives in the settings page the drawer opens over
   /// this one, so the only moment it can have changed is the pop back.
+  ///
+  /// Search is deliberately left standing: the page was never unmounted, so
+  /// query, scope and scroll are still there. Only the hits are re-run, so a
+  /// note edited through a result comes back with a fresh snippet.
   @override
   void didPopNext() {
     _loadSettings();
+    if (_searching) _refreshSearch();
+  }
+
+  /// A route regaining focus hands it back to the child that had it, and a
+  /// field regaining focus reopens the keyboard — so coming back from a
+  /// result would cover the results it returns to. Letting go of the field
+  /// on the way out leaves the query and the hits where they were, with the
+  /// keyboard down until the field is tapped again.
+  @override
+  void didPushNext() {
+    if (_searching) _searchFocusNode.unfocus();
   }
 
   @override
@@ -386,6 +523,9 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     _noteChangesSub?.cancel();
     _countDebounce?.cancel();
     _selection.dispose();
+    _searchBloc.close();
+    _searchController.dispose();
+    _searchFocusNode.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -706,8 +846,9 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
 
     final scaffold = Scaffold(
       key: _scaffoldKey,
-      drawer: isSelecting ? null : const AppDrawer(),
-      drawerEnableOpenDragGesture: !isSelecting && _folderSwipeEnabled,
+      drawer: isSelecting || _searching ? null : const AppDrawer(),
+      drawerEnableOpenDragGesture:
+          !isSelecting && !_searching && _folderSwipeEnabled,
       appBar: isSelecting
           ? SelectionAppBar(
               count: _selection.count,
@@ -723,64 +864,84 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
       body: RefreshIndicator(
         // Without this the spinner would drop from the very top of the body,
         // which the expanded bar covers.
-        edgeOffset: isSelecting
+        edgeOffset: isSelecting || _searching
             ? 0
             : MediaQuery.paddingOf(context).top +
                   FolderSliverAppBar.expandedHeight,
+        notificationPredicate: (notification) =>
+            !_searching && defaultScrollNotificationPredicate(notification),
         onRefresh: () async {
           _loadData();
         },
-        child: CustomScrollView(
-          controller: _scrollController,
-          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.manual,
-          slivers: [
-            if (!isSelecting)
-              FolderSliverAppBar(
-                title: isRootPage
-                    ? AppLocalizations.of(context)!.folders
-                    : (_folder?.name ?? widget.title),
-                isRootPage: isRootPage,
-                eyebrow: isRootPage ? null : _eyebrowLabel(context),
-                onShowAncestors: isRootPage ? null : _showAncestorMenu,
-                actions: [
-                  IconButton(
-                    icon: const Icon(Icons.search),
-                    tooltip: widget.folderId != null
-                        ? AppLocalizations.of(context)!.searchInFolder
-                        : AppLocalizations.of(context)!.searchAll,
-                    onPressed: () {
-                      // No reload on the way back: search runs on its own
-                      // SearchBloc now, so it never touches the list here.
-                      AppNavigator.toSearch(
-                        context,
-                        folderId: widget.folderId,
-                        folderName: _folder?.name ?? widget.title,
-                      );
-                    },
-                  ),
-                  StreamBuilder<int>(
-                    stream: GetIt.I<MoveHistoryService>().changes,
-                    initialData: GetIt.I<MoveHistoryService>().undoableCount,
-                    builder: (context, snapshot) => FolderOverflowMenu(
+        child: BlocBuilder<SearchBloc, SearchState>(
+          bloc: _searchBloc,
+          buildWhen: (previous, current) => _searching,
+          builder: (context, searchState) => CustomScrollView(
+            controller: _scrollController,
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.manual,
+            slivers: _searching
+                ? [
+                    _buildSearchAppBar(
+                      context,
                       isRootPage: isRootPage,
-                      sortLabel: _sortLabel(AppLocalizations.of(context)!),
-                      moveHistoryCount: snapshot.data ?? 0,
-                      onSortBy: _showQuickSortOptions,
-                      onSelect: _selection.activate,
-                      onMoveHistory: () => showMoveHistorySheet(context),
-                      onImport: _pickAndImport,
-                      onSettings: () => _scaffoldKey.currentState?.openDrawer(),
-                      onRenameFolder: isRootPage ? null : _renameCurrentFolder,
-                      onMoveFolder: isRootPage ? null : _moveCurrentFolder,
-                      onShareFolder: isRootPage ? null : _shareCurrentFolder,
-                      onDeleteFolder: isRootPage ? null : _deleteCurrentFolder,
+                      searchState: searchState,
                     ),
-                  ),
-                ],
-              ),
-            ..._buildContentSlivers(isSelecting: isSelecting),
-            _buildEmptyStateSection(),
-          ],
+                    ...SearchSurface.resultSlivers(context, searchState),
+                  ]
+                : [
+                    if (!isSelecting)
+                      FolderSliverAppBar(
+                        title: isRootPage
+                            ? AppLocalizations.of(context)!.folders
+                            : (_folder?.name ?? widget.title),
+                        isRootPage: isRootPage,
+                        eyebrow: isRootPage ? null : _eyebrowLabel(context),
+                        onShowAncestors: isRootPage ? null : _showAncestorMenu,
+                        actions: [
+                          IconButton(
+                            icon: const Icon(Icons.search),
+                            tooltip: widget.folderId != null
+                                ? AppLocalizations.of(context)!.searchInFolder
+                                : AppLocalizations.of(context)!.searchAll,
+                            onPressed: _openSearch,
+                          ),
+                          StreamBuilder<int>(
+                            stream: GetIt.I<MoveHistoryService>().changes,
+                            initialData:
+                                GetIt.I<MoveHistoryService>().undoableCount,
+                            builder: (context, snapshot) => FolderOverflowMenu(
+                              isRootPage: isRootPage,
+                              sortLabel: _sortLabel(
+                                AppLocalizations.of(context)!,
+                              ),
+                              moveHistoryCount: snapshot.data ?? 0,
+                              onSortBy: _showQuickSortOptions,
+                              onSelect: _selection.activate,
+                              onMoveHistory: () =>
+                                  showMoveHistorySheet(context),
+                              onImport: _pickAndImport,
+                              onSettings: () =>
+                                  _scaffoldKey.currentState?.openDrawer(),
+                              onRenameFolder: isRootPage
+                                  ? null
+                                  : _renameCurrentFolder,
+                              onMoveFolder: isRootPage
+                                  ? null
+                                  : _moveCurrentFolder,
+                              onShareFolder: isRootPage
+                                  ? null
+                                  : _shareCurrentFolder,
+                              onDeleteFolder: isRootPage
+                                  ? null
+                                  : _deleteCurrentFolder,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ..._buildContentSlivers(isSelecting: isSelecting),
+                    _buildEmptyStateSection(),
+                  ],
+          ),
         ),
       ),
       bottomNavigationBar: isSelecting
@@ -790,40 +951,121 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
               onShare: _shareSelected,
               onDelete: _deleteSelected,
             )
+          : _searching
+          ? null
           : _buildBottomBar(context, isRootPage: isRootPage),
     );
 
-    // While in selection mode, intercept back to exit selection instead of
-    // popping the route. Wraps the existing PopScope so it always gets first dibs.
-    if (isSelecting) {
-      return _wrapWithImportExportListener(
+    return BlocProvider<SearchBloc>.value(
+      value: _searchBloc,
+      child: _wrapWithImportExportListener(
         PopScope(
-          canPop: false,
+          canPop: !_backIsHandled(isRootPage: isRootPage),
           onPopInvokedWithResult: (didPop, result) {
-            if (!didPop) _selection.clear();
+            if (!didPop) _onBackIntercepted();
           },
           child: scaffold,
         ),
-      );
-    }
+      ),
+    );
+  }
 
-    // Wrap with PopScope to disable iOS swipe-back gesture in subfolders
-    // so that drawer swipe gesture works instead
-    if (!isRootPage && _folderSwipeEnabled) {
-      return _wrapWithImportExportListener(
-        PopScope(
-          canPop: false,
-          onPopInvokedWithResult: (didPop, result) {
-            if (!didPop) {
-              AppNavigator.pop(context);
-            }
-          },
-          child: scaffold,
+  /// Whether Back means something on this page before it means leaving it.
+  ///
+  /// There is exactly one [PopScope] on the browser and deliberately not one
+  /// per mode: a route calls **every** registered `PopEntry`'s callback, so
+  /// nesting them would run two handlers for a single gesture, and swapping
+  /// between sibling ones changes the tree shape above the [Scaffold] —
+  /// which rebuilds it and takes the scroll position with it.
+  bool _backIsHandled({required bool isRootPage}) {
+    if (_selection.isActive || _searching) return true;
+    return !isRootPage && _folderSwipeEnabled;
+  }
+
+  /// The three meanings of Back, in priority order: leave selection, leave
+  /// search, and only once neither is up the nested-folder case — the one
+  /// that exists so the swipe-back gesture cannot steal the drawer's edge
+  /// drag.
+  void _onBackIntercepted() {
+    if (_selection.isActive) {
+      _selection.clear();
+      return;
+    }
+    if (_searching) {
+      _exitSearch();
+      return;
+    }
+    AppNavigator.pop(context);
+  }
+
+  /// The bar search wears: a field where the large title was, the scope chips
+  /// under it, and a back arrow that leaves search rather than the folder.
+  ///
+  /// It replaces the whole first sliver instead of dressing up
+  /// [FolderSliverAppBar]: `SliverAppBar.large` builds its `title` twice, so a
+  /// [TextField] there would be duplicated, and two of them would fight over
+  /// one [FocusNode].
+  Widget _buildSearchAppBar(
+    BuildContext context, {
+    required bool isRootPage,
+    required SearchState searchState,
+  }) {
+    final l10n = AppLocalizations.of(context)!;
+    final colorScheme = Theme.of(context).colorScheme;
+    final folderScope = _folderScope;
+
+    return SliverAppBar(
+      pinned: true,
+      automaticallyImplyLeading: false,
+      leading: IconButton(
+        icon: const BackButtonIcon(),
+        tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+        onPressed: _exitSearch,
+      ),
+      title: TextField(
+        controller: _searchController,
+        focusNode: _searchFocusNode,
+        textInputAction: TextInputAction.search,
+        decoration: InputDecoration(
+          hintText: isRootPage ? l10n.searchAll : l10n.searchInFolder,
+          border: InputBorder.none,
+          hintStyle: TextStyle(
+            color: colorScheme.onSurface.withValues(alpha: 0.6),
+          ),
         ),
-      );
-    }
-
-    return _wrapWithImportExportListener(scaffold);
+        style: const TextStyle(fontSize: 18),
+        onChanged: _onSearchChanged,
+        onSubmitted: _onSearchSubmitted,
+      ),
+      actions: [
+        ValueListenableBuilder<TextEditingValue>(
+          valueListenable: _searchController,
+          builder: (context, value, _) {
+            if (value.text.isEmpty) return const SizedBox.shrink();
+            return IconButton(
+              icon: const Icon(Icons.clear),
+              tooltip: l10n.clearSearch,
+              onPressed: () {
+                _searchController.clear();
+                _onSearchChanged('');
+                _searchFocusNode.requestFocus();
+              },
+            );
+          },
+        ),
+      ],
+      bottom: folderScope == null
+          ? null
+          : PreferredSize(
+              preferredSize: const Size.fromHeight(
+                SearchScopeChips.preferredHeight,
+              ),
+              child: SearchScopeChips(
+                folderScope: folderScope,
+                selected: searchState.scope,
+              ),
+            ),
+    );
   }
 
   /// The create bar that replaced the floating action button and its sheet.
@@ -1553,7 +1795,10 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   /// Labels appear only when both groups are present. A folder full of notes
   /// does not need to be told they are notes, and the root — which never has
   /// notes — gains its "Folders" label with the smart rows above it.
-  List<_RowEntry> _buildEntries(List<ContentItem> items, AppLocalizations l10n) {
+  List<_RowEntry> _buildEntries(
+    List<ContentItem> items,
+    AppLocalizations l10n,
+  ) {
     final folders = [
       for (final item in items)
         if (item is FolderItem) item,
@@ -1941,4 +2186,3 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     });
   }
 }
-
