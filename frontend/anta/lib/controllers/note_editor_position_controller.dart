@@ -46,6 +46,7 @@ class NoteEditorPositionController {
   CodeLineSelection? savedEditorSelection;
 
   NotePositionData? _saved;
+  bool _loaded = false;
   bool _contentReady = false;
   bool _restored = false;
   bool _disposed = false;
@@ -59,24 +60,39 @@ class NoteEditorPositionController {
 
   bool? get savedIsPreviewMode => _saved?.isPreviewMode;
 
+  /// Whether [load] has settled — answered, failed, or had nothing to read.
+  ///
+  /// The third half of the page's mount gate: the editor waits for this so
+  /// the stored position is known *before* its first layout, and the
+  /// first frame it paints is already scrolled to it. Without the gate an
+  /// editor mounted at the top would jump a frame or two later whenever
+  /// the position read happened to be the slowest of the three loads.
+  bool get loaded => _loaded;
+
   /// Reads the stored position for [noteId] and offers it to the join.
   /// Inert for a note that does not exist yet — there is nothing stored
-  /// under an id that was never assigned.
+  /// under an id that was never assigned, and [loaded] is true at once.
   ///
   /// A read that fails is treated as "nothing stored": the join simply
   /// never opens, which is the same outcome as a note that was never
   /// scrolled. The page fires this unawaited, so an escaping error would
-  /// reach the zone instead of costing the user their place.
+  /// reach the zone instead of costing the user their place. Either way
+  /// [loaded] flips, so a failed read never holds the editor back.
   Future<void> load() async {
     final id = noteId;
-    if (id == null) return;
-    final NotePositionData position;
+    if (id == null) {
+      _loaded = true;
+      return;
+    }
+    NotePositionData? position;
     try {
       position = await _loadPosition(id);
     } catch (_) {
-      return;
+      position = null;
     }
     if (_disposed) return;
+    _loaded = true;
+    if (position == null) return;
     _saved = position;
     restoreWhenReady();
   }

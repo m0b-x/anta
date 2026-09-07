@@ -224,6 +224,15 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
     maxSize: _zoneMemoSize,
   );
 
+  /// Bumped on every [ScrollMetricsNotification] the editor's scrollable
+  /// dispatches. The fork moves the viewport with `correctBy` inside
+  /// layout — the flat-space folds, and the layout-time centring a note
+  /// opens with — and a correction never notifies the scroll controller's
+  /// listeners; the metrics notification is the one signal it does send,
+  /// so the progress indicator repaints off this instead of waiting for
+  /// its periodic metrics check.
+  final ValueNotifier<int> _scrollMetricsTick = ValueNotifier<int>(0);
+
   @override
   void initState() {
     super.initState();
@@ -300,7 +309,13 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
     _ghostTapExpiry?.cancel();
     widget.searchController.clearFindController();
     widget.controller.removeListener(_onControllerChanged);
+    _scrollMetricsTick.dispose();
     super.dispose();
+  }
+
+  bool _onScrollMetrics(ScrollMetricsNotification notification) {
+    _scrollMetricsTick.value++;
+    return false;
   }
 
   /// Arms the ghost-tap check. Called from a [Listener] wrapping the
@@ -696,7 +711,10 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
               color: theme.colorScheme.surface.withValues(alpha: 0.3),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: _buildCodeEditor(context),
+            child: NotificationListener<ScrollMetricsNotification>(
+              onNotification: _onScrollMetrics,
+              child: _buildCodeEditor(context),
+            ),
           ),
         ),
         // Chunk debug overlay - positioned behind scrollbar but above editor
@@ -730,6 +748,7 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
               key: widget.scrollIndicatorKey,
               child: ScrollProgressIndicator(
                 scrollController: widget.scrollController.verticalScroller,
+                repaint: _scrollMetricsTick,
               ),
             ),
           ),

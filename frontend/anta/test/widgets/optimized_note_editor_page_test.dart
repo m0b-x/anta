@@ -404,6 +404,66 @@ void main() {
   }
 
   group('B2 — the saved position survives either load order', () {
+    testWidgets('a long note shows its stored line in the editor\'s first '
+        'frame', (tester) async {
+      const int storedLine = 300;
+      final longContent = List.generate(400, (i) => 'line $i').join('\n');
+      await savePosition(tester, storedLine, 2);
+
+      await pumpPage(tester);
+      noteBloc.emitContentLoaded(metadata, longContent);
+      await tester.pump();
+      // Stop on the first frame the editor exists: the mount gate waits
+      // for the stored position, and the restore arms the fork's
+      // layout-time centring before that frame is built, so this frame's
+      // own layout must already sit on the stored line — no frame ever
+      // paints the top of the note and jumps.
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+
+      final render = CodeFieldRenderForTesting.of(
+        tester.renderObject(find.byType(CodeEditor)),
+      );
+      expect(render.displayedLineIndices, contains(storedLine));
+      expect(
+        editorOf(tester).scrollController.verticalScroller.position.pixels,
+        greaterThan(0.0),
+      );
+      expect(editorOf(tester).controller.selection.baseIndex, storedLine);
+      expect(editorOf(tester).controller.selection.baseOffset, 2);
+      await teardownPage(tester);
+    });
+
+    testWidgets('the body is blank while loading and appears fully formed '
+        'in one frame', (tester) async {
+      await pumpPage(tester);
+
+      // Nothing has landed: no half-built chrome — no toolbar built from
+      // default settings, no stats bar — just the blank body.
+      expect(find.byType(MarkdownBar, skipOffstage: false), findsNothing);
+      expect(editorFinder, findsNothing);
+
+      // Everything but the content settles; the body must still be blank,
+      // because the toolbar would otherwise reflow when the editor lands.
+      await settle(tester);
+      expect(find.byType(MarkdownBar, skipOffstage: false), findsNothing);
+      expect(editorFinder, findsNothing);
+
+      noteBloc.emitContentLoaded(metadata, content);
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+
+      // The frame the editor first exists in already carries the toolbar
+      // — the bar bloc's answer is part of the mount gate, so the two
+      // never arrive in different frames.
+      expect(find.byType(MarkdownBar, skipOffstage: false), findsOneWidget);
+      // And it arrives through the fade, not a hard swap.
+      expect(
+        find.ancestor(of: editorFinder, matching: find.byType(FadeTransition)),
+        findsWidgets,
+      );
+      await teardownPage(tester);
+    });
+
     testWidgets('content lands before the saved position', (tester) async {
       await savePosition(tester, 2, 6);
 

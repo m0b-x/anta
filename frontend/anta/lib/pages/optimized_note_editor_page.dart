@@ -156,9 +156,22 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   bool _isTogglingPreview = false;
   Timer? _livePreviewDebounce;
 
-  /// Whether the note's text has reached the editor — the other half of
+  /// Whether the note's text has reached the editor — one part of
   /// [_isLoading].
   bool _contentLoaded = false;
+
+  /// Whether the initial [_reloadSettings] has resolved the money config
+  /// and the colour palette on top of the settings bundle. Part of
+  /// [_isLoading]: both are render inputs, and applying either after the
+  /// editor's first frame restyles every money row or coloured run in
+  /// front of the reader.
+  bool _renderConfigLoaded = false;
+
+  /// Whether the toolbar bloc has answered this page's [LoadMarkdownBar]
+  /// — with a profile or with an error. Part of [_isLoading]: the bar is
+  /// built from the answer, and a bar that lands after the mount reflows
+  /// under the editor.
+  bool _barSettled = false;
 
   /// Whether the [LoadNoteContent] *this page* dispatched is still
   /// unanswered.
@@ -194,12 +207,23 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
 
   /// Whether the loading skeleton is still up.
   ///
-  /// Both inputs matter (B4). The note's text is the obvious one; the
-  /// settings bundle is the subtle one, because the editor's [ValueKey]
-  /// is derived from `liveMarkdownRendering` — mounting before that
-  /// landed would remount the `CodeEditor` the moment it arrived, mid
-  /// initialization.
-  bool get _isLoading => !_contentLoaded || !_editorSettings.loaded;
+  /// Every input the first frame is built from. The note's text is the
+  /// obvious one; the settings bundle is the subtle one (B4), because the
+  /// editor's [ValueKey] is derived from `liveMarkdownRendering` —
+  /// mounting before that landed would remount the `CodeEditor` the moment
+  /// it arrived, mid initialization. The stored position is applied before
+  /// the editor's first layout, so that frame is already scrolled to it.
+  /// The money config, the colour palette and the toolbar profile are the
+  /// rest: each used to land a frame or two after the mount and restyle or
+  /// reflow what was already on screen. With all of them gated, the body
+  /// appears exactly once, fully formed — the loading state is a blank
+  /// body, never half-built chrome that then shifts.
+  bool get _isLoading =>
+      !_contentLoaded ||
+      !_editorSettings.loaded ||
+      !_position.loaded ||
+      !_renderConfigLoaded ||
+      !_barSettled;
 
   /// Convenience accessor for the current preview font size, sourced
   /// from [_previewBloc.state.fontSize]. Used by the toolbar build.
@@ -343,7 +367,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     _counterBloc = context.read<CounterBloc>();
     _counterBloc.add(SetNoteContext(noteId: widget.noteId));
     _saves.start();
-    unawaited(_position.load());
+    unawaited(_position.load().whenComplete(_onPositionLoaded));
     unawaited(_loadFolderName());
     // Last, so the settings listener can never fire against a
     // half-constructed page.
@@ -396,17 +420,40 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// that are not part of it. Called from [initState] and from
   /// [didPopNext], which is what makes an editor flag changed on the
   /// settings page apply on the way back (B3).
+  ///
+  /// The first run also opens the render half of the mount gate — in a
+  /// `finally`, so a read that throws still lets the editor mount rather
+  /// than leaving the page blank for good. The two resolved settings are
+  /// independent reads and run side by side.
   Future<void> _reloadSettings() async {
-    await _editorSettings.reload();
-    if (!mounted) return;
-    await _refreshMoneyConfig();
-    await _refreshColorPalette();
+    try {
+      await _editorSettings.reload();
+      if (!mounted) return;
+      await Future.wait([_refreshMoneyConfig(), _refreshColorPalette()]);
+    } finally {
+      if (!_renderConfigLoaded && mounted) {
+        setState(() => _renderConfigLoaded = true);
+        _markEditorReady();
+      }
+    }
   }
 
-  /// Both halves of the mount gate have landed, so the editor exists and
-  /// holds the note: a restored caret set now will stick. Called from
-  /// both listeners — the position controller latches, so whichever
-  /// lands last is the one that opens the restore (B2).
+  /// The stored position has settled (read, failed or nothing to read), so
+  /// the mount gate may open. Runs off the unawaited load, hence the
+  /// `mounted` check; the rebuild is what mounts the editor when this was
+  /// the last of the three loads.
+  void _onPositionLoaded() {
+    if (!mounted) return;
+    setState(() {});
+    _markEditorReady();
+  }
+
+  /// Every part of the mount gate has landed: the controller holds the
+  /// note and the stored position is known, so a restored caret set now
+  /// will stick and the editor — which mounts on the very next frame —
+  /// lays itself out around it. Called from every load; the position
+  /// controller latches, so whichever lands last is the one that opens
+  /// the restore (B2).
   void _markEditorReady() {
     if (_isLoading) return;
     _position.contentReady();
@@ -1100,42 +1147,45 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   }
 
   /// Applies the persisted caret or preview progress. Runs exactly once,
-  /// when the position record and a mounted editor holding the note have
-  /// both landed — the join lives in
+  /// when the position record, the content and the settings have all
+  /// landed — the join lives in
   /// [NoteEditorPositionController.restoreWhenReady], so this body no
   /// longer has to guess which side it is being called from (B2).
+  ///
+  /// The editor itself mounts on the next frame (the gate opens in the
+  /// same callback that runs this), so the caret is set on the controller
+  /// synchronously and the scroll is handed to the fork as a
+  /// layout-time centring: the editor's first layout consumes it, and the
+  /// first frame it paints already shows the stored line. The old
+  /// post-frame-plus-timer scroll painted the top of the note first and
+  /// then jumped, which on slower devices read as a fast scroll down.
   void _applyRestoredPosition(NotePositionData position) {
     _applySavedPreviewMode();
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-
-      if (_canPreview && position.isPreviewMode) {
+    if (_canPreview && position.isPreviewMode) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
         // Restore preview scroll using progress ratio (0.0–1.0)
         // via the PreviewScrollController's deferred restore.
         _previewController.restoreProgress(
           position.previewScrollProgress.clamp(0.0, 1.0),
         );
-        return;
-      }
-
-      // The record stores an absolute line number; this resolves it back
-      // to a visible index (and clamps a stale line/column against the
-      // note as it is now).
-      final target = NoteEditorPositionController.editorTarget(
-        position,
-        _contentController,
-      );
-      _contentController.selection = CodeLineSelection.collapsed(
-        index: target.index,
-        offset: target.offset,
-      );
-
-      _position.scheduleScroll(const Duration(milliseconds: 100), () {
-        if (!mounted) return;
-        _editorScrollController.makeCenterIfInvisible(target);
       });
-    });
+      return;
+    }
+
+    // The record stores an absolute line number; this resolves it back
+    // to a visible index (and clamps a stale line/column against the
+    // note as it is now).
+    final target = NoteEditorPositionController.editorTarget(
+      position,
+      _contentController,
+    );
+    _contentController.selection = CodeLineSelection.collapsed(
+      index: target.index,
+      offset: target.offset,
+    );
+    _editorScrollController.makeCenterIfInvisibleOnLayout(target);
   }
 
   /// The record describing where the reader is right now.
@@ -1677,10 +1727,19 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
           BlocListener<MarkdownBarBloc, MarkdownBarState>(
             listener: (context, state) {
               if (state is MarkdownBarLoaded) {
-                setState(() => _bar = state);
+                setState(() {
+                  _bar = state;
+                  _barSettled = true;
+                });
                 ShortcutHandlerFactory.counterHandler.setActiveNoteId(
                   _saves.effectiveNoteId ?? widget.noteId,
                 );
+                _markEditorReady();
+              } else if (state is MarkdownBarError) {
+                // A bar that failed to load is still an answer: the editor
+                // mounts with an empty shortcut row rather than never.
+                setState(() => _barSettled = true);
+                _markEditorReady();
               }
             },
           ),
@@ -1751,146 +1810,148 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
                 ],
               ),
             ),
+            // The body appears once, fully formed. While any input of the
+            // first frame is still loading the body is blank — no stats
+            // bar, no toolbar built from default settings, nothing that
+            // would shift or restyle when the real values land — and the
+            // finished editor then fades in over the scaffold background
+            // instead of popping. The chrome (app bar, title) is stable
+            // throughout, so the only motion the reader sees is one fade.
             body: Padding(
               padding: EdgeInsets.only(bottom: keyboardInset),
-              child: _isLoading
-                  ? Column(
-                      children: [
-                        if (_editorSettings.value.showStatsBar)
-                          RepaintBoundary(child: _buildNoteStats()),
-                        Expanded(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16.0,
+              child: AnimatedSwitcher(
+                duration: AppConstants.animationDuration,
+                switchInCurve: Curves.easeOut,
+                switchOutCurve: Curves.easeOut,
+                layoutBuilder: (current, previous) => Stack(
+                  fit: StackFit.expand,
+                  children: [...previous, ?current],
+                ),
+                child: _isLoading
+                    ? const SizedBox.expand(key: ValueKey('note-body-loading'))
+                    : Column(
+                        key: const ValueKey('note-body'),
+                        children: [
+                          // Search bar
+                          if (_searchController.isSearching)
+                            NoteSearchBar(
+                              searchController: _searchController,
+                              onClose: () => setState(() {}),
+                              onNavigateToMatch: _navigateToSearchMatch,
+                              showReplaceField: !showPreview,
+                              onReplace: _handleSearchReplace,
                             ),
-                            child: Container(
-                              color: Theme.of(context).scaffoldBackgroundColor,
-                            ),
-                          ),
-                        ),
-                        if (_shortcuts.isNotEmpty)
-                          RepaintBoundary(
-                            child: _buildMarkdownBar(enabled: false),
-                          ),
-                      ],
-                    )
-                  : Column(
-                      children: [
-                        // Search bar
-                        if (_searchController.isSearching)
-                          NoteSearchBar(
-                            searchController: _searchController,
-                            onClose: () => setState(() {}),
-                            onNavigateToMatch: _navigateToSearchMatch,
-                            showReplaceField: !showPreview,
-                            onReplace: _handleSearchReplace,
-                          ),
-                        if (_editorSettings.value.showStatsBar)
-                          RepaintBoundary(child: _buildNoteStats()),
-                        Expanded(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: AppSpacing.lg,
-                            ),
-                            child: Builder(
-                              builder: (context) {
-                                // Only calculate debug info if any debug option is enabled
-                                final devOptions = DevOptions.instance;
-                                if (!devOptions.anyEnabled) {
-                                  return Stack(
-                                    children: [
-                                      Offstage(
-                                        offstage: showPreview,
-                                        child: IgnorePointer(
-                                          ignoring: showPreview,
-                                          child: _buildEditor(),
+                          if (_editorSettings.value.showStatsBar)
+                            RepaintBoundary(child: _buildNoteStats()),
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: AppSpacing.lg,
+                              ),
+                              child: Builder(
+                                builder: (context) {
+                                  // Only calculate debug info if any debug option is enabled
+                                  final devOptions = DevOptions.instance;
+                                  if (!devOptions.anyEnabled) {
+                                    return Stack(
+                                      children: [
+                                        Offstage(
+                                          offstage: showPreview,
+                                          child: IgnorePointer(
+                                            ignoring: showPreview,
+                                            child: _buildEditor(),
+                                          ),
                                         ),
-                                      ),
-                                      Offstage(
-                                        offstage: !showPreview,
-                                        child: IgnorePointer(
-                                          ignoring: !showPreview,
-                                          child: _buildPreview(),
+                                        Offstage(
+                                          offstage: !showPreview,
+                                          child: IgnorePointer(
+                                            ignoring: !showPreview,
+                                            child: _buildPreview(),
+                                          ),
                                         ),
-                                      ),
-                                    ],
-                                  );
-                                }
+                                      ],
+                                    );
+                                  }
 
-                                final selection = _contentController.selection;
-                                final cursorLine = selection.baseIndex + 1;
-                                final cursorColumn = selection.baseOffset;
-                                final cursorOffset =
-                                    _getLineStartOffset(selection.baseIndex) +
-                                    selection.baseOffset;
-                                final int? selStart;
-                                final int? selEnd;
-                                if (selection.isCollapsed) {
-                                  selStart = null;
-                                  selEnd = null;
-                                } else {
-                                  // Get start and end offsets based on normalized selection
-                                  final baseOff =
+                                  final selection =
+                                      _contentController.selection;
+                                  final cursorLine = selection.baseIndex + 1;
+                                  final cursorColumn = selection.baseOffset;
+                                  final cursorOffset =
                                       _getLineStartOffset(selection.baseIndex) +
                                       selection.baseOffset;
-                                  final extentOff =
-                                      _getLineStartOffset(
-                                        selection.extentIndex,
-                                      ) +
-                                      selection.extentOffset;
-                                  if (baseOff <= extentOff) {
-                                    selStart = baseOff;
-                                    selEnd = extentOff;
+                                  final int? selStart;
+                                  final int? selEnd;
+                                  if (selection.isCollapsed) {
+                                    selStart = null;
+                                    selEnd = null;
                                   } else {
-                                    selStart = extentOff;
-                                    selEnd = baseOff;
+                                    // Get start and end offsets based on normalized selection
+                                    final baseOff =
+                                        _getLineStartOffset(
+                                          selection.baseIndex,
+                                        ) +
+                                        selection.baseOffset;
+                                    final extentOff =
+                                        _getLineStartOffset(
+                                          selection.extentIndex,
+                                        ) +
+                                        selection.extentOffset;
+                                    if (baseOff <= extentOff) {
+                                      selStart = baseOff;
+                                      selEnd = extentOff;
+                                    } else {
+                                      selStart = extentOff;
+                                      selEnd = baseOff;
+                                    }
                                   }
-                                }
-                                final noteSize = _contentController.textLength;
+                                  final noteSize =
+                                      _contentController.textLength;
 
-                                return DebugOverlayStack(
-                                  cursorLine: cursorLine,
-                                  cursorColumn: cursorColumn,
-                                  cursorOffset: cursorOffset,
-                                  selectionStart: selStart,
-                                  selectionEnd: selEnd,
-                                  noteSize: noteSize,
-                                  child: Stack(
-                                    children: [
-                                      Offstage(
-                                        offstage: showPreview,
-                                        child: IgnorePointer(
-                                          ignoring: showPreview,
-                                          child: _buildEditor(),
+                                  return DebugOverlayStack(
+                                    cursorLine: cursorLine,
+                                    cursorColumn: cursorColumn,
+                                    cursorOffset: cursorOffset,
+                                    selectionStart: selStart,
+                                    selectionEnd: selEnd,
+                                    noteSize: noteSize,
+                                    child: Stack(
+                                      children: [
+                                        Offstage(
+                                          offstage: showPreview,
+                                          child: IgnorePointer(
+                                            ignoring: showPreview,
+                                            child: _buildEditor(),
+                                          ),
                                         ),
-                                      ),
-                                      Offstage(
-                                        offstage: !showPreview,
-                                        child: IgnorePointer(
-                                          ignoring: !showPreview,
-                                          child: _buildPreview(),
+                                        Offstage(
+                                          offstage: !showPreview,
+                                          child: IgnorePointer(
+                                            ignoring: !showPreview,
+                                            child: _buildPreview(),
+                                          ),
                                         ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
                             ),
                           ),
-                        ),
-                        // Always show toolbar — in preview mode it provides
-                        // utility actions; in edit mode it appears with keyboard.
-                        RepaintBoundary(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              _buildMarkdownBar(enabled: true),
-                              SizedBox(height: bottomSpacing),
-                            ],
+                          // Always show toolbar — in preview mode it provides
+                          // utility actions; in edit mode it appears with keyboard.
+                          RepaintBoundary(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _buildMarkdownBar(),
+                                SizedBox(height: bottomSpacing),
+                              ],
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
+                        ],
+                      ),
+              ),
             ),
           ),
         ),
@@ -1908,42 +1969,38 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     );
   }
 
-  /// Builds the markdown toolbar shared between the loading skeleton
-  /// and the loaded note view. When [enabled] is `false` the toolbar
-  /// renders with disabled history/font/settings hooks (still showing
-  /// the layout) so the loading skeleton looks identical to the final
-  /// chrome.
-  Widget _buildMarkdownBar({required bool enabled}) {
+  /// Builds the markdown toolbar. Only the loaded note view has one: the
+  /// loading state is a blank body by design, so there is no half-built
+  /// bar for the real one to differ from.
+  Widget _buildMarkdownBar() {
     final showPreview = _showPreview;
     final settings = _editorSettings.value;
-    final history = enabled ? _historyState : (canUndo: false, canRedo: false);
+    final history = _historyState;
     _builtHistory = history;
     return MarkdownBar(
       shortcuts: _shortcuts,
       isPreviewMode: showPreview,
       canUndo: history.canUndo,
       canRedo: history.canRedo,
-      previewFontSize: enabled
-          ? (showPreview ? _previewFontSize : settings.editorFontSize)
-          : _previewFontSize,
+      previewFontSize: showPreview ? _previewFontSize : settings.editorFontSize,
       shortcutRatio: settings.toolbarShortcutRatio,
       splitEnabled: settings.toolbarSplitEnabled,
       utilityConfigs: settings.toolbarUtilityConfig,
-      onUndo: enabled ? () => _historyObserver.undo() : () {},
-      onRedo: enabled ? () => _historyObserver.redo() : () {},
-      onPaste: enabled ? () => _contentController.paste() : null,
+      onUndo: () => _historyObserver.undo(),
+      onRedo: () => _historyObserver.redo(),
+      onPaste: () => _contentController.paste(),
       onSwitchBar: _showBarSwitcher,
-      onDecreaseFontSize: enabled ? _decreaseFontSize : () {},
-      onIncreaseFontSize: enabled ? _increaseFontSize : () {},
-      onSettings: enabled ? _openMarkdownSettings : () {},
-      onShortcutPressed: enabled ? _handleShortcut : (_) {},
-      onReorderComplete: enabled ? _handleReorderComplete : (_) {},
-      onUtilityReorderComplete: enabled ? _handleUtilityReorderComplete : null,
-      onShare: enabled ? _showExportFormatDialog : null,
-      onCounter: enabled ? _showCounterPicker : null,
+      onDecreaseFontSize: _decreaseFontSize,
+      onIncreaseFontSize: _increaseFontSize,
+      onSettings: _openMarkdownSettings,
+      onShortcutPressed: _handleShortcut,
+      onReorderComplete: _handleReorderComplete,
+      onUtilityReorderComplete: _handleUtilityReorderComplete,
+      onShare: _showExportFormatDialog,
+      onCounter: _showCounterPicker,
       onScrollToTop: () => _scrollToEdge(toTop: true),
       onScrollToBottom: () => _scrollToEdge(toTop: false),
-      suggestions: enabled ? _vocabularySuggestions : null,
+      suggestions: _vocabularySuggestions,
     );
   }
 

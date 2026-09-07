@@ -182,6 +182,70 @@ void main() {
     });
   });
 
+  group('loaded — the mount gate\'s third half', () {
+    test('is false until the read answers, then true', () {
+      fakeAsync((async) {
+        final h = _Harness();
+        expect(h.controller.loaded, isFalse);
+
+        unawaited(h.controller.load());
+        async.flushMicrotasks();
+        expect(h.controller.loaded, isFalse);
+
+        h.loadGate.complete(_position(editorLineIndex: 7));
+        async.flushMicrotasks();
+        expect(h.controller.loaded, isTrue);
+
+        h.controller.dispose();
+      });
+    });
+
+    test('a read that throws still counts as loaded, so the editor mounts', () {
+      fakeAsync((async) {
+        final controller = NoteEditorPositionController(
+          noteId: 'note-1',
+          loadPosition: (id) => Future<NotePositionData>.error(
+            StateError('the position row is unreadable'),
+          ),
+          savePosition: (id, position) async {},
+          onRestore: (_) {},
+        );
+
+        unawaited(controller.load());
+        async.flushMicrotasks();
+
+        expect(controller.loaded, isTrue);
+        expect(controller.saved, isNull);
+
+        controller.dispose();
+      });
+    });
+
+    test('a note with no id is loaded as soon as load is called', () {
+      final h = _Harness(noteId: null);
+      expect(h.controller.loaded, isFalse);
+
+      unawaited(h.controller.load());
+
+      expect(h.controller.loaded, isTrue);
+      expect(h.loadCalls, isEmpty);
+      h.controller.dispose();
+    });
+
+    test('a load answering after dispose never flips loaded', () {
+      fakeAsync((async) {
+        final h = _Harness();
+        unawaited(h.controller.load());
+        h.controller.dispose();
+
+        h.loadGate.complete(_position(editorLineIndex: 7));
+        async.flushMicrotasks();
+
+        expect(h.controller.loaded, isFalse);
+      });
+    });
+  });
+
   group('a note with no id yet', () {
     test('does not load, does not save, and never restores', () {
       fakeAsync((async) {

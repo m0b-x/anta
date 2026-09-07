@@ -1424,3 +1424,220 @@ skipped with reasons. Do not commit.
   page fetching `getAncestors` itself — no `NavDestination` param, no
   restore-replay change, and the long-press menu needs the full chain
   anyway.
+
+## 7. Mock parity + deep review (opened 2026-09-07)
+
+**Status: PLANNED.** The owner compared the emulator with the artifact
+and judged it not delivered: the palette now matches token for token
+(verified on `emulator-5554`, light theme, 2026-09-07 — ground
+`surfaceContainer`, cards `surface`, primary `#6750A4`), so what is left
+is layout, typography, iconography and row anatomy, plus a bug review of
+Slices 1–6 (5 and 6 were never device-tested before 2026-09-07, when the
+search keyboard bug surfaced). The prompt below is the next session.
+
+```text
+PROMPT — Mock parity + deep review (navigation round 2)
+
+Repo: D:\Alex\Programare\repos\anta, Flutter 3.44 app in frontend/anta.
+Run every command from frontend/anta (PowerShell on Windows; no python;
+never `perl -i` — files are CRLF and it silently misses or empties them;
+use the Read/Edit/Write tools). Load `anta-context`, then `l10n` and
+`verify`. Read docs/navigation-round-2-roadmap.md sections 0–3, 5 and 7
+(this one) and COPILOT_CONTEXT.md "Navigation And Launch Restore" and
+"UI And UX Direction" plus the browser paragraphs above them. Work on a
+committed tree (ask the owner to commit Slice 6 + the palette + the
+keyboard fix first if `git status` is dirty; if they say go, build on
+top). Do not commit.
+
+Goal: the owner approved the artifact "ANTA Navigation Round 2"
+(https://claude.ai/code/artifact/82c94d9b-0793-47a9-ae29-a036181fcccc)
+and the client judges delivery against it. Deliver four things: (1) a
+screen-by-screen parity audit against the mock's CSS, (2) a deep bug
+review of everything Slices 1–6 and the palette touched, (3) the fixes,
+(4) emulator screenshots before and after for every mock screen.
+
+Execution model: you (Fable) plan, triage, review and write docs. Opus
+agents do the deep reads and every implementation slice. Sonnet agents do
+the wide grep sweeps. Do not explore by hand when an agent can. Review
+agents are read-only and label each finding CONFIRMED (repro or failing
+test) or PLAUSIBLE.
+
+Spec source: `Artifact read` on the URL returns the HTML; the <style>
+block at the top (about lines 4–117) is the spec — hold the app to those
+values, not to impressions. Screens: Home (root), A folder, Scrolled,
+Folder menu, Long-press on Back, Search before typing, Search results,
+Editor, Editor find, Editor menu, Dark ledger folder. The drawer figure is
+unstyled — skip it. "What the code says" and "Your call" are context.
+
+Mock metrics (tokens are already in lib/constants/app_theme.dart and
+the SurfaceRoles extension in lib/constants/app_colors.dart):
+- Bar: toolbar 48px; icon buttons 48px with 22px stroke-style glyphs in
+  onSurfaceVariant; collapsed title 17px/500. Large title 28px/500 with
+  14px below it, 8px above it at root; eyebrow one 22px line, 13px
+  onSurfaceVariant, directly under the toolbar — no empty band.
+- List: 16px side inset; groups radius 14; 18px between groups; section
+  label 11px/500 uppercase, letter-spacing .08em, onSurfaceVariant.
+- Folder row: min 48px; 22px primary outline folder glyph; name 15px/400;
+  trailing count 14px in outline color, tabular; chevron 18px outline;
+  1px surfaceContainerHighest divider starting at 52px. No subtitle, no
+  per-row ⋮ drawn.
+- Smart rows: "All notes" with a bare count and a chevron; "Recent" with
+  a chevron.
+- Note row: min 62px; no leading icon; title 15px/500; second line 13px —
+  the date in 500 weight onSurface, then " · " and the preview in
+  onSurfaceVariant; divider from 16px; no ⋮ drawn.
+- Bottom bar: 52px plus the inset, rowGroup with a 1px top line, icons in
+  primary, count 13px onSurfaceVariant.
+- Search: field 17px with the placeholder in outline color, back arrow
+  left, clear (X) right; chips 32px radius 8, selected secondaryContainer;
+  idle state = "Recent" label + rows "Folder › Sub · date"; results =
+  "Titles" then "In text" with snippets.
+- Menus: 236px wide, surfaceContainerHigh radius 12, rows 44px with 15px
+  text, 20px onSurfaceVariant icons, right-aligned 13px secondary text,
+  18px primary badge, outlineVariant separators, destructive row in error,
+  Settings last.
+- Editor: bar title 17px/500 with an 8px primary save dot or a 14px cloud;
+  stats strip 24px surfaceContainerHigh 11px; body 16px line-height 1.55,
+  h1 22px/500, h2 18px/500, caret line surfaceContainerLow, find hit
+  primaryContainer radius 3; toolbar 46px surface with a 1px top line;
+  find bar 48px surfaceContainerHigh with a match-count pill.
+
+Known deviations (emulator, light, 2026-09-07 — re-verify each):
+- lib/widgets/folder_sliver_app_bar.dart: expandedHeight 172 / collapsed
+  64 leaves a ~76dp empty band between the toolbar and the title (mock
+  0); large title uses headlineMedium at weight 400 (mock 500); collapsed
+  title is bold (mock 500); eyebrow is labelLarge 14px (mock 13px).
+- lib/widgets/folder_row.dart: subtitle line reserved for the count, ⋮
+  trailing, no trailing count, no chevron, filled folder_rounded glyph,
+  name at w600.
+- lib/widgets/note_row.dart + content_rows.dart: leading
+  description_outlined icon, ⋮ trailing, title w600, second line 12px all
+  onSurfaceVariant, divider indent 68 (mock 16 for notes, 52 for folders).
+- Smart rows (_SmartRow in optimized_folder_content_page.dart): "1 note"
+  label instead of a bare count, no chevron.
+- _buildBottomBar: icons neutral (mock primary); height 56 (mock 52).
+- NoteAppBar (unified_app_bars.dart): title bold (mock 17px/500).
+- note_editor_chrome.dart: stats strip taller than 24px.
+- Note preview text reaches the row with raw markdown markers and lines
+  joined ("31- level zero level one level two > [!…"): find where
+  `preview` is generated (NoteStorageService / DAO / save path) and
+  whether a marker-stripped first line is achievable there.
+- Material filled 24px icons everywhere the mock draws 22px outline
+  strokes (menu/search/⋮ are close; folder, notes, clock, chevrons are
+  not).
+
+Decisions for the owner (ask once, in Phase 3, with AskUserQuestion):
+- D14: per-row ⋮ (Slice 1/3) vs the mock's count + chevron. Options:
+  keep ⋮ and record the deviation; or long-press opens the card menu and
+  the row shows count + chevron as drawn.
+- D15: folder count as a trailing number (mock) vs the "n notes" subtitle.
+- D16: switch row/bar glyphs to outline variants to match the mock's
+  stroke style, or keep filled Material icons.
+- D17: editor toolbar contents — the mock says "unchanged"; confirm.
+
+Suspected bugs to verify (CONFIRM or clear each):
+- `_compensateBarSwap` subtracts kToolbarHeight (56) from expandedHeight
+  while the collapsed large bar is 64 and the selection/search bars are
+  56: check the collapsed-state swap for an 8px jump, and re-derive the
+  whole formula after any expandedHeight change (exact-pixel tests exist
+  in test/widgets/optimized_folder_content_page_test.dart).
+- RefreshIndicator edgeOffset after the height change.
+- Drawer edge drag vs the Android back gesture on every page (Slice 6
+  polish item, device-gated; trim drawerEdgeDragWidth if it triggers).
+- All notes with hundreds of notes: path batching, scroll, load-more.
+- Kill and relaunch parked on Recent and on All notes (restore).
+- Search flow: type, open a result, Back returns to the same results with
+  the scroll intact and the keyboard down, Back restores the folder
+  offset, Back leaves; the same in All notes and on the standalone
+  SearchPage (tag/wiki jumps).
+- Keyboard focus: the browser test "the keyboard opening does not take
+  the focus it was opened for" guards the 2026-09-07 fix; check the
+  editor's find bar and the create/rename dialogs for the same class.
+- Selection mode with smart rows at root; reorder clamp with the FOLDERS
+  label now always drawn at root; counts after a bulk delete or move.
+- Long-press Back at depth three; TalkBack announces the custom action.
+- Dark theme on every touched screen (switch in Settings → Appearance,
+  then switch back).
+
+Phases:
+0. Fable: read the spec and the docs above; take emulator baselines
+   (recipe below) for root, a folder, the folder scrolled, the folder
+   menu, the long-press Back menu, search idle, search results, the
+   editor, the editor menu, All notes, Recent, and dark root + dark
+   folder. Save the PNGs in the scratchpad and Read each one.
+1. Sonnet sweeps, in parallel, read-only, each returning file:line lists:
+   (a) every fontSize / fontWeight / TextStyle / textTheme use in
+   lib/widgets/{folder_sliver_app_bar,content_rows,folder_row,note_row,
+   search_surface,search_field_app_bar,selection_app_bar,
+   selection_action_bar,unified_app_bars,note_editor_chrome,
+   note_search_bar,app_drawer}.dart and lib/pages/
+   {optimized_folder_content_page,all_notes_page,search_page}.dart against
+   the metrics above; (b) every `Icons.` in those files with the mock
+   glyph it stands for; (c) every raw `Colors.`, `withValues(alpha`,
+   `surfaceContainer*`, `elevation:` and `BoxShadow` there; (d) every
+   `unfocus(`, `MediaQuery.of(`, `didChangeDependencies` and
+   `addPostFrameCallback` in lib/pages and lib/widgets; (e) any
+   user-visible string in those files not going through AppLocalizations;
+   (f) a coverage map: which flows above already have a widget test.
+2. Opus deep reviews, in parallel, read-only, five passes each as in
+   docs/live-editor-review-and-slices-2026-09.md §1 (performance,
+   correctness, divergences, architecture, tests):
+   A — browser page, sliver bar, bar swaps, PopScope, selection, reorder;
+   B — search (SearchBloc, SearchSurface, InPlaceSearchController,
+   SearchFieldAppBar, SearchPage) and AllNotesPage;
+   C — rows, groups, bottom bar, counts, FolderRow, NoteRow, preview
+   generation;
+   D — AppNavigator, NavDestination, NavigationHistoryObserver/Service,
+   DrawerHostRegistry, restore replay, AppDrawer;
+   E — AppTheme, SurfaceRoles, the contrast guards, editor chrome
+   (NoteAppBar, stats strip, find bar, toolbar) and the menus.
+   Each returns findings (severity, file:line, CONFIRMED/PLAUSIBLE,
+   repro), the parity deviations for its screens, and a proposed fix with
+   the test that would pin it.
+3. Fable: merge everything into one table under "### 7.1 Findings" in
+   this doc; put D14–D17 to the owner in one AskUserQuestion; then write
+   small, file-disjoint implementation slices with the exact target
+   values.
+4. Opus implementation agents, one per slice, sequential where files
+   overlap. Rules as in Slice 6: no code comments in new or edited code
+   (existing /// stays), all strings via AppLocalizations with en/de/ro
+   together and `flutter gen-l10n`, tests against real drift and never
+   FakeAsync, `dart analyze lib` and the targeted suites before reporting.
+   A header height change must update `_compensateBarSwap` and its
+   exact-pixel tests. Every parity change gets a widget test asserting the
+   metric it moved (height, style, glyph, color role).
+5. Fable: `flutter test` full (baseline 4071 passed / 7 skipped); emulator
+   after-shots of the same screens; compare with the baselines and the
+   mock; record deviations kept on purpose; update this section (status,
+   decisions), COPILOT_CONTEXT's browser and UI bullets, and memory.
+   Summary: findings fixed / deferred, files, tests, screenshot paths.
+   Do not commit.
+
+Emulator recipe (adb on PATH; device `emulator-5554`; screen 1280×2856
+physical): `adb shell pidof com.alexzamfir.anta` says whether the app is
+up; `adb shell am start -n com.alexzamfir.anta/.MainActivity` starts it;
+`adb exec-out screencap -p > <scratchpad>\name.png` then Read the PNG;
+`adb shell input keyevent 4` is Back; `adb shell input tap X Y`;
+`adb shell input text "bench"`; `adb shell input swipe x1 y1 x2 y2 300`
+scrolls; a long-press is `adb shell input swipe X Y X Y 800`. Use the
+debug build the owner launched if it is running (hot reload is theirs);
+otherwise `flutter run -d emulator-5554` yourself. Windows alternative:
+`flutter build windows`, start build\windows\x64\runner\Release\anta.exe,
+and capture with user32 `PrintWindow(hwnd, hdc, 2)` from PowerShell via
+System.Drawing — it renders an occluded window.
+
+Traps carried from Slices 2–6: `pumpAndSettle` never returns while
+SearchSurface paints its spinner (use the harness's fixed-pump flush);
+one PopScope per page; `BlocBuilder(buildWhen: () => _searching)` keeps a
+stale state; Drift under FakeAsync deadlocks;
+test/database/vocabulary_crdt_test.dart "moves the HLC" is a known flake;
+`pumpPage` in the browser harness takes `theme:`; `SliverAppBar.large`
+builds `title` twice; a `Semantics(customSemanticsActions:)` around an
+IconButton needs MergeSemantics; RefreshIndicator under a tall sliver
+needs edgeOffset; pad sheets by max(viewInsets, viewPadding);
+`didChangeDependencies` must never unfocus.
+
+Exit: every mock screen has a before/after emulator shot; the parity
+table has no "deviates" row without an owner decision behind it; analyze
+and the full suite are green; nothing committed.
+```

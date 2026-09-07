@@ -49,4 +49,11 @@ class CodeFieldRenderForTesting {
   /// see `_CodeFieldRender.lineHeightAtOffset`.
   double lineHeightAtOffset(Offset localOffset) =>
       _render.lineHeightAtOffset(localOffset);
+
+  /// Indices of the lines the render laid out for its current display
+  /// window, in order — exactly what a frame painted from this layout
+  /// shows.
+  List<int> get displayedLineIndices => _render._displayParagraphs
+      .map((CodeLineRenderParagraph p) => p.index)
+      .toList(growable: false);
 }

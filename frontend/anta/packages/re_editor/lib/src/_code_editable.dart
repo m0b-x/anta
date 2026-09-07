@@ -289,6 +289,7 @@ class _CodeEditableState extends State<_CodeEditable>
       key: widget.editorKey,
       verticalViewport: vertical,
       horizontalViewport: horizontal,
+      scrollController: widget.scrollController,
       verticalScrollbarWidth:
           widget.verticalScrollbarWidth ?? _kScrollbarThickness,
       horizontalScrollbarHeight:

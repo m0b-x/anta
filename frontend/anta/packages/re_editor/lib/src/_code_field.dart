@@ -3,6 +3,7 @@ part of re_editor;
 class _CodeField extends SingleChildRenderObjectWidget {
   final ViewportOffset verticalViewport;
   final ViewportOffset? horizontalViewport;
+  final CodeScrollController scrollController;
   final double verticalScrollbarWidth;
   final double horizontalScrollbarHeight;
   final CodeLines codes;
@@ -37,6 +38,7 @@ class _CodeField extends SingleChildRenderObjectWidget {
     super.key,
     required this.verticalViewport,
     required this.horizontalViewport,
+    required this.scrollController,
     required this.verticalScrollbarWidth,
     required this.horizontalScrollbarHeight,
     required this.codes,
@@ -74,6 +76,7 @@ class _CodeField extends SingleChildRenderObjectWidget {
   RenderObject createRenderObject(BuildContext context) => _CodeFieldRender(
         verticalViewport: verticalViewport,
         horizontalViewport: horizontalViewport,
+        scrollController: scrollController,
         verticalScrollbarWidth: verticalScrollbarWidth,
         horizontalScrollbarHeight: horizontalScrollbarHeight,
         codes: codes,
@@ -112,6 +115,7 @@ class _CodeField extends SingleChildRenderObjectWidget {
     renderObject
       ..verticalViewport = verticalViewport
       ..horizontalViewport = horizontalViewport
+      ..scrollController = scrollController
       ..verticalScrollbarWidth = verticalScrollbarWidth
       ..horizontalScrollbarHeight = horizontalScrollbarHeight
       ..codes = codes
@@ -150,6 +154,7 @@ const Duration positionCenteringDuration = Duration(milliseconds: 300);
 class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
   ViewportOffset _verticalViewport;
   ViewportOffset? _horizontalViewport;
+  CodeScrollController _scrollController;
   double _verticalScrollbarWidth;
   double _horizontalScrollbarHeight;
   CodeLines _codes;
@@ -190,6 +195,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
   _CodeFieldRender({
     required ViewportOffset verticalViewport,
     required ViewportOffset? horizontalViewport,
+    required CodeScrollController scrollController,
     required double verticalScrollbarWidth,
     required double horizontalScrollbarHeight,
     required CodeLines codes,
@@ -223,6 +229,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     required ValueChanged<CodeLinePosition> onSemanticsPerformZone,
   })  : _verticalViewport = verticalViewport,
         _horizontalViewport = horizontalViewport,
+        _scrollController = scrollController,
         _verticalScrollbarWidth = verticalScrollbarWidth,
         _horizontalScrollbarHeight = horizontalScrollbarHeight,
         _codes = codes,
@@ -284,6 +291,16 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     if (attached) {
       markNeedsLayout();
       _verticalViewport.addListener(markNeedsLayout);
+    }
+  }
+
+  set scrollController(CodeScrollController value) {
+    if (_scrollController == value) {
+      return;
+    }
+    _scrollController = value;
+    if (value._pendingCenter != null) {
+      markNeedsLayout();
     }
   }
 
@@ -1049,36 +1066,11 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     }
 
     final Offset? offset = calculateTextPositionViewportOffset(position);
+    final double? verticalTarget = _verticalCenteringTarget(position, offset);
+    if (verticalTarget != null) {
+      scrollViewport(_verticalViewport, verticalTarget);
+    }
     if (offset == null) {
-      if (_displayParagraphs.isNotEmpty) {
-        final CodeLineRenderParagraph first = _displayParagraphs.first;
-        if (position.index < first.index) {
-          final double target = max(
-              0,
-              first.top -
-                  _preferredLineHeight * (first.index - position.index) -
-                  size.height / 2);
-          scrollViewport(_verticalViewport, target);
-        }
-        final CodeLineRenderParagraph last = _displayParagraphs.last;
-        if (position.index > last.index) {
-          // Measured from the LAST displayed line (the sibling
-          // makePositionVisible does the same) and centred by
-          // SUBTRACTING half a viewport: adding it, from the first
-          // line, overshot by about two viewports and left the retry
-          // below to walk the scroll back — a visible flick.
-          final double target = max(
-            0,
-            min(
-              _verticalViewportSize!,
-              last.bottom +
-                  _preferredLineHeight * (position.index - last.index) -
-                  size.height / 2,
-            ),
-          );
-          scrollViewport(_verticalViewport, target);
-        }
-      }
       if (tryCount < 10) {
         SchedulerBinding.instance.addPostFrameCallback((timeStamp) {
           final ViewportOffset viewport = _verticalViewport;
@@ -1091,21 +1083,6 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
         });
       }
       return;
-    }
-    // As in makePositionVisible: `offset` is the caret top, so the
-    // bottom-edge test and the target both need the paragraph's own
-    // height or a scaled line stays half clipped after re-centring.
-    final double lineHeight = lineHeightOfLine(position.index);
-    if (offset.dy < paddingTop) {
-      final double target =
-          max(0, _verticalViewport.pixels + offset.dy - size.height / 2);
-      scrollViewport(_verticalViewport, target);
-    } else if (offset.dy > size.height - lineHeight - paddingBottom) {
-      final double target = min(
-        _verticalViewportSize!,
-        _verticalViewport.pixels + offset.dy + lineHeight - size.height / 2,
-      );
-      scrollViewport(_verticalViewport, target);
     }
 
     if (_horizontalViewport != null) {
@@ -1123,6 +1100,90 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
         );
         scrollViewport(_horizontalViewport!, target);
       }
+    }
+  }
+
+  /// The vertical scroll offset that centres [position], or null when the
+  /// position is already fully visible (or nothing is laid out yet).
+  ///
+  /// [offset] is `calculateTextPositionViewportOffset(position)`, passed
+  /// in because the callers need it too. Null means the line is outside
+  /// the display window: the target is then an estimate in the flat
+  /// coordinate space beyond the window — measured from the LAST displayed
+  /// line and centred by SUBTRACTING half a viewport (adding it, from the
+  /// first line, overshot by about two viewports and left the retry to walk
+  /// the scroll back — a visible flick). Once the line is laid out the
+  /// arithmetic is exact, and it uses the paragraph's own height: `offset`
+  /// is the caret top, so the bottom-edge test and the target both need
+  /// [lineHeightOfLine] or a scaled line stays half clipped after
+  /// re-centring.
+  ///
+  /// Shared by [makePositionCenterIfInvisible] (a scroll after layout, with
+  /// post-frame retries) and [_centerIfInvisibleInLayout] (a correction
+  /// inside layout, looping until it holds) so the two paths cannot drift.
+  double? _verticalCenteringTarget(CodeLinePosition position, Offset? offset) {
+    if (_displayParagraphs.isEmpty) {
+      return null;
+    }
+    if (offset == null) {
+      final CodeLineRenderParagraph first = _displayParagraphs.first;
+      if (position.index < first.index) {
+        return max(
+            0,
+            first.top -
+                _preferredLineHeight * (first.index - position.index) -
+                size.height / 2);
+      }
+      final CodeLineRenderParagraph last = _displayParagraphs.last;
+      if (position.index > last.index) {
+        return max(
+          0,
+          min(
+            _verticalViewportSize!,
+            last.bottom +
+                _preferredLineHeight * (position.index - last.index) -
+                size.height / 2,
+          ),
+        );
+      }
+      return null;
+    }
+    final double lineHeight = lineHeightOfLine(position.index);
+    if (offset.dy < paddingTop) {
+      return max(0, _verticalViewport.pixels + offset.dy - size.height / 2);
+    }
+    if (offset.dy > size.height - lineHeight - paddingBottom) {
+      return min(
+        _verticalViewportSize!,
+        _verticalViewport.pixels + offset.dy + lineHeight - size.height / 2,
+      );
+    }
+    return null;
+  }
+
+  /// [makePositionCenterIfInvisible] for the layout pass: corrects the
+  /// viewport instead of scrolling it, so the frame being laid out is the
+  /// one that shows [position] — no jump, no retry frames.
+  ///
+  /// Loops because the first correction is only an estimate whenever the
+  /// target lies outside the window (the space beyond it is flat by
+  /// design); once the line is laid out, one more pass centres it exactly
+  /// and the next finds nothing left to do. Bounded like the layout cycles
+  /// themselves — a line taller than half the viewport can never satisfy
+  /// both edge tests.
+  void _centerIfInvisibleInLayout(CodeLinePosition position) {
+    for (int cycle = 0; cycle < _kMaxLayoutCycles; cycle++) {
+      final double? target = _verticalCenteringTarget(
+          position, calculateTextPositionViewportOffset(position));
+      if (target == null) {
+        return;
+      }
+      final double delta = target - _verticalViewport.pixels;
+      if (delta.abs() < precisionErrorTolerance) {
+        return;
+      }
+      _verticalViewport.correctBy(delta);
+      _updateDisplayRenderParagraphs();
     }
   }
 
@@ -1361,6 +1422,11 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     }
     _verticalViewport.applyViewportDimension(size.height);
     _updateDisplayRenderParagraphs();
+    final CodeLinePosition? pendingCenter = _scrollController._pendingCenter;
+    if (pendingCenter != null) {
+      _scrollController._pendingCenter = null;
+      _centerIfInvisibleInLayout(pendingCenter);
+    }
     // _Trace.end('CodeField performLayout');
   }
 

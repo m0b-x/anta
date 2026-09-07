@@ -4,15 +4,21 @@ import 'package:re_editor/re_editor.dart';
 
 import 'support/editor_test_support.dart';
 
-/// The render's two "scroll this position into view" helpers.
+/// The render's "scroll this position into view" helpers.
 ///
-/// Both are written against the caret, and the caret is drawn the
-/// paragraph's own height tall — so a line the span builder scaled (a
-/// markdown header) needs its own height in the bottom-edge test and in
-/// the jump, not the flat base height every other line has. The first
-/// two groups pin that; the third pins the off-screen jump's arithmetic,
-/// which has to measure from the LAST displayed line and CENTRE by
-/// subtracting half a viewport.
+/// Both post-layout helpers are written against the caret, and the caret
+/// is drawn the paragraph's own height tall — so a line the span builder
+/// scaled (a markdown header) needs its own height in the bottom-edge
+/// test and in the jump, not the flat base height every other line has.
+/// The first two groups pin that; the third pins the off-screen jump's
+/// arithmetic, which has to measure from the LAST displayed line and
+/// CENTRE by subtracting half a viewport.
+///
+/// The last group is the layout-time variant behind opening a note at its
+/// stored position: `CodeScrollController.makeCenterIfInvisibleOnLayout`
+/// is consumed inside the render's layout, so the frame that comes out of
+/// it — the editor's very first frame, when armed before the mount —
+/// already shows the line, with nothing painted at the top first.
 void main() {
   const double viewportWidth = 300.0;
   const double viewportHeight = 220.0;
@@ -155,5 +161,150 @@ void main() {
     await settle(tester);
     expect(displayedParagraphAt(e.notifier, target), isNotNull);
     await teardownEditor(tester);
+  });
+
+  group('makeCenterIfInvisibleOnLayout', () {
+    /// Centred means the line's bottom sits at the viewport's middle,
+    /// give or take the line: the below-window estimate and the exact
+    /// pass both place it there.
+    void expectCentred(CodeIndicatorValueNotifier notifier, int index) {
+      final CodeLineRenderParagraph paragraph = displayedParagraphAt(
+        notifier,
+        index,
+      )!;
+      expect(
+        paragraph.bottom,
+        closeTo(viewportHeight / 2, paragraph.height),
+        reason: 'the line must be centred, not merely visible',
+      );
+    }
+
+    testWidgets('armed before the editor exists, the first frame already '
+        'shows the line centred', (tester) async {
+      const int target = 40;
+      final CodeScrollController scroll = CodeScrollController();
+      addTearDown(scroll.dispose);
+      scroll.makeCenterIfInvisibleOnLayout(
+        const CodeLinePosition(index: target, offset: 0),
+      );
+
+      final ScrollEditor e = await pumpScrollEditor(
+        tester,
+        text: plainDocument(),
+        width: viewportWidth,
+        height: viewportHeight,
+        scaledLines: const {target},
+        scroll: scroll,
+        framesAfterMount: 0,
+      );
+
+      expect(pixelsOf(e.scroll), greaterThan(0.0));
+      expect(displayedParagraphAt(e.notifier, target), isNotNull);
+      expectFullyVisible(e.notifier, target);
+      expectCentred(e.notifier, target);
+
+      // The layout consumed the request: later frames leave it alone.
+      final double landed = pixelsOf(e.scroll);
+      await settle(tester);
+      expect(pixelsOf(e.scroll), landed);
+      await teardownEditor(tester);
+    });
+
+    testWidgets('walks past the flat estimate when the lines in between '
+        'wrap taller than the base height', (tester) async {
+      const int target = 100;
+      final CodeScrollController scroll = CodeScrollController();
+      addTearDown(scroll.dispose);
+      scroll.makeCenterIfInvisibleOnLayout(
+        const CodeLinePosition(index: target, offset: 0),
+      );
+
+      final ScrollEditor e = await pumpScrollEditor(
+        tester,
+        text: wrappingDocument(),
+        width: viewportWidth,
+        height: viewportHeight,
+        scroll: scroll,
+        framesAfterMount: 0,
+      );
+
+      expect(displayedParagraphAt(e.notifier, target), isNotNull);
+      expectFullyVisible(e.notifier, target);
+      expectCentred(e.notifier, target);
+      final ScrollPosition position = e.scroll.verticalScroller.position;
+      expect(position.pixels, lessThanOrEqualTo(position.maxScrollExtent));
+      await teardownEditor(tester);
+    });
+
+    testWidgets('armed on a mounted editor, it lands in the next layout — '
+        'not synchronously, not after retries', (tester) async {
+      const int target = 100;
+      final ScrollEditor e = await pumpScrollEditor(
+        tester,
+        text: wrappingDocument(),
+        width: viewportWidth,
+        height: viewportHeight,
+      );
+      expect(pixelsOf(e.scroll), 0.0);
+
+      e.scroll.makeCenterIfInvisibleOnLayout(
+        const CodeLinePosition(index: target, offset: 0),
+      );
+      expect(
+        pixelsOf(e.scroll),
+        0.0,
+        reason: 'nothing scrolls until the render lays out',
+      );
+
+      await tester.pump();
+
+      expect(displayedParagraphAt(e.notifier, target), isNotNull);
+      expectFullyVisible(e.notifier, target);
+      expectCentred(e.notifier, target);
+      await teardownEditor(tester);
+    });
+
+    testWidgets('a line already fully visible leaves the viewport where it '
+        'is', (tester) async {
+      final ScrollEditor e = await pumpScrollEditor(
+        tester,
+        text: plainDocument(),
+        width: viewportWidth,
+        height: viewportHeight,
+      );
+
+      e.scroll.makeCenterIfInvisibleOnLayout(
+        const CodeLinePosition(index: 2, offset: 0),
+      );
+      await tester.pump();
+
+      expect(pixelsOf(e.scroll), 0.0);
+      await teardownEditor(tester);
+    });
+
+    testWidgets('a later request replaces an unconsumed one', (tester) async {
+      final CodeScrollController scroll = CodeScrollController();
+      addTearDown(scroll.dispose);
+      scroll.makeCenterIfInvisibleOnLayout(
+        const CodeLinePosition(index: 55, offset: 0),
+      );
+      scroll.makeCenterIfInvisibleOnLayout(
+        const CodeLinePosition(index: 30, offset: 0),
+      );
+
+      final ScrollEditor e = await pumpScrollEditor(
+        tester,
+        text: plainDocument(),
+        width: viewportWidth,
+        height: viewportHeight,
+        scroll: scroll,
+        framesAfterMount: 0,
+      );
+
+      expect(displayedParagraphAt(e.notifier, 30), isNotNull);
+      expectCentred(e.notifier, 30);
+      expect(displayedParagraphAt(e.notifier, 55), isNull);
+      await teardownEditor(tester);
+    });
   });
 }

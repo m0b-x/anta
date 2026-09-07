@@ -171,6 +171,11 @@ typedef ScrollEditor = ({
 /// [spanBuilder] replaces that fixture entirely, for the suites that
 /// need a span shape of their own (a child run at a *smaller* size than
 /// the root, say). It wins over [scaledLines] when both are given.
+///
+/// [scroll] lets a test hand in a controller it has already armed (a
+/// layout-time centring request, say); the fixture then does not dispose
+/// it. [framesAfterMount] is the number of frames pumped after the mount
+/// — pass 0 to read the very first frame's layout back.
 Future<ScrollEditor> pumpScrollEditor(
   WidgetTester tester, {
   required String text,
@@ -179,6 +184,8 @@ Future<ScrollEditor> pumpScrollEditor(
   bool wordWrap = true,
   Set<int> scaledLines = const <int>{},
   CodeLineSpanBuilder? spanBuilder,
+  CodeScrollController? scroll,
+  int framesAfterMount = 2,
 }) async {
   TextSpan buildSpan({
     required BuildContext context,
@@ -200,12 +207,14 @@ Future<ScrollEditor> pumpScrollEditor(
   final controller = CodeLineEditingController(
     spanBuilder: spanBuilder ?? (scaledLines.isEmpty ? null : buildSpan),
   )..loadText(text);
-  final scroll = CodeScrollController();
+  final ownsScroll = scroll == null;
+  final CodeScrollController scrollController =
+      scroll ?? CodeScrollController();
   final focusNode = FocusNode();
   late CodeIndicatorValueNotifier notifier;
   addTearDown(() {
     focusNode.dispose();
-    scroll.dispose();
+    if (ownsScroll) scrollController.dispose();
     controller.dispose();
   });
 
@@ -218,7 +227,7 @@ Future<ScrollEditor> pumpScrollEditor(
             height: height,
             child: CodeEditor(
               controller: controller,
-              scrollController: scroll,
+              scrollController: scrollController,
               focusNode: focusNode,
               autofocus: false,
               wordWrap: wordWrap,
@@ -234,9 +243,10 @@ Future<ScrollEditor> pumpScrollEditor(
       ),
     ),
   );
-  await tester.pump();
-  await tester.pump();
-  return (controller: controller, scroll: scroll, notifier: notifier);
+  for (var i = 0; i < framesAfterMount; i++) {
+    await tester.pump();
+  }
+  return (controller: controller, scroll: scrollController, notifier: notifier);
 }
 
 /// Vertical scroll offset of a [pumpScrollEditor] fixture.

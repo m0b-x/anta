@@ -7,6 +7,13 @@ import '../constants/scroll_indicator_constants.dart';
 /// Features a wide touch area, always visible, and supports edge swipe.
 class ScrollProgressIndicator extends StatefulWidget {
   final ScrollController scrollController;
+
+  /// An extra repaint trigger for scroll offsets that change without the
+  /// controller notifying — a viewport corrected inside layout, which is
+  /// how the editor lands on a stored position. The thumb re-reads the
+  /// position on every tick of this as well as on every scroll; without
+  /// it a corrected offset showed only at the next periodic metrics check.
+  final Listenable? repaint;
   final double visibleWidth;
   final double touchAreaWidth;
   final Color? activeColor;
@@ -15,6 +22,7 @@ class ScrollProgressIndicator extends StatefulWidget {
   const ScrollProgressIndicator({
     super.key,
     required this.scrollController,
+    this.repaint,
     this.visibleWidth = ScrollIndicatorConstants.visibleWidth,
     this.touchAreaWidth = ScrollIndicatorConstants.touchAreaWidth,
     this.activeColor,
@@ -44,12 +52,25 @@ class _ScrollProgressIndicatorState extends State<ScrollProgressIndicator> {
   bool _isStabilizing = false;
   bool _isTapping = false;
 
+  /// What the thumb rebuilds on: the controller, merged with [repaint]
+  /// when one is given. Built once here and on a widget change rather
+  /// than per build, so the builder below keeps one subscription.
+  late Listenable _thumbListenable;
+
   @override
   void initState() {
     super.initState();
     widget.scrollController.addListener(_onScroll);
+    _thumbListenable = _mergeListenables();
     // Periodically check for content dimension changes
     _startMetricsCheck();
+  }
+
+  Listenable _mergeListenables() {
+    final repaint = widget.repaint;
+    return repaint == null
+        ? widget.scrollController
+        : Listenable.merge([widget.scrollController, repaint]);
   }
 
   void _startMetricsCheck() {
@@ -129,6 +150,10 @@ class _ScrollProgressIndicatorState extends State<ScrollProgressIndicator> {
       widget.scrollController.addListener(_onScroll);
       // Reset smoothing state for new controller
       _smoothedProgress = 0;
+    }
+    if (oldWidget.scrollController != widget.scrollController ||
+        oldWidget.repaint != widget.repaint) {
+      _thumbListenable = _mergeListenables();
     }
   }
 
@@ -265,7 +290,7 @@ class _ScrollProgressIndicatorState extends State<ScrollProgressIndicator> {
         final maxTop = _trackHeight - _thumbHeight;
 
         return AnimatedBuilder(
-          animation: widget.scrollController,
+          animation: _thumbListenable,
           builder: (context, child) {
             // Calculate progress directly from scroll controller
             // Use positions (plural) to handle multiple attached scroll views gracefully
