@@ -325,6 +325,35 @@ class NoteRepository {
     }
   }
 
+  /// Tombstones a whole selection in one transaction.
+  ///
+  /// One change event per note still goes out: the search index and the
+  /// browser's counts are keyed by note, and a single aggregate event would
+  /// leave both guessing which rows moved.
+  Future<void> deleteNotes(List<String> noteIds) async {
+    if (noteIds.isEmpty) return;
+    final existing = await _noteDao.getNotesByIds(noteIds);
+
+    await _noteDao.softDeleteNotesWithChunks(noteIds);
+
+    for (final noteId in noteIds) {
+      _noteCache.remove(noteId);
+      _contentCache.remove(noteId);
+    }
+    for (final folderId in {for (final note in existing) note.folderId}) {
+      _invalidateFolderCache(folderId);
+    }
+    for (final note in existing) {
+      _noteChangesController.add(
+        NoteChange(
+          type: NoteChangeType.deleted,
+          noteId: note.id,
+          folderId: note.folderId,
+        ),
+      );
+    }
+  }
+
   Future<Note?> moveNote({
     required String noteId,
     required String targetFolderId,

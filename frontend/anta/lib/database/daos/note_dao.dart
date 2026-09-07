@@ -97,22 +97,32 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
 
     final orderMode = ascending ? OrderingMode.asc : OrderingMode.desc;
 
+    // Every sort ends on `id`. Without it the order of rows sharing a sort
+    // key is whatever SQLite happens to produce, and it need not be the same
+    // between two `LIMIT/OFFSET` reads — so a note could be served on page 1
+    // and again on page 2 (a duplicate `ValueKey` in the list) while another
+    // was served on neither. `updated_at` is stored to the second, so a
+    // folder filled in one second is entirely made of such ties.
     switch (sortField) {
       case NoteSortField.title:
         query.orderBy([
           (n) => OrderingTerm(expression: n.title, mode: orderMode),
+          (n) => OrderingTerm(expression: n.id),
         ]);
       case NoteSortField.createdAt:
         query.orderBy([
           (n) => OrderingTerm(expression: n.createdAt, mode: orderMode),
+          (n) => OrderingTerm(expression: n.id),
         ]);
       case NoteSortField.updatedAt:
         query.orderBy([
           (n) => OrderingTerm(expression: n.updatedAt, mode: orderMode),
+          (n) => OrderingTerm(expression: n.id),
         ]);
       case NoteSortField.position:
         query.orderBy([
           (n) => OrderingTerm(expression: n.position, mode: orderMode),
+          (n) => OrderingTerm(expression: n.id),
         ]);
     }
 
@@ -677,7 +687,10 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
     if (folderId != null) {
       q.where((n) => n.folderId.equals(folderId));
     }
-    q.orderBy([(n) => OrderingTerm.desc(n.updatedAt)]);
+    q.orderBy([
+      (n) => OrderingTerm.desc(n.updatedAt),
+      (n) => OrderingTerm(expression: n.id),
+    ]);
     q.limit(limit, offset: offset);
     return q.get();
   }
@@ -737,6 +750,43 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
     await transaction(() async {
       await db.contentChunkDao.softDeleteChunksForNote(noteId);
       await softDeleteNote(noteId);
+    });
+  }
+
+  /// Tombstones a whole selection in one transaction: one FTS delete, one
+  /// chunk update, one note update, however many notes were picked.
+  ///
+  /// The per-note path reads each row to write `version + 1`; here SQLite does
+  /// that arithmetic itself, the same way [setNotePositions] does, so the
+  /// statement count does not move with the size of the selection.
+  Future<void> softDeleteNotesWithChunks(List<String> noteIds) async {
+    if (noteIds.isEmpty) return;
+    final ids = noteIds.toSet().toList(growable: false);
+    final placeholders = List.filled(ids.length, '?').join(', ');
+    final idVariables = [for (final id in ids) Variable<String>(id)];
+    final now = DateTime.now();
+    final hlc = db.generateHlc();
+
+    await transaction(() async {
+      await db.customStatement(
+        'DELETE FROM notes_fts WHERE rowid IN '
+        '(SELECT rowid FROM notes WHERE id IN ($placeholders))',
+        ids,
+      );
+      await db.contentChunkDao.softDeleteChunksForNotes(ids);
+      await customUpdate(
+        'UPDATE notes SET is_deleted = 1, deleted_at = ?, updated_at = ?, '
+        'hlc_timestamp = ?, device_id = ?, version = version + 1 '
+        'WHERE id IN ($placeholders) AND is_deleted = 0',
+        variables: [
+          Variable<DateTime>(now),
+          Variable<DateTime>(now),
+          Variable<String>(hlc),
+          Variable<String>(db.deviceId),
+          ...idVariables,
+        ],
+        updates: {notes},
+      );
     });
   }
 }

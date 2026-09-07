@@ -485,4 +485,18 @@ class NoteStorageService {
   }
 
   void dispose() {}
+
+  /// Tombstones a whole selection in one transaction, so a bulk delete is one
+  /// unit of work rather than one per picked row.
+  Future<void> deleteNotes(List<String> noteIds) async {
+    await initialize();
+    await _repository.deleteNotes(noteIds);
+  }
+
+  /// Warms the content cache for rows about to be opened. Exposed here so the
+  /// browser page can ask through its bloc instead of reaching into
+  /// [NoteRepository] itself.
+  void preloadContent(List<String> noteIds) {
+    _repository.preloadContent(noteIds);
+  }
 }

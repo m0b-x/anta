@@ -495,7 +495,7 @@ class MarkdownEditorSpanBuilder {
     final baseSize = style.fontSize ?? 16.0;
     var headerStyle = style.copyWith(
       fontSize: baseSize * MarkdownConstants.editorHeaderScale(level),
-      fontWeight: FontWeight.bold,
+      fontWeight: MarkdownConstants.headingWeight,
     );
     // H5/H6 keep the base size (sub-base line heights buy nothing in the
     // editor), so they distinguish themselves by colour instead: blended

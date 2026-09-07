@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../constants/app_bar_metrics.dart';
 import '../constants/app_colors.dart';
 import 'unified_app_bars.dart';
 
@@ -26,28 +27,37 @@ class SelectionAppBar extends StatelessWidget implements PreferredSizeWidget {
     required this.onDeselectAll,
   });
 
+  /// What the page's swap compensation measures the tall sliver against.
+  static const double height = AppBarMetrics.toolbarHeight;
+
   @override
-  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
+  Size get preferredSize => const Size.fromHeight(height);
 
   @override
   Widget build(BuildContext context) {
     return UnifiedAppBar.main(
       automaticallyImplyLeading: false,
+      toolbarHeight: height,
       backgroundColor: Theme.of(context).colorScheme.pageGround,
       leading: IconButton(
         icon: const Icon(Icons.close_rounded),
+        iconSize: AppBarMetrics.glyphSize,
         onPressed: onCancel,
         tooltip: MaterialLocalizations.of(context).cancelButtonLabel,
       ),
       title: Text(
         '$count',
-        style: const TextStyle(fontWeight: FontWeight.bold),
+        style: const TextStyle(
+          fontSize: AppBarMetrics.titleFontSize,
+          fontWeight: AppBarMetrics.titleFontWeight,
+        ),
       ),
       actions: [
         IconButton(
           icon: Icon(
             allSelected ? Icons.deselect_rounded : Icons.select_all_rounded,
           ),
+          iconSize: AppBarMetrics.glyphSize,
           onPressed: allSelected ? onDeselectAll : onSelectAll,
         ),
       ],

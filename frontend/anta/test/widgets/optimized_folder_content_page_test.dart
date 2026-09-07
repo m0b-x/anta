@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -12,8 +12,10 @@ import 'package:anta/bloc/import_export/import_export_bloc.dart';
 import 'package:anta/bloc/optimized_folder/optimized_folder_bloc.dart';
 import 'package:anta/bloc/optimized_note/optimized_note_bloc.dart';
 import 'package:anta/bloc/search/search_bloc.dart';
+import 'package:anta/constants/app_bar_metrics.dart';
 import 'package:anta/constants/app_colors.dart';
 import 'package:anta/constants/app_theme.dart';
+import 'package:anta/constants/row_metrics.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
@@ -43,6 +45,7 @@ import 'package:anta/widgets/folder_sliver_app_bar.dart';
 import 'package:anta/widgets/leading_nav_pair.dart';
 import 'package:anta/widgets/note_row.dart';
 import 'package:anta/widgets/search_surface.dart';
+import 'package:anta/widgets/selection_action_bar.dart';
 import 'package:anta/widgets/selection_app_bar.dart';
 
 /// The first page-level test for the browser.
@@ -324,6 +327,28 @@ void main() {
     return tops;
   }
 
+  /// The bar is a sliver, so what it takes from the list is its geometry
+  /// rather than a box size.
+  double barHeight(WidgetTester tester) {
+    final sliver = tester.renderObject<RenderSliver>(
+      find.byType(FolderSliverAppBar),
+    );
+    return sliver.geometry!.paintExtent;
+  }
+
+  /// Where the root's folder rows sit. The smart rows above them are the
+  /// content selection mode used to remove, so these are what would jump.
+  Map<String, double> folderRowTops(WidgetTester tester) {
+    final tops = <String, double>{};
+    for (final name in const ['Training', 'Loose notes']) {
+      final finder = find.text(name);
+      if (finder.evaluate().isNotEmpty) {
+        tops[name] = tester.getTopLeft(finder).dy;
+      }
+    }
+    return tops;
+  }
+
   Future<void> enterSelection(WidgetTester tester) async {
     await openMenu(tester);
     await tester.tap(find.text(l10n.select));
@@ -420,6 +445,81 @@ void main() {
       expect(find.byType(FolderOverflowMenu), findsOneWidget);
       expect(find.byIcon(Icons.sort), findsNothing);
       expect(find.byIcon(Icons.history), findsNothing);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('the bar reserves exactly what the pair draws', (tester) async {
+      await pumpPage(tester, folderId: folder.id);
+
+      expect(
+        tester.getSize(find.byType(LeadingNavPair)).width,
+        LeadingNavPair.width,
+      );
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('the pair is gone in selection mode', (tester) async {
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+      expect(find.byType(LeadingNavPair), findsOneWidget);
+
+      await enterSelection(tester);
+
+      expect(find.byType(LeadingNavPair), findsNothing);
+      expect(find.byIcon(Icons.menu_rounded), findsNothing);
+
+      await leaveSelection(tester);
+      await teardownPage(tester);
+    });
+  });
+
+  group('the bar geometry', () {
+    testWidgets('the expanded bar is the height the swap math pays for', (
+      tester,
+    ) async {
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+      expect(barHeight(tester), FolderSliverAppBar.expandedHeightNested);
+      await teardownPage(tester);
+
+      await pumpPage(tester);
+      expect(barHeight(tester), FolderSliverAppBar.expandedHeightRoot);
+      await teardownPage(tester);
+    });
+
+    testWidgets('the refresh spinner drops from under whichever bar this '
+        'page wears', (tester) async {
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+      expect(
+        tester
+            .widget<RefreshIndicator>(find.byType(RefreshIndicator))
+            .edgeOffset,
+        FolderSliverAppBar.expandedHeightNested,
+      );
+      await teardownPage(tester);
+
+      await pumpPage(tester);
+      expect(
+        tester
+            .widget<RefreshIndicator>(find.byType(RefreshIndicator))
+            .edgeOffset,
+        FolderSliverAppBar.expandedHeightRoot,
+      );
+      await teardownPage(tester);
+    });
+
+    testWidgets('the eyebrow sits directly under the toolbar', (tester) async {
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+
+      final toolbar = tester.getRect(find.byType(NavigationToolbar).first);
+      final eyebrow = tester.getRect(find.text('Training'));
+
+      expect(toolbar.height, AppBarMetrics.toolbarHeight);
+      expect(eyebrow.top, greaterThanOrEqualTo(toolbar.bottom));
+      expect(
+        eyebrow.bottom,
+        lessThanOrEqualTo(toolbar.bottom + AppBarMetrics.eyebrowHeight),
+      );
 
       await teardownPage(tester);
     });
@@ -594,8 +694,8 @@ void main() {
           .position;
       // The framework flips at `shrinkOffset > maxExtent - minExtent`, so
       // the threshold itself is still "expanded".
-      const pastThreshold =
-          FolderSliverAppBar.expandedHeight -
+      final pastThreshold =
+          FolderSliverAppBar.expandedHeightNested -
           FolderSliverAppBar.collapsedHeight +
           8;
       expect(position.maxScrollExtent, greaterThan(pastThreshold));
@@ -719,10 +819,13 @@ void main() {
   });
 
   group('the selection-mode bar swap', () {
-    // The tall sliver leaves the scroll view and a kToolbarHeight box bar
+    // The tall sliver leaves the scroll view and the 48 dp selection bar
     // takes its place outside it, so an uncompensated offset would carry
     // every row up by the difference.
-    const shift = FolderSliverAppBar.expandedHeight - kToolbarHeight;
+    const shift =
+        FolderSliverAppBar.expandedHeightNested - SelectionAppBar.height;
+    const rootShift =
+        FolderSliverAppBar.expandedHeightRoot - SelectionAppBar.height;
 
     testWidgets('entering selection leaves the rows where they are, and '
         'leaving puts the offset back', (tester) async {
@@ -781,6 +884,67 @@ void main() {
 
       await teardownPage(tester);
     });
+
+    testWidgets('entering selection at the top and scrolling gives the '
+        'offset back with the bar', (tester) async {
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+      expect(scrollPosition(tester).pixels, 0);
+
+      await enterSelection(tester);
+      // Entering at zero has nothing to give back, so the shift clamps away;
+      // the scroll that follows is real and must come back with the taller
+      // bar's height added, not with the clamped-away pixels.
+      expect(scrollPosition(tester).pixels, 0);
+      scrollPosition(tester).jumpTo(150);
+      await tester.pumpAndSettle();
+      final before = rowTops(tester);
+      expect(before, isNotEmpty);
+
+      await leaveSelection(tester);
+
+      expect(scrollPosition(tester).pixels, 150 + shift);
+      final after = rowTops(tester);
+      final shared = before.keys.where(after.containsKey).toList();
+      expect(shared, isNotEmpty);
+      for (final row in shared) {
+        expect(after[row], moreOrLessEquals(before[row]!), reason: row);
+      }
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('the root list does not jump when selection starts', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(360, 240);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await pumpPage(tester);
+
+      final position = scrollPosition(tester);
+      expect(position.maxScrollExtent, greaterThan(rootShift + 40));
+      position.jumpTo(rootShift + 40);
+      await tester.pumpAndSettle();
+      final before = folderRowTops(tester);
+      expect(before, isNotEmpty);
+
+      await enterSelection(tester);
+
+      expect(scrollPosition(tester).pixels, 40);
+      final after = folderRowTops(tester);
+      for (final row in before.keys) {
+        expect(
+          after[row],
+          moreOrLessEquals(before[row]!, epsilon: 1),
+          reason: row,
+        );
+      }
+
+      await leaveSelection(tester);
+      expect(scrollPosition(tester).pixels, rootShift + 40);
+
+      await teardownPage(tester);
+    });
   });
 
   group('grouped rows', () {
@@ -823,7 +987,10 @@ void main() {
       // Training holds no notes itself; all fifteen live two levels down.
       final row = tester.widget<FolderRow>(find.byType(FolderRow));
       expect(row.noteCount, 15);
-      expect(find.text(l10n.noteCountLabel(15)), findsOneWidget);
+      expect(
+        find.descendant(of: find.byType(FolderRow), matching: find.text('15')),
+        findsOneWidget,
+      );
 
       await teardownPage(tester);
     });
@@ -925,11 +1092,78 @@ void main() {
       final icon = tester.widget<Icon>(
         find.descendant(
           of: find.byType(FolderRow),
-          matching: find.byIcon(Icons.folder_rounded),
+          matching: find.byIcon(Icons.folder_outlined),
         ),
       );
       expect(icon.color, AppTheme.lightScheme.primary);
 
+      await teardownPage(tester);
+    });
+  });
+
+  group('a long press on a row', () {
+    /// The sheet's rows, top to bottom, so *Select* can be shown to be the
+    /// first one rather than merely present.
+    List<String> sheetRows(WidgetTester tester) => tester
+        .widgetList<ListTile>(find.byType(ListTile))
+        .map((tile) => (tile.title! as Text).data!)
+        .toList();
+
+    testWidgets('a folder row opens a sheet that leads with Select and '
+        'carries the four card actions', (tester) async {
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+
+      await tester.longPress(find.byType(FolderRow));
+      await tester.pumpAndSettle();
+
+      expect(sheetRows(tester), [
+        l10n.select,
+        l10n.rename,
+        l10n.moveToFolder,
+        l10n.shareFolder,
+        l10n.delete,
+      ]);
+
+      await tester.tap(find.text(l10n.select));
+      await tester.pumpAndSettle();
+      await settle(tester);
+
+      expect(find.byType(SelectionAppBar), findsOneWidget);
+      expect(find.byType(SelectionActionBar), findsOneWidget);
+      expect(
+        tester.widget<SelectionAppBar>(find.byType(SelectionAppBar)).count,
+        1,
+      );
+
+      await leaveSelection(tester);
+      await teardownPage(tester);
+    });
+
+    testWidgets('a note row opens the same sheet, and Select puts that note '
+        'in the selection', (tester) async {
+      await pumpPage(tester, folderId: notesOnly.id, title: 'Loose notes');
+
+      await tester.longPress(find.text('Loose 1'));
+      await tester.pumpAndSettle();
+
+      expect(sheetRows(tester), [
+        l10n.select,
+        l10n.rename,
+        l10n.moveToFolder,
+        l10n.shareNote,
+        l10n.delete,
+      ]);
+
+      await tester.tap(find.text(l10n.select));
+      await tester.pumpAndSettle();
+      await settle(tester);
+
+      expect(
+        tester.widget<SelectionAppBar>(find.byType(SelectionAppBar)).count,
+        1,
+      );
+
+      await leaveSelection(tester);
       await teardownPage(tester);
     });
   });
@@ -960,8 +1194,8 @@ void main() {
       await pumpPage(tester);
 
       // Nineteen: fifteen sessions two levels down, three loose notes and
-      // the one titled "down day".
-      expect(find.text(l10n.noteCountLabel(19)), findsOneWidget);
+      // the one titled "down day". A bare number, as the mock draws it.
+      expect(find.text('19'), findsOneWidget);
 
       await teardownPage(tester);
     });
@@ -1031,21 +1265,155 @@ void main() {
       await teardownPage(tester);
     });
 
-    testWidgets('selection mode drops them — nothing here can be selected', (
-      tester,
-    ) async {
+    testWidgets('selection mode disables them — they stay drawn and cannot '
+        'be tapped', (tester) async {
       await pumpPage(tester);
       await enterSelection(tester);
 
-      expect(find.text(l10n.allNotes), findsNothing);
-      expect(find.text(l10n.recent), findsNothing);
+      // Still there: removing them would take ~164 dp out from above the
+      // folder rows, which the bar swap does not pay for.
+      expect(find.text(l10n.allNotes), findsOneWidget);
+      expect(find.text(l10n.recent), findsOneWidget);
+      expect(find.text(l10n.folders.toUpperCase()), findsOneWidget);
+      expect(
+        find.ancestor(
+          of: find.text(l10n.allNotes),
+          matching: find.byType(IgnorePointer),
+        ),
+        findsWidgets,
+      );
+
+      await tester.tap(find.text(l10n.recent));
+      await tester.pumpAndSettle();
+      await settle(tester);
+      expect(find.byType(AllNotesPage), findsNothing);
 
       await leaveSelection(tester);
+      await teardownPage(tester);
+    });
+
+    testWidgets('both are 48 tall and end in a chevron; only All notes '
+        'carries a count', (tester) async {
+      await pumpPage(tester);
+
+      for (final label in [l10n.allNotes, l10n.recent]) {
+        final row = find.ancestor(
+          of: find.text(label),
+          matching: find.byType(ContentRowShell),
+        );
+        expect(
+          tester
+              .getSize(
+                find.descendant(of: row, matching: find.byType(InkWell)).first,
+              )
+              .height,
+          RowMetrics.singleLineMinHeight,
+          reason: label,
+        );
+        expect(
+          find.descendant(
+            of: row,
+            matching: find.byIcon(Icons.chevron_right),
+          ),
+          findsOneWidget,
+          reason: label,
+        );
+      }
+
+      final scheme = Theme.of(
+        tester.element(find.text(l10n.allNotes)),
+      ).colorScheme;
+      for (final icon in [Icons.description_outlined, Icons.schedule_outlined]) {
+        final glyph = tester.widget<Icon>(find.byIcon(icon));
+        expect(glyph.size, RowMetrics.glyphSize);
+        expect(glyph.color, scheme.primary);
+      }
+
+      // The count sits on All notes only; Recent's slot is reserved and
+      // empty, which is what keeps the two rows the same shape.
+      expect(
+        find.descendant(
+          of: find.ancestor(
+            of: find.text(l10n.recent),
+            matching: find.byType(ContentRowShell),
+          ),
+          matching: find.byWidgetPredicate(
+            (w) => w is Text && w.data != null && int.tryParse(w.data!) != null,
+          ),
+        ),
+        findsNothing,
+      );
+
       await teardownPage(tester);
     });
   });
 
   group('the bottom bar', () {
+    testWidgets('is 52 dp over the safe-area inset, with primary 22 dp '
+        'glyphs and a 13 px count', (tester) async {
+      // Physical pixels: the harness runs at devicePixelRatio 3, so this is
+      // a 48 dp gesture bar.
+      tester.view.viewPadding = const FakeViewPadding(bottom: 144);
+      tester.view.padding = const FakeViewPadding(bottom: 144);
+      addTearDown(tester.view.reset);
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+
+      final bar = find
+          .ancestor(
+            of: find.byIcon(Icons.create_new_folder_outlined),
+            matching: find.byType(Container),
+          )
+          .first;
+      expect(tester.getSize(bar).height, RowMetrics.bottomBarHeight);
+      // Lifted clear of the gesture bar rather than drawn under it: the bar
+      // and the inset below it fill the bottom of the window.
+      final screenHeight = tester.view.physicalSize.height /
+          tester.view.devicePixelRatio;
+      expect(
+        screenHeight - tester.getTopLeft(bar).dy,
+        RowMetrics.bottomBarHeight + 48,
+      );
+
+      final scheme = Theme.of(
+        tester.element(find.byIcon(Icons.create_new_folder_outlined)),
+      ).colorScheme;
+      for (final icon in [
+        Icons.create_new_folder_outlined,
+        Icons.note_add_outlined,
+      ]) {
+        final button = tester.widget<IconButton>(
+          find.ancestor(of: find.byIcon(icon), matching: find.byType(IconButton)),
+        );
+        expect(button.iconSize, RowMetrics.bottomBarGlyphSize, reason: '$icon');
+        expect(button.color, scheme.primary, reason: '$icon');
+        expect(
+          tester
+              .getSize(
+                find.ancestor(
+                  of: find.byIcon(icon),
+                  matching: find.byType(IconButton),
+                ),
+              )
+              .height,
+          RowMetrics.bottomBarButtonSize,
+          reason: '$icon',
+        );
+      }
+
+      final count = tester.widget<Text>(
+        find.text(
+          l10n.folderAndNoteCount(
+            l10n.folderCountLabel(1),
+            l10n.noteCountLabel(15),
+          ),
+        ),
+      );
+      expect(count.style!.fontSize, RowMetrics.bottomBarCountFontSize);
+      expect(count.style!.color, scheme.onSurfaceVariant);
+
+      await teardownPage(tester);
+    });
+
     testWidgets('the floating action button and its sheet are gone', (
       tester,
     ) async {
@@ -1326,6 +1694,9 @@ void main() {
       await openSearch(tester);
 
       expect(find.byType(FolderSliverAppBar), findsNothing);
+      // No drawer while the field owns the bar: the arrow leaves search.
+      expect(find.byType(LeadingNavPair), findsNothing);
+      expect(find.byIcon(Icons.menu_rounded), findsNothing);
       expect(find.byType(TextField), findsOneWidget);
       expect(find.widgetWithText(ChoiceChip, 'Winter block'), findsOneWidget);
       expect(find.widgetWithText(ChoiceChip, l10n.everywhere), findsOneWidget);
@@ -1497,6 +1868,42 @@ void main() {
       );
       expect(find.byType(SearchResultRow), findsNWidgets(4));
       expect(sectionLabels(tester), [l10n.titlesSection, l10n.inTextSection]);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('returning from a recent keeps the recents list where it was', (
+      tester,
+    ) async {
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+      await openSearch(tester);
+      expect(sectionLabels(tester), [l10n.recent]);
+
+      final position = scrollPosition(tester);
+      expect(position.maxScrollExtent, greaterThan(200));
+      position.jumpTo(200);
+      await tester.pump();
+
+      final navigator = tester.state<NavigatorState>(
+        find.byType(Navigator).first,
+      );
+      navigator
+          .push(
+            MaterialPageRoute<void>(
+              builder: (_) => const Scaffold(body: Text('a note')),
+            ),
+          )
+          .ignore();
+      await tester.pumpAndSettle();
+      navigator.pop();
+      await flush(tester);
+
+      // The refresh the pop runs re-reads the same recents. Replacing them
+      // with a full-screen spinner for that round trip collapses the scroll
+      // extent to zero, and the offset never comes back.
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.byType(SearchResultRow), findsWidgets);
+      expect(scrollPosition(tester).pixels, 200);
 
       await teardownPage(tester);
     });

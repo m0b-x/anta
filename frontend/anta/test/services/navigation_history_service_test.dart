@@ -97,31 +97,35 @@ void main() {
       expect(await settings.getLastLocationStack(), [folder]);
     });
 
-    test('flush writes immediately, which is what the pause hook relies on',
-        () async {
-      history.onStackChanged([
-        const NavDestination(NavDestinationKind.databaseSettings),
-      ]);
-      await history.flush();
+    test(
+      'flush writes immediately, which is what the pause hook relies on',
+      () async {
+        history.onStackChanged([
+          const NavDestination(NavDestinationKind.databaseSettings),
+        ]);
+        await history.flush();
 
-      expect(await settings.getLastLocationStack(), [
-        const NavDestination(NavDestinationKind.databaseSettings),
-      ]);
-    });
+        expect(await settings.getLastLocationStack(), [
+          const NavDestination(NavDestinationKind.databaseSettings),
+        ]);
+      },
+    );
 
-    test('popping back to root persists an empty stack, not a deleted row',
-        () async {
-      history.onStackChanged([
-        const NavDestination(NavDestinationKind.calendar),
-      ]);
-      await history.flush();
+    test(
+      'popping back to root persists an empty stack, not a deleted row',
+      () async {
+        history.onStackChanged([
+          const NavDestination(NavDestinationKind.calendar),
+        ]);
+        await history.flush();
 
-      history.onStackChanged(const []);
-      await history.flush();
+        history.onStackChanged(const []);
+        await history.flush();
 
-      expect(await storedRaw(), isNotNull);
-      expect(await settings.getLastLocationStack(), isEmpty);
-    });
+        expect(await storedRaw(), isNotNull);
+        expect(await settings.getLastLocationStack(), isEmpty);
+      },
+    );
 
     test('an unchanged stack is not rewritten', () async {
       final stack = [const NavDestination(NavDestinationKind.calendar)];
@@ -153,17 +157,38 @@ void main() {
   });
 
   group('database switch', () {
-    test('the in-memory stack is dropped rather than written to the new db',
-        () async {
+    test(
+      'the in-memory stack is dropped rather than written to the new db',
+      () async {
+        history.beginRecording();
+        history.onStackChanged([
+          NavDestination.folder(folderId: 'f1', title: 'Training'),
+        ]);
+
+        DatabaseLifecycle.notifyDatabaseSwitching();
+        await settle();
+
+        expect(history.stack, isEmpty);
+      },
+    );
+
+    test('a write in flight when the database switches is dropped', () async {
       history.beginRecording();
       history.onStackChanged([
         NavDestination.folder(folderId: 'f1', title: 'Training'),
       ]);
 
+      // The queued write resolves `SettingsService` inside its own
+      // continuation, and by the time that runs the singleton may already be
+      // bound to the database being switched *to* — into which these ids mean
+      // nothing. The switch lands between the flush and its continuation here,
+      // which is exactly the window the generation counter covers.
+      final pending = history.flush();
       DatabaseLifecycle.notifyDatabaseSwitching();
+      await pending;
       await settle();
 
-      expect(history.stack, isEmpty);
+      expect(await storedRaw(), isNull);
     });
 
     test('it re-registers, so a second switch is handled too', () async {
@@ -223,22 +248,26 @@ void main() {
       );
     });
 
-    test('a later empty stack is not mistaken for a never-migrated install',
-        () async {
-      await writeLegacy(folderId: 'f1');
-      await settings.getLastLocationStack();
-      await settings.saveLastLocationStack(const []);
+    test(
+      'a later empty stack is not mistaken for a never-migrated install',
+      () async {
+        await writeLegacy(folderId: 'f1');
+        await settings.getLastLocationStack();
+        await settings.saveLastLocationStack(const []);
 
-      await writeLegacy(folderId: 'f2', title: 'Stale');
+        await writeLegacy(folderId: 'f2', title: 'Stale');
 
-      expect(await settings.getLastLocationStack(), isEmpty);
-    });
+        expect(await settings.getLastLocationStack(), isEmpty);
+      },
+    );
 
-    test('an install with no legacy location migrates to an empty stack',
-        () async {
-      expect(await settings.getLastLocationStack(), isEmpty);
-      expect(await storedRaw(), isNotNull);
-    });
+    test(
+      'an install with no legacy location migrates to an empty stack',
+      () async {
+        expect(await settings.getLastLocationStack(), isEmpty);
+        expect(await storedRaw(), isNotNull);
+      },
+    );
   });
 }
 

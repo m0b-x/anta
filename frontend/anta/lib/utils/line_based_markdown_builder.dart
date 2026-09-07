@@ -783,7 +783,7 @@ class LineBasedMarkdownBuilder {
 
     final headingStyle = TextStyle(
       fontSize: style.baseFontSize * scale,
-      fontWeight: FontWeight.bold,
+      fontWeight: MarkdownConstants.headingWeight,
       height: MarkdownConstants.lineHeight,
       color: style.textColor,
     );
@@ -1197,7 +1197,7 @@ class LineBasedMarkdownBuilder {
       };
       baseStyle = baseStyle.copyWith(
         fontSize: style.baseFontSize * scale,
-        fontWeight: FontWeight.bold,
+        fontWeight: MarkdownConstants.headingWeight,
       );
     }
     // An emphasis wrapper (`*$~ 2 x*`, `**$$**`) styles the whole row;

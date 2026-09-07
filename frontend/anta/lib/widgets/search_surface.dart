@@ -4,12 +4,14 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/search/search_bloc.dart';
 import '../constants/app_icon_sizes.dart';
 import '../constants/app_spacing.dart';
+import '../constants/row_metrics.dart';
 import '../l10n/app_localizations.dart';
 import '../models/note_metadata.dart';
 import '../models/search_scope.dart';
 import '../services/app_navigator.dart';
 import '../services/folder_search_service.dart';
 import 'content_rows.dart';
+import 'note_row.dart';
 
 const String _pathSeparator = ' › ';
 
@@ -59,8 +61,11 @@ class SearchSurface extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
 
     // Before the "nothing found" check, so a pass that is still running never
-    // flashes an empty-result message on its way to results.
-    if (state.isSearching && !state.hasResults) {
+    // flashes an empty-result message on its way to results. Recents count as
+    // something to keep showing: re-running an idle surface after a note was
+    // edited through it must not blank the list it is refreshing, which threw
+    // away the scroll offset the user came back to.
+    if (state.isSearching && !state.hasResults && state.recents.isEmpty) {
       return const [
         SliverFillRemaining(
           hasScrollBody: false,
@@ -81,6 +86,7 @@ class SearchSurface extends StatelessWidget {
             metadata: state.recents[index],
             groupPosition: _positionFor(index, state.recents.length),
             path: state.folderPaths[state.recents[index].folderId],
+            showDate: true,
           ),
         ),
       ];
@@ -220,21 +226,44 @@ class SearchScopeChips extends StatelessWidget {
       child: Wrap(
         spacing: AppSpacing.sm,
         children: [
-          ChoiceChip(
-            label: Text(label),
+          _scopeChip(
+            context,
+            label: label,
             selected: isFolder,
-            onSelected: (_) =>
+            onSelected: () =>
                 context.read<SearchBloc>().add(SearchScopeChanged(folderScope)),
           ),
-          ChoiceChip(
-            label: Text(l10n.everywhere),
+          _scopeChip(
+            context,
+            label: l10n.everywhere,
             selected: !isFolder,
-            onSelected: (_) => context.read<SearchBloc>().add(
+            onSelected: () => context.read<SearchBloc>().add(
               const SearchScopeChanged(SearchScope.everywhere()),
             ),
           ),
         ],
       ),
+    );
+  }
+
+  /// The unselected chip carries the outline the mock draws explicitly: the
+  /// theme's default border is a tone the rest of the page never uses, and
+  /// the selected chip drops the border altogether under its fill.
+  Widget _scopeChip(
+    BuildContext context, {
+    required String label,
+    required bool selected,
+    required VoidCallback onSelected,
+  }) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      onSelected: (_) => onSelected(),
+      iconTheme: const IconThemeData(size: AppIconSizes.tiny),
+      side: selected
+          ? BorderSide.none
+          : BorderSide(color: colorScheme.outlineVariant),
     );
   }
 }
@@ -259,6 +288,11 @@ class SearchResultRow extends StatelessWidget {
   /// The body excerpt to show under the title, with its own highlight.
   final SearchMatch? snippet;
 
+  /// Whether the second line ends with when the note was last edited, the way
+  /// the idle "Recent" list says it — a result names the query's own text
+  /// instead.
+  final bool showDate;
+
   const SearchResultRow({
     super.key,
     required this.metadata,
@@ -266,6 +300,7 @@ class SearchResultRow extends StatelessWidget {
     this.path,
     this.titleMatch,
     this.snippet,
+    this.showDate = false,
   });
 
   @override
@@ -279,54 +314,98 @@ class SearchResultRow extends StatelessWidget {
 
     return ContentRowShell(
       position: groupPosition,
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.lg,
-          vertical: AppSpacing.xs,
-        ),
-        leading: Icon(
-          Icons.description_outlined,
-          color: colorScheme.onSurfaceVariant,
-        ),
-        title: _highlighted(
-          context,
-          text: title,
-          match: metadata.title.isEmpty ? null : titleMatch,
-          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
-          maxLines: 1,
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (pathLabel != null)
-              Text(
-                pathLabel,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: colorScheme.onSurfaceVariant,
-                ),
-              ),
-            if (snippet != null)
-              Padding(
-                padding: const EdgeInsets.only(top: AppSpacing.xxs),
-                child: _highlighted(
-                  context,
-                  text: snippet!.text,
-                  match: snippet,
-                  style: TextStyle(fontSize: 13, color: colorScheme.onSurface),
-                  maxLines: 2,
-                ),
-              ),
-          ],
-        ),
+      child: InkWell(
         onTap: () => AppNavigator.toNoteEditorInstant(
           context,
           folderId: metadata.folderId,
           noteId: metadata.id,
           metadata: metadata,
         ),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            minHeight: RowMetrics.twoLineMinHeight,
+          ),
+          child: Padding(
+            padding: RowMetrics.twoLinePadding,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _highlighted(
+                  context,
+                  text: title,
+                  match: metadata.title.isEmpty ? null : titleMatch,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w500,
+                    fontSize: RowMetrics.titleFontSize,
+                    color: colorScheme.onSurface,
+                  ),
+                  maxLines: 1,
+                ),
+                const SizedBox(height: RowMetrics.lineGap),
+                _buildPathLine(context, l10n, colorScheme, pathLabel),
+                if (snippet != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: AppSpacing.xxs),
+                    child: _highlighted(
+                      context,
+                      text: snippet!.text,
+                      match: snippet,
+                      style: TextStyle(
+                        fontSize: RowMetrics.secondLineFontSize,
+                        color: colorScheme.onSurface,
+                      ),
+                      maxLines: 2,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// "Training › Winter block · Today" — where the note lives, then when it
+  /// was last touched, the date in the weight [NoteRow] gives it so the two
+  /// lists read the same.
+  Widget _buildPathLine(
+    BuildContext context,
+    AppLocalizations l10n,
+    ColorScheme colorScheme,
+    String? pathLabel,
+  ) {
+    final date = showDate
+        ? formatRowDate(
+            date: metadata.updatedAt,
+            now: DateTime.now(),
+            locale: Localizations.localeOf(context).toString(),
+            l10n: l10n,
+          )
+        : null;
+    if (pathLabel == null && date == null) return const SizedBox.shrink();
+
+    return Text.rich(
+      TextSpan(
+        children: [
+          if (pathLabel != null) TextSpan(text: pathLabel),
+          if (pathLabel != null && date != null) const TextSpan(text: ' · '),
+          if (date != null)
+            TextSpan(
+              text: date,
+              style: TextStyle(
+                fontWeight: FontWeight.w500,
+                color: colorScheme.onSurface,
+              ),
+            ),
+        ],
+      ),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        fontSize: RowMetrics.secondLineFontSize,
+        color: colorScheme.onSurfaceVariant,
       ),
     );
   }

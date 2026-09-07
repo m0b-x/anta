@@ -4,6 +4,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/bloc/search/search_bloc.dart';
+import 'package:anta/controllers/in_place_search_controller.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/note_metadata.dart';
 import 'package:anta/models/search_scope.dart';
@@ -72,13 +73,10 @@ class _FakeSearchService implements FolderSearchService {
   Future<void> removeFromIndex(String noteId) async {}
 
   @override
-  List<String> get recentSearches => const [];
-
-  @override
-  Future<void> clearRecentSearches() async {}
-
-  @override
   void dispose() {}
+
+  @override
+  Future<void> close() async {}
 }
 
 class _FakeNoteStorage extends NoteStorageService {
@@ -87,6 +85,7 @@ class _FakeNoteStorage extends NoteStorageService {
   List<NoteMetadata> recents = const [];
   int pageSizeAsked = 0;
   NotesSortOrder? sortOrderAsked;
+  Object? failure;
 
   /// Held open to make the recents load finish *after* whatever event came
   /// next — the ordering the tag path hits in the wild.
@@ -102,6 +101,7 @@ class _FakeNoteStorage extends NoteStorageService {
     pageSizeAsked = pageSize;
     sortOrderAsked = sortOrder;
     if (recentsGate != null) await recentsGate!.future;
+    if (failure != null) throw failure!;
     return PaginatedNotes(
       notes: recents,
       currentPage: 1,
@@ -575,6 +575,104 @@ void main() {
       expect(bloc.state.isSearching, isFalse);
       expect(bloc.state.hasResults, isFalse);
       await bloc.close();
+    });
+
+    test('a failed recents load leaves no path map behind', () async {
+      searchService.fullResults = [
+        _hit(_note('a', folderId: 'f2'), const [SearchMatchType.title]),
+      ];
+      folderStorage.paths = {
+        'f2': ['Training', 'Winter block'],
+      };
+      final bloc = buildBloc();
+      bloc.add(const SearchSubmitted('squat'));
+      await pumpEventQueue();
+      expect(bloc.state.folderPaths, isNotEmpty);
+
+      noteStorage.failure = StateError('storage unavailable');
+      bloc.add(const SearchCleared());
+      await pumpEventQueue();
+
+      expect(bloc.state.recents, isEmpty);
+      expect(
+        bloc.state.folderPaths,
+        isEmpty,
+        reason:
+            'the rows those paths belong to are gone; a path lane keyed by a '
+            'folder no row is in is stale data waiting to be painted',
+      );
+      await bloc.close();
+    });
+  });
+
+  group('reopening', () {
+    test('drops the hits the last query left on screen', () async {
+      searchService.fullResults = [
+        _hit(_note('a'), const [SearchMatchType.title]),
+      ];
+      noteStorage.recents = [_note('b')];
+      final bloc = buildBloc();
+      bloc.add(const SearchSubmitted('squat'));
+      await pumpEventQueue();
+      expect(bloc.state.hasResults, isTrue);
+
+      bloc.add(const SearchOpened());
+      await pumpEventQueue();
+
+      expect(bloc.state.phase, SearchPhase.idle);
+      expect(bloc.state.query, isEmpty);
+      expect(bloc.state.titleHits, isEmpty);
+      expect(bloc.state.contentHits, isEmpty);
+      expect(bloc.state.recents, hasLength(1));
+      await bloc.close();
+    });
+
+    test('shows recents rather than the previous results while it loads', () async {
+      searchService.fullResults = [
+        _hit(_note('a'), const [SearchMatchType.title]),
+      ];
+      final bloc = buildBloc();
+      bloc.add(const SearchSubmitted('squat'));
+      await pumpEventQueue();
+
+      final gate = Completer<void>();
+      noteStorage.recentsGate = gate;
+      bloc.add(const SearchOpened());
+      await pumpEventQueue();
+
+      // The surface paints its spinner off exactly this: searching, with
+      // nothing to show. Stale hits under a fresh field is the alternative.
+      expect(bloc.state.isSearching, isTrue);
+      expect(bloc.state.hasResults, isFalse);
+
+      gate.complete();
+      await pumpEventQueue();
+      await bloc.close();
+    });
+
+    test('the searching flag is up before the bloc emits anything', () async {
+      noteStorage.recents = [_note('a')];
+      final bloc = buildBloc();
+      final search = InPlaceSearchController(bloc: bloc);
+      bool? flagAtFirstEmit;
+      final sub = bloc.stream.listen((_) {
+        flagAtFirstEmit ??= search.isSearching;
+      });
+
+      search.open(const SearchScope.everywhere());
+      await pumpEventQueue();
+
+      expect(
+        flagAtFirstEmit,
+        isTrue,
+        reason:
+            'both hosts guard their results with `buildWhen: (_, __) => '
+            '_searching`, which *drops* states rather than deferring them — '
+            'so every emit of this bloc has to happen with the flag already '
+            'up, or the surface opens on a state it never sees again',
+      );
+      await sub.cancel();
+      search.dispose();
     });
   });
 }

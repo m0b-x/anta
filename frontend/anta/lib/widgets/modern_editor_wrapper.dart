@@ -730,9 +730,9 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
                 showColors: widget.showChunkColors,
                 showBorders: widget.showChunkBorders,
                 editorPadding: EdgeInsets.only(
-                  left: AppSpacing.lg,
+                  left: AppSpacing.xl,
                   top: AppSpacing.lg,
-                  right: AppSpacing.lg + AppConstants.editorScrollbarPadding,
+                  right: AppSpacing.xl + AppConstants.editorScrollbarPadding,
                   bottom: AppSpacing.lg + bottomSafeArea,
                 ),
               ),
@@ -778,9 +778,10 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
           cursorColor: theme.colorScheme.primary,
           cursorWidth: 2.5,
           cursorLineColor: widget.showCursorLine
-              ? theme.colorScheme.primary.withValues(alpha: 0.1)
+              ? theme.colorScheme.surfaceContainerLow
               : null,
           selectionColor: theme.colorScheme.primary.withValues(alpha: 0.3),
+          highlightColor: theme.colorScheme.primaryContainer,
         ),
         wordWrap: widget.wordWrap,
         readOnly: false,
@@ -800,9 +801,9 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
         // Add small right padding for visible scrollbar (6-12px width)
         // Add bottom safe area to account for phone navigation bar
         padding: EdgeInsets.only(
-          left: AppSpacing.lg,
+          left: AppSpacing.xl,
           top: AppSpacing.lg,
-          right: AppSpacing.lg + AppConstants.editorScrollbarPadding,
+          right: AppSpacing.xl + AppConstants.editorScrollbarPadding,
           bottom: AppSpacing.lg + bottomSafeArea,
         ),
         indicatorBuilder: widget.showLineNumbers

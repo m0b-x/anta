@@ -34,6 +34,7 @@ class NavigationHistoryService {
   Timer? _timer;
   bool _recording = false;
   Future<void> _writeChain = Future<void>.value();
+  int _generation = 0;
 
   /// The stack as it currently stands, bottom-to-top. Not necessarily what is
   /// on disk yet — see [flush].
@@ -80,6 +81,12 @@ class NavigationHistoryService {
   /// Identical consecutive states are dropped, and writes are chained rather
   /// than fired in parallel — fast navigation used to leave the last write to
   /// chance.
+  ///
+  /// The generation captured with the queued write is what keeps a database
+  /// switch from being outrun: the continuation resolves [SettingsService]
+  /// itself, and by the time it runs that singleton may already be bound to
+  /// the *new* database — into which these ids mean nothing. A write whose
+  /// generation has moved is dropped before the service is ever asked for.
   Future<void> flush() {
     _timer?.cancel();
     _timer = null;
@@ -90,9 +97,12 @@ class NavigationHistoryService {
     if (encoded == _lastQueued) return _writeChain;
     _lastQueued = encoded;
 
+    final generation = _generation;
     _writeChain = _writeChain
         .then((_) async {
+          if (generation != _generation) return;
           final settings = await SettingsService.getInstance();
+          if (generation != _generation) return;
           await settings.saveLastLocationStack(stack);
         })
         .catchError((Object error, StackTrace stack) {
@@ -106,6 +116,7 @@ class NavigationHistoryService {
   /// folder that exists only in the other database. Re-registers itself
   /// because [DatabaseLifecycle] clears its registry after each notification.
   void _handleDatabaseSwitch() {
+    _generation++;
     _timer?.cancel();
     _timer = null;
     _current = const [];

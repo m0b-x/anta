@@ -115,6 +115,15 @@ class _CodeEditableState extends State<_CodeEditable>
   late _CodeHighlighter _highlighter;
   late CodeIndicatorValueNotifier _codeIndicatorValueNotifier;
 
+  /// The selection [_onCodeFindChanged] last applied for a match.
+  ///
+  /// A settled search with no match must give that range back — left in
+  /// place it paints in `selectionColor` and reads as a hit that is no
+  /// longer there. Anything the user selected since is not ours to touch,
+  /// which is why the identity of the applied range is remembered rather
+  /// than merely the fact that one was applied.
+  CodeLineSelection? _findSelection;
+
   @override
   bool get wantKeepAlive => widget.focusNode.hasFocus;
 
@@ -378,6 +387,7 @@ class _CodeEditableState extends State<_CodeEditable>
     }
     final CodeFindValue? value = widget.findController.value;
     if (value == null) {
+      _releaseFindSelection();
       widget.focusNode.requestFocus();
       return;
     }
@@ -387,8 +397,12 @@ class _CodeEditableState extends State<_CodeEditable>
     final CodeLineSelection? currentMatch =
         widget.findController.currentMatchSelection;
     if (currentMatch == null) {
+      if (!value.searching) {
+        _releaseFindSelection();
+      }
       return;
     }
+    _findSelection = currentMatch;
     widget.controller.selection = currentMatch;
     if (currentMatch.isSameLine) {
       widget.controller.makePositionCenterIfInvisible(CodeLinePosition(
@@ -397,6 +411,19 @@ class _CodeEditableState extends State<_CodeEditable>
     } else {
       widget.controller.makePositionCenterIfInvisible(currentMatch.start);
     }
+  }
+
+  void _releaseFindSelection() {
+    final CodeLineSelection? applied = _findSelection;
+    if (applied == null) {
+      return;
+    }
+    _findSelection = null;
+    if (widget.controller.selection != applied) {
+      return;
+    }
+    widget.controller.selection =
+        CodeLineSelection.fromPosition(position: applied.base);
   }
 
   void _updateCursorState() {

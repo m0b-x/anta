@@ -148,7 +148,7 @@ class EditorMoneyRowBuilder {
         fontSize:
             (style.fontSize ?? 16.0) *
             MarkdownConstants.editorHeaderScale(m.headerLevel),
-        fontWeight: FontWeight.bold,
+        fontWeight: MarkdownConstants.headingWeight,
       );
     }
     // An emphasis wrapper styles the whole row; its marker runs conceal

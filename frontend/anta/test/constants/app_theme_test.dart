@@ -146,5 +146,27 @@ void main() {
       expect(AppTheme.light().useMaterial3, isTrue);
       expect(AppTheme.dark().useMaterial3, isTrue);
     });
+
+    test('hand back the identical instance every call', () {
+      // `MaterialApp` is rebuilt on every settings emission; a fresh
+      // `ThemeData` there invalidates every theme-keyed cache below it.
+      expect(identical(AppTheme.light(), AppTheme.light()), isTrue);
+      expect(identical(AppTheme.dark(), AppTheme.dark()), isTrue);
+    });
+
+    test('carry the mock menu anatomy', () {
+      for (final theme in [AppTheme.light(), AppTheme.dark()]) {
+        final label = theme.popupMenuTheme.labelTextStyle!.resolve(
+          const <WidgetState>{},
+        )!;
+        expect(label.fontSize, AppTheme.menuLabelSize);
+        expect(label.fontWeight, FontWeight.w400);
+        expect(label.color, theme.colorScheme.onSurface);
+        expect(
+          theme.popupMenuTheme.menuPadding,
+          const EdgeInsets.symmetric(vertical: AppTheme.menuVerticalPadding),
+        );
+      }
+    });
   });
 }

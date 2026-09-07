@@ -13,19 +13,40 @@ import '../widgets/info_chip.dart';
 import '../widgets/unified_app_bars.dart';
 import '../utils/custom_snackbar.dart';
 import '../services/app_navigator.dart';
+import '../services/settings_service.dart';
 
-class CounterManagementPage extends StatelessWidget {
+class CounterManagementPage extends StatefulWidget {
   final String? noteId;
 
   const CounterManagementPage({super.key, this.noteId});
+
+  @override
+  State<CounterManagementPage> createState() => _CounterManagementPageState();
+}
+
+class _CounterManagementPageState extends State<CounterManagementPage> {
+  bool _swipeEnabled = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSwipeSetting();
+  }
+
+  Future<void> _loadSwipeSetting() async {
+    final settings = await SettingsService.getInstance();
+    final swipe = await settings.getFolderSwipeEnabled();
+    if (mounted) setState(() => _swipeEnabled = swipe);
+  }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
 
     return LoadingScaffold(
-      appBar: SettingsAppBar(title: l10n.counterSettings),
+      appBar: SettingsAppBar(title: l10n.counterSettings, popsToDrawer: true),
       drawer: const AppDrawer(),
+      drawerEnableOpenDragGesture: _swipeEnabled,
       floatingActionButton: FloatingActionButton(
         onPressed: () => _showAddCounterDialog(context),
         child: const Icon(Icons.add),
@@ -68,7 +89,7 @@ class CounterManagementPage extends StatelessWidget {
                 counter: counter,
                 currentValue: currentValue,
                 index: index,
-                noteId: noteId,
+                noteId: widget.noteId,
               );
             },
           );
@@ -118,8 +139,9 @@ class CounterManagementPage extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           FilledButton.icon(
-            onPressed: () =>
-                context.read<CounterBloc>().add(LoadCounters(noteId: noteId)),
+            onPressed: () => context.read<CounterBloc>().add(
+              LoadCounters(noteId: widget.noteId),
+            ),
             icon: const Icon(Icons.refresh_rounded),
             label: Text(l10n.counterRetry),
           ),

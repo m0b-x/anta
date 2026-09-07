@@ -7,7 +7,7 @@ import '../bloc/import_export/import_export_bloc.dart';
 import '../bloc/import_export/import_export_event.dart';
 import '../bloc/optimized_note/optimized_note_bloc.dart';
 import '../bloc/optimized_note/optimized_note_event.dart';
-import '../constants/note_card_action.dart';
+import '../constants/row_metrics.dart';
 import '../controllers/selection_controller.dart';
 import '../l10n/app_localizations.dart';
 import '../models/movable_item.dart';
@@ -20,12 +20,34 @@ import 'app_dialogs.dart';
 import 'content_rows.dart';
 import 'note_export_dialog.dart';
 
+/// How a row says when a note was last touched.
+///
+/// Pure, and [now] is a parameter rather than a clock read, so the wording
+/// can be table-tested across the boundaries it turns on. The near past is
+/// named rather than dated — a date is only useful once "which day was that"
+/// stops being obvious.
+String formatRowDate({
+  required DateTime date,
+  required DateTime now,
+  required String locale,
+  required AppLocalizations l10n,
+}) {
+  final days = DateUtils.dateOnly(
+    now,
+  ).difference(DateUtils.dateOnly(date)).inDays;
+  if (days == 0) return l10n.today;
+  if (days == 1) return l10n.yesterday;
+  if (days > 1 && days <= 6) return DateFormat.E(locale).format(date);
+  if (date.year == now.year) return DateFormat.MMMd(locale).format(date);
+  return DateFormat.yMMMd(locale).format(date);
+}
+
 /// One note in the browser's list.
 ///
-/// The second line is the edit date, joined to the first line of the stored
-/// preview when [showPreview] is on. The preview text is used as the note
-/// service produced it — a money-ledger line keeps whatever figures it was
-/// stored with, and nothing here re-parses it.
+/// The second line is the edit date, joined to the stored preview when
+/// [showPreview] is on. The preview text is used as the note service produced
+/// it — a money-ledger line keeps whatever figures it was stored with, and
+/// nothing here re-parses it.
 class NoteRow extends StatelessWidget {
   final NoteMetadata metadata;
   final String folderId;
@@ -37,7 +59,7 @@ class NoteRow extends StatelessWidget {
   final bool isMultiDragging;
 
   /// The folder chain this note lives under, drawn as an eyebrow above the
-  /// second line.
+  /// title.
   ///
   /// Null in a folder listing, where every row shares one folder and the lane
   /// would say the same thing on every row. An **empty string** is not the
@@ -82,42 +104,12 @@ class NoteRow extends StatelessWidget {
     final isSelecting = selection != null && selection!.isActive;
     final isSelected = selection != null && selection!.contains(ref);
     final colorScheme = Theme.of(context).colorScheme;
+    final path = pathLabel;
 
     final row = ContentRowShell(
       position: groupPosition,
       isSelected: isSelected,
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-        leading: isSelected
-            ? Icon(Icons.check_circle, color: colorScheme.primary)
-            : Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Icon(
-                    Icons.description_outlined,
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-                  if (metadata.isCompressed)
-                    Positioned(
-                      right: -2,
-                      bottom: -2,
-                      child: Icon(
-                        Icons.compress,
-                        size: 12,
-                        color: colorScheme.primary,
-                      ),
-                    ),
-                ],
-              ),
-        title: Text(
-          metadata.title.isEmpty ? l10n.untitledNote : metadata.title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
-        ),
-        isThreeLine: pathLabel != null,
-        subtitle: _buildSubtitle(context, l10n, colorScheme),
-        trailing: _buildTrailing(context, isSelecting),
+      child: InkWell(
         onTap: isSelecting
             ? () => onTapInSelection?.call(ref)
             : () {
@@ -133,12 +125,74 @@ class NoteRow extends StatelessWidget {
         onLongPress: () {
           if (isSelecting) {
             onTapInSelection?.call(ref);
-          } else if (onLongPressItem != null) {
-            onLongPressItem!(ref);
           } else {
-            _showOptionsBottomSheet(context);
+            _showActionSheet(context);
           }
         },
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            minHeight: RowMetrics.twoLineMinHeight,
+          ),
+          child: Padding(
+            padding: RowMetrics.twoLinePadding,
+            child: Row(
+              children: [
+                if (isSelected) ...[
+                  Icon(
+                    Icons.check_circle,
+                    size: RowMetrics.glyphSize,
+                    color: colorScheme.primary,
+                  ),
+                  const SizedBox(width: RowMetrics.gap),
+                ],
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (path != null)
+                        Text(
+                          path.isEmpty ? ' ' : path,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: RowMetrics.pathLaneFontSize,
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      Text(
+                        metadata.title.isEmpty
+                            ? l10n.untitledNote
+                            : metadata.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: RowMetrics.titleFontSize,
+                          fontWeight: FontWeight.w500,
+                          color: colorScheme.onSurface,
+                        ),
+                      ),
+                      const SizedBox(height: RowMetrics.lineGap),
+                      _buildSecondLine(context, l10n, colorScheme),
+                    ],
+                  ),
+                ),
+                if (isReorderMode) ...[
+                  const SizedBox(width: RowMetrics.gap),
+                  ReorderableDragStartListener(
+                    index: index ?? 0,
+                    child: Icon(
+                      Icons.drag_handle,
+                      size: RowMetrics.glyphSize,
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
       ),
     );
 
@@ -171,203 +225,93 @@ class NoteRow extends StatelessWidget {
     return result;
   }
 
-  /// The edit date and preview, with the folder path above them when this row
-  /// is listed outside its own folder.
-  Widget _buildSubtitle(
+  /// The date, then the preview it introduces. One [Text.rich] rather than
+  /// two widgets so the pair shares a single line and a single ellipsis: the
+  /// date is what the row always says, and the preview is what fills whatever
+  /// is left of the line.
+  Widget _buildSecondLine(
     BuildContext context,
     AppLocalizations l10n,
     ColorScheme colorScheme,
   ) {
-    final second = Text(
-      _secondLine(context, l10n),
+    final date = formatRowDate(
+      date: metadata.updatedAt,
+      now: DateTime.now(),
+      locale: Localizations.localeOf(context).toString(),
+      l10n: l10n,
+    );
+    final preview = showPreview
+        ? metadata.preview
+              .split('\n')
+              .map((line) => line.trim())
+              .firstWhere((line) => line.isNotEmpty, orElse: () => '')
+        : '';
+
+    return Text.rich(
+      TextSpan(
+        children: [
+          TextSpan(
+            text: date,
+            style: TextStyle(
+              fontWeight: FontWeight.w500,
+              color: colorScheme.onSurface,
+            ),
+          ),
+          if (preview.isNotEmpty) TextSpan(text: ' · $preview'),
+        ],
+      ),
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
-      style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
+      style: TextStyle(
+        fontSize: RowMetrics.secondLineFontSize,
+        color: colorScheme.onSurfaceVariant,
+      ),
     );
-    final path = pathLabel;
-    if (path == null) return second;
+  }
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          path.isEmpty ? ' ' : path,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: 11,
-            color: colorScheme.onSurfaceVariant.withValues(alpha: 0.8),
+  /// The rename / move / share / delete sheet a long-press raises, with
+  /// *Select* at the top where the page offers a selection mode — the row's
+  /// own menu button is gone, so this is the only way into either.
+  void _showActionSheet(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final enterSelection = onLongPressItem;
+    final ref = _refFor(context);
+    showRowActionSheet(
+      context,
+      title: metadata.title.isEmpty ? l10n.untitledNote : metadata.title,
+      actions: [
+        if (enterSelection != null)
+          RowAction(
+            icon: Icons.check_circle_outline,
+            label: l10n.select,
+            onSelected: () => enterSelection(ref),
+          ),
+        RowAction(
+          icon: Icons.edit_rounded,
+          label: l10n.rename,
+          onSelected: () => _showRenameDialog(context),
+        ),
+        RowAction(
+          icon: Icons.drive_file_move_outlined,
+          label: l10n.moveToFolder,
+          onSelected: () => MoveCoordinator.moveNote(
+            context,
+            metadata: metadata,
+            currentFolderId: folderId,
           ),
         ),
-        second,
-      ],
-    );
-  }
-
-  String _secondLine(BuildContext context, AppLocalizations l10n) {
-    final date = _formatDate(context, metadata.updatedAt);
-    if (!showPreview) return date;
-    final firstLine = metadata.preview
-        .split('\n')
-        .map((line) => line.trim())
-        .firstWhere((line) => line.isNotEmpty, orElse: () => '');
-    if (firstLine.isEmpty) return date;
-    return '$date  ·  $firstLine';
-  }
-
-  /// Locale-aware and compact: the time for something edited today, the day
-  /// and month within this year, the full short date beyond it.
-  String _formatDate(BuildContext context, DateTime date) {
-    final locale = Localizations.localeOf(context).toString();
-    final now = DateTime.now();
-    final isToday =
-        date.year == now.year && date.month == now.month && date.day == now.day;
-    if (isToday) return DateFormat.Hm(locale).format(date);
-    if (date.year == now.year) return DateFormat.MMMd(locale).format(date);
-    return DateFormat.yMMMd(locale).format(date);
-  }
-
-  Widget? _buildTrailing(BuildContext context, bool isSelecting) {
-    if (isReorderMode) {
-      return ReorderableDragStartListener(
-        index: index ?? 0,
-        child: const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 4),
-          child: Icon(Icons.drag_handle, color: Colors.grey),
+        RowAction(
+          icon: Icons.share_rounded,
+          label: l10n.shareNote,
+          onSelected: () => _showExportFormatDialog(context),
         ),
-      );
-    }
-    if (isSelecting) return null;
-    final l10n = AppLocalizations.of(context)!;
-    return PopupMenuButton<NoteCardAction>(
-      icon: const Icon(Icons.more_vert),
-      onSelected: (value) {
-        switch (value) {
-          case NoteCardAction.rename:
-            _showRenameDialog(context);
-          case NoteCardAction.move:
-            MoveCoordinator.moveNote(
-              context,
-              metadata: metadata,
-              currentFolderId: folderId,
-            );
-          case NoteCardAction.share:
-            _showExportFormatDialog(context);
-          case NoteCardAction.delete:
-            _confirmDelete(context);
-        }
-      },
-      itemBuilder: (context) => [
-        PopupMenuItem(
-          value: NoteCardAction.rename,
-          child: _menuRow(Icons.edit, l10n.rename),
-        ),
-        PopupMenuItem(
-          value: NoteCardAction.move,
-          child: _menuRow(Icons.drive_file_move_outlined, l10n.moveToFolder),
-        ),
-        PopupMenuItem(
-          value: NoteCardAction.share,
-          child: _menuRow(Icons.share, l10n.shareNote),
-        ),
-        PopupMenuItem(
-          value: NoteCardAction.delete,
-          child: _menuRow(Icons.delete, l10n.delete, isDestructive: true),
+        RowAction(
+          icon: Icons.delete_rounded,
+          label: l10n.delete,
+          isDestructive: true,
+          onSelected: () => _confirmDelete(context),
         ),
       ],
-    );
-  }
-
-  Widget _menuRow(IconData icon, String label, {bool isDestructive = false}) {
-    return Row(
-      children: [
-        Icon(icon, size: 20, color: isDestructive ? Colors.red : null),
-        const SizedBox(width: 12),
-        Text(
-          label,
-          style: isDestructive ? const TextStyle(color: Colors.red) : null,
-        ),
-      ],
-    );
-  }
-
-  void _showOptionsBottomSheet(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final colorScheme = Theme.of(context).colorScheme;
-
-    showModalBottomSheet(
-      context: context,
-      builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 4,
-              margin: const EdgeInsets.symmetric(vertical: 12),
-              decoration: BoxDecoration(
-                color: colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Text(
-                metadata.title.isEmpty ? l10n.untitledNote : metadata.title,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: colorScheme.onSurface,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            const Divider(),
-            ListTile(
-              leading: const Icon(Icons.edit_rounded),
-              title: Text(l10n.rename),
-              onTap: () {
-                AppNavigator.pop(sheetContext);
-                _showRenameDialog(context);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.drive_file_move_outlined),
-              title: Text(l10n.moveToFolder),
-              onTap: () {
-                AppNavigator.pop(sheetContext);
-                MoveCoordinator.moveNote(
-                  context,
-                  metadata: metadata,
-                  currentFolderId: folderId,
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.share_rounded),
-              title: Text(l10n.shareNote),
-              onTap: () {
-                AppNavigator.pop(sheetContext);
-                _showExportFormatDialog(context);
-              },
-            ),
-            ListTile(
-              leading: Icon(Icons.delete_rounded, color: colorScheme.error),
-              title: Text(
-                l10n.delete,
-                style: TextStyle(color: colorScheme.error),
-              ),
-              onTap: () {
-                AppNavigator.pop(sheetContext);
-                _confirmDelete(context);
-              },
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
     );
   }
 

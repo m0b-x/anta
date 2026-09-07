@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/note_search_metrics.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/services/settings_service.dart';
@@ -283,18 +284,83 @@ void main() {
     await tester.pumpWidget(_wrap(controller));
     await tester.pumpAndSettle();
 
-    // The counter rides inside the pill, so the field keeps everything the
-    // four trailing buttons do not take.
-    final pillRect = tester.getRect(find.byType(TextField));
-    expect(pillRect.width, greaterThan(200));
+    // The query is bare on the bar's own ground, so it keeps everything the
+    // count and the four trailing buttons do not take.
+    final fieldRect = tester.getRect(find.byType(TextField));
+    expect(fieldRect.width, greaterThan(180));
     expect(find.text('1/3'), findsOneWidget);
 
-    // It caps the pill: flush with the right edge, full field height.
+    // The count is a small pill beside the query, not a cap the height of a
+    // control: 12 px text in a 1 x 8 padding.
     final chipRect = tester.getRect(
       find.ancestor(of: find.text('1/3'), matching: find.byType(InkWell)).first,
     );
-    expect(chipRect.right, closeTo(pillRect.right, 0.5));
-    expect(chipRect.height, closeTo(pillRect.height, 0.5));
+    expect(chipRect.height, lessThan(24));
+    expect(chipRect.left, greaterThan(fieldRect.right));
+    expect(
+      tester.widget<Text>(find.text('1/3')).style?.fontSize,
+      NoteSearchMetrics.counterFontSize,
+    );
+  });
+
+  testWidgets('the bar is one flat 48 dp strip under a hairline', (
+    tester,
+  ) async {
+    final controller = _searchFor('squat');
+    await tester.pumpWidget(_wrap(controller));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getSize(find.byType(NoteSearchBar)).height,
+      NoteSearchMetrics.barHeight,
+    );
+
+    final scheme = Theme.of(
+      tester.element(find.byType(NoteSearchBar)),
+    ).colorScheme;
+    final decorated = tester.widget<DecoratedBox>(
+      find
+          .descendant(
+            of: find.byType(NoteSearchBar),
+            matching: find.byType(DecoratedBox),
+          )
+          .first,
+    );
+    final decoration = decorated.decoration as BoxDecoration;
+    expect(decoration.color, scheme.surfaceContainerHigh);
+    expect(decoration.border!.bottom.color, scheme.outlineVariant);
+    expect(decoration.border!.bottom.width, NoteSearchMetrics.barBorderWidth);
+
+    // No pill behind the query: the bar is the field's ground.
+    final query = tester.widget<TextField>(find.byType(TextField));
+    expect(query.decoration!.border, InputBorder.none);
+    expect(query.style?.fontSize, NoteSearchMetrics.queryFontSize);
+  });
+
+  testWidgets('prev / next / options / close are 20 px in 40 x 44 targets', (
+    tester,
+  ) async {
+    final controller = _searchFor('squat');
+    await tester.pumpWidget(_wrap(controller));
+    await tester.pumpAndSettle();
+
+    for (final icon in [
+      Icons.keyboard_arrow_up_rounded,
+      Icons.keyboard_arrow_down_rounded,
+      Icons.close_rounded,
+    ]) {
+      final button = tester.widget<IconButton>(
+        find.widgetWithIcon(IconButton, icon),
+      );
+      expect(button.iconSize, NoteSearchMetrics.iconSize, reason: '$icon');
+      final size = tester.getSize(find.widgetWithIcon(IconButton, icon));
+      expect(size.width, NoteSearchMetrics.iconButtonWidth, reason: '$icon');
+      expect(size.height, NoteSearchMetrics.touchTarget, reason: '$icon');
+    }
+    expect(
+      tester.widget<Icon>(find.byIcon(Icons.tune_rounded)).size,
+      NoteSearchMetrics.iconSize,
+    );
   });
 
   testWidgets('the trailing button clears first, then closes', (tester) async {

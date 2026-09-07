@@ -12,6 +12,7 @@ import '../models/dev_options.dart';
 import '../services/app_navigator.dart';
 import '../services/auth_service.dart';
 import '../services/dev_options_service.dart';
+import '../services/drawer_host_registry.dart';
 import '../utils/custom_snackbar.dart';
 import 'user_avatar.dart';
 
@@ -76,8 +77,8 @@ class _AppDrawerState extends State<AppDrawer> {
   ) {
     AppNavigator.pop(context);
     push(context).then((result) {
-      if (result == SettingsResult.openDrawer && context.mounted) {
-        Scaffold.of(context).openDrawer();
+      if (result == SettingsResult.openDrawer) {
+        DrawerHostRegistry.openTopDrawer();
       }
     });
   }
@@ -413,8 +414,8 @@ class _AppDrawerState extends State<AppDrawer> {
           onTap: () {
             AppNavigator.pop(context);
             AppNavigator.toSyncSettings(context).then((result) {
-              if (result == SettingsResult.openDrawer && context.mounted) {
-                Scaffold.of(context).openDrawer();
+              if (result == SettingsResult.openDrawer) {
+                DrawerHostRegistry.openTopDrawer();
               }
             });
           },

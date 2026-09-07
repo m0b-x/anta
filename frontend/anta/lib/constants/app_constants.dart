@@ -53,6 +53,11 @@ class AppConstants {
   static const int defaultPageSize = 20;
   static const int notePickerPageSize = 6;
 
+  /// How many "most recently edited" notes anything showing recents lists:
+  /// the Recent page and the search surface's idle list, which used to
+  /// disagree (50 against 20) under one label.
+  static const int recentNotesLimit = 50;
+
   // ============================================================
   // CACHE CONSTANTS
   // ============================================================

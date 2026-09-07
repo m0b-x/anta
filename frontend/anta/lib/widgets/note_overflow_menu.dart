@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../constants/app_theme.dart';
 import '../l10n/app_localizations.dart';
 
 enum _NoteMenuAction { openFolder, editTitle, move, share, delete, settings }
@@ -35,11 +36,11 @@ class NoteOverflowMenu extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
+    final colorScheme = Theme.of(context).colorScheme;
 
     return PopupMenuButton<_NoteMenuAction>(
       icon: const Icon(Icons.more_vert),
+      constraints: const BoxConstraints.tightFor(width: AppTheme.menuWidth),
       onSelected: (action) {
         switch (action) {
           case _NoteMenuAction.openFolder:
@@ -58,41 +59,42 @@ class NoteOverflowMenu extends StatelessWidget {
       },
       itemBuilder: (context) => [
         _row(
+          colorScheme,
           value: _NoteMenuAction.openFolder,
           icon: Icons.folder_outlined,
           label: folderName,
-          trailing: Text(
-            l10n.openFolder,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: colorScheme.onSurfaceVariant,
-            ),
-          ),
+          trailing: l10n.openFolder,
         ),
-        const PopupMenuDivider(),
+        const PopupMenuDivider(height: AppTheme.menuDividerHeight),
         _row(
+          colorScheme,
           value: _NoteMenuAction.editTitle,
           icon: Icons.edit,
           label: l10n.editTitle,
         ),
         _row(
+          colorScheme,
           value: _NoteMenuAction.move,
           icon: Icons.drive_file_move_outlined,
           label: l10n.moveToFolder,
         ),
         _row(
+          colorScheme,
           value: _NoteMenuAction.share,
           icon: Icons.share_rounded,
           label: l10n.shareNote,
         ),
-        const PopupMenuDivider(),
+        const PopupMenuDivider(height: AppTheme.menuDividerHeight),
         _row(
+          colorScheme,
           value: _NoteMenuAction.delete,
           icon: Icons.delete,
           label: l10n.deleteNote,
           color: colorScheme.error,
         ),
-        const PopupMenuDivider(),
+        const PopupMenuDivider(height: AppTheme.menuDividerHeight),
         _row(
+          colorScheme,
           value: _NoteMenuAction.settings,
           icon: Icons.settings_outlined,
           label: l10n.settings,
@@ -101,18 +103,24 @@ class NoteOverflowMenu extends StatelessWidget {
     );
   }
 
-  PopupMenuItem<_NoteMenuAction> _row({
+  PopupMenuItem<_NoteMenuAction> _row(
+    ColorScheme colorScheme, {
     required _NoteMenuAction value,
     required IconData icon,
     required String label,
-    Widget? trailing,
+    String? trailing,
     Color? color,
   }) {
     return PopupMenuItem<_NoteMenuAction>(
       value: value,
+      height: AppTheme.menuItemHeight,
       child: Row(
         children: [
-          Icon(icon, size: 20, color: color),
+          Icon(
+            icon,
+            size: AppTheme.menuIconSize,
+            color: color ?? colorScheme.onSurfaceVariant,
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
@@ -121,7 +129,17 @@ class NoteOverflowMenu extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          if (trailing != null) ...[const SizedBox(width: 12), trailing],
+          if (trailing != null) ...[
+            const SizedBox(width: 12),
+            Text(
+              trailing,
+              textAlign: TextAlign.end,
+              style: TextStyle(
+                fontSize: AppTheme.menuTrailingSize,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
         ],
       ),
     );

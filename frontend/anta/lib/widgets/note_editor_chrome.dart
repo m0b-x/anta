@@ -33,6 +33,10 @@ class ValueListenableAppBar<T> extends StatelessWidget
 }
 
 class NoteEditorStatsBar extends StatelessWidget {
+  /// Fixed: the strip is chrome between two fixed bars, so it must not grow
+  /// with the platform text scale and push the editor body down.
+  static const double statsBarHeight = 24.0;
+
   final ValueListenable<NoteEditorStats> stats;
   final int fallbackCharCount;
   final int chunkCount;
@@ -50,39 +54,47 @@ class NoteEditorStatsBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
+    const labelSize = 11.0;
+    const tabular = <FontFeature>[FontFeature.tabularFigures()];
     final labelStyle = TextStyle(
-      fontSize: 11,
+      fontSize: labelSize,
       color: colorScheme.onSurfaceVariant,
+      fontFeatures: tabular,
     );
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.lg,
-        vertical: AppSpacing.xs,
-      ),
-      color: colorScheme.surfaceContainerHigh,
-      child: ValueListenableBuilder<NoteEditorStats>(
-        valueListenable: stats,
-        builder: (context, value, _) {
-          final charCount = value.charCount > 0
-              ? value.charCount
-              : fallbackCharCount;
-          return Row(
-            children: [
-              Text(l10n.noteStats(charCount, chunkCount), style: labelStyle),
-              if (isCompressed) ...[
-                const SizedBox(width: 8),
-                Icon(Icons.compress, size: 14, color: colorScheme.primary),
-                const SizedBox(width: 4),
-                Text(
-                  l10n.compressedNote,
-                  style: TextStyle(fontSize: 11, color: colorScheme.primary),
-                ),
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: 1.0,
+      child: Container(
+        height: statsBarHeight,
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+        alignment: Alignment.center,
+        color: colorScheme.surfaceContainerHigh,
+        child: ValueListenableBuilder<NoteEditorStats>(
+          valueListenable: stats,
+          builder: (context, value, _) {
+            final charCount = value.charCount > 0
+                ? value.charCount
+                : fallbackCharCount;
+            return Row(
+              children: [
+                Text(l10n.noteStats(charCount, chunkCount), style: labelStyle),
+                if (isCompressed) ...[
+                  const SizedBox(width: 8),
+                  Icon(Icons.compress, size: 14, color: colorScheme.primary),
+                  const SizedBox(width: 4),
+                  Text(
+                    l10n.compressedNote,
+                    style: TextStyle(
+                      fontSize: labelSize,
+                      color: colorScheme.primary,
+                    ),
+                  ),
+                ],
+                const Spacer(),
+                Text(l10n.lineCount(value.lineCount), style: labelStyle),
               ],
-              const Spacer(),
-              Text(l10n.lineCount(value.lineCount), style: labelStyle),
-            ],
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }

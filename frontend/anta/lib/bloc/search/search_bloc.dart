@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../constants/app_constants.dart';
 import '../../models/note_metadata.dart';
 import '../../models/search_scope.dart';
 import '../../services/folder_search_service.dart';
@@ -21,7 +22,10 @@ export 'search_state.dart';
 /// replaced the very list the page underneath was rendering.
 class SearchBloc extends Bloc<SearchEvent, SearchState> {
   static const Duration queryDebounce = Duration(milliseconds: 200);
-  static const int recentsPageSize = 20;
+
+  /// The idle list's cap, shared with the Recent page so "recent" means one
+  /// number everywhere.
+  static const int recentsPageSize = AppConstants.recentNotesLimit;
 
   final FolderSearchService _searchService;
   final NoteStorageService _noteService;
@@ -57,7 +61,17 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
 
   Future<void> _onOpened(SearchOpened event, Emitter<SearchState> emit) async {
     final generation = ++_generation;
-    emit(state.copyWith(scope: event.scope, isSearching: true));
+    emit(
+      state.copyWith(
+        scope: event.scope,
+        query: '',
+        phase: SearchPhase.idle,
+        titleHits: const [],
+        contentHits: const [],
+        folderPaths: const {},
+        isSearching: true,
+      ),
+    );
     await _emitRecents(emit, generation);
   }
 
@@ -223,6 +237,7 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
           recents: const [],
           titleHits: const [],
           contentHits: const [],
+          folderPaths: const {},
           isSearching: false,
         ),
       );

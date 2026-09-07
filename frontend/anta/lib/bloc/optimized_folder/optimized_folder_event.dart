@@ -64,6 +64,18 @@ class DeleteOptimizedFolder extends OptimizedFolderEvent {
   List<Object?> get props => [folderId, parentId];
 }
 
+/// Deletes a whole selection as one unit: one pass, one reload. The per-item
+/// event issued in a loop cost a full page reload per picked row.
+class DeleteOptimizedFolders extends OptimizedFolderEvent {
+  final List<String> folderIds;
+  final String? parentId;
+
+  const DeleteOptimizedFolders({required this.folderIds, this.parentId});
+
+  @override
+  List<Object?> get props => [folderIds, parentId];
+}
+
 class RefreshFolders extends OptimizedFolderEvent {
   final String? parentId;
 

@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import '../constants/json_keys.dart';
+import '../utils/markdown_plain_text.dart';
 
 class NoteMetadata extends Equatable {
   final String id;
@@ -84,17 +85,16 @@ class NoteMetadata extends Equatable {
     );
   }
 
+  /// The stored one-line preview of [content]: markdown markers stripped
+  /// through [MarkdownPlainText], every line included in source order so
+  /// quick search and FTS keep the reach they had over the raw join.
+  ///
+  /// The single entry point — every writer of the `preview` column goes
+  /// through here, so a row's preview can never depend on which code
+  /// path saved it.
   static String generatePreview(String content, {int maxLength = 200}) {
     if (content.isEmpty) return '';
-
-    final cleaned = content
-        .replaceAll(RegExp(r'\n+'), ' ')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-
-    if (cleaned.length <= maxLength) return cleaned;
-
-    return '${cleaned.substring(0, maxLength)}...';
+    return MarkdownPlainText.strip(content, maxLength: maxLength);
   }
 
   @override

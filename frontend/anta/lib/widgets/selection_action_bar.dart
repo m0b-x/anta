@@ -1,9 +1,17 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
+import '../constants/app_colors.dart';
+import '../constants/row_metrics.dart';
 import '../l10n/app_localizations.dart';
 
 /// Bottom action bar shown while the folder content page is in selection mode.
 /// Hosts batch operations (move, delete) for the currently selected items.
+///
+/// Drawn to the create bar it replaces — same surface, same top hairline,
+/// same height and same bottom inset — so entering selection swaps the bar's
+/// contents and moves no row above it.
 class SelectionActionBar extends StatelessWidget {
   final int count;
   final VoidCallback? onMove;
@@ -23,14 +31,24 @@ class SelectionActionBar extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
     final enabled = count > 0;
+    final media = MediaQuery.of(context);
+    final bottomInset = math.max(
+      media.viewInsets.bottom,
+      media.viewPadding.bottom,
+    );
 
     return Material(
-      color: colorScheme.surfaceContainerHigh,
-      elevation: 4,
-      child: SafeArea(
-        top: false,
-        child: SizedBox(
-          height: 56,
+      color: colorScheme.rowGroup,
+      elevation: 0,
+      child: Padding(
+        padding: EdgeInsets.only(bottom: bottomInset),
+        child: Container(
+          height: RowMetrics.bottomBarHeight,
+          foregroundDecoration: BoxDecoration(
+            border: Border(
+              top: BorderSide(color: colorScheme.rowDivider, width: 1),
+            ),
+          ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
@@ -80,12 +98,12 @@ class _Action extends StatelessWidget {
     return InkWell(
       onTap: onPressed,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: c, size: 22),
+            Icon(icon, color: c, size: RowMetrics.bottomBarGlyphSize),
             const SizedBox(height: 2),
             Text(label, style: TextStyle(color: c, fontSize: 11)),
           ],

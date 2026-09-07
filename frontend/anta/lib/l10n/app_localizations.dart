@@ -2839,7 +2839,7 @@ abstract class AppLocalizations {
   /// Delete folder confirmation message when folder contains notes
   ///
   /// In en, this message translates to:
-  /// **'Are you sure you want to delete \"{name}\"? This will also delete {count} note(s).'**
+  /// **'Are you sure you want to delete \"{name}\"? {count, plural, =1{This will also delete 1 note.} other{This will also delete {count} notes.}}'**
   String deleteFolderWithNotesConfirm(String name, int count);
 
   /// Rename button text
@@ -3487,7 +3487,7 @@ abstract class AppLocalizations {
   /// Note statistics display
   ///
   /// In en, this message translates to:
-  /// **'{count} distinct characters, {chunks} chunks'**
+  /// **'{count, plural, =1{1 distinct character} other{{count} distinct characters}}, {chunks, plural, =1{1 chunk} other{{chunks} chunks}}'**
   String noteStats(int count, int chunks);
 
   /// Label for compressed notes
@@ -3537,6 +3537,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'All notes'**
   String get allNotes;
+
+  /// Relative date on a note row and a search result, for a note edited today
+  ///
+  /// In en, this message translates to:
+  /// **'Today'**
+  String get today;
+
+  /// Relative date on a note row and a search result, for a note edited yesterday
+  ///
+  /// In en, this message translates to:
+  /// **'Yesterday'**
+  String get yesterday;
 
   /// Search results section label for notes matched by their title
   ///
@@ -3631,7 +3643,7 @@ abstract class AppLocalizations {
   /// Number of lines in note
   ///
   /// In en, this message translates to:
-  /// **'{count} lines'**
+  /// **'{count, plural, =1{1 line} other{{count} lines}}'**
   String lineCount(int count);
 
   /// Hint text shown when there are no folders
@@ -4195,7 +4207,7 @@ abstract class AppLocalizations {
   /// Snackbar after a successful import
   ///
   /// In en, this message translates to:
-  /// **'Imported {folders} folders, {notes} notes'**
+  /// **'{folders, plural, =1{Imported 1 folder} other{Imported {folders} folders}}, {notes, plural, =1{1 note} other{{notes} notes}}'**
   String importedSummary(int folders, int notes);
 
   /// Selection action bar button to export the current selection as a zip
@@ -6619,7 +6631,7 @@ abstract class AppLocalizations {
   /// Confirmation dialog body when deleting multiple selected items
   ///
   /// In en, this message translates to:
-  /// **'Delete {count} selected items? This cannot be undone.'**
+  /// **'{count, plural, =1{Delete 1 selected item? This cannot be undone.} other{Delete {count} selected items? This cannot be undone.}}'**
   String deleteSelectedConfirm(int count);
 
   /// Tooltip on the select-all action in selection mode

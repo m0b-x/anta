@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/bloc/import_export/import_export_bloc.dart';
 import 'package:anta/bloc/optimized_note/optimized_note_bloc.dart';
+import 'package:anta/bloc/optimized_note/optimized_note_event.dart';
 import 'package:anta/bloc/optimized_note/optimized_note_state.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
@@ -432,5 +433,181 @@ void main() {
 
       await teardownPage(tester);
     });
+
+    testWidgets('leaving the list unregisters its load-more listener', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+      final list = scrollPosition(tester);
+      list.jumpTo(list.maxScrollExtent);
+      await settle(tester, rounds: 8);
+
+      await openSearch(tester);
+
+      final recorder = _EventRecorder();
+      final previousObserver = Bloc.observer;
+      Bloc.observer = recorder;
+      addTearDown(() => Bloc.observer = previousObserver);
+
+      final results = scrollPosition(tester);
+      results.jumpTo(results.maxScrollExtent);
+      await flush(tester);
+
+      expect(
+        recorder.events.whereType<LoadMoreNotes>(),
+        isEmpty,
+        reason:
+            'the paging sliver left the tree when the bar became a field; a '
+            'listener left on the page controller goes on paging the list '
+            'that is no longer there, once per search round trip',
+      );
+
+      await teardownPage(tester);
+    });
   });
+
+  group('coming back to the page', () {
+    /// Pushes a bare route and pops it, so the page runs the `didPopNext`
+    /// path a note editor would return through.
+    Future<void> roundTrip(WidgetTester tester) async {
+      final navigator = tester.state<NavigatorState>(
+        find.byType(Navigator).first,
+      );
+      navigator
+          .push(
+            MaterialPageRoute<void>(
+              builder: (_) => const Scaffold(body: Text('a note')),
+            ),
+          )
+          .ignore();
+      await tester.pumpAndSettle();
+      navigator.pop();
+      await settle(tester, rounds: 20);
+    }
+
+    testWidgets('returning from a note keeps the pages already loaded', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+      final position = scrollPosition(tester);
+      position.jumpTo(position.maxScrollExtent);
+      await settle(tester, rounds: 20);
+
+      final loaded = noteBloc.state as OptimizedNoteLoaded;
+      expect(
+        loaded.paginatedNotes.notes.length,
+        greaterThan(NoteStorageService.defaultPageSize),
+        reason: 'the case needs a list that has actually paged',
+      );
+      final before = loaded.paginatedNotes.notes.length;
+
+      await roundTrip(tester);
+
+      expect(
+        (noteBloc.state as OptimizedNoteLoaded).paginatedNotes.notes.length,
+        before,
+        reason:
+            'the reload asked for page 1 alone, so All notes shrank back to '
+            'twenty rows and the offset clamped to the top with it',
+      );
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('a MediaQuery change does not re-read settings', (
+      tester,
+    ) async {
+      addTearDown(() => settings.setFolderSwipeEnabled(true));
+      addTearDown(tester.view.reset);
+      await pumpPage(tester);
+
+      Scaffold pageScaffold() =>
+          tester.widget<Scaffold>(find.byType(Scaffold).first);
+      expect(pageScaffold().drawerEnableOpenDragGesture, isTrue);
+
+      // Changed behind the page's back: only a moment that actually re-reads
+      // the preferences can pick this up.
+      await tester.runAsync(() => settings.setFolderSwipeEnabled(false));
+      tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+      await settle(tester, rounds: 10);
+
+      expect(
+        pageScaffold().drawerEnableOpenDragGesture,
+        isTrue,
+        reason:
+            'didChangeDependencies fires on every MediaQuery change — once '
+            'per keyboard animation frame — and reading two preferences plus '
+            'a page setState there is work the keyboard should not cost',
+      );
+
+      // The pop back from the settings page is the moment that does re-read.
+      await roundTrip(tester);
+      expect(pageScaffold().drawerEnableOpenDragGesture, isFalse);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('a failed path walk is retried on the next build', (
+      tester,
+    ) async {
+      final flaky = _FlakyFolderStorage(FolderRepository(database: db));
+      await tester.runAsync(flaky.initialize);
+      flaky.failuresLeft = 1;
+      GetIt.I.unregister<FolderStorageService>();
+      GetIt.I.registerSingleton<FolderStorageService>(flaky);
+      addTearDown(() {
+        GetIt.I.unregister<FolderStorageService>();
+        GetIt.I.registerSingleton<FolderStorageService>(folderService);
+      });
+
+      await pumpPage(tester);
+
+      expect(
+        flaky.calls,
+        greaterThan(1),
+        reason:
+            'the first walk threw. The ids used to be recorded as answered '
+            'before the await, so nothing ever asked again',
+      );
+      expect(
+        rows(tester).first.pathLabel,
+        isNotEmpty,
+        reason: 'the retry landed, so the path lane is filled in after all',
+      );
+
+      await teardownPage(tester);
+    });
+  });
+}
+
+/// Every event that reaches any bloc, for asserting that one never does.
+class _EventRecorder extends BlocObserver {
+  final List<Object?> events = [];
+
+  @override
+  void onEvent(Bloc<dynamic, dynamic> bloc, Object? event) {
+    events.add(event);
+    super.onEvent(bloc, event);
+  }
+}
+
+/// Fails the ancestor walk a scripted number of times before answering.
+class _FlakyFolderStorage extends FolderStorageService {
+  _FlakyFolderStorage(FolderRepository repository)
+    : super(repository: repository);
+
+  int calls = 0;
+  int failuresLeft = 0;
+
+  @override
+  Future<Map<String, List<String>>> folderPathSegments(
+    Iterable<String> folderIds,
+  ) {
+    calls++;
+    if (failuresLeft > 0) {
+      failuresLeft--;
+      return Future.error(StateError('walk failed'));
+    }
+    return super.folderPathSegments(folderIds);
+  }
 }

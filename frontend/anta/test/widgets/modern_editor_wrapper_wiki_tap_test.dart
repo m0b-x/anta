@@ -37,7 +37,7 @@ void main() {
     final origin = tester.getTopLeft(find.byType(CodeEditor));
     return origin +
         Offset(
-          AppSpacing.lg + column * fontSize + 2,
+          AppSpacing.xl + column * fontSize + 2,
           AppSpacing.lg + line * lineBox + lineBox / 2,
         );
   }

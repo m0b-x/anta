@@ -110,10 +110,23 @@ class FolderStorageService {
     return folders.map(_folderToModel).toList();
   }
 
-  Future<model.Folder?> getFolderById(String folderId) async {
+  /// The folder row for [folderId], or null if there is none.
+  ///
+  /// A soft-deleted folder is still returned by default: the row survives the
+  /// delete (that is what makes it soft), and callers that hold an id — undo,
+  /// move history, sync reconciliation — need to be able to see it. Pass
+  /// [includeDeleted] false to ask the narrower question "is this folder still
+  /// a place the user can be taken to?", which is what launch restore needs
+  /// before it rebuilds a route onto it.
+  Future<model.Folder?> getFolderById(
+    String folderId, {
+    bool includeDeleted = true,
+  }) async {
     await initialize();
     final folder = await _repository.getFolderById(folderId);
-    return folder != null ? _folderToModel(folder) : null;
+    if (folder == null) return null;
+    if (!includeDeleted && folder.isDeleted) return null;
+    return _folderToModel(folder);
   }
 
   Future<int> getSubfolderCount(String folderId) async {
@@ -226,6 +239,19 @@ class FolderStorageService {
   Future<void> deleteFolder(String folderId) async {
     await initialize();
     await _repository.deleteFolder(folderId);
+  }
+
+  /// Deletes a whole selection of folders, each with its subtree.
+  ///
+  /// One call rather than one per picked row: the cascade is already per
+  /// folder in the DAO, so what this saves is the reload cycle the page used
+  /// to pay for every item it deleted.
+  Future<void> deleteFolders(List<String> folderIds) async {
+    if (folderIds.isEmpty) return;
+    await initialize();
+    for (final folderId in folderIds) {
+      await _repository.deleteFolder(folderId);
+    }
   }
 
   Future<model.Folder?> moveFolder({

@@ -31,6 +31,8 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
     on<CreateOptimizedNote>(_onCreateNote);
     on<UpdateOptimizedNote>(_onUpdateNote);
     on<DeleteOptimizedNote>(_onDeleteNote);
+    on<DeleteOptimizedNotes>(_onDeleteNotes);
+    on<PreloadNoteContent>(_onPreloadContent);
     on<RefreshNotes>(_onRefreshNotes);
     on<ReorderNotes>(_onReorderNotes);
 
@@ -56,17 +58,33 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
     try {
       await _storageService.initialize();
 
+      // A page asking for its first page again is reloading the list it is
+      // already showing — after a pop, a settings change or a note write —
+      // not starting a new one. Serving it page 1 alone is what made a
+      // paginated list shrink to twenty rows on the way back.
+      final continuesCurrentList =
+          event.page == 1 &&
+          _currentPage > 1 &&
+          _currentFolderId == event.folderId &&
+          _currentPageSize == event.pageSize &&
+          _currentSortOrder == event.sortOrder;
+
       _currentFolderId = event.folderId;
-      _currentPage = event.page;
       _currentPageSize = event.pageSize;
       _currentSortOrder = event.sortOrder;
+      if (!continuesCurrentList) _currentPage = event.page;
 
-      final paginatedNotes = await _storageService.loadNotesPaginated(
-        folderId: event.folderId,
-        page: event.page,
-        pageSize: event.pageSize,
-        sortOrder: event.sortOrder,
-      );
+      final paginatedNotes = continuesCurrentList
+          ? await _loadLoadedPages(
+              folderId: event.folderId,
+              pages: _currentPage,
+            )
+          : await _storageService.loadNotesPaginated(
+              folderId: event.folderId,
+              page: event.page,
+              pageSize: event.pageSize,
+              sortOrder: event.sortOrder,
+            );
 
       _lastPaginatedNotes = paginatedNotes;
 
@@ -104,12 +122,15 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
       ),
     );
 
-    try {
-      _currentPage++;
+    // Counted up only once the page is actually in hand: a failed read used
+    // to leave the counter advanced, so the next load-more skipped the page
+    // that had just been missed and the list lost twenty rows for good.
+    final nextPage = _currentPage + 1;
 
+    try {
       final morePaginatedNotes = await _storageService.loadNotesPaginated(
         folderId: event.folderId ?? _currentFolderId,
-        page: _currentPage,
+        page: nextPage,
         pageSize: _currentPageSize,
         sortOrder: _currentSortOrder,
       );
@@ -123,6 +144,7 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
         notes: combinedNotes,
       );
 
+      _currentPage = nextPage;
       _lastPaginatedNotes = updatedPaginatedNotes;
 
       emit(
@@ -254,27 +276,74 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
     }
   }
 
+  Future<void> _onDeleteNotes(
+    DeleteOptimizedNotes event,
+    Emitter<OptimizedNoteState> emit,
+  ) async {
+    if (event.noteIds.isEmpty) return;
+    try {
+      await _storageService.deleteNotes(event.noteIds);
+      for (final noteId in event.noteIds) {
+        await _searchService.removeFromIndex(noteId);
+      }
+
+      add(RefreshNotes(folderId: _currentFolderId));
+    } catch (e, stackTrace) {
+      _logError('Failed to delete notes', e, stackTrace);
+      emit(
+        OptimizedNoteError(
+          'Failed to delete notes: $e',
+          folderId: _currentFolderId,
+        ),
+      );
+    }
+  }
+
+  Future<void> _onPreloadContent(
+    PreloadNoteContent event,
+    Emitter<OptimizedNoteState> emit,
+  ) async {
+    if (event.noteIds.isEmpty) return;
+    _storageService.preloadContent(event.noteIds);
+  }
+
   Future<void> _onRefreshNotes(
     RefreshNotes event,
     Emitter<OptimizedNoteState> emit,
   ) async {
-    _currentPage = 1;
-
-    final paginatedNotes = await _storageService.loadNotesPaginated(
-      folderId: event.folderId ?? _currentFolderId,
-      page: 1,
-      pageSize: _currentPageSize,
-      sortOrder: _currentSortOrder,
+    final folderId = event.folderId ?? _currentFolderId;
+    final paginatedNotes = await _loadLoadedPages(
+      folderId: folderId,
+      pages: folderId == _currentFolderId ? _currentPage : 1,
     );
 
     _lastPaginatedNotes = paginatedNotes;
 
     emit(
-      OptimizedNoteLoaded(
-        paginatedNotes: paginatedNotes,
-        folderId: event.folderId ?? _currentFolderId,
-      ),
+      OptimizedNoteLoaded(paginatedNotes: paginatedNotes, folderId: folderId),
     );
+  }
+
+  /// Re-reads every page the list already has, as one query.
+  ///
+  /// A reload used to ask for page 1 alone, so a list scrolled to its third
+  /// page came back holding twenty rows — All notes visibly shrank on the way
+  /// back from a note, and the offset clamped to the top with it. Asking for
+  /// `pageSize * pages` in one statement keeps the rows that were there and
+  /// leaves `hasMore` answering about the same boundary the next
+  /// [LoadMoreNotes] will read from.
+  Future<PaginatedNotes> _loadLoadedPages({
+    required String? folderId,
+    required int pages,
+  }) async {
+    final loaded = pages < 1 ? 1 : pages;
+    final result = await _storageService.loadNotesPaginated(
+      folderId: folderId,
+      page: 1,
+      pageSize: _currentPageSize * loaded,
+      sortOrder: _currentSortOrder,
+    );
+    return result.copyWith(currentPage: loaded);
   }
 
   Future<void> _onReorderNotes(

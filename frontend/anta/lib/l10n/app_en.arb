@@ -1989,7 +1989,7 @@
       }
     }
   },
-  "deleteFolderWithNotesConfirm": "Are you sure you want to delete \"{name}\"? This will also delete {count} note(s).",
+  "deleteFolderWithNotesConfirm": "Are you sure you want to delete \"{name}\"? {count, plural, =1{This will also delete 1 note.} other{This will also delete {count} notes.}}",
   "@deleteFolderWithNotesConfirm": {
     "description": "Delete folder confirmation message when folder contains notes",
     "placeholders": {
@@ -2451,7 +2451,7 @@
   "@largeNoteWarning": {
     "description": "Warning for large notes"
   },
-  "noteStats": "{count} distinct characters, {chunks} chunks",
+  "noteStats": "{count, plural, =1{1 distinct character} other{{count} distinct characters}}, {chunks, plural, =1{1 chunk} other{{chunks} chunks}}",
   "@noteStats": {
     "description": "Note statistics display",
     "placeholders": {
@@ -2494,6 +2494,14 @@
   "allNotes": "All notes",
   "@allNotes": {
     "description": "Root browser row and page title for the flat list of every note in every folder"
+  },
+  "today": "Today",
+  "@today": {
+    "description": "Relative date on a note row and a search result, for a note edited today"
+  },
+  "yesterday": "Yesterday",
+  "@yesterday": {
+    "description": "Relative date on a note row and a search result, for a note edited yesterday"
   },
   "titlesSection": "Titles",
   "@titlesSection": {
@@ -2560,7 +2568,7 @@
   "@virtualScrollEnabled": {
     "description": "Info about virtual scrolling"
   },
-  "lineCount": "{count} lines",
+  "lineCount": "{count, plural, =1{1 line} other{{count} lines}}",
   "@lineCount": {
     "description": "Number of lines in note",
     "placeholders": {
@@ -2964,7 +2972,7 @@
   "@importNoteOrFolder": {
     "description": "Menu entry to import a note file or folder archive"
   },
-  "importedSummary": "Imported {folders} folders, {notes} notes",
+  "importedSummary": "{folders, plural, =1{Imported 1 folder} other{Imported {folders} folders}}, {notes, plural, =1{1 note} other{{notes} notes}}",
   "@importedSummary": {
     "description": "Snackbar after a successful import",
     "placeholders": {
@@ -4762,7 +4770,7 @@
   "@deleteSelected": {
     "description": "Bottom-bar action label to delete all selected items"
   },
-  "deleteSelectedConfirm": "Delete {count} selected items? This cannot be undone.",
+  "deleteSelectedConfirm": "{count, plural, =1{Delete 1 selected item? This cannot be undone.} other{Delete {count} selected items? This cannot be undone.}}",
   "@deleteSelectedConfirm": {
     "description": "Confirmation dialog body when deleting multiple selected items",
     "placeholders": {

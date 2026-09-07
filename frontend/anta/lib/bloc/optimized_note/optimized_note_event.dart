@@ -87,6 +87,29 @@ class DeleteOptimizedNote extends OptimizedNoteEvent {
   List<Object?> get props => [noteId];
 }
 
+/// Deletes a whole selection as one unit: one transaction, one reload. The
+/// per-item event issued in a loop cost a full page reload per picked row.
+class DeleteOptimizedNotes extends OptimizedNoteEvent {
+  final List<String> noteIds;
+
+  const DeleteOptimizedNotes(this.noteIds);
+
+  @override
+  List<Object?> get props => [noteIds];
+}
+
+/// Warms the content cache for rows the user is about to open. Carries no
+/// state of its own — it exists so a page can ask through the bloc instead of
+/// reaching past it into the repository.
+class PreloadNoteContent extends OptimizedNoteEvent {
+  final List<String> noteIds;
+
+  const PreloadNoteContent(this.noteIds);
+
+  @override
+  List<Object?> get props => [noteIds];
+}
+
 class RefreshNotes extends OptimizedNoteEvent {
   final String? folderId;
 

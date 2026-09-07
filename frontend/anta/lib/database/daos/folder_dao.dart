@@ -9,6 +9,13 @@ part 'folder_dao.g.dart';
 class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   FolderDao(super.db);
 
+  /// How many generations a recursive folder walk may descend before it
+  /// stops. Real trees are a handful deep; the bound exists so a
+  /// `parent_id` cycle — unreachable through the UI, reachable through a
+  /// merge or a hand-edited database — terminates the CTE instead of
+  /// spinning it forever.
+  static const int maxFolderDepth = 64;
+
   Future<List<Folder>> getAllFolders({bool includeDeleted = false}) {
     final query = select(folders);
     if (!includeDeleted) {
@@ -390,13 +397,13 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     // its (already-deleted) children.
     final rows = await db
         .customSelect(
-          'WITH RECURSIVE d(id) AS ('
-          '  SELECT id FROM folders '
+          'WITH RECURSIVE d(id, depth) AS ('
+          '  SELECT id, 0 FROM folders '
           '  WHERE parent_id = ?1 AND is_deleted = 0 '
           '  UNION ALL '
-          '  SELECT f.id FROM folders f '
+          '  SELECT f.id, d.depth + 1 FROM folders f '
           '  JOIN d ON f.parent_id = d.id '
-          '  WHERE f.is_deleted = 0'
+          '  WHERE f.is_deleted = 0 AND d.depth < $maxFolderDepth'
           ') SELECT id FROM d',
           variables: [Variable<String>(folderId)],
           readsFrom: {folders},
@@ -533,13 +540,13 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     final placeholders = List.filled(folderIds.length, '?').join(',');
     final rows = await db
         .customSelect(
-          'WITH RECURSIVE tree(root, id) AS ('
-          '  SELECT id, id FROM folders '
+          'WITH RECURSIVE tree(root, id, depth) AS ('
+          '  SELECT id, id, 0 FROM folders '
           '  WHERE id IN ($placeholders) AND is_deleted = 0 '
           '  UNION ALL '
-          '  SELECT t.root, f.id FROM folders f '
+          '  SELECT t.root, f.id, t.depth + 1 FROM folders f '
           '  JOIN tree t ON f.parent_id = t.id '
-          '  WHERE f.is_deleted = 0'
+          '  WHERE f.is_deleted = 0 AND t.depth < $maxFolderDepth'
           ') '
           'SELECT t.root AS root, COUNT(n.id) AS note_count '
           'FROM tree t '

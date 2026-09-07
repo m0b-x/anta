@@ -32,6 +32,13 @@ abstract final class DrawerHostRegistry {
   /// Opens the drawer on the innermost mounted host, if there is one. Hosts
   /// whose state has gone away are dropped on the way past rather than in a
   /// separate sweep — nothing else would ever notice them.
+  ///
+  /// Two conditions stop the walk without opening anything, and they are
+  /// separate on purpose. A host whose `Scaffold` currently has **no drawer**
+  /// is in selection or search mode, where the drawer is deliberately off:
+  /// falling through to the host beneath it would raise a drawer on a page
+  /// that is not on screen. A host whose drawer is **already open** needs
+  /// nothing done. Both are no-ops; neither is a reason to keep looking.
   static void openTopDrawer() {
     while (_hosts.isNotEmpty) {
       final host = _hosts.last;
@@ -40,7 +47,8 @@ abstract final class DrawerHostRegistry {
         _hosts.removeLast();
         continue;
       }
-      if (!state.hasDrawer || state.isDrawerOpen) return;
+      if (!state.hasDrawer) return;
+      if (state.isDrawerOpen) return;
       state.openDrawer();
       return;
     }

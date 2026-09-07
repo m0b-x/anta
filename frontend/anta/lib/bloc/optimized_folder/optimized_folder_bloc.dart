@@ -23,6 +23,7 @@ class OptimizedFolderBloc
     on<CreateOptimizedFolder>(_onCreateFolder);
     on<UpdateOptimizedFolder>(_onUpdateFolder);
     on<DeleteOptimizedFolder>(_onDeleteFolder);
+    on<DeleteOptimizedFolders>(_onDeleteFolders);
     on<RefreshFolders>(_onRefreshFolders);
     on<ReorderFolders>(_onReorderFolders);
 
@@ -194,6 +195,26 @@ class OptimizedFolderBloc
       emit(
         OptimizedFolderError(
           'Failed to delete folder: $e',
+          parentId: event.parentId,
+        ),
+      );
+    }
+  }
+
+  Future<void> _onDeleteFolders(
+    DeleteOptimizedFolders event,
+    Emitter<OptimizedFolderState> emit,
+  ) async {
+    if (event.folderIds.isEmpty) return;
+    try {
+      await _storageService.deleteFolders(event.folderIds);
+
+      add(RefreshFolders(parentId: event.parentId));
+    } catch (e, stackTrace) {
+      _logError('Failed to delete folders', e, stackTrace);
+      emit(
+        OptimizedFolderError(
+          'Failed to delete folders: $e',
           parentId: event.parentId,
         ),
       );

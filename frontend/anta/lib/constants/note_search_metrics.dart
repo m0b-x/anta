@@ -1,25 +1,35 @@
 /// Layout metrics for the in-note find/replace bar and its match list sheet.
 class NoteSearchMetrics {
-  static const double fieldHeight = 48.0;
-  static const double fieldRadius = 24.0;
-  static const double touchTarget = 48.0;
-  static const double iconButtonWidthCompact = 44.0;
+  /// The bar itself: one flat 48 dp strip, the height every app bar is.
+  static const double barHeight = 48.0;
+  static const double barBorderWidth = 1.0;
+  static const double queryFontSize = 15.0;
+  static const double queryStartInset = 16.0;
 
-  // Match counter: a tinted cap on the field's trailing edge — same height and
-  // radius as the field, flush to its right, so it closes the pill off rather
-  // than floating inside it.
-  static const double counterChipHeight = fieldHeight;
-  static const double counterChipRadius = fieldRadius;
-  static const double counterMinWidth = 52.0;
-  static const double counterMinWidthCompact = 44.0;
+  /// The trailing controls: 20 px glyphs in 40 x 44 targets.
+  static const double iconSize = 20.0;
+  static const double iconButtonWidth = 40.0;
+  static const double touchTarget = 44.0;
+  static const double iconButtonWidthCompact = 36.0;
+
+  // Match counter: a small tinted pill at the end of the query, sized by
+  // its digits — it reads as a count, not as a control-sized cap.
+  static const double counterChipRadius = 10.0;
+  static const double counterFontSize = 12.0;
+  static const double counterPaddingH = 8.0;
+  static const double counterPaddingV = 1.0;
   static const double counterCaretSize = 12.0;
   static const int maxDisplayedMatches = 999;
 
-  // In-field clear button. Tune all three values here to resize the X.
+  /// The replace row's own field keeps a pill, since it is a second input
+  /// under the bar rather than part of it.
+  static const double fieldHeight = 40.0;
+  static const double fieldRadius = 20.0;
+
+  // In-field clear button on the replace row.
   static const double clearButtonWidth = 36.0;
   static const double clearButtonHeight = 36.0;
   static const double clearButtonIconSize = 18.0;
-  // Narrow variant for small phones with the replace row open.
   static const double clearButtonWidthCompact = 32.0;
   static const double clearButtonHeightCompact = 32.0;
 

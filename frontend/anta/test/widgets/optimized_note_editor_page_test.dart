@@ -41,6 +41,7 @@ import 'package:anta/services/settings_service.dart';
 import 'package:anta/widgets/leading_nav_pair.dart';
 import 'package:anta/widgets/markdown_bar.dart';
 import 'package:anta/widgets/modern_editor_wrapper.dart';
+import 'package:anta/widgets/note_search_bar.dart';
 import 'package:anta/widgets/unified_app_bars.dart';
 
 /// The first page-level test in the app.
@@ -1731,10 +1732,7 @@ void main() {
       navigator.push(
         MaterialPageRoute<void>(
           builder: (_) => const Scaffold(body: Text('the folder below')),
-          settings: RouteSettings(
-            name: folder.kind.name,
-            arguments: folder,
-          ),
+          settings: RouteSettings(name: folder.kind.name, arguments: folder),
         ),
       );
       await tester.pumpAndSettle();
@@ -1775,9 +1773,7 @@ void main() {
     testWidgets('the drawer half opens the editor drawer', (tester) async {
       await pushEditorOverFolder(tester);
 
-      final scaffold = tester.state<ScaffoldState>(
-        find.byType(Scaffold).last,
-      );
+      final scaffold = tester.state<ScaffoldState>(find.byType(Scaffold).last);
       expect(scaffold.isDrawerOpen, isFalse);
 
       await tester.tap(find.byIcon(Icons.menu_rounded));
@@ -1871,6 +1867,75 @@ void main() {
       await tester.pump(const Duration(seconds: 8));
       await settle(tester);
       expect(noteBloc.updates, isEmpty);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('two fast Back taps pop the editor once', (tester) async {
+      // D-2: the handler awaits the exit save, and a second Back arriving
+      // inside that await used to run the whole exit again — taking the
+      // folder page underneath with it.
+      await pushEditorOverFolder(tester);
+
+      await tester.tap(find.byType(BackButtonIcon));
+      await tester.pump(const Duration(milliseconds: 1));
+      await tester.tap(find.byType(BackButtonIcon), warnIfMissed: false);
+      await tester.pumpAndSettle();
+      await settleUntil(tester, () => pages().evaluate().isEmpty);
+      await tester.pumpAndSettle();
+
+      expect(pages(), findsNothing);
+      expect(find.text('the folder below'), findsOneWidget);
+      expect(find.text('root'), findsNothing);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('Back with the drawer open closes the drawer and leaves the '
+        'page able to exit', (tester) async {
+      // A drawer adds a local-history entry to the route, but the page's
+      // `PopScope(canPop: false)` still wins `popDisposition`, so the Back
+      // reaches the exit handler; its pop must close the drawer and must not
+      // leave the exit latch set on a page that is still showing.
+      await pushEditorOverFolder(tester);
+
+      final scaffold = tester.state<ScaffoldState>(find.byType(Scaffold).last);
+      await tester.tap(find.byIcon(Icons.menu_rounded));
+      await tester.pumpAndSettle();
+      expect(scaffold.isDrawerOpen, isTrue);
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(scaffold.isDrawerOpen, isFalse);
+      expect(pages(), findsOneWidget);
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      await settleUntil(tester, () => pages().evaluate().isEmpty);
+      await tester.pumpAndSettle();
+
+      expect(pages(), findsNothing);
+      expect(find.text('the folder below'), findsOneWidget);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('the app bar toggle leaves search through the bar itself', (
+      tester,
+    ) async {
+      // E23: the toggle used to close the controller directly, skipping the
+      // bar's own exit — two ways out of one surface.
+      await pushEditorOverFolder(tester);
+
+      await tester.tap(find.byIcon(Icons.search));
+      await tester.pumpAndSettle();
+      expect(find.byType(NoteSearchBar), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.search_off));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(NoteSearchBar), findsNothing);
+      expect(find.byIcon(Icons.search), findsOneWidget);
 
       await teardownPage(tester);
     });

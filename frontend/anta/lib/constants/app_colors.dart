@@ -11,37 +11,13 @@ class AppColors {
     return Theme.of(context).colorScheme.primary;
   }
 
-  /// Get note icon color based on current theme
-  static Color noteIcon(BuildContext context) {
-    return Theme.of(context).brightness == Brightness.dark
-        ? Colors.blue.shade700
-        : Colors.blue;
-  }
-
   /// Check if current theme is dark mode
   static bool isDarkMode(BuildContext context) {
     return Theme.of(context).brightness == Brightness.dark;
   }
 
-  /// Get adaptive foreground color for FAB
-  static Color fabForeground(BuildContext context) {
-    return Theme.of(context).brightness == Brightness.dark
-        ? Colors.white
-        : Colors.black;
-  }
-
-  /// Get adaptive background color for FAB
-  static Color fabBackground(BuildContext context) {
-    return Theme.of(context).brightness == Brightness.dark
-        ? Colors.grey[800]!
-        : Colors.white;
-  }
-
-  // Static colors for common UI elements
+  /// The launch-failure screen, which paints before a [Theme] exists.
   static const Color deleteAction = Colors.red;
-  static const Color dragHandle = Colors.grey;
-  static const Color noteIconStatic = Colors.blue;
-  static const Color folderIconStatic = Colors.amber;
 }
 
 /// The browser's surface layering, named once so the two themes cannot drift

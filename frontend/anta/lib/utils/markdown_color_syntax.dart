@@ -25,6 +25,7 @@ library;
 
 import 'package:flutter/painting.dart';
 
+import '../constants/app_theme.dart';
 import '../constants/markdown_constants.dart';
 
 /// Colour roles for one palette entry, pre-resolved for both themes so
@@ -205,12 +206,12 @@ class MarkdownColorPalette {
   // ─────────────────────────────────────────────────────────────────
 
   /// Reference backgrounds the custom-colour contrast check resolves
-  /// against. Fixed rather than theme-derived so a palette can be built
-  /// in the service layer without a `BuildContext`, and so the same
-  /// palette instance stays a valid render-cache key across both
-  /// brightnesses.
-  static const Color _lightSurface = Color(0xFFFFFFFF);
-  static const Color _darkSurface = Color(0xFF121212);
+  /// against: the app's own two declared surfaces. Read off [AppTheme]
+  /// rather than a `BuildContext` so a palette can be built in the
+  /// service layer, and so the same palette instance stays a valid
+  /// render-cache key across both brightnesses.
+  static final Color _lightSurface = AppTheme.lightScheme.surface;
+  static final Color _darkSurface = AppTheme.darkScheme.surface;
 
   /// Minimum contrast ratio a colour must reach against the surface.
   /// 3.0 (WCAG AA for large text) rather than 4.5 — accent text should

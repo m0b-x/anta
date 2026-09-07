@@ -83,6 +83,8 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
   static const String _sectionUtility = 'utility';
   static const String _sectionShortcuts = 'shortcuts';
 
+  bool _swipeEnabled = true;
+
   @override
   void initState() {
     super.initState();
@@ -290,8 +292,10 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
     final vocabularyEnabled = await settings.getVocabularySuggestionsEnabled();
     final vocabularyTrigger = await settings.getVocabularyTriggerChar();
     final collapsedSections = await settings.getCollapsedMarkdownSections();
+    final swipe = await settings.getFolderSwipeEnabled();
     if (mounted) {
       setState(() {
+        _swipeEnabled = swipe;
         _toolbarRatio = ratio;
         _toolbarSplitEnabled = splitEnabled;
         _utilityConfigs = utilityConfigs;
@@ -2215,8 +2219,10 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
       },
       child: LoadingScaffold(
         drawer: const AppDrawer(),
+        drawerEnableOpenDragGesture: _swipeEnabled,
         appBar: SettingsAppBar(
           title: AppLocalizations.of(context)!.markdownShortcuts,
+          popsToDrawer: true,
           actions: [
             IconButton(
               icon: Icon(

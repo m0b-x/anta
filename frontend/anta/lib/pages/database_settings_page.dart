@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:share_plus/share_plus.dart';
 import '../database/database.dart';
 import '../services/database_manager.dart';
+import '../services/settings_service.dart';
 import '../l10n/app_localizations.dart';
 import '../utils/custom_snackbar.dart';
 import '../widgets/app_dialogs.dart';
@@ -31,10 +32,19 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
   String _activeDatabaseName = '';
   List<DatabaseInfo> _availableDatabases = [];
 
+  bool _swipeEnabled = true;
+
   @override
   void initState() {
     super.initState();
     _loadDatabaseInfo();
+    _loadSwipeSetting();
+  }
+
+  Future<void> _loadSwipeSetting() async {
+    final settings = await SettingsService.getInstance();
+    final swipe = await settings.getFolderSwipeEnabled();
+    if (mounted) setState(() => _swipeEnabled = swipe);
   }
 
   Future<void> _loadDatabaseInfo() async {
@@ -101,8 +111,10 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
 
     return Scaffold(
       drawer: const AppDrawer(),
+      drawerEnableOpenDragGesture: _swipeEnabled,
       appBar: SettingsAppBar(
         title: AppLocalizations.of(context)!.databaseSettings,
+        popsToDrawer: true,
       ),
       body: SafeArea(
         top: false,

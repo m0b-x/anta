@@ -16,6 +16,7 @@ import '../bloc/optimized_note/optimized_note_event.dart';
 import '../bloc/optimized_note/optimized_note_state.dart';
 import '../bloc/search/search_bloc.dart';
 import '../constants/app_colors.dart';
+import '../constants/row_metrics.dart';
 import '../constants/settings_keys.dart';
 import '../controllers/in_place_search_controller.dart';
 import '../controllers/selection_controller.dart';
@@ -84,51 +85,66 @@ enum _BarMode { normal, selection, search }
 /// in the same shell as the rows below it so the whole page reads as one
 /// kind of list.
 ///
-/// The count rides the trailing slot rather than a second line. A trailing
-/// label that arrives late changes the row's width and nothing else, so the
-/// rows below it never move — which is the same reason [FolderRow] reserves
-/// its subtitle instead of adding one when the count lands.
+/// The count rides the trailing slot rather than a second line, in the
+/// reserved-width box every folder row uses: a count that arrives late
+/// changes nothing about the row it lands in, so the rows below it never
+/// move.
 class _SmartRow extends StatelessWidget {
   const _SmartRow({
     required this.icon,
     required this.label,
     required this.position,
     required this.onTap,
-    this.trailing,
+    this.count,
   });
 
   final IconData icon;
   final String label;
-  final String? trailing;
+  final int? count;
   final RowGroupPosition position;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final trailingLabel = trailing;
+    final colorScheme = Theme.of(context).colorScheme;
 
     return ContentRowShell(
       position: position,
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-        leading: Icon(icon, color: colorScheme.primary),
-        title: Text(
-          label,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
-        ),
-        trailing: trailingLabel == null
-            ? null
-            : Text(
-                trailingLabel,
-                style: theme.textTheme.labelMedium?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
-              ),
+      dividerIndent: RowMetrics.dividerIndentWithGlyph,
+      child: InkWell(
         onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            minHeight: RowMetrics.singleLineMinHeight,
+          ),
+          child: Padding(
+            padding: RowMetrics.singleLinePadding,
+            child: Row(
+              children: [
+                Icon(
+                  icon,
+                  size: RowMetrics.glyphSize,
+                  color: colorScheme.primary,
+                ),
+                const SizedBox(width: RowMetrics.gap),
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: RowMetrics.titleFontSize,
+                      fontWeight: FontWeight.w400,
+                      color: colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: RowMetrics.gap),
+                RowCountChevron(count: count),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -177,7 +193,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
 
   /// Both of the bars that can replace the tall sliver one are shorter than
   /// it, so keeping the scroll offset across a swap would carry every row up
-  /// by the difference — a 116 px jump on every long press. These remember
+  /// by the difference — a 68 px jump on every long press. These remember
   /// where the folder list was so the swap can be paid for in the same frame:
   /// [_barMode] against [_lastBarMode] detects the edge,
   /// [_offsetBeforeSwap] is what to return to, and [_offsetOnEnterSwap] is
@@ -187,8 +203,13 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   double _offsetBeforeSwap = 0;
   double _offsetOnEnterSwap = 0;
 
-  static const double _barSwapShift =
-      FolderSliverAppBar.expandedHeight - kToolbarHeight;
+  /// What the expanded bar is worth over the bar that replaces it. Measured
+  /// against [SelectionAppBar]'s own height rather than the framework's
+  /// default toolbar, and against this page's own expanded height, which the
+  /// root and a nested folder do not share.
+  double get _barSwapShift =>
+      FolderSliverAppBar.expandedHeightFor(widget.folderId == null) -
+      SelectionAppBar.height;
 
   /// Search runs on a bloc of this page's own, so results never touch the
   /// folder list underneath and query, scope and scroll all survive pushing
@@ -235,6 +256,9 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   /// that shows the same folders does not re-query.
   List<String> _countedFolderIds = const [];
 
+  /// Guards against a slow per-folder count landing on top of a newer one.
+  int _folderCountsGeneration = 0;
+
   /// Every live note in the database, for the root's "All notes" row. Null
   /// until the first read answers, which the row draws as no trailing label
   /// rather than as a zero — a count that corrected itself would be worse
@@ -279,7 +303,6 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     return [for (final item in local) byId[idOf(item)] as T];
   }
 
-  NoteRepository get _noteRepository => GetIt.I<NoteRepository>();
   FolderStorageService get _folderStorageService =>
       GetIt.I<FolderStorageService>();
   MixedReorderService get _mixedReorderService =>
@@ -362,12 +385,21 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
       return;
     }
     if (!force && _sameIds(folderIds, _countedFolderIds)) return;
+    // The id check alone cannot order two reads of the *same* ids, which is
+    // exactly what a forced refresh issues: a bulk delete answers this twice
+    // and the two can land in either order. Same guard as
+    // [_loadAllNotesCount].
+    final generation = ++_folderCountsGeneration;
     _countedFolderIds = List<String>.unmodifiable(folderIds);
     try {
       final counts = await _folderStorageService.getNoteCountsWithDescendants(
         folderIds,
       );
-      if (!mounted || !_sameIds(folderIds, _countedFolderIds)) return;
+      if (!mounted ||
+          generation != _folderCountsGeneration ||
+          !_sameIds(folderIds, _countedFolderIds)) {
+        return;
+      }
       setState(() {
         _folderNoteCounts = {for (final id in folderIds) id: counts[id] ?? 0};
       });
@@ -395,11 +427,14 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   /// exists to remove.
   ///
   /// Selection keeps the same rows under a shorter bar, so entering shifts by
-  /// the height the bar gave back and leaving restores the offset entered at
-  /// *plus* whatever was scrolled meanwhile — which is what makes a partly
-  /// expanded bar come back exactly as it was. Search replaces the rows
-  /// outright, so it opens its results at the top and gives the folder list
-  /// back the offset it had, untouched by any scrolling done through results.
+  /// the height the bar gave back and leaving is its exact inverse. Entering
+  /// near the top is the case worth naming: the shift clamps at zero there,
+  /// and adding the clamped-away pixels back on the way out would drop the
+  /// list below where it started, so a selection that never scrolled returns
+  /// to the offset it entered from and one that did pays the full shift back.
+  /// Search replaces the rows outright, so it opens its results at the top and
+  /// gives the folder list back the offset it had, untouched by any scrolling
+  /// done through results.
   ///
   /// The result is deliberately not clamped against `maxScrollExtent`: the
   /// new extent is not known until the swap has been laid out, and the
@@ -429,7 +464,9 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
       return;
     }
     final restored = previous == _BarMode.selection
-        ? _offsetBeforeSwap + (offset - _offsetOnEnterSwap)
+        ? (offset > _offsetOnEnterSwap
+              ? offset + _barSwapShift
+              : _offsetBeforeSwap)
         : _offsetBeforeSwap;
     _scrollController.jumpTo(math.max(0, restored));
   }
@@ -512,16 +549,25 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     );
   }
 
+  /// Reads the two page-level switches, and repaints only if one moved.
+  ///
+  /// Both callers are moments the values can actually have changed — first
+  /// build and the pop back from the settings page that owns them. It used to
+  /// run from [didChangeDependencies] as well, which fires on every
+  /// MediaQuery change: two preference reads and a page `setState` per
+  /// keyboard animation frame.
   Future<void> _loadSettings() async {
     final settings = await SettingsService.getInstance();
     final folderSwipe = await settings.getFolderSwipeEnabled();
     final showPreview = await settings.getShowNotePreview();
-    if (mounted) {
-      setState(() {
-        _folderSwipeEnabled = folderSwipe;
-        _showNotePreview = showPreview;
-      });
+    if (!mounted) return;
+    if (folderSwipe == _folderSwipeEnabled && showPreview == _showNotePreview) {
+      return;
     }
+    setState(() {
+      _folderSwipeEnabled = folderSwipe;
+      _showNotePreview = showPreview;
+    });
   }
 
   @override
@@ -531,7 +577,6 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     if (route is PageRoute) {
       AppNavigator.routeObserver.subscribe(this, route);
     }
-    _loadSettings();
   }
 
   /// The note-preview switch lives in the settings page the drawer opens over
@@ -665,12 +710,10 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   }
 
   void _selectAll() {
-    for (final f in _visibleFolders) {
-      _selection.add(_refForFolder(f));
-    }
-    for (final n in _visibleNotes) {
-      _selection.add(_refForNote(n));
-    }
+    _selection.addAll([
+      for (final f in _visibleFolders) _refForFolder(f),
+      for (final n in _visibleNotes) _refForNote(n),
+    ]);
   }
 
   /// Called when SliverReorderableList starts a drag. We only flip the multi
@@ -822,16 +865,22 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     );
     if (!confirmed || !mounted) return;
 
+    final folderIds = <String>[];
+    final noteIds = <String>[];
     for (final ref in items) {
-      if (ref.kind == MovableItemKind.folder) {
-        if (!mounted) return;
-        context.read<OptimizedFolderBloc>().add(
-          DeleteOptimizedFolder(folderId: ref.id, parentId: widget.folderId),
-        );
-      } else {
-        if (!mounted) return;
-        context.read<OptimizedNoteBloc>().add(DeleteOptimizedNote(ref.id));
-      }
+      (ref.kind == MovableItemKind.folder ? folderIds : noteIds).add(ref.id);
+    }
+
+    if (folderIds.isNotEmpty) {
+      context.read<OptimizedFolderBloc>().add(
+        DeleteOptimizedFolders(
+          folderIds: folderIds,
+          parentId: widget.folderId,
+        ),
+      );
+    }
+    if (noteIds.isNotEmpty) {
+      context.read<OptimizedNoteBloc>().add(DeleteOptimizedNotes(noteIds));
     }
     _selection.clear();
   }
@@ -859,7 +908,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   }
 
   void _preloadNoteContent(List<String> noteIds) {
-    _noteRepository.preloadContent(noteIds);
+    context.read<OptimizedNoteBloc>().add(PreloadNoteContent(noteIds));
   }
 
   void _loadData() {
@@ -909,7 +958,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
         edgeOffset: isSelecting || _searching
             ? 0
             : MediaQuery.paddingOf(context).top +
-                  FolderSliverAppBar.expandedHeight,
+                  FolderSliverAppBar.expandedHeightFor(isRootPage),
         notificationPredicate: (notification) =>
             !_searching && defaultScrollNotificationPredicate(notification),
         onRefresh: () async {
@@ -1056,10 +1105,9 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   Widget _buildBottomBar(BuildContext context, {required bool isRootPage}) {
     final l10n = AppLocalizations.of(context)!;
     final colorScheme = Theme.of(context).colorScheme;
-    final media = MediaQuery.of(context);
     final bottomInset = math.max(
-      media.viewInsets.bottom,
-      media.viewPadding.bottom,
+      MediaQuery.viewInsetsOf(context).bottom,
+      MediaQuery.viewPaddingOf(context).bottom,
     );
 
     return Material(
@@ -1067,7 +1115,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
       child: Padding(
         padding: EdgeInsets.only(bottom: bottomInset),
         child: Container(
-          height: kToolbarHeight,
+          height: RowMetrics.bottomBarHeight,
           foregroundDecoration: BoxDecoration(
             border: Border(
               top: BorderSide(color: colorScheme.rowDivider, width: 1),
@@ -1075,21 +1123,21 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
           ),
           child: Row(
             children: [
-              IconButton(
-                icon: const Icon(Icons.create_new_folder_outlined),
+              _barButton(
+                icon: Icons.create_new_folder_outlined,
                 tooltip: l10n.newFolder,
                 onPressed: _showCreateFolderDialog,
               ),
               Expanded(child: Center(child: _buildCountLabel(context))),
               if (isRootPage)
-                IconButton(
-                  icon: const Icon(Icons.file_download_outlined),
+                _barButton(
+                  icon: Icons.file_download_outlined,
                   tooltip: l10n.importNoteOrFolder,
                   onPressed: _pickAndImport,
                 )
               else
-                IconButton(
-                  icon: const Icon(Icons.note_add_outlined),
+                _barButton(
+                  icon: Icons.note_add_outlined,
                   tooltip: l10n.newNote,
                   onPressed: _createNewNote,
                 ),
@@ -1097,6 +1145,28 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
           ),
         ),
       ),
+    );
+  }
+
+  /// One of the create bar's two buttons: a 48 dp target around a 22 dp
+  /// glyph in the page's one accent, sized explicitly because the default
+  /// [IconButton] target is taller than the 52 dp bar it sits in.
+  Widget _barButton({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onPressed,
+  }) {
+    return IconButton(
+      icon: Icon(icon),
+      iconSize: RowMetrics.bottomBarGlyphSize,
+      color: Theme.of(context).colorScheme.primary,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints.tightFor(
+        width: RowMetrics.bottomBarButtonSize,
+        height: RowMetrics.bottomBarButtonSize,
+      ),
+      tooltip: tooltip,
+      onPressed: onPressed,
     );
   }
 
@@ -1123,7 +1193,8 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
             if (label.isEmpty) return const SizedBox.shrink();
             return Text(
               label,
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              style: TextStyle(
+                fontSize: RowMetrics.bottomBarCountFontSize,
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
             );
@@ -1633,7 +1704,8 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   /// drawn.
   List<Widget> _buildContentSlivers({required bool isSelecting}) {
     return [
-      if (widget.folderId == null && !isSelecting) _buildSmartRowsSliver(),
+      if (widget.folderId == null)
+        _buildSmartRowsSliver(isSelecting: isSelecting),
       _buildMixedSliver(isSelecting: isSelecting),
     ];
   }
@@ -1643,29 +1715,39 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   ///
   /// They are their own group above the folders, not entries in the list: a
   /// smart row has no position, cannot be selected, renamed or dragged, and
-  /// giving it a slot in the reorderable sliver would offer all four. Which
-  /// is also why they are dropped in selection mode rather than disabled.
-  Widget _buildSmartRowsSliver() {
+  /// giving it a slot in the reorderable sliver would offer all four.
+  ///
+  /// Selection mode disables them where it used to drop them. Removing two
+  /// rows and their label from above the list is a height the bar swap does
+  /// not pay for, so the folders underneath jumped; dimmed and unreachable
+  /// they hold their space and stay outside the reorderable sliver, which is
+  /// what kept them unselectable in the first place.
+  Widget _buildSmartRowsSliver({required bool isSelecting}) {
     final l10n = AppLocalizations.of(context)!;
     final count = _allNotesCount;
+    final rows = Column(
+      children: [
+        _SmartRow(
+          icon: Icons.description_outlined,
+          label: l10n.allNotes,
+          count: count,
+          position: RowGroupPosition.first,
+          onTap: () => AppNavigator.toAllNotes(context),
+        ),
+        _SmartRow(
+          icon: Icons.schedule_outlined,
+          label: l10n.recent,
+          position: RowGroupPosition.last,
+          onTap: () => AppNavigator.toRecentNotes(context),
+        ),
+      ],
+    );
     return SliverToBoxAdapter(
-      child: Column(
-        children: [
-          _SmartRow(
-            icon: Icons.notes_rounded,
-            label: l10n.allNotes,
-            trailing: count == null ? null : l10n.noteCountLabel(count),
-            position: RowGroupPosition.first,
-            onTap: () => AppNavigator.toAllNotes(context),
-          ),
-          _SmartRow(
-            icon: Icons.history_rounded,
-            label: l10n.recent,
-            position: RowGroupPosition.last,
-            onTap: () => AppNavigator.toRecentNotes(context),
-          ),
-        ],
-      ),
+      child: isSelecting
+          ? ExcludeSemantics(
+              child: IgnorePointer(child: Opacity(opacity: 0.38, child: rows)),
+            )
+          : rows,
     );
   }
 
@@ -1706,7 +1788,9 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
                   child: Center(
                     child: Text(
                       AppLocalizations.of(context)!.error(folderState.message),
-                      style: const TextStyle(color: Colors.red),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
                     ),
                   ),
                 ),
@@ -1805,10 +1889,11 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   /// then that group's rows carrying the corner and divider treatment that
   /// makes a run of them read as one card.
   ///
-  /// Labels appear only when both groups are present. A folder full of notes
-  /// does not need to be told they are notes — except at the root, where the
-  /// smart rows sit above and the label is what separates them from the
-  /// folders rather than the folders from the notes.
+  /// Labels appear when both groups are present. A folder full of notes does
+  /// not need to be told they are notes — except at the root, where the smart
+  /// rows sit above and the label is what separates them from the folders
+  /// rather than the folders from the notes, which is why the root always
+  /// labels, selection mode included: the smart rows stay drawn there.
   List<_RowEntry> _buildEntries(
     List<ContentItem> items,
     AppLocalizations l10n,
@@ -1822,8 +1907,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
         if (item is NoteItem) item,
     ];
     final labelled =
-        (folders.isNotEmpty && notes.isNotEmpty) ||
-        (widget.folderId == null && !_selection.isActive);
+        (folders.isNotEmpty && notes.isNotEmpty) || widget.folderId == null;
     final entries = <_RowEntry>[];
 
     void addGroup(List<ContentItem> group, String label) {
@@ -2051,6 +2135,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
 
   Widget _buildEmptyStateSection() {
     return BlocBuilder<OptimizedFolderBloc, OptimizedFolderState>(
+      buildWhen: FolderBlocFilters.forParentFolder(widget.folderId),
       builder: (context, folderState) {
         return BlocBuilder<OptimizedNoteBloc, OptimizedNoteState>(
           buildWhen: NoteBlocFilters.forEmptyState(widget.folderId),

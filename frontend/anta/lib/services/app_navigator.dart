@@ -196,6 +196,7 @@ abstract final class AppNavigator {
     });
 
     if (index < 0) {
+      if (title.isEmpty) return _replaceWithFolder(context, folderId);
       return pushReplacement<void, void>(
         context,
         OptimizedFolderContentPage(folderId: folderId, title: title),
@@ -204,6 +205,32 @@ abstract final class AppNavigator {
     }
     _collapseOnto(navigator, routes, index);
     return Future<void>.value();
+  }
+
+  /// The fallback replacement for a caller that has no title to give — the
+  /// editor's "Open folder" runs before the folder name has loaded, and a
+  /// blank one would be *stamped*, persisting a stack entry that restores a
+  /// folder page captioned with nothing.
+  ///
+  /// The name is read first and the route stamped with it. A folder that no
+  /// longer resolves is opened unstamped instead: recording then truncates
+  /// above it, which is the honest answer for a place restore cannot rebuild.
+  static Future<void> _replaceWithFolder(
+    BuildContext context,
+    String folderId,
+  ) async {
+    final folder = await GetIt.I<FolderStorageService>().getFolderById(
+      folderId,
+    );
+    if (!context.mounted) return;
+    final name = folder?.name;
+    await pushReplacement<void, void>(
+      context,
+      OptimizedFolderContentPage(folderId: folderId, title: name ?? ''),
+      destination: name == null
+          ? null
+          : NavDestination.folder(folderId: folderId, title: name),
+    );
   }
 
   /// Returns to an entry of the folder breadcrumb, which the browser's
@@ -504,6 +531,8 @@ abstract final class AppNavigator {
   }
 
   static Future<void> _replayLastLocation() async {
+    final before = _navigationFingerprint();
+
     final settings = await SettingsService.getInstance();
     final mode = await settings.getRestoreLocationMode();
     if (mode == RestoreLocationMode.off) return;
@@ -513,6 +542,14 @@ abstract final class AppNavigator {
 
     final resolved = await _resolveChain(planned);
     if (resolved.isEmpty) return;
+
+    // Phase 1 is several database round-trips long, and the user can navigate
+    // during it — a tap on a folder row lands before the replay does. Pushing
+    // the remembered chain on top of that would bury the page they just asked
+    // for, so a stack that moved cancels the replay outright. Recording is
+    // still unsealed by the caller's `finally`, so what they navigated to is
+    // what gets remembered.
+    if (_navigationFingerprint() != before) return;
 
     // Only the bottom-most drawer-owned page needs the continuation: popping
     // a page above it lands on another restored page, and the Navigator
@@ -543,6 +580,19 @@ abstract final class AppNavigator {
     }
   }
 
+  /// How far the root navigator has moved, as a value that changes whenever a
+  /// route is pushed, popped or replaced above it.
+  ///
+  /// A `NavigatorState` exposes no history, so this reads the live page routes
+  /// [routeObserver] kept: their count plus the identity of the topmost one,
+  /// which together survive a push-then-pop that would leave the count alone.
+  static (int, Route<dynamic>?) _navigationFingerprint() {
+    final navigator = navigatorKey.currentState;
+    if (navigator == null) return (0, null);
+    final routes = _livePageRoutes(navigator);
+    return (routes.length, routes.isEmpty ? null : routes.last);
+  }
+
   /// Resolves as long a prefix of [planned] as still exists, stopping at the
   /// first entry whose target is gone. Note entries are re-pointed at the
   /// folder the note lives in *now* — a note that was moved since it was
@@ -557,6 +607,7 @@ abstract final class AppNavigator {
         case NavDestinationKind.folder:
           final folder = await GetIt.I<FolderStorageService>().getFolderById(
             destination.folderId!,
+            includeDeleted: false,
           );
           if (folder == null) return resolved;
           resolved.add(
@@ -651,10 +702,19 @@ class _RestoredEntry {
 class AppRouteObserver extends RouteObserver<PageRoute<dynamic>> {
   final List<Route<dynamic>> _pageRoutes = [];
 
-  /// The page routes currently on the navigator, bottom-first. Callers must
-  /// still filter by [Route.isActive] and [Route.navigator]: a navigator torn
-  /// down without popping its routes leaves them here.
-  List<Route<dynamic>> get pageRoutes => List.unmodifiable(_pageRoutes);
+  /// The page routes currently on the navigator, bottom-first.
+  ///
+  /// A navigator torn down without popping its routes never reports them as
+  /// popped or removed, so they would accumulate here for the life of the
+  /// process — one leaked list entry per disposed navigator, and every
+  /// `popToFolder` walking past them. A disposed route has no navigator, so
+  /// reading this sheds them. Callers must still filter by [Route.isActive]
+  /// and [Route.navigator]: a route can belong to a *live* navigator that is
+  /// not the one they are addressing.
+  List<Route<dynamic>> get pageRoutes {
+    _pageRoutes.removeWhere((route) => route.navigator == null);
+    return List.unmodifiable(_pageRoutes);
+  }
 
   @override
   void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {

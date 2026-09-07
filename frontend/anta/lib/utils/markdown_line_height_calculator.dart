@@ -62,17 +62,17 @@ class MarkdownLineHeightCalculator {
     if (heading != null) {
       switch (heading.level) {
         case 1:
-          return MarkdownConstants.h1Scale; // 2.0
+          return MarkdownConstants.h1Scale;
         case 2:
-          return MarkdownConstants.h2Scale; // 1.5
+          return MarkdownConstants.h2Scale;
         case 3:
-          return MarkdownConstants.h3Scale; // 1.25
+          return MarkdownConstants.h3Scale;
         case 4:
-          return MarkdownConstants.h4Scale; // 1.125
+          return MarkdownConstants.h4Scale;
         case 5:
-          return MarkdownConstants.h5Scale; // 1.0
+          return MarkdownConstants.h5Scale;
         default:
-          return MarkdownConstants.h6Scale; // 0.875
+          return MarkdownConstants.h6Scale;
       }
     }
 

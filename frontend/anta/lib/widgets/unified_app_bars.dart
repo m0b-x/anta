@@ -1,9 +1,11 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../constants/app_bar_metrics.dart';
 import '../constants/app_colors.dart';
 import '../services/auto_save_service.dart';
 import '../services/app_navigator.dart';
 import 'leading_nav_pair.dart';
+import 'search_field_app_bar.dart';
 
 enum AppBarStyle { main, settings }
 
@@ -62,7 +64,8 @@ class UnifiedAppBar extends StatelessWidget implements PreferredSizeWidget {
        backgroundColor = null;
 
   @override
-  Size get preferredSize => Size.fromHeight(toolbarHeight ?? kToolbarHeight);
+  Size get preferredSize =>
+      Size.fromHeight(toolbarHeight ?? AppBarMetrics.toolbarHeight);
 
   @override
   Widget build(BuildContext context) {
@@ -70,7 +73,7 @@ class UnifiedAppBar extends StatelessWidget implements PreferredSizeWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     // The browser's bar is a `SliverAppBar.large` that a gradient cannot
-    // follow across 172 px of collapse, and the editor's bar is the shape it
+    // follow across 116 px of collapse, and the editor's bar is the shape it
     // settles into — so the main style is flat Material 3 surface, and a host
     // that owns a ground of its own hands it over as `backgroundColor`, which
     // also switches the scrolled-under tint off. The settings pages keep the
@@ -81,6 +84,11 @@ class UnifiedAppBar extends StatelessWidget implements PreferredSizeWidget {
         leading: leading,
         leadingWidth: leadingWidth,
         automaticallyImplyLeading: automaticallyImplyLeading,
+        toolbarHeight: preferredSize.height,
+        actionsIconTheme: IconThemeData(
+          size: AppBarMetrics.glyphSize,
+          color: colorScheme.onSurface,
+        ),
         title: title,
         actions: actions,
         elevation: elevation,
@@ -121,6 +129,11 @@ class UnifiedAppBar extends StatelessWidget implements PreferredSizeWidget {
         leading: leading,
         leadingWidth: leadingWidth,
         automaticallyImplyLeading: automaticallyImplyLeading,
+        toolbarHeight: preferredSize.height,
+        actionsIconTheme: IconThemeData(
+          size: AppBarMetrics.glyphSize,
+          color: colorScheme.onSurface,
+        ),
         title: title,
         actions: actions,
         backgroundColor: Colors.transparent,
@@ -129,7 +142,6 @@ class UnifiedAppBar extends StatelessWidget implements PreferredSizeWidget {
     );
   }
 }
-
 
 class NoteAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;
@@ -158,12 +170,14 @@ class NoteAppBar extends StatelessWidget implements PreferredSizeWidget {
   });
 
   @override
-  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
+  Size get preferredSize => const Size.fromHeight(AppBarMetrics.toolbarHeight);
 
   @override
   Widget build(BuildContext context) {
     return UnifiedAppBar.main(
       automaticallyImplyLeading: false,
+      toolbarHeight: AppBarMetrics.toolbarHeight,
+      backgroundColor: Theme.of(context).colorScheme.pageGround,
       leadingWidth: LeadingNavPair.width,
       leading: Builder(
         builder: (context) => LeadingNavPair(
@@ -178,7 +192,10 @@ class NoteAppBar extends StatelessWidget implements PreferredSizeWidget {
             Expanded(
               child: Text(
                 title,
-                style: const TextStyle(fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  fontSize: AppBarMetrics.titleFontSize,
+                  fontWeight: AppBarMetrics.titleFontWeight,
+                ),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -199,9 +216,17 @@ class NoteAppBar extends StatelessWidget implements PreferredSizeWidget {
 /// Listens to the [SaveStatus] value notifier and cross-fades between
 /// states.  Keeps the widget tree lightweight – only rebuilds this subtree
 /// when the status actually changes.
+///
+/// The slot is a fixed square whatever the status: an 8 dp dot becoming a
+/// 14 dp cloud would otherwise re-measure the title beside it and reflow a
+/// long name mid-keystroke.
 class _SaveStatusIndicator extends StatelessWidget {
   final bool hasChanges;
   final ValueListenable<SaveStatus>? saveStatusNotifier;
+
+  /// Addresses the slot from a test that measures whether the title's room
+  /// is really constant.
+  static const Key slotKey = ValueKey('note-app-bar-save-status');
 
   const _SaveStatusIndicator({
     required this.hasChanges,
@@ -212,8 +237,7 @@ class _SaveStatusIndicator extends StatelessWidget {
   Widget build(BuildContext context) {
     final notifier = saveStatusNotifier;
     if (notifier == null) {
-      // Fallback: no notifier → show simple dot when unsaved
-      return hasChanges ? _dot(context) : const SizedBox.shrink();
+      return _slot(hasChanges ? _dot(context) : const SizedBox.shrink());
     }
 
     return ValueListenableBuilder<SaveStatus>(
@@ -222,34 +246,45 @@ class _SaveStatusIndicator extends StatelessWidget {
         final effective = hasChanges && status == SaveStatus.saved
             ? SaveStatus.unsaved
             : status;
-        return AnimatedSwitcher(
-          duration: const Duration(milliseconds: 250),
-          layoutBuilder: (currentChild, previousChildren) {
-            // Deduplicate all children by key - current child takes precedence
-            final allChildren = [...previousChildren, ?currentChild];
-            final seenKeys = <Key>{};
-            final uniqueChildren = <Widget>[];
+        return _slot(
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 250),
+            layoutBuilder: (currentChild, previousChildren) {
+              final allChildren = [...previousChildren, ?currentChild];
+              final seenKeys = <Key>{};
+              final uniqueChildren = <Widget>[];
 
-            // Process in reverse so current child wins over previous
-            for (final child in allChildren.reversed) {
-              final key = child.key;
-              if (key != null && !seenKeys.contains(key)) {
-                seenKeys.add(key);
-                uniqueChildren.insert(0, child);
-              } else if (key == null) {
-                uniqueChildren.insert(0, child);
+              for (final child in allChildren.reversed) {
+                final key = child.key;
+                if (key != null && !seenKeys.contains(key)) {
+                  seenKeys.add(key);
+                  uniqueChildren.insert(0, child);
+                } else if (key == null) {
+                  uniqueChildren.insert(0, child);
+                }
               }
-            }
 
-            return Stack(
-              fit: StackFit.passthrough,
-              alignment: Alignment.center,
-              children: uniqueChildren,
-            );
-          },
-          child: _buildIcon(context, effective),
+              return Stack(
+                fit: StackFit.passthrough,
+                alignment: Alignment.center,
+                children: uniqueChildren,
+              );
+            },
+            child: _buildIcon(context, effective),
+          ),
         );
       },
+    );
+  }
+
+  Widget _slot(Widget child) {
+    return Padding(
+      key: slotKey,
+      padding: const EdgeInsets.only(left: AppBarMetrics.saveStatusGap),
+      child: SizedBox.square(
+        dimension: AppBarMetrics.saveStatusSlotSize,
+        child: Center(child: child),
+      ),
     );
   }
 
@@ -264,12 +299,7 @@ class _SaveStatusIndicator extends StatelessWidget {
           color: colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
         );
       case SaveStatus.unsaved:
-        return _icon(
-          key: const ValueKey('unsaved'),
-          icon: Icons.circle,
-          color: colorScheme.primary,
-          size: 8,
-        );
+        return _dot(context);
       case SaveStatus.saving:
         return _icon(
           key: const ValueKey('saving'),
@@ -290,26 +320,23 @@ class _SaveStatusIndicator extends StatelessWidget {
     required Key key,
     required IconData icon,
     required Color color,
-    double size = 14,
+    double size = AppBarMetrics.saveStatusSlotSize,
     bool spinning = false,
   }) {
-    Widget child = Icon(icon, size: size, color: color);
     if (spinning) {
-      child = _SpinningIcon(icon: icon, size: size, color: color);
+      return KeyedSubtree(
+        key: key,
+        child: _SpinningIcon(icon: icon, size: size, color: color),
+      );
     }
-    return Padding(
-      key: key,
-      padding: const EdgeInsets.only(left: 8),
-      child: child,
-    );
+    return Icon(icon, key: key, size: size, color: color);
   }
 
   Widget _dot(BuildContext context) {
     return Container(
       key: const ValueKey('dot'),
-      margin: const EdgeInsets.only(left: 8),
-      width: 8,
-      height: 8,
+      width: AppBarMetrics.saveStatusDotSize,
+      height: AppBarMetrics.saveStatusDotSize,
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.primary,
         shape: BoxShape.circle,
@@ -367,36 +394,72 @@ class SettingsAppBar extends StatelessWidget implements PreferredSizeWidget {
   final List<Widget>? actions;
   final bool showMenuButton;
 
+  /// Whether Back reports [SettingsResult.openDrawer] to whoever pushed this
+  /// page.
+  ///
+  /// Only the pages the drawer itself opens ask for it — everywhere else the
+  /// result is a promise to reopen a drawer nobody came from, which the
+  /// caller would either ignore or, worse, honour.
+  final bool popsToDrawer;
+
   const SettingsAppBar({
     super.key,
     required this.title,
     this.actions,
     this.showMenuButton = true,
+    this.popsToDrawer = false,
   });
 
   @override
-  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
+  Size get preferredSize => const Size.fromHeight(AppBarMetrics.toolbarHeight);
 
   @override
   Widget build(BuildContext context) {
+    final scaffold = Scaffold.maybeOf(context);
+    final drawsPair = showMenuButton && (scaffold?.hasDrawer ?? false);
     return UnifiedAppBar.settings(
-      leadingWidth: showMenuButton ? LeadingNavPair.width : null,
-      leading: showMenuButton
-          ? Builder(
-              builder: (ctx) => LeadingNavPair(
-                onBack: () =>
-                    AppNavigator.pop(context, SettingsResult.openDrawer),
-                onMenu: () => Scaffold.of(ctx).openDrawer(),
-              ),
-            )
-          : null,
-      title: Text(title),
+      toolbarHeight: AppBarMetrics.toolbarHeight,
+      leadingWidth: drawsPair ? LeadingNavPair.width : null,
+      leading: showMenuButton ? _buildLeading(context, scaffold) : null,
+      title: Text(
+        title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          fontSize: AppBarMetrics.titleFontSize,
+          fontWeight: AppBarMetrics.titleFontWeight,
+        ),
+      ),
       actions: actions,
     );
   }
+
+  /// The pair needs a drawer to open. A settings-family page pushed onto a
+  /// `Scaffold` without one — the per-note pages are the four — draws the
+  /// arrow alone rather than a button that does nothing.
+  Widget _buildLeading(BuildContext context, ScaffoldState? scaffold) {
+    void back() => AppNavigator.pop(
+      context,
+      popsToDrawer ? SettingsResult.openDrawer : null,
+    );
+    if (scaffold == null || !scaffold.hasDrawer) {
+      return IconButton(
+        icon: const BackButtonIcon(),
+        iconSize: AppBarMetrics.glyphSize,
+        tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+        onPressed: back,
+      );
+    }
+    return LeadingNavPair(onBack: back, onMenu: scaffold.openDrawer);
+  }
 }
 
-class SearchAppBar extends StatefulWidget implements PreferredSizeWidget {
+/// The standalone search route's bar.
+///
+/// Field and clear button are [SearchBarField] and [SearchBarClearAction],
+/// the same two the in-place `SearchFieldAppBar` wears, so the two search
+/// surfaces cannot drift apart again.
+class SearchAppBar extends StatelessWidget implements PreferredSizeWidget {
   final TextEditingController controller;
   final FocusNode? focusNode;
   final String hintText;
@@ -415,54 +478,32 @@ class SearchAppBar extends StatefulWidget implements PreferredSizeWidget {
   });
 
   @override
-  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
-
-  @override
-  State<SearchAppBar> createState() => _SearchAppBarState();
-}
-
-class _SearchAppBarState extends State<SearchAppBar> {
-  @override
-  void initState() {
-    super.initState();
-    widget.controller.addListener(_onTextChanged);
-  }
-
-  @override
-  void dispose() {
-    widget.controller.removeListener(_onTextChanged);
-    super.dispose();
-  }
-
-  void _onTextChanged() {
-    setState(() {});
-  }
+  Size get preferredSize => const Size.fromHeight(AppBarMetrics.toolbarHeight);
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final clear = onClear;
 
     return AppBar(
+      toolbarHeight: AppBarMetrics.toolbarHeight,
       backgroundColor: colorScheme.pageGround,
       surfaceTintColor: Colors.transparent,
       scrolledUnderElevation: 0,
-      title: TextField(
-        controller: widget.controller,
-        focusNode: widget.focusNode,
-        decoration: InputDecoration(
-          hintText: widget.hintText,
-          border: InputBorder.none,
-          hintStyle: TextStyle(
-            color: colorScheme.onSurface.withValues(alpha: 0.6),
-          ),
-        ),
-        style: const TextStyle(fontSize: 18),
-        onChanged: widget.onChanged,
-        onSubmitted: widget.onSubmitted,
+      actionsIconTheme: IconThemeData(
+        size: AppBarMetrics.glyphSize,
+        color: colorScheme.onSurface,
+      ),
+      title: SearchBarField(
+        controller: controller,
+        focusNode: focusNode,
+        hintText: hintText,
+        onChanged: onChanged,
+        onSubmitted: onSubmitted,
       ),
       actions: [
-        if (widget.controller.text.isNotEmpty)
-          IconButton(icon: const Icon(Icons.clear), onPressed: widget.onClear),
+        if (clear != null)
+          SearchBarClearAction(controller: controller, onClear: clear),
       ],
     );
   }

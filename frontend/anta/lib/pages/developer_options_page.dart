@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../l10n/app_localizations.dart';
 import '../models/dev_options.dart';
 import '../services/dev_options_service.dart';
+import '../services/settings_service.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/settings_search.dart';
 import '../widgets/app_drawer.dart';
@@ -26,10 +27,19 @@ class _DeveloperOptionsPageState extends State<DeveloperOptionsPage> {
   final TextEditingController _searchController = TextEditingController();
   SettingsQuery _query = SettingsQuery.empty;
 
+  bool _swipeEnabled = true;
+
   @override
   void initState() {
     super.initState();
     _loadService();
+    _loadSwipeSetting();
+  }
+
+  Future<void> _loadSwipeSetting() async {
+    final settings = await SettingsService.getInstance();
+    final swipe = await settings.getFolderSwipeEnabled();
+    if (mounted) setState(() => _swipeEnabled = swipe);
   }
 
   @override
@@ -64,8 +74,9 @@ class _DeveloperOptionsPageState extends State<DeveloperOptionsPage> {
     final devOptions = DevOptions.instance;
 
     return Scaffold(
-      appBar: SettingsAppBar(title: l10n.developerOptions),
+      appBar: SettingsAppBar(title: l10n.developerOptions, popsToDrawer: true),
       drawer: const AppDrawer(),
+      drawerEnableOpenDragGesture: _swipeEnabled,
       body: SafeArea(
         top: false,
         child: _isLoading

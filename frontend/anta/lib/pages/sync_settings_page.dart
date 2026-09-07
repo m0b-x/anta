@@ -6,6 +6,7 @@ import '../bloc/sync/sync_bloc.dart';
 import '../core/di/injection.dart';
 import '../l10n/app_localizations.dart';
 import '../services/pairing_service.dart';
+import '../services/settings_service.dart';
 import '../utils/auth_error.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/pairing_error.dart';
@@ -54,10 +55,24 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   /// state (a rebuild, a reconcile) before the user acknowledges it.
   bool _endedNoticeShown = false;
 
+  bool _swipeEnabled = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSwipeSetting();
+  }
+
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadSwipeSetting() async {
+    final settings = await SettingsService.getInstance();
+    final swipe = await settings.getFolderSwipeEnabled();
+    if (mounted) setState(() => _swipeEnabled = swipe);
   }
 
   List<String> _keywords(String csv) =>
@@ -69,7 +84,8 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
 
     return Scaffold(
       drawer: const AppDrawer(),
-      appBar: SettingsAppBar(title: l10n.sharingSettings),
+      drawerEnableOpenDragGesture: _swipeEnabled,
+      appBar: SettingsAppBar(title: l10n.sharingSettings, popsToDrawer: true),
       body: SafeArea(
         top: false,
         child: MultiBlocListener(

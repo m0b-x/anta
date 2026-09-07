@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 
+import '../constants/app_bar_metrics.dart';
+
 /// The leading control of every bar that has somewhere to go back to: the
 /// back arrow and the drawer button side by side, split by a hairline.
 ///
@@ -21,9 +23,20 @@ class LeadingNavPair extends StatelessWidget {
     this.backLongPressLabel,
   });
 
-  /// What a bar must reserve in `leadingWidth`: two compact halves, the
-  /// divider between them, and the padding that keeps the arrow off the edge.
-  static const double width = 100;
+  /// The side of each half. Below the 48 dp minimum on purpose: the two of
+  /// them sit in one corner, and 48 apiece would take the collapsed title
+  /// down to a handful of characters on a 360 dp screen.
+  static const double halfSize = 42;
+
+  /// The gap between the arrow and the screen edge.
+  static const double leadingPadding = 2;
+
+  /// What a bar must reserve in `leadingWidth`: the padding, two halves and
+  /// the hairline between them, which is exactly what the pair draws.
+  static const double width = leadingPadding + halfSize + 1 + halfSize;
+
+  /// The hairline between the halves.
+  static const double dividerHeight = 20;
 
   final VoidCallback onBack;
   final VoidCallback onMenu;
@@ -39,20 +52,17 @@ class LeadingNavPair extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Padding(
-      padding: const EdgeInsets.only(left: 4),
+      padding: const EdgeInsets.only(left: leadingPadding),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           _buildBack(),
           Container(
             width: 1,
-            height: 20,
-            color: isDark
-                ? colorScheme.outline.withValues(alpha: 0.3)
-                : colorScheme.onSurface.withValues(alpha: 0.15),
+            height: dividerHeight,
+            color: colorScheme.outlineVariant,
           ),
           Builder(
             builder: (context) => _NavButton(
@@ -114,7 +124,16 @@ class _NavButton extends StatelessWidget {
       tooltip: tooltip,
       onPressed: onPressed,
       onLongPress: onLongPress,
-      visualDensity: VisualDensity.compact,
+      iconSize: AppBarMetrics.glyphSize,
+      padding: EdgeInsets.zero,
+      visualDensity: VisualDensity.standard,
+      style: IconButton.styleFrom(
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      constraints: const BoxConstraints.tightFor(
+        width: LeadingNavPair.halfSize,
+        height: LeadingNavPair.halfSize,
+      ),
     );
   }
 }

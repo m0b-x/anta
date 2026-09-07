@@ -112,11 +112,45 @@ abstract final class AppTheme {
     surfaceTint: Color(0xFFD0BCFF),
   );
 
+  /// Menu geometry the mock draws: 236 wide, 44 dp rows, a 15/400 label and
+  /// a 20 px glyph in `onSurfaceVariant`. Declared on the theme so both
+  /// overflow menus and the ancestor `showMenu` cannot drift apart.
+  static const double menuWidth = 236.0;
+  static const double menuItemHeight = 44.0;
+  static const double menuIconSize = 20.0;
+  static const double menuLabelSize = 15.0;
+  static const double menuTrailingSize = 13.0;
+  static const double menuDividerHeight = 13.0;
+  static const double menuVerticalPadding = 6.0;
+
+  /// Vertical breathing room around the editor toolbar's 40 dp button row,
+  /// which puts the bar at the mock's 46 dp. Read by the markdown bar and
+  /// by the vocabulary bar that swaps in for it — the two must stay the
+  /// same height or the swap shifts the editor mid-word.
+  static const double editorBarVerticalPadding = 3.0;
+
+  /// The editor toolbar's ground: `surface` under a hairline, never a
+  /// shadow. A 10 % black drop shadow is invisible on a dark ground, which
+  /// is what left the toolbar unseparated from the body in dark mode.
+  static BoxDecoration editorBarDecoration(ColorScheme scheme) {
+    return BoxDecoration(
+      color: scheme.surface,
+      border: Border(top: BorderSide(color: scheme.outlineVariant, width: 1)),
+    );
+  }
+
+  static final ThemeData _light = _themeFor(lightScheme);
+  static final ThemeData _dark = _themeFor(darkScheme);
+
   /// The light theme `MaterialApp` is handed.
-  static ThemeData light() => _themeFor(lightScheme);
+  ///
+  /// One instance for the process: `MaterialApp` is rebuilt on every settings
+  /// emission and a fresh `ThemeData` there invalidates every theme-keyed
+  /// cache below it, the editor's render context included.
+  static ThemeData light() => _light;
 
   /// The dark theme `MaterialApp` is handed.
-  static ThemeData dark() => _themeFor(darkScheme);
+  static ThemeData dark() => _dark;
 
   /// `scaffoldBackgroundColor` is deliberately left at its default (`surface`):
   /// the settings pages paint `surfaceContainer` cards onto it and the editor
@@ -130,6 +164,16 @@ abstract final class AppTheme {
       popupMenuTheme: PopupMenuThemeData(
         color: scheme.surfaceContainerHigh,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        menuPadding: const EdgeInsets.symmetric(vertical: menuVerticalPadding),
+        // Material 3 reads `labelTextStyle`; `textStyle` is the Material 2
+        // slot and is never consulted under `useMaterial3`.
+        labelTextStyle: WidgetStatePropertyAll<TextStyle>(
+          TextStyle(
+            fontSize: menuLabelSize,
+            fontWeight: FontWeight.w400,
+            color: scheme.onSurface,
+          ),
+        ),
       ),
     );
   }

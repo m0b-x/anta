@@ -1,8 +1,9 @@
-import 'dart:convert';
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:anta/constants/search_constants.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../models/isolate_data.dart';
+import '../models/note_change.dart';
 import '../models/note_metadata.dart';
 import 'note_storage_service.dart';
 
@@ -92,6 +93,57 @@ String normalizeForSearch(String text, {bool caseSensitive = false}) {
     normalized = normalized.toLowerCase();
   }
   return normalized;
+}
+
+/// [normalizeForSearch]'s output together with the map back to the text it
+/// came from.
+///
+/// Neither half of the normalisation is length-preserving — `ß` folds to two
+/// characters, and lowercasing `İ` yields two — so an offset found in the
+/// normalised string is not an offset into the raw one. Highlighting used to
+/// apply the normalised offsets to the raw text directly, which slid the
+/// highlight by one character per fold that had grown before it.
+class NormalizedText {
+  final String value;
+
+  /// Raw index for each normalised index, with one extra entry at the end so
+  /// a match's end offset maps too. Null when the two are one-to-one, which
+  /// is every string that folds to its own length.
+  final List<int>? _rawIndex;
+
+  const NormalizedText._(this.value, this._rawIndex);
+
+  factory NormalizedText.of(String text, {bool caseSensitive = false}) {
+    final normalized = normalizeForSearch(text, caseSensitive: caseSensitive);
+    if (normalized.length == text.length) {
+      return NormalizedText._(normalized, null);
+    }
+
+    final buffer = StringBuffer();
+    final rawIndex = <int>[];
+    var rawOffset = 0;
+    for (final rune in text.runes) {
+      final folded = normalizeForSearch(
+        String.fromCharCode(rune),
+        caseSensitive: caseSensitive,
+      );
+      buffer.write(folded);
+      for (var i = 0; i < folded.length; i++) {
+        rawIndex.add(rawOffset);
+      }
+      rawOffset += rune > 0xFFFF ? 2 : 1;
+    }
+    rawIndex.add(text.length);
+    return NormalizedText._(buffer.toString(), rawIndex);
+  }
+
+  /// The raw offset [index] in [value] came from.
+  int rawIndexOf(int index) {
+    final map = _rawIndex;
+    if (map == null) return index;
+    if (index >= map.length) return map.isEmpty ? 0 : map.last;
+    return map[index];
+  }
 }
 
 final RegExp _searchTokenRegex = RegExp(r'\b\w{2,}\b');
@@ -397,25 +449,92 @@ class SearchIndex {
 }
 
 class FolderSearchService {
-  static const int _maxRecentSearches = 10;
-  static const String _recentSearchesKey = 'recent_searches';
   static const int _quickSearchPageSize = 300;
+
+  /// One page of the index build, looped until the last page comes back
+  /// short. It used to be the whole build: a database with more notes than
+  /// this indexed the first page and silently answered every later note's
+  /// text with "no results".
+  static const int _indexPageSize = 1000;
+
+  /// Past this many notes changed behind the index's back, refreshing them
+  /// one at a time costs more than rebuilding from scratch — which is what a
+  /// backup restore or a sync pull looks like from here.
+  static const int _staleRebuildThreshold = 200;
 
   final NoteStorageService _storageService;
   final SearchIndex _searchIndex = SearchIndex();
 
-  List<String> _recentSearches = [];
+  /// Notes written since the index last saw them. The bloc reports its own
+  /// writes through [updateIndex], but a restore, an import and a sync pull
+  /// all reach storage without passing a bloc, so the note stream is what
+  /// makes the index answer for those too.
+  final Set<String> _staleNoteIds = {};
+
+  StreamSubscription<NoteChange>? _changesSubscription;
+
   bool _isInitialized = false;
   bool _isIndexing = false;
 
   FolderSearchService({required NoteStorageService storageService})
-    : _storageService = storageService;
+    : _storageService = storageService {
+    _changesSubscription = _storageService.changes.listen(_onNoteChanged);
+  }
 
   Future<void> initialize() async {
     if (_isInitialized) return;
-
-    await _loadRecentSearches();
     _isInitialized = true;
+  }
+
+  void _onNoteChanged(NoteChange change) {
+    if (!_searchIndex.isBuilt) return;
+    switch (change.type) {
+      case NoteChangeType.deleted:
+        _searchIndex.removeNote(change.noteId);
+        _staleNoteIds.remove(change.noteId);
+      case NoteChangeType.moved:
+        break;
+      case NoteChangeType.created:
+      case NoteChangeType.updated:
+        _staleNoteIds.add(change.noteId);
+    }
+  }
+
+  /// Brings the notes the index has been told about back up to date, or
+  /// rebuilds outright when there are too many of them to be worth it.
+  Future<void> _refreshStaleNotes() async {
+    if (_staleNoteIds.isEmpty) return;
+    final ids = _staleNoteIds.toList(growable: false);
+    _staleNoteIds.clear();
+
+    if (ids.length >= _staleRebuildThreshold) {
+      await buildIndex();
+      return;
+    }
+
+    for (final noteId in ids) {
+      final metadata = await _storageService.getNoteMetadata(noteId);
+      _searchIndex.removeNote(noteId);
+      if (metadata == null) continue;
+      final content = await _storageService.loadNoteContent(noteId);
+      _searchIndex.addNote(noteId, metadata.title, content);
+    }
+  }
+
+  /// Every live note's metadata, page by page.
+  Future<List<NoteMetadata>> _loadAllNoteMetadata() async {
+    final all = <NoteMetadata>[];
+    var page = 1;
+    while (true) {
+      final result = await _storageService.loadNotesPaginated(
+        page: page,
+        pageSize: _indexPageSize,
+      );
+      all.addAll(result.notes);
+      if (!result.hasMore || result.notes.isEmpty) break;
+      page++;
+    }
+    return all;
   }
 
   /// Build search index using isolate for heavy processing
@@ -427,13 +546,12 @@ class FolderSearchService {
 
     try {
       _searchIndex.clear();
+      _staleNoteIds.clear();
 
-      final paginatedNotes = await _storageService.loadNotesPaginated(
-        pageSize: 1000,
-      );
+      final allNotes = await _loadAllNoteMetadata();
 
       final notesData = <NoteIndexData>[];
-      for (final metadata in paginatedNotes.notes) {
+      for (final metadata in allNotes) {
         final content = await _storageService.loadNoteContent(metadata.id);
         notesData.add(
           NoteIndexData(
@@ -463,11 +581,13 @@ class FolderSearchService {
     await initialize();
     _searchIndex.removeNote(noteId);
     _searchIndex.addNote(noteId, title, content);
+    _staleNoteIds.remove(noteId);
   }
 
   Future<void> removeFromIndex(String noteId) async {
     await initialize();
     _searchIndex.removeNote(noteId);
+    _staleNoteIds.remove(noteId);
   }
 
   Future<List<SearchResult>> search(
@@ -480,10 +600,10 @@ class FolderSearchService {
 
     if (query.trim().isEmpty) return [];
 
-    await _addToRecentSearches(query);
-
     if (!_searchIndex.isBuilt) {
       await buildIndex();
+    } else {
+      await _refreshStaleNotes();
     }
 
     final effectiveCaseSensitive = filter?.caseSensitive ?? caseSensitive;
@@ -495,12 +615,10 @@ class FolderSearchService {
     if (matchingIds.isEmpty) return [];
 
     // Load all notes ONCE, not inside the loop
-    final paginatedNotes = await _storageService.loadNotesPaginated(
-      pageSize: 1000,
-    );
+    final allNotes = await _loadAllNoteMetadata();
 
     // Create a lookup map for O(1) access
-    final notesMap = {for (final n in paginatedNotes.notes) n.id: n};
+    final notesMap = {for (final n in allNotes) n.id: n};
 
     // Rank before loading anything. The relevance score comes off the index,
     // so the whole hit set can be ordered and cut to [limit] without touching
@@ -659,24 +777,29 @@ class FolderSearchService {
       query,
       caseSensitive: caseSensitive,
     );
-    final normalizedText = normalizeForSearch(
-      text,
-      caseSensitive: caseSensitive,
-    );
+    if (normalizedQuery.isEmpty) return matches;
+    final normalized = NormalizedText.of(text, caseSensitive: caseSensitive);
+    final normalizedText = normalized.value;
 
     int index = 0;
     while (true) {
       final matchIndex = normalizedText.indexOf(normalizedQuery, index);
       if (matchIndex == -1) break;
 
-      final contextStart = (matchIndex - 30).clamp(0, text.length);
-      final contextEnd = (matchIndex + query.length + 30).clamp(0, text.length);
+      // Both ends come back through the map, so the snippet's offsets address
+      // the raw text the row actually paints — never the folded one they were
+      // found in, and never `query.length`, which is the length of what was
+      // typed rather than of what matched.
+      final rawStart = normalized.rawIndexOf(matchIndex);
+      final rawEnd = normalized.rawIndexOf(matchIndex + normalizedQuery.length);
+      final contextStart = (rawStart - 30).clamp(0, text.length);
+      final contextEnd = (rawEnd + 30).clamp(0, text.length);
 
       matches.add(
         SearchMatch(
           text: text.substring(contextStart, contextEnd),
-          startIndex: matchIndex - contextStart,
-          endIndex: matchIndex - contextStart + query.length,
+          startIndex: rawStart - contextStart,
+          endIndex: rawEnd - contextStart,
           type: type,
         ),
       );
@@ -689,43 +812,20 @@ class FolderSearchService {
     return matches;
   }
 
-  List<String> get recentSearches => List.unmodifiable(_recentSearches);
-
-  Future<void> _addToRecentSearches(String query) async {
-    final trimmed = query.trim();
-    if (trimmed.isEmpty) return;
-
-    _recentSearches.remove(trimmed);
-    _recentSearches.insert(0, trimmed);
-
-    if (_recentSearches.length > _maxRecentSearches) {
-      _recentSearches = _recentSearches.sublist(0, _maxRecentSearches);
-    }
-
-    await _saveRecentSearches();
-  }
-
-  Future<void> clearRecentSearches() async {
-    _recentSearches.clear();
-    await _saveRecentSearches();
-  }
-
-  Future<void> _loadRecentSearches() async {
-    final prefs = await SharedPreferences.getInstance();
-    final searchesString = prefs.getString(_recentSearchesKey);
-
-    if (searchesString != null) {
-      final List<dynamic> decoded = jsonDecode(searchesString);
-      _recentSearches = decoded.cast<String>();
-    }
-  }
-
-  Future<void> _saveRecentSearches() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_recentSearchesKey, jsonEncode(_recentSearches));
-  }
-
+  /// Drops the index, so the next search rebuilds it.
+  ///
+  /// The note subscription deliberately outlives this: the service is an
+  /// app-wide singleton and `OptimizedNoteBloc` is a factory, so one page
+  /// closing its bloc must not leave the index unable to notice writes for
+  /// the rest of the session.
   void dispose() {
     _searchIndex.clear();
+    _staleNoteIds.clear();
+  }
+
+  Future<void> close() async {
+    await _changesSubscription?.cancel();
+    _changesSubscription = null;
+    dispose();
   }
 }

@@ -95,6 +95,12 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// Lets a restored settings page raise this page's drawer when it is popped
   /// — see [DrawerHostRegistry].
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  /// Reaches the mounted find bar so the app-bar toggle can leave through
+  /// the bar's own close, rather than a second path that skips its exit
+  /// animation.
+  final GlobalKey<NoteSearchBarState> _searchBarKey =
+      GlobalKey<NoteSearchBarState>();
   late TextEditingController _titleController;
   late CodeLineEditingController _contentController;
   late FocusNode _contentFocusNode;
@@ -172,6 +178,19 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// built from the answer, and a bar that lands after the mount reflows
   /// under the editor.
   bool _barSettled = false;
+
+  /// Latched by the first Back the page handles, and released only when the
+  /// pop it led to did not take the page (a drawer's local-history entry
+  /// consumed it).
+  ///
+  /// The handler awaits the exit save, and a second Back arriving inside
+  /// that await used to run the whole exit again — the second pop taking
+  /// the folder page underneath with it. A Back with the drawer open never
+  /// reaches the save at all: `PopScope(canPop: false)` outranks the
+  /// route's local history in `popDisposition`, so the handler closes the
+  /// drawer itself, otherwise the latch would stay set on a page that is
+  /// still there (found on the emulator, 2026-09-07).
+  bool _isExiting = false;
 
   /// Whether the [LoadNoteContent] *this page* dispatched is still
   /// unanswered.
@@ -1279,6 +1298,14 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
 
   void _toggleSearch() {
     if (_searchController.isSearching) {
+      // One exit: the bar plays its own leave animation and then closes the
+      // controller, exactly as its trailing X does. The direct close is the
+      // fallback for a bar that is not mounted yet.
+      final bar = _searchBarKey.currentState;
+      if (bar != null) {
+        bar.close();
+        return;
+      }
       _searchController.closeSearch();
     } else {
       _searchController.openSearch();
@@ -1747,17 +1774,28 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
         child: PopScope(
           canPop: false,
           onPopInvokedWithResult: (didPop, result) async {
-            if (!didPop) {
-              // `canPop` is false, so this callback is the only way out:
-              // a save that throws must never strand the user on the page.
-              try {
-                await _saveBeforeExit();
-              } catch (e) {
-                debugPrint('[NoteEditor] save before exit failed: $e');
-              }
-              if (context.mounted) {
-                AppNavigator.pop(context);
-              }
+            if (didPop) return;
+            final route = ModalRoute.of(context);
+            if (route != null && route.willHandlePopInternally) {
+              AppNavigator.pop(context);
+              return;
+            }
+            if (_isExiting) {
+              return;
+            }
+            _isExiting = true;
+            // `canPop` is false, so this callback is the only way out:
+            // a save that throws must never strand the user on the page.
+            try {
+              await _saveBeforeExit();
+            } catch (e) {
+              debugPrint('[NoteEditor] save before exit failed: $e');
+            }
+            if (!context.mounted) return;
+            AppNavigator.pop(context);
+            if (context.mounted &&
+                (ModalRoute.of(context)?.isCurrent ?? false)) {
+              _isExiting = false;
             }
           },
           child: Scaffold(
@@ -1836,6 +1874,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
                           // Search bar
                           if (_searchController.isSearching)
                             NoteSearchBar(
+                              key: _searchBarKey,
                               searchController: _searchController,
                               onClose: () => setState(() {}),
                               onNavigateToMatch: _navigateToSearchMatch,
@@ -1845,98 +1884,89 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
                           if (_editorSettings.value.showStatsBar)
                             RepaintBoundary(child: _buildNoteStats()),
                           Expanded(
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: AppSpacing.lg,
-                              ),
-                              child: Builder(
-                                builder: (context) {
-                                  // Only calculate debug info if any debug option is enabled
-                                  final devOptions = DevOptions.instance;
-                                  if (!devOptions.anyEnabled) {
-                                    return Stack(
-                                      children: [
-                                        Offstage(
-                                          offstage: showPreview,
-                                          child: IgnorePointer(
-                                            ignoring: showPreview,
-                                            child: _buildEditor(),
-                                          ),
+                            child: Builder(
+                              builder: (context) {
+                                // Only calculate debug info if any debug option is enabled
+                                final devOptions = DevOptions.instance;
+                                if (!devOptions.anyEnabled) {
+                                  return Stack(
+                                    children: [
+                                      Offstage(
+                                        offstage: showPreview,
+                                        child: IgnorePointer(
+                                          ignoring: showPreview,
+                                          child: _buildEditor(),
                                         ),
-                                        Offstage(
-                                          offstage: !showPreview,
-                                          child: IgnorePointer(
-                                            ignoring: !showPreview,
-                                            child: _buildPreview(),
-                                          ),
+                                      ),
+                                      Offstage(
+                                        offstage: !showPreview,
+                                        child: IgnorePointer(
+                                          ignoring: !showPreview,
+                                          child: _buildPreview(),
                                         ),
-                                      ],
-                                    );
-                                  }
+                                      ),
+                                    ],
+                                  );
+                                }
 
-                                  final selection =
-                                      _contentController.selection;
-                                  final cursorLine = selection.baseIndex + 1;
-                                  final cursorColumn = selection.baseOffset;
-                                  final cursorOffset =
+                                final selection = _contentController.selection;
+                                final cursorLine = selection.baseIndex + 1;
+                                final cursorColumn = selection.baseOffset;
+                                final cursorOffset =
+                                    _getLineStartOffset(selection.baseIndex) +
+                                    selection.baseOffset;
+                                final int? selStart;
+                                final int? selEnd;
+                                if (selection.isCollapsed) {
+                                  selStart = null;
+                                  selEnd = null;
+                                } else {
+                                  // Get start and end offsets based on normalized selection
+                                  final baseOff =
                                       _getLineStartOffset(selection.baseIndex) +
                                       selection.baseOffset;
-                                  final int? selStart;
-                                  final int? selEnd;
-                                  if (selection.isCollapsed) {
-                                    selStart = null;
-                                    selEnd = null;
+                                  final extentOff =
+                                      _getLineStartOffset(
+                                        selection.extentIndex,
+                                      ) +
+                                      selection.extentOffset;
+                                  if (baseOff <= extentOff) {
+                                    selStart = baseOff;
+                                    selEnd = extentOff;
                                   } else {
-                                    // Get start and end offsets based on normalized selection
-                                    final baseOff =
-                                        _getLineStartOffset(
-                                          selection.baseIndex,
-                                        ) +
-                                        selection.baseOffset;
-                                    final extentOff =
-                                        _getLineStartOffset(
-                                          selection.extentIndex,
-                                        ) +
-                                        selection.extentOffset;
-                                    if (baseOff <= extentOff) {
-                                      selStart = baseOff;
-                                      selEnd = extentOff;
-                                    } else {
-                                      selStart = extentOff;
-                                      selEnd = baseOff;
-                                    }
+                                    selStart = extentOff;
+                                    selEnd = baseOff;
                                   }
-                                  final noteSize =
-                                      _contentController.textLength;
+                                }
+                                final noteSize = _contentController.textLength;
 
-                                  return DebugOverlayStack(
-                                    cursorLine: cursorLine,
-                                    cursorColumn: cursorColumn,
-                                    cursorOffset: cursorOffset,
-                                    selectionStart: selStart,
-                                    selectionEnd: selEnd,
-                                    noteSize: noteSize,
-                                    child: Stack(
-                                      children: [
-                                        Offstage(
-                                          offstage: showPreview,
-                                          child: IgnorePointer(
-                                            ignoring: showPreview,
-                                            child: _buildEditor(),
-                                          ),
+                                return DebugOverlayStack(
+                                  cursorLine: cursorLine,
+                                  cursorColumn: cursorColumn,
+                                  cursorOffset: cursorOffset,
+                                  selectionStart: selStart,
+                                  selectionEnd: selEnd,
+                                  noteSize: noteSize,
+                                  child: Stack(
+                                    children: [
+                                      Offstage(
+                                        offstage: showPreview,
+                                        child: IgnorePointer(
+                                          ignoring: showPreview,
+                                          child: _buildEditor(),
                                         ),
-                                        Offstage(
-                                          offstage: !showPreview,
-                                          child: IgnorePointer(
-                                            ignoring: !showPreview,
-                                            child: _buildPreview(),
-                                          ),
+                                      ),
+                                      Offstage(
+                                        offstage: !showPreview,
+                                        child: IgnorePointer(
+                                          ignoring: !showPreview,
+                                          child: _buildPreview(),
                                         ),
-                                      ],
-                                    ),
-                                  );
-                                },
-                              ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
                             ),
                           ),
                           // Always show toolbar — in preview mode it provides

@@ -206,6 +206,112 @@ void main() {
     });
   });
 
+  group('a bulk delete', () {
+    late List<String> ids;
+
+    // Through the DAO rather than the file's batch seed: these rows have to
+    // exist in `notes_fts` for a delete to be allowed to remove them.
+    setUp(() async {
+      ids = [];
+      for (var i = 0; i < 40; i++) {
+        final note = await db.noteDao.createNote(
+          folderId: _folderId,
+          title: 'Selected $i',
+          preview: 'squat',
+        );
+        ids.add(note.id);
+      }
+    });
+
+    // Selecting forty rows and deleting them used to be forty independent
+    // tombstone writes, each with its own transaction, its own FTS delete and
+    // its own read of the row it was about to write.
+    test('issues one statement per table, not one per item', () async {
+      counter.reset();
+
+      await db.noteDao.softDeleteNotesWithChunks(ids);
+
+      expect(
+        counter.matching('UPDATE notes'),
+        hasLength(1),
+        reason:
+            'the tombstone write must stay one `WHERE id IN (…)` update; SQL '
+            'can do the `version + 1` itself. Issued:\n'
+            '${counter.statements.join('\n')}',
+      );
+      expect(counter.matching('content_chunks'), hasLength(1));
+      expect(
+        counter.selects,
+        isEmpty,
+        reason: 'no row is read on the way to writing it',
+      );
+      // Two, and only two: the notes update and the chunks update. The FTS
+      // delete rides on `customStatement`, which this interceptor does not
+      // see — the count below is therefore about the two tables it can.
+      expect(
+        counter.count,
+        2,
+        reason: 'issued:\n${counter.statements.join('\n')}',
+      );
+    });
+
+    test('the statement count does not move with the size of the selection', () async {
+      counter.reset();
+      await db.noteDao.softDeleteNotesWithChunks([ids.first]);
+      final forOne = counter.count;
+
+      counter.reset();
+      await db.noteDao.softDeleteNotesWithChunks(ids.skip(1).toList());
+
+      expect(counter.count, forOne);
+    });
+
+    test('every deleted row is a proper tombstone', () async {
+      final before = await db.noteDao.getNoteById(ids[3]);
+      await db.noteDao.softDeleteNotesWithChunks([ids[3], ids[4]]);
+
+      final after = await (db.select(
+        db.notes,
+      )..where((n) => n.id.equals(ids[3]))).getSingle();
+      expect(after.isDeleted, isTrue);
+      expect(after.deletedAt, isA<DateTime>());
+      expect(
+        after.version,
+        before!.version + 1,
+        reason: 'a merge orders by version; a bulk delete is not exempt',
+      );
+      expect(after.deviceId, db.deviceId);
+      expect(after.hlcTimestamp, isNot(before.hlcTimestamp));
+      expect(await db.noteDao.getNotesByIds([ids[3], ids[4]]), isEmpty);
+    });
+
+    test('an already tombstoned row is not rewritten', () async {
+      await db.noteDao.softDeleteNotesWithChunks([ids[5]]);
+      final first = await (db.select(
+        db.notes,
+      )..where((n) => n.id.equals(ids[5]))).getSingle();
+
+      await db.noteDao.softDeleteNotesWithChunks([ids[5]]);
+      final second = await (db.select(
+        db.notes,
+      )..where((n) => n.id.equals(ids[5]))).getSingle();
+
+      expect(
+        second.version,
+        first.version,
+        reason:
+            'a repeated delete must not churn versions the merge reads as '
+            'ordering events',
+      );
+    });
+
+    test('an empty selection touches the database not at all', () async {
+      counter.reset();
+      await db.noteDao.softDeleteNotesWithChunks(const []);
+      expect(counter.count, 0);
+    });
+  });
+
   test('reordering never reads a row to write it', () async {
     final positions = {for (var i = 0; i < 50; i++) 'n$i': 50 - i};
     counter.reset();

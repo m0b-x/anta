@@ -1429,8 +1429,9 @@ skipped with reasons. Do not commit.
 
 ## 7. Mock parity + deep review (opened 2026-09-07)
 
-**Status: PLANNED.** The owner compared the emulator with the artifact
-and judged it not delivered: the palette now matches token for token
+**Status: DELIVERED 2026-09-07, uncommitted on `674bd73` — see §7.1 for
+the findings and §7.2 for what landed.** The owner compared the emulator
+with the artifact and judged it not delivered: the palette now matches token for token
 (verified on `emulator-5554`, light theme, 2026-09-07 — ground
 `surfaceContainer`, cards `surface`, primary `#6750A4`), so what is left
 is layout, typography, iconography and row anatomy, plus a bug review of
@@ -1725,3 +1726,315 @@ emulator shot; the parity table has no "deviates" row without an owner
 decision behind it; analyze and the full suite are green; nothing
 committed.
 ```
+
+### 7.1 Findings (Phase 0–3, 2026-09-07)
+
+**Baselines** — emulator-5554 (1280×2856 @480 dpi = 427×952 dp), debug
+build of `674bd73`, scratchpad `before/`: `00_dark_recent_restored`,
+`00_dark_root`, `00_dark_folder`, `01_root`, `02_folder`,
+`03_folder_scrolled`, `04_folder_menu`, `05_longpress_back`,
+`05b_longpress_depth3`, `06_search_idle`, `07_search_results`,
+`07b_result_opened`, `07c_back_from_result`, `08_editor`,
+`09_editor_find`, `09b_editor_find_typed`, `09c_editor_find_stale`,
+`09d_editor_menu`, `10_all_notes`, `11_recent`, `12_restore_all_notes`.
+Seed data: root `{123 (2 notes), Training (11 notes, 1 subfolder)}`,
+`Training › Winter block programme with a very long name 2026 › Week 1 ›
+"Wednesday heavy squat session with a long title"`.
+
+**Device pass on the leading pair — done.** Present on every nested
+screen (folder at depth 1 and 3, All notes, Recent, editor, Settings);
+root shows the lone `☰`; search mode the lone `←`. The menu half opens
+the drawer on the folder page; the arrow half long-press opens the
+ancestor menu at depth 1 and depth 3, anchored under the arrow, rows
+nearest-first ending at *Folders*. uiautomator shows two nodes, "Back"
+`[12,192][132,312]` and "Open navigation menu" `[135,192][255,312]` —
+40 dp halves, 1 dp between. The divider is visible in both themes.
+Search round-trip (type → open a hit → Back) returns with the query, the
+results and the keyboard down. Kill + relaunch parked on Recent and on
+All notes both restore the page. **The collapsed titles truncate**: the
+editor shows "Wednesday heav…" at 427 dp (22 px bold); at 360 dp the
+nested collapsed title box is 132 dp (Pass A arithmetic). That is the
+measurement D18 asked for — answered below.
+
+**Owner decisions (asked once, 2026-09-07):**
+
+| # | Answer |
+| --- | --- |
+| D14 + D15 | **Mock as drawn.** No per-row `⋮`; folder rows end in a trailing count + chevron, note rows end clean; long-press opens the row's action sheet (rename/move/share/delete) with *Select* as its first row; rows 48 / 62 dp. |
+| D16 | **Outline variants at 22 px** in bars and rows, chevrons 18. |
+| D17 | Toolbar contents unchanged (not asked; the mock says so). |
+| D18 | **Pair everywhere, editor included; titles drop to 17 px / 500**, which with the pair narrowed to 87 dp gives the editor title ~124 dp at 360 dp (≈14 characters). |
+| D19 | **Not now.** No second drawer button in the bottom bar. |
+| edge drag | Fable's call: **leave `drawerEdgeDragWidth` at the framework default.** Android owns the edge regardless of the width; with the pair back the swipe is the secondary route again. The six settings-family pages that ignore the swipe setting are fixed instead (D-4). |
+| E11 heading sizes | Applied as the mock draws (h1 22/500, h2 18/500 — scales 1.375 / 1.125 / 1.0625 / 1.0 at the 16 px base, weight 500) through the shared constants so the deprecated preview stays in agreement. Two constants revert it. |
+| P28 | `AllNotesPage` keeps no bottom bar (D8/D10 stand; the mock draws no All notes screen). Recorded, not a deviation. |
+| B19 | Results lists keep `keyboardDismissBehavior: manual` (section 0, correction 2). Recorded. |
+| P12 | Ledger figures in the row preview are plain text, not monospace `tertiary` — needs the money grammar at render time; deferred. |
+
+**Findings** — id prefix = review pass (A browser, B search/All notes,
+C rows/preview, D navigation, E theme/editor, F device, S sweeps).
+Severity: H = data/flow bug, M = visible defect or perf, L = hygiene.
+Every CONFIRMED row was traced through the code with concrete values or
+reproduced on the emulator; PLAUSIBLE rows were not.
+
+| id | sev | file | status | what | slice |
+| --- | --- | --- | --- | --- | --- |
+| A1 | H | `optimized_folder_content_page.dart:425-433` | CONFIRMED | Selection→normal restore is off by `shift − offsetBefore` when selection was entered above the clamp floor; rows jump down 116 px after scrolling in selection. | P1 |
+| A2/C2 | H | `:1636`, `:1824-1826` | CONFIRMED | At root, entering selection removes the smart rows + FOLDERS label (~164 dp) that `_compensateBarSwap` does not pay for; list jumps, not symmetric. | P1 |
+| A3/B5/C1 | H | `infinite_scroll_list.dart:125-163` | CONFIRMED | `_InfiniteScrollSliverState` has no `dispose`; one `_onScroll` listener leaks on the page controller per selection/search round-trip, calling `onLoadMore` on a defunct element. | P3 |
+| A4/B15 | M | browser `:528-535`, `all_notes_page.dart:129-136` | CONFIRMED | `didChangeDependencies` re-runs `_loadSettings()` (two prefs reads + page `setState`) on every MediaQuery change, i.e. per keyboard frame; the bottom bar also takes a full `MediaQuery.of` dependency. | P3 |
+| A5 | L | `:2053` | CONFIRMED | Empty-state `BlocBuilder` has no `buildWhen`; rebuilds on other folders' states. | P3 |
+| A6 | M | `:811-836` | CONFIRMED | Bulk delete dispatches one event per item → N reload cycles. | P3 |
+| A7 | L | `:281`, `:862` | CONFIRMED | Page → `NoteRepository.preloadContent` skips BLoC and Service. | P3 |
+| A8 | L | `:190-191` | CONFIRMED | `_barSwapShift` hard-codes `kToolbarHeight` instead of the selection bar's own height. | P1 |
+| A9 | M | `folder_sliver_app_bar.dart:106-111,133` | CONFIRMED | `collapsedHeight` is passed as `toolbarHeight`; `SliverAppBar.large` ignores it for the extent, so a 48 px toolbar would leave a 16 px dead band unless `collapsedHeight` is passed explicitly. | P1 |
+| A10/E1 | M | `leading_nav_pair.dart:26,44-64` | CONFIRMED | Reserves 100 dp, draws 85 (halves are 40, not 42); 15 dp stolen from the title. | P1 |
+| A11/E15 | M | `folder_sliver_app_bar.dart:139-147`, `unified_app_bars.dart:167-191` | CONFIRMED | Collapsed title box 132 dp at 360 dp (84 with the preview eye) at 22 px bold ≈ 8–9 chars. | P1 |
+| A12/C10 | L | `:1824` vs `:1863` | CONFIRMED | `_buildEntries` reads `_selection.isActive` while its callers pass `isSelecting`. | P1 |
+| A13 | L | `folder_sliver_app_bar.dart:200-203` | CONFIRMED | The 500 ms `AnimatedOpacity` on the expanded content can never be seen. | P1 |
+| A14 | L | `:667-674` | CONFIRMED | `_selectAll` emits N times → N page rebuilds. | P3 |
+| B1 | H | `folder_search_service.dart:669-679` | CONFIRMED | Snippet offsets computed on diacritic-folded text and applied to raw text; `ß→ss` etc. shift or drop the highlight. | P3 |
+| B2 | H | `search_surface.dart:63-70`, `search_bloc.dart:60` | CONFIRMED | `refresh()` on an idle surface replaces the recents with a full-screen spinner for one round-trip → recents come back scrolled to the top after Back. | P3 |
+| B3 | H | `search_page.dart:76-97` | CONFIRMED | Standalone SearchPage is not `RouteAware`: no `unfocus` on push, so the keyboard reopens over the results on Back. | P3 |
+| B4 | M | same | CONFIRMED | No `didPopNext` refresh; a note renamed through a hit comes back stale. | P3 |
+| B6 | H | `all_notes_page.dart:143-195,443`, `optimized_note_bloc.dart:50-63` | CONFIRMED | Every reload dispatches page 1 → All notes shrinks to 20 rows after Back from a note; offset clamps to the top. | P3 |
+| B7 | H | `note_dao.dart:98-119` | CONFIRMED (mechanism) | Pagination orders by `updated_at` (seconds) with no tiebreaker → duplicate ids across pages → duplicate `ValueKey` assertion. | P3 |
+| B8 | L | `optimized_note_bloc.dart:108,135-142` | CONFIRMED | `_currentPage++` not rolled back on failure. | P3 |
+| B9 | L | `all_notes_page.dart:262-273` | CONFIRMED | `_pathedFolderIds` assigned before the await; a failed walk is never retried. | P3 |
+| B10 | H | `folder_search_service.dart:485-500` | CONFIRMED | Index built once, never invalidated (restore/import/sync bypass the bloc); `buildIndex`/`search` cap at 1000 notes silently. | P3 |
+| B11–B13 | M | `folder_search_service.dart:222-300,462-567` | CONFIRMED | O(vocabulary) `contains` sweep per query word on the UI isolate; `removeNote` sweeps every entry per autosave; 300/1000-row re-reads per keystroke/submit. | deferred — recorded in §7.3 |
+| B14 | L | `:483,692-711` | CONFIRMED | `recentSearches` written on every search, read by nothing. | P3 |
+| B16/E25 | M | `unified_app_bars.dart:437-467` | CONFIRMED | Standalone `SearchAppBar` diverges: 18 px, hint `onSurface@0.6`, no clear tooltip, no `TextInputAction.search`, full-bar `setState` per keystroke. | P1 |
+| B17 | L | `all_notes_page.dart:317`, browser `:920` | CLEARED (fragile) | `buildWhen: () => _searching` drops, not defers, states; safe only because the flag flips before the first emit. Pinned by a test. | P3 |
+| B18/B20 | L | `search_bloc.dart:58-62,218-228` | CONFIRMED | `SearchOpened` keeps stale hits; failure branch keeps stale `folderPaths`. | P3 |
+| B21 | L | `infinite_scroll_list.dart`, `search_state.dart:61`, `search_page.dart:43-45` | CONFIRMED | Dead `InfiniteScrollList`/`PaginationInfo` (with a hardcoded English string), `isEmptyResult`, unreachable `SearchPage.folderId`. | P3 |
+| B22 | L | `search_bloc.dart:24` vs `all_notes_page.dart:60` | CONFIRMED | Two "recent" caps (20 vs 50) under one label. | P3 |
+| B23 | L | `all_notes_page.dart:265` | CONFIRMED | Page → `FolderStorageService` walk skips the BLoC. | P3 |
+| C3 | M | browser `:355-378` | CONFIRMED | `_loadFolderCounts` has no generation guard; an older read can paint over a newer one. | P3 |
+| C4/C5 | H | `backup_service.dart:57,312-314` | CONFIRMED | Restore computes a second, divergent preview (`substring(0,200)`, newlines kept) and never reads the archived one. | P6 |
+| C6 | M | `content_rows.dart:49-58` | CONFIRMED | Every row is a `PhysicalShape` with a clip path; middle rows animate a shape tween on pagination. | P2 |
+| C7 | H | `note_metadata.dart:87-98` | CONFIRMED | `generatePreview` joins all lines and keeps every marker — the "31- level zero … > [!…" row. `NoteRow._secondLine`'s newline split is dead code. | P6 |
+| C8 | L | `folder_dao.dart:386-406,529-556` | PLAUSIBLE | Recursive CTEs have no depth guard; a `parent_id` cycle (reachable only via merge) spins. | P6 |
+| C9 | M | `note_row.dart:219-229` | CONFIRMED | Date never says Today / Yesterday / weekday. One new ARB key (`yesterday`); `upcomingToday` exists. | P2 |
+| C11 | info | `folder_search_service.dart:584-601`, `note_dao.dart:282,305` | CONFIRMED | The stored preview is also quick-search input and FTS content — a shape change narrows marker-containing queries. Accepted. | P6 |
+| C12 | L | `search_surface.dart:297` | CONFIRMED | Subtitle `Column` lacks `mainAxisSize.min`. | P3 |
+| D-1 | H | `app_drawer.dart:73-82,414-419` | CONFIRMED | `SettingsResult.openDrawer` reopen path is dead: the drawer's own context is unmounted once the drawer closes, so Back from Settings never reopens it. | P4 |
+| D-2 | H | `optimized_note_editor_page.dart:1747-1762` | CONFIRMED | Two fast Backs in the editor pop the folder page underneath (no re-entrancy guard around the awaited save). | P5 |
+| D-3 | M | `counter_per_note_page.dart:48`, `markdown_colors_page.dart:161`, `note_bar_assignment_page.dart:106`, `note_money_currency_page.dart:113` | CONFIRMED | `☰` drawn over a Scaffold with no drawer — a silent no-op. | P4 |
+| D-4 | M | six settings-family pages | CONFIRMED | `drawerEnableOpenDragGesture` never set → ignores the user's swipe setting. | P4 |
+| D-6 | M | `app_navigator.dart:495-596` | gap | `restoreLastLocation` has zero tests. | P4 |
+| D-7 | L | `drawer_host_registry.dart:42-43` | by design | `openTopDrawer` no-ops when the top host's drawer is null; conflates "no drawer" with "already open". | P4 |
+| D-8 | L | `app_navigator.dart:302-304` | CONFIRMED | A new note's route is unstamped; kill mid-draft restores the folder. Accepted, documented. | P4 (test only) |
+| D-9 | L | `main.dart:252-255` | PLAUSIBLE | Restore replay can land on top of a user's own early navigation. | P4 |
+| D-11 | L | `unified_app_bars.dart:387-388` | CONFIRMED | `SettingsAppBar` always pops with `openDrawer`, even from pages no drawer pushed. | P1 (opt-in param) + P4 (call sites) |
+| D-12 | L | `app_navigator.dart:651-675` | CONFIRMED | `AppRouteObserver._pageRoutes` never sheds a torn-down navigator's routes. | P4 |
+| D-13 | L | `navigation_history_service.dart:93-113` | PLAUSIBLE | A flush in flight across a database switch writes the old stack into the new DB. | P4 |
+| D-15 | info | `app_navigator.dart:566-574` | accepted | A moved note is followed but its recorded ancestors are not re-resolved. Documented. | P4 (doc) |
+| E2 | M | `leading_nav_pair.dart:50-56` | CONFIRMED | Divider is alpha-over-ground, off-palette in both themes; should be `outlineVariant`. | P1 |
+| E3 | M | `unified_app_bars.dart:179-183` | CONFIRMED | Editor title 22 px / 700. | P1 |
+| E4 | M | `markdown_bar.dart:207-222,437-443` | CONFIRMED | Toolbar separated by a 10 % black shadow — invisible in dark; mock 1 px hairline. | P5 |
+| E5 | M | `note_overflow_menu.dart:115`, `folder_overflow_menu.dart:173`, ancestor menu | CONFIRMED | Menu glyphs fall to `kDefaultIconDarkColor`/white, not `onSurfaceVariant`. | P5 |
+| E6/E22 | M | both overflow menus, `app_theme.dart:126-135` | CONFIRMED | Width snaps to 168/224/280 (never 236); rows 48; labels 14/500; trailing 12; separators 16 tall. | P5 |
+| E7 | M | `folder_overflow_menu.dart:66-70,170-175` | CONFIRMED | Move-history badge is a red M3 `Badge` on the leading icon; mock: 18 px primary pill, trailing. | P5 |
+| E8 | M | `note_search_bar.dart`, `note_search_metrics.dart` | CONFIRMED | Find bar 64 dp pill field + 48 dp counter cap + 24 px icons in 48 targets; mock 48 dp flat bar, 15 px text, 12 px count pill, 20 px icons in 40×44, 1 px bottom line. | P5 |
+| E9 | M | `modern_editor_wrapper.dart:780-782` | CONFIRMED | Caret line `primary@0.10` (purple wash); mock `surfaceContainerLow`. | P5 |
+| E10 | M | `modern_editor_wrapper.dart:772-784`, fork `code_editor.dart:584-586` | CONFIRMED | Find hit falls back to `primary@0.4`; mock `primaryContainer` radius 3. | P5 |
+| E11 | M | `markdown_constants.dart:34-52`, `markdown_editor_span_builder.dart:495-499` | CONFIRMED | h1 32 px bold / h2 24 px bold; mock 22/500 and 18/500. | P5 |
+| E12 | L | `markdown_constants.dart:25`, editor page `:1857`, wrapper `:803-808` | CONFIRMED | Body inset applied twice (32 left / 48 right); line height 1.5. | P5 |
+| E13 | M | `unified_app_bars.dart:165-167` | CONFIRMED | Editor bar on `surface`, mock on the page ground one tone under the body. | P1 |
+| E14 | M | all bars | CONFIRMED | Three toolbar heights (48 mock / 56 editor / 64 browser collapsed). | P1 |
+| E16 | L | `note_editor_chrome.dart:53-62` | CONFIRMED | Stats strip unfixed height, unclamped text scale, non-tabular digits. | P5 |
+| E17/E18 | L | `unified_app_bars.dart:225-272,307-318` | PLAUSIBLE | Save dot 6.7 dp via `Icons.circle`; indicator width flips 8↔14 and reflows the title. | P1 |
+| E19 | L | `app_colors.dart:69` | CONFIRMED | Light `rowDivider` `#E6E0E9` vs mock `#E7E0EC`. Accepted — the only scheme-level mismatch. | recorded |
+| E20 | L | `markdown_color_syntax.dart:211-255` | PLAUSIBLE | Contrast guard references `#FFFFFF`/`#121212`, not the real surfaces (−3 % on the floor). | P5 |
+| E21 | L | `main.dart:304-305` | CONFIRMED | `ThemeData` rebuilt on every settings emission. | P5 |
+| E23 | L | editor page `:1280-1287` vs `note_search_bar.dart:191-198` | CONFIRMED | Two different close paths for the find bar. | P5 |
+| E24 | L | editor page `:2189-2194` | CONFIRMED | *Open folder* can `pushReplacement` and persist an empty folder title. | P4 |
+| E26 | L | `app_colors.dart:14-44` | CONFIRMED | Dead off-palette members (`noteIcon`, `fabForeground`, `folderIconStatic` amber…). | P2 |
+| F1 | H | `packages/re_editor/lib/src/_code_editable.dart:375-399` | CONFIRMED (device + harness) | Typing "bench" into a note containing "belt" leaves "be" of "belt" painted with the counter at 0. Not the hit highlight (that clears): `_onCodeFindChanged` sets `controller.selection = currentMatch` for every match and returns early when a settled search has none, so the last match stays selected in `primary@0.3`, indistinguishable from a hit. Same after the field's X and after closing the bar. Fix: remember the selection the handler applied and collapse it to the match start when `currentMatchSelection == null && !value.searching && controller.selection == applied`. | P5 |
+| S-c | M | `folder_row.dart:175,225,229`, `note_row.dart:237,285,289`, browser `:1709`, `selection_action_bar.dart:28-29` | CONFIRMED | Raw `Colors.red`/`Colors.grey`; selection bar on `surfaceContainerHigh` with elevation 4. | P2 |
+| S-e | M | ARB `deleteSelectedConfirm`, `importedSummary`, `deleteFolderWithNotesConfirm`, `noteStats`, `lineCount` | CONFIRMED | `{count}` placeholders with no ICU plural ("1 chunks", "1 lines", "Delete 1 selected items?"). | P6 |
+| S-d | — | `lib/pages`, `lib/widgets`, `lib/controllers` | CLEARED | No `unfocus`/`requestFocus` left in any `didChangeDependencies`; find bar and `AppDialogs.textInput` are not exposed to the 2026-09-07 class. |
+
+**Cleared by trace** (not bugs): the "8 px jump" — `offset' = offset − (expandedHeight − barHeight)` holds at every scroll offset, the 64 never enters; `RefreshIndicator.edgeOffset` already follows `expandedHeight`; the pair is absent in search and selection; `SliverAppBar.large`'s double `title` is a bare `Text`; reorder clamp; counts after bulk delete/move (debounced + generation-guarded); one truthful `PopScope` on each page; `popToAncestor` symmetry; the launch-race seal; deleted-folder/note truncation on restore; grouped results list a title+body match once; the search spinner always terminates; the AllNotes path walk is deduplicated and cached, not batched (doc wording).
+
+**Parity table** — every mock metric against the tree, with the slice
+that moves it or the decision that keeps it.
+
+| screen · element | current | target | slice / decision |
+| --- | --- | --- | --- |
+| all bars · toolbar | 56 editor, 64 browser collapsed, 56 selection/search/settings | 48 | P1 |
+| browser · expanded bar | 172 | 116 nested (48+22+32+14), 102 root (48+8+32+14) | P1 |
+| browser · band toolbar→eyebrow | 26 dp (48 at root) | 0 | P1 |
+| browser · large title | headlineMedium 28/400, bottom 24 | 28/500, line 1.15, bottom 14, top 8 at root | P1 |
+| browser · eyebrow | labelLarge 14 | 13 px in a 22 px line | P1 |
+| browser · collapsed title | 22/700 | 17/500 | P1 |
+| leading pair | 100 reserved / 85 drawn / 40 halves / alpha divider | 87 = 2 + 42 + 1 + 42, `outlineVariant` | P1 |
+| bar glyphs | filled 24 | outline 22 (`menu`, `search`, `more_vert`, `arrow_back` via `iconSize`) | P1 (D16) |
+| editor bar · title / ground / dot | 22/700, `surface`, 6.7 dp | 17/500, `pageGround`, 8 dp in a fixed 14 dp slot | P1 |
+| search field | 18 px, hint `onSurface@0.6` | 17 px, hint `outline` | P1 |
+| list · side inset / radius | 16 / 14 | 16 / 14 | ✓ |
+| list · gap between groups | 12 + 16 + 8 | 18, label 6 below | P2 |
+| section label | 11/600, spacing 0.8 | 11/500, spacing 0.88, inset 20 (16 + the label's own 4) | P2 |
+| folder row | ListTile 72, filled glyph 24, name w600, "n notes" subtitle, `⋮` | min 48, `folder_outlined` 22 primary, name 15/400, trailing count 14 `outline` tabular + `chevron_right` 18 `outline`, no `⋮`, divider from 52 | P2 (D14–D16) |
+| smart rows | 56, filled glyphs, "14 notes", no chevron | 48, `description_outlined`/`schedule_outlined` 22, bare count + chevron on both | P2 |
+| note row | leading icon, w600, 12 px uniform second line, `⋮`, divider 68, 72/88 tall | no icon, 15/500, 13 px date 500 `onSurface` + " · " + preview `onSurfaceVariant`, no `⋮`, divider 16, min 62 (All notes keeps the reserved path lane — D9) | P2 |
+| note row · date | time / MMMd / yMMMd | Today / Yesterday / weekday / d MMM / d MMM y | P2 (C9) |
+| note row · preview text | raw markers, all lines joined | marker-stripped text (all lines, so quick search keeps its reach), first meaningful line first | P6 (C7) |
+| note row · ledger figures | plain | mono `tertiary` | deferred (P12) |
+| bottom bar | 56, neutral 24 icons, 12 px count | 52 + inset, primary outline 22 icons, 13 px count | P2 |
+| selection action bar | `surfaceContainerHigh`, elevation 4 | `rowGroup`, 1 px top line, no elevation | P2 |
+| search idle rows | path only | "path · date", date 500 `onSurface` | P2 |
+| search result rows | leading icon, w600, 72 | no icon, 15/500, 62, divider 16 | P2 |
+| chips | 32 / r8 / secondaryContainer ✓, icons 18, border default | icons 16, border `outlineVariant` | P2 |
+| results labels | hidden when one group | hidden when one group | kept (Slice 4 rule) |
+| menus | 168–280 wide, rows 48, 14/500, trailing 12, icons default colour, separators 16 | 236, rows 44, 15/400, trailing 13, icons 20 `onSurfaceVariant`, separators 1 px + 6 margins, badge 18 px primary trailing | P5 |
+| ancestor menu | rows 48, 14 px, ~200 wide | rows 44, 15 px, 236 | P5 |
+| editor body | 16 px, 1.5, inset 32/48, h1 32/700, h2 24/700 | 16 px, 1.55, inset 20, h1 22/500, h2 18/500 | P5 (E11 decision above) |
+| caret line / find hit | `primary@0.1` / `primary@0.4` | `surfaceContainerLow` / `primaryContainer` r3 | P5 |
+| stats strip | ≈24, unclamped, proportional digits | 24, clamped, tabular | P5 |
+| toolbar | ~56, black shadow | 46, 1 px `outlineVariant` top line | P5 |
+| find bar | 64, pill field, 48 counter cap, 24 px icons | 48, flat, 15 px text, 12 px count pill r10 on `rowGroup`, 20 px icons in 40×44, 1 px bottom line | P5 |
+| palette tokens | all 15 roles match; light `rowDivider` off by one M3 tone | — | recorded (E19) |
+| drawer | gradient header, light-only shadow | unstyled in the mock | out of scope |
+
+**Slices** — Opus implementation agents, one per slice, in this order:
+P1 → P2 → {P3 ∥ P4} → {P5 ∥ P6}. Files overlap only across the arrows.
+Rules as in Slice 6: no code comments in new or edited code (existing
+`///` stays), strings via `AppLocalizations` with en/de/ro together and
+`flutter gen-l10n`, tests against real drift and never `FakeAsync`,
+`dart analyze lib` and the targeted suites before reporting, every
+parity change gets a widget test asserting the metric it moved, a bar
+height change updates `_compensateBarSwap` and its exact-pixel tests.
+
+- **P1 — Bars and the swap math.** `folder_sliver_app_bar.dart`,
+  `leading_nav_pair.dart`, `selection_app_bar.dart`,
+  `search_field_app_bar.dart`, `unified_app_bars.dart`, the swap
+  compensation in `optimized_folder_content_page.dart` and
+  `all_notes_page.dart`. Fixes A1, A2, A8, A9, A10/E1, A11/E15, A12, A13,
+  B16/E25, D-11 (opt-in `popResult` + `hasDrawer` fallback on
+  `SettingsAppBar`), E2, E3, E13, E14, E17/E18.
+- **P2 — Rows, groups, bottom bar, glyphs.** `content_rows.dart`,
+  `folder_row.dart`, `note_row.dart`, `search_surface.dart` (rows, chips,
+  idle date), `_SmartRow` + `_buildBottomBar` + row long-press in
+  `optimized_folder_content_page.dart`, `selection_action_bar.dart`,
+  `app_colors.dart`, ARB `yesterday`. Fixes C6, C9, E26, S-c and the
+  D14–D16 parity rows.
+- **P3 — Search and All notes correctness.** `infinite_scroll_list.dart`,
+  `folder_search_service.dart`, `search_surface.dart` (spinner),
+  `search_page.dart`, `search_bloc.dart`, `all_notes_page.dart`,
+  `optimized_note_bloc.dart`, `note_dao.dart`, the non-bar parts of
+  `optimized_folder_content_page.dart`. Fixes A3/B5/C1, A4/B15, A5, A6,
+  A7, A14, B1, B2, B3, B4, B6, B7, B8, B9, B10, B14, B17 (test), B18/B20,
+  B21, B22, B23, C3, C12.
+- **P4 — Navigation and drawer.** `app_drawer.dart`, the four D-3 pages,
+  the six D-4 pages, `app_navigator.dart`,
+  `navigation_history_service.dart`, `drawer_host_registry.dart`, new
+  `test/services/app_navigator_restore_test.dart`. Fixes D-1, D-3, D-4,
+  D-6, D-7, D-8 (test), D-9, D-12, D-13, E24.
+- **P5 — Editor chrome, menus, find bar.** `optimized_note_editor_page.dart`,
+  `note_search_bar.dart`, `note_search_metrics.dart`,
+  `note_editor_chrome.dart`, `markdown_bar.dart`,
+  `modern_editor_wrapper.dart`, `note_overflow_menu.dart`,
+  `folder_overflow_menu.dart`, the ancestor menu in
+  `folder_sliver_app_bar.dart`, `app_theme.dart`, `markdown_constants.dart`,
+  `markdown_color_syntax.dart`, the fork's highlight painter if F1 lives
+  there. Fixes D-2, E4, E5, E6/E22, E7, E8, E9, E10, E11, E12, E16, E20,
+  E21, E23, F1.
+- **P6 — Preview generation, backup, plurals.** New
+  `lib/utils/markdown_plain_text.dart`, `note_metadata.dart`,
+  `backup_service.dart`, `folder_dao.dart` (C8 depth guard), ARB plural
+  fixes. Fixes C4/C5, C7, C8, S-e. Lazy recompute: existing rows keep
+  their old preview until their next save; no migration, no
+  `archiveVersion` bump.
+
+### 7.2 Delivered (2026-09-07)
+
+Six Opus implementation slices (P1–P6, §7.1) plus three late fixes found
+in the after-pass, all uncommitted on `674bd73`. `dart analyze lib test`
+clean; the fork carries only its two pre-existing `avoid_print` infos.
+Full suite: **4,123 → 4,305 passed, 7 skipped** (final run after the three
+late fixes below). After-shots in the session scratchpad `after/`, same
+names as the baselines, plus `13_editor_drawer` and the tint studies.
+
+**What moved, by screen (all now at the mock's values):**
+
+- Every bar is 48 dp on `pageGround`; the pair is 87 dp with 42 dp
+  halves and an `outlineVariant` hairline; collapsed and editor titles
+  17/500 (the editor shows "Wednesday heavy squa…" where it showed
+  "Wednesday heav…"); bar glyphs 22. Expanded browser bar 116 nested /
+  102 root with the eyebrow's line starting at the toolbar's bottom —
+  the empty band is gone. Swap shift 68 / 54, exact inverse on the way
+  out, root smart rows and label kept inert through selection.
+- Rows: folder 48 with `folder_outlined`, count + chevron, no subtitle;
+  note 62 with no leading glyph and "Today · preview" in two spans; no
+  per-row `⋮` (long-press → sheet led by Select); dividers 52 / 16;
+  groups 18 apart; labels 11/500; smart rows 48 with chevrons; bottom bar
+  52 with primary outline glyphs and a 13 px count; selection bar the
+  same strip. Dates say Today / Yesterday / weekday.
+- Search: field 17 px with an `outline` hint, `TextInputAction.search`,
+  labelled clear button; idle rows "Folder · date"; result rows 62 with
+  no glyph; chips with 16 px icons and an explicit `outlineVariant`
+  border. Both hosts share `SearchBarField`.
+- Menus 236 wide, rows 44, 15/400 labels, 20 px `onSurfaceVariant`
+  glyphs, 13 px trailing text, 13 dp separators, the move-history count a
+  primary pill on the trailing edge. Ancestor menu the same.
+- Editor: find bar a flat 48 dp strip with a 12 px count pill and 20 px
+  icons in 40×44; stats strip a fixed 24 dp with tabular digits; toolbar
+  46 under a hairline (the black shadow is gone, so it is visible in
+  dark); body inset 20, line height 1.55, h1 22/500, h2 18/500 through
+  the shared constants; caret line `surfaceContainerLow`; find hits
+  `primaryContainer` with a 3 px radius.
+- Preview text: marker-stripped through `MarkdownPlainText.strip`, backup
+  restore included; the emulator's rows re-render as notes are re-saved.
+
+**Bugs fixed (§7.1 ids):** A1, A2/C2, A3/B5/C1, A4/B15, A5, A6, A7, A8,
+A9, A10/E1, A11/E15, A12/C10, A13, A14, B1, B2, B3, B4, B6, B7, B8, B9,
+B10, B14, B16/E25, B17 (pinned), B18/B20, B21 (partial — `SearchPage`'s
+folder scope stays, five tests use it), B22, C3, C4/C5, C6, C7, C8, C9,
+C12, D-1, D-2, D-3 (generically, in `SettingsAppBar`), D-4, D-6 (ten
+restore tests), D-7, D-8 (test + doc), D-9, D-11, D-12, D-13, E2, E3,
+E4, E5, E6/E22, E7, E8, E9, E10, E11, E12, E13, E14, E16, E17/E18, E20,
+E21, E23, E24, E26, F1 (fork), S-c, S-e. Two extra finds on the way:
+launch restore never truncated at a soft-deleted *folder*
+(`getFolderById` ignored the tombstone — `includeDeleted` parameter,
+default true, restore passes false), and `VocabularySuggestionBar` shared
+the toolbar's old shadow and padding and would have shifted the editor by
+10 dp on every swap — it now reads the same two `AppTheme` members.
+
+**Three late fixes from the after-pass:**
+
+- Search rows sat centred once their leading glyph went (a shrink-wrapped
+  `Column` under a centring parent) — `CrossAxisAlignment.stretch`, pinned
+  by the recent-row test's edge assertions.
+- **The D-2 exit latch stuck the editor** (found on the emulator: find bar
+  → overflow menu → drawer → Back → X → X → Back left the page unable to
+  leave by Back or by the arrow). With the drawer open the route holds a
+  local-history entry, but `PopScope(canPop: false)` outranks it in
+  `ModalRoute.popDisposition`, so the Back reaches the exit handler; its
+  `Navigator.pop` is then consumed by the drawer's entry, the page stays,
+  and the latch never released. The handler now closes the drawer itself
+  when `route.willHandlePopInternally`, and releases the latch whenever
+  the route is still current after its pop. Test: "Back with the drawer
+  open closes the drawer and leaves the page able to exit".
+- The editor's `_isExiting` doc records the trap.
+
+**Deviations kept, each with a decision behind it:** E19 (light
+`rowDivider` one M3 tone off `--m-div`); P12 (ledger figures in the row
+preview stay plain text); P28 (`AllNotesPage` has no bottom bar); B19
+(results lists keep `keyboardDismissBehavior: manual`); B11–B13 (search
+index perf — O(vocabulary) substring pass, per-save `removeNote` sweep,
+300/1000-row re-reads — recorded for a later session); the drawer figure
+(unstyled in the mock); `drawerEdgeDragWidth` left at the default; the
+0-match find counter keeps its `errorContainer` tint over the mock's
+`rowGroup` pill.
+
+**Light ground tint (owner note, end of session):** the emulator's ground
+is `#F3EDF7` and the groups `#FEF7FF` — the mock's `--m-ground` and
+`--m-group` to the byte (sampled off the after-shot). The whiter feel is
+the group cards covering most of a phone screen and the desktop monitor
+rendering the mock, not a token gap. Two simulated deeper grounds
+(`surfaceContainerHigh` `#ECE6F0`, and a mid `#EFE8F5`) are in the
+scratchpad as `tint_root_*.png` for the owner to compare; the tree stays
+on the mock token until they pick one — a one-line change in
+`SurfaceRoles.pageGround` (light) plus the two palette tests.

@@ -1,4 +1,4 @@
-import 'dart:ui' show Color;
+import 'dart:ui' show Color, FontWeight;
 
 import 'package:flutter/material.dart' show IconData, Icons;
 
@@ -22,7 +22,7 @@ class MarkdownConstants {
 
   // Layout
   /// Default line height multiplier for text
-  static const double lineHeight = 1.5;
+  static const double lineHeight = 1.55;
 
   /// Cache extent for virtualized ListView
   static const int cacheExtent = 500;
@@ -31,18 +31,25 @@ class MarkdownConstants {
   static const double itemExtent = 32.0;
 
   // Heading scale factors
-  static const double h1Scale = 2.0;
-  static const double h2Scale = 1.5;
-  static const double h3Scale = 1.25;
-  static const double h4Scale = 1.125;
+  //
+  // Set against the 16 px body: h1 22, h2 18, h3 17, h4 and below at the
+  // base size. Both surfaces read these, so preview and live editor cannot
+  // size a heading differently.
+  static const double h1Scale = 1.375;
+  static const double h2Scale = 1.125;
+  static const double h3Scale = 1.0625;
+  static const double h4Scale = 1.0;
   static const double h5Scale = 1.0;
-  static const double h6Scale = 0.875;
+  static const double h6Scale = 1.0;
 
-  /// Heading scale in the live editor. H1–H4 share the preview's
-  /// factors; H5/H6 deliberately stay at the base size — a line shorter
-  /// than the editor's base line height buys nothing there, so those two
-  /// levels distinguish themselves by colour instead (see the span
-  /// builder's header branch).
+  /// The weight every heading renders at, on both surfaces. Bold at these
+  /// scales reads as a shout; the mock draws medium.
+  static const FontWeight headingWeight = FontWeight.w500;
+
+  /// Heading scale in the live editor — the same factors the preview
+  /// reads, so the two surfaces size a heading identically. H4 and below
+  /// sit at the base size and distinguish themselves by colour instead
+  /// (see the span builder's header branch).
   static double editorHeaderScale(int level) => switch (level) {
     1 => h1Scale,
     2 => h2Scale,

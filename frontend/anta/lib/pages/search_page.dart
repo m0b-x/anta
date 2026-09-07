@@ -6,6 +6,7 @@ import '../bloc/search/search_bloc.dart';
 import '../constants/app_colors.dart';
 import '../l10n/app_localizations.dart';
 import '../models/search_scope.dart';
+import '../services/app_navigator.dart';
 import '../services/folder_search_service.dart';
 import '../services/folder_storage_service.dart';
 import '../services/note_storage_service.dart';
@@ -73,7 +74,7 @@ class _SearchView extends StatefulWidget {
   State<_SearchView> createState() => _SearchViewState();
 }
 
-class _SearchViewState extends State<_SearchView> {
+class _SearchViewState extends State<_SearchView> with RouteAware {
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _focusNode = FocusNode();
 
@@ -90,7 +91,45 @@ class _SearchViewState extends State<_SearchView> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute) {
+      AppNavigator.routeObserver.subscribe(this, route);
+    }
+  }
+
+  /// A route regaining focus hands it back to the child that had it, and a
+  /// field regaining focus reopens the keyboard over the results the user
+  /// came back to. Letting go on the way out leaves the query and the hits
+  /// standing with the keyboard down.
+  @override
+  void didPushNext() {
+    _focusNode.unfocus();
+  }
+
+  /// A note opened from a hit can come back renamed, re-tagged or deleted, so
+  /// whichever pass is on screen runs again rather than repainting the
+  /// snapshot the push was made from.
+  @override
+  void didPopNext() {
+    if (!mounted) return;
+    final bloc = context.read<SearchBloc>();
+    final state = bloc.state;
+    if (state.query.trim().isEmpty) {
+      bloc.add(SearchOpened(scope: state.scope));
+      return;
+    }
+    if (state.phase == SearchPhase.full) {
+      bloc.add(SearchSubmitted(state.query));
+      return;
+    }
+    bloc.add(SearchQueryChanged(state.query));
+  }
+
+  @override
   void dispose() {
+    AppNavigator.routeObserver.unsubscribe(this);
     _searchController.dispose();
     _focusNode.dispose();
     super.dispose();

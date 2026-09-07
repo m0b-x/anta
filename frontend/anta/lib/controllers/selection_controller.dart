@@ -43,6 +43,20 @@ class SelectionController {
     _emit();
   }
 
+  /// Select everything in [refs] with a single notification. "Select all" ran
+  /// [add] per row, so a page of forty rebuilt itself forty times for one tap.
+  void addAll(Iterable<MovableItemRef> refs) {
+    var added = false;
+    for (final ref in refs) {
+      if (_selected.containsKey(ref)) continue;
+      _selected[ref] = ref;
+      added = true;
+    }
+    if (!added && _modeActive) return;
+    _modeActive = true;
+    _emit();
+  }
+
   /// Enter selection mode with nothing selected yet. Use this for the menu
   /// row that starts a selection the user has not long-pressed into.
   void activate() {

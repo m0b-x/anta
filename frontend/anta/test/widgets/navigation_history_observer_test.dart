@@ -107,7 +107,9 @@ void main() {
   testWidgets('popping back to the root empties the stack', (tester) async {
     await pumpApp(tester);
 
-    navigatorKey.currentState!.push(pageRoute('calendar', destination: calendar));
+    navigatorKey.currentState!.push(
+      pageRoute('calendar', destination: calendar),
+    );
     await tester.pumpAndSettle();
 
     navigatorKey.currentState!.pop();
@@ -121,14 +123,34 @@ void main() {
 
     navigatorKey.currentState!.push(pageRoute('folder', destination: folder));
     navigatorKey.currentState!.push(pageRoute('shortcut editor'));
-    navigatorKey.currentState!.push(pageRoute('calendar', destination: calendar));
+    navigatorKey.currentState!.push(
+      pageRoute('calendar', destination: calendar),
+    );
     await tester.pumpAndSettle();
 
     expect(history.stack, [folder]);
   });
 
-  testWidgets('recording resumes once the unstamped page is gone',
-      (tester) async {
+  /// A brand-new note has no id yet, so `AppNavigator.toNoteEditor` stamps
+  /// nothing: there is no destination that could rebuild it. The consequence
+  /// is deliberate and worth pinning — killed mid-draft, the app comes back to
+  /// the folder rather than to a blank editor, and the draft itself is the
+  /// auto-save's business, not this stack's.
+  testWidgets('an unstamped new-note route stops recording above the folder', (
+    tester,
+  ) async {
+    await pumpApp(tester);
+
+    navigatorKey.currentState!.push(pageRoute('folder', destination: folder));
+    navigatorKey.currentState!.push(pageRoute('new note'));
+    await tester.pumpAndSettle();
+
+    expect(history.stack, [folder]);
+  });
+
+  testWidgets('recording resumes once the unstamped page is gone', (
+    tester,
+  ) async {
     await pumpApp(tester);
 
     navigatorKey.currentState!.push(pageRoute('folder', destination: folder));
@@ -137,7 +159,9 @@ void main() {
 
     navigatorKey.currentState!.pop();
     await tester.pumpAndSettle();
-    navigatorKey.currentState!.push(pageRoute('calendar', destination: calendar));
+    navigatorKey.currentState!.push(
+      pageRoute('calendar', destination: calendar),
+    );
     await tester.pumpAndSettle();
 
     expect(history.stack, [folder, calendar]);
@@ -161,7 +185,9 @@ void main() {
   testWidgets('a modal bottom sheet leaves the stack alone', (tester) async {
     await pumpApp(tester);
 
-    navigatorKey.currentState!.push(pageRoute('calendar', destination: calendar));
+    navigatorKey.currentState!.push(
+      pageRoute('calendar', destination: calendar),
+    );
     await tester.pumpAndSettle();
 
     showModalBottomSheet<void>(
@@ -173,7 +199,9 @@ void main() {
     expect(history.stack, [calendar]);
   });
 
-  testWidgets('a replacement takes the replaced route\'s place', (tester) async {
+  testWidgets('a replacement takes the replaced route\'s place', (
+    tester,
+  ) async {
     await pumpApp(tester);
 
     navigatorKey.currentState!.push(pageRoute('folder', destination: folder));

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../constants/app_bar_metrics.dart';
 import '../constants/app_colors.dart';
 import '../controllers/in_place_search_controller.dart';
 import '../l10n/app_localizations.dart';
@@ -40,47 +41,33 @@ class SearchFieldAppBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
     final colorScheme = Theme.of(context).colorScheme;
     final scope = folderScope;
 
     return SliverAppBar(
       pinned: true,
       automaticallyImplyLeading: false,
+      toolbarHeight: AppBarMetrics.toolbarHeight,
       backgroundColor: colorScheme.pageGround,
       surfaceTintColor: Colors.transparent,
       scrolledUnderElevation: 0,
       leading: IconButton(
         icon: const BackButtonIcon(),
+        iconSize: AppBarMetrics.glyphSize,
         tooltip: MaterialLocalizations.of(context).backButtonTooltip,
         onPressed: onLeave,
       ),
-      title: TextField(
+      title: SearchBarField(
         controller: search.textController,
         focusNode: search.focusNode,
-        textInputAction: TextInputAction.search,
-        decoration: InputDecoration(
-          hintText: hintText,
-          border: InputBorder.none,
-          hintStyle: TextStyle(
-            color: colorScheme.onSurface.withValues(alpha: 0.6),
-          ),
-        ),
-        style: const TextStyle(fontSize: 18),
+        hintText: hintText,
         onChanged: search.onChanged,
         onSubmitted: search.onSubmitted,
       ),
       actions: [
-        ValueListenableBuilder<TextEditingValue>(
-          valueListenable: search.textController,
-          builder: (context, value, _) {
-            if (value.text.isEmpty) return const SizedBox.shrink();
-            return IconButton(
-              icon: const Icon(Icons.clear),
-              tooltip: l10n.clearSearch,
-              onPressed: search.clearQuery,
-            );
-          },
+        SearchBarClearAction(
+          controller: search.textController,
+          onClear: search.clearQuery,
         ),
       ],
       bottom: scope == null
@@ -94,6 +81,84 @@ class SearchFieldAppBar extends StatelessWidget {
                 selected: selectedScope,
               ),
             ),
+    );
+  }
+}
+
+/// The query field both search bars wear: the in-place one on the browser and
+/// the note lists, and the standalone search page's.
+///
+/// One widget rather than two look-alikes, because the two used to drift —
+/// different sizes, different hint colours, one of them without a submit
+/// action.
+class SearchBarField extends StatelessWidget {
+  const SearchBarField({
+    super.key,
+    required this.controller,
+    required this.hintText,
+    this.focusNode,
+    this.onChanged,
+    this.onSubmitted,
+  });
+
+  final TextEditingController controller;
+  final String hintText;
+  final FocusNode? focusNode;
+  final ValueChanged<String>? onChanged;
+  final ValueChanged<String>? onSubmitted;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return TextField(
+      controller: controller,
+      focusNode: focusNode,
+      textInputAction: TextInputAction.search,
+      decoration: InputDecoration(
+        hintText: hintText,
+        border: InputBorder.none,
+        isDense: true,
+        contentPadding: EdgeInsets.zero,
+        hintStyle: TextStyle(
+          color: colorScheme.outline,
+          fontSize: AppBarMetrics.titleFontSize,
+        ),
+      ),
+      style: const TextStyle(fontSize: AppBarMetrics.titleFontSize),
+      onChanged: onChanged,
+      onSubmitted: onSubmitted,
+    );
+  }
+}
+
+/// The clear button that appears once the field has something in it.
+///
+/// It listens to the controller itself, so a keystroke rebuilds one icon
+/// rather than the whole bar.
+class SearchBarClearAction extends StatelessWidget {
+  const SearchBarClearAction({
+    super.key,
+    required this.controller,
+    required this.onClear,
+  });
+
+  final TextEditingController controller;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: controller,
+      builder: (context, value, _) {
+        if (value.text.isEmpty) return const SizedBox.shrink();
+        return IconButton(
+          icon: const Icon(Icons.clear),
+          iconSize: AppBarMetrics.glyphSize,
+          tooltip: l10n.clearSearch,
+          onPressed: onClear,
+        );
+      },
     );
   }
 }

@@ -1652,7 +1652,13 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String deleteFolderWithNotesConfirm(String name, int count) {
-    return 'Are you sure you want to delete \"$name\"? This will also delete $count note(s).';
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'This will also delete $count notes.',
+      one: 'This will also delete 1 note.',
+    );
+    return 'Are you sure you want to delete \"$name\"? $_temp0';
   }
 
   @override
@@ -1989,7 +1995,19 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String noteStats(int count, int chunks) {
-    return '$count distinct characters, $chunks chunks';
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count distinct characters',
+      one: '1 distinct character',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      chunks,
+      locale: localeName,
+      other: '$chunks chunks',
+      one: '1 chunk',
+    );
+    return '$_temp0, $_temp1';
   }
 
   @override
@@ -2015,6 +2033,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get allNotes => 'All notes';
+
+  @override
+  String get today => 'Today';
+
+  @override
+  String get yesterday => 'Yesterday';
 
   @override
   String get titlesSection => 'Titles';
@@ -2065,7 +2089,13 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String lineCount(int count) {
-    return '$count lines';
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count lines',
+      one: '1 line',
+    );
+    return '$_temp0';
   }
 
   @override
@@ -2386,7 +2416,19 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String importedSummary(int folders, int notes) {
-    return 'Imported $folders folders, $notes notes';
+    String _temp0 = intl.Intl.pluralLogic(
+      folders,
+      locale: localeName,
+      other: 'Imported $folders folders',
+      one: 'Imported 1 folder',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      notes,
+      locale: localeName,
+      other: '$notes notes',
+      one: '1 note',
+    );
+    return '$_temp0, $_temp1';
   }
 
   @override
@@ -3758,7 +3800,13 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String deleteSelectedConfirm(int count) {
-    return 'Delete $count selected items? This cannot be undone.';
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Delete $count selected items? This cannot be undone.',
+      one: 'Delete 1 selected item? This cannot be undone.',
+    );
+    return '$_temp0';
   }
 
   @override

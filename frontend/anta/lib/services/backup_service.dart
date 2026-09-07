@@ -7,6 +7,7 @@ import '../database/database.dart';
 import '../database/database_lifecycle.dart';
 import '../constants/json_keys.dart';
 import '../constants/settings_keys.dart';
+import '../models/note_metadata.dart';
 import 'calendar_event_service.dart';
 import 'event_occurrence_service.dart';
 import 'event_presence_service.dart';
@@ -309,9 +310,7 @@ class BackupService {
       for (final noteData in notes) {
         final map = noteData as Map<String, dynamic>;
         final content = map[JsonKeys.content] as String? ?? '';
-        final preview = content.length > 200
-            ? content.substring(0, 200)
-            : content;
+        final preview = NoteMetadata.generatePreview(content);
 
         final note = await _db.noteDao.createNote(
           folderId: map[JsonKeys.folderId] as String,

@@ -7,7 +7,7 @@ import '../bloc/import_export/import_export_event.dart';
 import '../bloc/optimized_folder/optimized_folder_bloc.dart';
 import '../bloc/optimized_folder/optimized_folder_event.dart';
 import '../constants/app_colors.dart';
-import '../constants/folder_card_action.dart';
+import '../constants/row_metrics.dart';
 import '../controllers/selection_controller.dart';
 import '../l10n/app_localizations.dart';
 import '../models/folder.dart';
@@ -24,7 +24,8 @@ import 'content_rows.dart';
 /// The count is handed in rather than fetched: a page of rows used to issue
 /// two queries each, and the page now reads every row's descendant-inclusive
 /// note count in a single statement. A null [noteCount] means "not answered
-/// yet" and draws no second line.
+/// yet" and draws nothing — the trailing slot keeps its width either way, so
+/// a late answer moves neither the name beside it nor the rows below.
 class FolderRow extends StatelessWidget {
   final Folder folder;
   final String? parentId;
@@ -69,35 +70,16 @@ class FolderRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
     final isSelecting = selection != null && selection!.isActive;
     final isSelected = selection != null && selection!.contains(_ref);
     final colorScheme = Theme.of(context).colorScheme;
-    final count = noteCount;
 
     Widget buildRow({bool isDropTarget = false}) => ContentRowShell(
       position: groupPosition,
       isSelected: isSelected,
       isDropTarget: isDropTarget,
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-        leading: isSelected
-            ? Icon(Icons.check_circle, color: colorScheme.primary)
-            : Icon(Icons.folder_rounded, color: AppColors.folderIcon(context)),
-        title: Text(
-          folder.name,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
-        ),
-        subtitle: Text(
-                count == null ? ' ' : l10n.noteCountLabel(count),
-                style: TextStyle(
-                  fontSize: 12,
-                  color: colorScheme.onSurfaceVariant,
-                ),
-              ),
-        trailing: _buildTrailing(context, isSelecting),
+      dividerIndent: RowMetrics.dividerIndentWithGlyph,
+      child: InkWell(
         onTap: isSelecting
             ? () => onTapInSelection?.call(_ref)
             : () {
@@ -112,12 +94,48 @@ class FolderRow extends StatelessWidget {
         onLongPress: () {
           if (isSelecting) {
             onTapInSelection?.call(_ref);
-          } else if (onLongPressItem != null) {
-            onLongPressItem!(_ref);
           } else {
-            _showRenameDialog(context);
+            _showActionSheet(context);
           }
         },
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            minHeight: RowMetrics.singleLineMinHeight,
+          ),
+          child: Padding(
+            padding: RowMetrics.singleLinePadding,
+            child: Row(
+              children: [
+                isSelected
+                    ? Icon(
+                        Icons.check_circle,
+                        size: RowMetrics.glyphSize,
+                        color: colorScheme.primary,
+                      )
+                    : Icon(
+                        Icons.folder_outlined,
+                        size: RowMetrics.glyphSize,
+                        color: AppColors.folderIcon(context),
+                      ),
+                const SizedBox(width: RowMetrics.gap),
+                Expanded(
+                  child: Text(
+                    folder.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: RowMetrics.titleFontSize,
+                      fontWeight: FontWeight.w400,
+                      color: colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: RowMetrics.gap),
+                _buildTrailing(context),
+              ],
+            ),
+          ),
+        ),
       ),
     );
 
@@ -166,67 +184,62 @@ class FolderRow extends StatelessWidget {
     return result;
   }
 
-  Widget? _buildTrailing(BuildContext context, bool isSelecting) {
+  Widget _buildTrailing(BuildContext context) {
     if (isReorderMode) {
       return ReorderableDragStartListener(
         index: index ?? 0,
-        child: const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 4),
-          child: Icon(Icons.drag_handle, color: Colors.grey),
+        child: Icon(
+          Icons.drag_handle,
+          size: RowMetrics.glyphSize,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
         ),
       );
     }
-    if (isSelecting) return null;
-    final l10n = AppLocalizations.of(context)!;
-    return PopupMenuButton<FolderCardAction>(
-      icon: const Icon(Icons.more_vert),
-      onSelected: (value) {
-        switch (value) {
-          case FolderCardAction.rename:
-            _showRenameDialog(context);
-          case FolderCardAction.move:
-            MoveCoordinator.moveFolder(
-              context,
-              folder: folder,
-              currentParentId: parentId,
-            );
-          case FolderCardAction.share:
-            context.read<ImportExportBloc>().add(
-              ExportFolderRequested(folderId: folder.id, share: true),
-            );
-          case FolderCardAction.delete:
-            _confirmDelete(context);
-        }
-      },
-      itemBuilder: (context) => [
-        PopupMenuItem(
-          value: FolderCardAction.rename,
-          child: _menuRow(Icons.edit, l10n.rename),
-        ),
-        PopupMenuItem(
-          value: FolderCardAction.move,
-          child: _menuRow(Icons.drive_file_move_outlined, l10n.moveToFolder),
-        ),
-        PopupMenuItem(
-          value: FolderCardAction.share,
-          child: _menuRow(Icons.share_rounded, l10n.shareFolder),
-        ),
-        PopupMenuItem(
-          value: FolderCardAction.delete,
-          child: _menuRow(Icons.delete, l10n.delete, isDestructive: true),
-        ),
-      ],
-    );
+    return RowCountChevron(count: noteCount);
   }
 
-  Widget _menuRow(IconData icon, String label, {bool isDestructive = false}) {
-    return Row(
-      children: [
-        Icon(icon, size: 20, color: isDestructive ? Colors.red : null),
-        const SizedBox(width: 12),
-        Text(
-          label,
-          style: isDestructive ? const TextStyle(color: Colors.red) : null,
+  /// The rename / move / share / delete sheet a long-press raises, with
+  /// *Select* at the top where the page offers a selection mode — the row's
+  /// own menu button is gone, so this is the only way into either.
+  void _showActionSheet(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final enterSelection = onLongPressItem;
+    showRowActionSheet(
+      context,
+      title: folder.name,
+      actions: [
+        if (enterSelection != null)
+          RowAction(
+            icon: Icons.check_circle_outline,
+            label: l10n.select,
+            onSelected: () => enterSelection(_ref),
+          ),
+        RowAction(
+          icon: Icons.edit_rounded,
+          label: l10n.rename,
+          onSelected: () => _showRenameDialog(context),
+        ),
+        RowAction(
+          icon: Icons.drive_file_move_outlined,
+          label: l10n.moveToFolder,
+          onSelected: () => MoveCoordinator.moveFolder(
+            context,
+            folder: folder,
+            currentParentId: parentId,
+          ),
+        ),
+        RowAction(
+          icon: Icons.share_rounded,
+          label: l10n.shareFolder,
+          onSelected: () => context.read<ImportExportBloc>().add(
+            ExportFolderRequested(folderId: folder.id, share: true),
+          ),
+        ),
+        RowAction(
+          icon: Icons.delete_rounded,
+          label: l10n.delete,
+          isDestructive: true,
+          onSelected: () => _confirmDelete(context),
         ),
       ],
     );

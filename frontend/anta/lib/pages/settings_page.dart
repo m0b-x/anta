@@ -162,7 +162,8 @@ class _SettingsPageState extends State<SettingsPage> {
 
     return Scaffold(
       drawer: const AppDrawer(),
-      appBar: SettingsAppBar(title: l10n.appSettings),
+      drawerEnableOpenDragGesture: _folderSwipeEnabled,
+      appBar: SettingsAppBar(title: l10n.appSettings, popsToDrawer: true),
       body: SafeArea(
         top: false,
         child: _isLoading

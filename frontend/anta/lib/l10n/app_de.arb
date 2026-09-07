@@ -550,7 +550,7 @@
       }
     }
   },
-  "deleteFolderWithNotesConfirm": "Möchten Sie \"{name}\" wirklich löschen? Dies löscht auch {count} Notiz(en).",
+  "deleteFolderWithNotesConfirm": "Möchten Sie \"{name}\" wirklich löschen? {count, plural, =1{Dies löscht auch 1 Notiz.} other{Dies löscht auch {count} Notizen.}}",
   "@deleteFolderWithNotesConfirm": {
     "description": "Delete folder confirmation message when folder contains notes",
     "placeholders": {
@@ -1017,7 +1017,7 @@
   "@largeNoteWarning": {
     "description": "Warnung für große Notizen"
   },
-  "noteStats": "{count} Zeichen, {chunks} Teile",
+  "noteStats": "{count, plural, =1{1 Zeichen} other{{count} Zeichen}}, {chunks, plural, =1{1 Teil} other{{chunks} Teile}}",
   "@noteStats": {
     "description": "Notizstatistiken",
     "placeholders": {
@@ -1049,6 +1049,8 @@
   "thisFolder": "Dieser Ordner",
   "recent": "Zuletzt",
   "allNotes": "Alle Notizen",
+  "today": "Heute",
+  "yesterday": "Gestern",
   "titlesSection": "Titel",
   "inTextSection": "Im Text",
   "clearSearchHistory": "Suchverlauf löschen",
@@ -1108,7 +1110,7 @@
   "@virtualScrollEnabled": {
     "description": "Info über virtuelles Scrollen"
   },
-  "lineCount": "{count} Zeilen",
+  "lineCount": "{count, plural, =1{1 Zeile} other{{count} Zeilen}}",
   "@lineCount": {
     "description": "Anzahl der Zeilen in Notiz",
     "placeholders": {
@@ -1500,7 +1502,7 @@
   "@importNoteOrFolder": {
     "description": "Menu entry to import a note file or folder archive"
   },
-  "importedSummary": "{folders} Ordner und {notes} Notizen importiert",
+  "importedSummary": "{folders, plural, =1{1 Ordner} other{{folders} Ordner}} und {notes, plural, =1{1 Notiz} other{{notes} Notizen}} importiert",
   "@importedSummary": {
     "description": "Snackbar after a successful import",
     "placeholders": {
@@ -2241,7 +2243,7 @@
   "itemsMoved": "{count} Elemente verschoben",
   "moveSelected": "Verschieben",
   "deleteSelected": "Löschen",
-  "deleteSelectedConfirm": "{count} ausgewählte Elemente löschen? Dies kann nicht rückgängig gemacht werden.",
+  "deleteSelectedConfirm": "{count, plural, =1{1 ausgewähltes Element löschen? Dies kann nicht rückgängig gemacht werden.} other{{count} ausgewählte Elemente löschen? Dies kann nicht rückgängig gemacht werden.}}",
   "selectAll": "Alle auswählen",
   "linkOpenFailed": "Link konnte nicht geöffnet werden",
   "linkSchemeNotAllowed": "Linktyp nicht unterstützt",

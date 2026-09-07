@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 
 import '../constants/app_icon_sizes.dart';
 import '../constants/app_spacing.dart';
+import '../constants/app_colors.dart';
+import '../constants/app_theme.dart';
 import '../constants/font_constants.dart';
 import '../constants/note_search_metrics.dart';
 import '../l10n/app_localizations.dart';
@@ -30,7 +32,7 @@ class NoteSearchBar extends StatefulWidget {
   });
 
   @override
-  State<NoteSearchBar> createState() => _NoteSearchBarState();
+  State<NoteSearchBar> createState() => NoteSearchBarState();
 }
 
 class _CloseSearchIntent extends Intent {
@@ -45,7 +47,7 @@ class _PreviousMatchIntent extends Intent {
   const _PreviousMatchIntent();
 }
 
-class _NoteSearchBarState extends State<NoteSearchBar>
+class NoteSearchBarState extends State<NoteSearchBar>
     with SingleTickerProviderStateMixin {
   late final TextEditingController _searchController;
   late final TextEditingController _replaceController;
@@ -188,6 +190,10 @@ class _NoteSearchBarState extends State<NoteSearchBar>
     _navigateToCurrent();
   }
 
+  /// Leaves search the one way this bar knows how, so the app bar's own
+  /// toggle and the bar's trailing X take the same path out.
+  Future<void> close() => _close();
+
   Future<void> _close() async {
     _messageTimer?.cancel();
     _navigateTimer?.cancel();
@@ -263,8 +269,16 @@ class _NoteSearchBarState extends State<NoteSearchBar>
               curve: Curves.easeOutCubic,
             ),
           ),
-      child: Container(
-        color: colors.surfaceContainerHigh,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: colors.surfaceContainerHigh,
+          border: Border(
+            bottom: BorderSide(
+              color: colors.outlineVariant,
+              width: NoteSearchMetrics.barBorderWidth,
+            ),
+          ),
+        ),
         child: SafeArea(
           bottom: false,
           child: FocusTraversalGroup(
@@ -318,13 +332,8 @@ class _NoteSearchBarState extends State<NoteSearchBar>
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Padding(
-          padding: const EdgeInsetsDirectional.fromSTEB(
-            AppSpacing.xs,
-            AppSpacing.sm,
-            AppSpacing.xs,
-            AppSpacing.sm,
-          ),
+        SizedBox(
+          height: NoteSearchMetrics.barHeight,
           child: LayoutBuilder(
             builder: (context, constraints) {
               final compact =
@@ -332,53 +341,32 @@ class _NoteSearchBarState extends State<NoteSearchBar>
                   NoteSearchMetrics.compactWidthThreshold;
               final buttonWidth = compact
                   ? NoteSearchMetrics.iconButtonWidthCompact
-                  : NoteSearchMetrics.touchTarget;
+                  : NoteSearchMetrics.iconButtonWidth;
               return Row(
                 children: [
                   Expanded(
-                    child: _SearchField(
+                    child: _QueryField(
                       controller: _searchController,
                       focusNode: _searchFocus,
                       hint: l10n.findInNote,
-                      // The magnifier would cost a whole control's width on the
-                      // one row; the hint already names the surface.
-                      icon: null,
-                      compact: compact,
                       onChanged: _onSearch,
                       onSubmitted: (_) {
                         if (_search.hasMatches) _next();
                       },
-                      suffix: hasQuery
-                          ? Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                // Clear sits left of the counter so the chip
-                                // keeps capping the pill's trailing edge.
-                                _ClearFieldButton(
-                                  tooltip: l10n.clearSearch,
-                                  compact: compact,
-                                  onPressed: _clearQuery,
-                                ),
-                                _MatchCountChip(
-                                  currentIndex: _search.currentMatchIndex,
-                                  matchCount: _search.matchCount,
-                                  isSearchPending: _search.isSearchPending,
-                                  hasMatches: _search.hasMatches,
-                                  compact: compact,
-                                  onTap: _search.hasMatches
-                                      ? _openMatchList
-                                      : null,
-                                  onLongPress: _search.hasMatches
-                                      ? () =>
-                                            _openMatchList(focusJumpField: true)
-                                      : null,
-                                ),
-                              ],
+                      trailing: hasQuery
+                          ? _MatchCountChip(
+                              currentIndex: _search.currentMatchIndex,
+                              matchCount: _search.matchCount,
+                              isSearchPending: _search.isSearchPending,
+                              hasMatches: _search.hasMatches,
+                              onTap: _search.hasMatches ? _openMatchList : null,
+                              onLongPress: _search.hasMatches
+                                  ? () => _openMatchList(focusJumpField: true)
+                                  : null,
                             )
                           : null,
                     ),
                   ),
-                  const SizedBox(width: AppSpacing.xs),
                   // Always mounted, disabled while idle: mounting them with the
                   // first keystroke would reflow the whole trailing cluster.
                   _IconBtn(
@@ -476,7 +464,6 @@ class _MatchCountChip extends StatelessWidget {
   final int matchCount;
   final bool isSearchPending;
   final bool hasMatches;
-  final bool compact;
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
 
@@ -485,7 +472,6 @@ class _MatchCountChip extends StatelessWidget {
     required this.matchCount,
     required this.isSearchPending,
     required this.hasMatches,
-    required this.compact,
     this.onTap,
     this.onLongPress,
   });
@@ -498,8 +484,8 @@ class _MatchCountChip extends StatelessWidget {
     final Color background;
     final Color foreground;
     if (hasMatches) {
-      background = colors.secondaryContainer;
-      foreground = colors.onSecondaryContainer;
+      background = colors.rowGroup;
+      foreground = colors.onSurfaceVariant;
     } else if (isSearchPending) {
       // Transparent while searching: the chip must not strobe between
       // keystrokes.
@@ -546,32 +532,12 @@ class _MatchCountChip extends StatelessWidget {
           child: InkWell(
             onTap: onTap,
             onLongPress: onLongPress,
-            child: Container(
-              height: NoteSearchMetrics.counterChipHeight,
-              constraints: BoxConstraints(
-                minWidth: compact
-                    ? NoteSearchMetrics.counterMinWidthCompact
-                    : NoteSearchMetrics.counterMinWidth,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: NoteSearchMetrics.counterPaddingH,
+                vertical: NoteSearchMetrics.counterPaddingV,
               ),
-              // The rounded cap curves in at the trailing edge, so the caret
-              // needs more room there than the digits do at the start.
-              padding: const EdgeInsetsDirectional.only(
-                start: AppSpacing.md,
-                end: AppSpacing.sm,
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _buildValue(foreground),
-                  if (onTap != null)
-                    Icon(
-                      Icons.expand_more_rounded,
-                      size: NoteSearchMetrics.counterCaretSize,
-                      color: foreground,
-                    ),
-                ],
-              ),
+              child: _buildValue(foreground),
             ),
           ),
         ),
@@ -604,8 +570,7 @@ class _MatchCountChip extends StatelessWidget {
       child: Text(
         label,
         style: TextStyle(
-          fontSize: FontConstants.caption,
-          fontWeight: FontWeight.w600,
+          fontSize: NoteSearchMetrics.counterFontSize,
           color: foreground,
           fontFeatures: const [FontFeature.tabularFigures()],
         ),
@@ -759,6 +724,73 @@ class _ReplaceRow extends StatelessWidget {
   }
 }
 
+/// The query, typed straight onto the bar's own ground.
+///
+/// No pill: the bar *is* the field. A container here would put a second
+/// surface inside a 48 dp strip and leave the text sitting on neither.
+class _QueryField extends StatelessWidget {
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final String hint;
+  final ValueChanged<String>? onChanged;
+  final ValueChanged<String>? onSubmitted;
+  final Widget? trailing;
+
+  const _QueryField({
+    required this.controller,
+    required this.focusNode,
+    required this.hint,
+    this.onChanged,
+    this.onSubmitted,
+    this.trailing,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final style = TextStyle(
+      fontSize: NoteSearchMetrics.queryFontSize,
+      color: colors.onSurface,
+    );
+
+    return Row(
+      children: [
+        Expanded(
+          child: TextField(
+            controller: controller,
+            focusNode: focusNode,
+            style: style,
+            decoration: InputDecoration(
+              hintText: hint,
+              hintStyle: style.copyWith(color: colors.onSurfaceVariant),
+              border: InputBorder.none,
+              isDense: true,
+              isCollapsed: true,
+              contentPadding: const EdgeInsetsDirectional.only(
+                start: NoteSearchMetrics.queryStartInset,
+              ),
+            ),
+            onChanged: onChanged,
+            onSubmitted: onSubmitted,
+            textInputAction: TextInputAction.search,
+            autocorrect: false,
+            enableSuggestions: false,
+            keyboardType: TextInputType.text,
+            textCapitalization: TextCapitalization.none,
+            smartDashesType: SmartDashesType.disabled,
+            smartQuotesType: SmartQuotesType.disabled,
+            spellCheckConfiguration: SpellCheckConfiguration.disabled(),
+          ),
+        ),
+        if (trailing != null) ...[
+          const SizedBox(width: AppSpacing.sm),
+          trailing!,
+        ],
+      ],
+    );
+  }
+}
+
 class _SearchField extends StatelessWidget {
   final TextEditingController controller;
   final FocusNode focusNode;
@@ -766,7 +798,6 @@ class _SearchField extends StatelessWidget {
   final IconData? icon;
   final bool compact;
   final ValueChanged<String>? onChanged;
-  final ValueChanged<String>? onSubmitted;
   final Widget? suffix;
 
   const _SearchField({
@@ -776,7 +807,6 @@ class _SearchField extends StatelessWidget {
     this.icon = Icons.search_rounded,
     this.compact = false,
     this.onChanged,
-    this.onSubmitted,
     this.suffix,
   });
 
@@ -835,7 +865,6 @@ class _SearchField extends StatelessWidget {
           ),
         ),
         onChanged: onChanged,
-        onSubmitted: onSubmitted,
         textInputAction: TextInputAction.search,
         autocorrect: false,
         enableSuggestions: false,
@@ -861,7 +890,7 @@ class _IconBtn extends StatelessWidget {
     required this.tooltip,
     this.onPressed,
     this.muted = false,
-    this.width = NoteSearchMetrics.touchTarget,
+    this.width = NoteSearchMetrics.iconButtonWidth,
   });
 
   @override
@@ -872,7 +901,7 @@ class _IconBtn extends StatelessWidget {
       onPressed: onPressed,
       tooltip: tooltip,
       icon: Icon(icon),
-      iconSize: AppIconSizes.medium,
+      iconSize: NoteSearchMetrics.iconSize,
       color: muted ? colors.onSurfaceVariant : colors.primary,
       disabledColor: colors.onSurface.withValues(alpha: 0.38),
       constraints: BoxConstraints.tightFor(
@@ -880,6 +909,9 @@ class _IconBtn extends StatelessWidget {
         height: NoteSearchMetrics.touchTarget,
       ),
       padding: EdgeInsets.zero,
+      // Without this the framework pads every button back out to 48 square
+      // and four of them eat the query's width on a phone.
+      style: const ButtonStyle(tapTargetSize: MaterialTapTargetSize.shrinkWrap),
     );
   }
 }
@@ -891,84 +923,94 @@ class _OptionsMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
     final l10n = AppLocalizations.of(context)!;
 
     // No `constraints` here: on PopupMenuButton that sizes the popup, not the
-    // button. Zero padding leaves IconButton's own 48dp minimum.
-    return PopupMenuButton<String>(
-      iconSize: AppIconSizes.medium,
-      padding: EdgeInsets.zero,
-      icon: Stack(
-        children: [
-          Icon(
-            Icons.tune_rounded,
-            size: AppIconSizes.medium,
-            color: options.hasActive ? colors.primary : colors.onSurfaceVariant,
-          ),
-          if (options.hasActive)
-            PositionedDirectional(
-              end: 0,
-              top: 0,
-              child: Container(
-                width: AppSpacing.sm,
-                height: AppSpacing.sm,
-                decoration: BoxDecoration(
-                  color: colors.primary,
-                  shape: BoxShape.circle,
+    // button. The tap-target override is what keeps the trigger to the row's
+    // 40 dp instead of the framework's padded 48.
+    return Theme(
+      data: theme.copyWith(
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      child: PopupMenuButton<String>(
+        iconSize: NoteSearchMetrics.iconSize,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints.tightFor(width: AppTheme.menuWidth),
+        icon: Stack(
+          children: [
+            Icon(
+              Icons.tune_rounded,
+              size: NoteSearchMetrics.iconSize,
+              color: options.hasActive
+                  ? colors.primary
+                  : colors.onSurfaceVariant,
+            ),
+            if (options.hasActive)
+              PositionedDirectional(
+                end: 0,
+                top: 0,
+                child: Container(
+                  width: AppSpacing.sm,
+                  height: AppSpacing.sm,
+                  decoration: BoxDecoration(
+                    color: colors.primary,
+                    shape: BoxShape.circle,
+                  ),
                 ),
               ),
+          ],
+        ),
+        tooltip: l10n.options,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(NoteSearchMetrics.sheetRadius),
+        ),
+        position: PopupMenuPosition.under,
+        onSelected: (value) {
+          switch (value) {
+            case 'replace':
+              options.onToggleReplace();
+            case 'case':
+              options.onToggleCase();
+            case 'whole':
+              options.onToggleWholeWord();
+            case 'regex':
+              options.onToggleRegex();
+          }
+        },
+        itemBuilder: (context) => [
+          if (options.showReplaceOption)
+            _menuItem(
+              'replace',
+              l10n.findAndReplace,
+              Icons.find_replace_rounded,
+              options.showReplace,
+              colors,
             ),
-        ],
-      ),
-      tooltip: l10n.options,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(NoteSearchMetrics.sheetRadius),
-      ),
-      position: PopupMenuPosition.under,
-      onSelected: (value) {
-        switch (value) {
-          case 'replace':
-            options.onToggleReplace();
-          case 'case':
-            options.onToggleCase();
-          case 'whole':
-            options.onToggleWholeWord();
-          case 'regex':
-            options.onToggleRegex();
-        }
-      },
-      itemBuilder: (context) => [
-        if (options.showReplaceOption)
           _menuItem(
-            'replace',
-            l10n.findAndReplace,
-            Icons.find_replace_rounded,
-            options.showReplace,
+            'case',
+            l10n.matchCase,
+            Icons.text_fields_rounded,
+            options.caseSensitive,
             colors,
           ),
-        _menuItem(
-          'case',
-          l10n.matchCase,
-          Icons.text_fields_rounded,
-          options.caseSensitive,
-          colors,
-        ),
-        _menuItem(
-          'whole',
-          l10n.wholeWord,
-          Icons.abc_rounded,
-          options.wholeWord,
-          colors,
-        ),
-        _menuItem(
-          'regex',
-          l10n.useRegex,
-          Icons.code_rounded,
-          options.useRegex,
-          colors,
-        ),
-      ],
+          _menuItem(
+            'whole',
+            l10n.wholeWord,
+            Icons.abc_rounded,
+            options.wholeWord,
+            colors,
+          ),
+          _menuItem(
+            'regex',
+            l10n.useRegex,
+            Icons.code_rounded,
+            options.useRegex,
+            colors,
+          ),
+        ],
+      ),
     );
   }
 

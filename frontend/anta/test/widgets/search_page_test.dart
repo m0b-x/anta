@@ -6,6 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:anta/constants/app_bar_metrics.dart';
+import 'package:anta/constants/row_metrics.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
@@ -198,10 +200,65 @@ void main() {
       expect(sectionLabels(tester), [l10n.recent]);
       expect(rowTitles(tester), isNotEmpty);
       expect(
-        find.text('Training › Winter block'),
+        find.textContaining('Training › Winter block', findRichText: true),
         findsOneWidget,
         reason: 'a nested note shows its whole path, not just its folder',
       );
+      await teardownPage(tester);
+    });
+
+    testWidgets('a recent row reads "path · date", the date in w500 '
+        'onSurface', (tester) async {
+      await pumpPage(tester);
+
+      final row = find.byType(SearchResultRow).first;
+      final line = tester.widget<Text>(
+        find
+            .descendant(
+              of: row,
+              matching: find.byWidgetPredicate(
+                (w) => w is Text && w.textSpan != null,
+              ),
+            )
+            .last,
+      );
+      final spans = (line.textSpan! as TextSpan).children!.cast<TextSpan>();
+      expect(spans, hasLength(3));
+      expect(spans[1].text, ' · ');
+      expect(spans[2].text, l10n.today);
+      expect(spans[2].style!.fontWeight, FontWeight.w500);
+
+      final scheme = Theme.of(tester.element(row)).colorScheme;
+      expect(spans[2].style!.color, scheme.onSurface);
+      expect(line.style!.color, scheme.onSurfaceVariant);
+      expect(line.style!.fontSize, 13);
+
+      // No leading glyph, and the row is the note row's own height.
+      expect(
+        find.descendant(
+          of: row,
+          matching: find.byIcon(Icons.description_outlined),
+        ),
+        findsNothing,
+      );
+      expect(
+        tester
+            .getSize(find.descendant(of: row, matching: find.byType(InkWell)))
+            .height,
+        62,
+      );
+
+      // Without a leading glyph the text column must still hug the row's
+      // start edge — a shrink-wrapped column would sit centred in the row.
+      final rowRect = tester.getRect(
+        find.descendant(of: row, matching: find.byType(InkWell)),
+      );
+      final titleRect = tester.getRect(
+        find.descendant(of: row, matching: find.byType(Text)).first,
+      );
+      expect(titleRect.left, rowRect.left + RowMetrics.twoLinePadding.left);
+      expect(titleRect.right, rowRect.right - RowMetrics.twoLinePadding.right);
+
       await teardownPage(tester);
     });
 
@@ -291,6 +348,139 @@ void main() {
       await pumpPage(tester);
 
       expect(find.byType(ContentRowShell), findsWidgets);
+      await teardownPage(tester);
+    });
+  });
+
+  group('the search bar', () {
+    testWidgets('the field is 17 px with the hint in outline', (tester) async {
+      await pumpPage(tester);
+
+      final field = tester.widget<TextField>(find.byType(TextField));
+      expect(field.style!.fontSize, AppBarMetrics.titleFontSize);
+      expect(field.textInputAction, TextInputAction.search);
+      expect(
+        field.decoration!.hintStyle!.color,
+        Theme.of(tester.element(find.byType(TextField))).colorScheme.outline,
+      );
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('the clear button is labelled and 22 px', (tester) async {
+      await pumpPage(tester);
+      expect(find.byIcon(Icons.clear), findsNothing);
+
+      await type(tester, 'squat');
+
+      final clear = tester.widget<IconButton>(
+        find.ancestor(
+          of: find.byIcon(Icons.clear),
+          matching: find.byType(IconButton),
+        ),
+      );
+      expect(clear.tooltip, l10n.clearSearch);
+      expect(clear.iconSize, AppBarMetrics.glyphSize);
+
+      await teardownPage(tester);
+    });
+  });
+
+  group('opening a result and coming back', () {
+    /// A stand-in for the note a hit pushes: the editor itself is another
+    /// suite's subject, and what matters here is only that a route went on
+    /// top of this one and came off again.
+    Future<NavigatorState> pushOver(WidgetTester tester) async {
+      final navigator = tester.state<NavigatorState>(
+        find.byType(Navigator).first,
+      );
+      navigator
+          .push(
+            MaterialPageRoute<void>(
+              builder: (_) => const Scaffold(body: Text('a note')),
+            ),
+          )
+          .ignore();
+      await tester.pumpAndSettle();
+      return navigator;
+    }
+
+    testWidgets('coming back from a result leaves the keyboard down', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+      await type(tester, 'squat');
+
+      final focusNode = tester
+          .widget<TextField>(find.byType(TextField))
+          .focusNode!;
+      expect(focusNode.hasFocus, isTrue);
+
+      final navigator = await pushOver(tester);
+      expect(focusNode.hasFocus, isFalse);
+
+      navigator.pop();
+      await settle(tester, rounds: 40);
+
+      expect(
+        focusNode.hasFocus,
+        isFalse,
+        reason:
+            'a route regaining focus hands it back to the child that had it, '
+            'and a field regaining focus reopens the keyboard over the very '
+            'results the user came back to',
+      );
+      expect(find.byType(SearchResultRow), findsWidgets);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('a note edited through a result comes back refreshed', (
+      tester,
+    ) async {
+      await pumpPage(tester, initialQuery: 'squat');
+      expect(rowTitles(tester), contains('Squat plan'));
+
+      final navigator = await pushOver(tester);
+      final page = await tester.runAsync(
+        () => noteService.loadNotesPaginated(pageSize: 20),
+      );
+      final target = page!.notes.firstWhere((n) => n.title == 'Squat plan');
+      await tester.runAsync(
+        () => noteService.updateNote(noteId: target.id, title: 'Squat plan v2'),
+      );
+      addTearDown(
+        () => noteService.updateNote(noteId: target.id, title: 'Squat plan'),
+      );
+
+      navigator.pop();
+      await settle(tester, rounds: 60);
+
+      expect(
+        rowTitles(tester),
+        contains('Squat plan v2'),
+        reason:
+            'the hits are a snapshot of the moment the push was made; a note '
+            'renamed through one of them comes back stale unless the pass is '
+            're-run',
+      );
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('an idle surface reloads its recents on the way back', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+      expect(sectionLabels(tester), [l10n.recent]);
+
+      final navigator = await pushOver(tester);
+      navigator.pop();
+      await settle(tester, rounds: 40);
+
+      expect(sectionLabels(tester), [l10n.recent]);
+      expect(find.byType(SearchResultRow), findsWidgets);
+
       await teardownPage(tester);
     });
   });

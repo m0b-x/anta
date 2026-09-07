@@ -2113,7 +2113,19 @@ class _CodeFieldSelectionPainter extends _CodeFieldSelectionsPainter {
 }
 
 class _CodeFieldHighlightPainter extends _CodeFieldSelectionsPainter {
+  static const Radius _radius = Radius.circular(3.0);
+
   _CodeFieldHighlightPainter(super.color, super.selections);
+
+  @override
+  void _drawRect(Canvas canvas, Rect rect, Offset offset) {
+    _paint.color = _color;
+    canvas.drawRRect(
+        RRect.fromRectAndRadius(
+            Rect.fromPoints(rect.topLeft + offset, rect.bottomRight + offset),
+            _radius),
+        _paint);
+  }
 }
 
 class _CodeFieldCursorPainter extends _CodeFieldExtraPainter {

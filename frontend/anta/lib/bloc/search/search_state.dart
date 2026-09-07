@@ -56,11 +56,6 @@ final class SearchState extends Equatable {
 
   bool get hasResults => titleHits.isNotEmpty || contentHits.isNotEmpty;
 
-  /// True once a query has run and come back with nothing — the difference
-  /// between "no results" and a surface that has not searched yet.
-  bool get isEmptyResult =>
-      phase != SearchPhase.idle && !isSearching && !hasResults;
-
   SearchState copyWith({
     SearchScope? scope,
     String? query,

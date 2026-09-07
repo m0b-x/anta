@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../constants/app_constants.dart';
+import '../constants/app_theme.dart';
 import '../controllers/vocabulary_suggestion_controller.dart';
 import '../l10n/app_localizations.dart';
 import '../utils/vocabulary_matcher.dart';
@@ -9,10 +10,11 @@ import '../utils/vocabulary_matcher.dart';
 /// vocabulary session is open.
 ///
 /// Deliberately the *same* height as [MarkdownBar]'s normal mode — 40 px of
-/// content inside 8 px of vertical padding — so a session opening never shifts
-/// the editor. Capture speed is the whole point of the feature; a toolbar that
-/// jumps would cost more than the autocomplete saves. A scoped session's
-/// leading label rides inside that budget, shorter than the pills beside it.
+/// content inside [AppTheme.editorBarVerticalPadding] — so a session opening
+/// never shifts the editor. Capture speed is the whole point of the feature;
+/// a toolbar that jumps would cost more than the autocomplete saves. A
+/// scoped session's leading label rides inside that budget, shorter than
+/// the pills beside it.
 class VocabularySuggestionBar extends StatelessWidget {
   final VocabularySuggestionSession session;
   final ValueChanged<VocabularyCandidate> onAccept;
@@ -41,19 +43,10 @@ class VocabularySuggestionBar extends StatelessWidget {
 
     return Container(
       decoration: showBackground
-          ? BoxDecoration(
-              color: theme.colorScheme.surface,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.1),
-                  blurRadius: 4,
-                  offset: const Offset(0, -2),
-                ),
-              ],
-            )
+          ? AppTheme.editorBarDecoration(theme.colorScheme)
           : null,
       padding: const EdgeInsets.symmetric(
-        vertical: AppConstants.markdownToolbarPadding,
+        vertical: AppTheme.editorBarVerticalPadding,
       ),
       child: Row(
         children: [

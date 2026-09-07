@@ -1,9 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:get_it/get_it.dart';
 
+import 'package:anta/database/database.dart';
 import 'package:anta/models/nav_destination.dart';
 import 'package:anta/pages/optimized_folder_content_page.dart';
+import 'package:anta/repositories/folder_repository.dart';
 import 'package:anta/services/app_navigator.dart';
+import 'package:anta/services/folder_storage_service.dart';
+
+import '../database/support/db_test_support.dart';
 
 /// `popUntil` animates every route it passes (flutter#59990), so the editor's
 /// "Open folder" would flicker through each note it was reached from. These
@@ -301,6 +307,100 @@ void main() {
       );
       expect(observer.removed, isEmpty);
       expect(observer.popped, isEmpty);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  });
+
+  /// The editor's "Open folder" runs before the folder name has loaded and
+  /// passes `''`. The fallback branch *stamps* the route it pushes, so a blank
+  /// title would be persisted into the restore stack and come back as a folder
+  /// page captioned with nothing. The name is read first instead.
+  group('the fallback push never stamps an empty title', () {
+    late AppDatabase db;
+    late Folder folder;
+
+    setUp(() async {
+      db = await openTestDatabase();
+      folder = await db.folderDao.createFolder(name: 'Training');
+      GetIt.I.registerSingleton<FolderStorageService>(
+        FolderStorageService(repository: FolderRepository(database: db)),
+      );
+    });
+
+    tearDown(() async {
+      await GetIt.I.reset();
+      await db.close();
+    });
+
+    Future<void> drain(WidgetTester tester) => tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 20)),
+    );
+
+    testWidgets('an empty title is replaced by the folder\'s real name', (
+      tester,
+    ) async {
+      await pumpApp(tester);
+      await push(tester, pageRoute('recipes', destination: recipes));
+      await push(
+        tester,
+        pageRoute(
+          'note a',
+          destination: NavDestination.note(noteId: 'a', folderId: folder.id),
+        ),
+      );
+      observer.clear();
+
+      AppNavigator.popToFolder(
+        contexts['note a']!,
+        folderId: folder.id,
+        title: '',
+      ).ignore();
+      await drain(tester);
+
+      expect(observer.replacements, hasLength(1));
+      expect(
+        observer.replacements.single.newRoute!.settings.arguments,
+        NavDestination.folder(folderId: folder.id, title: 'Training'),
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('a folder that no longer resolves is pushed unstamped', (
+      tester,
+    ) async {
+      await pumpApp(tester);
+      await push(tester, pageRoute('recipes', destination: recipes));
+      observer.clear();
+
+      AppNavigator.popToFolder(
+        contexts['recipes']!,
+        folderId: 'gone',
+        title: '',
+      ).ignore();
+      await drain(tester);
+
+      expect(observer.replacements, hasLength(1));
+      expect(observer.replacements.single.newRoute!.settings.arguments, isNull);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('a non-empty title still replaces synchronously', (
+      tester,
+    ) async {
+      await pumpApp(tester);
+      await push(tester, pageRoute('recipes', destination: recipes));
+      observer.clear();
+
+      AppNavigator.popToFolder(
+        contexts['recipes']!,
+        folderId: folder.id,
+        title: 'Training',
+      ).ignore();
+
+      expect(observer.replacements, hasLength(1));
 
       await tester.pumpWidget(const SizedBox.shrink());
     });

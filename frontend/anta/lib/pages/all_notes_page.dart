@@ -10,6 +10,7 @@ import '../bloc/optimized_note/optimized_note_event.dart';
 import '../bloc/optimized_note/optimized_note_state.dart';
 import '../bloc/search/search_bloc.dart';
 import '../constants/app_colors.dart';
+import '../constants/app_constants.dart';
 import '../constants/settings_keys.dart';
 import '../controllers/in_place_search_controller.dart';
 import '../l10n/app_localizations.dart';
@@ -57,7 +58,10 @@ class AllNotesPage extends StatefulWidget {
   /// How many notes [AllNotesMode.recent] shows. A jump list, not an archive:
   /// past this the answer to "what was I just in" is no longer useful, and
   /// All notes is one row away.
-  static const int recentLimit = 50;
+  ///
+  /// The same number the search surface's idle recents use — one "recent",
+  /// one cap.
+  static const int recentLimit = AppConstants.recentNotesLimit;
 
   final AllNotesMode mode;
 
@@ -101,6 +105,10 @@ class _AllNotesPageState extends State<AllNotesPage> with RouteAware {
   /// folders does not re-walk their ancestors.
   Set<String> _pathedFolderIds = const {};
 
+  /// The id set a walk is in flight for, so a rebuild during it does not
+  /// start a second one.
+  Set<String> _walkingFolderIds = const {};
+
   /// Guards against a slow ancestor walk landing on top of a newer one.
   int _pathGeneration = 0;
 
@@ -132,7 +140,6 @@ class _AllNotesPageState extends State<AllNotesPage> with RouteAware {
     if (route is PageRoute) {
       AppNavigator.routeObserver.subscribe(this, route);
     }
-    _loadSettings();
   }
 
   /// The note-preview switch lives in a settings page the drawer opens over
@@ -162,11 +169,19 @@ class _AllNotesPageState extends State<AllNotesPage> with RouteAware {
     super.dispose();
   }
 
+  /// Reads the two page-level switches, and repaints only if one moved.
+  ///
+  /// Both callers are moments the values can actually have changed — first
+  /// build and the pop back from the settings page that owns them. It used to
+  /// run from [didChangeDependencies] as well, which fires on every
+  /// MediaQuery change: two preference reads and a page `setState` per
+  /// keyboard animation frame.
   Future<void> _loadSettings() async {
     final settings = await SettingsService.getInstance();
     final swipe = await settings.getFolderSwipeEnabled();
     final showPreview = await settings.getShowNotePreview();
     if (!mounted) return;
+    if (swipe == _swipeEnabled && showPreview == _showNotePreview) return;
     setState(() {
       _swipeEnabled = swipe;
       _showNotePreview = showPreview;
@@ -255,22 +270,30 @@ class _AllNotesPageState extends State<AllNotesPage> with RouteAware {
   /// answered, which is what keeps a scroll frame from re-walking the tree.
   Future<void> _loadPaths(List<NoteMetadata> notes) async {
     final ids = {for (final note in notes) note.folderId};
-    if (ids.length == _pathedFolderIds.length &&
-        ids.every(_pathedFolderIds.contains)) {
-      return;
-    }
+    // Answered already, or being answered right now. The second check is why
+    // the ids are not recorded as answered up front any more: doing that
+    // before the await meant a walk that threw was never retried, and the
+    // rows it was for kept an empty path lane for the life of the page.
+    if (_sameFolderIds(ids, _pathedFolderIds)) return;
+    if (_sameFolderIds(ids, _walkingFolderIds)) return;
+
     final generation = ++_pathGeneration;
-    _pathedFolderIds = ids;
+    _walkingFolderIds = ids;
     try {
       final paths = await GetIt.I<FolderStorageService>().folderPathSegments(
         ids,
       );
       if (!mounted || generation != _pathGeneration) return;
+      _pathedFolderIds = ids;
       setState(() => _folderPaths = paths);
     } catch (e, stackTrace) {
       debugPrint('[AllNotesPage] Failed to load folder paths: $e\n$stackTrace');
+      if (generation == _pathGeneration) _walkingFolderIds = const {};
     }
   }
+
+  bool _sameFolderIds(Set<String> a, Set<String> b) =>
+      a.length == b.length && a.every(b.contains);
 
   /// The path lane's text for a row: the folder chain once it is known, and
   /// an empty string until then. Empty is not the same as absent — it keeps
@@ -306,7 +329,7 @@ class _AllNotesPageState extends State<AllNotesPage> with RouteAware {
         edgeOffset: _searching
             ? 0
             : MediaQuery.paddingOf(context).top +
-                  FolderSliverAppBar.expandedHeight,
+                  FolderSliverAppBar.expandedHeightFor(false),
         notificationPredicate: (notification) =>
             !_searching && defaultScrollNotificationPredicate(notification),
         onRefresh: () async {

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../constants/app_bar_metrics.dart';
 import '../constants/app_colors.dart';
+import '../constants/app_theme.dart';
 import '../l10n/app_localizations.dart';
 import '../models/folder.dart';
 import '../services/app_navigator.dart';
@@ -21,21 +23,25 @@ Future<void> showFolderAncestorMenu(
   required void Function(Folder? folder) onSelected,
 }) async {
   final targets = <Folder?>[...ancestors.reversed, null];
+  final glyphColor = Theme.of(anchorContext).colorScheme.onSurfaceVariant;
   final selected = await showMenu<int>(
     context: anchorContext,
+    constraints: const BoxConstraints.tightFor(width: AppTheme.menuWidth),
     positionBuilder: (_, constraints) =>
         _anchorUnder(anchorContext, constraints),
     items: [
       for (var i = 0; i < targets.length; i++)
         PopupMenuItem<int>(
           value: i,
+          height: AppTheme.menuItemHeight,
           child: Row(
             children: [
               Icon(
                 targets[i] == null
                     ? Icons.home_outlined
                     : Icons.folder_outlined,
-                size: 20,
+                size: AppTheme.menuIconSize,
+                color: glyphColor,
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -101,13 +107,28 @@ class FolderSliverAppBar extends StatelessWidget {
     this.onShowAncestors,
   });
 
-  /// The default expanded title box is 60 px tall (152 − 64 − 28), which an
-  /// eyebrow above a headline does not fit.
-  static const double expandedHeight = 172;
+  /// Toolbar, the eyebrow's own line, the large title's line and the space
+  /// below it — nothing between the toolbar and the eyebrow.
+  static const double expandedHeightNested = 116;
 
-  /// The large variant's collapsed height, and the height the bar shares with
-  /// the note editor's bar once scrolled.
-  static const double collapsedHeight = 64;
+  /// The root has no parent to name, so the eyebrow's line becomes the space
+  /// the mock puts above a title that opens a screen.
+  static const double expandedHeightRoot = 102;
+
+  /// The status bar is added on top of this by the framework; every caller
+  /// that reasons about the bar's extent — the swap compensation and the
+  /// refresh indicator's inset — measures from here.
+  static double expandedHeightFor(bool isRootPage) =>
+      isRootPage ? expandedHeightRoot : expandedHeightNested;
+
+  /// The height the bar shares with every other bar in the app once
+  /// collapsed, status bar excluded.
+  ///
+  /// `SliverAppBar.large` sizes its collapsed extent from its own 64 px
+  /// default and ignores `toolbarHeight`, so this is handed to it explicitly
+  /// — with the status bar added, which the large variant does not do for a
+  /// supplied value — or the toolbar would float above a dead band.
+  static const double collapsedHeight = AppBarMetrics.toolbarHeight;
 
   final String title;
   final bool isRootPage;
@@ -131,23 +152,33 @@ class FolderSliverAppBar extends StatelessWidget {
     return SliverAppBar.large(
       pinned: true,
       automaticallyImplyLeading: false,
-      expandedHeight: expandedHeight,
-      toolbarHeight: collapsedHeight,
+      expandedHeight: expandedHeightFor(isRootPage),
+      toolbarHeight: AppBarMetrics.toolbarHeight,
+      collapsedHeight:
+          MediaQuery.paddingOf(context).top + AppBarMetrics.toolbarHeight,
       backgroundColor: colorScheme.pageGround,
       surfaceTintColor: Colors.transparent,
       scrolledUnderElevation: 0,
+      actionsIconTheme: IconThemeData(
+        size: AppBarMetrics.glyphSize,
+        color: colorScheme.onSurface,
+      ),
       leadingWidth: isRootPage ? null : LeadingNavPair.width,
       leading: isRootPage ? _menuButton() : _leadingPair(),
       title: Text(
         title,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: const TextStyle(fontWeight: FontWeight.bold),
+        style: const TextStyle(
+          fontSize: AppBarMetrics.titleFontSize,
+          fontWeight: AppBarMetrics.titleFontWeight,
+        ),
       ),
       actions: actions,
       flexibleSpace: _FolderFlexibleSpace(
         title: title,
         eyebrow: eyebrow,
+        isRootPage: isRootPage,
         onEyebrowTap: onShowAncestors,
       ),
     );
@@ -157,6 +188,7 @@ class FolderSliverAppBar extends StatelessWidget {
     return Builder(
       builder: (context) => IconButton(
         icon: const Icon(Icons.menu_rounded),
+        iconSize: AppBarMetrics.glyphSize,
         tooltip: MaterialLocalizations.of(context).openAppDrawerTooltip,
         onPressed: onMenuPressed ?? () => Scaffold.of(context).openDrawer(),
       ),
@@ -182,14 +214,20 @@ class FolderSliverAppBar extends StatelessWidget {
 /// the headline slides up under the toolbar as the bar collapses. The child is
 /// measured unconstrained ([OverflowBox]) because a shrinking flex child would
 /// otherwise overflow rather than slide.
+///
+/// The eyebrow owns the first line under the toolbar and nothing separates
+/// the two: a page names its parent immediately or not at all. Where there is
+/// no parent to name, that line becomes the space above the title instead.
 class _FolderFlexibleSpace extends StatelessWidget {
   const _FolderFlexibleSpace({
     required this.title,
+    required this.isRootPage,
     this.eyebrow,
     this.onEyebrowTap,
   });
 
   final String title;
+  final bool isRootPage;
   final String? eyebrow;
   final void Function(BuildContext anchorContext)? onEyebrowTap;
 
@@ -208,38 +246,45 @@ class _FolderFlexibleSpace extends StatelessWidget {
           SizedBox(height: settings.minExtent),
           Expanded(
             child: ClipRect(
-              child: AnimatedOpacity(
-                opacity: (settings.isScrolledUnder ?? false) ? 0 : 1,
-                duration: const Duration(milliseconds: 500),
-                curve: const Cubic(0.2, 0.0, 0.0, 1.0),
-                child: OverflowBox(
-                  alignment: AlignmentDirectional.bottomStart,
-                  minHeight: 0,
-                  maxHeight: double.infinity,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (parent != null)
-                          _Eyebrow(
-                            label: parent,
-                            onTap: onEyebrowTap,
-                            color: colorScheme.onSurfaceVariant,
-                            style: theme.textTheme.labelLarge,
-                          ),
-                        Text(
-                          title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.headlineMedium?.copyWith(
-                            color: colorScheme.onSurface,
-                          ),
+              child: OverflowBox(
+                alignment: AlignmentDirectional.bottomStart,
+                minHeight: 0,
+                maxHeight: double.infinity,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (parent != null)
+                      _Eyebrow(
+                        label: parent,
+                        onTap: onEyebrowTap,
+                        color: colorScheme.onSurfaceVariant,
+                      )
+                    else if (isRootPage)
+                      const SizedBox(
+                        height: AppBarMetrics.largeTitleTopPaddingAtRoot,
+                      ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        AppBarMetrics.largeTitlePadding,
+                        0,
+                        AppBarMetrics.largeTitlePadding,
+                        AppBarMetrics.largeTitleBottomPadding,
+                      ),
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: colorScheme.onSurface,
+                          fontSize: AppBarMetrics.largeTitleFontSize,
+                          fontWeight: FontWeight.w500,
+                          height: AppBarMetrics.largeTitleHeight,
+                          letterSpacing: AppBarMetrics.largeTitleLetterSpacing,
                         ),
-                      ],
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ),
             ),
@@ -254,16 +299,10 @@ class _FolderFlexibleSpace extends StatelessWidget {
 /// reachable twin of the Back button's long-press: a long press alone is
 /// invisible to TalkBack.
 class _Eyebrow extends StatelessWidget {
-  const _Eyebrow({
-    required this.label,
-    required this.color,
-    this.style,
-    this.onTap,
-  });
+  const _Eyebrow({required this.label, required this.color, this.onTap});
 
   final String label;
   final Color color;
-  final TextStyle? style;
   final void Function(BuildContext anchorContext)? onTap;
 
   @override
@@ -272,22 +311,41 @@ class _Eyebrow extends StatelessWidget {
       label,
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
-      style: style?.copyWith(color: color) ?? TextStyle(color: color),
+      style: TextStyle(color: color, fontSize: AppBarMetrics.eyebrowFontSize),
     );
     final tap = onTap;
     if (tap == null) {
-      return Padding(padding: const EdgeInsets.only(bottom: 2), child: text);
+      return SizedBox(
+        height: AppBarMetrics.eyebrowHeight,
+        child: Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppBarMetrics.eyebrowPadding,
+            ),
+            child: text,
+          ),
+        ),
+      );
     }
     return Builder(
-      builder: (anchorContext) => InkWell(
-        onTap: () => tap(anchorContext),
-        borderRadius: BorderRadius.circular(6),
-        child: Semantics(
-          button: true,
-          hint: AppLocalizations.of(anchorContext)!.showAncestors,
-          child: Padding(
-            padding: const EdgeInsets.only(bottom: 2, right: 4),
-            child: text,
+      builder: (anchorContext) => SizedBox(
+        height: AppBarMetrics.eyebrowHeight,
+        child: Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: InkWell(
+            onTap: () => tap(anchorContext),
+            borderRadius: BorderRadius.circular(6),
+            child: Semantics(
+              button: true,
+              hint: AppLocalizations.of(anchorContext)!.showAncestors,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppBarMetrics.eyebrowPadding,
+                ),
+                child: text,
+              ),
+            ),
           ),
         ),
       ),

@@ -268,6 +268,20 @@ class ContentChunkDao extends DatabaseAccessor<AppDatabase>
     );
   }
 
+  /// Tombstones every chunk of a whole selection of notes in one statement,
+  /// so a bulk delete costs one update here rather than one per note.
+  Future<void> softDeleteChunksForNotes(List<String> noteIds) async {
+    if (noteIds.isEmpty) return;
+    final hlc = db.generateHlc();
+    await (update(contentChunks)..where((c) => c.noteId.isIn(noteIds))).write(
+      ContentChunksCompanion(
+        isDeleted: const Value(true),
+        hlcTimestamp: Value(hlc),
+        deviceId: Value(db.deviceId),
+      ),
+    );
+  }
+
   /// Hard delete chunks (used when replacing content locally)
   Future<void> hardDeleteChunksForNote(String noteId) async {
     await (delete(contentChunks)..where((c) => c.noteId.equals(noteId))).go();

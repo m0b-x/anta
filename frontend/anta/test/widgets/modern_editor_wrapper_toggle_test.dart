@@ -4,7 +4,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:re_editor/re_editor.dart';
 
 import 'package:anta/constants/app_spacing.dart';
-import 'package:anta/constants/markdown_constants.dart';
 import 'package:anta/utils/re_editor_search_controller.dart';
 import 'package:anta/widgets/modern_editor_wrapper.dart';
 
@@ -33,7 +32,14 @@ import 'package:anta/widgets/modern_editor_wrapper.dart';
 /// reveal line (where every tap zone deliberately falls through).
 void main() {
   const fontSize = 16.0;
-  const lineBox = fontSize * MarkdownConstants.lineHeight;
+
+  /// The render's own base line height, not `fontSize * lineHeight`: the
+  /// paragraph's height comes from the font's metrics under the strut, so
+  /// a computed box drifts from the real one as soon as the line-height
+  /// constant is not a whole number of pixels.
+  double lineBoxOf(WidgetTester tester) => CodeFieldRenderForTesting.of(
+    tester.renderObject(find.byType(CodeEditor)),
+  ).lineHeight;
   // 700 lines is three 256-line segments: 0..255, 256..511, 512..699.
   const documentLines = 700;
   const taskLine = 650;
@@ -57,9 +63,10 @@ void main() {
     double scroll = 0,
   }) {
     final origin = tester.getTopLeft(find.byType(CodeEditor));
+    final lineBox = lineBoxOf(tester);
     return origin +
         Offset(
-          AppSpacing.lg + column * fontSize + 2,
+          AppSpacing.xl + column * fontSize + 2,
           AppSpacing.lg + line * lineBox - scroll + lineBox / 2,
         );
   }
@@ -122,7 +129,10 @@ void main() {
     int line,
   ) async {
     final position = scroller.verticalScroller.position;
-    final target = (line * lineBox).clamp(0.0, position.maxScrollExtent);
+    final target = (line * lineBoxOf(tester)).clamp(
+      0.0,
+      position.maxScrollExtent,
+    );
     scroller.verticalScroller.jumpTo(target);
     await tester.pump();
     return scroller.verticalScroller.position.pixels;

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:re_editor/re_editor.dart';
 
 import '../constants/app_constants.dart';
+import '../constants/app_theme.dart';
 import '../controllers/vocabulary_suggestion_controller.dart';
 import '../l10n/app_localizations.dart';
 import '../models/custom_markdown_shortcut.dart';
@@ -205,16 +206,7 @@ class _MarkdownBarState extends State<MarkdownBar> {
     );
 
     final decoration = widget.showBackground
-        ? BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.1),
-                blurRadius: 4,
-                offset: const Offset(0, -2),
-              ),
-            ],
-          )
+        ? AppTheme.editorBarDecoration(Theme.of(context).colorScheme)
         : null;
 
     // In preview mode, no shortcut buttons — utility section expands to full width
@@ -225,7 +217,7 @@ class _MarkdownBarState extends State<MarkdownBar> {
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(
             horizontal: 12,
-            vertical: AppConstants.markdownToolbarPadding,
+            vertical: AppTheme.editorBarVerticalPadding,
           ),
           child: utilityContent,
         ),
@@ -256,7 +248,7 @@ class _MarkdownBarState extends State<MarkdownBar> {
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(
             horizontal: 12,
-            vertical: AppConstants.markdownToolbarPadding,
+            vertical: AppTheme.editorBarVerticalPadding,
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -282,7 +274,7 @@ class _MarkdownBarState extends State<MarkdownBar> {
     return Container(
       decoration: decoration,
       padding: const EdgeInsets.symmetric(
-        vertical: AppConstants.markdownToolbarPadding,
+        vertical: AppTheme.editorBarVerticalPadding,
       ),
       child: Row(
         children: [
@@ -434,16 +426,7 @@ class _MarkdownBarState extends State<MarkdownBar> {
         .toList();
 
     return Container(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.1),
-            blurRadius: 4,
-            offset: const Offset(0, -2),
-          ),
-        ],
-      ),
+      decoration: AppTheme.editorBarDecoration(theme.colorScheme),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [

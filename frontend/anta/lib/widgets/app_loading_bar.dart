@@ -39,6 +39,7 @@ class LoadingScaffold extends StatelessWidget {
   final FloatingActionButtonLocation? floatingActionButtonLocation;
   final Widget? bottomNavigationBar;
   final Widget? drawer;
+  final bool drawerEnableOpenDragGesture;
   final Color? backgroundColor;
   final bool extendBodyBehindAppBar;
   final bool resizeToAvoidBottomInset;
@@ -51,6 +52,7 @@ class LoadingScaffold extends StatelessWidget {
     this.floatingActionButtonLocation,
     this.bottomNavigationBar,
     this.drawer,
+    this.drawerEnableOpenDragGesture = true,
     this.backgroundColor,
     this.extendBodyBehindAppBar = false,
     this.resizeToAvoidBottomInset = true,
@@ -65,6 +67,7 @@ class LoadingScaffold extends StatelessWidget {
       floatingActionButtonLocation: floatingActionButtonLocation,
       bottomNavigationBar: bottomNavigationBar,
       drawer: drawer,
+      drawerEnableOpenDragGesture: drawerEnableOpenDragGesture,
       extendBodyBehindAppBar: extendBodyBehindAppBar,
       resizeToAvoidBottomInset: resizeToAvoidBottomInset,
       body: SafeArea(

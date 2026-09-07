@@ -1677,7 +1677,14 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String deleteFolderWithNotesConfirm(String name, int count) {
-    return 'Ești sigur că vrei să ștergi \"$name\"? Aceasta va șterge și $count notiță(e).';
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Aceasta va șterge și $count de notițe.',
+      few: 'Aceasta va șterge și $count notițe.',
+      one: 'Aceasta va șterge și 1 notiță.',
+    );
+    return 'Ești sigur că vrei să ștergi \"$name\"? $_temp0';
   }
 
   @override
@@ -2016,7 +2023,21 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String noteStats(int count, int chunks) {
-    return '$count caractere distincte, $chunks fragmente';
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de caractere distincte',
+      few: '$count caractere distincte',
+      one: '1 caracter distinct',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      chunks,
+      locale: localeName,
+      other: '$chunks de fragmente',
+      few: '$chunks fragmente',
+      one: '1 fragment',
+    );
+    return '$_temp0, $_temp1';
   }
 
   @override
@@ -2042,6 +2063,12 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get allNotes => 'Toate notițele';
+
+  @override
+  String get today => 'Azi';
+
+  @override
+  String get yesterday => 'Ieri';
 
   @override
   String get titlesSection => 'Titluri';
@@ -2093,7 +2120,14 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String lineCount(int count) {
-    return '$count linii';
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de linii',
+      few: '$count linii',
+      one: '1 linie',
+    );
+    return '$_temp0';
   }
 
   @override
@@ -2419,7 +2453,21 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String importedSummary(int folders, int notes) {
-    return 'Importat: $folders foldere, $notes notițe';
+    String _temp0 = intl.Intl.pluralLogic(
+      folders,
+      locale: localeName,
+      other: '$folders de foldere',
+      few: '$folders foldere',
+      one: '1 folder',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      notes,
+      locale: localeName,
+      other: '$notes de notițe',
+      few: '$notes notițe',
+      one: '1 notiță',
+    );
+    return 'Importat: $_temp0, $_temp1';
   }
 
   @override
@@ -3818,7 +3866,16 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String deleteSelectedConfirm(int count) {
-    return 'Ștergi $count elemente selectate? Această acțiune nu poate fi anulată.';
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Ștergi $count de elemente selectate? Această acțiune nu poate fi anulată.',
+      few:
+          'Ștergi $count elemente selectate? Această acțiune nu poate fi anulată.',
+      one: 'Ștergi 1 element selectat? Această acțiune nu poate fi anulată.',
+    );
+    return '$_temp0';
   }
 
   @override
