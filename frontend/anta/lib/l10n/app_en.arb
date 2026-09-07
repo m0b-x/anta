@@ -3519,7 +3519,35 @@
   },
   "calendarAppearanceSection": "Appearance",
   "@calendarAppearanceSection": {
-    "description": "Calendar appearance settings section title"
+    "description": "Calendar appearance settings section title, and the title of the calendar appearance page"
+  },
+  "calendarAppearanceDesc": "Preview and tune how the grid looks",
+  "@calendarAppearanceDesc": {
+    "description": "Subtitle of the calendar settings row that opens the calendar appearance page"
+  },
+  "calendarAppearanceDayCellSection": "Day cell",
+  "@calendarAppearanceDayCellSection": {
+    "description": "Calendar appearance page section title for the day-cell options"
+  },
+  "calendarAppearanceMarkersSection": "Markers",
+  "@calendarAppearanceMarkersSection": {
+    "description": "Calendar appearance page section title for the day marker options"
+  },
+  "calendarAppearanceRailSection": "Day rail",
+  "@calendarAppearanceRailSection": {
+    "description": "Calendar appearance page section title for the left-edge day rail options"
+  },
+  "calendarAppearanceWeekSection": "Week",
+  "@calendarAppearanceWeekSection": {
+    "description": "Calendar appearance page section title for the week options"
+  },
+  "calendarAppearanceColorSection": "Color",
+  "@calendarAppearanceColorSection": {
+    "description": "Calendar appearance page section title for the color options"
+  },
+  "calendarAppearanceLabelsSection": "Row labels",
+  "@calendarAppearanceLabelsSection": {
+    "description": "Calendar appearance page section title for the row label options"
   },
   "calendarTodayStyleTitle": "Today highlight",
   "@calendarTodayStyleTitle": {
@@ -3814,6 +3842,34 @@
   "calendarTintConflictBoth": "Both",
   "@calendarTintConflictBoth": {
     "description": "Tint conflict option: winner fills the cell, runner-up shows as an edge stripe"
+  },
+  "calendarCellStyleTitle": "Day cell style",
+  "@calendarCellStyleTitle": {
+    "description": "Setting title for how the event color fills a day cell, chosen per theme"
+  },
+  "calendarCellStyleDesc": "How an event's colour fills the day cell. Each theme keeps its own choice.",
+  "@calendarCellStyleDesc": {
+    "description": "Setting subtitle explaining that the day cell style is stored separately for light and dark"
+  },
+  "calendarCellStyleLight": "Light",
+  "@calendarCellStyleLight": {
+    "description": "Label above the day cell style buttons that apply to the light theme"
+  },
+  "calendarCellStyleDark": "Dark",
+  "@calendarCellStyleDark": {
+    "description": "Label above the day cell style buttons that apply to the dark theme"
+  },
+  "calendarCellStyleSolid": "Solid",
+  "@calendarCellStyleSolid": {
+    "description": "Day cell style option: the color fills the cell evenly"
+  },
+  "calendarCellStyleFade": "Fade",
+  "@calendarCellStyleFade": {
+    "description": "Day cell style option: the color fades in from the top of the cell"
+  },
+  "calendarCellStyleOutline": "Outline",
+  "@calendarCellStyleOutline": {
+    "description": "Day cell style option: a faint fill under a colored border"
   },
   "calendarWeekStartTitle": "Week starts on",
   "@calendarWeekStartTitle": {

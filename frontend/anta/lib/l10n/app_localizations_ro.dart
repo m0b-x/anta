@@ -2838,6 +2838,28 @@ class AppLocalizationsRo extends AppLocalizations {
   String get calendarAppearanceSection => 'Aspect';
 
   @override
+  String get calendarAppearanceDesc =>
+      'Previzualizează și ajustează aspectul grilei';
+
+  @override
+  String get calendarAppearanceDayCellSection => 'Celula zilei';
+
+  @override
+  String get calendarAppearanceMarkersSection => 'Marcaje';
+
+  @override
+  String get calendarAppearanceRailSection => 'Bara zilei';
+
+  @override
+  String get calendarAppearanceWeekSection => 'Săptămână';
+
+  @override
+  String get calendarAppearanceColorSection => 'Culoare';
+
+  @override
+  String get calendarAppearanceLabelsSection => 'Etichete rânduri';
+
+  @override
   String get calendarTodayStyleTitle => 'Evidențierea zilei de azi';
 
   @override
@@ -3078,6 +3100,28 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get calendarTintConflictBoth => 'Ambele';
+
+  @override
+  String get calendarCellStyleTitle => 'Stilul celulelor';
+
+  @override
+  String get calendarCellStyleDesc =>
+      'Cum umple culoarea unui eveniment celula zilei. Fiecare temă își păstrează propria alegere.';
+
+  @override
+  String get calendarCellStyleLight => 'Deschisă';
+
+  @override
+  String get calendarCellStyleDark => 'Închisă';
+
+  @override
+  String get calendarCellStyleSolid => 'Plin';
+
+  @override
+  String get calendarCellStyleFade => 'Degrade';
+
+  @override
+  String get calendarCellStyleOutline => 'Contur';
 
   @override
   String get calendarWeekStartTitle => 'Săptămâna începe';

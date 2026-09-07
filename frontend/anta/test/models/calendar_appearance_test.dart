@@ -1,3 +1,5 @@
+import 'dart:ui' show Brightness;
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/models/calendar_appearance.dart';
@@ -65,6 +67,71 @@ void main() {
         CalendarTintConflict.fromName('EventWins'),
         CalendarTintConflict.eventWins,
       );
+    });
+  });
+
+  group('CalendarCellStyle.fromName', () {
+    test('round-trips every value', () {
+      for (final style in CalendarCellStyle.values) {
+        expect(CalendarCellStyle.fromName(style.name), style);
+      }
+    });
+
+    test('falls back to solid on null', () {
+      expect(CalendarCellStyle.fromName(null), CalendarCellStyle.solid);
+    });
+
+    test('falls back to solid on an unknown name', () {
+      expect(CalendarCellStyle.fromName(''), CalendarCellStyle.solid);
+      expect(CalendarCellStyle.fromName('gradient'), CalendarCellStyle.solid);
+      expect(CalendarCellStyle.fromName('Solid'), CalendarCellStyle.solid);
+      expect(CalendarCellStyle.fromName('  fade'), CalendarCellStyle.solid);
+    });
+  });
+
+  group('CalendarAppearance cell style fields', () {
+    test('both themes default to solid, the look that already shipped', () {
+      const appearance = CalendarAppearance();
+      expect(appearance.cellStyleLight, CalendarCellStyle.solid);
+      expect(appearance.cellStyleDark, CalendarCellStyle.solid);
+    });
+
+    test('cellStyleFor picks the field matching the brightness', () {
+      const appearance = CalendarAppearance(
+        cellStyleLight: CalendarCellStyle.outline,
+        cellStyleDark: CalendarCellStyle.fade,
+      );
+      expect(
+        appearance.cellStyleFor(Brightness.light),
+        CalendarCellStyle.outline,
+      );
+      expect(appearance.cellStyleFor(Brightness.dark), CalendarCellStyle.fade);
+    });
+
+    test('the two fields are independent', () {
+      const base = CalendarAppearance();
+      final lightOnly = base.copyWith(cellStyleLight: CalendarCellStyle.fade);
+
+      // The whole point of the setting: softening the light grid must leave
+      // the dark one exactly as it was.
+      expect(lightOnly.cellStyleLight, CalendarCellStyle.fade);
+      expect(lightOnly.cellStyleDark, CalendarCellStyle.solid);
+      expect(
+        lightOnly.cellStyleFor(Brightness.dark),
+        base.cellStyleFor(Brightness.dark),
+      );
+    });
+
+    test('copyWith carries both and each is an equality input', () {
+      const base = CalendarAppearance();
+      final light = base.copyWith(cellStyleLight: CalendarCellStyle.outline);
+      final dark = base.copyWith(cellStyleDark: CalendarCellStyle.outline);
+
+      expect(light, isNot(base));
+      expect(dark, isNot(base));
+      expect(light, isNot(dark));
+      expect(light.copyWith(), light);
+      expect(dark.copyWith(), dark);
     });
   });
 

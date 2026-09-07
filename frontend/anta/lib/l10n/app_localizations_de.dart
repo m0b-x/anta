@@ -2816,6 +2816,28 @@ class AppLocalizationsDe extends AppLocalizations {
   String get calendarAppearanceSection => 'Darstellung';
 
   @override
+  String get calendarAppearanceDesc =>
+      'Vorschau und Feinabstimmung des Rasters';
+
+  @override
+  String get calendarAppearanceDayCellSection => 'Tageszelle';
+
+  @override
+  String get calendarAppearanceMarkersSection => 'Markierungen';
+
+  @override
+  String get calendarAppearanceRailSection => 'Tagesleiste';
+
+  @override
+  String get calendarAppearanceWeekSection => 'Woche';
+
+  @override
+  String get calendarAppearanceColorSection => 'Farbe';
+
+  @override
+  String get calendarAppearanceLabelsSection => 'Zeilenbeschriftungen';
+
+  @override
   String get calendarTodayStyleTitle => 'Heute-Markierung';
 
   @override
@@ -3053,6 +3075,28 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get calendarTintConflictBoth => 'Beide';
+
+  @override
+  String get calendarCellStyleTitle => 'Stil der Tageszellen';
+
+  @override
+  String get calendarCellStyleDesc =>
+      'Wie die Farbe eines Termins die Tageszelle füllt. Jedes Design behält seine eigene Wahl.';
+
+  @override
+  String get calendarCellStyleLight => 'Hell';
+
+  @override
+  String get calendarCellStyleDark => 'Dunkel';
+
+  @override
+  String get calendarCellStyleSolid => 'Flächig';
+
+  @override
+  String get calendarCellStyleFade => 'Verlauf';
+
+  @override
+  String get calendarCellStyleOutline => 'Umriss';
 
   @override
   String get calendarWeekStartTitle => 'Woche beginnt am';

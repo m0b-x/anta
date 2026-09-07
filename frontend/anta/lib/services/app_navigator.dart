@@ -16,6 +16,7 @@ import '../pages/all_notes_page.dart';
 import '../pages/calendar_page.dart';
 import '../pages/calendar_settings_page.dart';
 import '../pages/calendar_categories_page.dart';
+import '../pages/calendar_appearance_page.dart';
 import '../pages/event_templates_page.dart';
 import '../pages/vocabularies_page.dart';
 import '../pages/counter_management_page.dart';
@@ -409,6 +410,14 @@ abstract final class AppNavigator {
     );
   }
 
+  static Future<void> toCalendarAppearance(BuildContext context) {
+    return push(
+      context,
+      const CalendarAppearancePage(),
+      destination: const NavDestination(NavDestinationKind.calendarAppearance),
+    );
+  }
+
   static Future<void> toEventTemplates(BuildContext context) {
     return push(
       context,
@@ -606,6 +615,7 @@ abstract final class AppNavigator {
       NavDestinationKind.calendar => const CalendarPage(),
       NavDestinationKind.calendarSettings => const CalendarSettingsPage(),
       NavDestinationKind.calendarCategories => const CalendarCategoriesPage(),
+      NavDestinationKind.calendarAppearance => const CalendarAppearancePage(),
       NavDestinationKind.eventTemplates => const EventTemplatesPage(),
       NavDestinationKind.vocabularies => const VocabulariesPage(),
       NavDestinationKind.databaseSettings => const DatabaseSettingsPage(),

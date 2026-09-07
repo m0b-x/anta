@@ -1,18 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:intl/intl.dart';
 import '../constants/calendar_colors.dart';
-import '../constants/calendar_palette.dart';
 import '../constants/fasting_calendar.dart';
 import '../constants/public_holidays.dart';
 import '../constants/settings_keys.dart';
 import '../l10n/app_localizations.dart';
 import '../constants/calendar_icons.dart';
 import '../models/calendar_appearance.dart';
-import '../models/calendar_event.dart';
-import '../models/day_bar.dart';
-import '../models/day_cell_tint.dart';
-import '../models/day_rail_mark.dart';
 import '../models/fasting_appearance.dart';
 import '../models/fasting_schedule.dart';
 import '../widgets/fasting_schedule_sheet.dart';
@@ -26,11 +20,6 @@ import '../services/settings_service.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/settings_search.dart';
 import '../widgets/app_dialogs.dart';
-import '../widgets/calendar_day_bars.dart';
-import '../widgets/calendar_day_cell.dart';
-import '../widgets/calendar_day_rail.dart';
-import '../widgets/color_palette_sheet.dart';
-import '../widgets/color_swatch_picker.dart';
 import '../widgets/removed_holidays_sheet.dart';
 import '../widgets/settings_search_field.dart';
 import '../widgets/settings_section_list.dart';
@@ -103,9 +92,11 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     final descriptionLimit = await settings.getEventDescriptionLimit();
     final collapsedSections = await settings
         .getCalendarSettingsCollapsedSections();
-    // Publishes the palette facade the accent row and the palette row both
-    // read synchronously; without it a settings page opened before any picker
-    // would count zero colours the user does have.
+    // Publishes the palette facade the fasting style sheet's swatch picker
+    // reads synchronously; without it a sheet opened from here before any
+    // other picker would offer zero of the colours the user does have. The
+    // accent and palette rows moved to `CalendarAppearancePage`, which does
+    // the same prewarm for itself.
     await CalendarPaletteService.getInstance();
 
     if (!mounted) return;
@@ -224,29 +215,6 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     }
   }
 
-  /// Localized weekday name for a [CalendarWeekStart] option, derived via
-  /// `intl` from an anchor date (2024-01-01 is a Monday) — never an ARB
-  /// weekday matrix.
-  String _weekStartLabel(CalendarWeekStart start, String localeName) {
-    final anchor = DateTime.utc(2024, 1, start.weekday);
-    final name = DateFormat.EEEE(localeName).format(anchor);
-    return toBeginningOfSentenceCase(name, localeName) ?? name;
-  }
-
-  /// One handler for every dot in the accent row: a swatch, a colour just
-  /// mixed on the wheel, and "follow the theme" all land here, because
-  /// [ColorSwatchPicker] reports the *result* rather than which affordance
-  /// produced it.
-  Future<void> _onAccentChanged(int? value) async {
-    _onHapticFeedback();
-    setState(
-      () => _appearance = value == null
-          ? _appearance.copyWith(clearAccentColor: true)
-          : _appearance.copyWith(accentColorValue: value),
-    );
-    await _settings?.setCalendarAccentColor(value);
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -333,34 +301,6 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
       title: l10n.calendarSection,
       entries: [
         SettingsEntry(
-          title: l10n.calendarWeekStartTitle,
-          builder: (context, title, description) => ListTile(
-            leading: Icon(Icons.view_week_outlined, color: colorScheme.primary),
-            title: title,
-            trailing: DropdownButton<CalendarWeekStart>(
-              value: _appearance.weekStart,
-              underline: const SizedBox.shrink(),
-              onChanged: (next) async {
-                if (next == null || next == _appearance.weekStart) {
-                  return;
-                }
-                _onHapticFeedback();
-                setState(
-                  () => _appearance = _appearance.copyWith(weekStart: next),
-                );
-                await _settings?.setCalendarWeekStart(next);
-              },
-              items: [
-                for (final start in CalendarWeekStart.values)
-                  DropdownMenuItem(
-                    value: start,
-                    child: Text(_weekStartLabel(start, l10n.localeName)),
-                  ),
-              ],
-            ),
-          ),
-        ),
-        SettingsEntry(
           title: l10n.holidayProfileTitle,
           description: PublicHolidays.profileNameOf(_holidayProfile, l10n),
           builder: (context, title, description) => ListTile(
@@ -417,6 +357,14 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     );
   }
 
+  /// One row into [CalendarAppearancePage], structurally the categories row.
+  ///
+  /// The fifteen appearance rows moved to a route of their own so the live
+  /// preview could be pinned above them instead of scrolling away with the
+  /// section's `intro:` — but settings search still runs over *this* page, so
+  /// every moved row's title is declared as a keyword here. Without them,
+  /// typing "day rail" or "today style" in Calendar Settings would find
+  /// nothing at all.
   SettingsSectionData _buildAppearanceSection(
     ColorScheme colorScheme,
     AppLocalizations l10n,
@@ -425,469 +373,42 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
       id: _sectionAppearance,
       icon: Icons.palette_rounded,
       title: l10n.calendarAppearanceSection,
-      intro: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-        child: _AppearancePreview(appearance: _appearance),
-      ),
       entries: [
         SettingsEntry(
-          title: l10n.calendarTodayStyleTitle,
-          builder: (context, title, description) => Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                title,
-                const SizedBox(height: 8),
-                SegmentedButton<CalendarTodayStyle>(
-                  segments: [
-                    ButtonSegment(
-                      value: CalendarTodayStyle.tonal,
-                      label: Text(l10n.todayStyleTonal),
-                    ),
-                    ButtonSegment(
-                      value: CalendarTodayStyle.ring,
-                      label: Text(l10n.todayStyleRing),
-                    ),
-                    ButtonSegment(
-                      value: CalendarTodayStyle.filled,
-                      label: Text(l10n.todayStyleFilled),
-                    ),
-                  ],
-                  selected: {_appearance.todayStyle},
-                  showSelectedIcon: false,
-                  onSelectionChanged: (sel) async {
-                    _onHapticFeedback();
-                    setState(
-                      () => _appearance = _appearance.copyWith(
-                        todayStyle: sel.first,
-                      ),
-                    );
-                    await _settings?.setCalendarTodayStyle(sel.first);
-                  },
-                ),
-              ],
-            ),
-          ),
-        ),
-        SettingsEntry(
-          title: l10n.calendarAccentColor,
-          description: l10n.calendarAccentColorDesc,
-          builder: (context, title, description) => Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                title,
-                const SizedBox(height: 4),
-                ?description,
-                const SizedBox(height: 12),
-                ColorSwatchPicker(
-                  value: _appearance.accentColorValue,
-                  onChanged: _onAccentChanged,
-                  spacing: 10,
-                  defaultOption: ColorSwatchDefault(
-                    color: colorScheme.primary,
-                    icon: Icons.format_color_reset_rounded,
-                    tooltip: l10n.calendarAccentThemeDefault,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        // Sits under the accent row because that is where a user first meets
-        // the palette; the sheet it opens is the same one every picker in the
-        // app reaches through its palette dot.
-        SettingsEntry(
-          title: l10n.colorPaletteTitle,
-          // The subtitle is the count, so the count is what `description`
-          // carries: `SettingsEntry` pre-renders that text with the search
-          // query highlighted, and rendering a different string in the
-          // builder would leave a matched row with nothing highlighted.
-          description: l10n.colorPaletteCount(CalendarPalette.custom.length),
-          keywords: [l10n.colorPaletteDesc, l10n.addColor, l10n.manageColors],
+          title: l10n.calendarAppearanceSection,
+          description: l10n.calendarAppearanceDesc,
+          keywords: [
+            l10n.calendarTodayStyleTitle,
+            l10n.calendarAccentColor,
+            l10n.colorPaletteTitle,
+            l10n.calendarMarkerStyleTitle,
+            l10n.calendarMaxDayBars,
+            l10n.calendarMissedDisplayTitle,
+            l10n.calendarDayRailStyleTitle,
+            l10n.calendarMaxDayRailMarks,
+            l10n.calendarDayRailBasePositionTitle,
+            l10n.calendarHighlightWeekends,
+            l10n.calendarEventTintTitle,
+            l10n.calendarTintConflictTitle,
+            l10n.calendarCellStyleTitle,
+            l10n.calendarShowWeekNumbers,
+            l10n.calendarWeekStartTitle,
+            l10n.calendarShowRecurrenceLabels,
+          ],
           builder: (context, title, description) => ListTile(
-            leading: Icon(Icons.palette_outlined, color: colorScheme.primary),
+            leading: Icon(Icons.palette_rounded, color: colorScheme.primary),
             title: title,
             subtitle: description,
             trailing: const Icon(Icons.chevron_right_rounded),
-            // The row reports a count, so it has to be rebuilt when the
-            // sheet has finished changing one — the entry text is resolved
-            // once per page build, not per palette revision.
+            // The two pages hold two copies of one `CalendarAppearance`, and
+            // this one still renders `showFilterChips` from its copy — so the
+            // appearance page's writes have to be read back when it pops, or
+            // the Filtering switch would keep showing a value that page reset
+            // away from. `context` is only used before the await; after it,
+            // `_loadSettings` guards on `mounted` itself.
             onTap: () async {
-              await ColorPaletteSheet.show(context);
-              if (mounted) setState(() {});
-            },
-          ),
-        ),
-        SettingsEntry(
-          title: l10n.calendarMarkerStyleTitle,
-          builder: (context, title, description) => Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                title,
-                const SizedBox(height: 8),
-                SegmentedButton<CalendarMarkerStyle>(
-                  segments: [
-                    ButtonSegment(
-                      value: CalendarMarkerStyle.bars,
-                      icon: const Icon(Icons.view_agenda_outlined),
-                      label: Text(l10n.markerStyleBars),
-                    ),
-                    ButtonSegment(
-                      value: CalendarMarkerStyle.dots,
-                      icon: const Icon(Icons.more_horiz_rounded),
-                      label: Text(l10n.markerStyleDots),
-                    ),
-                  ],
-                  selected: {_appearance.markerStyle},
-                  showSelectedIcon: false,
-                  onSelectionChanged: (sel) async {
-                    _onHapticFeedback();
-                    setState(
-                      () => _appearance = _appearance.copyWith(
-                        markerStyle: sel.first,
-                      ),
-                    );
-                    await _settings?.setCalendarMarkerStyle(sel.first);
-                  },
-                ),
-              ],
-            ),
-          ),
-        ),
-        SettingsEntry(
-          title: l10n.calendarMaxDayBars,
-          description: l10n.calendarMaxDayBarsDesc(_appearance.maxDayBars),
-          builder: (context, title, description) => SliderSettingRow(
-            title: title,
-            description: description,
-            value: _appearance.maxDayBars,
-            min: 1,
-            max: 6,
-            divisions: 5,
-            captionStyle: TextStyle(
-              fontSize: 12,
-              color: colorScheme.onSurfaceVariant,
-            ),
-            draftCaption: (draft) => l10n.calendarMaxDayBarsDesc(draft),
-            onCommit: (value) async {
-              _onHapticFeedback();
-              setState(
-                () => _appearance = _appearance.copyWith(maxDayBars: value),
-              );
-              await _settings?.setCalendarMaxDayBars(value);
-            },
-          ),
-        ),
-        // A drawing rule for the markers above and the rail below, not an
-        // event property: it decides whether a missed one is dimmed or gone,
-        // and it is read together with the two rows it sits between.
-        SettingsEntry(
-          title: l10n.calendarMissedDisplayTitle,
-          description: l10n.calendarMissedDisplayDesc,
-          // The visible title says nothing about presence, so the words the
-          // user would actually search for are declared here.
-          keywords: [l10n.eventTrackPresence, l10n.eventPresenceMissed],
-          builder: (context, title, description) => Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                title,
-                const SizedBox(height: 4),
-                ?description,
-                const SizedBox(height: 8),
-                SegmentedButton<CalendarMissedDisplay>(
-                  segments: [
-                    ButtonSegment(
-                      value: CalendarMissedDisplay.faded,
-                      icon: const Icon(Icons.opacity_rounded),
-                      label: Text(l10n.calendarMissedDisplayFaded),
-                    ),
-                    ButtonSegment(
-                      value: CalendarMissedDisplay.hidden,
-                      icon: const Icon(Icons.visibility_off_outlined),
-                      label: Text(l10n.calendarMissedDisplayHidden),
-                    ),
-                  ],
-                  selected: {_appearance.missedDisplay},
-                  showSelectedIcon: false,
-                  onSelectionChanged: (sel) async {
-                    _onHapticFeedback();
-                    setState(
-                      () => _appearance = _appearance.copyWith(
-                        missedDisplay: sel.first,
-                      ),
-                    );
-                    await _settings?.setCalendarMissedDisplay(sel.first);
-                  },
-                ),
-              ],
-            ),
-          ),
-        ),
-        SettingsEntry(
-          title: l10n.calendarDayRailStyleTitle,
-          description: l10n.calendarDayRailStyleDesc,
-          // Neither word appears in the copy, but the rail is the answer to
-          // "several tracked events on one day" and that is what someone
-          // looking for it would type.
-          keywords: [l10n.eventTrackPresence, l10n.eventPresenceMissed],
-          builder: (context, title, description) => Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                title,
-                const SizedBox(height: 4),
-                ?description,
-                const SizedBox(height: 8),
-                SegmentedButton<DayRailStyle>(
-                  segments: [
-                    ButtonSegment(
-                      value: DayRailStyle.none,
-                      label: Text(l10n.dayRailStyleNone),
-                    ),
-                    ButtonSegment(
-                      value: DayRailStyle.line,
-                      label: Text(l10n.dayRailStyleLine),
-                    ),
-                    ButtonSegment(
-                      value: DayRailStyle.dot,
-                      label: Text(l10n.dayRailStyleDot),
-                    ),
-                  ],
-                  selected: {_appearance.dayRailStyle},
-                  showSelectedIcon: false,
-                  onSelectionChanged: (sel) async {
-                    _onHapticFeedback();
-                    setState(
-                      () => _appearance = _appearance.copyWith(
-                        dayRailStyle: sel.first,
-                      ),
-                    );
-                    await _settings?.setCalendarDayRailStyle(sel.first);
-                  },
-                ),
-              ],
-            ),
-          ),
-        ),
-        // Only reachable with the rail on, like the tint-conflict row: there
-        // is nothing to cap while nothing is drawn.
-        if (_appearance.dayRailStyle != DayRailStyle.none)
-          SettingsEntry(
-            title: l10n.calendarMaxDayRailMarks,
-            description: l10n.calendarMaxDayRailMarksDesc(
-              _appearance.maxDayRailMarks,
-            ),
-            builder: (context, title, description) => SliderSettingRow(
-              title: title,
-              description: description,
-              value: _appearance.maxDayRailMarks,
-              min: SettingsKeys.minCalendarMaxDayRailMarks,
-              max: SettingsKeys.maxCalendarMaxDayRailMarks,
-              divisions:
-                  SettingsKeys.maxCalendarMaxDayRailMarks -
-                  SettingsKeys.minCalendarMaxDayRailMarks,
-              captionStyle: TextStyle(
-                fontSize: 12,
-                color: colorScheme.onSurfaceVariant,
-              ),
-              draftCaption: (draft) => l10n.calendarMaxDayRailMarksDesc(draft),
-              onCommit: (value) async {
-                _onHapticFeedback();
-                setState(
-                  () => _appearance = _appearance.copyWith(
-                    maxDayRailMarks: value,
-                  ),
-                );
-                await _settings?.setCalendarMaxDayRailMarks(value);
-              },
-            ),
-          ),
-        // Revealed only where the band can actually exist, which takes all
-        // three: `line` (the one style that shares its lane with the tint
-        // stripe — `dot` keeps its own and leaves the stripe to the cell),
-        // `eventTint` (with it off, fasting wins the wash outright and
-        // `CellTintResolver` has no runner-up to hand over) and `both` (the
-        // only conflict setting that paints a runner-up at all). In any other
-        // configuration this control would move a band nothing draws, and a
-        // switch that visibly does nothing is worse than one you have to turn
-        // something else on to reach. The preview below is showing the band
-        // whenever this row is visible, for exactly the same reason.
-        if (_appearance.dayRailStyle == DayRailStyle.line &&
-            _appearance.eventTint &&
-            _appearance.tintConflict == CalendarTintConflict.both)
-          SettingsEntry(
-            title: l10n.calendarDayRailBasePositionTitle,
-            description: l10n.calendarDayRailBasePositionDesc,
-            keywords: [l10n.calendarTintConflictFasting],
-            builder: (context, title, description) => Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  title,
-                  const SizedBox(height: 4),
-                  ?description,
-                  const SizedBox(height: 8),
-                  SegmentedButton<DayRailBasePosition>(
-                    segments: [
-                      ButtonSegment(
-                        value: DayRailBasePosition.top,
-                        label: Text(l10n.dayRailBasePositionTop),
-                      ),
-                      ButtonSegment(
-                        value: DayRailBasePosition.bottom,
-                        label: Text(l10n.dayRailBasePositionBottom),
-                      ),
-                    ],
-                    selected: {_appearance.dayRailBasePosition},
-                    showSelectedIcon: false,
-                    onSelectionChanged: (sel) async {
-                      _onHapticFeedback();
-                      setState(
-                        () => _appearance = _appearance.copyWith(
-                          dayRailBasePosition: sel.first,
-                        ),
-                      );
-                      await _settings?.setCalendarDayRailBasePosition(
-                        sel.first,
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-        SettingsEntry(
-          title: l10n.calendarHighlightWeekends,
-          description: l10n.calendarHighlightWeekendsDesc,
-          builder: (context, title, description) => SwitchListTile(
-            value: _appearance.highlightWeekends,
-            secondary: Icon(Icons.weekend_outlined, color: colorScheme.primary),
-            title: title,
-            subtitle: description,
-            onChanged: (value) async {
-              _onHapticFeedback();
-              setState(
-                () => _appearance = _appearance.copyWith(
-                  highlightWeekends: value,
-                ),
-              );
-              await _settings?.setCalendarHighlightWeekends(value);
-            },
-          ),
-        ),
-        SettingsEntry(
-          title: l10n.calendarEventTintTitle,
-          description: l10n.calendarEventTintDesc,
-          // "Priority" never appears in the visible copy, but it is what the
-          // tint encodes and what the user would search for.
-          keywords: [l10n.eventPriority],
-          builder: (context, title, description) => SwitchListTile(
-            value: _appearance.eventTint,
-            secondary: Icon(
-              Icons.format_color_fill_rounded,
-              color: colorScheme.primary,
-            ),
-            title: title,
-            subtitle: description,
-            onChanged: (value) async {
-              _onHapticFeedback();
-              setState(
-                () => _appearance = _appearance.copyWith(eventTint: value),
-              );
-              await _settings?.setCalendarEventTint(value);
-            },
-          ),
-        ),
-        // Only reachable with the tint on: with it off there is exactly one
-        // wash source, so there is nothing to resolve.
-        if (_appearance.eventTint)
-          SettingsEntry(
-            title: l10n.calendarTintConflictTitle,
-            description: l10n.calendarTintConflictDesc,
-            keywords: [l10n.fastingSectionTitle],
-            builder: (context, title, description) => Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  title,
-                  const SizedBox(height: 4),
-                  ?description,
-                  const SizedBox(height: 8),
-                  SegmentedButton<CalendarTintConflict>(
-                    segments: [
-                      ButtonSegment(
-                        value: CalendarTintConflict.eventWins,
-                        label: Text(l10n.calendarTintConflictEvent),
-                      ),
-                      ButtonSegment(
-                        value: CalendarTintConflict.fastingWins,
-                        label: Text(l10n.calendarTintConflictFasting),
-                      ),
-                      ButtonSegment(
-                        value: CalendarTintConflict.both,
-                        label: Text(l10n.calendarTintConflictBoth),
-                      ),
-                    ],
-                    selected: {_appearance.tintConflict},
-                    showSelectedIcon: false,
-                    onSelectionChanged: (sel) async {
-                      _onHapticFeedback();
-                      setState(
-                        () => _appearance = _appearance.copyWith(
-                          tintConflict: sel.first,
-                        ),
-                      );
-                      await _settings?.setCalendarTintConflict(sel.first);
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-        SettingsEntry(
-          title: l10n.calendarShowWeekNumbers,
-          description: l10n.calendarShowWeekNumbersDesc,
-          builder: (context, title, description) => SwitchListTile(
-            value: _appearance.showWeekNumbers,
-            secondary: Icon(Icons.tag_rounded, color: colorScheme.primary),
-            title: title,
-            subtitle: description,
-            onChanged: (value) async {
-              _onHapticFeedback();
-              setState(
-                () =>
-                    _appearance = _appearance.copyWith(showWeekNumbers: value),
-              );
-              await _settings?.setCalendarShowWeekNumbers(value);
-            },
-          ),
-        ),
-        SettingsEntry(
-          title: l10n.calendarShowRecurrenceLabels,
-          description: l10n.calendarShowRecurrenceLabelsDesc,
-          builder: (context, title, description) => SwitchListTile(
-            value: _appearance.showRecurrenceLabels,
-            secondary: Icon(Icons.repeat_rounded, color: colorScheme.primary),
-            title: title,
-            subtitle: description,
-            onChanged: (value) async {
-              _onHapticFeedback();
-              setState(
-                () => _appearance = _appearance.copyWith(
-                  showRecurrenceLabels: value,
-                ),
-              );
-              await _settings?.setCalendarShowRecurrenceLabels(value);
+              await AppNavigator.toCalendarAppearance(context);
+              if (mounted) await _loadSettings();
             },
           ),
         ),
@@ -1192,36 +713,14 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
   }
 
   Future<void> _resetToDefaults() async {
-    const defaults = CalendarAppearance(
-      maxDayBars: SettingsKeys.defaultCalendarMaxDayBars,
-      maxDayRailMarks: SettingsKeys.defaultCalendarMaxDayRailMarks,
-    );
-    await _settings?.setCalendarMaxDayBars(defaults.maxDayBars);
-    await _settings?.setCalendarTodayStyle(defaults.todayStyle);
-    await _settings?.setCalendarMarkerStyle(defaults.markerStyle);
-    await _settings?.setCalendarWeekStart(defaults.weekStart);
-    await _settings?.setCalendarAccentColor(defaults.accentColorValue);
-    await _settings?.setCalendarHighlightWeekends(defaults.highlightWeekends);
-    await _settings?.setCalendarShowWeekNumbers(defaults.showWeekNumbers);
+    // Scoped to the rows this page still owns. Every other appearance key is
+    // reset by `CalendarAppearancePage`, beside the controls that set it —
+    // resetting a value whose control is a route away means the user cannot
+    // see what changed, which is the same argument that keeps
+    // `showFilterChips` out of *that* page's reset. `showFilterChips` is the
+    // one appearance field whose row stayed here.
+    const defaults = CalendarAppearance();
     await _settings?.setCalendarShowFilterChips(defaults.showFilterChips);
-    await _settings?.setCalendarShowRecurrenceLabels(
-      defaults.showRecurrenceLabels,
-    );
-    await _settings?.setCalendarMissedDisplay(defaults.missedDisplay);
-    await _settings?.setCalendarEventTint(defaults.eventTint);
-    await _settings?.setCalendarTintConflict(defaults.tintConflict);
-    // Through `SettingsKeys`, like `maxDayBars` above: the model's field
-    // initializers and the settings defaults are two sources for one value,
-    // and reset is where they would silently drift apart.
-    await _settings?.setCalendarDayRailStyle(
-      DayRailStyle.fromName(SettingsKeys.defaultCalendarDayRailStyle),
-    );
-    await _settings?.setCalendarMaxDayRailMarks(defaults.maxDayRailMarks);
-    await _settings?.setCalendarDayRailBasePosition(
-      DayRailBasePosition.fromName(
-        SettingsKeys.defaultCalendarDayRailBasePosition,
-      ),
-    );
     await _settings?.setEventDescriptionLimit(
       SettingsKeys.defaultEventDescriptionLimit,
     );
@@ -1241,7 +740,11 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
 
     if (!mounted) return;
     setState(() {
-      _appearance = defaults;
+      // Only the field this page reset — claiming the whole appearance went
+      // back to defaults would make this copy disagree with what is stored.
+      _appearance = _appearance.copyWith(
+        showFilterChips: defaults.showFilterChips,
+      );
       _holidayProfile = _holidayService?.profile ?? HolidayProfile.generic;
       _fastingTraditions = const {};
       _fastingAppearance = const FastingAppearance();
@@ -1255,213 +758,6 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     CustomSnackbar.showSuccess(
       context,
       AppLocalizations.of(context)!.settingsReset,
-    );
-  }
-}
-
-/// Live preview strip: five sample day cells (weekend, plain, today,
-/// selected, busy day with overflowing markers) rendered with the exact
-/// widgets the calendar grid uses, so every appearance option is visible
-/// before leaving the settings page.
-class _AppearancePreview extends StatelessWidget {
-  final CalendarAppearance appearance;
-
-  const _AppearancePreview({required this.appearance});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final accent = appearance.accentOr(colorScheme.primary);
-    final today = DateTime.now();
-
-    final palette = [
-      for (final value in CalendarColors.swatchPalette) Color(value),
-    ];
-    final overflowBars = [
-      for (var i = 0; i <= appearance.maxDayBars; i++)
-        _previewBar('overflow$i', palette[(i * 3) % palette.length]),
-    ];
-    // One over the cap, so the overflow affordance previews too — the same
-    // trick `overflowBars` plays for the marker strip. The **first** mark is
-    // the missed one, because hollow-vs-filled is the part of the rail that
-    // is hard to picture from the setting's copy alone, and at a cap of 1 the
-    // first mark is the only one drawn.
-    final overflowRailMarks = [
-      for (var i = 0; i <= appearance.maxDayRailMarks; i++)
-        _previewRailMark(
-          'railOverflow$i',
-          palette[(i * 5) % palette.length],
-          missed: i == 0,
-        ),
-    ];
-    // Mirrors `_CalendarTable._rowHeight` / `_railHeight` exactly, including
-    // the 52px floor — the preview's whole job is to be the grid.
-    final previewStripHeight = CalendarDayBars.stripHeight(
-      appearance.maxDayBars,
-      appearance.markerStyle,
-    );
-    final cellHeight = CalendarDayCell.chipZoneHeight + previewStripHeight + 6;
-    final previewCellHeight = cellHeight < 52 ? 52.0 : cellHeight;
-    // The same lane the grid computes, through the same helper: the preview
-    // stacks its strip in a sibling `Align` at the same 4px offset, so
-    // previewing a capacity the grid does not have would be a lie.
-    final previewRailHeight = CalendarDayCell.railLaneHeight(
-      rowHeight: previewCellHeight,
-      stripHeight: previewStripHeight,
-      railStyle: appearance.dayRailStyle,
-    );
-
-    // Samples the real alpha ramp rather than picked-by-eye values, so the
-    // preview cannot drift from the grid. `priority` is 1-based like the
-    // event field; a null one means the day carries no event.
-    DayCellTint previewTint(Color color, {int? priority}) {
-      if (!appearance.eventTint) {
-        return priority == null
-            ? DayCellTint.empty
-            // With the tint off, a fasting day is the only wash there is.
-            : DayCellTint(
-                wash: CalendarColors.fasting.withValues(
-                  alpha: CalendarColors.fastingTintAlpha,
-                ),
-              );
-      }
-      if (priority == null) return DayCellTint.empty;
-      final eventWash = color.withValues(
-        alpha: CalendarColors.eventTintAlphaByPriority[priority - 1],
-      );
-      final fastingWash = CalendarColors.fasting.withValues(
-        alpha: CalendarColors.fastingTintAlpha,
-      );
-      return switch (appearance.tintConflict) {
-        CalendarTintConflict.eventWins => DayCellTint(wash: eventWash),
-        CalendarTintConflict.fastingWins => DayCellTint(wash: fastingWash),
-        CalendarTintConflict.both => DayCellTint(
-          wash: eventWash,
-          edge: CalendarColors.fasting.withValues(
-            alpha: CalendarColors.cellEdgeAlpha,
-          ),
-        ),
-      };
-    }
-
-    Widget cell(
-      DateTime day, {
-      bool isToday = false,
-      bool isSelected = false,
-      bool isWeekend = false,
-      List<DayBar> bars = const [],
-      DayCellTint tint = DayCellTint.empty,
-      List<DayRailMark> railMarks = const [],
-    }) {
-      final railLabel = CalendarDayRail.semanticsLabelFor(
-        marks: railMarks,
-        style: appearance.dayRailStyle,
-        maxMarks: appearance.maxDayRailMarks,
-        height: previewRailHeight,
-        hasBase: tint.edge != null,
-      );
-      return Expanded(
-        child: SizedBox(
-          height: previewCellHeight,
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: CalendarDayCell(
-                  day: day,
-                  isToday: isToday,
-                  isSelected: isSelected,
-                  isOutside: false,
-                  isWeekend: isWeekend,
-                  todayStyle: appearance.todayStyle,
-                  highlightWeekends: appearance.highlightWeekends,
-                  accent: accent,
-                  tint: tint,
-                  railMarks: railMarks,
-                  railStyle: appearance.dayRailStyle,
-                  maxRailMarks: appearance.maxDayRailMarks,
-                  railBasePosition: appearance.dayRailBasePosition,
-                  railHeight: previewRailHeight,
-                ),
-              ),
-              if (bars.isNotEmpty || railLabel != null)
-                Align(
-                  alignment: Alignment.bottomCenter,
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: CalendarDayBars(
-                      bars: bars,
-                      maxBars: appearance.maxDayBars,
-                      style: appearance.markerStyle,
-                      railLabel: railLabel,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-      decoration: BoxDecoration(
-        color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: colorScheme.outlineVariant),
-      ),
-      child: Row(
-        children: [
-          cell(
-            today.subtract(const Duration(days: 2)),
-            isWeekend: true,
-            bars: [_previewBar('weekend', CalendarColors.weekend)],
-          ),
-          cell(today.subtract(const Duration(days: 1))),
-          // The two tinted samples sit at opposite ends of the priority ramp
-          // so the "stronger means higher priority" claim is visible.
-          cell(
-            today,
-            isToday: true,
-            bars: [_previewBar('a', palette[0])],
-            tint: previewTint(palette[0], priority: kMinEventPriority),
-            railMarks: [_previewRailMark('rail1', palette[2])],
-          ),
-          cell(
-            today.add(const Duration(days: 1)),
-            isSelected: true,
-            bars: [_previewBar('b', palette[3]), _previewBar('c', palette[7])],
-            tint: previewTint(palette[3], priority: kMaxEventPriority),
-            railMarks: [
-              _previewRailMark('rail2', palette[2]),
-              _previewRailMark('rail3', palette[6]),
-            ],
-          ),
-          cell(
-            today.add(const Duration(days: 2)),
-            bars: overflowBars,
-            railMarks: overflowRailMarks,
-          ),
-        ],
-      ),
-    );
-  }
-
-  static DayBar _previewBar(String key, Color color) {
-    return DayBar(key: key, color: color, priority: 0, semanticLabel: '');
-  }
-
-  static DayRailMark _previewRailMark(
-    String key,
-    Color color, {
-    bool missed = false,
-  }) {
-    return DayRailMark(
-      key: key,
-      color: color,
-      priority: 0,
-      missed: missed,
-      semanticLabel: '',
     );
   }
 }

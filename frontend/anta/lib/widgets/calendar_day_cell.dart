@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../constants/calendar_colors.dart';
 import '../models/calendar_appearance.dart';
 import '../models/day_cell_tint.dart';
 import '../models/day_rail_mark.dart';
@@ -70,6 +71,15 @@ class CalendarDayCell extends StatelessWidget {
   /// their alpha applied.
   final DayCellTint tint;
 
+  /// How the resolved [tint] wash is painted into the cell.
+  ///
+  /// A **paint-side** parameter like [railStyle] and [maxRailMarks], never a
+  /// resolver input: the wash colour and its priority alpha arrive fully
+  /// resolved, and this only restates them in a different shape. The page
+  /// resolves it once per grid build from the theme's brightness, because the
+  /// user picks it per theme.
+  final CalendarCellStyle cellStyle;
+
   /// Recolours and bolds the day number for a fasting tradition using the
   /// "strong" display style. Not a tint layer — the number is the cell's own
   /// job — so it stays a separate parameter.
@@ -121,6 +131,7 @@ class CalendarDayCell extends StatelessWidget {
     required this.highlightWeekends,
     required this.accent,
     this.tint = DayCellTint.empty,
+    this.cellStyle = CalendarCellStyle.solid,
     this.fastingNumberColor,
     this.railMarks = const [],
     this.railStyle = DayRailStyle.none,
@@ -155,6 +166,23 @@ class CalendarDayCell extends StatelessWidget {
   static const double edgeLaneLeft = 1.5;
   static const double edgeLaneWidth = CalendarDayRail.lineWidth;
   static const double edgeLaneInset = 5.5;
+
+  /// The row height a grid whose marker strip is [stripHeight] tall needs for
+  /// the day-number chip zone and that strip never to overlap.
+  ///
+  /// The **one** definition, shared by the grid and the settings preview, for
+  /// the same reason [railLaneHeight] is: the preview's whole job is to be the
+  /// grid, and the pair drifting is a defect this subsystem has already
+  /// shipped once. It is also [railLaneHeight]'s `rowHeight` input at both
+  /// call sites, so a divergence here does not stay cosmetic — it changes the
+  /// rail capacity the preview claims.
+  ///
+  /// The `ceilToDouble` is load-bearing and easy to drop when copying: without
+  /// it an even [CalendarAppearance.maxDayBars] lands on a half-pixel row.
+  static double rowHeightFor(double stripHeight) {
+    final height = chipZoneHeight + stripHeight + 6;
+    return height < 52 ? 52 : height.ceilToDouble();
+  }
 
   /// The lane height [railStyle] gets inside a row of [rowHeight] whose bottom
   /// marker strip is [stripHeight] tall.
@@ -311,16 +339,77 @@ class CalendarDayCell extends StatelessWidget {
     // `opacity`, and fading here as well would dim the band twice on an
     // adjacent-month day.
     final laneBase = railStyle == DayRailStyle.line ? rawEdge : null;
-    final edge = (rawEdge == null || laneBase != null)
-        ? null
-        : _fade(rawEdge);
+    final edge = (rawEdge == null || laneBase != null) ? null : _fade(rawEdge);
     if (wash != null || edge != null) {
+      // `fade` and `outline` derive their colours from `wash` with **style-wide
+      // constants** — a gradient stop, and the two scales in `CalendarColors`.
+      // That is deliberately the same class of operation as `_fade`, which
+      // multiplies a resolved colour by `outsideAlpha`: the cell is still a
+      // dumb painter, because none of it looks at the day. The priority ramp
+      // arrives already baked into `wash` by `CellTintResolver` and is never
+      // recomputed here, which is why the constants live in `CalendarColors`
+      // beside the ramp they scale rather than inline below.
+      //
+      // Both read the **faded** `wash` local rather than `tint.wash`, so an
+      // adjacent-month day's fade is inherited by the gradient peak, the
+      // outline fill and the outline border alike.
+      //
+      // A `DayCellTint` can arrive with only an `edge`; neither style has
+      // anything to derive from then, so both fall through to the shape that
+      // has always shipped — a decoration whose `color` is simply null.
+      final radius = BorderRadius.circular(10);
+      final decoration = wash == null
+          ? BoxDecoration(borderRadius: radius)
+          : switch (cellStyle) {
+              CalendarCellStyle.solid => BoxDecoration(
+                color: wash,
+                borderRadius: radius,
+              ),
+              CalendarCellStyle.fade => BoxDecoration(
+                borderRadius: radius,
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [wash.withValues(alpha: 0), wash],
+                  stops: const [0.16, 1.0],
+                ),
+              ),
+              CalendarCellStyle.outline => BoxDecoration(
+                color: wash.withValues(
+                  alpha: wash.a * CalendarColors.outlineStyleWashScale,
+                ),
+                borderRadius: radius,
+              ),
+            };
+      // `outline`'s border rides `foregroundDecoration`, never `decoration`.
+      // A `Container` folds its background decoration's border width into the
+      // child's padding, and only tinted days build this container at all — so
+      // a border in `decoration` would push the day number 1px down on exactly
+      // the days that carry an event, leaving the digits of a month wobbling
+      // against their untinted neighbours, and would walk the runner-up stripe
+      // out of the lane [edgeLaneLeft] documents (which `CalendarDayRail`
+      // shares to the pixel in `line` style). A foreground decoration paints
+      // over the child and insets nothing — the same trick the rail already
+      // uses to outline its own lane. The 1px it overlaps the stripe with is
+      // the point: the outline stays unbroken.
+      final foreground = (wash != null && cellStyle == CalendarCellStyle.outline)
+          ? BoxDecoration(
+              borderRadius: radius,
+              border: Border.all(
+                color: wash.withValues(
+                  alpha: (wash.a * CalendarColors.outlineStyleBorderScale).clamp(
+                    0.0,
+                    1.0,
+                  ),
+                ),
+                width: 1,
+              ),
+            )
+          : null;
       cell = Container(
         margin: const EdgeInsets.all(1.5),
-        decoration: BoxDecoration(
-          color: wash,
-          borderRadius: BorderRadius.circular(10),
-        ),
+        decoration: decoration,
+        foregroundDecoration: foreground,
         // A non-uniform `Border` cannot carry a `borderRadius`, so the
         // runner-up's stripe is stacked rather than drawn as a side.
         child: edge == null

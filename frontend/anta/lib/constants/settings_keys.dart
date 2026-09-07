@@ -232,6 +232,17 @@ class SettingsKeys {
   /// `CalendarTintConflict.fromName`.
   static const String calendarTintConflict = 'calendar_tint_conflict';
 
+  /// How the resolved day-cell wash is painted in the **light** theme
+  /// (`solid` / `fade` / `outline`). Parsed with a forward-compatible
+  /// fallback by `CalendarCellStyle.fromName`. Its own key per theme because
+  /// one alpha does not read the same on a near-white and a near-black
+  /// ground.
+  static const String calendarCellStyleLight = 'calendar_cell_style_light';
+
+  /// How the resolved day-cell wash is painted in the **dark** theme
+  /// (`solid` / `fade` / `outline`). See [calendarCellStyleLight].
+  static const String calendarCellStyleDark = 'calendar_cell_style_dark';
+
   /// How the left-edge day rail is drawn (`none` / `line` / `dot`). Parsed
   /// with a forward-compatible fallback by `DayRailStyle.fromName`.
   static const String calendarDayRailStyle = 'calendar_day_rail_style';
@@ -432,6 +443,11 @@ class SettingsKeys {
   /// competes with the marker strip the user already reads.
   static const bool defaultCalendarEventTint = false;
   static const String defaultCalendarTintConflict = 'eventWins';
+
+  /// Both themes default to the wash exactly as it has always shipped, so
+  /// turning the setting on changes nothing until the user picks otherwise.
+  static const String defaultCalendarCellStyleLight = 'solid';
+  static const String defaultCalendarCellStyleDark = 'solid';
 
   /// The rail is opt-in like every other appearance option; there is no
   /// first-run nudge and no conditional default.

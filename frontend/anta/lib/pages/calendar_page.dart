@@ -273,6 +273,14 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   /// Memoized cell-wash resolver, rebuilt only when the appearance or the
   /// fasting layer changes — the wash has no holiday or money source, so the
   /// other two flags are not inputs here.
+  ///
+  /// `cellStyleLight`/`cellStyleDark` are paint-side, exactly like the rail's
+  /// `railStyle`/`maxRailMarks` note above, and the resolver never sees them.
+  /// They are still `CalendarAppearance` props, so picking one *does* miss
+  /// this memo and drop the output caches. Harmless and deliberate: it costs
+  /// one extra 42-cell recompute on a settings return, and keeping the memo
+  /// key as the whole appearance is what makes it impossible to add a real
+  /// resolver input and forget to invalidate.
   CellTintResolver? _tintResolver;
   CalendarAppearance? _tintAppearance;
   bool? _tintShowFasting;
@@ -1656,10 +1664,12 @@ class _CalendarTable extends StatelessWidget {
   /// `_buildDayCell` runs 42 times per rebuild. Deriving it in both getters
   /// meant recomputing it per cell on the very path that dropping the rail's
   /// `LayoutBuilder` was meant to lighten.
-  static double _rowHeightFor(double stripHeight) {
-    final height = CalendarDayCell.chipZoneHeight + stripHeight + 6;
-    return height < 52 ? 52 : height.ceilToDouble();
-  }
+  ///
+  /// The formula itself lives on [CalendarDayCell.rowHeightFor], the one
+  /// definition `CalendarAppearancePreview` shares — same rule as
+  /// [CalendarDayCell.railLaneHeight] below, and for the same reason.
+  static double _rowHeightFor(double stripHeight) =>
+      CalendarDayCell.rowHeightFor(stripHeight);
 
   /// The lane the left-edge rail gets, which differs per style — see
   /// [CalendarDayCell.railLaneHeight], the one definition the settings
@@ -1716,6 +1726,8 @@ class _CalendarTable extends StatelessWidget {
   /// Builds one day cell. [now] and [accent] are resolved once per grid
   /// build and threaded in: a month shows ~42 cells, and re-deriving either
   /// per cell allocated a `Color` and read the clock 42 times a frame.
+  /// [cellStyle] rides along for the same reason — it is one `Brightness`
+  /// read plus a field pick, but it is the same answer for all 42 cells.
   Widget _buildDayCell(
     DateTime day, {
     required bool isOutside,
@@ -1723,6 +1735,7 @@ class _CalendarTable extends StatelessWidget {
     required Color accent,
     required CalendarBloc bloc,
     required double railHeight,
+    required CalendarCellStyle cellStyle,
   }) {
     // Both lookups are O(1): the fasting style is memoized inside the engine
     // and the day's events come from the bloc's day cache — the same
@@ -1768,6 +1781,7 @@ class _CalendarTable extends StatelessWidget {
       highlightWeekends: appearance.highlightWeekends,
       accent: accent,
       tint: tint,
+      cellStyle: cellStyle,
       fastingNumberColor: fastingNumberColor,
       railMarks: railMarks,
       railStyle: railStyle,
@@ -1794,6 +1808,10 @@ class _CalendarTable extends StatelessWidget {
     );
     final rowHeight = _rowHeightFor(stripHeight);
     final railHeight = _railHeightFor(rowHeight, stripHeight, railStyle);
+    // Paint-side, and resolved here for the same reason `accent` is: the
+    // user picks it per theme, so it takes a `Brightness` read the 42 cells
+    // would otherwise each repeat for one shared answer.
+    final cellStyle = appearance.cellStyleFor(theme.brightness);
     final dowStyle = theme.textTheme.labelMedium!.copyWith(
       fontWeight: FontWeight.w600,
       color: colorScheme.onSurfaceVariant,
@@ -1873,6 +1891,7 @@ class _CalendarTable extends StatelessWidget {
           accent: accent,
           bloc: calendarBloc,
           railHeight: railHeight,
+          cellStyle: cellStyle,
         ),
         todayBuilder: (context, day, focusedDay) => _buildDayCell(
           day,
@@ -1881,6 +1900,7 @@ class _CalendarTable extends StatelessWidget {
           accent: accent,
           bloc: calendarBloc,
           railHeight: railHeight,
+          cellStyle: cellStyle,
         ),
         selectedBuilder: (context, day, focusedDay) => _buildDayCell(
           day,
@@ -1889,6 +1909,7 @@ class _CalendarTable extends StatelessWidget {
           accent: accent,
           bloc: calendarBloc,
           railHeight: railHeight,
+          cellStyle: cellStyle,
         ),
         outsideBuilder: (context, day, focusedDay) => _buildDayCell(
           day,
@@ -1897,6 +1918,7 @@ class _CalendarTable extends StatelessWidget {
           accent: accent,
           bloc: calendarBloc,
           railHeight: railHeight,
+          cellStyle: cellStyle,
         ),
         headerTitleBuilder: (context, day) {
           final title =

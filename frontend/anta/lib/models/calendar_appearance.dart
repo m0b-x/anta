@@ -1,3 +1,5 @@
+import 'dart:ui' show Brightness;
+
 import 'package:equatable/equatable.dart';
 import 'package:flutter/painting.dart';
 
@@ -147,6 +149,45 @@ enum CalendarTintConflict {
   }
 }
 
+/// How the resolved day-cell wash is painted into the cell.
+///
+/// Purely paint-side: the wash colour and its priority alpha still come from
+/// `CellTintResolver`, and every style here applies one **style-wide** constant
+/// (or a gradient stop) to the colour it was handed — never a per-day strength
+/// decision.
+///
+/// The choice is stored **per theme**, and that asymmetry is the whole reason
+/// the setting exists. One alpha table serves both themes, but the same alpha
+/// does not read the same on both grounds: over the dark surface a P1 wash
+/// reads as a glow, while over the near-white light surface the identical alpha
+/// lands as flat pastel paint, because the *chroma* step against a near-white
+/// ground is far larger than against a near-black one even though the
+/// luminance step is comparable. A single setting would force one theme to
+/// carry the other's compromise.
+enum CalendarCellStyle {
+  /// The wash fills the cell evenly (default) — exactly what shipped before
+  /// this setting existed, in both themes.
+  solid,
+
+  /// The wash fades in from transparent at the top to full strength at the
+  /// bottom. Keeps the resolved alpha as its peak, so the priority ramp is
+  /// untouched; the cell simply stops reading as a painted block.
+  fade,
+
+  /// A whisper of fill under a 1px border, both derived from the resolved
+  /// wash by the scales in `CalendarColors`. The border carries the priority
+  /// signal the near-invisible fill can no longer show.
+  outline;
+
+  /// Forward-compatible parsing: unknown/null values fall back to [solid].
+  static CalendarCellStyle fromName(String? name) {
+    for (final style in values) {
+      if (style.name == name) return style;
+    }
+    return solid;
+  }
+}
+
 /// First day of the calendar week.
 enum CalendarWeekStart {
   monday(DateTime.monday),
@@ -217,6 +258,22 @@ class CalendarAppearance extends Equatable {
   /// when [eventTint] is on.
   final CalendarTintConflict tintConflict;
 
+  /// How the resolved wash is painted **in the light theme**.
+  ///
+  /// Separate from [cellStyleDark] because the same alpha is not the same
+  /// wash on the two grounds: against the near-white light surface a wash
+  /// shifts chroma far more than the identical alpha does against the dark
+  /// one, so a strength that reads as a glow in dark mode reads as flat
+  /// pastel paint here. Defaults to [CalendarCellStyle.solid], today's look.
+  final CalendarCellStyle cellStyleLight;
+
+  /// How the resolved wash is painted **in the dark theme**.
+  ///
+  /// Independent of [cellStyleLight] for the chroma reason above — softening
+  /// the light grid must not also soften a dark grid the user is happy with.
+  /// Defaults to [CalendarCellStyle.solid], today's look.
+  final CalendarCellStyle cellStyleDark;
+
   /// How the left-edge rail is drawn, or [DayRailStyle.none] for no rail.
   ///
   /// Off by default, like every other opt-in appearance option. Turning it on
@@ -246,6 +303,8 @@ class CalendarAppearance extends Equatable {
     this.missedDisplay = CalendarMissedDisplay.faded,
     this.eventTint = false,
     this.tintConflict = CalendarTintConflict.eventWins,
+    this.cellStyleLight = CalendarCellStyle.solid,
+    this.cellStyleDark = CalendarCellStyle.solid,
     this.dayRailStyle = DayRailStyle.none,
     this.maxDayRailMarks = 3,
     this.dayRailBasePosition = DayRailBasePosition.bottom,
@@ -257,6 +316,11 @@ class CalendarAppearance extends Equatable {
     final value = accentColorValue;
     return value == null ? themePrimary : Color(value);
   }
+
+  /// The cell style for [brightness]. One helper so no call site re-derives
+  /// which of the two per-theme fields applies.
+  CalendarCellStyle cellStyleFor(Brightness brightness) =>
+      brightness == Brightness.dark ? cellStyleDark : cellStyleLight;
 
   CalendarAppearance copyWith({
     CalendarTodayStyle? todayStyle,
@@ -272,6 +336,8 @@ class CalendarAppearance extends Equatable {
     CalendarMissedDisplay? missedDisplay,
     bool? eventTint,
     CalendarTintConflict? tintConflict,
+    CalendarCellStyle? cellStyleLight,
+    CalendarCellStyle? cellStyleDark,
     DayRailStyle? dayRailStyle,
     int? maxDayRailMarks,
     DayRailBasePosition? dayRailBasePosition,
@@ -291,6 +357,8 @@ class CalendarAppearance extends Equatable {
       missedDisplay: missedDisplay ?? this.missedDisplay,
       eventTint: eventTint ?? this.eventTint,
       tintConflict: tintConflict ?? this.tintConflict,
+      cellStyleLight: cellStyleLight ?? this.cellStyleLight,
+      cellStyleDark: cellStyleDark ?? this.cellStyleDark,
       dayRailStyle: dayRailStyle ?? this.dayRailStyle,
       maxDayRailMarks: maxDayRailMarks ?? this.maxDayRailMarks,
       dayRailBasePosition: dayRailBasePosition ?? this.dayRailBasePosition,
@@ -311,6 +379,8 @@ class CalendarAppearance extends Equatable {
     missedDisplay,
     eventTint,
     tintConflict,
+    cellStyleLight,
+    cellStyleDark,
     dayRailStyle,
     maxDayRailMarks,
     dayRailBasePosition,

@@ -925,6 +925,43 @@ class SettingsService {
     );
   }
 
+  // Calendar appearance - how the resolved wash is painted, per theme. One
+  // decoder over the raw string for both keys (their defaults are the only
+  // thing that differs, and both are constants), shared by the single-row
+  // getters and the bulk path so the two can never drift.
+  static CalendarCellStyle _decodeCalendarCellStyle(
+    String? raw,
+    String fallback,
+  ) => CalendarCellStyle.fromName(raw ?? fallback);
+
+  Future<CalendarCellStyle> getCalendarCellStyleLight() async {
+    return _decodeCalendarCellStyle(
+      await _db.userSettingsDao.getValue(SettingsKeys.calendarCellStyleLight),
+      SettingsKeys.defaultCalendarCellStyleLight,
+    );
+  }
+
+  Future<void> setCalendarCellStyleLight(CalendarCellStyle style) async {
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.calendarCellStyleLight,
+      style.name,
+    );
+  }
+
+  Future<CalendarCellStyle> getCalendarCellStyleDark() async {
+    return _decodeCalendarCellStyle(
+      await _db.userSettingsDao.getValue(SettingsKeys.calendarCellStyleDark),
+      SettingsKeys.defaultCalendarCellStyleDark,
+    );
+  }
+
+  Future<void> setCalendarCellStyleDark(CalendarCellStyle style) async {
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.calendarCellStyleDark,
+      style.name,
+    );
+  }
+
   // Calendar appearance - the left-edge day rail.
   static DayRailStyle _decodeCalendarDayRailStyle(String? raw) =>
       DayRailStyle.fromName(raw ?? SettingsKeys.defaultCalendarDayRailStyle);
@@ -1418,6 +1455,8 @@ class SettingsService {
     SettingsKeys.calendarMissedDisplay,
     SettingsKeys.calendarEventTint,
     SettingsKeys.calendarTintConflict,
+    SettingsKeys.calendarCellStyleLight,
+    SettingsKeys.calendarCellStyleDark,
     SettingsKeys.calendarDayRailStyle,
     SettingsKeys.calendarMaxDayRailMarks,
     SettingsKeys.calendarDayRailBasePosition,
@@ -1480,6 +1519,14 @@ class SettingsService {
       ),
       tintConflict: _decodeCalendarTintConflict(
         values[SettingsKeys.calendarTintConflict],
+      ),
+      cellStyleLight: _decodeCalendarCellStyle(
+        values[SettingsKeys.calendarCellStyleLight],
+        SettingsKeys.defaultCalendarCellStyleLight,
+      ),
+      cellStyleDark: _decodeCalendarCellStyle(
+        values[SettingsKeys.calendarCellStyleDark],
+        SettingsKeys.defaultCalendarCellStyleDark,
       ),
       dayRailStyle: _decodeCalendarDayRailStyle(
         values[SettingsKeys.calendarDayRailStyle],

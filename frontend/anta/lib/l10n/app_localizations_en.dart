@@ -2799,6 +2799,27 @@ class AppLocalizationsEn extends AppLocalizations {
   String get calendarAppearanceSection => 'Appearance';
 
   @override
+  String get calendarAppearanceDesc => 'Preview and tune how the grid looks';
+
+  @override
+  String get calendarAppearanceDayCellSection => 'Day cell';
+
+  @override
+  String get calendarAppearanceMarkersSection => 'Markers';
+
+  @override
+  String get calendarAppearanceRailSection => 'Day rail';
+
+  @override
+  String get calendarAppearanceWeekSection => 'Week';
+
+  @override
+  String get calendarAppearanceColorSection => 'Color';
+
+  @override
+  String get calendarAppearanceLabelsSection => 'Row labels';
+
+  @override
   String get calendarTodayStyleTitle => 'Today highlight';
 
   @override
@@ -3037,6 +3058,28 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get calendarTintConflictBoth => 'Both';
+
+  @override
+  String get calendarCellStyleTitle => 'Day cell style';
+
+  @override
+  String get calendarCellStyleDesc =>
+      'How an event\'s colour fills the day cell. Each theme keeps its own choice.';
+
+  @override
+  String get calendarCellStyleLight => 'Light';
+
+  @override
+  String get calendarCellStyleDark => 'Dark';
+
+  @override
+  String get calendarCellStyleSolid => 'Solid';
+
+  @override
+  String get calendarCellStyleFade => 'Fade';
+
+  @override
+  String get calendarCellStyleOutline => 'Outline';
 
   @override
   String get calendarWeekStartTitle => 'Week starts on';

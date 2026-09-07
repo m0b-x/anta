@@ -56,6 +56,29 @@ abstract final class CalendarColors {
   /// strength is invisible, which would make "show both" read as "off".
   static const double cellEdgeAlpha = 0.55;
 
+  /// What the resolved wash alpha is multiplied by under
+  /// `CalendarCellStyle.outline`, dropping the fill to a whisper —
+  /// roughly `[0.098, 0.077, 0.056, 0.042, 0.028]`.
+  ///
+  /// Applied to the **resolved** wash rather than replacing it, so the
+  /// priority ramp survives the scaling. It lives here beside the ramp it
+  /// scales rather than inline in the painter for the same reason
+  /// [eventTintAlphaByPriority] does: every number that decides how strong a
+  /// calendar tint reads is comparable at a glance in one place, and a style
+  /// constant buried in a `BoxDecoration` is one nobody re-tunes against the
+  /// ramp it has to stay under.
+  static const double outlineStyleWashScale = 0.35;
+
+  /// What the resolved wash alpha is multiplied by to get that style's 1px
+  /// border, clamped to 1.0 — roughly `[0.59, 0.46, 0.34, 0.25, 0.17]`.
+  ///
+  /// Deliberately derived from the wash rather than from [cellEdgeAlpha]:
+  /// that one is a flat 0.55 for every priority, and reusing it here would
+  /// flatten the ramp exactly where the near-invisible fill has stopped being
+  /// able to show it — the border *is* the priority signal in this style.
+  /// Same reason for living here rather than in the painter.
+  static const double outlineStyleBorderScale = 2.1;
+
   /// Curated swatch palette offered when a user picks an explicit per-event
   /// color override, and by the category editor. Stored as 32-bit ARGB ints
   /// so they round-trip through SQLite and backup without any platform

@@ -22,6 +22,7 @@ enum NavDestinationKind {
   calendar,
   calendarSettings,
   calendarCategories,
+  calendarAppearance,
   eventTemplates,
   vocabularies,
   databaseSettings,

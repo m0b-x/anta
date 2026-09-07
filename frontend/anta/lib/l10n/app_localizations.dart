@@ -4900,11 +4900,53 @@ abstract class AppLocalizations {
   /// **'Show up to {count} bars per day. Extra categories collapse into a +N indicator.'**
   String calendarMaxDayBarsDesc(int count);
 
-  /// Calendar appearance settings section title
+  /// Calendar appearance settings section title, and the title of the calendar appearance page
   ///
   /// In en, this message translates to:
   /// **'Appearance'**
   String get calendarAppearanceSection;
+
+  /// Subtitle of the calendar settings row that opens the calendar appearance page
+  ///
+  /// In en, this message translates to:
+  /// **'Preview and tune how the grid looks'**
+  String get calendarAppearanceDesc;
+
+  /// Calendar appearance page section title for the day-cell options
+  ///
+  /// In en, this message translates to:
+  /// **'Day cell'**
+  String get calendarAppearanceDayCellSection;
+
+  /// Calendar appearance page section title for the day marker options
+  ///
+  /// In en, this message translates to:
+  /// **'Markers'**
+  String get calendarAppearanceMarkersSection;
+
+  /// Calendar appearance page section title for the left-edge day rail options
+  ///
+  /// In en, this message translates to:
+  /// **'Day rail'**
+  String get calendarAppearanceRailSection;
+
+  /// Calendar appearance page section title for the week options
+  ///
+  /// In en, this message translates to:
+  /// **'Week'**
+  String get calendarAppearanceWeekSection;
+
+  /// Calendar appearance page section title for the color options
+  ///
+  /// In en, this message translates to:
+  /// **'Color'**
+  String get calendarAppearanceColorSection;
+
+  /// Calendar appearance page section title for the row label options
+  ///
+  /// In en, this message translates to:
+  /// **'Row labels'**
+  String get calendarAppearanceLabelsSection;
 
   /// Label for the today-highlight style selector
   ///
@@ -5301,6 +5343,48 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Both'**
   String get calendarTintConflictBoth;
+
+  /// Setting title for how the event color fills a day cell, chosen per theme
+  ///
+  /// In en, this message translates to:
+  /// **'Day cell style'**
+  String get calendarCellStyleTitle;
+
+  /// Setting subtitle explaining that the day cell style is stored separately for light and dark
+  ///
+  /// In en, this message translates to:
+  /// **'How an event\'s colour fills the day cell. Each theme keeps its own choice.'**
+  String get calendarCellStyleDesc;
+
+  /// Label above the day cell style buttons that apply to the light theme
+  ///
+  /// In en, this message translates to:
+  /// **'Light'**
+  String get calendarCellStyleLight;
+
+  /// Label above the day cell style buttons that apply to the dark theme
+  ///
+  /// In en, this message translates to:
+  /// **'Dark'**
+  String get calendarCellStyleDark;
+
+  /// Day cell style option: the color fills the cell evenly
+  ///
+  /// In en, this message translates to:
+  /// **'Solid'**
+  String get calendarCellStyleSolid;
+
+  /// Day cell style option: the color fades in from the top of the cell
+  ///
+  /// In en, this message translates to:
+  /// **'Fade'**
+  String get calendarCellStyleFade;
+
+  /// Day cell style option: a faint fill under a colored border
+  ///
+  /// In en, this message translates to:
+  /// **'Outline'**
+  String get calendarCellStyleOutline;
 
   /// Label for the first-day-of-week dropdown
   ///

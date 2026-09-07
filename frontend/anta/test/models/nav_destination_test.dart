@@ -145,16 +145,20 @@ void main() {
 
     test('the persisted names of the kinds that already shipped are unchanged',
         () {
-      // Renaming or reordering any of these truncates every existing
-      // install's stored stack at that entry.
+      // Renaming any of these truncates every existing install's stored stack
+      // at that entry. *Position* is not persisted — the codec writes
+      // `kind.name` and reads it back through `fromName` — so inserting a new
+      // member beside its neighbours (`calendarAppearance`, 2026-09-07) is
+      // safe and the list simply grows to match.
       expect(
-        NavDestinationKind.values.take(11).map((kind) => kind.name),
+        NavDestinationKind.values.take(12).map((kind) => kind.name),
         [
           'folder',
           'note',
           'calendar',
           'calendarSettings',
           'calendarCategories',
+          'calendarAppearance',
           'eventTemplates',
           'vocabularies',
           'databaseSettings',
