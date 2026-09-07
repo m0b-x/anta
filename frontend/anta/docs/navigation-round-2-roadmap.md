@@ -24,7 +24,9 @@ note→note pushes are why the editor gains an "Open folder" row).
 Yes, with five corrections to the mock. The core of the design holds up
 against both the code and the platform:
 
-- **One icon per corner is the platform default, not a novelty.** Flutter's
+- **One icon per corner is the platform default, not a novelty.**
+  *(Reversed 2026-09-07 on user feedback — see §7. The reasoning below is
+  why it was tried, and is sound; it was outvoted by hands.)* Flutter's
   own `AppBar` already picks the drawer icon at the root and a back arrow
   when nested; Android's Up-button guidance says the same. The mock removes
   a collision the app invented (back + divider + hamburger in one corner)
@@ -100,7 +102,7 @@ Taken as defaults so the slices can be written; override before Slice 2.
 | # | Question (from the mock) | Default | Why |
 | --- | --- | --- | --- |
 | D1 | Parent name above the large title? | **Keep.** | Free once `getAncestors` is fetched for the long-press menu, and it is the visible, screen-reader-reachable twin of that menu. |
-| D2 | Settings row in menus, or swipe only? | **Row in both menus.** | The swipe collides with the Android back gesture at the left edge; a row costs one line. |
+| D2 | Settings row in menus, or swipe only? | **Row in both menus.** | The swipe collides with the Android back gesture at the left edge; a row costs one line. **Amended 2026-09-07 (§7):** users reported the swipe as a strain, so the `☰` button returns paired with `←` on every nested screen — "one icon per corner" is dropped. The row stays as the third route, and the only one that works while the search field owns the bar. |
 | D3 | Smart rows at root? | **All notes: yes (Slice 6). Recent: yes, same slice, first to drop.** | Search idle already shows recents after Slice 5. |
 | D4 | Folders grouped above notes, or interleaved by position? | **Grouped, per the mock.** | Today `mergeByPosition` can interleave. Reorder stays within a group; `_handleReorderMixed` already writes both orders. Flag if interleaving was ever used on purpose. |
 | D5 | Folder row count | **Notes including descendants** (mock: Training = 5 + 3 + 4 + 11 = 23). | One batched CTE (Slice 3) replaces two queries per card. |
@@ -1435,6 +1437,33 @@ is layout, typography, iconography and row anatomy, plus a bug review of
 Slices 1–6 (5 and 6 were never device-tested before 2026-09-07, when the
 search keyboard bug surfaced). The prompt below is the next session.
 
+**Amended 2026-09-07 — the drawer button comes back.** Users reported that
+reaching the drawer by edge swipe strains the hand, and on Android that
+swipe shares the left edge with the system back gesture (flutter#143152,
+already logged in section 0 as a risk). The owner asked for the
+pre-round-2 leading control back: `[←]│[☰]` as one paired widget on every
+nested screen, folders and editor alike. Root keeps its lone `☰`; search
+mode keeps its lone `←`, because there the arrow leaves search. This
+**reverses the "one icon per corner" half of D2 and of Slice 1** — the
+Settings row in both overflow menus stays, demoted from fallback to third
+route. The mock is revision **2.4** at the same URL; re-read it, do not
+work from rev 2.3 impressions.
+
+**Shipped the same day, ahead of the session** (uncommitted on `843878f`):
+`_IntegratedNavButtons` + `_NavButton` moved out of `unified_app_bars.dart`
+into `lib/widgets/leading_nav_pair.dart` as `LeadingNavPair`, now used by
+`SettingsAppBar` (unchanged behaviour, back glyph now `BackButtonIcon`
+instead of `Icons.arrow_back_rounded`), `FolderSliverAppBar` (nested only,
+`leadingWidth` conditional on `isRootPage`), and `NoteAppBar` (new
+`onMenuPressed`, wired to the editor's `_scaffoldKey`). The ancestor
+long-press and its semantics moved to the arrow half. 4,123 tests green,
+`dart analyze lib test` clean. The three "no drawer icon" assertions were
+inverted and three drawer-opening tests added — the editor harness needed
+`AuthService` registered, since its bar can now build the drawer. **Still
+owed:** the device pass (title truncation in the collapsed browser bar and
+in the editor, TalkBack on both halves, dark-theme divider, the pair's
+absence in search and selection), and D18/D19 below.
+
 ```text
 PROMPT — Mock parity + deep review (navigation round 2)
 
@@ -1451,10 +1480,38 @@ top). Do not commit.
 
 Goal: the owner approved the artifact "ANTA Navigation Round 2"
 (https://claude.ai/code/artifact/82c94d9b-0793-47a9-ae29-a036181fcccc)
-and the client judges delivery against it. Deliver four things: (1) a
-screen-by-screen parity audit against the mock's CSS, (2) a deep bug
-review of everything Slices 1–6 and the palette touched, (3) the fixes,
-(4) emulator screenshots before and after for every mock screen.
+and the client judges delivery against it. The mock is now at revision
+2.4; read it fresh. Deliver five things: (1) the device pass on the
+restored `[←]│[☰]` leading pair, which shipped on 2026-09-07 before this
+session (see "Drawer button" below for what it is and what is still owed),
+(2) a screen-by-screen parity audit against the
+mock's CSS, (3) a deep bug review of everything Slices 1–6 and the palette
+touched, (4) the fixes, (5) emulator screenshots before and after for
+every mock screen.
+
+Drawer button (rev 2.4, the reason this session was re-opened; the code
+landed 2026-09-07, so this is the shape to verify, not to build):
+- `LeadingNavPair` (`lib/widgets/leading_nav_pair.dart`) — back +
+  1px divider + menu, both `VisualDensity.compact`, `LeadingNavPair.width`
+  = 100. Four hosts: `SettingsAppBar`, `FolderSliverAppBar` (nested only),
+  `NoteAppBar`, and through the former, `AllNotesPage`.
+- The menu half falls back to `Scaffold.of(context).openDrawer()` from
+  inside its own `Builder`, which is the path the root button already
+  used; the editor passes `_scaffoldKey.currentState?.openDrawer()`
+  explicitly. Both resolve the same drawer.
+- Root keeps a lone `☰`. `SearchFieldAppBar` and the selection bar keep a
+  lone `←` — no drawer while the field or a selection owns the bar.
+- The ancestor long-press and its `MergeSemantics` +
+  `CustomSemanticsAction` sit on the **arrow half only**; the two halves
+  must stay two semantics nodes. TalkBack on a device: arrow announces
+  back + "show ancestors", menu announces the drawer tooltip.
+- Vertical geometry is untouched, so `_compensateBarSwap` and its
+  exact-pixel tests did not move. What did move is the collapsed title
+  width (~44px less): check a long folder name in the collapsed bar and a
+  long note title in the editor, where the title is also the rename tap
+  target.
+- No new strings: both tooltips come from `MaterialLocalizations`
+  (`backButtonTooltip`, `openAppDrawerTooltip`).
 
 Execution model: you (Fable) plan, triage, review and write docs. Opus
 agents do the deep reads and every implementation slice. Sonnet agents do
@@ -1472,7 +1529,11 @@ unstyled — skip it. "What the code says" and "Your call" are context.
 Mock metrics (tokens are already in lib/constants/app_theme.dart and
 the SurfaceRoles extension in lib/constants/app_colors.dart):
 - Bar: toolbar 48px; icon buttons 48px with 22px stroke-style glyphs in
-  onSurfaceVariant; collapsed title 17px/500. Large title 28px/500 with
+  onSurfaceVariant; collapsed title 17px/500. Leading pair on every nested
+  screen: two 42px halves around a 1px, 20px-tall outlineVariant divider,
+  2px of padding before the arrow (~86px drawn, `leadingWidth: 100` in
+  code). Root: a single 48px `☰`. Search and selection bars: a single
+  48px `←`. Large title 28px/500 with
   14px below it, 8px above it at root; eyebrow one 22px line, 13px
   onSurfaceVariant, directly under the toolbar — no empty band.
 - List: 16px side inset; groups radius 14; 18px between groups; section
@@ -1503,6 +1564,9 @@ the SurfaceRoles extension in lib/constants/app_colors.dart):
   find bar 48px surfaceContainerHigh with a match-count pill.
 
 Known deviations (emulator, light, 2026-09-07 — re-verify each):
+- The leading pair landed on 2026-09-07 but has never been seen on a
+  device: measure it against the mock (two 42px halves, 1px divider) and
+  check what the extra ~44px does to the collapsed titles.
 - lib/widgets/folder_sliver_app_bar.dart: expandedHeight 172 / collapsed
   64 leaves a ~76dp empty band between the toolbar and the title (mock
   0); large title uses headlineMedium at weight 400 (mock 500); collapsed
@@ -1534,6 +1598,14 @@ Decisions for the owner (ask once, in Phase 3, with AskUserQuestion):
 - D16: switch row/bar glyphs to outline variants to match the mock's
   stroke style, or keep filled Material icons.
 - D17: editor toolbar contents — the mock says "unchanged"; confirm.
+- D18: pair on every nested screen (drawn) vs browser only, which would
+  keep the editor's title at full width and leave the editor with the
+  swipe plus its Settings row. Ask only if the title measurement above
+  shows real truncation on a 360dp-wide screen.
+- D19: a drawer button in the browser's bottom bar as well, at thumb
+  height — the only change that actually shortens the reach the users
+  complained about, at the cost of the same door twice on one screen.
+  Not drawn in rev 2.4; the editor has no bottom slot for a twin.
 
 Suspected bugs to verify (CONFIRM or clear each):
 - `_compensateBarSwap` subtracts kToolbarHeight (56) from expandedHeight
@@ -1543,7 +1615,15 @@ Suspected bugs to verify (CONFIRM or clear each):
   in test/widgets/optimized_folder_content_page_test.dart).
 - RefreshIndicator edgeOffset after the height change.
 - Drawer edge drag vs the Android back gesture on every page (Slice 6
-  polish item, device-gated; trim drawerEdgeDragWidth if it triggers).
+  polish item, device-gated). With the button back, the swipe is no
+  longer the only route, so trimming `drawerEdgeDragWidth` — or leaving
+  the conflict alone — is now a cheap call; make it and record it.
+- After the pair lands: the collapsed folder title and the editor title
+  with a long name (truncation, and whether the editor's title tap target
+  is still comfortable); the drawer opening from the menu half on all
+  three pages; TalkBack reading the two halves as two nodes; the pair in
+  dark theme (divider color) and in selection/search mode, where it must
+  not appear.
 - All notes with hundreds of notes: path batching, scroll, load-more.
 - Kill and relaunch parked on Recent and on All notes (restore).
 - Search flow: type, open a result, Back returns to the same results with
@@ -1599,7 +1679,9 @@ Phases:
    small, file-disjoint implementation slices with the exact target
    values.
 4. Opus implementation agents, one per slice, sequential where files
-   overlap. Rules as in Slice 6: no code comments in new or edited code
+   overlap. The leading pair is already in the tree; a slice that edits
+   `folder_sliver_app_bar.dart`, `unified_app_bars.dart` or
+   `leading_nav_pair.dart` must keep it. Rules as in Slice 6: no code comments in new or edited code
    (existing /// stays), all strings via AppLocalizations with en/de/ro
    together and `flutter gen-l10n`, tests against real drift and never
    FakeAsync, `dart analyze lib` and the targeted suites before reporting.
@@ -1637,7 +1719,9 @@ IconButton needs MergeSemantics; RefreshIndicator under a tall sliver
 needs edgeOffset; pad sheets by max(viewInsets, viewPadding);
 `didChangeDependencies` must never unfocus.
 
-Exit: every mock screen has a before/after emulator shot; the parity
-table has no "deviates" row without an owner decision behind it; analyze
-and the full suite are green; nothing committed.
+Exit: the drawer button is back on every nested screen and opens the
+drawer from all three pages; every mock screen has a before/after
+emulator shot; the parity table has no "deviates" row without an owner
+decision behind it; analyze and the full suite are green; nothing
+committed.
 ```

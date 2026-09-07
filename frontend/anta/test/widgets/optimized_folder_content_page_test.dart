@@ -40,6 +40,7 @@ import 'package:anta/widgets/content_rows.dart';
 import 'package:anta/widgets/folder_overflow_menu.dart';
 import 'package:anta/widgets/folder_row.dart';
 import 'package:anta/widgets/folder_sliver_app_bar.dart';
+import 'package:anta/widgets/leading_nav_pair.dart';
 import 'package:anta/widgets/note_row.dart';
 import 'package:anta/widgets/search_surface.dart';
 import 'package:anta/widgets/selection_app_bar.dart';
@@ -355,7 +356,7 @@ void main() {
         .toList();
   }
 
-  group('one icon per corner', () {
+  group('leading controls', () {
     testWidgets('the root page keeps the drawer button and shows no back '
         'arrow', (tester) async {
       await pumpPage(tester);
@@ -383,14 +384,29 @@ void main() {
       await teardownPage(tester);
     });
 
-    testWidgets('a nested folder shows one back arrow and no drawer button', (
+    testWidgets('a nested folder pairs the back arrow with the drawer button', (
       tester,
     ) async {
       await pumpPage(tester, folderId: folder.id);
 
+      expect(find.byType(LeadingNavPair), findsOneWidget);
       expect(find.byType(BackButtonIcon), findsOneWidget);
-      expect(find.byIcon(Icons.menu_rounded), findsNothing);
-      expect(find.byIcon(Icons.menu), findsNothing);
+      expect(find.byIcon(Icons.menu_rounded), findsOneWidget);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('the nested drawer button opens the drawer', (tester) async {
+      await pumpPage(tester, folderId: folder.id);
+      expect(find.byType(AppDrawer), findsNothing);
+
+      await tester.tap(find.byIcon(Icons.menu_rounded));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.state<ScaffoldState>(find.byType(Scaffold).first).isDrawerOpen,
+        isTrue,
+      );
 
       await teardownPage(tester);
     });

@@ -29,6 +29,7 @@ import 'package:anta/pages/optimized_note_editor_page.dart';
 import 'package:anta/repositories/folder_repository.dart';
 import 'package:anta/repositories/note_repository.dart';
 import 'package:anta/services/app_navigator.dart';
+import 'package:anta/services/auth_service.dart';
 import 'package:anta/services/counter_service.dart';
 import 'package:anta/services/folder_search_service.dart';
 import 'package:anta/services/folder_storage_service.dart';
@@ -37,6 +38,7 @@ import 'package:anta/services/markdown_bar_service.dart';
 import 'package:anta/services/note_position_service.dart';
 import 'package:anta/services/note_storage_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/widgets/leading_nav_pair.dart';
 import 'package:anta/widgets/markdown_bar.dart';
 import 'package:anta/widgets/modern_editor_wrapper.dart';
 import 'package:anta/widgets/unified_app_bars.dart';
@@ -170,6 +172,9 @@ void main() {
     exportBloc = ImportExportBloc(service: exportService);
     GetIt.I.registerSingleton<NoteStorageService>(storageService);
     GetIt.I.registerSingleton<FolderStorageService>(folderService);
+    // The drawer's avatar badge resolves this during its build, and the bar's
+    // menu button can now open that drawer.
+    GetIt.I.registerSingleton<AuthService>(NoOpAuthService());
   });
 
   tearDownAll(() async {
@@ -1671,7 +1676,7 @@ void main() {
     });
   });
 
-  group("the app bar's one icon per corner and its menu", () {
+  group("the app bar's leading pair and its menu", () {
     late Folder menuFolder;
     late NoteMetadata menuNote;
 
@@ -1754,15 +1759,31 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('one back button, and no drawer icon left in the bar', (
+    testWidgets('the bar leads with the back arrow paired with the drawer', (
       tester,
     ) async {
       await pushEditorOverFolder(tester);
 
+      expect(find.byType(LeadingNavPair), findsOneWidget);
       expect(find.byType(BackButtonIcon), findsOneWidget);
-      expect(find.byIcon(Icons.menu), findsNothing);
-      expect(find.byIcon(Icons.menu_rounded), findsNothing);
+      expect(find.byIcon(Icons.menu_rounded), findsOneWidget);
       expect(find.byIcon(Icons.more_vert), findsOneWidget);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('the drawer half opens the editor drawer', (tester) async {
+      await pushEditorOverFolder(tester);
+
+      final scaffold = tester.state<ScaffoldState>(
+        find.byType(Scaffold).last,
+      );
+      expect(scaffold.isDrawerOpen, isFalse);
+
+      await tester.tap(find.byIcon(Icons.menu_rounded));
+      await tester.pumpAndSettle();
+
+      expect(scaffold.isDrawerOpen, isTrue);
 
       await teardownPage(tester);
     });

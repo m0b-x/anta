@@ -1773,6 +1773,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
                     : _titleController.text,
                 hasChanges: hasChanges,
                 saveStatusNotifier: _saves.saveStatus,
+                onMenuPressed: () => _scaffoldKey.currentState?.openDrawer(),
                 onTitleTap: _editTitle,
                 actions: [
                   IconButton(

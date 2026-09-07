@@ -27,6 +27,7 @@ import 'package:anta/services/note_storage_service.dart';
 import 'package:anta/services/recent_destinations_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/widgets/folder_sliver_app_bar.dart';
+import 'package:anta/widgets/leading_nav_pair.dart';
 import 'package:anta/widgets/note_row.dart';
 import 'package:anta/widgets/search_field_app_bar.dart';
 import 'package:anta/widgets/search_surface.dart';
@@ -201,7 +202,7 @@ void main() {
       .position;
 
   group('All notes', () {
-    testWidgets('the bar is a back arrow, the title and a search icon', (
+    testWidgets('the bar is the nav pair, the title and a search icon', (
       tester,
     ) async {
       await pumpPage(tester);
@@ -212,9 +213,26 @@ void main() {
       expect(bar.isRootPage, isFalse);
       expect(bar.title, l10n.allNotes);
       expect(bar.eyebrow, isNull);
+      expect(find.byType(LeadingNavPair), findsOneWidget);
       expect(find.byType(BackButtonIcon), findsOneWidget);
-      expect(find.byIcon(Icons.menu_rounded), findsNothing);
+      expect(find.byIcon(Icons.menu_rounded), findsOneWidget);
       expect(find.byIcon(Icons.search), findsOneWidget);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('the drawer button opens the drawer this page hosts', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+
+      await tester.tap(find.byIcon(Icons.menu_rounded));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.state<ScaffoldState>(find.byType(Scaffold).first).isDrawerOpen,
+        isTrue,
+      );
 
       await teardownPage(tester);
     });

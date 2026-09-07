@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../services/auto_save_service.dart';
 import '../services/app_navigator.dart';
+import 'leading_nav_pair.dart';
 
 enum AppBarStyle { main, settings }
 
@@ -129,52 +130,6 @@ class UnifiedAppBar extends StatelessWidget implements PreferredSizeWidget {
   }
 }
 
-class _IntegratedNavButtons extends StatelessWidget {
-  final VoidCallback onBack;
-  final VoidCallback onMenu;
-
-  const _IntegratedNavButtons({required this.onBack, required this.onMenu});
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return Padding(
-      padding: const EdgeInsets.only(left: 4),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _NavButton(icon: Icons.arrow_back_rounded, onPressed: onBack),
-          Container(
-            width: 1,
-            height: 20,
-            color: isDark
-                ? colorScheme.outline.withValues(alpha: 0.3)
-                : colorScheme.onSurface.withValues(alpha: 0.15),
-          ),
-          _NavButton(icon: Icons.menu_rounded, onPressed: onMenu),
-        ],
-      ),
-    );
-  }
-}
-
-class _NavButton extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback onPressed;
-
-  const _NavButton({required this.icon, required this.onPressed});
-
-  @override
-  Widget build(BuildContext context) {
-    return IconButton(
-      icon: Icon(icon),
-      onPressed: onPressed,
-      visualDensity: VisualDensity.compact,
-    );
-  }
-}
 
 class NoteAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;
@@ -186,6 +141,9 @@ class NoteAppBar extends StatelessWidget implements PreferredSizeWidget {
   final ValueListenable<SaveStatus>? saveStatusNotifier;
   final List<Widget>? actions;
   final VoidCallback? onBackPressed;
+
+  /// Defaults to the enclosing [Scaffold]'s drawer, which is the editor's own.
+  final VoidCallback? onMenuPressed;
   final VoidCallback? onTitleTap;
 
   const NoteAppBar({
@@ -195,6 +153,7 @@ class NoteAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.saveStatusNotifier,
     this.actions,
     this.onBackPressed,
+    this.onMenuPressed,
     this.onTitleTap,
   });
 
@@ -205,10 +164,12 @@ class NoteAppBar extends StatelessWidget implements PreferredSizeWidget {
   Widget build(BuildContext context) {
     return UnifiedAppBar.main(
       automaticallyImplyLeading: false,
-      leading: IconButton(
-        icon: const BackButtonIcon(),
-        tooltip: MaterialLocalizations.of(context).backButtonTooltip,
-        onPressed: onBackPressed ?? () => AppNavigator.maybePop(context),
+      leadingWidth: LeadingNavPair.width,
+      leading: Builder(
+        builder: (context) => LeadingNavPair(
+          onBack: onBackPressed ?? () => AppNavigator.maybePop(context),
+          onMenu: onMenuPressed ?? () => Scaffold.of(context).openDrawer(),
+        ),
       ),
       title: GestureDetector(
         onTap: onTitleTap,
@@ -419,10 +380,10 @@ class SettingsAppBar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Widget build(BuildContext context) {
     return UnifiedAppBar.settings(
-      leadingWidth: showMenuButton ? 100 : null,
+      leadingWidth: showMenuButton ? LeadingNavPair.width : null,
       leading: showMenuButton
           ? Builder(
-              builder: (ctx) => _IntegratedNavButtons(
+              builder: (ctx) => LeadingNavPair(
                 onBack: () =>
                     AppNavigator.pop(context, SettingsResult.openDrawer),
                 onMenu: () => Scaffold.of(ctx).openDrawer(),

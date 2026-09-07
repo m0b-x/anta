@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart';
 
 import '../constants/app_colors.dart';
 import '../l10n/app_localizations.dart';
 import '../models/folder.dart';
 import '../services/app_navigator.dart';
+import 'leading_nav_pair.dart';
 
 /// Opens the ancestor breadcrumb under [anchorContext]'s widget.
 ///
@@ -85,6 +85,10 @@ RelativeRect _anchorUnder(BuildContext context, BoxConstraints constraints) {
 /// single [Text] for the collapsed state and this widget draws the expanded
 /// eyebrow-plus-headline itself. A second line, a `GlobalKey` or a `FocusNode`
 /// in [title] would be duplicated or throw.
+///
+/// The root draws the drawer button alone, having nowhere to go back to;
+/// every other folder draws a [LeadingNavPair], which is why [title] has
+/// [LeadingNavPair.width] less room there once the bar is collapsed.
 class FolderSliverAppBar extends StatelessWidget {
   const FolderSliverAppBar({
     super.key,
@@ -132,7 +136,8 @@ class FolderSliverAppBar extends StatelessWidget {
       backgroundColor: colorScheme.pageGround,
       surfaceTintColor: Colors.transparent,
       scrolledUnderElevation: 0,
-      leading: isRootPage ? _menuButton() : _backButton(),
+      leadingWidth: isRootPage ? null : LeadingNavPair.width,
+      leading: isRootPage ? _menuButton() : _leadingPair(),
       title: Text(
         title,
         maxLines: 1,
@@ -158,34 +163,14 @@ class FolderSliverAppBar extends StatelessWidget {
     );
   }
 
-  Widget _backButton() {
+  Widget _leadingPair() {
     return Builder(
-      builder: (context) {
-        final showAncestors = onShowAncestors;
-        final button = IconButton(
-          icon: const BackButtonIcon(),
-          tooltip: MaterialLocalizations.of(context).backButtonTooltip,
-          onPressed: onBackPressed ?? () => AppNavigator.pop(context),
-          onLongPress: showAncestors == null
-              ? null
-              : () => showAncestors(context),
-        );
-        if (showAncestors == null) return button;
-        // Without the merge the annotation would settle on whichever node
-        // encloses the button rather than on the button itself, and the
-        // action would be offered for the whole bar.
-        return MergeSemantics(
-          child: Semantics(
-            customSemanticsActions: {
-              CustomSemanticsAction(
-                label: AppLocalizations.of(context)!.showAncestors,
-              ): () =>
-                  showAncestors(context),
-            },
-            child: button,
-          ),
-        );
-      },
+      builder: (context) => LeadingNavPair(
+        onBack: onBackPressed ?? () => AppNavigator.pop(context),
+        onMenu: onMenuPressed ?? () => Scaffold.of(context).openDrawer(),
+        onBackLongPress: onShowAncestors,
+        backLongPressLabel: AppLocalizations.of(context)!.showAncestors,
+      ),
     );
   }
 }
