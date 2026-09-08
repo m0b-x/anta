@@ -1170,9 +1170,9 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     );
   }
 
-  /// One of the create bar's two buttons: a 52 dp target around a 26 dp
+  /// One of the create bar's two buttons: a 54 dp target around a 28 dp
   /// glyph in the page's one accent, sized explicitly because the default
-  /// [IconButton] target is taller than the 56 dp bar it sits in.
+  /// [IconButton] target is taller than the 60 dp bar it sits in.
   Widget _barButton({
     required IconData icon,
     required String tooltip,

@@ -41,41 +41,14 @@ class ScrollIndicatorConstants {
   /// Thumb position animation duration
   static const int thumbAnimationMs = 80;
 
-  /// Delay before resetting tap state
-  static const int tapResetDelayMs = 300;
-
   // ============================================================
   // SMOOTHING FACTORS
   // ============================================================
   /// Smoothing factor for small jitter (lower = smoother)
   static const double smoothingFactor = 0.12;
 
-  /// Smoothing factor for larger intentional scrolls
-  static const double fastSmoothingFactor = 0.25;
-
   /// Smoothing factor for dragging (more responsive)
   static const double dragSmoothingFactor = 0.4;
-
-  // ============================================================
-  // SCROLL STABILIZATION THRESHOLDS
-  // ============================================================
-  /// Minimum extent change percentage to trigger stabilization
-  static const double minExtentChangeThreshold = 0.01;
-
-  /// Maximum extent change percentage for stabilization
-  static const double maxExtentChangeThreshold = 0.3;
-
-  /// Minimum scroll percentage (from top) for stabilization
-  static const double minScrollPercentageForStabilization = 0.02;
-
-  /// Maximum scroll percentage (from top) for stabilization
-  static const double maxScrollPercentageForStabilization = 0.98;
-
-  /// Minimum offset delta to correct (pixels)
-  static const double minOffsetDeltaToCorrect = 5.0;
-
-  /// Maximum offset delta to correct (pixels)
-  static const double maxOffsetDeltaToCorrect = 200.0;
 
   // ============================================================
   // EDGE SNAPPING THRESHOLDS
@@ -92,7 +65,8 @@ class ScrollIndicatorConstants {
   /// Raw progress threshold for near-edge snap
   static const double nearEdgeRawThreshold = 0.05;
 
-  /// Delta threshold for using fast smoothing
+  /// Delta above which a change is a real move, not jitter, and the thumb
+  /// takes it in one step instead of easing into it.
   static const double fastSmoothingDeltaThreshold = 0.15;
 
   // ============================================================

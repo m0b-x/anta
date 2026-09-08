@@ -1765,7 +1765,7 @@ measurement D18 asked for — answered below.
 | D17 | Toolbar contents unchanged (not asked; the mock says so). |
 | D18 | **Pair everywhere, editor included; titles drop to 17 px / 500**, which with the pair narrowed to 87 dp gives the editor title ~124 dp at 360 dp (≈14 characters). |
 | D19 | **Not now.** No second drawer button in the bottom bar. |
-| D20 | **The bottom bar leaves the mock** (decided later the same day, after the emulator pass). Both create buttons cluster at the **left** behind a 4 dp inset — New folder, then New note (nested) or Import (root) — instead of book-ending the bar, and the bar is a step bigger than drawn: 26 dp glyphs in 52 dp targets on a 56 dp strip (mock 22 / 48 / 52). The count stays on the bar's own centre line. Reach beats symmetry in a one-handed app. The mock was republished as rev 2.5 to match. |
+| D20 | **The bottom bar leaves the mock** (decided later the same day, after the emulator pass). Both create buttons cluster at the **left** behind a 4 dp inset — New folder, then New note (nested) or Import (root) — instead of book-ending the bar, and the bar is a step bigger than drawn: 28 dp glyphs in 54 dp targets on a 60 dp strip (mock 22 / 48 / 52; landed at 26 / 52 / 56, tried 30 / 56 / 64 on 2026-09-08 because the bar read as empty, settled one notch back). The count stays on the bar's own centre line. Reach beats symmetry in a one-handed app. The mock was republished as rev 2.5 to match. |
 | edge drag | Fable's call: **leave `drawerEdgeDragWidth` at the framework default.** Android owns the edge regardless of the width; with the pair back the swipe is the secondary route again. The six settings-family pages that ignore the swipe setting are fixed instead (D-4). |
 | E11 heading sizes | Applied as the mock draws (h1 22/500, h2 18/500 — scales 1.375 / 1.125 / 1.0625 / 1.0 at the 16 px base, weight 500) through the shared constants so the deprecated preview stays in agreement. Two constants revert it. |
 | P28 | `AllNotesPage` keeps no bottom bar (D8/D10 stand; the mock draws no All notes screen). Recorded, not a deviation. |
@@ -1883,7 +1883,7 @@ that moves it or the decision that keeps it.
 | note row · date | time / MMMd / yMMMd | Today / Yesterday / weekday / d MMM / d MMM y | P2 (C9) |
 | note row · preview text | raw markers, all lines joined | marker-stripped text (all lines, so quick search keeps its reach), first meaningful line first | P6 (C7) |
 | note row · ledger figures | plain | mono `tertiary` | deferred (P12) |
-| bottom bar | 56, neutral 24 icons, 12 px count | 52 + inset, primary outline 22 icons, 13 px count | P2, then D20 (56 / 52 / 26, both buttons at the left) |
+| bottom bar | 56, neutral 24 icons, 12 px count | 52 + inset, primary outline 22 icons, 13 px count | P2, then D20 (60 / 54 / 28, both buttons at the left) |
 | selection action bar | `surfaceContainerHigh`, elevation 4 | `rowGroup`, 1 px top line, no elevation | P2 |
 | search idle rows | path only | "path · date", date 500 `onSurface` | P2 |
 | search result rows | leading icon, w600, 72 | no icon, 15/500, 62, divider 16 | P2 |
@@ -1972,7 +1972,7 @@ names as the baselines, plus `13_editor_drawer` and the tint studies.
   per-row `⋮` (long-press → sheet led by Select); dividers 52 / 16;
   groups 18 apart; labels 11/500; smart rows 48 with chevrons; bottom bar
   52 with primary outline glyphs and a 13 px count — raised by D20 the
-  same day to 56 with 26 dp glyphs in 52 dp targets, both buttons at the
+  same day to 56 with 26 dp glyphs in 52 dp targets (60 / 54 / 28 since 2026-09-08), both buttons at the
   left; selection bar the same strip. Dates say Today / Yesterday / weekday.
 - Search: field 17 px with an `outline` hint, `TextInputAction.search`,
   labelled clear button; idle rows "Folder · date"; result rows 62 with
@@ -2034,8 +2034,10 @@ index perf — O(vocabulary) substring pass, per-save `removeNote` sweep,
 **D20 (2026-09-07): the browser's bottom bar leaves the mock on purpose.**
 Both create buttons cluster at the **left** behind a 4 dp inset — New
 folder then New note (nested) or Import (root) — instead of book-ending
-the bar, and the whole bar is a step bigger than drawn: 26 dp glyphs in
-52 dp targets on a 56 dp strip (mock: 22 / 48 / 52). The count stays on
+the bar, and the whole bar is a step bigger than drawn: 28 dp glyphs in
+54 dp targets on a 60 dp strip (mock: 22 / 48 / 52; 26 / 52 / 56 on 2026-09-07,
+then 30 / 56 / 64 on 2026-09-08 because the bar read as empty, settled one
+notch back the same day). The count stays on
 the **bar's** centre line, not in the leftover gap, so entering selection
 still moves nothing. Reason: the two create actions are the bar's whole
 job and the owner uses the app one-handed; reach beats symmetry. The
