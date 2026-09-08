@@ -84,12 +84,17 @@ class RowMetrics {
 
   /// The browser's create bar and the selection action bar that replaces it:
   /// one height, so entering selection moves no row.
-  static const double bottomBarHeight = 52.0;
+  static const double bottomBarHeight = 56.0;
 
-  /// The tap target of each bar button, and the glyph inside it.
-  static const double bottomBarButtonSize = 48.0;
-  static const double bottomBarGlyphSize = 22.0;
+  /// The tap target of each bar button, and the glyph inside it. A step
+  /// bigger than the mock draws them: both create buttons sit at the left
+  /// edge, where the thumb of the hand holding the phone reaches them.
+  static const double bottomBarButtonSize = 52.0;
+  static const double bottomBarGlyphSize = 26.0;
 
-  /// "3 folders, 5 notes", centred between the buttons.
+  /// The air between the bar's left edge and the first button.
+  static const double bottomBarInset = 4.0;
+
+  /// "3 folders, 5 notes", centred on the bar behind the buttons.
   static const double bottomBarCountFontSize = 13.0;
 }

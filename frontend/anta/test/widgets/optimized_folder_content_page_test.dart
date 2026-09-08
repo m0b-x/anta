@@ -1311,10 +1311,7 @@ void main() {
           reason: label,
         );
         expect(
-          find.descendant(
-            of: row,
-            matching: find.byIcon(Icons.chevron_right),
-          ),
+          find.descendant(of: row, matching: find.byIcon(Icons.chevron_right)),
           findsOneWidget,
           reason: label,
         );
@@ -1323,7 +1320,10 @@ void main() {
       final scheme = Theme.of(
         tester.element(find.text(l10n.allNotes)),
       ).colorScheme;
-      for (final icon in [Icons.description_outlined, Icons.schedule_outlined]) {
+      for (final icon in [
+        Icons.description_outlined,
+        Icons.schedule_outlined,
+      ]) {
         final glyph = tester.widget<Icon>(find.byIcon(icon));
         expect(glyph.size, RowMetrics.glyphSize);
         expect(glyph.color, scheme.primary);
@@ -1349,8 +1349,21 @@ void main() {
   });
 
   group('the bottom bar', () {
-    testWidgets('is 52 dp over the safe-area inset, with primary 22 dp '
-        'glyphs and a 13 px count', (tester) async {
+    /// The bar itself: the closest [Container] over the first create button,
+    /// which is the one carrying the height and the top hairline.
+    Finder barOf(WidgetTester tester) => find
+        .ancestor(
+          of: find.byIcon(Icons.create_new_folder_outlined),
+          matching: find.byType(Container),
+        )
+        .first;
+
+    Rect buttonRect(WidgetTester tester, IconData icon) => tester.getRect(
+      find.ancestor(of: find.byIcon(icon), matching: find.byType(IconButton)),
+    );
+
+    testWidgets('stands clear of the safe-area inset, with primary glyphs '
+        'in tap targets and a 13 px count', (tester) async {
       // Physical pixels: the harness runs at devicePixelRatio 3, so this is
       // a 48 dp gesture bar.
       tester.view.viewPadding = const FakeViewPadding(bottom: 144);
@@ -1358,17 +1371,12 @@ void main() {
       addTearDown(tester.view.reset);
       await pumpPage(tester, folderId: child.id, title: 'Winter block');
 
-      final bar = find
-          .ancestor(
-            of: find.byIcon(Icons.create_new_folder_outlined),
-            matching: find.byType(Container),
-          )
-          .first;
+      final bar = barOf(tester);
       expect(tester.getSize(bar).height, RowMetrics.bottomBarHeight);
       // Lifted clear of the gesture bar rather than drawn under it: the bar
       // and the inset below it fill the bottom of the window.
-      final screenHeight = tester.view.physicalSize.height /
-          tester.view.devicePixelRatio;
+      final screenHeight =
+          tester.view.physicalSize.height / tester.view.devicePixelRatio;
       expect(
         screenHeight - tester.getTopLeft(bar).dy,
         RowMetrics.bottomBarHeight + 48,
@@ -1382,7 +1390,10 @@ void main() {
         Icons.note_add_outlined,
       ]) {
         final button = tester.widget<IconButton>(
-          find.ancestor(of: find.byIcon(icon), matching: find.byType(IconButton)),
+          find.ancestor(
+            of: find.byIcon(icon),
+            matching: find.byType(IconButton),
+          ),
         );
         expect(button.iconSize, RowMetrics.bottomBarGlyphSize, reason: '$icon');
         expect(button.color, scheme.primary, reason: '$icon');
@@ -1410,6 +1421,75 @@ void main() {
       );
       expect(count.style!.fontSize, RowMetrics.bottomBarCountFontSize);
       expect(count.style!.color, scheme.onSurfaceVariant);
+      expect(count.maxLines, 1);
+      expect(count.overflow, TextOverflow.ellipsis);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('clusters both create buttons at the left edge', (
+      tester,
+    ) async {
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+
+      final bar = tester.getRect(barOf(tester));
+      final newFolder = buttonRect(tester, Icons.create_new_folder_outlined);
+      final newNote = buttonRect(tester, Icons.note_add_outlined);
+
+      expect(newFolder.left, bar.left + RowMetrics.bottomBarInset);
+      expect(
+        newNote.left,
+        bar.left + RowMetrics.bottomBarInset + RowMetrics.bottomBarButtonSize,
+      );
+      expect(newFolder.width, RowMetrics.bottomBarButtonSize);
+      expect(newNote.width, RowMetrics.bottomBarButtonSize);
+      // Both sit on the bar's own centre line: the taller bar must not push
+      // the targets against the hairline.
+      expect(newFolder.center.dy, closeTo(bar.center.dy, 0.01));
+      expect(newNote.center.dy, closeTo(bar.center.dy, 0.01));
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('the root clusters New folder and Import at the left edge', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+
+      final bar = tester.getRect(barOf(tester));
+      final newFolder = buttonRect(tester, Icons.create_new_folder_outlined);
+      final import = buttonRect(tester, Icons.file_download_outlined);
+
+      expect(newFolder.left, bar.left + RowMetrics.bottomBarInset);
+      expect(
+        import.left,
+        bar.left + RowMetrics.bottomBarInset + RowMetrics.bottomBarButtonSize,
+      );
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('the count rides the bar centre, not the gap left over', (
+      tester,
+    ) async {
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+
+      final bar = tester.getRect(barOf(tester));
+      final count = tester.getRect(
+        find.text(
+          l10n.folderAndNoteCount(
+            l10n.folderCountLabel(1),
+            l10n.noteCountLabel(15),
+          ),
+        ),
+      );
+
+      expect(count.center.dx, closeTo(bar.center.dx, 0.01));
+      // And clear of the buttons it is centred behind.
+      expect(
+        count.left,
+        greaterThan(buttonRect(tester, Icons.note_add_outlined).right),
+      );
 
       await teardownPage(tester);
     });

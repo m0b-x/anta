@@ -873,10 +873,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
 
     if (folderIds.isNotEmpty) {
       context.read<OptimizedFolderBloc>().add(
-        DeleteOptimizedFolders(
-          folderIds: folderIds,
-          parentId: widget.folderId,
-        ),
+        DeleteOptimizedFolders(folderIds: folderIds, parentId: widget.folderId),
       );
     }
     if (noteIds.isNotEmpty) {
@@ -1097,8 +1094,13 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   ///
   /// One tap per action instead of two, and the row that used to be hidden
   /// behind the `+` is now readable at a glance: what is here, and what the
-  /// two buttons will add to it. The right slot is Import at the root, where
-  /// a note has no folder to live in.
+  /// two buttons will add to it. The second button is Import at the root,
+  /// where a note has no folder to live in.
+  ///
+  /// Both buttons cluster at the left behind [RowMetrics.bottomBarInset] so
+  /// one hand reaches them; the count still rides the bar's own centre line,
+  /// held clear of the buttons by symmetric padding rather than by a slot,
+  /// and truncated instead of ever running under them.
   ///
   /// The padding is `max(viewInsets, viewPadding)` on purpose: either alone
   /// leaves the bar under the keyboard or under the gesture bar.
@@ -1121,26 +1123,46 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
               top: BorderSide(color: colorScheme.rowDivider, width: 1),
             ),
           ),
-          child: Row(
+          child: Stack(
+            alignment: Alignment.centerLeft,
             children: [
-              _barButton(
-                icon: Icons.create_new_folder_outlined,
-                tooltip: l10n.newFolder,
-                onPressed: _showCreateFolderDialog,
-              ),
-              Expanded(child: Center(child: _buildCountLabel(context))),
-              if (isRootPage)
-                _barButton(
-                  icon: Icons.file_download_outlined,
-                  tooltip: l10n.importNoteOrFolder,
-                  onPressed: _pickAndImport,
-                )
-              else
-                _barButton(
-                  icon: Icons.note_add_outlined,
-                  tooltip: l10n.newNote,
-                  onPressed: _createNewNote,
+              Padding(
+                padding: const EdgeInsets.only(left: RowMetrics.bottomBarInset),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.start,
+                  children: [
+                    _barButton(
+                      icon: Icons.create_new_folder_outlined,
+                      tooltip: l10n.newFolder,
+                      onPressed: _showCreateFolderDialog,
+                    ),
+                    if (isRootPage)
+                      _barButton(
+                        icon: Icons.file_download_outlined,
+                        tooltip: l10n.importNoteOrFolder,
+                        onPressed: _pickAndImport,
+                      )
+                    else
+                      _barButton(
+                        icon: Icons.note_add_outlined,
+                        tooltip: l10n.newNote,
+                        onPressed: _createNewNote,
+                      ),
+                  ],
                 ),
+              ),
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal:
+                          RowMetrics.bottomBarInset +
+                          2 * RowMetrics.bottomBarButtonSize,
+                    ),
+                    child: Center(child: _buildCountLabel(context)),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
@@ -1148,9 +1170,9 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     );
   }
 
-  /// One of the create bar's two buttons: a 48 dp target around a 22 dp
+  /// One of the create bar's two buttons: a 52 dp target around a 26 dp
   /// glyph in the page's one accent, sized explicitly because the default
-  /// [IconButton] target is taller than the 52 dp bar it sits in.
+  /// [IconButton] target is taller than the 56 dp bar it sits in.
   Widget _barButton({
     required IconData icon,
     required String tooltip,
@@ -1193,6 +1215,8 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
             if (label.isEmpty) return const SizedBox.shrink();
             return Text(
               label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontSize: RowMetrics.bottomBarCountFontSize,
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
