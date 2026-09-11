@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../constants/scroll_indicator_constants.dart';
 
-/// A touch-friendly scroll progress indicator optimized for mobile.
-/// Features a wide touch area, always visible, and supports edge swipe.
+/// A touch-friendly scroll progress indicator optimized for mobile: always
+/// visible, with a thumb that can be tapped or dragged to a position.
 class ScrollProgressIndicator extends StatefulWidget {
   final ScrollController scrollController;
 
@@ -54,6 +54,32 @@ class _ScrollProgressIndicatorState extends State<ScrollProgressIndicator> {
   /// reading is adopted outright, and only later ones are smoothed.
   bool _hasProgressBaseline = false;
 
+  /// The progress behind the previous reading, to tell a continuous scroll
+  /// (smoothed) from a discontinuity (taken in one step). Measured in
+  /// progress space, not pixels: a content extent that changes under a
+  /// still offset — a note reloaded longer beneath a buried editor — moves
+  /// the thumb just as a jump does, and has to be recognised as one.
+  double? _lastRawProgress;
+
+  /// Whether a frame has already been requested to carry the smoothing
+  /// filter closer to rest. The filter only steps when this widget builds,
+  /// and builds stop with the last scroll notification — so without this,
+  /// a fast swipe left the thumb resting short of the true position until
+  /// the next touch lurched it forward.
+  bool _settlePending = false;
+
+  /// Frames spent settling since the last scroll notification. The loop
+  /// converges in well under [ScrollIndicatorConstants.maxSettleFrames]
+  /// from any lag the filter can hold; the cap only matters if a target
+  /// ever kept moving without a scroll — which nothing here can cause,
+  /// and which this keeps from becoming a spin at the refresh rate.
+  int _settleFrames = 0;
+
+  /// The track's box: the one place both the thumb's geometry and the
+  /// gesture-to-offset mapping read from, so a tap lands where the thumb is
+  /// drawn no matter what padding sits between here and there.
+  final GlobalKey _trackKey = GlobalKey();
+
   /// What the thumb rebuilds on: the controller, merged with [repaint]
   /// when one is given. Built once here and on a widget change rather
   /// than per build, so the builder below keeps one subscription.
@@ -77,8 +103,7 @@ class _ScrollProgressIndicatorState extends State<ScrollProgressIndicator> {
 
   /// The thumb's height for a given track, derived at layout time by
   /// [_ScrollThumbLayoutDelegate] and at gesture time by
-  /// [_scrollToPosition] — one formula, so a tap lands where the thumb
-  /// is actually drawn.
+  /// [_scrollToPosition] — one formula over one box ([_trackKey]).
   static double thumbHeightFor(double trackHeight) {
     if (trackHeight <= 0) return 0;
     final height = trackHeight * ScrollIndicatorConstants.thumbHeightPercentage;
@@ -102,18 +127,17 @@ class _ScrollProgressIndicatorState extends State<ScrollProgressIndicator> {
     return null;
   }
 
-  /// The track's live height, read from this widget's own box rather than
-  /// from anything cached in a previous build. The box is laid out with a
-  /// tight height by the caller's `Positioned`, so it is the track.
-  double _trackHeight() {
-    final box = context.findRenderObject();
-    if (box is! RenderBox || !box.hasSize) return 0;
-    return box.size.height;
+  /// The laid-out track, or `null` before its first layout.
+  RenderBox? _trackBox() {
+    final box = _trackKey.currentContext?.findRenderObject();
+    return box is RenderBox && box.hasSize ? box : null;
   }
 
-  /// Watches for content dimension changes that arrive without a scroll
-  /// notification. Callers that pass [repaint] are already covered by it;
-  /// this is the fallback for the ones that do not.
+  /// Watches for content extent changes that arrive without a scroll
+  /// notification, for callers that pass no [repaint]. It cannot see an
+  /// offset-only correction (`correctBy` moves `pixels` and notifies
+  /// nobody) — the editor hands its metrics notifications in as [repaint]
+  /// for exactly that.
   void _startMetricsCheck() {
     _metricsCheckTimer?.cancel();
     _metricsCheckTimer = Timer.periodic(
@@ -141,6 +165,7 @@ class _ScrollProgressIndicatorState extends State<ScrollProgressIndicator> {
       // adopted as the baseline instead of being eased into.
       _smoothedProgress = 0;
       _hasProgressBaseline = false;
+      _lastRawProgress = null;
     }
     if (oldWidget.scrollController != widget.scrollController ||
         oldWidget.repaint != widget.repaint) {
@@ -157,8 +182,10 @@ class _ScrollProgressIndicatorState extends State<ScrollProgressIndicator> {
   }
 
   /// The thumb itself repaints from [_thumbListenable], so a scroll only
-  /// has to bring the bar out of its idle width.
+  /// has to bring the bar out of its idle width — and restart the settle
+  /// budget, since the target is moving for a reason.
   void _onScroll() {
+    _settleFrames = 0;
     if (!_isDragging) {
       _expandTemporarily();
     }
@@ -179,13 +206,16 @@ class _ScrollProgressIndicatorState extends State<ScrollProgressIndicator> {
     );
   }
 
-  void _scrollToPosition(double localY) {
+  void _scrollToPosition(Offset globalPosition) {
     final position = _activePosition();
     if (position == null) return;
     final maxScroll = position.maxScrollExtent;
     if (maxScroll <= 0) return;
 
-    final trackHeight = _trackHeight();
+    final track = _trackBox();
+    if (track == null) return;
+    final trackHeight = track.size.height;
+    final localY = track.globalToLocal(globalPosition).dy;
     final thumbHeight = thumbHeightFor(trackHeight);
     final effectiveTrack = trackHeight - thumbHeight;
     // A track shorter than the minimum thumb leaves nothing to aim at —
@@ -207,11 +237,11 @@ class _ScrollProgressIndicatorState extends State<ScrollProgressIndicator> {
       _isDragging = true;
       _isExpanded = true;
     });
-    _scrollToPosition(details.localPosition.dy);
+    _scrollToPosition(details.globalPosition);
   }
 
   void _onDragUpdate(DragUpdateDetails details) {
-    _scrollToPosition(details.localPosition.dy);
+    _scrollToPosition(details.globalPosition);
   }
 
   void _onDragEnd(DragEndDetails details) {
@@ -223,83 +253,93 @@ class _ScrollProgressIndicatorState extends State<ScrollProgressIndicator> {
 
   void _onTap(TapUpDetails details) {
     setState(() => _isExpanded = true);
-    _scrollToPosition(details.localPosition.dy);
+    _scrollToPosition(details.globalPosition);
     _expandTemporarily();
   }
 
   /// The scroll position as a 0..1 fraction, damped.
   ///
-  /// Smoothing exists to absorb the small jitter a changing
-  /// `maxScrollExtent` causes while content is measured — so it applies
-  /// only to small deltas. A large one is a real move (a restore, a
-  /// search jump, a fling) and is adopted immediately; easing into it is
-  /// what made a reopened note's thumb travel across the track.
+  /// The editor's content extent is an estimate that is re-measured as
+  /// paragraphs scroll through the window, and it corrects the offset by
+  /// the difference — so `pixels / maxScrollExtent` twitches during a
+  /// continuous scroll even though the reader sees smooth motion. The
+  /// filter absorbs that. It is bypassed whenever exactness matters more:
+  /// the first reading, the thumb under a finger, the edges, and any
+  /// discontinuity (a jump, a restore, a search hit, a note that grew
+  /// under a still offset), judged by the size of the step since the
+  /// previous reading rather than by how far the thumb has fallen behind
+  /// — a fast fling accumulates lag too, and snapping on that stuttered.
+  ///
+  /// After a smoothed step the filter asks for one more frame until it
+  /// has settled, so the thumb comes to rest on the true position instead
+  /// of wherever the last scroll notification left it.
   double _readProgress() {
     final position = _activePosition();
     if (position == null) return _smoothedProgress;
 
     final maxScroll = position.maxScrollExtent;
     _lastKnownMaxScroll = maxScroll;
-    if (maxScroll <= 0) return 0;
+    if (maxScroll <= 0) {
+      _lastRawProgress = 0;
+      _smoothedProgress = 0;
+      return 0;
+    }
 
     final rawProgress = (position.pixels / maxScroll).clamp(0.0, 1.0);
+    final previousRaw = _lastRawProgress;
+    _lastRawProgress = rawProgress;
 
-    if (!_hasProgressBaseline) {
-      _hasProgressBaseline = true;
-      _smoothedProgress = rawProgress;
-      return _smoothedProgress;
-    }
+    final isFirstReading = !_hasProgressBaseline;
+    _hasProgressBaseline = true;
 
-    if (_isDragging) {
-      // Snap to edges immediately when dragging
-      if (rawProgress <= ScrollIndicatorConstants.dragEdgeSnapThreshold) {
-        _smoothedProgress = 0;
-      } else if (rawProgress >=
-          1 - ScrollIndicatorConstants.dragEdgeSnapThreshold) {
-        _smoothedProgress = 1;
-      } else {
-        _smoothedProgress =
-            _smoothedProgress +
-            ScrollIndicatorConstants.dragSmoothingFactor *
-                (rawProgress - _smoothedProgress);
-      }
-      return _smoothedProgress;
-    }
+    final step = previousRaw == null ? 0.0 : (rawProgress - previousRaw).abs();
+    final atStart =
+        rawProgress <= ScrollIndicatorConstants.immediateEdgeSnapThreshold;
+    final atEnd =
+        rawProgress >= 1 - ScrollIndicatorConstants.immediateEdgeSnapThreshold;
 
-    // Snap to edges when at the very beginning or end
-    if (rawProgress <= ScrollIndicatorConstants.immediateEdgeSnapThreshold) {
-      _smoothedProgress = 0;
-      return _smoothedProgress;
-    }
-    if (rawProgress >=
-        1 - ScrollIndicatorConstants.immediateEdgeSnapThreshold) {
-      _smoothedProgress = 1;
-      return _smoothedProgress;
-    }
-
-    final delta = (rawProgress - _smoothedProgress).abs();
-    if (delta > ScrollIndicatorConstants.fastSmoothingDeltaThreshold) {
-      _smoothedProgress = rawProgress;
+    if (atStart ||
+        atEnd ||
+        isFirstReading ||
+        _isDragging ||
+        step > ScrollIndicatorConstants.fastSmoothingDeltaThreshold ||
+        _settleFrames >= ScrollIndicatorConstants.maxSettleFrames) {
+      _settleFrames = 0;
+      _smoothedProgress = atStart
+          ? 0
+          : atEnd
+          ? 1
+          : rawProgress;
       return _smoothedProgress;
     }
 
     // Exponential smoothing: smoothed = smoothed + factor * (raw - smoothed)
-    // This dampens small fluctuations while tracking large changes
     _smoothedProgress =
         _smoothedProgress +
         ScrollIndicatorConstants.smoothingFactor *
             (rawProgress - _smoothedProgress);
-
-    // Snap to edges when very close
-    if (_smoothedProgress < ScrollIndicatorConstants.nearEdgeSmoothedThreshold &&
-        rawProgress < ScrollIndicatorConstants.nearEdgeRawThreshold) {
-      _smoothedProgress = 0;
-    } else if (_smoothedProgress >
-            1 - ScrollIndicatorConstants.nearEdgeSmoothedThreshold &&
-        rawProgress > 1 - ScrollIndicatorConstants.nearEdgeRawThreshold) {
-      _smoothedProgress = 1;
+    if ((rawProgress - _smoothedProgress).abs() <=
+        ScrollIndicatorConstants.settleTolerance) {
+      _smoothedProgress = rawProgress;
+      _settleFrames = 0;
+    } else {
+      _requestSettleFrame();
     }
     return _smoothedProgress;
+  }
+
+  /// Rebuilds once more after the current frame so the smoothing filter
+  /// can take its next step. One request at a time: a build that is still
+  /// unsettled re-arms it, a settled one lets it lapse.
+  void _requestSettleFrame() {
+    if (_settlePending) return;
+    _settlePending = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _settlePending = false;
+      if (!mounted) return;
+      _settleFrames++;
+      setState(() {});
+    });
   }
 
   @override
@@ -374,11 +414,11 @@ class _ScrollProgressIndicatorState extends State<ScrollProgressIndicator> {
                   // the keyboard closes cannot leave a keyboard-sized
                   // thumb behind — there is no cached height to go stale.
                   child: CustomSingleChildLayout(
+                    key: _trackKey,
                     delegate: _ScrollThumbLayoutDelegate(progress: progress),
                     child: AnimatedContainer(
                       duration: const Duration(
-                        milliseconds:
-                            ScrollIndicatorConstants.thumbAnimationMs,
+                        milliseconds: ScrollIndicatorConstants.thumbAnimationMs,
                       ),
                       decoration: BoxDecoration(
                         color: thumbColor,
@@ -422,12 +462,14 @@ class _ScrollThumbLayoutDelegate extends SingleChildLayoutDelegate {
 
   @override
   BoxConstraints getConstraintsForChild(BoxConstraints constraints) {
-    final trackHeight = constraints.hasBoundedHeight
-        ? constraints.maxHeight
+    // No track to be a share of — an unbounded parent, which the callers
+    // never produce — falls back to a fixed thumb.
+    final thumbHeight = constraints.hasBoundedHeight
+        ? _ScrollProgressIndicatorState.thumbHeightFor(constraints.maxHeight)
         : ScrollIndicatorConstants.defaultThumbHeight;
     return BoxConstraints.tightFor(
       width: constraints.hasBoundedWidth ? constraints.maxWidth : null,
-      height: _ScrollProgressIndicatorState.thumbHeightFor(trackHeight),
+      height: thumbHeight,
     );
   }
 

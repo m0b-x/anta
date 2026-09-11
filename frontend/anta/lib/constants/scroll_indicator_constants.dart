@@ -38,7 +38,8 @@ class ScrollIndicatorConstants {
   /// Interval for checking scroll metrics changes
   static const int metricsCheckIntervalMs = 100;
 
-  /// Thumb position animation duration
+  /// Thumb colour and shadow animation duration (its geometry is laid
+  /// out, not animated)
   static const int thumbAnimationMs = 80;
 
   // ============================================================
@@ -47,8 +48,15 @@ class ScrollIndicatorConstants {
   /// Smoothing factor for small jitter (lower = smoother)
   static const double smoothingFactor = 0.12;
 
-  /// Smoothing factor for dragging (more responsive)
-  static const double dragSmoothingFactor = 0.4;
+  /// Remaining distance (fraction of the track) below which the smoothed
+  /// thumb is considered settled and lands on the exact position.
+  static const double settleTolerance = 0.002;
+
+  /// Frames the filter may spend settling without a scroll notification
+  /// before it lands on the exact position outright. From the largest lag
+  /// it can hold it converges in about 35, so this never fires in normal
+  /// use; it bounds the loop if the target ever kept drifting.
+  static const int maxSettleFrames = 60;
 
   // ============================================================
   // EDGE SNAPPING THRESHOLDS
@@ -56,17 +64,9 @@ class ScrollIndicatorConstants {
   /// Raw progress threshold for immediate edge snap
   static const double immediateEdgeSnapThreshold = 0.001;
 
-  /// Raw progress threshold for drag edge snap
-  static const double dragEdgeSnapThreshold = 0.01;
-
-  /// Smoothed progress threshold for near-edge snap
-  static const double nearEdgeSmoothedThreshold = 0.02;
-
-  /// Raw progress threshold for near-edge snap
-  static const double nearEdgeRawThreshold = 0.05;
-
-  /// Delta above which a change is a real move, not jitter, and the thumb
-  /// takes it in one step instead of easing into it.
+  /// A change in the scroll offset between two readings larger than this
+  /// fraction of the content is a discontinuity — a jump, a restore, a
+  /// search hit — and the thumb takes it in one step instead of easing.
   static const double fastSmoothingDeltaThreshold = 0.15;
 
   // ============================================================
