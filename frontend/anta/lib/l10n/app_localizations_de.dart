@@ -4723,4 +4723,39 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get showAncestors => 'Übergeordnete Ordner anzeigen';
+
+  @override
+  String get labelAction => 'Etikett';
+
+  @override
+  String get labelSelected => 'Etikett';
+
+  @override
+  String get labelNone => 'Kein Etikett';
+
+  @override
+  String get labelRed => 'Rot';
+
+  @override
+  String get labelOrange => 'Orange';
+
+  @override
+  String get labelYellow => 'Gelb';
+
+  @override
+  String get labelGreen => 'Grün';
+
+  @override
+  String get labelTeal => 'Blaugrün';
+
+  @override
+  String get labelBlue => 'Blau';
+
+  @override
+  String get labelPink => 'Rosa';
+
+  @override
+  String labelSemantics(String color) {
+    return 'Etikett $color';
+  }
 }

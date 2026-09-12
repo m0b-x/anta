@@ -7,9 +7,12 @@ import 'package:anta/constants/row_metrics.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/models/folder.dart';
+import 'package:anta/models/item_label.dart';
 import 'package:anta/models/note_metadata.dart';
 import 'package:anta/widgets/content_rows.dart';
 import 'package:anta/widgets/folder_row.dart';
+import 'package:anta/widgets/label_dot.dart';
+import 'package:anta/widgets/label_swatch_strip.dart';
 import 'package:anta/widgets/note_row.dart';
 import 'package:anta/widgets/selection_action_bar.dart';
 
@@ -21,10 +24,19 @@ import 'package:anta/widgets/selection_action_bar.dart';
 void main() {
   final l10n = AppLocalizationsEn();
 
-  Folder folderNamed(String name) =>
-      Folder(id: 'f-$name', name: name, createdAt: DateTime(2026, 1, 1));
+  Folder folderNamed(String name, {ItemLabel label = ItemLabel.none}) =>
+      Folder(
+        id: 'f-$name',
+        name: name,
+        createdAt: DateTime(2026, 1, 1),
+        label: label,
+      );
 
-  NoteMetadata noteNamed(String title, {String preview = ''}) => NoteMetadata(
+  NoteMetadata noteNamed(
+    String title, {
+    String preview = '',
+    ItemLabel label = ItemLabel.none,
+  }) => NoteMetadata(
     id: 'n-$title',
     folderId: 'f',
     title: title,
@@ -34,6 +46,7 @@ void main() {
     contentLength: preview.length,
     chunkCount: 1,
     isCompressed: false,
+    label: label,
   );
 
   Future<void> pump(WidgetTester tester, Widget child) async {
@@ -371,6 +384,7 @@ void main() {
           home: Scaffold(
             bottomNavigationBar: SelectionActionBar(
               count: 2,
+              onLabel: () {},
               onMove: () {},
               onShare: () {},
               onDelete: () {},
@@ -406,6 +420,381 @@ void main() {
       final icon = tester.widget<Icon>(find.byIcon(Icons.delete_outline));
       expect(icon.size, RowMetrics.bottomBarGlyphSize);
       expect(icon.color, AppTheme.lightScheme.error);
+    });
+
+    testWidgets('offers four actions, Label first, and fires onLabel', (
+      tester,
+    ) async {
+      var labelled = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            bottomNavigationBar: SelectionActionBar(
+              count: 2,
+              onLabel: () => labelled++,
+              onMove: () {},
+              onShare: () {},
+              onDelete: () {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final row = tester.widget<Row>(
+        find
+            .descendant(
+              of: find.byType(SelectionActionBar),
+              matching: find.byType(Row),
+            )
+            .first,
+      );
+      expect(row.children, hasLength(4));
+      expect(row.mainAxisAlignment, MainAxisAlignment.spaceEvenly);
+
+      final labelX = tester.getCenter(find.byIcon(Icons.label_outline)).dx;
+      final moveX = tester
+          .getCenter(find.byIcon(Icons.drive_file_move_outline))
+          .dx;
+      expect(labelX, lessThan(moveX), reason: 'Label sits before Move');
+
+      await tester.tap(find.byIcon(Icons.label_outline));
+      await tester.pump();
+      expect(labelled, 1);
+    });
+
+    testWidgets('a disabled bar does not fire onLabel', (tester) async {
+      var labelled = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            bottomNavigationBar: SelectionActionBar(
+              count: 0,
+              onLabel: () => labelled++,
+              onMove: () {},
+              onShare: () {},
+              onDelete: () {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byIcon(Icons.label_outline));
+      await tester.pump();
+      expect(labelled, 0);
+    });
+  });
+
+  group('the colour label dot', () {
+    testWidgets('an unlabelled note row draws no dot at all', (tester) async {
+      await pump(
+        tester,
+        NoteRow(
+          metadata: noteNamed('Plain'),
+          folderId: 'f',
+          groupPosition: RowGroupPosition.single,
+          onReturn: () {},
+        ),
+      );
+
+      expect(find.byType(LabelDot), findsNothing);
+    });
+
+    testWidgets('a labelled note row ends in a 10dp dot, past the title', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        NoteRow(
+          metadata: noteNamed('Labelled', label: ItemLabel.teal),
+          folderId: 'f',
+          groupPosition: RowGroupPosition.single,
+          onReturn: () {},
+        ),
+      );
+
+      final dot = find.descendant(
+        of: find.byType(LabelDot),
+        matching: find.byType(Container),
+      );
+      expect(dot, findsOneWidget);
+      expect(
+        tester.getSize(dot),
+        const Size(RowMetrics.labelDotSize, RowMetrics.labelDotSize),
+      );
+      expect(
+        tester.getTopLeft(dot).dx,
+        greaterThan(tester.getBottomRight(find.text('Labelled')).dx),
+      );
+
+      final decoration =
+          tester.widget<Container>(dot).decoration! as BoxDecoration;
+      expect(decoration.shape, BoxShape.circle);
+      expect(
+        decoration.color,
+        AppColors.labelColor(ItemLabel.teal, Brightness.light),
+      );
+      expect(
+        (decoration.border! as Border).top.color,
+        AppColors.labelRing(Brightness.light),
+      );
+    });
+
+    testWidgets('in reorder mode the dot sits left of the drag handle', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        NoteRow(
+          metadata: noteNamed('Labelled', label: ItemLabel.red),
+          folderId: 'f',
+          groupPosition: RowGroupPosition.single,
+          onReturn: () {},
+          isReorderMode: true,
+          index: 0,
+        ),
+      );
+
+      expect(
+        tester.getCenter(find.byType(LabelDot)).dx,
+        lessThan(tester.getCenter(find.byIcon(Icons.drag_handle)).dx),
+      );
+    });
+
+    testWidgets('an unlabelled folder row draws no dot, a labelled one puts '
+        'it before the count and chevron', (tester) async {
+      await pump(
+        tester,
+        FolderRow(
+          folder: folderNamed('Plain'),
+          noteCount: 3,
+          groupPosition: RowGroupPosition.single,
+          onReturn: () {},
+        ),
+      );
+      expect(find.byType(LabelDot), findsNothing);
+
+      await pump(
+        tester,
+        FolderRow(
+          folder: folderNamed('Marked', label: ItemLabel.blue),
+          noteCount: 3,
+          groupPosition: RowGroupPosition.single,
+          onReturn: () {},
+        ),
+      );
+
+      expect(find.byType(LabelDot), findsOneWidget);
+      expect(
+        tester.getCenter(find.byType(LabelDot)).dx,
+        lessThan(tester.getCenter(find.byType(RowCountChevron)).dx),
+      );
+      expect(
+        tester.getCenter(find.byType(LabelDot)).dx,
+        greaterThan(tester.getBottomRight(find.text('Marked')).dx),
+      );
+      final glyph = tester.widget<Icon>(find.byIcon(Icons.folder_outlined));
+      expect(
+        glyph.color,
+        AppTheme.lightScheme.primary,
+        reason: 'a label never tints the folder glyph',
+      );
+    });
+
+    testWidgets('a labelled folder row in reorder mode puts the dot left of '
+        'the drag handle', (tester) async {
+      await pump(
+        tester,
+        FolderRow(
+          folder: folderNamed('Marked', label: ItemLabel.green),
+          groupPosition: RowGroupPosition.single,
+          onReturn: () {},
+          isReorderMode: true,
+          index: 0,
+        ),
+      );
+
+      expect(
+        tester.getCenter(find.byType(LabelDot)).dx,
+        lessThan(tester.getCenter(find.byIcon(Icons.drag_handle)).dx),
+      );
+    });
+  });
+
+  group('the label swatch strip', () {
+    final scheme = AppTheme.lightScheme;
+
+    Future<void> pumpStrip(
+      WidgetTester tester, {
+      required ItemLabel value,
+      required ValueChanged<ItemLabel> onChanged,
+    }) {
+      return pump(
+        tester,
+        LabelSwatchStrip(value: value, onChanged: onChanged),
+      );
+    }
+
+    testWidgets('draws a clear swatch plus the seven colours', (tester) async {
+      await pumpStrip(tester, value: ItemLabel.none, onChanged: (_) {});
+
+      expect(find.byType(InkWell), findsNWidgets(8));
+      expect(find.bySemanticsLabel(l10n.labelNone), findsOneWidget);
+      expect(find.bySemanticsLabel(l10n.labelRed), findsOneWidget);
+      expect(find.bySemanticsLabel(l10n.labelPink), findsOneWidget);
+    });
+
+    testWidgets('fits a 360dp phone without overflowing, every cell at least '
+        'as wide as its painted circle', (tester) async {
+      await pump(
+        tester,
+        Center(
+          child: SizedBox(
+            width: 360,
+            child: LabelSwatchStrip(value: ItemLabel.none, onChanged: (_) {}),
+          ),
+        ),
+      );
+
+      expect(tester.takeException(), isNull);
+      for (final inkWell in find.byType(InkWell).evaluate()) {
+        final cell = tester.getSize(
+          find.ancestor(
+            of: find.byWidget(inkWell.widget),
+            matching: find.byType(Expanded),
+          ),
+        );
+        expect(cell.width, greaterThanOrEqualTo(LabelSwatchStrip.swatchSize));
+        expect(cell.height, LabelSwatchStrip.tapTarget);
+      }
+      expect(
+        tester.getTopLeft(find.byType(InkWell).first).dx,
+        greaterThan(tester.getTopLeft(find.byType(Center).first).dx),
+      );
+      expect(
+        tester.getBottomRight(find.byType(InkWell).last).dx,
+        lessThan(tester.getBottomRight(find.byType(Center).first).dx),
+      );
+    });
+
+    testWidgets('tapping a swatch reports it', (tester) async {
+      final picked = <ItemLabel>[];
+      await pumpStrip(tester, value: ItemLabel.none, onChanged: picked.add);
+
+      await tester.tap(find.bySemanticsLabel(l10n.labelBlue));
+      await tester.pump();
+
+      expect(picked, [ItemLabel.blue]);
+    });
+
+    testWidgets('the current value is the ringed swatch', (tester) async {
+      await pumpStrip(tester, value: ItemLabel.green, onChanged: (_) {});
+
+      BoxDecoration ringOf(String name) {
+        final container = tester.widget<Container>(
+          find
+              .descendant(
+                of: find.bySemanticsLabel(name),
+                matching: find.byType(Container),
+              )
+              .first,
+        );
+        return container.decoration! as BoxDecoration;
+      }
+
+      final selected = ringOf(l10n.labelGreen);
+      expect(selected.border, isNotNull);
+      expect((selected.border! as Border).top.color, scheme.primary);
+      expect((selected.border! as Border).top.width, 2);
+
+      expect(
+        ringOf(l10n.labelRed).border,
+        isNull,
+        reason: 'only the current value is ringed',
+      );
+    });
+  });
+
+  group('the row action sheet', () {
+    Widget sheetHost({
+      Widget Function(BuildContext sheetContext)? headerBuilder,
+    }) {
+      return MaterialApp(
+        theme: AppTheme.light(),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: ElevatedButton(
+                onPressed: () => showRowActionSheet(
+                  context,
+                  title: 'Leg day',
+                  headerBuilder: headerBuilder,
+                  actions: [
+                    RowAction(
+                      icon: Icons.edit_rounded,
+                      label: l10n.rename,
+                      onSelected: () {},
+                    ),
+                  ],
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    testWidgets('renders its header between the title and the first action, '
+        'each behind its own divider', (tester) async {
+      await tester.pumpWidget(
+        sheetHost(
+          headerBuilder: (sheetContext) => LabelSwatchStrip(
+            value: ItemLabel.none,
+            onChanged: (label) => Navigator.of(sheetContext).pop(),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(LabelSwatchStrip), findsOneWidget);
+      expect(find.byType(Divider), findsNWidgets(2));
+      final stripY = tester.getTopLeft(find.byType(LabelSwatchStrip)).dy;
+      expect(stripY, greaterThan(tester.getTopLeft(find.text('Leg day')).dy));
+      expect(stripY, lessThan(tester.getTopLeft(find.text(l10n.rename)).dy));
+
+      await tester.tap(find.bySemanticsLabel(l10n.labelOrange));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byType(LabelSwatchStrip),
+        findsNothing,
+        reason: 'picking a swatch closes the sheet',
+      );
+    });
+
+    testWidgets('without a header the sheet is exactly what it was', (
+      tester,
+    ) async {
+      await tester.pumpWidget(sheetHost());
+
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(LabelSwatchStrip), findsNothing);
+      expect(find.byType(Divider), findsOneWidget);
+      expect(find.byType(ListTile), findsOneWidget);
     });
   });
 }

@@ -65,6 +65,11 @@ class RowMetrics {
   /// The chevron that says a row opens something.
   static const double chevronSize = 18.0;
 
+  /// The colour-label dot at a row's trailing edge. Drawn only on a labelled
+  /// row — an unlabelled one reserves nothing, so turning a label on is the
+  /// only thing that ever moves the name beside it.
+  static const double labelDotSize = 10.0;
+
   /// The bare descendant count on a folder or smart row.
   static const double countFontSize = 14.0;
 

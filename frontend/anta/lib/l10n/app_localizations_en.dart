@@ -4686,4 +4686,39 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get showAncestors => 'Show parent folders';
+
+  @override
+  String get labelAction => 'Label';
+
+  @override
+  String get labelSelected => 'Label';
+
+  @override
+  String get labelNone => 'No label';
+
+  @override
+  String get labelRed => 'Red';
+
+  @override
+  String get labelOrange => 'Orange';
+
+  @override
+  String get labelYellow => 'Yellow';
+
+  @override
+  String get labelGreen => 'Green';
+
+  @override
+  String get labelTeal => 'Teal';
+
+  @override
+  String get labelBlue => 'Blue';
+
+  @override
+  String get labelPink => 'Pink';
+
+  @override
+  String labelSemantics(String color) {
+    return '$color label';
+  }
 }

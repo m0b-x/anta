@@ -14,6 +14,7 @@ import '../l10n/app_localizations.dart';
 /// contents and moves no row above it.
 class SelectionActionBar extends StatelessWidget {
   final int count;
+  final VoidCallback? onLabel;
   final VoidCallback? onMove;
   final VoidCallback? onShare;
   final VoidCallback? onDelete;
@@ -21,6 +22,7 @@ class SelectionActionBar extends StatelessWidget {
   const SelectionActionBar({
     super.key,
     required this.count,
+    required this.onLabel,
     required this.onMove,
     required this.onShare,
     required this.onDelete,
@@ -52,6 +54,12 @@ class SelectionActionBar extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
+              _Action(
+                icon: Icons.label_outline,
+                label: l10n.labelSelected,
+                color: colorScheme.primary,
+                onPressed: enabled ? onLabel : null,
+              ),
               _Action(
                 icon: Icons.drive_file_move_outline,
                 label: l10n.moveSelected,
@@ -98,7 +106,7 @@ class _Action extends StatelessWidget {
     return InkWell(
       onTap: onPressed,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,

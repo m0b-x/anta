@@ -11,6 +11,7 @@ import '../constants/row_metrics.dart';
 import '../controllers/selection_controller.dart';
 import '../l10n/app_localizations.dart';
 import '../models/folder.dart';
+import '../models/item_label.dart';
 import '../models/movable_item.dart';
 import '../services/app_navigator.dart';
 import '../services/folder_storage_service.dart';
@@ -18,6 +19,8 @@ import '../services/move_coordinator.dart';
 import '../utils/custom_snackbar.dart';
 import 'app_dialogs.dart';
 import 'content_rows.dart';
+import 'label_dot.dart';
+import 'label_swatch_strip.dart';
 
 /// One folder in the browser's list.
 ///
@@ -185,17 +188,27 @@ class FolderRow extends StatelessWidget {
   }
 
   Widget _buildTrailing(BuildContext context) {
-    if (isReorderMode) {
-      return ReorderableDragStartListener(
-        index: index ?? 0,
-        child: Icon(
-          Icons.drag_handle,
-          size: RowMetrics.glyphSize,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
-      );
-    }
-    return RowCountChevron(count: noteCount);
+    final trailing = isReorderMode
+        ? ReorderableDragStartListener(
+            index: index ?? 0,
+            child: Icon(
+              Icons.drag_handle,
+              size: RowMetrics.glyphSize,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          )
+        : RowCountChevron(count: noteCount);
+
+    if (folder.label == ItemLabel.none) return trailing;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        LabelDot(label: folder.label),
+        const SizedBox(width: RowMetrics.gap),
+        trailing,
+      ],
+    );
   }
 
   /// The rename / move / share / delete sheet a long-press raises, with
@@ -207,6 +220,16 @@ class FolderRow extends StatelessWidget {
     showRowActionSheet(
       context,
       title: folder.name,
+      headerBuilder: (sheetContext) => LabelSwatchStrip(
+        value: folder.label,
+        onChanged: (label) {
+          Navigator.of(sheetContext).pop();
+          if (label == folder.label) return;
+          context.read<OptimizedFolderBloc>().add(
+            SetOptimizedFolderLabel(folderId: folder.id, label: label),
+          );
+        },
+      ),
       actions: [
         if (enterSelection != null)
           RowAction(

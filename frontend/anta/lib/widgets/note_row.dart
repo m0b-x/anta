@@ -10,6 +10,7 @@ import '../bloc/optimized_note/optimized_note_event.dart';
 import '../constants/row_metrics.dart';
 import '../controllers/selection_controller.dart';
 import '../l10n/app_localizations.dart';
+import '../models/item_label.dart';
 import '../models/movable_item.dart';
 import '../models/note_metadata.dart';
 import '../services/app_navigator.dart';
@@ -18,6 +19,8 @@ import '../services/note_storage_service.dart';
 import '../utils/custom_snackbar.dart';
 import 'app_dialogs.dart';
 import 'content_rows.dart';
+import 'label_dot.dart';
+import 'label_swatch_strip.dart';
 import 'note_export_dialog.dart';
 
 /// How a row says when a note was last touched.
@@ -178,6 +181,10 @@ class NoteRow extends StatelessWidget {
                     ],
                   ),
                 ),
+                if (metadata.label != ItemLabel.none) ...[
+                  const SizedBox(width: RowMetrics.gap),
+                  LabelDot(label: metadata.label),
+                ],
                 if (isReorderMode) ...[
                   const SizedBox(width: RowMetrics.gap),
                   ReorderableDragStartListener(
@@ -279,6 +286,16 @@ class NoteRow extends StatelessWidget {
     showRowActionSheet(
       context,
       title: metadata.title.isEmpty ? l10n.untitledNote : metadata.title,
+      headerBuilder: (sheetContext) => LabelSwatchStrip(
+        value: metadata.label,
+        onChanged: (label) {
+          Navigator.of(sheetContext).pop();
+          if (label == metadata.label) return;
+          context.read<OptimizedNoteBloc>().add(
+            SetOptimizedNoteLabel(noteId: metadata.id, label: label),
+          );
+        },
+      ),
       actions: [
         if (enterSelection != null)
           RowAction(

@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import '../constants/json_keys.dart';
+import 'item_label.dart';
 
 /// Represents a folder that contains notes
 class Folder extends Equatable {
@@ -16,6 +17,10 @@ class Folder extends Equatable {
   /// is active.
   final int position;
 
+  /// The optional colour label drawn at the trailing edge of the folder's
+  /// browser row. [ItemLabel.none] — the default — draws nothing.
+  final ItemLabel label;
+
   const Folder({
     required this.id,
     required this.name,
@@ -24,6 +29,7 @@ class Folder extends Equatable {
     this.noteSortOrder,
     this.subfolderSortOrder,
     this.position = 0,
+    this.label = ItemLabel.none,
   });
 
   Folder copyWith({
@@ -34,6 +40,7 @@ class Folder extends Equatable {
     String? noteSortOrder,
     String? subfolderSortOrder,
     int? position,
+    ItemLabel? label,
   }) {
     return Folder(
       id: id ?? this.id,
@@ -43,6 +50,7 @@ class Folder extends Equatable {
       noteSortOrder: noteSortOrder ?? this.noteSortOrder,
       subfolderSortOrder: subfolderSortOrder ?? this.subfolderSortOrder,
       position: position ?? this.position,
+      label: label ?? this.label,
     );
   }
 
@@ -54,6 +62,7 @@ class Folder extends Equatable {
       JsonKeys.createdAt: createdAt.toIso8601String(),
       JsonKeys.noteSortOrder: noteSortOrder,
       JsonKeys.subfolderSortOrder: subfolderSortOrder,
+      JsonKeys.label: label.storageName,
     };
   }
 
@@ -65,6 +74,7 @@ class Folder extends Equatable {
       createdAt: DateTime.parse(json[JsonKeys.createdAt] as String),
       noteSortOrder: json[JsonKeys.noteSortOrder] as String?,
       subfolderSortOrder: json[JsonKeys.subfolderSortOrder] as String?,
+      label: ItemLabel.fromName(json[JsonKeys.label] as String?),
     );
   }
 
@@ -77,5 +87,6 @@ class Folder extends Equatable {
     noteSortOrder,
     subfolderSortOrder,
     position,
+    label,
   ];
 }

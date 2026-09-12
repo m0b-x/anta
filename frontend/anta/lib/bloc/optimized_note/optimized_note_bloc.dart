@@ -30,6 +30,8 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
     on<LoadNoteContent>(_onLoadNoteContent);
     on<CreateOptimizedNote>(_onCreateNote);
     on<UpdateOptimizedNote>(_onUpdateNote);
+    on<SetOptimizedNoteLabel>(_onSetNoteLabel);
+    on<SetOptimizedNotesLabel>(_onSetNotesLabel);
     on<DeleteOptimizedNote>(_onDeleteNote);
     on<DeleteOptimizedNotes>(_onDeleteNotes);
     on<PreloadNoteContent>(_onPreloadContent);
@@ -250,6 +252,43 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
       emit(
         OptimizedNoteError(
           'Failed to update note: $e',
+          folderId: _currentFolderId,
+        ),
+      );
+    }
+  }
+
+  Future<void> _onSetNoteLabel(
+    SetOptimizedNoteLabel event,
+    Emitter<OptimizedNoteState> emit,
+  ) async {
+    try {
+      await _storageService.setNoteLabel(event.noteId, event.label);
+      add(RefreshNotes(folderId: _currentFolderId));
+    } catch (e, stackTrace) {
+      _logError('Failed to label note', e, stackTrace);
+      emit(
+        OptimizedNoteError(
+          'Failed to label note: $e',
+          folderId: _currentFolderId,
+        ),
+      );
+    }
+  }
+
+  Future<void> _onSetNotesLabel(
+    SetOptimizedNotesLabel event,
+    Emitter<OptimizedNoteState> emit,
+  ) async {
+    if (event.noteIds.isEmpty) return;
+    try {
+      await _storageService.setLabelForNotes(event.noteIds, event.label);
+      add(RefreshNotes(folderId: _currentFolderId));
+    } catch (e, stackTrace) {
+      _logError('Failed to label notes', e, stackTrace);
+      emit(
+        OptimizedNoteError(
+          'Failed to label notes: $e',
           folderId: _currentFolderId,
         ),
       );

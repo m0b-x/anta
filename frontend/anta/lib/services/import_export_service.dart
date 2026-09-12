@@ -11,6 +11,7 @@ import '../constants/json_keys.dart';
 import '../models/calendar_event.dart';
 import '../models/export_format.dart';
 import '../models/folder.dart';
+import '../models/item_label.dart';
 import '../models/note_metadata.dart';
 import '../repositories/note_repository.dart';
 import '../utils/ics_serializer.dart';
@@ -153,6 +154,7 @@ class ImportExportService {
           JsonKeys.content: content,
           JsonKeys.createdAt: metadata.createdAt.toIso8601String(),
           JsonKeys.updatedAt: metadata.updatedAt.toIso8601String(),
+          JsonKeys.label: metadata.label.storageName,
           JsonKeys.exportedAt: DateTime.now().toIso8601String(),
         });
       case ExportFormat.markdown:
@@ -348,6 +350,7 @@ class ImportExportService {
       JsonKeys.createdAt: folder.createdAt.toIso8601String(),
       JsonKeys.noteSortOrder: folder.noteSortOrder,
       JsonKeys.subfolderSortOrder: folder.subfolderSortOrder,
+      JsonKeys.label: folder.label.storageName,
     });
 
     final notes = await _noteStorage.loadAllMetadataForFolder(folder.id);
@@ -540,6 +543,7 @@ class ImportExportService {
     String content;
     DateTime? createdAt;
     DateTime? updatedAt;
+    var label = ItemLabel.none;
 
     switch (format) {
       case ExportFormat.json:
@@ -551,6 +555,7 @@ class ImportExportService {
         content = (decoded[JsonKeys.content] as String?) ?? '';
         createdAt = _tryParseDate(decoded[JsonKeys.createdAt]);
         updatedAt = _tryParseDate(decoded[JsonKeys.updatedAt]);
+        label = ItemLabel.fromName(decoded[JsonKeys.label] as String?);
       case ExportFormat.markdown:
         final lines = raw.split('\n');
         if (lines.isNotEmpty && lines.first.startsWith('# ')) {
@@ -571,6 +576,7 @@ class ImportExportService {
       content: content,
       createdAt: createdAt,
       updatedAt: updatedAt,
+      label: label,
     );
   }
 
@@ -680,6 +686,7 @@ class ImportExportService {
         createdAt: meta?.createdAt,
         noteSortOrder: meta?.noteSortOrder,
         subfolderSortOrder: meta?.subfolderSortOrder,
+        label: meta?.label ?? ItemLabel.none,
       );
       folderCount++;
       if (newParentId == targetParentFolderId) {
@@ -739,6 +746,7 @@ class ImportExportService {
         createdAt: _tryParseDate(decoded[JsonKeys.createdAt]),
         noteSortOrder: decoded[JsonKeys.noteSortOrder] as String?,
         subfolderSortOrder: decoded[JsonKeys.subfolderSortOrder] as String?,
+        label: ItemLabel.fromName(decoded[JsonKeys.label] as String?),
       );
     } catch (_) {
       return null;
@@ -808,6 +816,7 @@ class ImportExportService {
     DateTime? createdAt,
     String? noteSortOrder,
     String? subfolderSortOrder,
+    ItemLabel label = ItemLabel.none,
   }) async {
     final effectiveCreatedAt = createdAt ?? DateTime.now();
     var attempt = name;
@@ -820,6 +829,7 @@ class ImportExportService {
           createdAt: effectiveCreatedAt,
           noteSortOrder: noteSortOrder,
           subfolderSortOrder: subfolderSortOrder,
+          label: label,
         );
       } on DuplicateNameException {
         attempt = '$name ($i)';
@@ -837,6 +847,7 @@ class ImportExportService {
     required String content,
     DateTime? createdAt,
     DateTime? updatedAt,
+    ItemLabel label = ItemLabel.none,
   }) async {
     final now = DateTime.now();
     final effectiveCreatedAt = createdAt ?? now;
@@ -851,6 +862,7 @@ class ImportExportService {
           content: content,
           createdAt: effectiveCreatedAt,
           updatedAt: effectiveUpdatedAt,
+          label: label,
         );
       } on DuplicateNameException {
         attempt = '$title ($i)';
@@ -878,11 +890,13 @@ class _FolderMeta {
   final DateTime? createdAt;
   final String? noteSortOrder;
   final String? subfolderSortOrder;
+  final ItemLabel label;
 
   const _FolderMeta({
     this.name,
     this.createdAt,
     this.noteSortOrder,
     this.subfolderSortOrder,
+    this.label = ItemLabel.none,
   });
 }

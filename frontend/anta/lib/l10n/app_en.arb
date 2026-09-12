@@ -5904,5 +5904,55 @@
   "showAncestors": "Show parent folders",
   "@showAncestors": {
     "description": "Accessibility action on the browser's back button, and hint on the parent name above the folder title, that lists every folder above this one"
+  },
+  "labelAction": "Label",
+  "@labelAction": {
+    "description": "Row action-sheet header and colour-label picker title"
+  },
+  "labelSelected": "Label",
+  "@labelSelected": {
+    "description": "Bottom-bar action label to colour-label all selected items"
+  },
+  "labelNone": "No label",
+  "@labelNone": {
+    "description": "Picker swatch that clears the colour label of a note or folder"
+  },
+  "labelRed": "Red",
+  "@labelRed": {
+    "description": "Name of the red colour label"
+  },
+  "labelOrange": "Orange",
+  "@labelOrange": {
+    "description": "Name of the orange colour label"
+  },
+  "labelYellow": "Yellow",
+  "@labelYellow": {
+    "description": "Name of the yellow colour label"
+  },
+  "labelGreen": "Green",
+  "@labelGreen": {
+    "description": "Name of the green colour label"
+  },
+  "labelTeal": "Teal",
+  "@labelTeal": {
+    "description": "Name of the teal colour label"
+  },
+  "labelBlue": "Blue",
+  "@labelBlue": {
+    "description": "Name of the blue colour label"
+  },
+  "labelPink": "Pink",
+  "@labelPink": {
+    "description": "Name of the pink colour label"
+  },
+  "labelSemantics": "{color} label",
+  "@labelSemantics": {
+    "description": "Accessibility name of the colour-label dot on a browser row",
+    "placeholders": {
+      "color": {
+        "type": "String",
+        "example": "Teal"
+      }
+    }
   }
 }

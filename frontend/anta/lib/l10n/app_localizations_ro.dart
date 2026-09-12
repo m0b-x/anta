@@ -4768,4 +4768,39 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get showAncestors => 'Arată folderele părinte';
+
+  @override
+  String get labelAction => 'Etichetă';
+
+  @override
+  String get labelSelected => 'Etichetă';
+
+  @override
+  String get labelNone => 'Fără etichetă';
+
+  @override
+  String get labelRed => 'Roșu';
+
+  @override
+  String get labelOrange => 'Portocaliu';
+
+  @override
+  String get labelYellow => 'Galben';
+
+  @override
+  String get labelGreen => 'Verde';
+
+  @override
+  String get labelTeal => 'Turcoaz';
+
+  @override
+  String get labelBlue => 'Albastru';
+
+  @override
+  String get labelPink => 'Roz';
+
+  @override
+  String labelSemantics(String color) {
+    return 'Etichetă $color';
+  }
 }

@@ -2,6 +2,7 @@ import '../database/database.dart';
 import '../database/daos/folder_dao.dart';
 import '../repositories/folder_repository.dart';
 import '../models/folder.dart' as model;
+import '../models/item_label.dart';
 import '../constants/app_constants.dart';
 import 'duplicate_name_exception.dart';
 
@@ -147,6 +148,7 @@ class FolderStorageService {
   Future<model.Folder> createFolder({
     required String name,
     String? parentId,
+    ItemLabel label = ItemLabel.none,
   }) async {
     await initialize();
     // Enforce per-parent name uniqueness at the data-layer boundary so no
@@ -161,6 +163,7 @@ class FolderStorageService {
     final folder = await _repository.createFolder(
       name: name,
       parentId: parentId,
+      label: label,
     );
     return _folderToModel(folder);
   }
@@ -175,6 +178,7 @@ class FolderStorageService {
     required DateTime createdAt,
     String? noteSortOrder,
     String? subfolderSortOrder,
+    ItemLabel label = ItemLabel.none,
   }) async {
     await initialize();
     if (await folderNameExistsInParent(parentId: parentId, name: name)) {
@@ -190,6 +194,7 @@ class FolderStorageService {
       createdAt: createdAt,
       noteSortOrder: noteSortOrder,
       subfolderSortOrder: subfolderSortOrder,
+      label: label,
     );
     return _folderToModel(folder);
   }
@@ -234,6 +239,31 @@ class FolderStorageService {
       updateParent: parentId != null,
     );
     return folder != null ? _folderToModel(folder) : null;
+  }
+
+  /// Writes one folder's colour label. Returns the refreshed folder, or null
+  /// when it is gone or tombstoned.
+  Future<model.Folder?> setFolderLabel(
+    String folderId,
+    ItemLabel label,
+  ) async {
+    await initialize();
+    final folder = await _repository.setLabel(
+      folderId: folderId,
+      label: label,
+    );
+    return folder == null ? null : _folderToModel(folder);
+  }
+
+  /// Labels a whole selection as one unit — one statement, one reload —
+  /// rather than one write per picked row. Returns how many rows changed.
+  Future<int> setLabelForFolders(
+    List<String> folderIds,
+    ItemLabel label,
+  ) async {
+    if (folderIds.isEmpty) return 0;
+    await initialize();
+    return _repository.setLabelForMany(folderIds: folderIds, label: label);
   }
 
   Future<void> deleteFolder(String folderId) async {
@@ -416,6 +446,7 @@ class FolderStorageService {
       noteSortOrder: folder.noteSortOrder,
       subfolderSortOrder: folder.subfolderSortOrder,
       position: folder.position,
+      label: ItemLabel.fromStorage(folder.label),
     );
   }
 

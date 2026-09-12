@@ -2,6 +2,7 @@ import 'dart:async';
 import '../database/database.dart';
 import '../database/daos/note_dao.dart';
 import '../database/daos/content_chunk_dao.dart';
+import '../models/item_label.dart';
 import '../models/note_metadata.dart';
 import '../constants/app_constants.dart';
 import '../models/note_change.dart';
@@ -190,6 +191,7 @@ class NoteRepository {
     required int contentLength,
     required int chunkCount,
     required bool isCompressed,
+    ItemLabel label = ItemLabel.none,
   }) async {
     final note = await _noteDao.createNote(
       folderId: folderId,
@@ -198,6 +200,7 @@ class NoteRepository {
       contentLength: contentLength,
       chunkCount: chunkCount,
       isCompressed: isCompressed,
+      label: label,
     );
 
     await _chunkDao.saveContent(noteId: note.id, content: content);
@@ -231,6 +234,7 @@ class NoteRepository {
     required int contentLength,
     required int chunkCount,
     required bool isCompressed,
+    ItemLabel label = ItemLabel.none,
     required DateTime createdAt,
     required DateTime updatedAt,
   }) async {
@@ -241,6 +245,7 @@ class NoteRepository {
       contentLength: contentLength,
       chunkCount: chunkCount,
       isCompressed: isCompressed,
+      label: label,
       createdAt: createdAt,
       updatedAt: updatedAt,
     );
@@ -352,6 +357,65 @@ class NoteRepository {
         ),
       );
     }
+  }
+
+  /// Writes one note's colour label, then invalidates the folder it lives in
+  /// so the browser's next read sees the new dot.
+  Future<Note?> setLabel({
+    required String noteId,
+    required ItemLabel label,
+  }) async {
+    final note = await _noteDao.updateNoteLabel(id: noteId, label: label);
+    if (note != null) {
+      _noteCache.put(noteId, note);
+      _invalidateFolderCache(note.folderId);
+      _noteChangesController.add(
+        NoteChange(
+          type: NoteChangeType.updated,
+          noteId: noteId,
+          folderId: note.folderId,
+          note: note,
+        ),
+      );
+    }
+    return note;
+  }
+
+  /// Labels a whole selection in one statement, then invalidates every folder
+  /// the picked notes live in.
+  ///
+  /// One change event per note still goes out, for the reason [deleteNotes]
+  /// gives: the browser's rows are keyed by note, and a single aggregate
+  /// event would leave every subscriber guessing which ones moved.
+  Future<int> setLabelForMany({
+    required List<String> noteIds,
+    required ItemLabel label,
+  }) async {
+    if (noteIds.isEmpty) return 0;
+    final changed = await _noteDao.updateLabelForNotes(
+      ids: noteIds,
+      label: label,
+    );
+
+    for (final noteId in noteIds) {
+      _noteCache.remove(noteId);
+    }
+    final updated = await _noteDao.getNotesByIds(noteIds);
+    for (final folderId in {for (final note in updated) note.folderId}) {
+      _invalidateFolderCache(folderId);
+    }
+    for (final note in updated) {
+      _noteCache.put(note.id, note);
+      _noteChangesController.add(
+        NoteChange(
+          type: NoteChangeType.updated,
+          noteId: note.id,
+          folderId: note.folderId,
+          note: note,
+        ),
+      );
+    }
+    return changed;
   }
 
   Future<Note?> moveNote({
@@ -555,6 +619,7 @@ class NoteRepository {
       createdAt: note.createdAt,
       updatedAt: note.updatedAt,
       position: note.position,
+      label: ItemLabel.fromStorage(note.label),
     );
   }
 

@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 
 import '../constants/json_keys.dart';
 import '../utils/markdown_plain_text.dart';
+import 'item_label.dart';
 
 class NoteMetadata extends Equatable {
   final String id;
@@ -18,6 +19,10 @@ class NoteMetadata extends Equatable {
   /// notes with sibling folders when [NotesSortOrder.positionAsc] is active.
   final int position;
 
+  /// The optional colour label drawn at the trailing edge of the note's
+  /// browser row. [ItemLabel.none] — the default — draws nothing.
+  final ItemLabel label;
+
   const NoteMetadata({
     required this.id,
     required this.folderId,
@@ -29,6 +34,7 @@ class NoteMetadata extends Equatable {
     required this.createdAt,
     required this.updatedAt,
     this.position = 0,
+    this.label = ItemLabel.none,
   });
 
   NoteMetadata copyWith({
@@ -42,6 +48,7 @@ class NoteMetadata extends Equatable {
     DateTime? createdAt,
     DateTime? updatedAt,
     int? position,
+    ItemLabel? label,
   }) {
     return NoteMetadata(
       id: id ?? this.id,
@@ -54,6 +61,7 @@ class NoteMetadata extends Equatable {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       position: position ?? this.position,
+      label: label ?? this.label,
     );
   }
 
@@ -68,6 +76,7 @@ class NoteMetadata extends Equatable {
       JsonKeys.isCompressed: isCompressed,
       JsonKeys.createdAt: createdAt.toIso8601String(),
       JsonKeys.updatedAt: updatedAt.toIso8601String(),
+      JsonKeys.label: label.storageName,
     };
   }
 
@@ -82,6 +91,7 @@ class NoteMetadata extends Equatable {
       isCompressed: json[JsonKeys.isCompressed] as bool? ?? false,
       createdAt: DateTime.parse(json[JsonKeys.createdAt] as String),
       updatedAt: DateTime.parse(json[JsonKeys.updatedAt] as String),
+      label: ItemLabel.fromName(json[JsonKeys.label] as String?),
     );
   }
 
@@ -109,6 +119,7 @@ class NoteMetadata extends Equatable {
     createdAt,
     updatedAt,
     position,
+    label,
   ];
 }
 

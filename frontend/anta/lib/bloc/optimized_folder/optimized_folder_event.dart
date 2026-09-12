@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import '../../models/item_label.dart';
 import '../../services/folder_storage_service.dart';
 
 abstract class OptimizedFolderEvent extends Equatable {
@@ -52,6 +53,34 @@ class UpdateOptimizedFolder extends OptimizedFolderEvent {
 
   @override
   List<Object?> get props => [folderId, name];
+}
+
+/// Writes one folder's colour label. Separate from [UpdateOptimizedFolder]
+/// because a label is not a name: it skips the duplicate-name check, which a
+/// colour cannot affect.
+class SetOptimizedFolderLabel extends OptimizedFolderEvent {
+  final String folderId;
+  final ItemLabel label;
+
+  const SetOptimizedFolderLabel({required this.folderId, required this.label});
+
+  @override
+  List<Object?> get props => [folderId, label];
+}
+
+/// Labels a whole selection as one unit: one statement, one reload — the
+/// shape [DeleteOptimizedFolders] uses for the same reason.
+class SetOptimizedFoldersLabel extends OptimizedFolderEvent {
+  final List<String> folderIds;
+  final ItemLabel label;
+
+  const SetOptimizedFoldersLabel({
+    required this.folderIds,
+    required this.label,
+  });
+
+  @override
+  List<Object?> get props => [folderIds, label];
 }
 
 class DeleteOptimizedFolder extends OptimizedFolderEvent {

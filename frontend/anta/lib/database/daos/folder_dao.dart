@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart';
+import '../../models/item_label.dart';
 import '../database.dart';
 import '../tables/folders_table.dart';
 import '../crdt/hlc.dart';
@@ -42,6 +43,15 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
 
   Future<Folder?> getFolderById(String id) {
     return (select(folders)..where((f) => f.id.equals(id))).getSingleOrNull();
+  }
+
+  /// The live folders among [ids], in one statement — what a bulk write
+  /// reads back afterwards instead of one `getFolderById` per row.
+  Future<List<Folder>> getFoldersByIds(List<String> ids) {
+    if (ids.isEmpty) return Future.value([]);
+    return (select(
+      folders,
+    )..where((f) => f.id.isIn(ids) & f.isDeleted.equals(false))).get();
   }
 
   Future<int> getFolderCount(
@@ -113,7 +123,11 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     )..where((f) => f.id.equals(folder.id.value))).getSingle();
   }
 
-  Future<Folder> createFolder({required String name, String? parentId}) async {
+  Future<Folder> createFolder({
+    required String name,
+    String? parentId,
+    ItemLabel label = ItemLabel.none,
+  }) async {
     final now = DateTime.now();
     final id = db.generateId();
     final hlc = db.generateHlc();
@@ -134,6 +148,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       id: Value(id),
       name: Value(name),
       parentId: Value(parentId),
+      label: Value(label.storageValue),
       position: Value(maxPos + 1),
       createdAt: Value(now),
       updatedAt: Value(now),
@@ -157,6 +172,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     required DateTime createdAt,
     String? noteSortOrder,
     String? subfolderSortOrder,
+    ItemLabel label = ItemLabel.none,
   }) async {
     final now = DateTime.now();
     final id = db.generateId();
@@ -177,6 +193,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       id: Value(id),
       name: Value(name),
       parentId: Value(parentId),
+      label: Value(label.storageValue),
       position: Value(maxPos + 1),
       createdAt: Value(createdAt),
       // updatedAt records when this row was written locally; the import
@@ -312,6 +329,66 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       ),
     );
     return getFolderById(id);
+  }
+
+  /// Writes the colour label of one folder.
+  ///
+  /// Shaped on [updateFolderPosition] — read the row, stamp a fresh HLC,
+  /// write `version + 1` — and refuses a tombstone: a label picked from a
+  /// sheet that outlived the folder would otherwise resurrect it on the next
+  /// merge.
+  Future<Folder?> updateFolderLabel({
+    required String id,
+    required ItemLabel label,
+  }) async {
+    final existing = await getFolderById(id);
+    if (existing == null || existing.isDeleted) return null;
+
+    final now = DateTime.now();
+    final hlc = db.generateHlc();
+
+    await (update(folders)..where((f) => f.id.equals(id))).write(
+      FoldersCompanion(
+        label: Value(label.storageValue),
+        updatedAt: Value(now),
+        hlcTimestamp: Value(hlc),
+        deviceId: Value(db.deviceId),
+        version: Value(existing.version + 1),
+      ),
+    );
+    return getFolderById(id);
+  }
+
+  /// Labels a whole selection in **one** statement — SQLite does the
+  /// `version + 1` arithmetic itself, the same way [setFolderPositions]
+  /// does, so the statement count does not move with the size of the
+  /// selection.
+  ///
+  /// Returns how many rows changed. Tombstones are skipped by the
+  /// `is_deleted = 0` clause rather than by a pre-read.
+  Future<int> updateLabelForFolders({
+    required List<String> ids,
+    required ItemLabel label,
+  }) async {
+    if (ids.isEmpty) return 0;
+    final unique = ids.toSet().toList(growable: false);
+    final placeholders = List.filled(unique.length, '?').join(', ');
+    final now = DateTime.now();
+    final hlc = db.generateHlc();
+
+    return customUpdate(
+      'UPDATE folders SET label = ?, updated_at = ?, hlc_timestamp = ?, '
+      'device_id = ?, version = version + 1 '
+      'WHERE id IN ($placeholders) AND is_deleted = 0',
+      variables: [
+        Variable<int>(label.storageValue),
+        Variable<DateTime>(now),
+        Variable<String>(hlc),
+        Variable<String>(db.deviceId),
+        for (final id in unique) Variable<String>(id),
+      ],
+      updates: {folders},
+    );
   }
 
   /// Reorder folders within a parent
@@ -585,6 +662,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
           id: Value(remote.id),
           name: Value(remote.name),
           parentId: Value(remote.parentId),
+          label: Value(remote.label),
           createdAt: Value(remote.createdAt),
           updatedAt: Value(remote.updatedAt),
           hlcTimestamp: Value(remote.hlcTimestamp),
@@ -607,6 +685,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
         FoldersCompanion(
           name: Value(remote.name),
           parentId: Value(remote.parentId),
+          label: Value(remote.label),
           updatedAt: Value(remote.updatedAt),
           hlcTimestamp: Value(remote.hlcTimestamp),
           deviceId: Value(remote.deviceId),

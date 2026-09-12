@@ -22,6 +22,8 @@ class OptimizedFolderBloc
     on<LoadMoreFolders>(_onLoadMoreFolders);
     on<CreateOptimizedFolder>(_onCreateFolder);
     on<UpdateOptimizedFolder>(_onUpdateFolder);
+    on<SetOptimizedFolderLabel>(_onSetFolderLabel);
+    on<SetOptimizedFoldersLabel>(_onSetFoldersLabel);
     on<DeleteOptimizedFolder>(_onDeleteFolder);
     on<DeleteOptimizedFolders>(_onDeleteFolders);
     on<RefreshFolders>(_onRefreshFolders);
@@ -176,6 +178,46 @@ class OptimizedFolderBloc
       emit(
         OptimizedFolderError(
           'Failed to update folder: $e',
+          parentId: _currentParentId,
+        ),
+      );
+    }
+  }
+
+  Future<void> _onSetFolderLabel(
+    SetOptimizedFolderLabel event,
+    Emitter<OptimizedFolderState> emit,
+  ) async {
+    try {
+      final folder = await _storageService.setFolderLabel(
+        event.folderId,
+        event.label,
+      );
+      add(RefreshFolders(parentId: folder?.parentId ?? _currentParentId));
+    } catch (e, stackTrace) {
+      _logError('Failed to label folder', e, stackTrace);
+      emit(
+        OptimizedFolderError(
+          'Failed to label folder: $e',
+          parentId: _currentParentId,
+        ),
+      );
+    }
+  }
+
+  Future<void> _onSetFoldersLabel(
+    SetOptimizedFoldersLabel event,
+    Emitter<OptimizedFolderState> emit,
+  ) async {
+    if (event.folderIds.isEmpty) return;
+    try {
+      await _storageService.setLabelForFolders(event.folderIds, event.label);
+      add(RefreshFolders(parentId: _currentParentId));
+    } catch (e, stackTrace) {
+      _logError('Failed to label folders', e, stackTrace);
+      emit(
+        OptimizedFolderError(
+          'Failed to label folders: $e',
           parentId: _currentParentId,
         ),
       );

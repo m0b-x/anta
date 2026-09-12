@@ -1433,5 +1433,16 @@
   "editorZoneOpenMoney": "Deschide detaliile registrului",
   "editorZoneSearchTag": "Caută eticheta",
   "editorZoneOpenWikiLink": "Deschide nota asociată",
-  "showAncestors": "Arată folderele părinte"
+  "showAncestors": "Arată folderele părinte",
+  "labelAction": "Etichetă",
+  "labelSelected": "Etichetă",
+  "labelNone": "Fără etichetă",
+  "labelRed": "Roșu",
+  "labelOrange": "Portocaliu",
+  "labelYellow": "Galben",
+  "labelGreen": "Verde",
+  "labelTeal": "Turcoaz",
+  "labelBlue": "Albastru",
+  "labelPink": "Roz",
+  "labelSemantics": "Etichetă {color}"
 }

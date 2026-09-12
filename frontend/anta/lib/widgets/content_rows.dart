@@ -204,10 +204,17 @@ class RowAction {
 ///
 /// The bottom padding is `max(viewInsets, viewPadding)`: either alone leaves
 /// the last row under the keyboard or under the gesture bar.
+///
+/// [headerBuilder], when given, draws between the title's divider and the
+/// first action, with a divider of its own beneath. It is a *builder* rather
+/// than a widget because the header is interactive — the colour-label strip
+/// closes the sheet when a swatch is picked — and only the sheet's own
+/// context can pop it.
 Future<void> showRowActionSheet(
   BuildContext context, {
   required String title,
   required List<RowAction> actions,
+  Widget Function(BuildContext sheetContext)? headerBuilder,
 }) {
   final colorScheme = Theme.of(context).colorScheme;
   return showModalBottomSheet<void>(
@@ -246,6 +253,13 @@ Future<void> showRowActionSheet(
               ),
             ),
             const Divider(),
+            if (headerBuilder != null) ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: headerBuilder(sheetContext),
+              ),
+              const Divider(),
+            ],
             for (final action in actions)
               ListTile(
                 leading: Icon(

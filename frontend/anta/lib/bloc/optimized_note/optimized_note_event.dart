@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:equatable/equatable.dart';
+import '../../models/item_label.dart';
 import '../../services/note_storage_service.dart';
 
 abstract class OptimizedNoteEvent extends Equatable {
@@ -76,6 +77,31 @@ class UpdateOptimizedNote extends OptimizedNoteEvent {
 
   @override
   List<Object?> get props => [noteId, title, content];
+}
+
+/// Writes one note's colour label. Separate from [UpdateOptimizedNote]
+/// because a label is not a title or a body: it skips the duplicate-title
+/// check and the search re-index, neither of which a colour can affect.
+class SetOptimizedNoteLabel extends OptimizedNoteEvent {
+  final String noteId;
+  final ItemLabel label;
+
+  const SetOptimizedNoteLabel({required this.noteId, required this.label});
+
+  @override
+  List<Object?> get props => [noteId, label];
+}
+
+/// Labels a whole selection as one unit: one statement, one reload — the
+/// shape [DeleteOptimizedNotes] uses for the same reason.
+class SetOptimizedNotesLabel extends OptimizedNoteEvent {
+  final List<String> noteIds;
+  final ItemLabel label;
+
+  const SetOptimizedNotesLabel({required this.noteIds, required this.label});
+
+  @override
+  List<Object?> get props => [noteIds, label];
 }
 
 class DeleteOptimizedNote extends OptimizedNoteEvent {

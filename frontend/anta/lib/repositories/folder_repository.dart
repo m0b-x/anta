@@ -2,6 +2,7 @@ import 'dart:async';
 import '../database/database.dart';
 import '../database/daos/folder_dao.dart';
 import '../models/folder_change.dart';
+import '../models/item_label.dart';
 import '../constants/app_constants.dart';
 
 export '../models/folder_change.dart';
@@ -148,10 +149,15 @@ class FolderRepository {
     return folders;
   }
 
-  Future<Folder> createFolder({required String name, String? parentId}) async {
+  Future<Folder> createFolder({
+    required String name,
+    String? parentId,
+    ItemLabel label = ItemLabel.none,
+  }) async {
     final folder = await _folderDao.createFolder(
       name: name,
       parentId: parentId,
+      label: label,
     );
 
     _folderCache[folder.id] = folder;
@@ -180,6 +186,7 @@ class FolderRepository {
     required DateTime createdAt,
     String? noteSortOrder,
     String? subfolderSortOrder,
+    ItemLabel label = ItemLabel.none,
   }) async {
     final folder = await _folderDao.importFolder(
       name: name,
@@ -187,6 +194,7 @@ class FolderRepository {
       createdAt: createdAt,
       noteSortOrder: noteSortOrder,
       subfolderSortOrder: subfolderSortOrder,
+      label: label,
     );
 
     _folderCache[folder.id] = folder;
@@ -242,6 +250,64 @@ class FolderRepository {
     }
 
     return folder;
+  }
+
+  /// Writes one folder's colour label, then invalidates its parent so the
+  /// browser's next read sees the new dot.
+  Future<Folder?> setLabel({
+    required String folderId,
+    required ItemLabel label,
+  }) async {
+    final folder = await _folderDao.updateFolderLabel(
+      id: folderId,
+      label: label,
+    );
+    if (folder != null) {
+      _folderCache[folderId] = folder;
+      _invalidateParentCache(folder.parentId);
+      _folderChangesController.add(
+        FolderChange(
+          type: FolderChangeType.updated,
+          folderId: folderId,
+          parentId: folder.parentId,
+          folder: folder,
+        ),
+      );
+    }
+    return folder;
+  }
+
+  /// Labels a whole selection in one statement, then invalidates every parent
+  /// the picked folders sit under.
+  Future<int> setLabelForMany({
+    required List<String> folderIds,
+    required ItemLabel label,
+  }) async {
+    if (folderIds.isEmpty) return 0;
+    final changed = await _folderDao.updateLabelForFolders(
+      ids: folderIds,
+      label: label,
+    );
+
+    for (final folderId in folderIds) {
+      _folderCache.remove(folderId);
+    }
+    final updated = await _folderDao.getFoldersByIds(folderIds);
+    for (final parentId in {for (final folder in updated) folder.parentId}) {
+      _invalidateParentCache(parentId);
+    }
+    for (final folder in updated) {
+      _folderCache[folder.id] = folder;
+      _folderChangesController.add(
+        FolderChange(
+          type: FolderChangeType.updated,
+          folderId: folder.id,
+          parentId: folder.parentId,
+          folder: folder,
+        ),
+      );
+    }
+    return changed;
   }
 
   Future<void> deleteFolder(String id) async {

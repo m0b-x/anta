@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart';
+import '../../models/item_label.dart';
 import '../database.dart';
 import '../tables/notes_table.dart';
 import '../crdt/hlc.dart';
@@ -144,6 +145,7 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
     int contentLength = 0,
     int chunkCount = 0,
     bool isCompressed = false,
+    ItemLabel label = ItemLabel.none,
   }) async {
     final now = DateTime.now();
     final id = db.generateId();
@@ -164,6 +166,7 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
       contentLength: Value(contentLength),
       chunkCount: Value(chunkCount),
       isCompressed: Value(isCompressed),
+      label: Value(label.storageValue),
       position: Value(maxPos + 1),
       createdAt: Value(now),
       updatedAt: Value(now),
@@ -191,6 +194,7 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
     int contentLength = 0,
     int chunkCount = 0,
     bool isCompressed = false,
+    ItemLabel label = ItemLabel.none,
     required DateTime createdAt,
     required DateTime updatedAt,
   }) async {
@@ -211,6 +215,7 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
       contentLength: Value(contentLength),
       chunkCount: Value(chunkCount),
       isCompressed: Value(isCompressed),
+      label: Value(label.storageValue),
       position: Value(maxPos + 1),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
@@ -384,6 +389,69 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
       ),
     );
     return getNoteById(id);
+  }
+
+  /// Writes the colour label of one note.
+  ///
+  /// Shaped on [updateNotePosition] — read the row, stamp a fresh HLC, write
+  /// `version + 1` — and refuses a tombstone the way [updateNote] does: a
+  /// label picked from a sheet that outlived the note would otherwise
+  /// resurrect it on the next merge.
+  ///
+  /// The FTS index is untouched on purpose: it holds title and preview, and a
+  /// label is neither.
+  Future<Note?> updateNoteLabel({
+    required String id,
+    required ItemLabel label,
+  }) async {
+    final existing = await getNoteById(id);
+    if (existing == null || existing.isDeleted) return null;
+
+    final now = DateTime.now();
+    final hlc = db.generateHlc();
+
+    await (update(notes)..where((n) => n.id.equals(id))).write(
+      NotesCompanion(
+        label: Value(label.storageValue),
+        updatedAt: Value(now),
+        hlcTimestamp: Value(hlc),
+        deviceId: Value(db.deviceId),
+        version: Value(existing.version + 1),
+      ),
+    );
+    return getNoteById(id);
+  }
+
+  /// Labels a whole selection in **one** statement, the way
+  /// [softDeleteNotesWithChunks] tombstones one: SQLite does the
+  /// `version + 1` arithmetic itself, so the statement count does not move
+  /// with the size of the selection.
+  ///
+  /// Returns how many rows changed. Tombstones are skipped by the
+  /// `is_deleted = 0` clause rather than by a pre-read.
+  Future<int> updateLabelForNotes({
+    required List<String> ids,
+    required ItemLabel label,
+  }) async {
+    if (ids.isEmpty) return 0;
+    final unique = ids.toSet().toList(growable: false);
+    final placeholders = List.filled(unique.length, '?').join(', ');
+    final now = DateTime.now();
+    final hlc = db.generateHlc();
+
+    return customUpdate(
+      'UPDATE notes SET label = ?, updated_at = ?, hlc_timestamp = ?, '
+      'device_id = ?, version = version + 1 '
+      'WHERE id IN ($placeholders) AND is_deleted = 0',
+      variables: [
+        Variable<int>(label.storageValue),
+        Variable<DateTime>(now),
+        Variable<String>(hlc),
+        Variable<String>(db.deviceId),
+        for (final id in unique) Variable<String>(id),
+      ],
+      updates: {notes},
+    );
   }
 
   /// Reorder notes within a folder
@@ -594,6 +662,7 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
             isDeleted: row.read<bool>('is_deleted'),
             deletedAt: row.readNullable<DateTime>('deleted_at'),
             position: row.read<int>('position'),
+            label: row.read<int>('label'),
           ),
         )
         .toList();
@@ -618,6 +687,7 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
           contentLength: Value(remote.contentLength),
           chunkCount: Value(remote.chunkCount),
           isCompressed: Value(remote.isCompressed),
+          label: Value(remote.label),
           createdAt: Value(remote.createdAt),
           updatedAt: Value(remote.updatedAt),
           hlcTimestamp: Value(remote.hlcTimestamp),
@@ -642,6 +712,7 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
           contentLength: Value(remote.contentLength),
           chunkCount: Value(remote.chunkCount),
           isCompressed: Value(remote.isCompressed),
+          label: Value(remote.label),
           updatedAt: Value(remote.updatedAt),
           hlcTimestamp: Value(remote.hlcTimestamp),
           deviceId: Value(remote.deviceId),

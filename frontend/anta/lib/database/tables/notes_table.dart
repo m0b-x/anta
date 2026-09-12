@@ -9,6 +9,7 @@ class Notes extends Table {
   IntColumn get chunkCount => integer().withDefault(const Constant(0))();
   BoolColumn get isCompressed => boolean().withDefault(const Constant(false))();
   IntColumn get position => integer().withDefault(const Constant(0))();
+  IntColumn get label => integer().withDefault(const Constant(0))();
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
 

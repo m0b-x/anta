@@ -2594,5 +2594,16 @@
   "editorZoneOpenMoney": "Kassenbuchdetails öffnen",
   "editorZoneSearchTag": "Schlagwort suchen",
   "editorZoneOpenWikiLink": "Verknüpfte Notiz öffnen",
-  "showAncestors": "Übergeordnete Ordner anzeigen"
+  "showAncestors": "Übergeordnete Ordner anzeigen",
+  "labelAction": "Etikett",
+  "labelSelected": "Etikett",
+  "labelNone": "Kein Etikett",
+  "labelRed": "Rot",
+  "labelOrange": "Orange",
+  "labelYellow": "Gelb",
+  "labelGreen": "Grün",
+  "labelTeal": "Blaugrün",
+  "labelBlue": "Blau",
+  "labelPink": "Rosa",
+  "labelSemantics": "Etikett {color}"
 }

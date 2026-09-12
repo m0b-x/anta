@@ -7,6 +7,7 @@ import '../database/database.dart';
 import '../database/database_lifecycle.dart';
 import '../constants/json_keys.dart';
 import '../constants/settings_keys.dart';
+import '../models/item_label.dart';
 import '../models/note_metadata.dart';
 import 'calendar_event_service.dart';
 import 'event_occurrence_service.dart';
@@ -58,6 +59,7 @@ class BackupService {
         JsonKeys.preview: note.preview,
         JsonKeys.createdAt: note.createdAt.toIso8601String(),
         JsonKeys.updatedAt: note.updatedAt.toIso8601String(),
+        JsonKeys.label: ItemLabel.fromStorage(note.label).storageName,
       });
     }
 
@@ -72,6 +74,7 @@ class BackupService {
             JsonKeys.updatedAt: f.updatedAt.toIso8601String(),
             JsonKeys.noteSortOrder: f.noteSortOrder,
             JsonKeys.subfolderSortOrder: f.subfolderSortOrder,
+            JsonKeys.label: ItemLabel.fromStorage(f.label).storageName,
           },
         )
         .toList();
@@ -303,6 +306,7 @@ class BackupService {
         await _db.folderDao.createFolder(
           name: map[JsonKeys.name] as String,
           parentId: map[JsonKeys.parentId] as String?,
+          label: ItemLabel.fromName(map[JsonKeys.label] as String?),
         );
         foldersImported++;
       }
@@ -318,6 +322,7 @@ class BackupService {
           preview: preview,
           contentLength: content.length,
           chunkCount: 1,
+          label: ItemLabel.fromName(map[JsonKeys.label] as String?),
         );
 
         await _db.contentChunkDao.saveContent(

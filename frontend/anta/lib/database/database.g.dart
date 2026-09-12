@@ -53,6 +53,16 @@ class $FoldersTable extends Folders with TableInfo<$FoldersTable, Folder> {
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
+  static const VerificationMeta _labelMeta = const VerificationMeta('label');
+  @override
+  late final GeneratedColumn<int> label = GeneratedColumn<int>(
+    'label',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -163,6 +173,7 @@ class $FoldersTable extends Folders with TableInfo<$FoldersTable, Folder> {
     name,
     parentId,
     position,
+    label,
     createdAt,
     updatedAt,
     noteSortOrder,
@@ -208,6 +219,12 @@ class $FoldersTable extends Folders with TableInfo<$FoldersTable, Folder> {
       context.handle(
         _positionMeta,
         position.isAcceptableOrUnknown(data['position']!, _positionMeta),
+      );
+    }
+    if (data.containsKey('label')) {
+      context.handle(
+        _labelMeta,
+        label.isAcceptableOrUnknown(data['label']!, _labelMeta),
       );
     }
     if (data.containsKey('created_at')) {
@@ -306,6 +323,10 @@ class $FoldersTable extends Folders with TableInfo<$FoldersTable, Folder> {
         DriftSqlType.int,
         data['${effectivePrefix}position'],
       )!,
+      label: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}label'],
+      )!,
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -356,6 +377,7 @@ class Folder extends DataClass implements Insertable<Folder> {
   final String name;
   final String? parentId;
   final int position;
+  final int label;
   final DateTime createdAt;
   final DateTime updatedAt;
   final String? noteSortOrder;
@@ -370,6 +392,7 @@ class Folder extends DataClass implements Insertable<Folder> {
     required this.name,
     this.parentId,
     required this.position,
+    required this.label,
     required this.createdAt,
     required this.updatedAt,
     this.noteSortOrder,
@@ -389,6 +412,7 @@ class Folder extends DataClass implements Insertable<Folder> {
       map['parent_id'] = Variable<String>(parentId);
     }
     map['position'] = Variable<int>(position);
+    map['label'] = Variable<int>(label);
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
     if (!nullToAbsent || noteSortOrder != null) {
@@ -415,6 +439,7 @@ class Folder extends DataClass implements Insertable<Folder> {
           ? const Value.absent()
           : Value(parentId),
       position: Value(position),
+      label: Value(label),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
       noteSortOrder: noteSortOrder == null && nullToAbsent
@@ -443,6 +468,7 @@ class Folder extends DataClass implements Insertable<Folder> {
       name: serializer.fromJson<String>(json['name']),
       parentId: serializer.fromJson<String?>(json['parentId']),
       position: serializer.fromJson<int>(json['position']),
+      label: serializer.fromJson<int>(json['label']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
       noteSortOrder: serializer.fromJson<String?>(json['noteSortOrder']),
@@ -464,6 +490,7 @@ class Folder extends DataClass implements Insertable<Folder> {
       'name': serializer.toJson<String>(name),
       'parentId': serializer.toJson<String?>(parentId),
       'position': serializer.toJson<int>(position),
+      'label': serializer.toJson<int>(label),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
       'noteSortOrder': serializer.toJson<String?>(noteSortOrder),
@@ -481,6 +508,7 @@ class Folder extends DataClass implements Insertable<Folder> {
     String? name,
     Value<String?> parentId = const Value.absent(),
     int? position,
+    int? label,
     DateTime? createdAt,
     DateTime? updatedAt,
     Value<String?> noteSortOrder = const Value.absent(),
@@ -495,6 +523,7 @@ class Folder extends DataClass implements Insertable<Folder> {
     name: name ?? this.name,
     parentId: parentId.present ? parentId.value : this.parentId,
     position: position ?? this.position,
+    label: label ?? this.label,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     noteSortOrder: noteSortOrder.present
@@ -515,6 +544,7 @@ class Folder extends DataClass implements Insertable<Folder> {
       name: data.name.present ? data.name.value : this.name,
       parentId: data.parentId.present ? data.parentId.value : this.parentId,
       position: data.position.present ? data.position.value : this.position,
+      label: data.label.present ? data.label.value : this.label,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       noteSortOrder: data.noteSortOrder.present
@@ -540,6 +570,7 @@ class Folder extends DataClass implements Insertable<Folder> {
           ..write('name: $name, ')
           ..write('parentId: $parentId, ')
           ..write('position: $position, ')
+          ..write('label: $label, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('noteSortOrder: $noteSortOrder, ')
@@ -559,6 +590,7 @@ class Folder extends DataClass implements Insertable<Folder> {
     name,
     parentId,
     position,
+    label,
     createdAt,
     updatedAt,
     noteSortOrder,
@@ -577,6 +609,7 @@ class Folder extends DataClass implements Insertable<Folder> {
           other.name == this.name &&
           other.parentId == this.parentId &&
           other.position == this.position &&
+          other.label == this.label &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt &&
           other.noteSortOrder == this.noteSortOrder &&
@@ -593,6 +626,7 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
   final Value<String> name;
   final Value<String?> parentId;
   final Value<int> position;
+  final Value<int> label;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   final Value<String?> noteSortOrder;
@@ -608,6 +642,7 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
     this.name = const Value.absent(),
     this.parentId = const Value.absent(),
     this.position = const Value.absent(),
+    this.label = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.noteSortOrder = const Value.absent(),
@@ -624,6 +659,7 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
     required String name,
     this.parentId = const Value.absent(),
     this.position = const Value.absent(),
+    this.label = const Value.absent(),
     required DateTime createdAt,
     required DateTime updatedAt,
     this.noteSortOrder = const Value.absent(),
@@ -645,6 +681,7 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
     Expression<String>? name,
     Expression<String>? parentId,
     Expression<int>? position,
+    Expression<int>? label,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
     Expression<String>? noteSortOrder,
@@ -661,6 +698,7 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
       if (name != null) 'name': name,
       if (parentId != null) 'parent_id': parentId,
       if (position != null) 'position': position,
+      if (label != null) 'label': label,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (noteSortOrder != null) 'note_sort_order': noteSortOrder,
@@ -680,6 +718,7 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
     Value<String>? name,
     Value<String?>? parentId,
     Value<int>? position,
+    Value<int>? label,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
     Value<String?>? noteSortOrder,
@@ -696,6 +735,7 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
       name: name ?? this.name,
       parentId: parentId ?? this.parentId,
       position: position ?? this.position,
+      label: label ?? this.label,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       noteSortOrder: noteSortOrder ?? this.noteSortOrder,
@@ -723,6 +763,9 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
     }
     if (position.present) {
       map['position'] = Variable<int>(position.value);
+    }
+    if (label.present) {
+      map['label'] = Variable<int>(label.value);
     }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
@@ -764,6 +807,7 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
           ..write('name: $name, ')
           ..write('parentId: $parentId, ')
           ..write('position: $position, ')
+          ..write('label: $label, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('noteSortOrder: $noteSortOrder, ')
@@ -880,6 +924,16 @@ class $NotesTable extends Notes with TableInfo<$NotesTable, Note> {
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
+  static const VerificationMeta _labelMeta = const VerificationMeta('label');
+  @override
+  late final GeneratedColumn<int> label = GeneratedColumn<int>(
+    'label',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -972,6 +1026,7 @@ class $NotesTable extends Notes with TableInfo<$NotesTable, Note> {
     chunkCount,
     isCompressed,
     position,
+    label,
     createdAt,
     updatedAt,
     hlcTimestamp,
@@ -1047,6 +1102,12 @@ class $NotesTable extends Notes with TableInfo<$NotesTable, Note> {
       context.handle(
         _positionMeta,
         position.isAcceptableOrUnknown(data['position']!, _positionMeta),
+      );
+    }
+    if (data.containsKey('label')) {
+      context.handle(
+        _labelMeta,
+        label.isAcceptableOrUnknown(data['label']!, _labelMeta),
       );
     }
     if (data.containsKey('created_at')) {
@@ -1143,6 +1204,10 @@ class $NotesTable extends Notes with TableInfo<$NotesTable, Note> {
         DriftSqlType.int,
         data['${effectivePrefix}position'],
       )!,
+      label: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}label'],
+      )!,
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -1189,6 +1254,7 @@ class Note extends DataClass implements Insertable<Note> {
   final int chunkCount;
   final bool isCompressed;
   final int position;
+  final int label;
   final DateTime createdAt;
   final DateTime updatedAt;
   final String hlcTimestamp;
@@ -1205,6 +1271,7 @@ class Note extends DataClass implements Insertable<Note> {
     required this.chunkCount,
     required this.isCompressed,
     required this.position,
+    required this.label,
     required this.createdAt,
     required this.updatedAt,
     required this.hlcTimestamp,
@@ -1224,6 +1291,7 @@ class Note extends DataClass implements Insertable<Note> {
     map['chunk_count'] = Variable<int>(chunkCount);
     map['is_compressed'] = Variable<bool>(isCompressed);
     map['position'] = Variable<int>(position);
+    map['label'] = Variable<int>(label);
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
     map['hlc_timestamp'] = Variable<String>(hlcTimestamp);
@@ -1246,6 +1314,7 @@ class Note extends DataClass implements Insertable<Note> {
       chunkCount: Value(chunkCount),
       isCompressed: Value(isCompressed),
       position: Value(position),
+      label: Value(label),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
       hlcTimestamp: Value(hlcTimestamp),
@@ -1272,6 +1341,7 @@ class Note extends DataClass implements Insertable<Note> {
       chunkCount: serializer.fromJson<int>(json['chunkCount']),
       isCompressed: serializer.fromJson<bool>(json['isCompressed']),
       position: serializer.fromJson<int>(json['position']),
+      label: serializer.fromJson<int>(json['label']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
       hlcTimestamp: serializer.fromJson<String>(json['hlcTimestamp']),
@@ -1293,6 +1363,7 @@ class Note extends DataClass implements Insertable<Note> {
       'chunkCount': serializer.toJson<int>(chunkCount),
       'isCompressed': serializer.toJson<bool>(isCompressed),
       'position': serializer.toJson<int>(position),
+      'label': serializer.toJson<int>(label),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
       'hlcTimestamp': serializer.toJson<String>(hlcTimestamp),
@@ -1312,6 +1383,7 @@ class Note extends DataClass implements Insertable<Note> {
     int? chunkCount,
     bool? isCompressed,
     int? position,
+    int? label,
     DateTime? createdAt,
     DateTime? updatedAt,
     String? hlcTimestamp,
@@ -1328,6 +1400,7 @@ class Note extends DataClass implements Insertable<Note> {
     chunkCount: chunkCount ?? this.chunkCount,
     isCompressed: isCompressed ?? this.isCompressed,
     position: position ?? this.position,
+    label: label ?? this.label,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     hlcTimestamp: hlcTimestamp ?? this.hlcTimestamp,
@@ -1352,6 +1425,7 @@ class Note extends DataClass implements Insertable<Note> {
           ? data.isCompressed.value
           : this.isCompressed,
       position: data.position.present ? data.position.value : this.position,
+      label: data.label.present ? data.label.value : this.label,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       hlcTimestamp: data.hlcTimestamp.present
@@ -1375,6 +1449,7 @@ class Note extends DataClass implements Insertable<Note> {
           ..write('chunkCount: $chunkCount, ')
           ..write('isCompressed: $isCompressed, ')
           ..write('position: $position, ')
+          ..write('label: $label, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('hlcTimestamp: $hlcTimestamp, ')
@@ -1396,6 +1471,7 @@ class Note extends DataClass implements Insertable<Note> {
     chunkCount,
     isCompressed,
     position,
+    label,
     createdAt,
     updatedAt,
     hlcTimestamp,
@@ -1416,6 +1492,7 @@ class Note extends DataClass implements Insertable<Note> {
           other.chunkCount == this.chunkCount &&
           other.isCompressed == this.isCompressed &&
           other.position == this.position &&
+          other.label == this.label &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt &&
           other.hlcTimestamp == this.hlcTimestamp &&
@@ -1434,6 +1511,7 @@ class NotesCompanion extends UpdateCompanion<Note> {
   final Value<int> chunkCount;
   final Value<bool> isCompressed;
   final Value<int> position;
+  final Value<int> label;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   final Value<String> hlcTimestamp;
@@ -1451,6 +1529,7 @@ class NotesCompanion extends UpdateCompanion<Note> {
     this.chunkCount = const Value.absent(),
     this.isCompressed = const Value.absent(),
     this.position = const Value.absent(),
+    this.label = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.hlcTimestamp = const Value.absent(),
@@ -1469,6 +1548,7 @@ class NotesCompanion extends UpdateCompanion<Note> {
     this.chunkCount = const Value.absent(),
     this.isCompressed = const Value.absent(),
     this.position = const Value.absent(),
+    this.label = const Value.absent(),
     required DateTime createdAt,
     required DateTime updatedAt,
     required String hlcTimestamp,
@@ -1493,6 +1573,7 @@ class NotesCompanion extends UpdateCompanion<Note> {
     Expression<int>? chunkCount,
     Expression<bool>? isCompressed,
     Expression<int>? position,
+    Expression<int>? label,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
     Expression<String>? hlcTimestamp,
@@ -1511,6 +1592,7 @@ class NotesCompanion extends UpdateCompanion<Note> {
       if (chunkCount != null) 'chunk_count': chunkCount,
       if (isCompressed != null) 'is_compressed': isCompressed,
       if (position != null) 'position': position,
+      if (label != null) 'label': label,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (hlcTimestamp != null) 'hlc_timestamp': hlcTimestamp,
@@ -1531,6 +1613,7 @@ class NotesCompanion extends UpdateCompanion<Note> {
     Value<int>? chunkCount,
     Value<bool>? isCompressed,
     Value<int>? position,
+    Value<int>? label,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
     Value<String>? hlcTimestamp,
@@ -1549,6 +1632,7 @@ class NotesCompanion extends UpdateCompanion<Note> {
       chunkCount: chunkCount ?? this.chunkCount,
       isCompressed: isCompressed ?? this.isCompressed,
       position: position ?? this.position,
+      label: label ?? this.label,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       hlcTimestamp: hlcTimestamp ?? this.hlcTimestamp,
@@ -1586,6 +1670,9 @@ class NotesCompanion extends UpdateCompanion<Note> {
     }
     if (position.present) {
       map['position'] = Variable<int>(position.value);
+    }
+    if (label.present) {
+      map['label'] = Variable<int>(label.value);
     }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
@@ -1625,6 +1712,7 @@ class NotesCompanion extends UpdateCompanion<Note> {
           ..write('chunkCount: $chunkCount, ')
           ..write('isCompressed: $isCompressed, ')
           ..write('position: $position, ')
+          ..write('label: $label, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('hlcTimestamp: $hlcTimestamp, ')
@@ -11606,6 +11694,7 @@ typedef $$FoldersTableCreateCompanionBuilder =
       required String name,
       Value<String?> parentId,
       Value<int> position,
+      Value<int> label,
       required DateTime createdAt,
       required DateTime updatedAt,
       Value<String?> noteSortOrder,
@@ -11623,6 +11712,7 @@ typedef $$FoldersTableUpdateCompanionBuilder =
       Value<String> name,
       Value<String?> parentId,
       Value<int> position,
+      Value<int> label,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
       Value<String?> noteSortOrder,
@@ -11661,6 +11751,11 @@ class $$FoldersTableFilterComposer
 
   ColumnFilters<int> get position => $composableBuilder(
     column: $table.position,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get label => $composableBuilder(
+    column: $table.label,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -11739,6 +11834,11 @@ class $$FoldersTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get label => $composableBuilder(
+    column: $table.label,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -11806,6 +11906,9 @@ class $$FoldersTableAnnotationComposer
   GeneratedColumn<int> get position =>
       $composableBuilder(column: $table.position, builder: (column) => column);
 
+  GeneratedColumn<int> get label =>
+      $composableBuilder(column: $table.label, builder: (column) => column);
+
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
 
@@ -11872,6 +11975,7 @@ class $$FoldersTableTableManager
                 Value<String> name = const Value.absent(),
                 Value<String?> parentId = const Value.absent(),
                 Value<int> position = const Value.absent(),
+                Value<int> label = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<String?> noteSortOrder = const Value.absent(),
@@ -11887,6 +11991,7 @@ class $$FoldersTableTableManager
                 name: name,
                 parentId: parentId,
                 position: position,
+                label: label,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 noteSortOrder: noteSortOrder,
@@ -11904,6 +12009,7 @@ class $$FoldersTableTableManager
                 required String name,
                 Value<String?> parentId = const Value.absent(),
                 Value<int> position = const Value.absent(),
+                Value<int> label = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime updatedAt,
                 Value<String?> noteSortOrder = const Value.absent(),
@@ -11919,6 +12025,7 @@ class $$FoldersTableTableManager
                 name: name,
                 parentId: parentId,
                 position: position,
+                label: label,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 noteSortOrder: noteSortOrder,
@@ -11962,6 +12069,7 @@ typedef $$NotesTableCreateCompanionBuilder =
       Value<int> chunkCount,
       Value<bool> isCompressed,
       Value<int> position,
+      Value<int> label,
       required DateTime createdAt,
       required DateTime updatedAt,
       required String hlcTimestamp,
@@ -11981,6 +12089,7 @@ typedef $$NotesTableUpdateCompanionBuilder =
       Value<int> chunkCount,
       Value<bool> isCompressed,
       Value<int> position,
+      Value<int> label,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
       Value<String> hlcTimestamp,
@@ -12036,6 +12145,11 @@ class $$NotesTableFilterComposer extends Composer<_$AppDatabase, $NotesTable> {
 
   ColumnFilters<int> get position => $composableBuilder(
     column: $table.position,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get label => $composableBuilder(
+    column: $table.label,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -12124,6 +12238,11 @@ class $$NotesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get label => $composableBuilder(
+    column: $table.label,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -12199,6 +12318,9 @@ class $$NotesTableAnnotationComposer
   GeneratedColumn<int> get position =>
       $composableBuilder(column: $table.position, builder: (column) => column);
 
+  GeneratedColumn<int> get label =>
+      $composableBuilder(column: $table.label, builder: (column) => column);
+
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
 
@@ -12259,6 +12381,7 @@ class $$NotesTableTableManager
                 Value<int> chunkCount = const Value.absent(),
                 Value<bool> isCompressed = const Value.absent(),
                 Value<int> position = const Value.absent(),
+                Value<int> label = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<String> hlcTimestamp = const Value.absent(),
@@ -12276,6 +12399,7 @@ class $$NotesTableTableManager
                 chunkCount: chunkCount,
                 isCompressed: isCompressed,
                 position: position,
+                label: label,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 hlcTimestamp: hlcTimestamp,
@@ -12295,6 +12419,7 @@ class $$NotesTableTableManager
                 Value<int> chunkCount = const Value.absent(),
                 Value<bool> isCompressed = const Value.absent(),
                 Value<int> position = const Value.absent(),
+                Value<int> label = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime updatedAt,
                 required String hlcTimestamp,
@@ -12312,6 +12437,7 @@ class $$NotesTableTableManager
                 chunkCount: chunkCount,
                 isCompressed: isCompressed,
                 position: position,
+                label: label,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 hlcTimestamp: hlcTimestamp,

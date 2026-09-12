@@ -24,6 +24,7 @@ import '../models/content_item.dart';
 import '../models/export_format.dart';
 import '../models/folder.dart';
 import '../models/folder_change.dart';
+import '../models/item_label.dart';
 import '../models/movable_item.dart';
 import '../models/note_metadata.dart';
 import '../models/search_scope.dart';
@@ -41,6 +42,7 @@ import '../widgets/content_rows.dart';
 import '../widgets/folder_overflow_menu.dart';
 import '../widgets/folder_row.dart';
 import '../widgets/folder_sliver_app_bar.dart';
+import '../widgets/label_swatch_strip.dart';
 import '../widgets/note_row.dart';
 import '../widgets/search_field_app_bar.dart';
 import '../widgets/search_surface.dart';
@@ -778,6 +780,97 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     );
   }
 
+  /// The bulk colour-label pick: a plain sheet holding the same strip the
+  /// row's long-press menu shows, applied to every picked note and folder in
+  /// one write per kind.
+  ///
+  /// The bottom padding is `max(viewInsets, viewPadding)`. Padding by
+  /// `viewInsets` alone is this app's most-repeated bug — with no keyboard up
+  /// it is zero, and the strip lands under the gesture bar.
+  Future<void> _labelSelected() async {
+    final items = _selection.items.toList(growable: false);
+    if (items.isEmpty) return;
+
+    final l10n = AppLocalizations.of(context)!;
+    final colorScheme = Theme.of(context).colorScheme;
+
+    final picked = await showModalBottomSheet<ItemLabel>(
+      context: context,
+      builder: (sheetContext) {
+        final media = MediaQuery.of(sheetContext);
+        final bottomInset = math.max(
+          media.viewInsets.bottom,
+          media.viewPadding.bottom,
+        );
+        return SafeArea(
+          top: false,
+          bottom: false,
+          child: Padding(
+            padding: EdgeInsets.only(bottom: bottomInset),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.symmetric(vertical: 12),
+                  decoration: BoxDecoration(
+                    color: colorScheme.onSurfaceVariant,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  child: Text(
+                    l10n.labelAction,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+                const Divider(),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: LabelSwatchStrip(
+                    value: ItemLabel.none,
+                    onChanged: (label) =>
+                        Navigator.of(sheetContext).pop(label),
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (picked == null || !mounted) return;
+
+    final folderIds = <String>[];
+    final noteIds = <String>[];
+    for (final ref in items) {
+      (ref.kind == MovableItemKind.folder ? folderIds : noteIds).add(ref.id);
+    }
+
+    if (folderIds.isNotEmpty) {
+      context.read<OptimizedFolderBloc>().add(
+        SetOptimizedFoldersLabel(folderIds: folderIds, label: picked),
+      );
+    }
+    if (noteIds.isNotEmpty) {
+      context.read<OptimizedNoteBloc>().add(
+        SetOptimizedNotesLabel(noteIds: noteIds, label: picked),
+      );
+    }
+    _selection.clear();
+  }
+
   Future<void> _moveSelected() async {
     final items = _selection.items.toList(growable: false);
     if (items.isEmpty) return;
@@ -1039,6 +1132,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
       bottomNavigationBar: isSelecting
           ? SelectionActionBar(
               count: _selection.count,
+              onLabel: _labelSelected,
               onMove: _moveSelected,
               onShare: _shareSelected,
               onDelete: _deleteSelected,

@@ -2,6 +2,7 @@ import '../database/database.dart';
 import '../database/daos/note_dao.dart';
 import '../database/daos/content_chunk_dao.dart';
 import '../repositories/note_repository.dart';
+import '../models/item_label.dart';
 import '../models/note_metadata.dart';
 import '../utils/compression_utils.dart';
 import '../constants/app_constants.dart';
@@ -116,6 +117,7 @@ class NoteStorageService {
     required String folderId,
     required String title,
     required String content,
+    ItemLabel label = ItemLabel.none,
   }) async {
     await initialize();
 
@@ -145,6 +147,7 @@ class NoteStorageService {
       contentLength: content.length,
       chunkCount: chunkCount,
       isCompressed: shouldCompress,
+      label: label,
     );
 
     return _noteToMetadata(note);
@@ -160,6 +163,7 @@ class NoteStorageService {
     required String content,
     required DateTime createdAt,
     required DateTime updatedAt,
+    ItemLabel label = ItemLabel.none,
   }) async {
     await initialize();
 
@@ -186,6 +190,7 @@ class NoteStorageService {
       contentLength: content.length,
       chunkCount: chunkCount,
       isCompressed: shouldCompress,
+      label: label,
       createdAt: createdAt,
       updatedAt: updatedAt,
     );
@@ -251,6 +256,22 @@ class NoteStorageService {
     );
 
     return updatedNote != null ? _noteToMetadata(updatedNote) : null;
+  }
+
+  /// Writes one note's colour label. Returns the refreshed metadata, or null
+  /// when the note is gone or tombstoned.
+  Future<NoteMetadata?> setNoteLabel(String noteId, ItemLabel label) async {
+    await initialize();
+    final note = await _repository.setLabel(noteId: noteId, label: label);
+    return note == null ? null : _noteToMetadata(note);
+  }
+
+  /// Labels a whole selection as one unit — one statement, one reload —
+  /// rather than one write per picked row. Returns how many rows changed.
+  Future<int> setLabelForNotes(List<String> noteIds, ItemLabel label) async {
+    if (noteIds.isEmpty) return 0;
+    await initialize();
+    return _repository.setLabelForMany(noteIds: noteIds, label: label);
   }
 
   Future<void> deleteNote(String noteId) async {
@@ -398,6 +419,7 @@ class NoteStorageService {
       createdAt: note.createdAt,
       updatedAt: note.updatedAt,
       position: note.position,
+      label: ItemLabel.fromStorage(note.label),
     );
   }
 

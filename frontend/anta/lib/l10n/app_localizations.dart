@@ -8115,6 +8115,72 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Show parent folders'**
   String get showAncestors;
+
+  /// Row action-sheet header and colour-label picker title
+  ///
+  /// In en, this message translates to:
+  /// **'Label'**
+  String get labelAction;
+
+  /// Bottom-bar action label to colour-label all selected items
+  ///
+  /// In en, this message translates to:
+  /// **'Label'**
+  String get labelSelected;
+
+  /// Picker swatch that clears the colour label of a note or folder
+  ///
+  /// In en, this message translates to:
+  /// **'No label'**
+  String get labelNone;
+
+  /// Name of the red colour label
+  ///
+  /// In en, this message translates to:
+  /// **'Red'**
+  String get labelRed;
+
+  /// Name of the orange colour label
+  ///
+  /// In en, this message translates to:
+  /// **'Orange'**
+  String get labelOrange;
+
+  /// Name of the yellow colour label
+  ///
+  /// In en, this message translates to:
+  /// **'Yellow'**
+  String get labelYellow;
+
+  /// Name of the green colour label
+  ///
+  /// In en, this message translates to:
+  /// **'Green'**
+  String get labelGreen;
+
+  /// Name of the teal colour label
+  ///
+  /// In en, this message translates to:
+  /// **'Teal'**
+  String get labelTeal;
+
+  /// Name of the blue colour label
+  ///
+  /// In en, this message translates to:
+  /// **'Blue'**
+  String get labelBlue;
+
+  /// Name of the pink colour label
+  ///
+  /// In en, this message translates to:
+  /// **'Pink'**
+  String get labelPink;
+
+  /// Accessibility name of the colour-label dot on a browser row
+  ///
+  /// In en, this message translates to:
+  /// **'{color} label'**
+  String labelSemantics(String color);
 }
 
 class _AppLocalizationsDelegate

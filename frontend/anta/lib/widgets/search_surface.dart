@@ -6,11 +6,13 @@ import '../constants/app_icon_sizes.dart';
 import '../constants/app_spacing.dart';
 import '../constants/row_metrics.dart';
 import '../l10n/app_localizations.dart';
+import '../models/item_label.dart';
 import '../models/note_metadata.dart';
 import '../models/search_scope.dart';
 import '../services/app_navigator.dart';
 import '../services/folder_search_service.dart';
 import 'content_rows.dart';
+import 'label_dot.dart';
 import 'note_row.dart';
 
 const String _pathSeparator = ' › ';
@@ -312,6 +314,41 @@ class SearchResultRow extends StatelessWidget {
         ? null
         : path!.join(_pathSeparator);
 
+    final body = Column(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _highlighted(
+          context,
+          text: title,
+          match: metadata.title.isEmpty ? null : titleMatch,
+          style: TextStyle(
+            fontWeight: FontWeight.w500,
+            fontSize: RowMetrics.titleFontSize,
+            color: colorScheme.onSurface,
+          ),
+          maxLines: 1,
+        ),
+        const SizedBox(height: RowMetrics.lineGap),
+        _buildPathLine(context, l10n, colorScheme, pathLabel),
+        if (snippet != null)
+          Padding(
+            padding: const EdgeInsets.only(top: AppSpacing.xxs),
+            child: _highlighted(
+              context,
+              text: snippet!.text,
+              match: snippet,
+              style: TextStyle(
+                fontSize: RowMetrics.secondLineFontSize,
+                color: colorScheme.onSurface,
+              ),
+              maxLines: 2,
+            ),
+          ),
+      ],
+    );
+
     return ContentRowShell(
       position: groupPosition,
       child: InkWell(
@@ -327,40 +364,18 @@ class SearchResultRow extends StatelessWidget {
           ),
           child: Padding(
             padding: RowMetrics.twoLinePadding,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _highlighted(
-                  context,
-                  text: title,
-                  match: metadata.title.isEmpty ? null : titleMatch,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w500,
-                    fontSize: RowMetrics.titleFontSize,
-                    color: colorScheme.onSurface,
+            // The label dot sits at the trailing edge, the way it does on a
+            // note row, so a result and the browser row it stands for read the
+            // same. An unlabelled result keeps the bare Column it always had.
+            child: metadata.label == ItemLabel.none
+                ? body
+                : Row(
+                    children: [
+                      Expanded(child: body),
+                      const SizedBox(width: RowMetrics.gap),
+                      LabelDot(label: metadata.label),
+                    ],
                   ),
-                  maxLines: 1,
-                ),
-                const SizedBox(height: RowMetrics.lineGap),
-                _buildPathLine(context, l10n, colorScheme, pathLabel),
-                if (snippet != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: AppSpacing.xxs),
-                    child: _highlighted(
-                      context,
-                      text: snippet!.text,
-                      match: snippet,
-                      style: TextStyle(
-                        fontSize: RowMetrics.secondLineFontSize,
-                        color: colorScheme.onSurface,
-                      ),
-                      maxLines: 2,
-                    ),
-                  ),
-              ],
-            ),
           ),
         ),
       ),

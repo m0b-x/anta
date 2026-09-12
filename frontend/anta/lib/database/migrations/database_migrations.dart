@@ -196,6 +196,11 @@ class DatabaseMigrations {
       toVersion: DatabaseSchema.v38PresenceDefaultRepair,
       migrate: _migrateV37ToV38,
     ),
+    Migration(
+      fromVersion: DatabaseSchema.v38PresenceDefaultRepair,
+      toVersion: DatabaseSchema.v39ItemLabels,
+      migrate: _migrateV38ToV39,
+    ),
   ];
 
   Future<void> runMigrations(Migrator m, int from, int to) async {
@@ -1464,6 +1469,36 @@ class DatabaseMigrations {
       );
       await _db.customStatement(
         'ALTER TABLE $table DROP COLUMN presence_default',
+      );
+    }
+  }
+
+  /// v38 → v39: `notes.label` and `folders.label`, the one optional colour
+  /// label a note or folder can carry.
+  ///
+  /// Two `ALTER TABLE … ADD COLUMN` statements with a default, each guarded by
+  /// `PRAGMA table_info` so a partial upgrade can be re-run — the v19 / v26 /
+  /// v33 shape. The create path comes from the Drift declarations via
+  /// `createAll`, which `schema_parity_test` holds to the same shape.
+  ///
+  /// `NOT NULL DEFAULT 0` rather than nullable: there is no third state. An
+  /// item either carries a label or it does not, and "no label" is
+  /// [ItemLabel.none] = 0, which is exactly what every pre-v39 row meant — so
+  /// there is no backfill, and an older backup restores everything unlabelled.
+  ///
+  /// No index. The column is read as part of the row the browser already
+  /// selects and is never a predicate: labels sort nothing and filter nothing
+  /// in this phase, so an index would cost writes and buy no read.
+  Future<void> _migrateV38ToV39(Migrator m, GeneratedDatabase db) async {
+    for (final table in const ['notes', 'folders']) {
+      final columns = <String>{
+        for (final row
+            in await _db.customSelect('PRAGMA table_info($table)').get())
+          row.read<String>('name'),
+      };
+      if (columns.contains('label')) continue;
+      await _db.customStatement(
+        'ALTER TABLE $table ADD COLUMN label INTEGER NOT NULL DEFAULT 0',
       );
     }
   }
