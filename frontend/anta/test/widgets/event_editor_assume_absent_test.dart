@@ -155,8 +155,10 @@ void main() {
         ),
   );
 
+  // Located by its leading icon: the "Absent from" label is a section label
+  // above the tile, not part of it, like every other picker in the form.
   final fromTile = find.ancestor(
-    of: find.text('Absent from'),
+    of: find.byIcon(Icons.event_repeat_rounded),
     matching: find.byType(ListTile),
   );
 

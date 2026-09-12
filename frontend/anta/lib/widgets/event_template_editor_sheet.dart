@@ -550,16 +550,40 @@ class _EventTemplateEditorSheetState extends State<EventTemplateEditorSheet> {
                   ),
                   // The presence default (v37), behind the flag it qualifies:
                   // an untracked template has no unmarked days to reinterpret.
-                  // No from-date here — a template never carries one.
-                  if (_tracksPresence)
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      value: _assumeAbsent,
-                      title: Text(l10n.eventAssumeAbsent),
-                      subtitle: Text(l10n.eventAssumeAbsentHint),
-                      onChanged: (value) =>
-                          setState(() => _assumeAbsent = value),
+                  // The same two-segment control as the event editor, so one
+                  // concept has one shape; no from-date here — a template
+                  // never carries one.
+                  if (_tracksPresence) ...[
+                    SegmentedButton<bool>(
+                      segments: [
+                        ButtonSegment(
+                          value: false,
+                          label: Text(l10n.eventAssumePresent),
+                        ),
+                        ButtonSegment(
+                          value: true,
+                          label: Text(l10n.eventAssumeAbsent),
+                        ),
+                      ],
+                      selected: {_assumeAbsent},
+                      showSelectedIcon: false,
+                      style: const ButtonStyle(
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      onSelectionChanged: (sel) =>
+                          setState(() => _assumeAbsent = sel.first),
                     ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _assumeAbsent
+                          ? l10n.eventAssumeAbsentHint
+                          : l10n.eventAssumePresentHint,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     value: _perOccurrenceDescriptions,

@@ -2231,7 +2231,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                       // Only while editing: the from-date exists to protect
                       // history a new event does not have yet.
                       if (_assumeAbsent && _isEditing) ...[
-                        const SizedBox(height: 8),
+                        _SectionLabel(text: l10n.eventAssumeAbsentFrom),
                         _PickerTile(
                           leading: const CircleAvatar(
                             child: Icon(Icons.event_repeat_rounded),
@@ -2241,7 +2241,6 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                               : DateFormat.yMMMMEEEEd(
                                   localeName,
                                 ).format(_assumeAbsentFrom!),
-                          subtitle: l10n.eventAssumeAbsentFrom,
                           trailing: _assumeAbsentFrom == null
                               ? const Icon(Icons.chevron_right_rounded)
                               : IconButton(
