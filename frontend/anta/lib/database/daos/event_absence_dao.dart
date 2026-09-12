@@ -1,5 +1,6 @@
 import 'package:drift/drift.dart';
 
+import '../../constants/event_presence.dart';
 import '../database.dart';
 import '../tables/event_absences_table.dart';
 
@@ -13,8 +14,9 @@ class EventAbsenceDao extends DatabaseAccessor<AppDatabase>
     with _$EventAbsenceDaoMixin {
   EventAbsenceDao(super.db);
 
-  /// Live marks only. Tombstones stay below the service's waterline — they
-  /// exist for a future merge, not for anything the app renders. The table
+  /// Live marks only, whatever their status. Tombstones stay below the
+  /// service's waterline — they exist for a future merge, not for anything the
+  /// app renders. The table
   /// holds only user deltas, so this stays small enough to keep entirely in
   /// memory for O(1) synchronous lookups.
   Future<List<EventAbsenceRow>> getActive() {
@@ -23,7 +25,7 @@ class EventAbsenceDao extends DatabaseAccessor<AppDatabase>
     )..where((a) => a.isDeleted.equals(false))).get();
   }
 
-  /// The same live rows as [getActive], narrowed to the key pair — everything
+  /// The same live rows as [getActive], narrowed to key + status — everything
   /// [EventPresenceService] keeps in memory, and nothing else.
   ///
   /// Kept separate rather than narrowing [getActive] because `exportData`
@@ -40,9 +42,14 @@ class EventAbsenceDao extends DatabaseAccessor<AppDatabase>
   /// (3.53 can, 3.50 falls back to a scan). `is_deleted = 0` matches the index
   /// definition syntactically on every version, including the one shipped to
   /// Android.
-  Future<List<({String eventId, DateTime day})>> getActiveKeys() async {
+  Future<List<({String eventId, DateTime day, PresenceStatus status})>>
+  getActiveKeys() async {
     final query = selectOnly(eventAbsences)
-      ..addColumns([eventAbsences.eventId, eventAbsences.day])
+      ..addColumns([
+        eventAbsences.eventId,
+        eventAbsences.day,
+        eventAbsences.status,
+      ])
       ..where(const CustomExpression<bool>('is_deleted = 0'));
     final rows = await query.get();
     return [
@@ -50,20 +57,30 @@ class EventAbsenceDao extends DatabaseAccessor<AppDatabase>
         (
           eventId: row.read(eventAbsences.eventId)!,
           day: row.read(eventAbsences.day)!,
+          status: PresenceStatus.fromName(row.read(eventAbsences.status)),
         ),
     ];
   }
 
-  /// Marks one occurrence missed.
+  /// Records an explicit [status] for one occurrence (**v37**).
   ///
   /// Three cases in one transaction: no row inserts a fresh `version 1` mark;
-  /// a tombstoned row is **resurrected** with `created_at` untouched, so a day
-  /// keeps the date it was first marked; an already-live row is a complete
-  /// no-op, with no version churn for a repeated tap.
-  Future<void> markMissed(String eventId, DateTime day) {
+  /// a tombstoned row — or a live one carrying the *other* status — is written
+  /// in place with `created_at` untouched, so a day keeps the date it was
+  /// first marked; a live row already carrying [status] is a complete no-op,
+  /// with no version churn for a repeated tap.
+  ///
+  /// Replaces v26's `markMissed`: since a `present` row is now a statement of
+  /// its own, flipping a day writes the opposite status rather than
+  /// tombstoning. [clearMark] is the only path that tombstones.
+  Future<void> setStatus(String eventId, DateTime day, PresenceStatus status) {
     return transaction(() async {
       final existing = await _byKey(eventId, day);
-      if (existing != null && !existing.isDeleted) return;
+      if (existing != null &&
+          !existing.isDeleted &&
+          PresenceStatus.fromName(existing.status) == status) {
+        return;
+      }
 
       final now = DateTime.now();
       final hlc = db.generateHlc();
@@ -72,6 +89,7 @@ class EventAbsenceDao extends DatabaseAccessor<AppDatabase>
           EventAbsencesCompanion(
             eventId: Value(eventId),
             day: Value(day),
+            status: Value(status.name),
             createdAt: Value(now),
             updatedAt: Value(now),
             hlcTimestamp: Value(hlc),
@@ -87,6 +105,7 @@ class EventAbsenceDao extends DatabaseAccessor<AppDatabase>
         eventAbsences,
       )..where((a) => a.eventId.equals(eventId) & a.day.equals(day))).write(
         EventAbsencesCompanion(
+          status: Value(status.name),
           isDeleted: const Value(false),
           deletedAt: const Value(null),
           updatedAt: Value(now),
@@ -98,10 +117,11 @@ class EventAbsenceDao extends DatabaseAccessor<AppDatabase>
     });
   }
 
-  /// Un-marks one occurrence, the [NoteDao.softDeleteNote] shape: the row
-  /// survives as a tombstone so the toggle carries an order once devices
-  /// merge. A missing or already-tombstoned row is a no-op.
-  Future<void> unmark(String eventId, DateTime day) {
+  /// Drops the explicit answer for one occurrence, the
+  /// [NoteDao.softDeleteNote] shape: the row survives as a tombstone so the
+  /// toggle carries an order once devices merge. The day falls back to the
+  /// event's own default. A missing or already-tombstoned row is a no-op.
+  Future<void> clearMark(String eventId, DateTime day) {
     return transaction(() async {
       final existing = await _byKey(eventId, day);
       if (existing == null || existing.isDeleted) return;

@@ -73,8 +73,7 @@ class EventDayRailProvider implements DayRailProvider {
       // into the rail without presence tracking has no attendance to report,
       // and stale marks left by a since-untracked event must not dim it.
       final missed =
-          EventPresence.appliesTo(event) &&
-          EventPresence.isMissed(event.id, day);
+          EventPresence.appliesTo(event) && EventPresence.isMissed(event, day);
       if (missed && missedDisplay == CalendarMissedDisplay.hidden) continue;
       final color = event.colorValue != null
           ? Color(event.colorValue!)

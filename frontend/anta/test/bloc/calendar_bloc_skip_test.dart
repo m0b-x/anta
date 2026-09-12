@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
+import 'package:anta/constants/event_presence.dart';
 import 'package:anta/constants/event_skips.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/calendar_event.dart';
@@ -122,7 +123,13 @@ void main() {
   test('a presence mark leaves membershipRevision alone', () async {
     final before = loaded();
 
-    await dispatch(SetOccurrenceMissed(eventId: 'e1', day: day));
+    await dispatch(
+      SetOccurrencePresence(
+        eventId: 'e1',
+        day: day,
+        status: PresenceStatus.missed,
+      ),
+    );
 
     expect(loaded().occurrenceRevision, before.occurrenceRevision + 1);
     expect(loaded().membershipRevision, before.membershipRevision);

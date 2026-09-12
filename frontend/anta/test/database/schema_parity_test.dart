@@ -136,6 +136,7 @@ void main() {
     expect(byName.keys.toSet(), {
       'event_id',
       'day',
+      'status',
       'created_at',
       'updated_at',
       'hlc_timestamp',
@@ -158,6 +159,11 @@ void main() {
     }
     expect(byName['event_id']!.read<String>('type'), 'TEXT');
     expect(byName['day']!.read<String>('type'), 'INTEGER');
+    // v37: a live row is an explicit status, not the bare fact of a mark. The
+    // default is what every pre-v37 row already meant, which is why the
+    // migration needs no backfill.
+    expect(byName['status']!.read<String>('type'), 'TEXT');
+    expect(byName['status']!.read<String>('dflt_value'), "'missed'");
     expect(byName['hlc_timestamp']!.read<String>('type'), 'TEXT');
     expect(byName['device_id']!.read<String>('type'), 'TEXT');
     // No DEFAULT on the identity columns on purpose: every insert must stamp
@@ -173,11 +179,12 @@ void main() {
   });
 
   test('the skip table matches its frozen migration DDL', () async {
-    // Frozen at v30, and byte-for-byte the v26 absence shape — same composite
-    // key, same CRDT block, no DEFAULT on the identity columns. The two tables
-    // being structurally identical is the point: they differ in *meaning*, not
-    // in storage, and a divergence here would be the first sign someone had
-    // started treating them as one thing.
+    // Frozen at v30, and the v26 absence shape minus the `status` column v37
+    // added there — same composite key, same CRDT block, no DEFAULT on the
+    // identity columns. The two tables carrying the same *storage* for
+    // different *meanings* is the point; a skip is one fact, so it never grew
+    // a status, and a divergence in the shared block would be the first sign
+    // someone had started treating them as one thing.
     final columns = await db
         .customSelect('PRAGMA table_info(calendar_event_skips)')
         .get();
@@ -246,6 +253,7 @@ void main() {
       'count_occurrences',
       'count_style',
       'tracks_presence',
+      'assume_absent',
       'per_occurrence_descriptions',
       'created_at',
       'updated_at',
@@ -292,6 +300,8 @@ void main() {
     expect(byName['count_occurrences']!.read<String>('dflt_value'), '0');
     expect(byName['count_style']!.read<String>('dflt_value'), "'numbered'");
     expect(byName['tracks_presence']!.read<String>('dflt_value'), '0');
+    // v37: templates carry the presence-default flag but never a from-date.
+    expect(byName['assume_absent']!.read<String>('dflt_value'), '0');
     expect(
       byName['per_occurrence_descriptions']!.read<String>('dflt_value'),
       '0',
@@ -448,6 +458,11 @@ void main() {
         // v34's day-rail override. Same two paths, and the one column here
         // whose *nullability* is the feature — see below.
         'show_in_day_rail',
+        // v37's presence default and its optional lower bound. The pair is
+        // the point: the flag says unmarked days read as missed, the date says
+        // from when, and NULL there means the whole event.
+        'assume_absent',
+        'assume_absent_from',
       ]),
     );
     expect(byName['per_occurrence_descriptions']!.read<int>('notnull'), 1);
@@ -463,6 +478,20 @@ void main() {
     expect(byName['show_in_day_rail']!.read<int>('notnull'), 0);
     expect(
       byName['show_in_day_rail']!.readNullable<String>('dflt_value'),
+      isNull,
+    );
+    // Off is the pre-v37 reading: implicit attendance, which is what every
+    // tracked event meant before the flag existed — so the migration needs no
+    // backfill on either path.
+    expect(byName['assume_absent']!.read<int>('notnull'), 1);
+    expect(byName['assume_absent']!.read<String>('dflt_value'), '0');
+    // Nullable with **no** default, unlike the flag beside it: NULL is "the
+    // whole event", a meaning of its own rather than an unset value. A
+    // `NOT NULL DEFAULT 0` here would date every flip to the epoch and make
+    // `assumesAbsentOn` true for all of recorded time.
+    expect(byName['assume_absent_from']!.read<int>('notnull'), 0);
+    expect(
+      byName['assume_absent_from']!.readNullable<String>('dflt_value'),
       isNull,
     );
     for (final name in [

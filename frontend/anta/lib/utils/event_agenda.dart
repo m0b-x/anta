@@ -595,7 +595,7 @@ abstract final class EventAgenda {
     for (final occurrence in occurrences) {
       if (hideMissed &&
           EventPresence.appliesTo(occurrence.event) &&
-          EventPresence.isMissed(occurrence.event.id, occurrence.day)) {
+          EventPresence.isMissed(occurrence.event, occurrence.day)) {
         continue;
       }
       (byCategory[occurrence.event.categoryId] ??= <EventOccurrence>[]).add(

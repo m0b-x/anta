@@ -144,8 +144,7 @@ class EventDayBarProvider implements DayBarProvider {
     for (final event in events) {
       if (railActive && eventInDayRail(event)) continue;
       final missed =
-          EventPresence.appliesTo(event) &&
-          EventPresence.isMissed(event.id, day);
+          EventPresence.appliesTo(event) && EventPresence.isMissed(event, day);
       if (missed && missedDisplay == CalendarMissedDisplay.hidden) continue;
       var color = event.colorValue != null
           ? Color(event.colorValue!)

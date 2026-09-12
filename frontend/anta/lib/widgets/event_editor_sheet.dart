@@ -331,6 +331,22 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   /// [_ruleHasManyOccurrences] describes, so specific-dates participates.
   bool _tracksPresence = false;
 
+  /// Whether unmarked occurrences read as **missed** rather than attended
+  /// (**v37**). Draft state for `CalendarEvent.assumeAbsent`; meaningless
+  /// while [_tracksPresence] is off, and cleared on save in that case.
+  bool _assumeAbsent = false;
+
+  /// Optional date-only UTC lower bound for [_assumeAbsent], or `null` for
+  /// "start of event". Only offered while editing: a brand-new event has no
+  /// history for a from-date to protect.
+  DateTime? _assumeAbsentFrom;
+
+  /// Whether the user has picked or cleared [_assumeAbsentFrom] themselves —
+  /// the [_countStyleTouched] idiom. The seed in [_selectAssumeAbsent] fires
+  /// only while this is false, so a boundary the user deliberately cleared to
+  /// "start of event" cannot come back on the next toggle.
+  bool _assumeAbsentFromTouched = false;
+
   /// Whether the event shows on the day-cell rail: `null` = auto (follow
   /// [_tracksPresence]), `true` = always, `false` = never.
   ///
@@ -559,6 +575,10 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     _retroactive = initial?.retroactive ?? false;
     _countOccurrences = initial?.countOccurrences ?? false;
     _tracksPresence = initial?.tracksPresence ?? false;
+    _assumeAbsent = initial?.assumeAbsent ?? false;
+    _assumeAbsentFrom = initial?.assumeAbsentFrom == null
+        ? null
+        : _normalize(initial!.assumeAbsentFrom!);
     _showInDayRail = initial?.showInDayRail;
     _perOccurrenceDescriptions = initial?.perOccurrenceDescriptions ?? false;
     _initRecurrenceFrom(initial?.rule ?? const OneTimeRecurrence());
@@ -999,6 +1019,53 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     setState(() => _skippedDays = {for (final d in picked) _normalize(d)});
   }
 
+  /// Applies an Assume present / Assume absent pick, seeding the from-date the
+  /// first time an existing event is flipped over.
+  ///
+  /// The seed is the day the editor was opened from — the occurrence whose
+  /// detail sheet the user came through — falling back to today. It only fires
+  /// for an event that was **saved** as assume-present: an event already on
+  /// the inverted default keeps whatever boundary it has, including none, so
+  /// toggling back and forth inside one session cannot invent one.
+  ///
+  /// Must run inside a `setState`; the caller owns that.
+  void _selectAssumeAbsent(bool value) {
+    _assumeAbsent = value;
+    if (!value) return;
+    if (_isEditing &&
+        widget.initialEvent!.assumeAbsent == false &&
+        _assumeAbsentFrom == null &&
+        !_assumeAbsentFromTouched) {
+      _assumeAbsentFrom = _normalize(widget.occurrenceDay ?? DateTime.now());
+    }
+  }
+
+  /// Picks the day the inverted presence default starts from (**v37**).
+  ///
+  /// Single-date, [_pickEndDate]'s argument set, and the result goes through
+  /// [_normalize] like every other date this form holds — the boundary is
+  /// compared against date-only UTC days on every read path. Nothing is
+  /// written until Save.
+  Future<void> _pickAssumeAbsentFrom() async {
+    final picked = await CalendarDatePickerSheet.pickSingle(
+      context,
+      initialDate: _assumeAbsentFrom ?? _date,
+      firstDate: CalendarBounds.earliest,
+      // A boundary past the last occurrence would leave "Assume absent"
+      // selected with no day it could ever apply to.
+      lastDate:
+          (_mode == _RepeatMode.recurring ? _endDate : null) ??
+          CalendarBounds.latest,
+      dayLoad: widget.dayLoad,
+      appearance: widget.appearance,
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _assumeAbsentFrom = _normalize(picked);
+      _assumeAbsentFromTouched = true;
+    });
+  }
+
   Future<void> _pickEndDate() async {
     final initial = _endDate ?? _date;
     final picked = await CalendarDatePickerSheet.pickSingle(
@@ -1260,6 +1327,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
           _countOccurrences,
       countStyle: _countStyle,
       tracksPresence: _ruleHasManyOccurrences && _tracksPresence,
+      assumeAbsent: _ruleHasManyOccurrences && _tracksPresence && _assumeAbsent,
       perOccurrenceDescriptions:
           _ruleHasManyOccurrences && _perOccurrenceDescriptions,
     );
@@ -1295,6 +1363,15 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     // the opt-in, exactly as the two flags above do. The absence rows survive
     // untouched, so re-ticking the switch restores every mark.
     final effectiveTracksPresence = _ruleHasManyOccurrences && _tracksPresence;
+    // The presence **default** rides the opt-in it qualifies: an untracked
+    // event has no unmarked days to reinterpret, so it never persists an
+    // inverted default. The from-date only means something while the default
+    // is inverted, so it clears with it rather than lingering as a boundary
+    // for nothing.
+    final effectiveAssumeAbsent = effectiveTracksPresence && _assumeAbsent;
+    final effectiveAssumeAbsentFrom = effectiveAssumeAbsent
+        ? _assumeAbsentFrom
+        : null;
     // The rail override follows the same gate, but resolves to NULL rather
     // than `false` when it closes: NULL is *auto*, so an event edited down to
     // one day and back again returns to following its presence flag instead of
@@ -1335,6 +1412,8 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             countOccurrences: effectiveCountOccurrences,
             countStyle: _countStyle,
             tracksPresence: effectiveTracksPresence,
+            assumeAbsent: effectiveAssumeAbsent,
+            assumeAbsentFrom: effectiveAssumeAbsentFrom,
             showInDayRail: effectiveShowInDayRail,
             perOccurrenceDescriptions: effectivePerOccurrenceDescriptions,
             time: effectiveTime,
@@ -1355,6 +1434,8 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             countOccurrences: effectiveCountOccurrences,
             countStyle: _countStyle,
             tracksPresence: effectiveTracksPresence,
+            assumeAbsent: effectiveAssumeAbsent,
+            assumeAbsentFrom: effectiveAssumeAbsentFrom,
             showInDayRail: effectiveShowInDayRail,
             perOccurrenceDescriptions: effectivePerOccurrenceDescriptions,
             time: effectiveTime,
@@ -1365,6 +1446,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             tintIcon: _tintIcon,
             priority: _priority,
             clearShowInDayRail: effectiveShowInDayRail == null,
+            clearAssumeAbsentFrom: effectiveAssumeAbsentFrom == null,
             clearEndDate: effectiveEnd == null,
             clearTime: effectiveTime == null,
             clearDescription: effectiveDescription == null,
@@ -2111,6 +2193,69 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                         subtitle: Text(l10n.eventTrackPresenceDesc),
                       ),
                     ),
+                    // The presence **default** (v37). Inside the presence gate
+                    // and behind the switch, because it says what an unmarked
+                    // day means and there are no unmarked days to read while
+                    // nothing is tracked. No section label: the two segment
+                    // labels and the hint under them already say it.
+                    if (_tracksPresence) ...[
+                      const SizedBox(height: 8),
+                      SegmentedButton<bool>(
+                        segments: [
+                          ButtonSegment(
+                            value: false,
+                            label: Text(l10n.eventAssumePresent),
+                          ),
+                          ButtonSegment(
+                            value: true,
+                            label: Text(l10n.eventAssumeAbsent),
+                          ),
+                        ],
+                        selected: {_assumeAbsent},
+                        showSelectedIcon: false,
+                        style: const ButtonStyle(
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        onSelectionChanged: (sel) =>
+                            setState(() => _selectAssumeAbsent(sel.first)),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _assumeAbsent
+                            ? l10n.eventAssumeAbsentHint
+                            : l10n.eventAssumePresentHint,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      // Only while editing: the from-date exists to protect
+                      // history a new event does not have yet.
+                      if (_assumeAbsent && _isEditing) ...[
+                        const SizedBox(height: 8),
+                        _PickerTile(
+                          leading: const CircleAvatar(
+                            child: Icon(Icons.event_repeat_rounded),
+                          ),
+                          title: _assumeAbsentFrom == null
+                              ? l10n.eventAssumeAbsentFromStart
+                              : DateFormat.yMMMMEEEEd(
+                                  localeName,
+                                ).format(_assumeAbsentFrom!),
+                          subtitle: l10n.eventAssumeAbsentFrom,
+                          trailing: _assumeAbsentFrom == null
+                              ? const Icon(Icons.chevron_right_rounded)
+                              : IconButton(
+                                  tooltip: l10n.resetToDefault,
+                                  icon: const Icon(Icons.close_rounded),
+                                  onPressed: () => setState(() {
+                                    _assumeAbsentFrom = null;
+                                    _assumeAbsentFromTouched = true;
+                                  }),
+                                ),
+                          onTap: _pickAssumeAbsentFrom,
+                        ),
+                      ],
+                    ],
                     // Two gates, and both are the same argument: do not offer
                     // a choice that cannot take effect. Inside the presence
                     // gate because the membership predicate excludes one-time

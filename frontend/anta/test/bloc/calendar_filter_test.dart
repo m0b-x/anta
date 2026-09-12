@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
+import 'package:anta/constants/event_presence.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/calendar_grid_filters.dart';
@@ -61,8 +62,9 @@ void main() {
 
   CalendarPageLoaded loaded() => bloc.state as CalendarPageLoaded;
 
-  Set<String> idsOn(DateTime day) =>
-      {for (final event in bloc.eventsForDay(day)) event.id};
+  Set<String> idsOn(DateTime day) => {
+    for (final event in bloc.eventsForDay(day)) event.id,
+  };
 
   setUp(() async {
     final service = await CalendarEventService.getInstance();
@@ -250,23 +252,69 @@ void main() {
     /// changes painting, not membership, so the presence handlers leave the
     /// day cache warm. With `missedOnly` on they must stop doing that, or the
     /// grid keeps drawing a day it has already been told to re-filter.
-    test('a presence mark reaches a warm day while missed-only is on', () async {
-      await dispatch(
-        const ChangeCalendarFilters(
-          filters: CalendarGridFilters(missedOnly: true),
-        ),
-      );
+    test(
+      'a presence mark reaches a warm day while missed-only is on',
+      () async {
+        await dispatch(
+          const ChangeCalendarFilters(
+            filters: CalendarGridFilters(missedOnly: true),
+          ),
+        );
 
-      expect(idsOn(nearDay), isEmpty);
+        expect(idsOn(nearDay), isEmpty);
 
-      await dispatch(SetOccurrenceMissed(eventId: 'tracked', day: nearDay));
+        await dispatch(
+          SetOccurrencePresence(
+            eventId: 'tracked',
+            day: nearDay,
+            status: PresenceStatus.missed,
+          ),
+        );
 
-      expect(idsOn(nearDay), {'tracked'});
+        expect(idsOn(nearDay), {'tracked'});
 
-      await dispatch(ClearOccurrenceMissed(eventId: 'tracked', day: nearDay));
+        await dispatch(
+          SetOccurrencePresence(
+            eventId: 'tracked',
+            day: nearDay,
+            status: PresenceStatus.present,
+          ),
+        );
 
-      expect(idsOn(nearDay), isEmpty);
-    });
+        expect(idsOn(nearDay), isEmpty);
+      },
+    );
+
+    /// Flipping an event's presence *default* (v37) is not a presence mark —
+    /// it goes through the event update path, which invalidates the day cache
+    /// unconditionally. That is what lets an assume-absent flip reach a day
+    /// missed-only had already memoized as empty.
+    test(
+      'flipping the default reaches a warm day while missed-only is on',
+      () async {
+        await dispatch(
+          const ChangeCalendarFilters(
+            filters: CalendarGridFilters(missedOnly: true),
+          ),
+        );
+        expect(idsOn(nearDay), isEmpty);
+
+        final tracked = loaded().allEvents.singleWhere(
+          (e) => e.id == 'tracked',
+        );
+        await dispatch(
+          UpdateCalendarEvent(event: tracked.copyWith(assumeAbsent: true)),
+        );
+
+        expect(idsOn(nearDay), {'tracked'});
+
+        await dispatch(
+          UpdateCalendarEvent(event: tracked.copyWith(assumeAbsent: false)),
+        );
+
+        expect(idsOn(nearDay), isEmpty);
+      },
+    );
 
     /// The other half of the same gate: with no occurrence axis active, a
     /// presence tick must stay as cheap as it has always been, leaving the
@@ -274,11 +322,23 @@ void main() {
     test('a presence mark leaves the day memo alone otherwise', () async {
       final before = bloc.eventsForDay(nearDay);
 
-      await dispatch(SetOccurrenceMissed(eventId: 'tracked', day: nearDay));
+      await dispatch(
+        SetOccurrencePresence(
+          eventId: 'tracked',
+          day: nearDay,
+          status: PresenceStatus.missed,
+        ),
+      );
 
       expect(identical(before, bloc.eventsForDay(nearDay)), isTrue);
 
-      await dispatch(ClearOccurrenceMissed(eventId: 'tracked', day: nearDay));
+      await dispatch(
+        SetOccurrencePresence(
+          eventId: 'tracked',
+          day: nearDay,
+          status: PresenceStatus.present,
+        ),
+      );
     });
 
     test('an unrelated emission keeps the filter instance', () async {
@@ -300,10 +360,7 @@ void main() {
     test('allEventsForDay ignores every narrowing axis', () async {
       await dispatch(
         const ChangeCalendarFilters(
-          filters: CalendarGridFilters(
-            trackedOnly: true,
-            panelShowsAll: true,
-          ),
+          filters: CalendarGridFilters(trackedOnly: true, panelShowsAll: true),
         ),
       );
 
@@ -326,10 +383,7 @@ void main() {
     test('it is recomputed after a change to the event set', () async {
       await dispatch(
         const ChangeCalendarFilters(
-          filters: CalendarGridFilters(
-            trackedOnly: true,
-            panelShowsAll: true,
-          ),
+          filters: CalendarGridFilters(trackedOnly: true, panelShowsAll: true),
         ),
       );
       expect(bloc.allEventsForDay(nearDay), hasLength(3));

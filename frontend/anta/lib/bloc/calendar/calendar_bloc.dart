@@ -173,8 +173,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     on<DeleteCalendarEvent>(_onDeleteEvent);
     on<SetOccurrenceDescription>(_onSetOccurrenceDescription);
     on<ClearOccurrenceDescription>(_onClearOccurrenceDescription);
-    on<SetOccurrenceMissed>(_onSetOccurrenceMissed);
-    on<ClearOccurrenceMissed>(_onClearOccurrenceMissed);
+    on<SetOccurrencePresence>(_onSetOccurrencePresence);
     on<SetOccurrenceSkipped>(_onSetOccurrenceSkipped);
     on<ClearOccurrenceSkipped>(_onClearOccurrenceSkipped);
   }
@@ -459,7 +458,11 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       // The day-dependent axes are re-tested here for the same reason — the
       // header sums what the cells show, and a missed-only filter changes
       // that.
-      final startDay = DateTime.utc(startUtc.year, startUtc.month, startUtc.day);
+      final startDay = DateTime.utc(
+        startUtc.year,
+        startUtc.month,
+        startUtc.day,
+      );
       if (!event.occursOnUtcDay(startDay)) continue;
       if (!current.filters.allowsOccurrence(event, startDay)) continue;
       seen ??= <String>{};
@@ -821,7 +824,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     if (current.filters.hasOccurrenceAxis) _invalidateDayCache();
   }
 
-  /// Marks one occurrence missed.
+  /// Records an explicit presence status for one occurrence.
   ///
   /// Same cache reasoning as [_onSetOccurrenceDescription], modulo
   /// [_invalidateIfPresenceIsMembership]: presence is a **rendering** concern
@@ -829,15 +832,19 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   /// may consult presence — the moment a bare presence check lands in
   /// [eventsForDay], `EventAgenda` or `.ics`, those surfaces start disagreeing
   /// about what exists.
-  Future<void> _onSetOccurrenceMissed(
-    SetOccurrenceMissed event,
+  ///
+  /// One handler for both directions since **v37**: marking a day present
+  /// writes a row rather than tombstoning one, so the two halves of the old
+  /// pair differ in nothing but the value they store.
+  Future<void> _onSetOccurrencePresence(
+    SetOccurrencePresence event,
     Emitter<CalendarPageState> emit,
   ) async {
     final current = state;
     if (current is! CalendarPageLoaded) return;
     try {
       final service = await EventPresenceService.getInstance();
-      await service.markMissed(event.eventId, event.day);
+      await service.setStatus(event.eventId, event.day, event.status);
     } catch (e) {
       debugPrint('[CalendarBloc] Presence write error: $e');
       return;
@@ -851,33 +858,10 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     );
   }
 
-  /// Returns one occurrence to present. Same cache reasoning as
-  /// [_onSetOccurrenceMissed].
-  Future<void> _onClearOccurrenceMissed(
-    ClearOccurrenceMissed event,
-    Emitter<CalendarPageState> emit,
-  ) async {
-    final current = state;
-    if (current is! CalendarPageLoaded) return;
-    try {
-      final service = await EventPresenceService.getInstance();
-      await service.unmark(event.eventId, event.day);
-    } catch (e) {
-      debugPrint('[CalendarBloc] Presence clear error: $e');
-      return;
-    }
-    _invalidateIfPresenceIsMembership(current);
-    emit(
-      current.copyWith(
-        occurrenceRevision: current.occurrenceRevision + 1,
-        presenceRevision: current.presenceRevision + 1,
-      ),
-    );
-  }
-
   /// Cancels one occurrence.
   ///
-  /// The **inverse** of [_onSetOccurrenceMissed] on the one axis that matters:
+  /// The **inverse** of [_onSetOccurrencePresence] on the one axis that
+  /// matters:
   /// a skip changes membership, so it *must* invalidate the day cache. Leaving
   /// it warm would keep serving an occurrence `occursOn` now denies, and the
   /// two would disagree for up to 512 memoized days.

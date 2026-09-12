@@ -69,7 +69,7 @@ class EventOccurrenceDao extends DatabaseAccessor<AppDatabase>
   }
 
   /// "Reset this day" — returns one day to the event's template, the
-  /// [EventAbsenceDao.unmark] shape: the row survives as a tombstone so the
+  /// [EventAbsenceDao.clearMark] shape: the row survives as a tombstone so the
   /// reset carries an order once devices merge, and [getActive]'s filter is
   /// what makes the override disappear. Writing `''` would mean a deliberately
   /// blanked day instead, which is why this never does. A missing or

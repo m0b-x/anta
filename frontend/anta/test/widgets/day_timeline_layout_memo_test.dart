@@ -154,7 +154,7 @@ void main() {
       DayTimelineLayout.debugComputeCalls = 0;
       EventPresence.updateCache(
         byEvent: {
-          'missed': {day},
+          'missed': {day: PresenceStatus.missed},
         },
       );
 

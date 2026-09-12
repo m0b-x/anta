@@ -1248,7 +1248,7 @@ void main() {
       ]);
       EventPresence.updateCache(
         byEvent: {
-          'p1': {missedDay},
+          'p1': {missedDay: PresenceStatus.missed},
         },
       );
     });

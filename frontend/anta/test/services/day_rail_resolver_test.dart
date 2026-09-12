@@ -201,8 +201,8 @@ void main() {
     setUp(() {
       EventPresence.updateCache(
         byEvent: {
-          'missed': {day},
-          'untracked': {day},
+          'missed': {day: PresenceStatus.missed},
+          'untracked': {day: PresenceStatus.missed},
         },
       );
     });
@@ -337,7 +337,7 @@ void main() {
     test('defaults threads missedDisplay into the provider', () {
       EventPresence.updateCache(
         byEvent: {
-          'missed': {day},
+          'missed': {day: PresenceStatus.missed},
         },
       );
 

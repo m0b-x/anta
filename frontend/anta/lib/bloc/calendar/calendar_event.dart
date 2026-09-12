@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 import 'package:table_calendar/table_calendar.dart';
 
+import '../../constants/event_presence.dart';
 import '../../models/calendar_event.dart';
 import '../../models/calendar_grid_filters.dart';
 import '../../models/calendar_selection_source.dart';
@@ -121,36 +122,36 @@ final class ClearOccurrenceDescription extends CalendarPageEvent {
   List<Object?> get props => [eventId, day];
 }
 
-/// Marks one occurrence as missed (**v26**).
+/// Records an explicit presence [status] for one occurrence (**v26**,
+/// statuses since **v37**).
 ///
-/// Records an exception to implicit attendance; the occurrence still occurs,
-/// still numbers into count labels and still exports. Marking an already
-/// missed day is a no-op.
-final class SetOccurrenceMissed extends CalendarPageEvent {
+/// Both directions write a row: since an event can default to absent, a
+/// `present` mark is a statement of its own and not the removal of one. The
+/// occurrence still occurs either way, still numbers into count labels and
+/// still exports. Re-recording the status a day already carries is a no-op.
+///
+/// Replaces v26's `SetOccurrenceMissed` / `ClearOccurrenceMissed` pair —
+/// keeping "Clear" would have named a write that now inserts a row. Dropping
+/// a mark back to the event's own default is `EventPresenceService.clearMark`,
+/// which only the skip path calls.
+final class SetOccurrencePresence extends CalendarPageEvent {
   final String eventId;
   final DateTime day;
+  final PresenceStatus status;
 
-  const SetOccurrenceMissed({required this.eventId, required this.day});
-
-  @override
-  List<Object?> get props => [eventId, day];
-}
-
-/// Returns one occurrence to present, tombstoning its absence row. Un-marking
-/// a day that was never marked is a no-op.
-final class ClearOccurrenceMissed extends CalendarPageEvent {
-  final String eventId;
-  final DateTime day;
-
-  const ClearOccurrenceMissed({required this.eventId, required this.day});
+  const SetOccurrencePresence({
+    required this.eventId,
+    required this.day,
+    required this.status,
+  });
 
   @override
-  List<Object?> get props => [eventId, day];
+  List<Object?> get props => [eventId, day, status];
 }
 
 /// Cancels one occurrence of a recurring event (**v30**).
 ///
-/// Unlike [SetOccurrenceMissed], this changes **membership**: the occurrence
+/// Unlike [SetOccurrencePresence], this changes **membership**: the occurrence
 /// stops existing on every surface, including `.ics` export. A one-time event
 /// cannot be skipped — deleting it is the equivalent — and cancelling an
 /// already-cancelled day is a no-op.

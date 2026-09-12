@@ -73,6 +73,12 @@ final class CalendarPageLoaded extends CalendarPageState {
   ///
   /// Additive on purpose: `occurrenceRevision` still bumps for presence too,
   /// so every existing consumer keeps its current semantics.
+  ///
+  /// Counts **marks**, not defaults. An event's own assume-absent default
+  /// (**v37**) lives on the event, so flipping it rides [allEvents] identity
+  /// the way any other field edit does — `_onUpdateEvent` builds a fresh list
+  /// and `sameGridInputs` compares by identity. Never bump this from an event
+  /// write to "make the grid notice".
   final int presenceRevision;
 
   /// What last moved [selectedDay]. Read by the bottom panel to decide whether

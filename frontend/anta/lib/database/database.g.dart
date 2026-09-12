@@ -3866,6 +3866,33 @@ class $CalendarEventsTable extends CalendarEvents
       'CHECK ("show_in_day_rail" IN (0, 1))',
     ),
   );
+  static const VerificationMeta _assumeAbsentMeta = const VerificationMeta(
+    'assumeAbsent',
+  );
+  @override
+  late final GeneratedColumn<bool> assumeAbsent = GeneratedColumn<bool>(
+    'assume_absent',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("assume_absent" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _assumeAbsentFromMeta = const VerificationMeta(
+    'assumeAbsentFrom',
+  );
+  @override
+  late final GeneratedColumn<DateTime> assumeAbsentFrom =
+      GeneratedColumn<DateTime>(
+        'assume_absent_from',
+        aliasedName,
+        true,
+        type: DriftSqlType.dateTime,
+        requiredDuringInsert: false,
+      );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -3974,6 +4001,8 @@ class $CalendarEventsTable extends CalendarEvents
     tracksPresence,
     perOccurrenceDescriptions,
     showInDayRail,
+    assumeAbsent,
+    assumeAbsentFrom,
     createdAt,
     updatedAt,
     hlcTimestamp,
@@ -4160,6 +4189,24 @@ class $CalendarEventsTable extends CalendarEvents
         ),
       );
     }
+    if (data.containsKey('assume_absent')) {
+      context.handle(
+        _assumeAbsentMeta,
+        assumeAbsent.isAcceptableOrUnknown(
+          data['assume_absent']!,
+          _assumeAbsentMeta,
+        ),
+      );
+    }
+    if (data.containsKey('assume_absent_from')) {
+      context.handle(
+        _assumeAbsentFromMeta,
+        assumeAbsentFrom.isAcceptableOrUnknown(
+          data['assume_absent_from']!,
+          _assumeAbsentFromMeta,
+        ),
+      );
+    }
     if (data.containsKey('created_at')) {
       context.handle(
         _createdAtMeta,
@@ -4306,6 +4353,14 @@ class $CalendarEventsTable extends CalendarEvents
         DriftSqlType.bool,
         data['${effectivePrefix}show_in_day_rail'],
       ),
+      assumeAbsent: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}assume_absent'],
+      )!,
+      assumeAbsentFrom: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}assume_absent_from'],
+      ),
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -4367,6 +4422,8 @@ class CalendarEventRow extends DataClass
   final bool tracksPresence;
   final bool perOccurrenceDescriptions;
   final bool? showInDayRail;
+  final bool assumeAbsent;
+  final DateTime? assumeAbsentFrom;
   final DateTime createdAt;
   final DateTime updatedAt;
   final String hlcTimestamp;
@@ -4397,6 +4454,8 @@ class CalendarEventRow extends DataClass
     required this.tracksPresence,
     required this.perOccurrenceDescriptions,
     this.showInDayRail,
+    required this.assumeAbsent,
+    this.assumeAbsentFrom,
     required this.createdAt,
     required this.updatedAt,
     required this.hlcTimestamp,
@@ -4449,6 +4508,10 @@ class CalendarEventRow extends DataClass
     );
     if (!nullToAbsent || showInDayRail != null) {
       map['show_in_day_rail'] = Variable<bool>(showInDayRail);
+    }
+    map['assume_absent'] = Variable<bool>(assumeAbsent);
+    if (!nullToAbsent || assumeAbsentFrom != null) {
+      map['assume_absent_from'] = Variable<DateTime>(assumeAbsentFrom);
     }
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
@@ -4504,6 +4567,10 @@ class CalendarEventRow extends DataClass
       showInDayRail: showInDayRail == null && nullToAbsent
           ? const Value.absent()
           : Value(showInDayRail),
+      assumeAbsent: Value(assumeAbsent),
+      assumeAbsentFrom: assumeAbsentFrom == null && nullToAbsent
+          ? const Value.absent()
+          : Value(assumeAbsentFrom),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
       hlcTimestamp: Value(hlcTimestamp),
@@ -4546,6 +4613,10 @@ class CalendarEventRow extends DataClass
         json['perOccurrenceDescriptions'],
       ),
       showInDayRail: serializer.fromJson<bool?>(json['showInDayRail']),
+      assumeAbsent: serializer.fromJson<bool>(json['assumeAbsent']),
+      assumeAbsentFrom: serializer.fromJson<DateTime?>(
+        json['assumeAbsentFrom'],
+      ),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
       hlcTimestamp: serializer.fromJson<String>(json['hlcTimestamp']),
@@ -4583,6 +4654,8 @@ class CalendarEventRow extends DataClass
         perOccurrenceDescriptions,
       ),
       'showInDayRail': serializer.toJson<bool?>(showInDayRail),
+      'assumeAbsent': serializer.toJson<bool>(assumeAbsent),
+      'assumeAbsentFrom': serializer.toJson<DateTime?>(assumeAbsentFrom),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
       'hlcTimestamp': serializer.toJson<String>(hlcTimestamp),
@@ -4616,6 +4689,8 @@ class CalendarEventRow extends DataClass
     bool? tracksPresence,
     bool? perOccurrenceDescriptions,
     Value<bool?> showInDayRail = const Value.absent(),
+    bool? assumeAbsent,
+    Value<DateTime?> assumeAbsentFrom = const Value.absent(),
     DateTime? createdAt,
     DateTime? updatedAt,
     String? hlcTimestamp,
@@ -4651,6 +4726,10 @@ class CalendarEventRow extends DataClass
     showInDayRail: showInDayRail.present
         ? showInDayRail.value
         : this.showInDayRail,
+    assumeAbsent: assumeAbsent ?? this.assumeAbsent,
+    assumeAbsentFrom: assumeAbsentFrom.present
+        ? assumeAbsentFrom.value
+        : this.assumeAbsentFrom,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     hlcTimestamp: hlcTimestamp ?? this.hlcTimestamp,
@@ -4705,6 +4784,12 @@ class CalendarEventRow extends DataClass
       showInDayRail: data.showInDayRail.present
           ? data.showInDayRail.value
           : this.showInDayRail,
+      assumeAbsent: data.assumeAbsent.present
+          ? data.assumeAbsent.value
+          : this.assumeAbsent,
+      assumeAbsentFrom: data.assumeAbsentFrom.present
+          ? data.assumeAbsentFrom.value
+          : this.assumeAbsentFrom,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       hlcTimestamp: data.hlcTimestamp.present
@@ -4742,6 +4827,8 @@ class CalendarEventRow extends DataClass
           ..write('tracksPresence: $tracksPresence, ')
           ..write('perOccurrenceDescriptions: $perOccurrenceDescriptions, ')
           ..write('showInDayRail: $showInDayRail, ')
+          ..write('assumeAbsent: $assumeAbsent, ')
+          ..write('assumeAbsentFrom: $assumeAbsentFrom, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('hlcTimestamp: $hlcTimestamp, ')
@@ -4777,6 +4864,8 @@ class CalendarEventRow extends DataClass
     tracksPresence,
     perOccurrenceDescriptions,
     showInDayRail,
+    assumeAbsent,
+    assumeAbsentFrom,
     createdAt,
     updatedAt,
     hlcTimestamp,
@@ -4811,6 +4900,8 @@ class CalendarEventRow extends DataClass
           other.tracksPresence == this.tracksPresence &&
           other.perOccurrenceDescriptions == this.perOccurrenceDescriptions &&
           other.showInDayRail == this.showInDayRail &&
+          other.assumeAbsent == this.assumeAbsent &&
+          other.assumeAbsentFrom == this.assumeAbsentFrom &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt &&
           other.hlcTimestamp == this.hlcTimestamp &&
@@ -4843,6 +4934,8 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
   final Value<bool> tracksPresence;
   final Value<bool> perOccurrenceDescriptions;
   final Value<bool?> showInDayRail;
+  final Value<bool> assumeAbsent;
+  final Value<DateTime?> assumeAbsentFrom;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   final Value<String> hlcTimestamp;
@@ -4874,6 +4967,8 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     this.tracksPresence = const Value.absent(),
     this.perOccurrenceDescriptions = const Value.absent(),
     this.showInDayRail = const Value.absent(),
+    this.assumeAbsent = const Value.absent(),
+    this.assumeAbsentFrom = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.hlcTimestamp = const Value.absent(),
@@ -4906,6 +5001,8 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     this.tracksPresence = const Value.absent(),
     this.perOccurrenceDescriptions = const Value.absent(),
     this.showInDayRail = const Value.absent(),
+    this.assumeAbsent = const Value.absent(),
+    this.assumeAbsentFrom = const Value.absent(),
     required DateTime createdAt,
     required DateTime updatedAt,
     this.hlcTimestamp = const Value.absent(),
@@ -4944,6 +5041,8 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     Expression<bool>? tracksPresence,
     Expression<bool>? perOccurrenceDescriptions,
     Expression<bool>? showInDayRail,
+    Expression<bool>? assumeAbsent,
+    Expression<DateTime>? assumeAbsentFrom,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
     Expression<String>? hlcTimestamp,
@@ -4977,6 +5076,8 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
       if (perOccurrenceDescriptions != null)
         'per_occurrence_descriptions': perOccurrenceDescriptions,
       if (showInDayRail != null) 'show_in_day_rail': showInDayRail,
+      if (assumeAbsent != null) 'assume_absent': assumeAbsent,
+      if (assumeAbsentFrom != null) 'assume_absent_from': assumeAbsentFrom,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (hlcTimestamp != null) 'hlc_timestamp': hlcTimestamp,
@@ -5011,6 +5112,8 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     Value<bool>? tracksPresence,
     Value<bool>? perOccurrenceDescriptions,
     Value<bool?>? showInDayRail,
+    Value<bool>? assumeAbsent,
+    Value<DateTime?>? assumeAbsentFrom,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
     Value<String>? hlcTimestamp,
@@ -5044,6 +5147,8 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
       perOccurrenceDescriptions:
           perOccurrenceDescriptions ?? this.perOccurrenceDescriptions,
       showInDayRail: showInDayRail ?? this.showInDayRail,
+      assumeAbsent: assumeAbsent ?? this.assumeAbsent,
+      assumeAbsentFrom: assumeAbsentFrom ?? this.assumeAbsentFrom,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       hlcTimestamp: hlcTimestamp ?? this.hlcTimestamp,
@@ -5126,6 +5231,12 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     if (showInDayRail.present) {
       map['show_in_day_rail'] = Variable<bool>(showInDayRail.value);
     }
+    if (assumeAbsent.present) {
+      map['assume_absent'] = Variable<bool>(assumeAbsent.value);
+    }
+    if (assumeAbsentFrom.present) {
+      map['assume_absent_from'] = Variable<DateTime>(assumeAbsentFrom.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -5178,6 +5289,8 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
           ..write('tracksPresence: $tracksPresence, ')
           ..write('perOccurrenceDescriptions: $perOccurrenceDescriptions, ')
           ..write('showInDayRail: $showInDayRail, ')
+          ..write('assumeAbsent: $assumeAbsent, ')
+          ..write('assumeAbsentFrom: $assumeAbsentFrom, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('hlcTimestamp: $hlcTimestamp, ')
@@ -6802,6 +6915,16 @@ class $EventAbsencesTable extends EventAbsences
     type: DriftSqlType.dateTime,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _statusMeta = const VerificationMeta('status');
+  @override
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+    'status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('missed'),
+  );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -6888,6 +7011,7 @@ class $EventAbsencesTable extends EventAbsences
   List<GeneratedColumn> get $columns => [
     eventId,
     day,
+    status,
     createdAt,
     updatedAt,
     hlcTimestamp,
@@ -6923,6 +7047,12 @@ class $EventAbsencesTable extends EventAbsences
       );
     } else if (isInserting) {
       context.missing(_dayMeta);
+    }
+    if (data.containsKey('status')) {
+      context.handle(
+        _statusMeta,
+        status.isAcceptableOrUnknown(data['status']!, _statusMeta),
+      );
     }
     if (data.containsKey('created_at')) {
       context.handle(
@@ -6994,6 +7124,10 @@ class $EventAbsencesTable extends EventAbsences
         DriftSqlType.dateTime,
         data['${effectivePrefix}day'],
       )!,
+      status: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status'],
+      )!,
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -7036,6 +7170,11 @@ class EventAbsenceRow extends DataClass implements Insertable<EventAbsenceRow> {
 
   /// UTC date-only (year, month, day).
   final DateTime day;
+
+  /// `PresenceStatus.name` — `missed` (the pre-v37 meaning of every row, and
+  /// the default) or `present`. Unknown values decode to `missed`; no `CHECK`
+  /// clause, matching the other additive columns in this schema.
+  final String status;
   final DateTime createdAt;
   final DateTime updatedAt;
   final String hlcTimestamp;
@@ -7046,6 +7185,7 @@ class EventAbsenceRow extends DataClass implements Insertable<EventAbsenceRow> {
   const EventAbsenceRow({
     required this.eventId,
     required this.day,
+    required this.status,
     required this.createdAt,
     required this.updatedAt,
     required this.hlcTimestamp,
@@ -7059,6 +7199,7 @@ class EventAbsenceRow extends DataClass implements Insertable<EventAbsenceRow> {
     final map = <String, Expression>{};
     map['event_id'] = Variable<String>(eventId);
     map['day'] = Variable<DateTime>(day);
+    map['status'] = Variable<String>(status);
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
     map['hlc_timestamp'] = Variable<String>(hlcTimestamp);
@@ -7075,6 +7216,7 @@ class EventAbsenceRow extends DataClass implements Insertable<EventAbsenceRow> {
     return EventAbsencesCompanion(
       eventId: Value(eventId),
       day: Value(day),
+      status: Value(status),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
       hlcTimestamp: Value(hlcTimestamp),
@@ -7095,6 +7237,7 @@ class EventAbsenceRow extends DataClass implements Insertable<EventAbsenceRow> {
     return EventAbsenceRow(
       eventId: serializer.fromJson<String>(json['eventId']),
       day: serializer.fromJson<DateTime>(json['day']),
+      status: serializer.fromJson<String>(json['status']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
       hlcTimestamp: serializer.fromJson<String>(json['hlcTimestamp']),
@@ -7110,6 +7253,7 @@ class EventAbsenceRow extends DataClass implements Insertable<EventAbsenceRow> {
     return <String, dynamic>{
       'eventId': serializer.toJson<String>(eventId),
       'day': serializer.toJson<DateTime>(day),
+      'status': serializer.toJson<String>(status),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
       'hlcTimestamp': serializer.toJson<String>(hlcTimestamp),
@@ -7123,6 +7267,7 @@ class EventAbsenceRow extends DataClass implements Insertable<EventAbsenceRow> {
   EventAbsenceRow copyWith({
     String? eventId,
     DateTime? day,
+    String? status,
     DateTime? createdAt,
     DateTime? updatedAt,
     String? hlcTimestamp,
@@ -7133,6 +7278,7 @@ class EventAbsenceRow extends DataClass implements Insertable<EventAbsenceRow> {
   }) => EventAbsenceRow(
     eventId: eventId ?? this.eventId,
     day: day ?? this.day,
+    status: status ?? this.status,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     hlcTimestamp: hlcTimestamp ?? this.hlcTimestamp,
@@ -7145,6 +7291,7 @@ class EventAbsenceRow extends DataClass implements Insertable<EventAbsenceRow> {
     return EventAbsenceRow(
       eventId: data.eventId.present ? data.eventId.value : this.eventId,
       day: data.day.present ? data.day.value : this.day,
+      status: data.status.present ? data.status.value : this.status,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       hlcTimestamp: data.hlcTimestamp.present
@@ -7162,6 +7309,7 @@ class EventAbsenceRow extends DataClass implements Insertable<EventAbsenceRow> {
     return (StringBuffer('EventAbsenceRow(')
           ..write('eventId: $eventId, ')
           ..write('day: $day, ')
+          ..write('status: $status, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('hlcTimestamp: $hlcTimestamp, ')
@@ -7177,6 +7325,7 @@ class EventAbsenceRow extends DataClass implements Insertable<EventAbsenceRow> {
   int get hashCode => Object.hash(
     eventId,
     day,
+    status,
     createdAt,
     updatedAt,
     hlcTimestamp,
@@ -7191,6 +7340,7 @@ class EventAbsenceRow extends DataClass implements Insertable<EventAbsenceRow> {
       (other is EventAbsenceRow &&
           other.eventId == this.eventId &&
           other.day == this.day &&
+          other.status == this.status &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt &&
           other.hlcTimestamp == this.hlcTimestamp &&
@@ -7203,6 +7353,7 @@ class EventAbsenceRow extends DataClass implements Insertable<EventAbsenceRow> {
 class EventAbsencesCompanion extends UpdateCompanion<EventAbsenceRow> {
   final Value<String> eventId;
   final Value<DateTime> day;
+  final Value<String> status;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   final Value<String> hlcTimestamp;
@@ -7214,6 +7365,7 @@ class EventAbsencesCompanion extends UpdateCompanion<EventAbsenceRow> {
   const EventAbsencesCompanion({
     this.eventId = const Value.absent(),
     this.day = const Value.absent(),
+    this.status = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.hlcTimestamp = const Value.absent(),
@@ -7226,6 +7378,7 @@ class EventAbsencesCompanion extends UpdateCompanion<EventAbsenceRow> {
   EventAbsencesCompanion.insert({
     required String eventId,
     required DateTime day,
+    this.status = const Value.absent(),
     required DateTime createdAt,
     required DateTime updatedAt,
     required String hlcTimestamp,
@@ -7243,6 +7396,7 @@ class EventAbsencesCompanion extends UpdateCompanion<EventAbsenceRow> {
   static Insertable<EventAbsenceRow> custom({
     Expression<String>? eventId,
     Expression<DateTime>? day,
+    Expression<String>? status,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
     Expression<String>? hlcTimestamp,
@@ -7255,6 +7409,7 @@ class EventAbsencesCompanion extends UpdateCompanion<EventAbsenceRow> {
     return RawValuesInsertable({
       if (eventId != null) 'event_id': eventId,
       if (day != null) 'day': day,
+      if (status != null) 'status': status,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (hlcTimestamp != null) 'hlc_timestamp': hlcTimestamp,
@@ -7269,6 +7424,7 @@ class EventAbsencesCompanion extends UpdateCompanion<EventAbsenceRow> {
   EventAbsencesCompanion copyWith({
     Value<String>? eventId,
     Value<DateTime>? day,
+    Value<String>? status,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
     Value<String>? hlcTimestamp,
@@ -7281,6 +7437,7 @@ class EventAbsencesCompanion extends UpdateCompanion<EventAbsenceRow> {
     return EventAbsencesCompanion(
       eventId: eventId ?? this.eventId,
       day: day ?? this.day,
+      status: status ?? this.status,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       hlcTimestamp: hlcTimestamp ?? this.hlcTimestamp,
@@ -7300,6 +7457,9 @@ class EventAbsencesCompanion extends UpdateCompanion<EventAbsenceRow> {
     }
     if (day.present) {
       map['day'] = Variable<DateTime>(day.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
     }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
@@ -7333,6 +7493,7 @@ class EventAbsencesCompanion extends UpdateCompanion<EventAbsenceRow> {
     return (StringBuffer('EventAbsencesCompanion(')
           ..write('eventId: $eventId, ')
           ..write('day: $day, ')
+          ..write('status: $status, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('hlcTimestamp: $hlcTimestamp, ')
@@ -7555,6 +7716,21 @@ class $EventTemplatesTable extends EventTemplates
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _assumeAbsentMeta = const VerificationMeta(
+    'assumeAbsent',
+  );
+  @override
+  late final GeneratedColumn<bool> assumeAbsent = GeneratedColumn<bool>(
+    'assume_absent',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("assume_absent" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
   static const VerificationMeta _perOccurrenceDescriptionsMeta =
       const VerificationMeta('perOccurrenceDescriptions');
   @override
@@ -7671,6 +7847,7 @@ class $EventTemplatesTable extends EventTemplates
     countOccurrences,
     countStyle,
     tracksPresence,
+    assumeAbsent,
     perOccurrenceDescriptions,
     createdAt,
     updatedAt,
@@ -7818,6 +7995,15 @@ class $EventTemplatesTable extends EventTemplates
         ),
       );
     }
+    if (data.containsKey('assume_absent')) {
+      context.handle(
+        _assumeAbsentMeta,
+        assumeAbsent.isAcceptableOrUnknown(
+          data['assume_absent']!,
+          _assumeAbsentMeta,
+        ),
+      );
+    }
     if (data.containsKey('per_occurrence_descriptions')) {
       context.handle(
         _perOccurrenceDescriptionsMeta,
@@ -7957,6 +8143,10 @@ class $EventTemplatesTable extends EventTemplates
         DriftSqlType.bool,
         data['${effectivePrefix}tracks_presence'],
       )!,
+      assumeAbsent: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}assume_absent'],
+      )!,
       perOccurrenceDescriptions: attachedDatabase.typeMapping.read(
         DriftSqlType.bool,
         data['${effectivePrefix}per_occurrence_descriptions'],
@@ -8019,6 +8209,11 @@ class EventTemplateRow extends DataClass
   final bool countOccurrences;
   final String countStyle;
   final bool tracksPresence;
+
+  /// The **v37** presence-default flag. Templates carry the flag but never a
+  /// from-date: a from-date is a statement about one event's history, and a
+  /// stamped-out event starts today with none.
+  final bool assumeAbsent;
   final bool perOccurrenceDescriptions;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -8045,6 +8240,7 @@ class EventTemplateRow extends DataClass
     required this.countOccurrences,
     required this.countStyle,
     required this.tracksPresence,
+    required this.assumeAbsent,
     required this.perOccurrenceDescriptions,
     required this.createdAt,
     required this.updatedAt,
@@ -8086,6 +8282,7 @@ class EventTemplateRow extends DataClass
     map['count_occurrences'] = Variable<bool>(countOccurrences);
     map['count_style'] = Variable<String>(countStyle);
     map['tracks_presence'] = Variable<bool>(tracksPresence);
+    map['assume_absent'] = Variable<bool>(assumeAbsent);
     map['per_occurrence_descriptions'] = Variable<bool>(
       perOccurrenceDescriptions,
     );
@@ -8132,6 +8329,7 @@ class EventTemplateRow extends DataClass
       countOccurrences: Value(countOccurrences),
       countStyle: Value(countStyle),
       tracksPresence: Value(tracksPresence),
+      assumeAbsent: Value(assumeAbsent),
       perOccurrenceDescriptions: Value(perOccurrenceDescriptions),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
@@ -8168,6 +8366,7 @@ class EventTemplateRow extends DataClass
       countOccurrences: serializer.fromJson<bool>(json['countOccurrences']),
       countStyle: serializer.fromJson<String>(json['countStyle']),
       tracksPresence: serializer.fromJson<bool>(json['tracksPresence']),
+      assumeAbsent: serializer.fromJson<bool>(json['assumeAbsent']),
       perOccurrenceDescriptions: serializer.fromJson<bool>(
         json['perOccurrenceDescriptions'],
       ),
@@ -8201,6 +8400,7 @@ class EventTemplateRow extends DataClass
       'countOccurrences': serializer.toJson<bool>(countOccurrences),
       'countStyle': serializer.toJson<String>(countStyle),
       'tracksPresence': serializer.toJson<bool>(tracksPresence),
+      'assumeAbsent': serializer.toJson<bool>(assumeAbsent),
       'perOccurrenceDescriptions': serializer.toJson<bool>(
         perOccurrenceDescriptions,
       ),
@@ -8232,6 +8432,7 @@ class EventTemplateRow extends DataClass
     bool? countOccurrences,
     String? countStyle,
     bool? tracksPresence,
+    bool? assumeAbsent,
     bool? perOccurrenceDescriptions,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -8260,6 +8461,7 @@ class EventTemplateRow extends DataClass
     countOccurrences: countOccurrences ?? this.countOccurrences,
     countStyle: countStyle ?? this.countStyle,
     tracksPresence: tracksPresence ?? this.tracksPresence,
+    assumeAbsent: assumeAbsent ?? this.assumeAbsent,
     perOccurrenceDescriptions:
         perOccurrenceDescriptions ?? this.perOccurrenceDescriptions,
     createdAt: createdAt ?? this.createdAt,
@@ -8307,6 +8509,9 @@ class EventTemplateRow extends DataClass
       tracksPresence: data.tracksPresence.present
           ? data.tracksPresence.value
           : this.tracksPresence,
+      assumeAbsent: data.assumeAbsent.present
+          ? data.assumeAbsent.value
+          : this.assumeAbsent,
       perOccurrenceDescriptions: data.perOccurrenceDescriptions.present
           ? data.perOccurrenceDescriptions.value
           : this.perOccurrenceDescriptions,
@@ -8342,6 +8547,7 @@ class EventTemplateRow extends DataClass
           ..write('countOccurrences: $countOccurrences, ')
           ..write('countStyle: $countStyle, ')
           ..write('tracksPresence: $tracksPresence, ')
+          ..write('assumeAbsent: $assumeAbsent, ')
           ..write('perOccurrenceDescriptions: $perOccurrenceDescriptions, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
@@ -8373,6 +8579,7 @@ class EventTemplateRow extends DataClass
     countOccurrences,
     countStyle,
     tracksPresence,
+    assumeAbsent,
     perOccurrenceDescriptions,
     createdAt,
     updatedAt,
@@ -8403,6 +8610,7 @@ class EventTemplateRow extends DataClass
           other.countOccurrences == this.countOccurrences &&
           other.countStyle == this.countStyle &&
           other.tracksPresence == this.tracksPresence &&
+          other.assumeAbsent == this.assumeAbsent &&
           other.perOccurrenceDescriptions == this.perOccurrenceDescriptions &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt &&
@@ -8431,6 +8639,7 @@ class EventTemplatesCompanion extends UpdateCompanion<EventTemplateRow> {
   final Value<bool> countOccurrences;
   final Value<String> countStyle;
   final Value<bool> tracksPresence;
+  final Value<bool> assumeAbsent;
   final Value<bool> perOccurrenceDescriptions;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
@@ -8458,6 +8667,7 @@ class EventTemplatesCompanion extends UpdateCompanion<EventTemplateRow> {
     this.countOccurrences = const Value.absent(),
     this.countStyle = const Value.absent(),
     this.tracksPresence = const Value.absent(),
+    this.assumeAbsent = const Value.absent(),
     this.perOccurrenceDescriptions = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
@@ -8486,6 +8696,7 @@ class EventTemplatesCompanion extends UpdateCompanion<EventTemplateRow> {
     this.countOccurrences = const Value.absent(),
     this.countStyle = const Value.absent(),
     this.tracksPresence = const Value.absent(),
+    this.assumeAbsent = const Value.absent(),
     this.perOccurrenceDescriptions = const Value.absent(),
     required DateTime createdAt,
     required DateTime updatedAt,
@@ -8520,6 +8731,7 @@ class EventTemplatesCompanion extends UpdateCompanion<EventTemplateRow> {
     Expression<bool>? countOccurrences,
     Expression<String>? countStyle,
     Expression<bool>? tracksPresence,
+    Expression<bool>? assumeAbsent,
     Expression<bool>? perOccurrenceDescriptions,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
@@ -8548,6 +8760,7 @@ class EventTemplatesCompanion extends UpdateCompanion<EventTemplateRow> {
       if (countOccurrences != null) 'count_occurrences': countOccurrences,
       if (countStyle != null) 'count_style': countStyle,
       if (tracksPresence != null) 'tracks_presence': tracksPresence,
+      if (assumeAbsent != null) 'assume_absent': assumeAbsent,
       if (perOccurrenceDescriptions != null)
         'per_occurrence_descriptions': perOccurrenceDescriptions,
       if (createdAt != null) 'created_at': createdAt,
@@ -8579,6 +8792,7 @@ class EventTemplatesCompanion extends UpdateCompanion<EventTemplateRow> {
     Value<bool>? countOccurrences,
     Value<String>? countStyle,
     Value<bool>? tracksPresence,
+    Value<bool>? assumeAbsent,
     Value<bool>? perOccurrenceDescriptions,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
@@ -8607,6 +8821,7 @@ class EventTemplatesCompanion extends UpdateCompanion<EventTemplateRow> {
       countOccurrences: countOccurrences ?? this.countOccurrences,
       countStyle: countStyle ?? this.countStyle,
       tracksPresence: tracksPresence ?? this.tracksPresence,
+      assumeAbsent: assumeAbsent ?? this.assumeAbsent,
       perOccurrenceDescriptions:
           perOccurrenceDescriptions ?? this.perOccurrenceDescriptions,
       createdAt: createdAt ?? this.createdAt,
@@ -8674,6 +8889,9 @@ class EventTemplatesCompanion extends UpdateCompanion<EventTemplateRow> {
     if (tracksPresence.present) {
       map['tracks_presence'] = Variable<bool>(tracksPresence.value);
     }
+    if (assumeAbsent.present) {
+      map['assume_absent'] = Variable<bool>(assumeAbsent.value);
+    }
     if (perOccurrenceDescriptions.present) {
       map['per_occurrence_descriptions'] = Variable<bool>(
         perOccurrenceDescriptions.value,
@@ -8726,6 +8944,7 @@ class EventTemplatesCompanion extends UpdateCompanion<EventTemplateRow> {
           ..write('countOccurrences: $countOccurrences, ')
           ..write('countStyle: $countStyle, ')
           ..write('tracksPresence: $tracksPresence, ')
+          ..write('assumeAbsent: $assumeAbsent, ')
           ..write('perOccurrenceDescriptions: $perOccurrenceDescriptions, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
@@ -13210,6 +13429,8 @@ typedef $$CalendarEventsTableCreateCompanionBuilder =
       Value<bool> tracksPresence,
       Value<bool> perOccurrenceDescriptions,
       Value<bool?> showInDayRail,
+      Value<bool> assumeAbsent,
+      Value<DateTime?> assumeAbsentFrom,
       required DateTime createdAt,
       required DateTime updatedAt,
       Value<String> hlcTimestamp,
@@ -13243,6 +13464,8 @@ typedef $$CalendarEventsTableUpdateCompanionBuilder =
       Value<bool> tracksPresence,
       Value<bool> perOccurrenceDescriptions,
       Value<bool?> showInDayRail,
+      Value<bool> assumeAbsent,
+      Value<DateTime?> assumeAbsentFrom,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
       Value<String> hlcTimestamp,
@@ -13369,6 +13592,16 @@ class $$CalendarEventsTableFilterComposer
 
   ColumnFilters<bool> get showInDayRail => $composableBuilder(
     column: $table.showInDayRail,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get assumeAbsent => $composableBuilder(
+    column: $table.assumeAbsent,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get assumeAbsentFrom => $composableBuilder(
+    column: $table.assumeAbsentFrom,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -13527,6 +13760,16 @@ class $$CalendarEventsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<bool> get assumeAbsent => $composableBuilder(
+    column: $table.assumeAbsent,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get assumeAbsentFrom => $composableBuilder(
+    column: $table.assumeAbsentFrom,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -13660,6 +13903,16 @@ class $$CalendarEventsTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<bool> get assumeAbsent => $composableBuilder(
+    column: $table.assumeAbsent,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get assumeAbsentFrom => $composableBuilder(
+    column: $table.assumeAbsentFrom,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
 
@@ -13743,6 +13996,8 @@ class $$CalendarEventsTableTableManager
                 Value<bool> tracksPresence = const Value.absent(),
                 Value<bool> perOccurrenceDescriptions = const Value.absent(),
                 Value<bool?> showInDayRail = const Value.absent(),
+                Value<bool> assumeAbsent = const Value.absent(),
+                Value<DateTime?> assumeAbsentFrom = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<String> hlcTimestamp = const Value.absent(),
@@ -13774,6 +14029,8 @@ class $$CalendarEventsTableTableManager
                 tracksPresence: tracksPresence,
                 perOccurrenceDescriptions: perOccurrenceDescriptions,
                 showInDayRail: showInDayRail,
+                assumeAbsent: assumeAbsent,
+                assumeAbsentFrom: assumeAbsentFrom,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 hlcTimestamp: hlcTimestamp,
@@ -13807,6 +14064,8 @@ class $$CalendarEventsTableTableManager
                 Value<bool> tracksPresence = const Value.absent(),
                 Value<bool> perOccurrenceDescriptions = const Value.absent(),
                 Value<bool?> showInDayRail = const Value.absent(),
+                Value<bool> assumeAbsent = const Value.absent(),
+                Value<DateTime?> assumeAbsentFrom = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime updatedAt,
                 Value<String> hlcTimestamp = const Value.absent(),
@@ -13838,6 +14097,8 @@ class $$CalendarEventsTableTableManager
                 tracksPresence: tracksPresence,
                 perOccurrenceDescriptions: perOccurrenceDescriptions,
                 showInDayRail: showInDayRail,
+                assumeAbsent: assumeAbsent,
+                assumeAbsentFrom: assumeAbsentFrom,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 hlcTimestamp: hlcTimestamp,
@@ -14705,6 +14966,7 @@ typedef $$EventAbsencesTableCreateCompanionBuilder =
     EventAbsencesCompanion Function({
       required String eventId,
       required DateTime day,
+      Value<String> status,
       required DateTime createdAt,
       required DateTime updatedAt,
       required String hlcTimestamp,
@@ -14718,6 +14980,7 @@ typedef $$EventAbsencesTableUpdateCompanionBuilder =
     EventAbsencesCompanion Function({
       Value<String> eventId,
       Value<DateTime> day,
+      Value<String> status,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
       Value<String> hlcTimestamp,
@@ -14744,6 +15007,11 @@ class $$EventAbsencesTableFilterComposer
 
   ColumnFilters<DateTime> get day => $composableBuilder(
     column: $table.day,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get status => $composableBuilder(
+    column: $table.status,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -14802,6 +15070,11 @@ class $$EventAbsencesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -14852,6 +15125,9 @@ class $$EventAbsencesTableAnnotationComposer
 
   GeneratedColumn<DateTime> get day =>
       $composableBuilder(column: $table.day, builder: (column) => column);
+
+  GeneratedColumn<String> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
 
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
@@ -14910,6 +15186,7 @@ class $$EventAbsencesTableTableManager
               ({
                 Value<String> eventId = const Value.absent(),
                 Value<DateTime> day = const Value.absent(),
+                Value<String> status = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<String> hlcTimestamp = const Value.absent(),
@@ -14921,6 +15198,7 @@ class $$EventAbsencesTableTableManager
               }) => EventAbsencesCompanion(
                 eventId: eventId,
                 day: day,
+                status: status,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 hlcTimestamp: hlcTimestamp,
@@ -14934,6 +15212,7 @@ class $$EventAbsencesTableTableManager
               ({
                 required String eventId,
                 required DateTime day,
+                Value<String> status = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime updatedAt,
                 required String hlcTimestamp,
@@ -14945,6 +15224,7 @@ class $$EventAbsencesTableTableManager
               }) => EventAbsencesCompanion.insert(
                 eventId: eventId,
                 day: day,
+                status: status,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 hlcTimestamp: hlcTimestamp,
@@ -14998,6 +15278,7 @@ typedef $$EventTemplatesTableCreateCompanionBuilder =
       Value<bool> countOccurrences,
       Value<String> countStyle,
       Value<bool> tracksPresence,
+      Value<bool> assumeAbsent,
       Value<bool> perOccurrenceDescriptions,
       required DateTime createdAt,
       required DateTime updatedAt,
@@ -15027,6 +15308,7 @@ typedef $$EventTemplatesTableUpdateCompanionBuilder =
       Value<bool> countOccurrences,
       Value<String> countStyle,
       Value<bool> tracksPresence,
+      Value<bool> assumeAbsent,
       Value<bool> perOccurrenceDescriptions,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
@@ -15129,6 +15411,11 @@ class $$EventTemplatesTableFilterComposer
 
   ColumnFilters<bool> get tracksPresence => $composableBuilder(
     column: $table.tracksPresence,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get assumeAbsent => $composableBuilder(
+    column: $table.assumeAbsent,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -15267,6 +15554,11 @@ class $$EventTemplatesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<bool> get assumeAbsent => $composableBuilder(
+    column: $table.assumeAbsent,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<bool> get perOccurrenceDescriptions => $composableBuilder(
     column: $table.perOccurrenceDescriptions,
     builder: (column) => ColumnOrderings(column),
@@ -15386,6 +15678,11 @@ class $$EventTemplatesTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<bool> get assumeAbsent => $composableBuilder(
+    column: $table.assumeAbsent,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<bool> get perOccurrenceDescriptions => $composableBuilder(
     column: $table.perOccurrenceDescriptions,
     builder: (column) => column,
@@ -15469,6 +15766,7 @@ class $$EventTemplatesTableTableManager
                 Value<bool> countOccurrences = const Value.absent(),
                 Value<String> countStyle = const Value.absent(),
                 Value<bool> tracksPresence = const Value.absent(),
+                Value<bool> assumeAbsent = const Value.absent(),
                 Value<bool> perOccurrenceDescriptions = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
@@ -15496,6 +15794,7 @@ class $$EventTemplatesTableTableManager
                 countOccurrences: countOccurrences,
                 countStyle: countStyle,
                 tracksPresence: tracksPresence,
+                assumeAbsent: assumeAbsent,
                 perOccurrenceDescriptions: perOccurrenceDescriptions,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
@@ -15525,6 +15824,7 @@ class $$EventTemplatesTableTableManager
                 Value<bool> countOccurrences = const Value.absent(),
                 Value<String> countStyle = const Value.absent(),
                 Value<bool> tracksPresence = const Value.absent(),
+                Value<bool> assumeAbsent = const Value.absent(),
                 Value<bool> perOccurrenceDescriptions = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime updatedAt,
@@ -15552,6 +15852,7 @@ class $$EventTemplatesTableTableManager
                 countOccurrences: countOccurrences,
                 countStyle: countStyle,
                 tracksPresence: tracksPresence,
+                assumeAbsent: assumeAbsent,
                 perOccurrenceDescriptions: perOccurrenceDescriptions,
                 createdAt: createdAt,
                 updatedAt: updatedAt,

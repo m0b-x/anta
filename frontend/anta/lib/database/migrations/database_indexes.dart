@@ -163,10 +163,14 @@ class DatabaseIndexes {
   /// They exist because tombstones are never collected: `EventSkipService`
   /// and `EventPresenceService` each run a `_load` at startup and after every
   /// event delete, and without an index those reads scan years of dead rows to
-  /// find the live ones. `(event_id, day)` is the *entire* projection both
-  /// loads consume, so the partial index is **covering** — the query answers
-  /// from the index and never touches the table. That is why the DAOs read
-  /// through `getActiveKeys` rather than `getActive`, and why the predicate is
+  /// find the live ones. Each index carries the *entire* projection its own
+  /// load consumes, so both are **covering** — the query answers from the index
+  /// and never touches the table. The two are **no longer symmetric**: since
+  /// **v37** an absence row also carries `status`, so its index is
+  /// `(event_id, day, status)` while skips stay at `(event_id, day)`. Widening
+  /// the skips index to match would only make it bigger. That is why the DAOs
+  /// read through `getActiveKeys` rather than `getActive`, and why the
+  /// predicate is
   /// spelled as the literal `is_deleted = 0`: Drift's `.equals(false)` emits a
   /// bound `?`, and whether SQLite can prove a bound parameter implies the
   /// index's `WHERE` is version-dependent — 3.53 uses the index, 3.50 falls
@@ -189,7 +193,7 @@ class DatabaseIndexes {
     );
     await _db.customStatement(
       'CREATE INDEX IF NOT EXISTS idx_calendar_event_absences_active '
-      'ON calendar_event_absences(event_id, day) WHERE is_deleted = 0',
+      'ON calendar_event_absences(event_id, day, status) WHERE is_deleted = 0',
     );
   }
 

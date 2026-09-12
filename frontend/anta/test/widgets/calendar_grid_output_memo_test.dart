@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
+import 'package:anta/constants/event_presence.dart';
 import 'package:anta/bloc/import_export/import_export_bloc.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
@@ -211,7 +212,11 @@ void main() {
 
       await dispatchAndPump(
         tester,
-        SetOccurrenceMissed(eventId: 'e1', day: today),
+        SetOccurrencePresence(
+          eventId: 'e1',
+          day: today,
+          status: PresenceStatus.missed,
+        ),
       );
       final afterPresence = eventBars(barsSnapshot(tester));
       expect(

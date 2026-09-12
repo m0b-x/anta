@@ -111,6 +111,9 @@ class CalendarEventService {
         : event.copyWith(endDate: _dateOnlyUtc(event.endDate!));
     final normalized = normalizedEnd.copyWith(
       startDate: _dateOnlyUtc(event.startDate),
+      assumeAbsentFrom: event.assumeAbsentFrom == null
+          ? null
+          : _dateOnlyUtc(event.assumeAbsentFrom!),
     );
     final now = DateTime.now();
     await _dao.upsert(_eventToCompanion(normalized, updatedAt: now));
@@ -230,6 +233,8 @@ class CalendarEventService {
           'countOccurrences': row.countOccurrences,
           'countStyle': row.countStyle,
           'tracksPresence': row.tracksPresence,
+          'assumeAbsent': row.assumeAbsent,
+          'assumeAbsentFromMs': row.assumeAbsentFrom?.millisecondsSinceEpoch,
           'perOccurrenceDescriptions': row.perOccurrenceDescriptions,
           'showInDayRail': row.showInDayRail,
           'createdAtMs': row.createdAt.millisecondsSinceEpoch,
@@ -329,6 +334,20 @@ class CalendarEventService {
             tracksPresence: map['tracksPresence'] is bool
                 ? Value(map['tracksPresence'] as bool)
                 : const Value.absent(),
+            // Absent in pre-v37 backups: default false = the implicit
+            // attendance those events were tracked under, and a NULL
+            // from-date is the only thing "no from-date" could have meant.
+            assumeAbsent: map['assumeAbsent'] is bool
+                ? Value(map['assumeAbsent'] as bool)
+                : const Value.absent(),
+            assumeAbsentFrom: map['assumeAbsentFromMs'] is int
+                ? Value(
+                    DateTime.fromMillisecondsSinceEpoch(
+                      map['assumeAbsentFromMs'] as int,
+                      isUtc: true,
+                    ),
+                  )
+                : const Value.absent(),
             // Absent in pre-v28 backups: no archive ever carried the intent,
             // because the global setting it replaced was never in
             // `BackupService._exportSettings`'s allowlist. Default false means
@@ -381,6 +400,10 @@ class CalendarEventService {
       countOccurrences: row.countOccurrences,
       countStyle: OccurrenceCountStyle.fromName(row.countStyle),
       tracksPresence: row.tracksPresence,
+      assumeAbsent: row.assumeAbsent,
+      assumeAbsentFrom: row.assumeAbsentFrom == null
+          ? null
+          : _dateOnlyUtc(row.assumeAbsentFrom!),
       perOccurrenceDescriptions: row.perOccurrenceDescriptions,
       showInDayRail: row.showInDayRail,
       rule: _decodeRule(row.ruleKind, row.rulePayload),
@@ -444,6 +467,8 @@ class CalendarEventService {
       countOccurrences: Value(event.countOccurrences),
       countStyle: Value(event.countStyle.name),
       tracksPresence: Value(event.tracksPresence),
+      assumeAbsent: Value(event.assumeAbsent),
+      assumeAbsentFrom: Value(event.assumeAbsentFrom),
       perOccurrenceDescriptions: Value(event.perOccurrenceDescriptions),
       showInDayRail: Value(event.showInDayRail),
       createdAt: Value(updatedAt),

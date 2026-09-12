@@ -47,8 +47,7 @@ class EventCellTintProvider implements CellTintProvider {
     var topMissed = false;
     for (final event in events) {
       final missed =
-          EventPresence.appliesTo(event) &&
-          EventPresence.isMissed(event.id, day);
+          EventPresence.appliesTo(event) && EventPresence.isMissed(event, day);
       // A hidden missed occurrence is drawn nowhere else, so it must not be
       // able to claim the wash either.
       if (missed && missedDisplay == CalendarMissedDisplay.hidden) continue;

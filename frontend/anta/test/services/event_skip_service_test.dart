@@ -6,6 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:anta/constants/event_presence.dart';
 import 'package:anta/constants/event_skips.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/models/calendar_event.dart';
+import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/event_presence_service.dart';
 import 'package:anta/services/event_skip_service.dart';
 
@@ -25,6 +27,18 @@ void main() {
 
   final day = DateTime.utc(2026, 8, 10);
   final otherDay = DateTime.utc(2026, 8, 11);
+
+  /// A tracked event on the classic implicit-attendance default, so an
+  /// unmarked day reads as present. `EventPresence.isMissed` takes the event
+  /// since **v37**.
+  CalendarEvent eventOf(String id) => CalendarEvent(
+    id: id,
+    title: 'Leg day',
+    categoryId: 'gym',
+    startDate: DateTime.utc(2026, 8, 1),
+    rule: const DailyRecurrence(),
+    tracksPresence: true,
+  );
 
   setUp(() async {
     EventSkipService.reset();
@@ -120,23 +134,23 @@ void main() {
   group('presence interaction', () {
     test('cancelling a day clears its absence mark', () async {
       final presence = await EventPresenceService.getInstance();
-      await presence.markMissed('e1', day);
-      expect(EventPresence.isMissed('e1', day), isTrue);
+      await presence.setStatus('e1', day, PresenceStatus.missed);
+      expect(EventPresence.isMissed(eventOf('e1'), day), isTrue);
 
       await service.markSkipped('e1', day);
 
       // An occurrence that does not exist cannot have been missed; leaving the
       // mark would resurface it the moment the skip is undone.
-      expect(EventPresence.isMissed('e1', day), isFalse);
+      expect(EventPresence.isMissed(eventOf('e1'), day), isFalse);
     });
 
     test('an absence on another day survives', () async {
       final presence = await EventPresenceService.getInstance();
-      await presence.markMissed('e1', otherDay);
+      await presence.setStatus('e1', otherDay, PresenceStatus.missed);
 
       await service.markSkipped('e1', day);
 
-      expect(EventPresence.isMissed('e1', otherDay), isTrue);
+      expect(EventPresence.isMissed(eventOf('e1'), otherDay), isTrue);
     });
   });
 

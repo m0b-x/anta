@@ -4191,3 +4191,125 @@ Review fixes that shipped with it:
   window masks by arithmetic on the day numbers rather than a `DateTime.utc` per
   day; a `_YearTile` carries its own `daysInMonth`; and the sheet no longer
   re-exports `lib/models/agenda_day_list.dart`.
+
+## Addendum (v37): assume-absent defaults
+
+Presence (v26) treated attendance as **implicit**: `calendar_event_absences`
+held only "missed" rows, so a tracked event with no marks read as attended on
+every occurrence. v37 makes that a per-event choice, so an event can instead
+default to **missed until confirmed** — the reading a habit you are trying to
+build actually needs, and the fix for the drill-down calling whole months
+"fully present" for an event nobody had touched.
+
+**Three columns, one migration, no backfill.**
+
+- `calendar_event_absences.status` TEXT NOT NULL DEFAULT `'missed'` —
+  `PresenceStatus` (`missed` | `present`), unknown or absent decoding to
+  `missed` through `PresenceStatus.fromName`, which **never throws** (a startup
+  `_load` that did would silently clear every mark in the database). No `CHECK`,
+  matching every other additive column here. This is the column the presence
+  roadmap reserved in 2026-08 for exactly this.
+- `calendar_events.assume_absent` INTEGER NOT NULL DEFAULT 0 and
+  `calendar_events.assume_absent_from` INTEGER NULL (date-only UTC, read back
+  through `CalendarEventService._dateOnlyUtc` like `start_date`/`end_date` —
+  skip it and the boundary shifts a day west of UTC).
+- `calendar_event_templates.assume_absent` INTEGER NOT NULL DEFAULT 0.
+
+Every default is what a pre-v37 row already meant, so the migration is four
+guarded `ALTER TABLE`s and nothing else. It also **drops and recreates**
+`idx_calendar_event_absences_active` as `(event_id, day, status)
+WHERE is_deleted = 0` — the v27 index-swap idiom, because `CREATE INDEX IF NOT
+EXISTS` alone would strand upgraders on the two-column definition. That matters:
+`EventAbsenceDao.getActiveKeys` projects the status too, so an un-swapped index
+still answers the load but no longer *covering*, costing one rowid lookup per
+live mark at every startup and after every event delete. The skip table's index
+stayed two columns — **the two delta tables are no longer symmetric**.
+
+**The contract**: `EventPresence.isMissed(CalendarEvent event, DateTime dayUtc)`
+— the signature took the event id until v37. An explicit mark wins in both
+directions; with none, the answer is
+`CalendarEvent.assumesAbsentOn(day)` =
+`assumeAbsent && (assumeAbsentFromUtc == null || !day.isBefore(from))`. It is
+allocation-free, debug-asserts date-only UTC, and **reads no clock** — an
+unconfirmed future day of an assume-absent event is missed exactly like a past
+one, which is what keeps the whole read path free of a midnight rollover.
+`assumeAbsentFromUtc` is a derived `late final` beside `endDateUtc` and is
+**not** in `props`; both stored fields are.
+
+**Nothing else about presence moved.** `occursOn`, the bloc's day cache,
+`EventAgenda` scans, count labels, `.ics` and `CalendarMissedDisplay` are
+untouched; backup stays **version 7** (the three keys are additive, and an
+archive without them restores false / NULL / missed). The one bloc change is
+`SetOccurrencePresence({eventId, day, status})` replacing
+`SetOccurrenceMissed` + `ClearOccurrenceMissed` — keeping "Clear" would have
+named a write that now *inserts* a `present` row. It bumps `occurrenceRevision`
+**and** `presenceRevision`, calls `_invalidateIfPresenceIsMembership`, and
+never drops the day cache. `EventAbsenceDao.clearMark` is the only tombstoning
+path left, and it means "no answer yet", not "present".
+
+**Flipping the default bumps no revision.** It rides `allEvents` identity,
+which `sameGridInputs` compares by reference and `_onUpdateEvent` rebuilds —
+value-comparing it would leave the grid one edit behind the editor.
+
+**Editor** (`event_editor_sheet.dart`), inside the existing
+`_ruleHasManyOccurrences` block and gated on `_tracksPresence`, directly under
+the Track-presence card: a compact `SegmentedButton<bool>` — *Assume present* /
+*Assume absent* — plus one `bodySmall` hint that follows the selection ("Days
+count as attended unless you mark them missed." / "Days count as missed until
+you mark them present."). No section header; the two labels are self-describing.
+
+Below it, **only while `_assumeAbsent && _isEditing`**, an "Absent from"
+`_PickerTile`: the formatted date, or `eventAssumeAbsentFromStart` ("Start of
+event") with a chevron, and a clear `IconButton` once a date is set. Rules:
+
+- **It is seeded once**, on selecting Assume absent for an event that was
+  *saved* assume-present with no boundary — from `EventEditorSheet.occurrenceDay`
+  (the occurrence whose detail sheet the user came through), falling back to
+  today. An event already on the inverted default keeps whatever it has,
+  including none, so changing your mind twice inside one session cannot cut the
+  event's past off behind you.
+- **A new event never sees it.** There is no history for a boundary to protect,
+  and offering one only invites a date before the event exists.
+- **Both fields ride the opt-in.** `effectiveAssumeAbsent =
+  effectiveTracksPresence && _assumeAbsent`, and the from-date clears with it
+  via `clearAssumeAbsentFrom` (the `clearShowInDayRail` idiom) — so an event
+  edited down to one-time, or with tracking switched off, persists neither.
+- `EventTemplate` carries the **flag only**, cleared for a one-time or untracked
+  template in `buildEvent`; a stamped-out event starts today with no boundary.
+
+**Converting an event never rewrites mark rows.** Marks on or after the
+boundary become redundant but harmless; marks before it keep meaning what they
+meant when they were written, and flipping back leaves every one in place.
+There is no data pass and there must never be one.
+
+**The consequence to keep in mind**: under `CalendarMissedDisplay.hidden` an
+unconfirmed assume-absent event vanishes from the grid, the agenda and the
+timeline — every unmarked day is missed. The day summary panel's exemption (it
+always renders missed rows, faded) is the only surface left that can mark it,
+which is what makes that exemption load-bearing rather than an inconsistency to
+tidy up. In the drill-down the counts finally mean confirmation: an assume-absent
+month reads `0/N` until days are actually ticked.
+
+**v38 is a repair, not a feature.** An intermediate build of v37 reached the
+owner's phone with the default spelled as one `presence_default TEXT` column on
+events and templates. A database it stamped reads as 37, so the real v37 step
+never runs for it and the typed event query fails on the missing
+`assume_absent` — the service swallows that into an empty list, which presents
+as "all my events are gone" with every row intact. `_migrateV37ToV38` re-runs
+the idempotent v37 body, carries an `'absent'` value into `assume_absent`, and
+drops the stray column; a correct v37 database passes through untouched. The
+`'absent'` spelling is a best-effort reconstruction — nothing in the repo can
+confirm what that build wrote — and it fails safe: an unmatched value leaves
+`assume_absent = 0`, the pre-feature reading, never a lost row.
+
+One consequence of durable marks worth knowing: since v37, un-marking a
+mis-tap on an assume-present event writes a `present` row rather than
+tombstoning, and that row is indistinguishable from a deliberate confirmation.
+Flip the event to assume-absent across that day later and it keeps reading
+attended. This follows from "explicit always wins" and is accepted; it is the
+one place a correction and a confirmation collapse into the same row. The
+lesson is the same one the guards already encode: a migration must be safe to
+run against a database that is *partly* what it expects.
+
+Design record: the assume-absent addendum in
+`docs/presence-tracking-roadmap.md`.

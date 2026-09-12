@@ -1,8 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
+import 'package:anta/constants/event_presence.dart';
+import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/models/agenda_day_list.dart';
+import 'package:anta/models/calendar_appearance.dart';
+import 'package:anta/models/calendar_event.dart';
+import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/utils/agenda_day_list_index.dart';
+import 'package:anta/utils/event_agenda.dart';
+import 'package:anta/widgets/agenda_list_view.dart';
 
 AgendaDayListEntry _entry(
   DateTime day, {
@@ -344,6 +352,117 @@ void main() {
         ),
         throwsA(isA<AssertionError>()),
       );
+    });
+  });
+
+  /// The index counts whatever `missed` flag it is handed, so the assertion
+  /// that matters for **v37** is one layer up: the flag has to arrive set for
+  /// an assume-absent event nobody has confirmed. That path runs through
+  /// `AgendaListView.eventDayEntries` → `EventSummaryProvider` →
+  /// `EventPresence.isMissed`, which is why these build entries for real
+  /// instead of writing `missed: true` by hand.
+  ///
+  /// Before v37 this whole group would have read "attended", every day, for an
+  /// event the user had never touched — the drill-down claim this feature
+  /// exists to fix.
+  group('AgendaDayListIndex over an assume-absent event', () {
+    final l10n = AppLocalizationsEn();
+
+    // A recurrence label is formatted while the entries are built; the
+    // localization delegates have already loaded the locale data in the app.
+    setUpAll(() => initializeDateFormatting('en'));
+
+    final day5 = DateTime.utc(2026, 9, 5);
+    final day15 = DateTime.utc(2026, 9, 15);
+    final day30 = DateTime.utc(2026, 9, 30);
+
+    final event = CalendarEvent(
+      id: 'e1',
+      title: 'Leg day',
+      categoryId: 'gym',
+      startDate: DateTime.utc(2026, 9, 1),
+      rule: const DailyRecurrence(),
+      tracksPresence: true,
+      assumeAbsent: true,
+    );
+
+    List<AgendaDayListEntry> entries() {
+      return AgendaListView.eventDayEntries(
+        [
+          for (final day in [day5, day15, day30])
+            EventOccurrence(event: event, day: day),
+        ],
+        l10n,
+        (_, _) {},
+        showRecurrenceLabels: true,
+        missedDisplay: CalendarMissedDisplay.faded,
+      );
+    }
+
+    setUp(EventPresence.resetCache);
+    tearDown(EventPresence.resetCache);
+
+    test('unmarked days count as missed, not as attendance', () {
+      final index = AgendaDayListIndex.build(
+        entries(),
+        windowStart: DateTime.utc(2026, 9, 1),
+        windowEnd: DateTime.utc(2026, 9, 30),
+      );
+
+      expect(index.totalCount, 3);
+      expect(index.keptCountForMonth(DateTime.utc(2026, 9, 1)), 0);
+      expect(
+        index.missedMaskForMonth(DateTime.utc(2026, 9, 1)),
+        (1 << 4) | (1 << 14) | (1 << 29),
+      );
+      // Every one of them still marks its day: the event occurs, it simply
+      // has nothing confirmed on it.
+      expect(
+        index.markedMaskForMonth(DateTime.utc(2026, 9, 1)),
+        (1 << 4) | (1 << 14) | (1 << 29),
+      );
+    });
+
+    test('one confirmed day wins its square back', () {
+      EventPresence.updateCache(
+        byEvent: {
+          'e1': {day15: PresenceStatus.present},
+        },
+      );
+
+      final index = AgendaDayListIndex.build(
+        entries(),
+        windowStart: DateTime.utc(2026, 9, 1),
+        windowEnd: DateTime.utc(2026, 9, 30),
+      );
+
+      expect(index.keptCountForMonth(DateTime.utc(2026, 9, 1)), 1);
+      expect(index.keptCountForDay(day15), 1);
+      expect(index.keptCountForDay(day5), 0);
+      expect(
+        index.missedMaskForMonth(DateTime.utc(2026, 9, 1)),
+        (1 << 4) | (1 << 29),
+      );
+    });
+
+    test('hidden mode drops the unconfirmed days before they are rows', () {
+      // The consequence nothing else in this file can show: with
+      // `CalendarMissedDisplay.hidden` an assume-absent event has no rows at
+      // all until something is confirmed, so the drill-down counts nothing
+      // rather than counting attendance that was never claimed. The day
+      // panel's exemption is what keeps such an event markable.
+      final hidden = AgendaListView.eventDayEntries(
+        [
+          for (final day in [day5, day15, day30])
+            EventOccurrence(event: event, day: day),
+        ],
+        l10n,
+        (_, _) {},
+        showRecurrenceLabels: true,
+        missedDisplay: CalendarMissedDisplay.hidden,
+      );
+
+      expect(hidden, isEmpty);
     });
   });
 

@@ -100,6 +100,12 @@ void main() {
     final missedDay = DateTime.utc(2026, 8, 3);
     final skippedDay = DateTime.utc(2026, 8, 10);
     final holidayDay = DateTime.utc(2026, 8, 15);
+    // v37: the event is flipped to assume-absent from the 17th, so the three
+    // Mondays around that boundary each restore for a different reason — one
+    // explicit miss before it, one explicit confirmation after it, and the
+    // unmarked days on either side reading opposite ways.
+    final absentFromDay = DateTime.utc(2026, 8, 17);
+    final presentDay = DateTime.utc(2026, 8, 24);
 
     final events = await CalendarEventService.getInstance();
     await events.upsert(
@@ -110,6 +116,8 @@ void main() {
         startDate: DateTime.utc(2026, 8, 1),
         rule: const WeeklyRecurrence(weekdays: {DateTime.monday}),
         tracksPresence: true,
+        assumeAbsent: true,
+        assumeAbsentFrom: absentFromDay,
         perOccurrenceDescriptions: true,
       ),
     );
@@ -118,9 +126,16 @@ void main() {
       missedDay,
       'Standup instead',
     );
-    await (await EventPresenceService.getInstance()).markMissed(
+    final presence = await EventPresenceService.getInstance();
+    await presence.setStatus(
       'roundtrip-event',
       missedDay,
+      PresenceStatus.missed,
+    );
+    await presence.setStatus(
+      'roundtrip-event',
+      presentDay,
+      PresenceStatus.present,
     );
     await (await EventSkipService.getInstance()).markSkipped(
       'roundtrip-event',
@@ -234,8 +249,24 @@ void main() {
       'Standup instead',
     );
 
+    // The v37 pair rides the `calendarEvents` key with no version bump, so
+    // this is the only end-to-end proof the boundary survives — and a lost
+    // one silently rewrites the meaning of every day before it.
+    expect(restoredEvent.assumeAbsent, isTrue);
+    expect(restoredEvent.assumeAbsentFromUtc, absentFromDay);
+
     await EventPresenceService.getInstance();
-    expect(EventPresence.isMissed('roundtrip-event', missedDay), isTrue);
+    expect(EventPresence.isMissed(restoredEvent, missedDay), isTrue);
+    // A `present` row is a statement of its own since v37: the status column
+    // is what carries it, and losing it would restore this day as a miss on an
+    // event whose every unmarked day already reads as one.
+    expect(EventPresence.isMissed(restoredEvent, presentDay), isFalse);
+    // Unmarked on either side of the boundary, answered by the event alone.
+    expect(
+      EventPresence.isMissed(restoredEvent, DateTime.utc(2026, 8, 31)),
+      isTrue,
+    );
+    expect(EventPresence.isMissed(restoredEvent, skippedDay), isFalse);
 
     await EventSkipService.getInstance();
     expect(EventSkips.isSkipped('roundtrip-event', skippedDay), isTrue);
@@ -255,5 +286,71 @@ void main() {
     // and a lost swatch is silent: every picker just stops offering a colour
     // the user mixed.
     expect(CalendarPalette.custom, [paletteColor]);
+  });
+
+  test('an archive written before v37 restores the old reading', () async {
+    // Version 7 covers both, so there is no fixture to import and no flag to
+    // branch on: a pre-v37 archive is simply this one with three keys absent,
+    // which is exactly what the import's `Value.absent()` fallbacks and
+    // `PresenceStatus.fromName(null)` are for. Stripping them from a real
+    // export is the closest thing to the file an older build would have
+    // written.
+    final db = await AppDatabase.getInstance();
+    await db.calendarEventDao.deleteAll();
+    await db.eventAbsenceDao.deleteAll();
+    DatabaseLifecycle.notifyDatabaseSwitching();
+
+    final markedDay = DateTime.utc(2026, 8, 24);
+    await (await CalendarEventService.getInstance()).upsert(
+      CalendarEvent(
+        id: 'legacy-event',
+        title: 'Standing meeting',
+        categoryId: 'other',
+        startDate: DateTime.utc(2026, 8, 1),
+        rule: const WeeklyRecurrence(weekdays: {DateTime.monday}),
+        tracksPresence: true,
+        assumeAbsent: true,
+        assumeAbsentFrom: DateTime.utc(2026, 8, 17),
+      ),
+    );
+    await (await EventPresenceService.getInstance()).setStatus(
+      'legacy-event',
+      markedDay,
+      PresenceStatus.present,
+    );
+
+    final backup = await BackupService.getInstance();
+    final exported = await backup.exportAllData();
+    for (final raw in exported['calendarEvents'] as List) {
+      (raw as Map)
+        ..remove('assumeAbsent')
+        ..remove('assumeAbsentFromMs');
+    }
+    for (final raw in exported['eventAbsences'] as List) {
+      (raw as Map).remove('status');
+    }
+    final json = jsonEncode(exported);
+
+    await db.calendarEventDao.deleteAll();
+    await db.eventAbsenceDao.deleteAll();
+    DatabaseLifecycle.notifyDatabaseSwitching();
+
+    final result = await backup.importFromJson(json);
+    expect(result.success, isTrue, reason: 'error: ${result.error}');
+
+    final restored = (await CalendarEventService.getInstance()).events
+        .firstWhere((e) => e.id == 'legacy-event');
+    expect(restored.assumeAbsent, isFalse);
+    expect(restored.assumeAbsentFrom, isNull);
+
+    await EventPresenceService.getInstance();
+    // A live row in a pre-v37 archive could only ever mean one thing, and
+    // reading it as anything else would invent confirmations no one made.
+    expect(EventPresence.isMissed(restored, markedDay), isTrue);
+    expect(
+      EventPresence.isMissed(restored, DateTime.utc(2026, 8, 31)),
+      isFalse,
+      reason: 'an unmarked day of a pre-v37 event was attended by default',
+    );
   });
 }

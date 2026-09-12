@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
+import 'package:anta/constants/event_presence.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/calendar_selection_source.dart';
@@ -29,6 +30,16 @@ void main() {
   late CalendarBloc bloc;
 
   final day = DateTime.utc(2026, 8, 10);
+
+  final tracked = CalendarEvent(
+    id: 'e1',
+    title: 'Leg day',
+    categoryId: 'gym',
+    startDate: DateTime.utc(2026, 8, 1),
+    rule: const DailyRecurrence(),
+    tracksPresence: true,
+    perOccurrenceDescriptions: true,
+  );
 
   setUpAll(() async {
     tempDir = await Directory.systemTemp.createTemp('anta_calendar_grid');
@@ -60,19 +71,7 @@ void main() {
     await service.deleteAll();
     bloc = CalendarBloc(service: service);
     await dispatch(const LoadCalendarEvents());
-    await dispatch(
-      CreateCalendarEvent(
-        event: CalendarEvent(
-          id: 'e1',
-          title: 'Leg day',
-          categoryId: 'gym',
-          startDate: DateTime.utc(2026, 8, 1),
-          rule: const DailyRecurrence(),
-          tracksPresence: true,
-          perOccurrenceDescriptions: true,
-        ),
-      ),
-    );
+    await dispatch(CreateCalendarEvent(event: tracked));
   });
 
   tearDown(() async {
@@ -94,21 +93,55 @@ void main() {
   test('a presence mark changes the grid inputs', () async {
     final before = loaded();
 
-    final after = await dispatch(SetOccurrenceMissed(eventId: 'e1', day: day));
+    final after = await dispatch(
+      SetOccurrencePresence(
+        eventId: 'e1',
+        day: day,
+        status: PresenceStatus.missed,
+      ),
+    );
 
     expect(after.presenceRevision, greaterThan(before.presenceRevision));
     expect(before.sameGridInputs(after), isFalse);
   });
 
   test('clearing a presence mark changes the grid inputs', () async {
-    await dispatch(SetOccurrenceMissed(eventId: 'e1', day: day));
+    await dispatch(
+      SetOccurrencePresence(
+        eventId: 'e1',
+        day: day,
+        status: PresenceStatus.missed,
+      ),
+    );
     final before = loaded();
 
     final after = await dispatch(
-      ClearOccurrenceMissed(eventId: 'e1', day: day),
+      SetOccurrencePresence(
+        eventId: 'e1',
+        day: day,
+        status: PresenceStatus.present,
+      ),
     );
 
     expect(after.presenceRevision, greaterThan(before.presenceRevision));
+    expect(before.sameGridInputs(after), isFalse);
+  });
+
+  test('flipping the presence default changes the grid inputs', () async {
+    final before = loaded();
+
+    final after = await dispatch(
+      UpdateCalendarEvent(event: tracked.copyWith(assumeAbsent: true)),
+    );
+
+    // The v37 default rides `allEvents`, not `presenceRevision`: no mark was
+    // written, so nothing bumps that counter — and every unmarked day of this
+    // event just changed what it reads as. `sameGridInputs` compares
+    // `allEvents` by **identity**, which only catches this because
+    // `_onUpdateEvent` builds a fresh list; value-comparing it here would put
+    // the grid one edit behind the editor.
+    expect(after.presenceRevision, before.presenceRevision);
+    expect(identical(before.allEvents, after.allEvents), isFalse);
     expect(before.sameGridInputs(after), isFalse);
   });
 

@@ -1,5 +1,6 @@
 import 'package:drift/drift.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:anta/constants/event_presence.dart';
 import 'package:anta/database/daos/note_dao.dart';
 import 'package:anta/database/daos/content_chunk_dao.dart';
 import 'package:anta/database/database.dart';
@@ -149,21 +150,24 @@ void main() {
       );
     });
 
-    test('the statement count does not move with the number of folders', () async {
-      await _seedTree(db, roots: 30, depth: 3, notesPerFolder: 2);
+    test(
+      'the statement count does not move with the number of folders',
+      () async {
+        await _seedTree(db, roots: 30, depth: 3, notesPerFolder: 2);
 
-      counter.reset();
-      await db.folderDao.noteCountsWithDescendants(const ['root0']);
-      final forOne = counter.count;
+        counter.reset();
+        await db.folderDao.noteCountsWithDescendants(const ['root0']);
+        final forOne = counter.count;
 
-      counter.reset();
-      await db.folderDao.noteCountsWithDescendants([
-        for (var i = 0; i < 30; i++) 'root$i',
-      ]);
-      final forThirty = counter.count;
+        counter.reset();
+        await db.folderDao.noteCountsWithDescendants([
+          for (var i = 0; i < 30; i++) 'root$i',
+        ]);
+        final forThirty = counter.count;
 
-      expect(forOne, forThirty);
-    });
+        expect(forOne, forThirty);
+      },
+    );
 
     test('an empty folder list touches the database not at all', () async {
       counter.reset();
@@ -171,28 +175,30 @@ void main() {
       expect(counter.count, 0);
     });
 
-    test('the count reaches every descendant, and stops at deleted ones', () async {
-      await _seedTree(db, roots: 2, depth: 3, notesPerFolder: 2);
-      // 2 notes in the root, 2 in its child, 2 in its grandchild.
-      expect(
-        await db.folderDao.noteCountsWithDescendants(const ['root0']),
-        {'root0': 6},
-      );
+    test(
+      'the count reaches every descendant, and stops at deleted ones',
+      () async {
+        await _seedTree(db, roots: 2, depth: 3, notesPerFolder: 2);
+        // 2 notes in the root, 2 in its child, 2 in its grandchild.
+        expect(await db.folderDao.noteCountsWithDescendants(const ['root0']), {
+          'root0': 6,
+        });
 
-      // Tombstoned directly rather than through
-      // `softDeleteFolderWithDescendants`: that path also rewrites `notes_fts`,
-      // which these batch-inserted rows were never added to.
-      await db.customStatement(
-        "UPDATE folders SET is_deleted = 1 WHERE id = 'root0_1'",
-      );
-      expect(
-        await db.folderDao.noteCountsWithDescendants(const ['root0']),
-        {'root0': 2},
-        reason:
-            'a tombstoned subtree must leave the traversal, notes and all — '
-            'the same rule getAllDescendantIds follows',
-      );
-    });
+        // Tombstoned directly rather than through
+        // `softDeleteFolderWithDescendants`: that path also rewrites `notes_fts`,
+        // which these batch-inserted rows were never added to.
+        await db.customStatement(
+          "UPDATE folders SET is_deleted = 1 WHERE id = 'root0_1'",
+        );
+        expect(
+          await db.folderDao.noteCountsWithDescendants(const ['root0']),
+          {'root0': 2},
+          reason:
+              'a tombstoned subtree must leave the traversal, notes and all — '
+              'the same rule getAllDescendantIds follows',
+        );
+      },
+    );
 
     test('a folder with nothing under it still answers, with zero', () async {
       await _seedTree(db, roots: 1, depth: 1, notesPerFolder: 0);
@@ -255,16 +261,19 @@ void main() {
       );
     });
 
-    test('the statement count does not move with the size of the selection', () async {
-      counter.reset();
-      await db.noteDao.softDeleteNotesWithChunks([ids.first]);
-      final forOne = counter.count;
+    test(
+      'the statement count does not move with the size of the selection',
+      () async {
+        counter.reset();
+        await db.noteDao.softDeleteNotesWithChunks([ids.first]);
+        final forOne = counter.count;
 
-      counter.reset();
-      await db.noteDao.softDeleteNotesWithChunks(ids.skip(1).toList());
+        counter.reset();
+        await db.noteDao.softDeleteNotesWithChunks(ids.skip(1).toList());
 
-      expect(counter.count, forOne);
-    });
+        expect(counter.count, forOne);
+      },
+    );
 
     test('every deleted row is a proper tombstone', () async {
       final before = await db.noteDao.getNoteById(ids[3]);
@@ -364,11 +373,15 @@ void main() {
     }
 
     for (var i = 0; i < 20; i++) {
-      await db.eventAbsenceDao.markMissed('e1', DateTime.utc(2026, 1, i + 1));
+      await db.eventAbsenceDao.setStatus(
+        'e1',
+        DateTime.utc(2026, 1, i + 1),
+        PresenceStatus.missed,
+      );
     }
     // An already-tombstoned child must not be rewritten by the cascade, or a
     // repeated delete churns versions the merge reads as ordering events.
-    await db.eventAbsenceDao.unmark('e1', DateTime.utc(2026, 1, 1));
+    await db.eventAbsenceDao.clearMark('e1', DateTime.utc(2026, 1, 1));
     await db.eventOccurrenceDao.tombstone('e1', DateTime.utc(2026, 1, 1));
 
     counter.reset();

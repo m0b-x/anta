@@ -17,6 +17,8 @@ void main() {
     DateTime? startDate,
     bool tracksPresence = true,
     bool retroactive = false,
+    bool assumeAbsent = false,
+    DateTime? assumeAbsentFrom,
   }) {
     return CalendarEvent(
       id: 'e1',
@@ -28,11 +30,25 @@ void main() {
       rule: rule,
       tracksPresence: tracksPresence,
       retroactive: retroactive,
+      assumeAbsent: assumeAbsent,
+      assumeAbsentFrom: assumeAbsentFrom,
     );
   }
 
   void markMissed(Iterable<DateTime> days) {
-    EventPresence.updateCache(byEvent: {'e1': days.toSet()});
+    EventPresence.updateCache(
+      byEvent: {
+        'e1': {for (final day in days) day: PresenceStatus.missed},
+      },
+    );
+  }
+
+  void markPresent(Iterable<DateTime> days) {
+    EventPresence.updateCache(
+      byEvent: {
+        'e1': {for (final day in days) day: PresenceStatus.present},
+      },
+    );
   }
 
   setUp(EventPresence.resetCache);
@@ -250,6 +266,82 @@ void main() {
       )!;
 
       expect(stats.currentStreak, 0);
+    });
+  });
+
+  group('assume-absent events (v37)', () {
+    test('an unconfirmed event scores zero, not full marks', () {
+      final stats = PresenceAdherence.compute(
+        event(assumeAbsent: true),
+        today: today,
+      )!;
+
+      // The reading this whole feature exists for: before v37 a tracked event
+      // nobody had ever marked read as attended on every day of its life, so
+      // the drill-down called a month the user never confirmed "fully
+      // present".
+      expect(stats.total, PresenceAdherence.windowDays);
+      expect(stats.attended, 0);
+      expect(stats.currentStreak, 0);
+      expect(stats.longestStreak, 0);
+    });
+
+    test('one confirmed day is one attendance and one streak', () {
+      markPresent([today]);
+
+      final stats = PresenceAdherence.compute(
+        event(assumeAbsent: true),
+        today: today,
+      )!;
+
+      expect(stats.attended, 1);
+      expect(stats.currentStreak, 1);
+      expect(stats.longestStreak, 1);
+    });
+
+    test('a confirmed day still breaks against the days around it', () {
+      markPresent([today.subtract(const Duration(days: 3))]);
+
+      final stats = PresenceAdherence.compute(
+        event(assumeAbsent: true),
+        today: today,
+      )!;
+
+      // Today is unconfirmed, so the current streak is closed before the walk
+      // ever reaches the confirmation.
+      expect(stats.attended, 1);
+      expect(stats.currentStreak, 0);
+      expect(stats.longestStreak, 1);
+    });
+
+    test('a boundary splits the window in two readings', () {
+      final from = today.subtract(const Duration(days: 9));
+
+      final stats = PresenceAdherence.compute(
+        event(assumeAbsent: true, assumeAbsentFrom: from),
+        today: today,
+      )!;
+
+      // Ten days on the inverted side (the boundary day included), the other
+      // twenty still reading as the implicit attendance they were recorded
+      // under — which is the entire reason the from-date exists.
+      expect(stats.total, PresenceAdherence.windowDays);
+      expect(stats.attended, PresenceAdherence.windowDays - 10);
+      expect(stats.currentStreak, 0);
+      expect(stats.longestStreak, PresenceAdherence.lookbackDays - 10);
+    });
+
+    test('the boundary never reads the wall clock', () {
+      // A future day of an assume-absent event is missed like any other, but
+      // the walk still refuses to count it — the two rules are independent and
+      // both have to hold, or a pre-marked tomorrow drags today's ratio down.
+      final stats = PresenceAdherence.compute(
+        event(assumeAbsent: true, assumeAbsentFrom: today),
+        today: today,
+      )!;
+
+      expect(stats.total, PresenceAdherence.windowDays);
+      expect(stats.attended, PresenceAdherence.windowDays - 1);
     });
   });
 

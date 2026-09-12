@@ -50,6 +50,15 @@ import 'package:drift/drift.dart';
 /// `false` forces it out. The recurrence guard lives in the shared predicate
 /// (`eventInDayRail`), so `true` on a one-time event still stays out.
 ///
+/// [assumeAbsent] / [assumeAbsentFrom] (added in schema v37) invert the
+/// presence default for one event: unmarked occurrences read as **missed**
+/// until the user deliberately marks them present, rather than the implicit
+/// attendance v26 shipped. [assumeAbsentFrom] is an optional date-only UTC
+/// lower bound so an existing event can be flipped from a chosen day without
+/// rewriting the meaning of its history; NULL means the whole event. Explicit
+/// `calendar_event_absences` rows always win over the default, and neither
+/// column touches occurrence math.
+///
 /// [colorValue] / [tintIcon] / [priority] (added in schema v16) drive
 /// per-event presentation. [colorValue] is an optional 32-bit ARGB override
 /// (NULL = use the category color); [tintIcon] decides whether that color
@@ -97,6 +106,8 @@ class CalendarEvents extends Table {
   BoolColumn get perOccurrenceDescriptions =>
       boolean().withDefault(const Constant(false))();
   BoolColumn get showInDayRail => boolean().nullable()();
+  BoolColumn get assumeAbsent => boolean().withDefault(const Constant(false))();
+  DateTimeColumn get assumeAbsentFrom => dateTime().nullable()();
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
 

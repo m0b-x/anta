@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
+import 'package:anta/constants/event_presence.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/recurrence_rule.dart';
@@ -178,7 +179,13 @@ void main() {
       bloc.eventsForDay(day);
     }
 
-    await dispatch(SetOccurrenceMissed(eventId: 'e1', day: month.first));
+    await dispatch(
+      SetOccurrencePresence(
+        eventId: 'e1',
+        day: month.first,
+        status: PresenceStatus.missed,
+      ),
+    );
 
     CalendarEvent.debugOccursOnCalls = 0;
 

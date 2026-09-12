@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:anta/constants/event_presence.dart';
 import 'package:anta/database/daos/folder_dao.dart';
 import 'package:anta/database/daos/note_dao.dart';
 import 'package:anta/database/database.dart';
@@ -260,7 +261,11 @@ void main() {
     });
 
     test('the absence tombstone cascade is a prefix search', () async {
-      await db.eventAbsenceDao.markMissed('e1', DateTime.utc(2026, 8, 10));
+      await db.eventAbsenceDao.setStatus(
+        'e1',
+        DateTime.utc(2026, 8, 10),
+        PresenceStatus.missed,
+      );
       final plan = await planOf(
         () => db.eventAbsenceDao.tombstoneForEvent('e1'),
       );
@@ -297,14 +302,41 @@ void main() {
       expect(plan, isNot(contains(contains('SCAN'))));
     });
 
-    test('un-marking an occurrence is a primary-key update', () async {
-      await db.eventAbsenceDao.markMissed('e1', DateTime.utc(2026, 8, 10));
+    test('re-stating a mark is a primary-key update', () async {
+      await db.eventAbsenceDao.setStatus(
+        'e1',
+        DateTime.utc(2026, 8, 10),
+        PresenceStatus.missed,
+      );
       final plan = await planOf(
-        () => db.eventAbsenceDao.unmark('e1', DateTime.utc(2026, 8, 10)),
+        () => db.eventAbsenceDao.setStatus(
+          'e1',
+          DateTime.utc(2026, 8, 10),
+          PresenceStatus.present,
+        ),
         containing: 'UPDATE',
       );
-      // Un-marking tombstones the row rather than deleting it, so this is the
-      // one write that has to *find* a row on the hot path. The composite PK
+      // Since v37 flipping a day writes the opposite status in place instead of
+      // tombstoning, so the ordinary toggle now *finds* a row on the hot path
+      // rather than only the clear path doing so. The composite PK
+      // {event_id, day} is the index; declaring a separate one would be
+      // redundant.
+      expect(plan, contains(contains('SEARCH calendar_event_absences')));
+      expect(plan, isNot(contains(contains('SCAN'))));
+    });
+
+    test('clearing an occurrence mark is a primary-key update', () async {
+      await db.eventAbsenceDao.setStatus(
+        'e1',
+        DateTime.utc(2026, 8, 10),
+        PresenceStatus.missed,
+      );
+      final plan = await planOf(
+        () => db.eventAbsenceDao.clearMark('e1', DateTime.utc(2026, 8, 10)),
+        containing: 'UPDATE',
+      );
+      // Clearing a mark tombstones the row rather than deleting it, so this is
+      // the one write that has to *find* a row on the hot path. The composite PK
       // {event_id, day} is the index; declaring a separate one would be
       // redundant.
       expect(plan, contains(contains('SEARCH calendar_event_absences')));
@@ -341,6 +373,11 @@ void main() {
     });
 
     test('the absence load is answered entirely from its index', () async {
+      // v37 put `status` in both the projection and the index — the skip
+      // table's stayed two columns, so the two are no longer symmetric. Widen
+      // one without the other and this load silently stops covering: still
+      // correct, still indexed, but one rowid lookup per live mark at every
+      // startup and after every event delete.
       final plan = await planOf(() => db.eventAbsenceDao.getActiveKeys());
       expect(plan, usesCoveringIndex('idx_calendar_event_absences_active'));
     });

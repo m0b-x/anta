@@ -65,6 +65,11 @@ class EventTemplates extends Table {
   TextColumn get countStyle => text().withDefault(const Constant('numbered'))();
   BoolColumn get tracksPresence =>
       boolean().withDefault(const Constant(false))();
+
+  /// The **v37** presence-default flag. Templates carry the flag but never a
+  /// from-date: a from-date is a statement about one event's history, and a
+  /// stamped-out event starts today with none.
+  BoolColumn get assumeAbsent => boolean().withDefault(const Constant(false))();
   BoolColumn get perOccurrenceDescriptions =>
       boolean().withDefault(const Constant(false))();
 

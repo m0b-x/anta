@@ -94,7 +94,7 @@ void main() {
   setUp(() {
     EventPresence.updateCache(
       byEvent: {
-        'e1': {day2},
+        'e1': {day2: PresenceStatus.missed},
       },
     );
   });

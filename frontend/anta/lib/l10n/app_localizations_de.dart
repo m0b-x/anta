@@ -866,6 +866,26 @@ class AppLocalizationsDe extends AppLocalizations {
   String get eventTrackPresenceDesc => 'Markiere ausgelassene Tage.';
 
   @override
+  String get eventAssumePresent => 'Als besucht';
+
+  @override
+  String get eventAssumeAbsent => 'Als verpasst';
+
+  @override
+  String get eventAssumePresentHint =>
+      'Tage gelten als besucht, bis du sie als verpasst markierst.';
+
+  @override
+  String get eventAssumeAbsentHint =>
+      'Tage gelten als verpasst, bis du sie als besucht markierst.';
+
+  @override
+  String get eventAssumeAbsentFrom => 'Verpasst ab';
+
+  @override
+  String get eventAssumeAbsentFromStart => 'Beginn des Termins';
+
+  @override
   String get eventShowInDayRail => 'Tagesleiste';
 
   @override

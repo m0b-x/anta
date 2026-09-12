@@ -83,6 +83,7 @@ class _EventTemplateEditorSheetState extends State<EventTemplateEditorSheet> {
   late bool _tintIcon;
   late int _priority;
   late bool _tracksPresence;
+  late bool _assumeAbsent;
   late bool _perOccurrenceDescriptions;
   late bool _countOccurrences;
   late OccurrenceCountStyle _countStyle;
@@ -121,6 +122,7 @@ class _EventTemplateEditorSheetState extends State<EventTemplateEditorSheet> {
     _tintIcon = source?.tintIcon ?? true;
     _priority = source?.priority ?? kDefaultEventPriority;
     _tracksPresence = source?.tracksPresence ?? false;
+    _assumeAbsent = source?.assumeAbsent ?? false;
     _perOccurrenceDescriptions = source?.perOccurrenceDescriptions ?? false;
     _countOccurrences = source?.countOccurrences ?? false;
     _countStyle = source?.countStyle ?? OccurrenceCountStyle.numbered;
@@ -253,6 +255,7 @@ class _EventTemplateEditorSheetState extends State<EventTemplateEditorSheet> {
       countOccurrences: _repeats && _countOccurrences,
       countStyle: _countStyle,
       tracksPresence: _repeats && _tracksPresence,
+      assumeAbsent: _repeats && _tracksPresence && _assumeAbsent,
       perOccurrenceDescriptions: _repeats && _perOccurrenceDescriptions,
       sortOrder: widget.initial?.sortOrder ?? 0,
     );
@@ -545,6 +548,18 @@ class _EventTemplateEditorSheetState extends State<EventTemplateEditorSheet> {
                     onChanged: (value) =>
                         setState(() => _tracksPresence = value),
                   ),
+                  // The presence default (v37), behind the flag it qualifies:
+                  // an untracked template has no unmarked days to reinterpret.
+                  // No from-date here — a template never carries one.
+                  if (_tracksPresence)
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: _assumeAbsent,
+                      title: Text(l10n.eventAssumeAbsent),
+                      subtitle: Text(l10n.eventAssumeAbsentHint),
+                      onChanged: (value) =>
+                          setState(() => _assumeAbsent = value),
+                    ),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     value: _perOccurrenceDescriptions,

@@ -123,7 +123,7 @@ class _DayTimelineViewState extends State<DayTimelineView> {
   /// resolved through the same facade every other surface uses.
   bool _isMissed(CalendarEvent event) =>
       EventPresence.appliesTo(event) &&
-      EventPresence.isMissed(event.id, widget.day);
+      EventPresence.isMissed(event, widget.day);
 
   /// Minutes since midnight of "now", or `null` when [DayTimelineView.day] is
   /// not today.

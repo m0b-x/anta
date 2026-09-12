@@ -186,6 +186,16 @@ class DatabaseMigrations {
       toVersion: DatabaseSchema.v36NoteTitleIndex,
       migrate: _migrateV35ToV36,
     ),
+    Migration(
+      fromVersion: DatabaseSchema.v36NoteTitleIndex,
+      toVersion: DatabaseSchema.v37AssumeAbsent,
+      migrate: _migrateV36ToV37,
+    ),
+    Migration(
+      fromVersion: DatabaseSchema.v37AssumeAbsent,
+      toVersion: DatabaseSchema.v38PresenceDefaultRepair,
+      migrate: _migrateV37ToV38,
+    ),
   ];
 
   Future<void> runMigrations(Migrator m, int from, int to) async {
@@ -1343,5 +1353,118 @@ class DatabaseMigrations {
   /// EXISTS` makes the step idempotent either way. No data is read or written.
   Future<void> _migrateV35ToV36(Migrator m, GeneratedDatabase db) async {
     await DatabaseIndexes(_db).createNoteTitleIndex();
+  }
+
+  /// v36 → v37: per-event **assume-absent** presence defaults, plus the status
+  /// an explicit presence mark now carries.
+  ///
+  /// Four columns across three tables, each with the `PRAGMA table_info`
+  /// guard and a single `ALTER TABLE … ADD COLUMN` — the v19 / v26 / v33 / v34
+  /// shape, no `CHECK` for the same reason those omit one, and idempotent by
+  /// construction so a partial upgrade can re-run.
+  ///
+  /// `calendar_events.assume_absent` inverts the presence default for one
+  /// event: `NOT NULL DEFAULT 0` means every existing event keeps the implicit
+  /// attendance v26 shipped, so there is no backfill.
+  /// `assume_absent_from` is the optional date-only-UTC lower bound and ships
+  /// nullable with no default — NULL means "the whole event", which is the
+  /// only thing a pre-v37 row could have meant.
+  ///
+  /// `calendar_event_absences.status` retires the implicit reading of a live
+  /// row. Before v37 a row could only mean "missed", so `DEFAULT 'missed'`
+  /// backfills every existing row with exactly what it already said and no
+  /// `UPDATE` is needed. `calendar_event_templates.assume_absent` carries the
+  /// flag onto stamped-out events; templates deliberately have no from-date
+  /// column.
+  ///
+  /// The index swap is the `_migrateV26ToV27` drop-then-recreate idiom:
+  /// `idx_calendar_event_absences_active` is **redefined**, not added, because
+  /// `getActiveKeys` now projects `status` too and a two-column index would
+  /// stop covering the read. `CREATE INDEX IF NOT EXISTS` alone cannot
+  /// redefine an existing name, so the drop has to come first; the skips index
+  /// is untouched and the recreate is a no-op for it.
+  Future<void> _migrateV36ToV37(Migrator m, GeneratedDatabase db) async {
+    final eventColumns = <String>{
+      for (final row
+          in await _db.customSelect('PRAGMA table_info(calendar_events)').get())
+        row.read<String>('name'),
+    };
+    if (!eventColumns.contains('assume_absent')) {
+      await _db.customStatement(
+        'ALTER TABLE calendar_events ADD COLUMN assume_absent INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+    if (!eventColumns.contains('assume_absent_from')) {
+      await _db.customStatement(
+        'ALTER TABLE calendar_events ADD COLUMN assume_absent_from INTEGER',
+      );
+    }
+
+    final absenceColumns = <String>{
+      for (final row
+          in await _db
+              .customSelect('PRAGMA table_info(calendar_event_absences)')
+              .get())
+        row.read<String>('name'),
+    };
+    if (!absenceColumns.contains('status')) {
+      await _db.customStatement(
+        "ALTER TABLE calendar_event_absences ADD COLUMN status TEXT NOT NULL DEFAULT 'missed'",
+      );
+    }
+
+    final templateColumns = <String>{
+      for (final row
+          in await _db
+              .customSelect('PRAGMA table_info(calendar_event_templates)')
+              .get())
+        row.read<String>('name'),
+    };
+    if (!templateColumns.contains('assume_absent')) {
+      await _db.customStatement(
+        'ALTER TABLE calendar_event_templates ADD COLUMN assume_absent INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+
+    await _db.customStatement(
+      'DROP INDEX IF EXISTS idx_calendar_event_absences_active',
+    );
+    await DatabaseIndexes(_db).createCalendarDeltaIndexes();
+  }
+
+  /// v37 → v38: repairs databases stamped **37 by an intermediate build**.
+  ///
+  /// While v37 was being written, a build shipped to a device with the
+  /// presence default spelled as one `presence_default TEXT DEFAULT 'present'`
+  /// column on `calendar_events` and `calendar_event_templates` instead of the
+  /// `assume_absent` + `assume_absent_from` pair that landed. Such a database
+  /// already reads as 37, so `_migrateV36ToV37` never runs for it and every
+  /// event query fails on the missing column — the service swallows that into
+  /// an empty list, which is "all my events are gone" with the rows intact.
+  ///
+  /// Two halves, both guarded on `PRAGMA table_info` so a correct v37 database
+  /// passes through untouched:
+  /// 1. re-run [_migrateV36ToV37] — it is idempotent by construction, so it
+  ///    adds exactly what that shape lacks (the status column and the index
+  ///    were already in their final form there);
+  /// 2. where the stray column exists, carry an `'absent'` value into
+  ///    `assume_absent` and drop it. `DROP COLUMN` needs SQLite ≥ 3.35; the
+  ///    bundled library is 3.50+, and the upgrade tests already rely on it.
+  Future<void> _migrateV37ToV38(Migrator m, GeneratedDatabase db) async {
+    await _migrateV36ToV37(m, db);
+    for (final table in const ['calendar_events', 'calendar_event_templates']) {
+      final columns = <String>{
+        for (final row
+            in await _db.customSelect('PRAGMA table_info($table)').get())
+          row.read<String>('name'),
+      };
+      if (!columns.contains('presence_default')) continue;
+      await _db.customStatement(
+        "UPDATE $table SET assume_absent = 1 WHERE presence_default = 'absent'",
+      );
+      await _db.customStatement(
+        'ALTER TABLE $table DROP COLUMN presence_default',
+      );
+    }
   }
 }

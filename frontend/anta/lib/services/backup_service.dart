@@ -466,7 +466,11 @@ class BackupService {
         }
       }
       // Presence marks (v26+ backups). Same strand rule as the overrides
-      // above, for the same reason.
+      // above, for the same reason. A pre-v37 archive's rows carry no
+      // `status`, and absent decodes to `missed` — the only thing a live row
+      // could have meant before statuses existed. The events' own
+      // `assumeAbsent` / `assumeAbsentFromMs` ride `calendarEvents`, so the
+      // version stays 7.
       final eventAbsences = data['eventAbsences'] as List?;
       if (eventAbsences != null || calendarEvents != null) {
         final presence = await EventPresenceService.getInstance();

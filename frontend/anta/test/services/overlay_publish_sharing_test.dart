@@ -45,54 +45,91 @@ void main() {
   group('presence', () {
     test('marking one event leaves the others shared, not rebuilt', () async {
       final service = await EventPresenceService.forTesting(db);
-      await service.markMissed('a', DateTime.utc(2026, 1, 1));
-      await service.markMissed('b', DateTime.utc(2026, 1, 2));
-      await service.markMissed('b', DateTime.utc(2026, 1, 3));
+      await service.setStatus(
+        'a',
+        DateTime.utc(2026, 1, 1),
+        PresenceStatus.missed,
+      );
+      await service.setStatus(
+        'b',
+        DateTime.utc(2026, 1, 2),
+        PresenceStatus.missed,
+      );
+      await service.setStatus(
+        'b',
+        DateTime.utc(2026, 1, 3),
+        PresenceStatus.missed,
+      );
 
-      final untouchedBefore = EventPresence.daysFor('b');
-      await service.markMissed('a', DateTime.utc(2026, 1, 5));
+      final untouchedBefore = EventPresence.marksFor('b');
+      await service.setStatus(
+        'a',
+        DateTime.utc(2026, 1, 5),
+        PresenceStatus.missed,
+      );
 
       expect(
-        identical(EventPresence.daysFor('b'), untouchedBefore),
+        identical(EventPresence.marksFor('b'), untouchedBefore),
         isTrue,
-        reason: 'b was not touched, so its published set must be reused',
+        reason: 'b was not touched, so its published map must be reused',
       );
-      expect(EventPresence.daysFor('a'), hasLength(2));
+      expect(EventPresence.marksFor('a'), hasLength(2));
     });
 
-    test('the touched event gets a fresh set, never a patched one', () async {
+    test('the touched event gets a fresh map, never a patched one', () async {
       final service = await EventPresenceService.forTesting(db);
-      await service.markMissed('a', DateTime.utc(2026, 1, 1));
+      await service.setStatus(
+        'a',
+        DateTime.utc(2026, 1, 1),
+        PresenceStatus.missed,
+      );
 
-      final before = EventPresence.daysFor('a');
+      final before = EventPresence.marksFor('a');
       expect(before, hasLength(1));
-      await service.markMissed('a', DateTime.utc(2026, 1, 2));
+      await service.setStatus(
+        'a',
+        DateTime.utc(2026, 1, 2),
+        PresenceStatus.missed,
+      );
 
       // The invariant sharing depends on: the snapshot a render path was
       // already reading must still say what it said.
       expect(before, hasLength(1));
-      expect(identical(EventPresence.daysFor('a'), before), isFalse);
-      expect(EventPresence.daysFor('a'), hasLength(2));
+      expect(identical(EventPresence.marksFor('a'), before), isFalse);
+      expect(EventPresence.marksFor('a'), hasLength(2));
     });
 
     test('unmarking the last day drops the event and keeps the rest', () async {
       final service = await EventPresenceService.forTesting(db);
-      await service.markMissed('a', DateTime.utc(2026, 1, 1));
-      await service.markMissed('b', DateTime.utc(2026, 1, 2));
+      await service.setStatus(
+        'a',
+        DateTime.utc(2026, 1, 1),
+        PresenceStatus.missed,
+      );
+      await service.setStatus(
+        'b',
+        DateTime.utc(2026, 1, 2),
+        PresenceStatus.missed,
+      );
 
-      final untouchedBefore = EventPresence.daysFor('b');
-      await service.unmark('a', DateTime.utc(2026, 1, 1));
+      final untouchedBefore = EventPresence.marksFor('b');
+      await service.clearMark('a', DateTime.utc(2026, 1, 1));
 
-      expect(EventPresence.daysFor('a'), isEmpty);
-      expect(identical(EventPresence.daysFor('b'), untouchedBefore), isTrue);
+      expect(EventPresence.marksFor('a'), isEmpty);
+      expect(identical(EventPresence.marksFor('b'), untouchedBefore), isTrue);
     });
 
-    test('a published set cannot be mutated by a caller', () async {
+    test('a published map cannot be mutated by a caller', () async {
       final service = await EventPresenceService.forTesting(db);
-      await service.markMissed('a', DateTime.utc(2026, 1, 1));
+      await service.setStatus(
+        'a',
+        DateTime.utc(2026, 1, 1),
+        PresenceStatus.missed,
+      );
 
       expect(
-        () => EventPresence.daysFor('a').add(DateTime.utc(2026, 1, 9)),
+        () => EventPresence.marksFor('a')[DateTime.utc(2026, 1, 9)] =
+            PresenceStatus.missed,
         throwsUnsupportedError,
       );
     });

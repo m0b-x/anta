@@ -36,6 +36,11 @@ class EventTemplate extends Equatable {
   final bool countOccurrences;
   final OccurrenceCountStyle countStyle;
   final bool tracksPresence;
+
+  /// Inverts the presence default on every stamped-out event (**v37**).
+  /// Templates carry the flag but never a from-date: a boundary is a statement
+  /// about one event's history, and a freshly stamped event has none.
+  final bool assumeAbsent;
   final bool perOccurrenceDescriptions;
   final int sortOrder;
 
@@ -54,17 +59,20 @@ class EventTemplate extends Equatable {
     this.countOccurrences = false,
     this.countStyle = OccurrenceCountStyle.numbered,
     this.tracksPresence = false,
+    this.assumeAbsent = false,
     this.perOccurrenceDescriptions = false,
     this.sortOrder = 0,
   });
 
   /// Stamps out the event this template describes, anchored on [startDate].
   ///
-  /// The three flags that only mean anything for a repeating rule
-  /// ([retroactive], [tracksPresence], [perOccurrenceDescriptions]) are
+  /// The flags that only mean anything for a repeating rule ([retroactive],
+  /// [tracksPresence], [assumeAbsent], [perOccurrenceDescriptions]) are
   /// cleared for a one-time rule here, matching the editor's own save guards —
   /// a template captured while recurring and later flipped to one-time must
   /// not stamp out an event carrying flags its rule cannot honour.
+  /// [assumeAbsent] additionally rides [tracksPresence], the flag it
+  /// qualifies.
   CalendarEvent buildEvent({required String id, required DateTime startDate}) {
     final repeats = rule is! OneTimeRecurrence;
     return CalendarEvent(
@@ -83,6 +91,7 @@ class EventTemplate extends Equatable {
       countOccurrences: repeats && countOccurrences,
       countStyle: countStyle,
       tracksPresence: repeats && tracksPresence,
+      assumeAbsent: repeats && tracksPresence && assumeAbsent,
       perOccurrenceDescriptions: repeats && perOccurrenceDescriptions,
     );
   }
@@ -105,6 +114,7 @@ class EventTemplate extends Equatable {
     bool? countOccurrences,
     OccurrenceCountStyle? countStyle,
     bool? tracksPresence,
+    bool? assumeAbsent,
     bool? perOccurrenceDescriptions,
     int? sortOrder,
   }) {
@@ -123,6 +133,7 @@ class EventTemplate extends Equatable {
       countOccurrences: countOccurrences ?? this.countOccurrences,
       countStyle: countStyle ?? this.countStyle,
       tracksPresence: tracksPresence ?? this.tracksPresence,
+      assumeAbsent: assumeAbsent ?? this.assumeAbsent,
       perOccurrenceDescriptions:
           perOccurrenceDescriptions ?? this.perOccurrenceDescriptions,
       sortOrder: sortOrder ?? this.sortOrder,
@@ -145,6 +156,7 @@ class EventTemplate extends Equatable {
     countOccurrences,
     countStyle,
     tracksPresence,
+    assumeAbsent,
     perOccurrenceDescriptions,
     sortOrder,
   ];

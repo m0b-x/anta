@@ -84,7 +84,7 @@ abstract final class PresenceAdherence {
 
       final missed = day == override
           ? overrideMissed!
-          : EventPresence.isMissed(event.id, day);
+          : EventPresence.isMissed(event, day);
       if (!day.isBefore(windowStart)) {
         total++;
         if (!missed) attended++;

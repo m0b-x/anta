@@ -226,7 +226,7 @@ class CalendarGridFilters extends Equatable {
   bool allowsOccurrence(CalendarEvent event, DateTime dayUtc) {
     if (!missedOnly) return true;
     return EventPresence.appliesTo(event) &&
-        EventPresence.isMissed(event.id, dayUtc);
+        EventPresence.isMissed(event, dayUtc);
   }
 
   /// [events] narrowed to what the grid should render, by the event-level

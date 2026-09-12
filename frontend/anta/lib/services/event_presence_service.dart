@@ -6,13 +6,14 @@ import '../database/daos/event_absence_dao.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
 
-/// Owns per-occurrence absence marks in `calendar_event_absences` and
+/// Owns per-occurrence presence marks in `calendar_event_absences` and
 /// publishes them to the synchronous [EventPresence] facade.
 ///
-/// The table holds **only user deltas**: a live row means that occurrence was
-/// missed, and every other day of a tracked event resolves to "present". A
-/// daily event therefore costs zero rows until it is actually skipped, exactly
-/// like `calendar_event_occurrences` since v24.
+/// The table holds **only user deltas**: a live row is an explicit
+/// [PresenceStatus] for that occurrence, and every unmarked day of a tracked
+/// event resolves through the event's own default (`assumesAbsentOn`, **v37**).
+/// A daily event therefore costs zero rows until something is actually
+/// recorded, exactly like `calendar_event_occurrences` since v24.
 ///
 /// Unlike that feature there is **no global switch** — presence is opted into
 /// per event via `CalendarEvent.tracksPresence` — so the enabled-flag
@@ -67,7 +68,7 @@ class EventPresenceService {
   /// Mutable working copy behind the published facade. Single-day mutations
   /// patch this and republish rather than re-reading the table — a toggle
   /// should not cost a full `SELECT` and map rebuild.
-  final Map<String, Set<DateTime>> _byEvent = {};
+  final Map<String, Map<DateTime, PresenceStatus>> _byEvent = {};
 
   Future<void> reload() => _load();
 
@@ -76,7 +77,10 @@ class EventPresenceService {
     try {
       final rows = await _dao.getActiveKeys();
       for (final row in rows) {
-        (_byEvent[row.eventId] ??= <DateTime>{}).add(_dateOnlyUtc(row.day));
+        (_byEvent[row.eventId] ??= <DateTime, PresenceStatus>{})[_dateOnlyUtc(
+              row.day,
+            )] =
+            row.status;
       }
     } catch (e) {
       debugPrint('[EventPresenceService] Load error: $e');
@@ -86,10 +90,10 @@ class EventPresenceService {
   }
 
   /// The snapshot the facade is currently serving. Held so [_publishFor] can
-  /// **share** the entries it did not touch: every inner set here is already
+  /// **share** the entries it did not touch: every inner map here is already
   /// unmodifiable and is never rebuilt in place, so handing the same instance
   /// to the next snapshot is safe.
-  Map<String, Set<DateTime>> _published = const {};
+  Map<String, Map<DateTime, PresenceStatus>> _published = const {};
 
   /// Hands the facade an unmodifiable snapshot. Copied per publish so a later
   /// in-place patch can never mutate what render paths are already reading.
@@ -99,27 +103,29 @@ class EventPresenceService {
   void _publish() {
     _published = {
       for (final entry in _byEvent.entries)
-        entry.key: Set.unmodifiable(Set<DateTime>.of(entry.value)),
+        entry.key: Map.unmodifiable(
+          Map<DateTime, PresenceStatus>.of(entry.value),
+        ),
     };
     EventPresence.updateCache(byEvent: _published);
   }
 
   /// Republish after a change confined to one event (**5.5**).
   ///
-  /// Marking a single day used to deep-copy **every** event's whole set; now
-  /// only [eventId]'s set is rebuilt and the outer map is a pointer copy, so
+  /// Marking a single day used to deep-copy **every** event's whole map; now
+  /// only [eventId]'s map is rebuilt and the outer map is a pointer copy, so
   /// the cost follows the event that changed rather than the size of the
   /// store. The published-snapshots-are-immutable invariant is what makes the
   /// sharing safe, and it is unchanged: nothing here mutates a collection that
   /// has already been handed out, so a render path mid-read cannot see one
   /// shift underneath it.
   void _publishFor(String eventId) {
-    final next = Map<String, Set<DateTime>>.of(_published);
-    final days = _byEvent[eventId];
-    if (days == null || days.isEmpty) {
+    final next = Map<String, Map<DateTime, PresenceStatus>>.of(_published);
+    final marks = _byEvent[eventId];
+    if (marks == null || marks.isEmpty) {
       next.remove(eventId);
     } else {
-      next[eventId] = Set.unmodifiable(Set<DateTime>.of(days));
+      next[eventId] = Map.unmodifiable(Map<DateTime, PresenceStatus>.of(marks));
     }
     _published = next;
     EventPresence.updateCache(byEvent: next);
@@ -127,21 +133,30 @@ class EventPresenceService {
 
   // ── Mutations ────────────────────────────────────────────────────────
 
-  /// Records that this occurrence was missed. Idempotent: the DAO no-ops on an
-  /// already-live mark rather than churning the version.
-  Future<void> markMissed(String eventId, DateTime day) async {
+  /// Records an explicit [status] for this occurrence. Idempotent: the DAO
+  /// no-ops on a live mark already carrying [status] rather than churning the
+  /// version.
+  ///
+  /// Both directions write a row (**v37**) — a `present` mark is what outranks
+  /// an assume-absent event's default, so flipping a day back is a statement,
+  /// not the removal of one. [clearMark] is the only tombstoning path.
+  Future<void> setStatus(
+    String eventId,
+    DateTime day,
+    PresenceStatus status,
+  ) async {
     final key = _dateOnlyUtc(day);
-    await _dao.markMissed(eventId, key);
-    (_byEvent[eventId] ??= <DateTime>{}).add(key);
+    await _dao.setStatus(eventId, key, status);
+    (_byEvent[eventId] ??= <DateTime, PresenceStatus>{})[key] = status;
     _publishFor(eventId);
   }
 
-  /// Returns this occurrence to "present". The row survives as a tombstone —
-  /// it is the ordered record of the toggle — but drops out of the cache and
-  /// the facade immediately.
-  Future<void> unmark(String eventId, DateTime day) async {
+  /// Drops this occurrence's explicit answer, returning it to the event's own
+  /// default. The row survives as a tombstone — it is the ordered record of
+  /// the toggle — but drops out of the cache and the facade immediately.
+  Future<void> clearMark(String eventId, DateTime day) async {
     final key = _dateOnlyUtc(day);
-    await _dao.unmark(eventId, key);
+    await _dao.clearMark(eventId, key);
     final forEvent = _byEvent[eventId];
     if (forEvent != null) {
       forEvent.remove(key);
@@ -171,6 +186,7 @@ class EventPresenceService {
         {
           'eventId': row.eventId,
           'dayMs': row.day.millisecondsSinceEpoch,
+          'status': row.status,
           'createdAtMs': row.createdAt.millisecondsSinceEpoch,
           'updatedAtMs': row.updatedAt.millisecondsSinceEpoch,
         },
@@ -203,6 +219,13 @@ class EventPresenceService {
               _dateOnlyUtc(
                 DateTime.fromMillisecondsSinceEpoch(dayMs, isUtc: true),
               ),
+            ),
+            // Absent in pre-v37 archives, where a live row could only mean
+            // missed — which is exactly what `fromName` returns for a null.
+            status: Value(
+              PresenceStatus.fromName(
+                map['status'] is String ? map['status'] as String : null,
+              ).name,
             ),
             createdAt: Value(
               createdAtMs is int

@@ -879,6 +879,26 @@ class AppLocalizationsRo extends AppLocalizations {
   String get eventTrackPresenceDesc => 'Marchează zilele sărite.';
 
   @override
+  String get eventAssumePresent => 'Prezent implicit';
+
+  @override
+  String get eventAssumeAbsent => 'Absent implicit';
+
+  @override
+  String get eventAssumePresentHint =>
+      'Zilele contează ca prezente până le marchezi ca ratate.';
+
+  @override
+  String get eventAssumeAbsentHint =>
+      'Zilele contează ca ratate până le marchezi ca prezente.';
+
+  @override
+  String get eventAssumeAbsentFrom => 'Absent din';
+
+  @override
+  String get eventAssumeAbsentFromStart => 'Începutul evenimentului';
+
+  @override
   String get eventShowInDayRail => 'Bara zilei';
 
   @override

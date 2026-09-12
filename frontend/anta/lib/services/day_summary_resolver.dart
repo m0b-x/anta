@@ -166,7 +166,7 @@ class EventSummaryProvider implements DaySummaryProvider {
         priority: event.priority - kMinEventPriority,
         event: event,
         presenceTracked: presenceTracked,
-        missed: presenceTracked && EventPresence.isMissed(event.id, day),
+        missed: presenceTracked && EventPresence.isMissed(event, day),
       );
     });
   }

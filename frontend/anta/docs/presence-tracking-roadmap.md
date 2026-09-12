@@ -581,9 +581,10 @@ Recorded so they are not re-derived:
 - **Attendance-based count labels** (a missed visit not advancing the
   `countOccurrences` number). Deliberately out (decision 3) — it would make
   labels depend on presence data and re-number history on every toggle.
-- **Richer statuses** (partial, late). A `status` column on
-  `calendar_event_absences` is additive later; row-presence semantics were
-  chosen so the binary case never pays for it.
+- ~~**Richer statuses**~~ — **shipped** as the two-value `status` column v37
+  needed, see the addendum below. The reservation held: the column was
+  additive with no backfill, because every pre-v37 row already meant `missed`.
+  A third value (partial, late) is still additive on top of it.
 - **Per-event display override** (this event hidden, that one faded). The
   global setting ships first; an override column is additive if ever wanted.
 - **Presence on one-time events.** An event that fires once has nothing to
@@ -641,3 +642,85 @@ adherence is a property of the event, not of a day.
 
 Decision 3 still stands: count labels remain elapsed-period math and must
 never depend on presence.
+
+---
+
+## Addendum — assume-absent defaults (shipped, schema v37)
+
+v26 made attendance **implicit**: the table held only "missed" rows, so a
+tracked event with no marks read as attended on every occurrence it ever had.
+That is defensible for a habit you mostly keep and wrong for one you are trying
+to start — and it is what made the drill-down report whole months as fully
+present for an event the user had never confirmed. v37 makes the default a
+per-event choice.
+
+**The row now carries the answer.** `calendar_event_absences.status`
+(`missed` | `present`, `DEFAULT 'missed'`, unknown decodes to `missed` through
+`PresenceStatus.fromName`) — the column this file reserved above. Absence of a
+row no longer means "present"; it means *no answer yet*, and what that reads as
+is the event's business. So the two readings stopped being complements, which
+is the whole change in one sentence.
+
+**The default is two columns on the event**: `assume_absent` (NOT NULL, default
+0) and `assume_absent_from` (nullable, date-only UTC, NULL = the whole event).
+`CalendarEvent.assumesAbsentOn(day)` is
+`assumeAbsent && (from == null || !day.isBefore(from))` — allocation-free, on
+the `occursOnUtcDay` hot path, and **it never reads the wall clock**: an
+unconfirmed *future* day is absent exactly like a past one. That is what keeps
+every read path free of a clock and of a midnight rollover, and it is the
+decision taken with the owner, not an oversight.
+
+Rules that must not drift:
+
+- **`EventPresence.isMissed(event, day)` resolves the mark first**, then falls
+  through to `assumesAbsentOn`. Explicit always wins, in both directions: a
+  `present` row outranks an assume-absent event, a `missed` row outranks an
+  assume-present one. The signature grew the event for exactly this reason —
+  all nine call sites already held it, paired with `appliesTo`.
+- **Converting an event never rewrites mark rows.** Marks on or after the
+  boundary become redundant but harmless; marks before it keep meaning what
+  they meant. Flipping back leaves every one of them in place. There is no
+  migration pass and there must never be one — the rows are the user's data.
+- **The from-date is what makes a flip safe.** It is a statement about *this
+  event's history*, which is why the editor only offers it while editing, seeds
+  it from `EventEditorSheet.occurrenceDay` (the occurrence whose detail sheet
+  the user came through) falling back to today, and seeds it **once** — on the
+  transition of an event that was *saved* assume-present. An event already on
+  the inverted default keeps whatever it has, including none, so toggling twice
+  in one session cannot cut its past off. Clearing the tile means the whole
+  event.
+- **Both fields ride the opt-in they qualify.** The save mirror is
+  `effectiveAssumeAbsent = effectiveTracksPresence && _assumeAbsent`, and the
+  from-date clears with it (`clearAssumeAbsentFrom`, the `clearShowInDayRail`
+  idiom) — an untracked or one-time event has no unmarked days to reinterpret.
+  `EventTemplate` carries the flag and **never** a from-date: a stamped-out
+  event has no history to protect.
+- **Marking stays manual.** One bloc event, `SetOccurrencePresence(eventId,
+  day, status)`, replacing the v26 pair — "Clear" would have named a write that
+  now inserts a row. It bumps `occurrenceRevision` **and** `presenceRevision`
+  and never invalidates the day cache. `clearMark` is the only tombstoning path
+  left, and it means "return this day to the event's default". Nothing marks
+  anything on opening the calendar.
+- **Flipping the default bumps neither revision.** It rides `allEvents`
+  identity, which `sameGridInputs` compares by reference and `_onUpdateEvent`
+  rebuilds — never value-compare it, or the grid ends up one edit behind the
+  editor.
+- **Hidden mode + assume-absent is the sharp edge, and it is deliberate.** An
+  unconfirmed assume-absent event disappears from the grid, the agenda and the
+  timeline under `CalendarMissedDisplay.hidden`. The day panel's exemption — it
+  always shows missed rows, faded — is the only thing that keeps such an event
+  markable, so that exemption is load-bearing and must never be "cleaned up".
+
+`getActiveKeys` projects `(event_id, day, status)` and
+`idx_calendar_event_absences_active` was redefined to match, so the startup
+load stays **index-only**; the skip table's index stayed two columns, so the
+two are no longer symmetric. Backup is version 7 still: `status` and the two
+event columns are additive keys, and an archive without them restores exactly
+the pre-v37 reading (false / NULL / missed).
+
+Decision 3 continues to hold here too: the inverted default changes what a day
+*reads* as, never whether it occurs, counts or exports.
+
+**v38 follows immediately** as a repair for databases an intermediate v37 build
+stamped with a `presence_default` column instead of the pair above; see the
+v37 addendum's closing note in `docs/calendar-events-feature.md`.

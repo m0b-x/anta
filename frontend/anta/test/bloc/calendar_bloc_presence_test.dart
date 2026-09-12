@@ -11,9 +11,10 @@ import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/calendar_event_service.dart';
 
-/// The two presence events, checked for the property no surface would reveal
-/// until it is far too late: they must bump `occurrenceRevision` **and leave
-/// the day cache warm**.
+/// The presence write path — one event since **v37**, `SetOccurrencePresence`,
+/// because "Clear" would have named a write that now *inserts* a `present` row
+/// — checked for the property no surface would reveal until it is far too
+/// late: it must bump `occurrenceRevision` **and leave the day cache warm**.
 ///
 /// A missed day still occurs (presence is a rendering concern, never a
 /// membership one), so invalidating would silently throw away up to 512
@@ -31,6 +32,18 @@ void main() {
   late CalendarBloc bloc;
 
   final day = DateTime.utc(2026, 8, 10);
+
+  /// The event the bloc's own `setUp` creates. `EventPresence.isMissed` takes
+  /// the event since **v37** — with no explicit mark it has to read the
+  /// event's own default.
+  final tracked = CalendarEvent(
+    id: 'e1',
+    title: 'Leg day',
+    categoryId: 'gym',
+    startDate: DateTime.utc(2026, 8, 1),
+    rule: const DailyRecurrence(),
+    tracksPresence: true,
+  );
 
   setUpAll(() async {
     tempDir = await Directory.systemTemp.createTemp('anta_calendar_bloc');
@@ -65,55 +78,97 @@ void main() {
     await service.deleteAll();
     bloc = CalendarBloc(service: service);
     await dispatch(const LoadCalendarEvents());
-    await dispatch(
-      CreateCalendarEvent(
-        event: CalendarEvent(
-          id: 'e1',
-          title: 'Leg day',
-          categoryId: 'gym',
-          startDate: DateTime.utc(2026, 8, 1),
-          rule: const DailyRecurrence(),
-          tracksPresence: true,
-        ),
-      ),
-    );
+    await dispatch(CreateCalendarEvent(event: tracked));
   });
 
   tearDown(() async => bloc.close());
 
   int revision() => (bloc.state as CalendarPageLoaded).occurrenceRevision;
 
+  int presenceRevision() => (bloc.state as CalendarPageLoaded).presenceRevision;
+
   test('marking bumps the revision and keeps the memoized day', () async {
     final warm = bloc.eventsForDay(day);
     expect(warm.map((e) => e.id), ['e1']);
     final before = revision();
 
-    await dispatch(SetOccurrenceMissed(eventId: 'e1', day: day));
+    await dispatch(
+      SetOccurrencePresence(
+        eventId: 'e1',
+        day: day,
+        status: PresenceStatus.missed,
+      ),
+    );
 
     expect(revision(), before + 1);
-    expect(EventPresence.isMissed('e1', day), isTrue);
+    expect(EventPresence.isMissed(tracked, day), isTrue);
     // Identity, not equality: the bloc returns the cached list object itself,
     // so a fresh instance would mean the cache was dropped and recomputed.
     expect(identical(bloc.eventsForDay(day), warm), isTrue);
   });
 
   test('un-marking bumps the revision and keeps the memoized day', () async {
-    await dispatch(SetOccurrenceMissed(eventId: 'e1', day: day));
+    await dispatch(
+      SetOccurrencePresence(
+        eventId: 'e1',
+        day: day,
+        status: PresenceStatus.missed,
+      ),
+    );
 
     final warm = bloc.eventsForDay(day);
     final before = revision();
 
-    await dispatch(ClearOccurrenceMissed(eventId: 'e1', day: day));
+    await dispatch(
+      SetOccurrencePresence(
+        eventId: 'e1',
+        day: day,
+        status: PresenceStatus.present,
+      ),
+    );
 
     expect(revision(), before + 1);
-    expect(EventPresence.isMissed('e1', day), isFalse);
+    expect(EventPresence.isMissed(tracked, day), isFalse);
+    expect(identical(bloc.eventsForDay(day), warm), isTrue);
+  });
+
+  test('confirming an unmarked day writes a present row', () async {
+    final warm = bloc.eventsForDay(day);
+    final before = revision();
+    final beforePresence = presenceRevision();
+
+    await dispatch(
+      SetOccurrencePresence(
+        eventId: 'e1',
+        day: day,
+        status: PresenceStatus.present,
+      ),
+    );
+
+    // Since v37 confirming a day is a write, not the removal of one: on an
+    // assume-absent event the row is the *only* thing that can make the day
+    // read attended, so a handler that treated "present" as "clear" would
+    // leave the tap with nothing to show for it.
+    expect(EventPresence.marksFor('e1')[day], PresenceStatus.present);
+    // One handler, both counters — the grid reads presence through
+    // `DayBarsResolver` and the panel through `occurrenceRevision`, and a
+    // missing bump on either side ships a permanently stale surface.
+    expect(revision(), before + 1);
+    expect(presenceRevision(), beforePresence + 1);
+    // Presence is a painting concern, so the memoized day survives untouched.
     expect(identical(bloc.eventsForDay(day), warm), isTrue);
   });
 
   test(
     'a marked day still occurs — presence never changes membership',
     () async {
-      await dispatch(SetOccurrenceMissed(eventId: 'e1', day: day));
+      await dispatch(
+        SetOccurrencePresence(
+          eventId: 'e1',
+          day: day,
+          status: PresenceStatus.missed,
+        ),
+      );
 
       expect(bloc.eventsForDay(day).map((e) => e.id), ['e1']);
     },

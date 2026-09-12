@@ -1058,6 +1058,30 @@
   "@eventTrackPresenceDesc": {
     "description": "Explanation under the track-presence switch"
   },
+  "eventAssumePresent": "Assume present",
+  "@eventAssumePresent": {
+    "description": "Segment label: unmarked days count as attended"
+  },
+  "eventAssumeAbsent": "Assume absent",
+  "@eventAssumeAbsent": {
+    "description": "Segment label: unmarked days count as missed"
+  },
+  "eventAssumePresentHint": "Days count as attended unless you mark them missed.",
+  "@eventAssumePresentHint": {
+    "description": "Hint under the presence-default control, assume-present selected"
+  },
+  "eventAssumeAbsentHint": "Days count as missed until you mark them present.",
+  "@eventAssumeAbsentHint": {
+    "description": "Hint under the presence-default control, assume-absent selected"
+  },
+  "eventAssumeAbsentFrom": "Absent from",
+  "@eventAssumeAbsentFrom": {
+    "description": "Label of the tile picking the day the assume-absent default starts"
+  },
+  "eventAssumeAbsentFromStart": "Start of event",
+  "@eventAssumeAbsentFromStart": {
+    "description": "Value shown when the assume-absent default covers the whole event"
+  },
   "eventShowInDayRail": "Day rail",
   "@eventShowInDayRail": {
     "description": "Label for the three-way day-rail membership control in the event editor"

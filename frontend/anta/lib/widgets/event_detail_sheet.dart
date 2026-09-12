@@ -189,7 +189,7 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
 
   /// This occurrence's presence, seeded from the facade and updated locally so
   /// the segmented button reflects the tap before the write lands.
-  late bool _missed = EventPresence.isMissed(widget.event.id, widget.day);
+  late bool _missed = EventPresence.isMissed(widget.event, widget.day);
 
   /// Adherence over the trailing window. Held in state rather than derived in
   /// `build` for the same reason as [_upcoming]: the walk covers up to 366

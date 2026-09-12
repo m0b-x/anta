@@ -863,6 +863,26 @@ class AppLocalizationsEn extends AppLocalizations {
   String get eventTrackPresenceDesc => 'Mark the days you skip.';
 
   @override
+  String get eventAssumePresent => 'Assume present';
+
+  @override
+  String get eventAssumeAbsent => 'Assume absent';
+
+  @override
+  String get eventAssumePresentHint =>
+      'Days count as attended unless you mark them missed.';
+
+  @override
+  String get eventAssumeAbsentHint =>
+      'Days count as missed until you mark them present.';
+
+  @override
+  String get eventAssumeAbsentFrom => 'Absent from';
+
+  @override
+  String get eventAssumeAbsentFromStart => 'Start of event';
+
+  @override
   String get eventShowInDayRail => 'Day rail';
 
   @override

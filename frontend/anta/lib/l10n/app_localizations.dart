@@ -1492,6 +1492,42 @@ abstract class AppLocalizations {
   /// **'Mark the days you skip.'**
   String get eventTrackPresenceDesc;
 
+  /// Segment label: unmarked days count as attended
+  ///
+  /// In en, this message translates to:
+  /// **'Assume present'**
+  String get eventAssumePresent;
+
+  /// Segment label: unmarked days count as missed
+  ///
+  /// In en, this message translates to:
+  /// **'Assume absent'**
+  String get eventAssumeAbsent;
+
+  /// Hint under the presence-default control, assume-present selected
+  ///
+  /// In en, this message translates to:
+  /// **'Days count as attended unless you mark them missed.'**
+  String get eventAssumePresentHint;
+
+  /// Hint under the presence-default control, assume-absent selected
+  ///
+  /// In en, this message translates to:
+  /// **'Days count as missed until you mark them present.'**
+  String get eventAssumeAbsentHint;
+
+  /// Label of the tile picking the day the assume-absent default starts
+  ///
+  /// In en, this message translates to:
+  /// **'Absent from'**
+  String get eventAssumeAbsentFrom;
+
+  /// Value shown when the assume-absent default covers the whole event
+  ///
+  /// In en, this message translates to:
+  /// **'Start of event'**
+  String get eventAssumeAbsentFromStart;
+
   /// Label for the three-way day-rail membership control in the event editor
   ///
   /// In en, this message translates to:

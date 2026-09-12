@@ -19,6 +19,7 @@ import '../constants/calendar_categories.dart';
 import '../constants/calendar_colors.dart';
 import '../constants/calendar_templates.dart';
 import '../constants/calendar_weekend.dart';
+import '../constants/event_presence.dart';
 import '../constants/event_skips.dart';
 import '../constants/fasting_calendar.dart';
 import '../constants/occurrence_descriptions.dart';
@@ -572,7 +573,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
           );
         },
         onPresenceChanged: (occurrenceDay, missed) =>
-            _setOccurrenceMissed(bloc, current.id, occurrenceDay, missed),
+            _setOccurrencePresence(bloc, current.id, occurrenceDay, missed),
         onOpenWikiLink: (title) => _openWikiLink(context, title),
       );
       if (action == null || !context.mounted) return;
@@ -1049,7 +1050,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
                           onSuppressHoliday: (day) =>
                               _removeHoliday(context, day),
                           onToggleMissed: (event, day, missed) =>
-                              _setOccurrenceMissed(
+                              _setOccurrencePresence(
                                 context.read<CalendarBloc>(),
                                 event.id,
                                 day,
@@ -1289,16 +1290,23 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   /// detail sheet's segmented control or the day panel's quick toggle. Both
   /// write through the bloc, which bumps `occurrenceRevision` and deliberately
   /// leaves the day cache warm: a missed occurrence still occurs.
-  void _setOccurrenceMissed(
+  ///
+  /// The `bool missed` widget boundary stays: a toggle is what both surfaces
+  /// offer. Since **v37** either side of it writes an explicit
+  /// [PresenceStatus] — returning a day to the event's own default is
+  /// `clearMark`, which no UI reaches.
+  void _setOccurrencePresence(
     CalendarBloc bloc,
     String eventId,
     DateTime day,
     bool missed,
   ) {
     bloc.add(
-      missed
-          ? SetOccurrenceMissed(eventId: eventId, day: day)
-          : ClearOccurrenceMissed(eventId: eventId, day: day),
+      SetOccurrencePresence(
+        eventId: eventId,
+        day: day,
+        status: missed ? PresenceStatus.missed : PresenceStatus.present,
+      ),
     );
   }
 

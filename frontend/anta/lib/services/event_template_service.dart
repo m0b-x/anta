@@ -134,6 +134,7 @@ class EventTemplateService {
           'countOccurrences': row.countOccurrences,
           'countStyle': row.countStyle,
           'tracksPresence': row.tracksPresence,
+          'assumeAbsent': row.assumeAbsent,
           'perOccurrenceDescriptions': row.perOccurrenceDescriptions,
           'createdAtMs': row.createdAt.millisecondsSinceEpoch,
           'updatedAtMs': row.updatedAt.millisecondsSinceEpoch,
@@ -194,6 +195,7 @@ class EventTemplateService {
                   : OccurrenceCountStyle.numbered.name,
             ),
             tracksPresence: Value(_boolOr(map['tracksPresence'], false)),
+            assumeAbsent: Value(_boolOr(map['assumeAbsent'], false)),
             perOccurrenceDescriptions: Value(
               _boolOr(map['perOccurrenceDescriptions'], false),
             ),
@@ -251,6 +253,7 @@ class EventTemplateService {
         orElse: () => OccurrenceCountStyle.numbered,
       ),
       tracksPresence: row.tracksPresence,
+      assumeAbsent: row.assumeAbsent,
       perOccurrenceDescriptions: row.perOccurrenceDescriptions,
       sortOrder: row.sortOrder,
     );
@@ -294,6 +297,7 @@ class EventTemplateService {
       countOccurrences: Value(template.countOccurrences),
       countStyle: Value(template.countStyle.name),
       tracksPresence: Value(template.tracksPresence),
+      assumeAbsent: Value(template.assumeAbsent),
       perOccurrenceDescriptions: Value(template.perOccurrenceDescriptions),
     );
   }

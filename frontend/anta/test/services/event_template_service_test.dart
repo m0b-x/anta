@@ -42,6 +42,7 @@ void main() {
     int? colorValue,
     int priority = kDefaultEventPriority,
     bool tracksPresence = false,
+    bool assumeAbsent = false,
     bool perOccurrenceDescriptions = false,
     bool countOccurrences = false,
     bool retroactive = false,
@@ -57,6 +58,7 @@ void main() {
       colorValue: colorValue,
       priority: priority,
       tracksPresence: tracksPresence,
+      assumeAbsent: assumeAbsent,
       perOccurrenceDescriptions: perOccurrenceDescriptions,
       countOccurrences: countOccurrences,
       retroactive: retroactive,
@@ -110,6 +112,7 @@ void main() {
           colorValue: 0xFF123456,
           priority: kMinEventPriority,
           tracksPresence: true,
+          assumeAbsent: true,
           perOccurrenceDescriptions: true,
           countOccurrences: true,
           retroactive: true,
@@ -135,6 +138,9 @@ void main() {
       expect(stored.colorValue, 0xFF123456);
       expect(stored.priority, kMinEventPriority);
       expect(stored.tracksPresence, isTrue);
+      // v37: the flag rides along, never a from-date — a boundary is a
+      // statement about one event's history, and a stamped-out event has none.
+      expect(stored.assumeAbsent, isTrue);
       expect(stored.perOccurrenceDescriptions, isTrue);
       expect(stored.countOccurrences, isTrue);
       expect(stored.retroactive, isTrue);
@@ -188,6 +194,7 @@ void main() {
           rule: const DailyRecurrence(interval: 3),
           time: const EventTime(startMinute: 420),
           tracksPresence: true,
+          assumeAbsent: true,
         ),
       );
       final exported = await service.exportData();
@@ -201,6 +208,17 @@ void main() {
       expect(restored.rule, const DailyRecurrence(interval: 3));
       expect(restored.time, const EventTime(startMinute: 420));
       expect(restored.tracksPresence, isTrue);
+      expect(restored.assumeAbsent, isTrue);
+    });
+
+    test('an archive without the v37 key imports as assume-present', () async {
+      // Every pre-v37 archive, and the reason the import reads the key with a
+      // `false` fallback rather than requiring it.
+      await service.importData([
+        {'id': 't1', 'name': 'Good', 'category': 'gym', 'tracksPresence': true},
+      ]);
+
+      expect(CalendarTemplates.byId('t1')!.assumeAbsent, isFalse);
     });
 
     test('a malformed row is skipped and the rest still imports', () async {
@@ -264,6 +282,7 @@ void main() {
           colorValue: 0xFF00FF00,
           priority: kMinEventPriority,
           tracksPresence: true,
+          assumeAbsent: true,
           perOccurrenceDescriptions: true,
           countOccurrences: true,
           retroactive: true,
@@ -289,6 +308,10 @@ void main() {
       expect(event.colorValue, 0xFF00FF00);
       expect(event.priority, kMinEventPriority);
       expect(event.tracksPresence, isTrue);
+      expect(event.assumeAbsent, isTrue);
+      // Never a boundary: a template has no history to protect, so a stamped
+      // event's inverted default covers it from its first day.
+      expect(event.assumeAbsentFrom, isNull);
       expect(event.perOccurrenceDescriptions, isTrue);
       expect(event.countOccurrences, isTrue);
       expect(event.retroactive, isTrue);
@@ -320,6 +343,7 @@ void main() {
       // save guards.
       final template = draft(
         tracksPresence: true,
+        assumeAbsent: true,
         perOccurrenceDescriptions: true,
         countOccurrences: true,
         retroactive: true,
@@ -331,9 +355,29 @@ void main() {
       );
 
       expect(event.tracksPresence, isFalse);
+      expect(event.assumeAbsent, isFalse);
       expect(event.perOccurrenceDescriptions, isFalse);
       expect(event.countOccurrences, isFalse);
       expect(event.retroactive, isFalse);
+    });
+
+    test('the presence default cannot outlive the opt-in it qualifies', () {
+      // Two gates, not one: `assumeAbsent` says what an *unmarked* day of a
+      // tracked event means, so on an untracked event it describes days
+      // nothing reads — the editor's own save mirror makes the same call.
+      final template = draft(
+        rule: const DailyRecurrence(),
+        tracksPresence: false,
+        assumeAbsent: true,
+      );
+
+      final event = template.buildEvent(
+        id: 'e1',
+        startDate: DateTime.utc(2026, 8, 10),
+      );
+
+      expect(event.tracksPresence, isFalse);
+      expect(event.assumeAbsent, isFalse);
     });
   });
 }

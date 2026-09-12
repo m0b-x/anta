@@ -180,6 +180,24 @@ class CalendarEvent extends Equatable {
   /// `rule is! OneTimeRecurrence`.
   final bool tracksPresence;
 
+  /// Inverts the presence default (**v37**): unmarked occurrences read as
+  /// **missed** until the user deliberately marks them present, instead of the
+  /// implicit attendance [tracksPresence] shipped with.
+  ///
+  /// Only an explicit `calendar_event_absences` row outranks it, and it never
+  /// touches occurrence math — a day still occurs, still counts and still
+  /// exports. Meaningless while [tracksPresence] is off; the editor and the
+  /// template both clear it in that case rather than letting it linger.
+  final bool assumeAbsent;
+
+  /// Optional date-only UTC lower bound for [assumeAbsent]. `null` means the
+  /// whole event; a date means the inverted default applies on and after that
+  /// day only, so flipping an existing event does not rewrite the meaning of
+  /// the history before it.
+  ///
+  /// Ignored while [assumeAbsent] is `false`. See [assumesAbsentOn].
+  final DateTime? assumeAbsentFrom;
+
   /// Opt-in for per-day description scope: [description] becomes a template
   /// and `calendar_event_occurrences` holds only the days that differ. Off (the
   /// default) means one shared description that edits everywhere at once.
@@ -251,6 +269,8 @@ class CalendarEvent extends Equatable {
     this.countOccurrences = false,
     this.countStyle = OccurrenceCountStyle.numbered,
     this.tracksPresence = false,
+    this.assumeAbsent = false,
+    this.assumeAbsentFrom,
     this.perOccurrenceDescriptions = false,
     this.showInDayRail,
     this.time,
@@ -278,6 +298,8 @@ class CalendarEvent extends Equatable {
     bool? countOccurrences,
     OccurrenceCountStyle? countStyle,
     bool? tracksPresence,
+    bool? assumeAbsent,
+    DateTime? assumeAbsentFrom,
     bool? perOccurrenceDescriptions,
     bool? showInDayRail,
     EventTime? time,
@@ -294,6 +316,7 @@ class CalendarEvent extends Equatable {
     bool clearIconKey = false,
     bool clearColorValue = false,
     bool clearShowInDayRail = false,
+    bool clearAssumeAbsentFrom = false,
   }) {
     return CalendarEvent(
       id: id ?? this.id,
@@ -306,6 +329,10 @@ class CalendarEvent extends Equatable {
       countOccurrences: countOccurrences ?? this.countOccurrences,
       countStyle: countStyle ?? this.countStyle,
       tracksPresence: tracksPresence ?? this.tracksPresence,
+      assumeAbsent: assumeAbsent ?? this.assumeAbsent,
+      assumeAbsentFrom: clearAssumeAbsentFrom
+          ? null
+          : (assumeAbsentFrom ?? this.assumeAbsentFrom),
       perOccurrenceDescriptions:
           perOccurrenceDescriptions ?? this.perOccurrenceDescriptions,
       showInDayRail: clearShowInDayRail
@@ -335,6 +362,16 @@ class CalendarEvent extends Equatable {
   late final DateTime? endDateUtc = endDate == null
       ? null
       : DateTime.utc(endDate!.year, endDate!.month, endDate!.day);
+
+  /// Date-only UTC of [assumeAbsentFrom], or null when the inverted default
+  /// covers the whole event. Derived; not in [props].
+  late final DateTime? assumeAbsentFromUtc = assumeAbsentFrom == null
+      ? null
+      : DateTime.utc(
+          assumeAbsentFrom!.year,
+          assumeAbsentFrom!.month,
+          assumeAbsentFrom!.day,
+        );
 
   /// Folded [title], computed once. Derived, so it is not a [props] member
   /// and never affects equality — it exists only to spare
@@ -415,6 +452,22 @@ class CalendarEvent extends Equatable {
     return rule.occursOn(day, startDateUtc, retroactive: retroactive);
   }
 
+  /// Whether an **unmarked** occurrence on [day] reads as missed (**v37**).
+  ///
+  /// `assumeAbsent && (assumeAbsentFromUtc == null || !day.isBefore(from))`.
+  /// Never reads the wall clock: an unconfirmed future day is absent exactly
+  /// like a past one, which is what keeps every read path free of a clock and
+  /// of a midnight rollover. Allocation-free, on the same hot path as
+  /// [occursOnUtcDay] — [day] must already be date-only UTC.
+  ///
+  /// Says nothing about explicit marks; `EventPresence.isMissed` is the entry
+  /// point that resolves those first and falls through to this.
+  bool assumesAbsentOn(DateTime day) {
+    if (!assumeAbsent) return false;
+    final from = assumeAbsentFromUtc;
+    return from == null || !day.isBefore(from);
+  }
+
   @override
   List<Object?> get props => [
     id,
@@ -427,6 +480,8 @@ class CalendarEvent extends Equatable {
     countOccurrences,
     countStyle,
     tracksPresence,
+    assumeAbsent,
+    assumeAbsentFrom,
     perOccurrenceDescriptions,
     showInDayRail,
     time,

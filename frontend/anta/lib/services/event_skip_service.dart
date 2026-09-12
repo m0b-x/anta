@@ -131,10 +131,11 @@ class EventSkipService {
   /// Cancels this occurrence. Idempotent: the DAO no-ops on an already-live
   /// skip rather than churning the version.
   ///
-  /// Also clears any absence mark on the same day, through the presence
+  /// Also clears any presence mark on the same day, through the presence
   /// service so its own facade stays in step: an occurrence that does not
-  /// exist cannot have been missed, and leaving the mark behind would resurface
-  /// it the moment the skip is undone.
+  /// exist cannot have been attended or missed, and leaving the mark behind
+  /// would resurface it the moment the skip is undone. This is the one caller
+  /// of the tombstoning path.
   Future<void> markSkipped(String eventId, DateTime day) async {
     final key = _dateOnlyUtc(day);
     await _dao.markSkipped(eventId, key);
@@ -142,7 +143,7 @@ class EventSkipService {
     _publishFor(eventId);
     try {
       final presence = await EventPresenceService.getInstance();
-      await presence.unmark(eventId, key);
+      await presence.clearMark(eventId, key);
     } catch (e) {
       debugPrint('[EventSkipService] Presence clear error: $e');
     }

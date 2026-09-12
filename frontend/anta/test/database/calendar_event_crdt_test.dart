@@ -341,9 +341,20 @@ void main() {
       );
     }
 
+    /// Read with raw SQL rather than the Drift mapper: this database stops at
+    /// v28, while the generated data class describes the *current* schema and
+    /// its non-nullable reads throw on every column added since.
     Future<Map<String, bool>> scopeFlags() async {
-      final rows = await db.select(db.calendarEvents).get();
-      return {for (final row in rows) row.id: row.perOccurrenceDescriptions};
+      final rows = await db
+          .customSelect(
+            'SELECT id, per_occurrence_descriptions FROM calendar_events',
+          )
+          .get();
+      return {
+        for (final row in rows)
+          row.read<String>('id'):
+              row.read<int>('per_occurrence_descriptions') != 0,
+      };
     }
 
     test('a global ON flips live repeating events and nothing else', () async {
