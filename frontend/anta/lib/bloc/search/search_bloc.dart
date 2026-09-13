@@ -262,9 +262,24 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
       );
       if (state.scope != scope) return;
       emit(state.copyWith(labelsInUse: labelsInUse));
+      _dropColoursNoLongerOffered(labelsInUse);
     } catch (e, stackTrace) {
       _logError('Loading labels in use failed', e, stackTrace);
     }
+  }
+
+  /// A colour can stop being on offer while it is still selected: the note
+  /// that carried it was relabelled in the editor and the surface refreshed
+  /// on the way back, or the scope moved to a folder where nothing wears it.
+  /// Its chip is gone, so the filter it left behind would be invisible — an
+  /// empty list under a row with nothing selected and no way to clear it.
+  /// The selection follows the offer, through the same event a chip tap
+  /// sends so the right pass runs (recents, once nothing is left).
+  void _dropColoursNoLongerOffered(List<ItemLabel>? labelsInUse) {
+    if (labelsInUse == null || state.labels.isEmpty) return;
+    final kept = state.labels.where(labelsInUse.contains).toSet();
+    if (kept.length == state.labels.length) return;
+    add(SearchLabelsChanged(kept));
   }
 
   Future<void> _onLabelsChanged(
@@ -461,6 +476,7 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
       ).wait;
       final folderPaths = await _pathsFor(page.notes);
       if (generation != _generation) return;
+      final offered = _labelsInUseForScope(labelsInUse, scope);
       emit(
         state.copyWith(
           query: '',
@@ -469,11 +485,12 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
           titleHits: const [],
           contentHits: const [],
           folderPaths: folderPaths,
-          labelsInUse: _labelsInUseForScope(labelsInUse, scope),
+          labelsInUse: offered,
           labelledTotal: 0,
           isSearching: false,
         ),
       );
+      _dropColoursNoLongerOffered(offered);
     } catch (e, stackTrace) {
       _logError('Loading recents failed', e, stackTrace);
       if (generation != _generation) return;
@@ -547,7 +564,7 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
     ]);
     if (generation != _generation) return;
 
-    final labels = _labelsInUseForScope(labelsInUse, scope);
+    final offered = _labelsInUseForScope(labelsInUse, scope);
 
     emit(
       state.copyWith(
@@ -558,11 +575,12 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
         titleHits: titleHits,
         contentHits: contentHits,
         folderPaths: folderPaths,
-        labelsInUse: labels,
+        labelsInUse: offered,
         labelledTotal: labelledTotal,
         isSearching: false,
       ),
     );
+    _dropColoursNoLongerOffered(offered);
   }
 
   Future<Set<String>?> _folderIdsFor(SearchScope scope) async {

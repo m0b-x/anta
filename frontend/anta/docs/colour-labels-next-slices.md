@@ -92,9 +92,18 @@ Both shipped with Slices 3 and 4 (see "Done so far"); the roadmap's §2
 
 ## What is owed now
 
-1. **Commit** Slices 3 + 4 and the two follow-ups (everything uncommitted on
-   `0984341`; the full suite is green).
-2. **Phone pass** (Android, light and dark):
+1. **Commit** Slices 3 + 4, the two follow-ups and the two emulator fixes
+   (everything uncommitted on `0984341`; the full suite is green).
+2. **Phone pass — DONE on the emulator 2026-09-13** (Android 16, resized to
+   360×800 dp, light and dark, stripe style), every item below held except
+   the two it found, both fixed the same day (the roadmap's Slice A
+   "Shipped" block has the details): the root's dot row floated to the
+   centre (M3 app-bar `bottom` centring), and a colour cleared elsewhere
+   stayed selected invisibly after the way-back refresh. Not reproduced as
+   app bugs: a fast fling that starts inside Android's right-edge
+   back-gesture zone is taken by the system (it closes the keyboard). Still
+   worth a look on a real phone: TalkBack on the dot chips and the sort
+   rows.
    - sort sheet: seven rows, scrolls, Label row reachable one-handed;
      choosing it groups the coloured notes first in palette order;
    - search in a folder with colours in use: the chip row keeps its height

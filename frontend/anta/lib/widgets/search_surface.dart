@@ -321,7 +321,12 @@ class SearchScopeChips extends StatelessWidget {
         AppSpacing.lg,
         0,
       ),
+      // Full width, not shrink-wrapped: a Material 3 app bar centres a
+      // `bottom` narrower than itself, so the root's handful of dot chips
+      // drifted to the middle while every other host lays the row out from
+      // the leading edge, under the section labels.
       child: SizedBox(
+        width: double.infinity,
         height: _rowHeight,
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,

@@ -17,6 +17,7 @@ import 'package:anta/bloc/optimized_note/optimized_note_event.dart';
 import 'package:anta/bloc/search/search_bloc.dart';
 import 'package:anta/constants/app_bar_metrics.dart';
 import 'package:anta/constants/app_colors.dart';
+import 'package:anta/constants/app_spacing.dart';
 import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/row_metrics.dart';
 import 'package:anta/database/database.dart';
@@ -1968,6 +1969,14 @@ void main() {
         find.widgetWithText(ChoiceChip, l10n.everywhere),
         findsNothing,
         reason: 'the scope pair stays hidden at the root; only colours show',
+      );
+      // A Material 3 app bar centres a `bottom` narrower than itself, so a
+      // shrink-wrapped row of one chip would float to the middle; it has to
+      // start where the folder host's row starts.
+      expect(
+        tester.getTopLeft(labelChips(tester)).dx,
+        AppSpacing.lg,
+        reason: 'the dot row is laid out from the leading edge at the root',
       );
 
       await teardownPage(tester);

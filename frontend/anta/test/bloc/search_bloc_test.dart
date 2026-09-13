@@ -945,6 +945,7 @@ void main() {
     });
 
     test('a submitted search carries the colour in its filter', () async {
+      noteStorage.inUse = const [ItemLabel.teal];
       searchService.fullResults = [
         _hit(_note('a'), [SearchMatchType.content]),
       ];
@@ -1010,6 +1011,7 @@ void main() {
     });
 
     test('clearing the field keeps the colour, and keeps its notes', () async {
+      noteStorage.inUse = const [ItemLabel.red];
       noteStorage.recents = [_note('r')];
       searchService.labelledResults = [
         _unmatched(_note('a', label: ItemLabel.red)),
@@ -1143,6 +1145,7 @@ void main() {
   /// back blank, and a filter nobody can see is a filter nobody can undo.
   group('leaving and reopening', () {
     test('leaving search and reopening drops the colour filter', () async {
+      noteStorage.inUse = const [ItemLabel.red];
       noteStorage.recents = [_note('r')];
       searchService.labelledResults = [
         _unmatched(_note('a', label: ItemLabel.red)),
@@ -1174,6 +1177,7 @@ void main() {
     });
 
     test('the refresh a host runs on the way back keeps it', () async {
+      noteStorage.inUse = const [ItemLabel.red];
       searchService.labelledResults = [
         _unmatched(_note('a', label: ItemLabel.red)),
       ];
@@ -1199,6 +1203,73 @@ void main() {
       expect(bloc.state.titleHits.map((r) => r.metadata.id), ['a']);
       search.dispose();
     });
+
+    test(
+      'a colour cleared elsewhere leaves the filter on the way back',
+      () async {
+        // Seen on the emulator: the only red note was relabelled from the
+        // editor, the refresh dropped the red chip, and the filter it left
+        // behind showed "no results" under a row with nothing selected.
+        noteStorage.inUse = const [ItemLabel.red];
+        noteStorage.recents = [_note('r')];
+        searchService.labelledResults = [
+          _unmatched(_note('a', label: ItemLabel.red)),
+        ];
+        searchService.labelledTotal = 1;
+        final bloc = buildBloc();
+        final search = InPlaceSearchController(bloc: bloc);
+
+        search.open(const SearchScope.everywhere());
+        await pumpEventQueue();
+        bloc.add(const SearchLabelsChanged({ItemLabel.red}));
+        await pumpEventQueue();
+
+        noteStorage.inUse = const [];
+        searchService.labelledResults = const [];
+        searchService.labelledTotal = 0;
+        search.refresh();
+        await pumpEventQueue();
+
+        expect(bloc.state.labelsInUse, isEmpty);
+        expect(bloc.state.labels, isEmpty);
+        expect(bloc.state.phase, SearchPhase.idle);
+        expect(bloc.state.recents.map((note) => note.id), ['r']);
+        search.dispose();
+      },
+    );
+
+    test(
+      'a scope with nothing in the colour drops it from the filter',
+      () async {
+        noteStorage.inUse = const [ItemLabel.red, ItemLabel.blue];
+        searchService.labelledResults = [
+          _unmatched(_note('a', label: ItemLabel.red)),
+          _unmatched(_note('b', label: ItemLabel.blue)),
+        ];
+        searchService.labelledTotal = 2;
+        final bloc = buildBloc();
+        bloc.add(const SearchOpened());
+        await pumpEventQueue();
+        bloc.add(const SearchLabelsChanged({ItemLabel.red, ItemLabel.blue}));
+        await pumpEventQueue();
+
+        noteStorage.inUse = const [ItemLabel.blue];
+        bloc.add(
+          const SearchScopeChanged(
+            FolderScope(folderId: 'f1', name: 'Training'),
+          ),
+        );
+        await pumpEventQueue();
+
+        expect(bloc.state.labelsInUse, const [ItemLabel.blue]);
+        expect(
+          bloc.state.labels,
+          const {ItemLabel.blue},
+          reason: 'the red chip is gone, so red cannot stay selected unseen',
+        );
+        await bloc.close();
+      },
+    );
   });
 
   /// The chip row is part of the search bar's committed height, so the hosts

@@ -588,6 +588,22 @@ scope above is what shipped, with these deviations — the code is the truth:
 - **Header**: names joined with ", ", then " · N notes" from the ICU message
   (`labelledNotesHeader`, ro carries `few`); label-only rows show path ·
   date like the recents they replace (`showDate: state.isLabelOnly`).
+- **The selection follows the offer** (emulator pass, 2026-09-13): a colour
+  can stop being on offer while still selected — the only red note was
+  relabelled from the editor and the way-back refresh dropped the red chip,
+  leaving "no results" under a row with nothing selected and no way to
+  clear it; a scope change to a folder where nothing wears the colour does
+  the same. Wherever `labelsInUse` is applied, `_dropColoursNoLongerOffered`
+  intersects `labels` with it and sends the pruned set through
+  `SearchLabelsChanged`, so the right pass runs (recents once nothing is
+  left). Two bloc tests; four older tests now declare the picked colour as
+  in use, which is the only way a chip exists.
+- **The root's row is laid out from the leading edge** (emulator pass): a
+  Material 3 `AppBar` centres a `bottom` narrower than itself, so the
+  shrink-wrapped row of two or three dot chips floated to the middle while
+  every other host was left-aligned; the row's `SizedBox` now takes
+  `double.infinity` width and the root test asserts the first chip starts at
+  `AppSpacing.lg`.
 - `ItemLabel.inPaletteOrder(Iterable)` is the one palette-order filter
   (DAO and header); `FolderSearchService.quickHitLimit` is the one 10.
 - Tests: `search_bloc_test.dart` groups "label filtering" and "leaving and
