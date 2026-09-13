@@ -87,10 +87,17 @@ class NoteStorageService {
   /// The note's metadata alone, freshly read — the folder it lives in now,
   /// its stored title and timestamps. The editor's own menu needs those for
   /// a move or an export, and it must not pay for the content to get them.
+  ///
+  /// A tombstone reads as null: `getNoteById` does not filter `is_deleted`,
+  /// so an editor still mounted over a note deleted elsewhere would otherwise
+  /// be handed a live-looking row — its menu rows (label, move, export) have
+  /// to say "note not found" rather than open on a write the DAO refuses
+  /// silently, and the search index's stale-note refresh has to drop it.
   Future<NoteMetadata?> getNoteMetadata(String noteId) async {
     await initialize();
     final note = await _repository.getNoteById(noteId, forceRefresh: true);
-    return note == null ? null : _noteToMetadata(note);
+    if (note == null || note.isDeleted) return null;
+    return _noteToMetadata(note);
   }
 
   Future<LazyNote?> loadNoteWithContent(String noteId) async {

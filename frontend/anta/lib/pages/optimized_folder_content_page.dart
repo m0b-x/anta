@@ -804,75 +804,15 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     return common ?? ItemLabel.none;
   }
 
-  /// The bulk colour-label pick: a plain sheet holding the same strip the
-  /// row's long-press menu shows, applied to every picked note and folder in
-  /// one write per kind.
-  ///
-  /// The bottom padding is `max(viewInsets, viewPadding)`. Padding by
-  /// `viewInsets` alone is this app's most-repeated bug — with no keyboard up
-  /// it is zero, and the strip lands under the gesture bar.
+  /// The bulk colour-label pick: the shared picker sheet, applied to every
+  /// picked note and folder in one write per kind.
   Future<void> _labelSelected() async {
     final items = _selection.items.toList(growable: false);
     if (items.isEmpty) return;
 
-    final l10n = AppLocalizations.of(context)!;
-    final colorScheme = Theme.of(context).colorScheme;
-    final current = _commonLabelOf(items);
-
-    final picked = await showModalBottomSheet<ItemLabel>(
-      context: context,
-      builder: (sheetContext) {
-        final media = MediaQuery.of(sheetContext);
-        final bottomInset = math.max(
-          media.viewInsets.bottom,
-          media.viewPadding.bottom,
-        );
-        return SafeArea(
-          top: false,
-          bottom: false,
-          child: Padding(
-            padding: EdgeInsets.only(bottom: bottomInset),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.symmetric(vertical: 12),
-                  decoration: BoxDecoration(
-                    color: colorScheme.onSurfaceVariant,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  child: Text(
-                    l10n.labelAction,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: colorScheme.onSurface,
-                    ),
-                  ),
-                ),
-                const Divider(),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: LabelSwatchStrip(
-                    value: current,
-                    onChanged: (label) =>
-                        Navigator.of(sheetContext).pop(label),
-                  ),
-                ),
-                const SizedBox(height: 8),
-              ],
-            ),
-          ),
-        );
-      },
+    final picked = await showLabelPickerSheet(
+      context,
+      value: _commonLabelOf(items),
     );
 
     if (picked == null || !mounted) return;

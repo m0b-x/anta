@@ -1,9 +1,84 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../constants/app_colors.dart';
 import '../l10n/app_localizations.dart';
 import '../models/item_label.dart';
 import 'label_dot.dart';
+
+/// The one sheet every "assign a colour" entry point opens: a handle, the
+/// action's name, and the [LabelSwatchStrip] ringed on [value].
+///
+/// Resolves to the picked label, or `null` when the sheet was dismissed
+/// without a pick — a caller writes only on a non-null, changed answer.
+///
+/// The bottom padding is `max(viewInsets, viewPadding)`. Padding by
+/// `viewInsets` alone is this app's most-repeated bug — with no keyboard up
+/// it is zero, and the strip lands under the gesture bar.
+Future<ItemLabel?> showLabelPickerSheet(
+  BuildContext context, {
+  required ItemLabel value,
+}) {
+  return showModalBottomSheet<ItemLabel>(
+    context: context,
+    builder: (sheetContext) {
+      // Read from the sheet's own context: it is the one under the route
+      // that carries the sheet's insets, and a pick has to pop it.
+      final l10n = AppLocalizations.of(sheetContext)!;
+      final colorScheme = Theme.of(sheetContext).colorScheme;
+      final media = MediaQuery.of(sheetContext);
+      final bottomInset = math.max(
+        media.viewInsets.bottom,
+        media.viewPadding.bottom,
+      );
+      return SafeArea(
+        top: false,
+        bottom: false,
+        child: Padding(
+          padding: EdgeInsets.only(bottom: bottomInset),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.symmetric(vertical: 12),
+                decoration: BoxDecoration(
+                  color: colorScheme.onSurfaceVariant,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                child: Text(
+                  l10n.labelAction,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: colorScheme.onSurface,
+                  ),
+                ),
+              ),
+              const Divider(),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: LabelSwatchStrip(
+                  value: value,
+                  onChanged: (label) => Navigator.of(sheetContext).pop(label),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
 
 /// The one-row colour picker that assigns a label: a *clear* swatch first,
 /// then the seven hues in palette order.

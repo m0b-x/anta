@@ -92,6 +92,36 @@ void main() {
     expect(await db.noteDao.updateNote(id: 'nope', title: 'x'), isNull);
   });
 
+  /// The read side of the same guard. Every caller of [getNoteMetadata] —
+  /// the editor's label, move and export rows, and the search index's
+  /// stale-note refresh — treats null as "the note is gone"; handing them a
+  /// tombstone's row let the editor open a picker whose write the DAO then
+  /// refused without a word.
+  test('getNoteMetadata reads a tombstone as null', () async {
+    final service = NoteStorageService(
+      repository: NoteRepository(database: db),
+    );
+    final folder = await db.folderDao.createFolder(name: 'Training');
+    final created = await service.createNote(
+      folderId: folder.id,
+      title: 'Log',
+      content: 'hello',
+    );
+
+    expect(await service.getNoteMetadata(created.id), isNotNull);
+
+    await service.deleteNote(created.id);
+
+    expect(await service.getNoteMetadata(created.id), isNull);
+    final row = await db.noteDao.getNoteById(created.id);
+    expect(
+      row,
+      isNotNull,
+      reason: 'the delete is soft — the row is still there to sync',
+    );
+    expect(row!.isDeleted, isTrue);
+  });
+
   /// The DAO guard alone is not enough: the repository saves the content
   /// chunks *before* it calls the DAO, so an auto-save flush reaching the
   /// service after a soft delete used to leave a deleted note holding live

@@ -13,13 +13,19 @@ A/B/C/D on the design page are placements, not slices.
   the row's long-press sheet or in bulk from selection mode, carried by
   backups, archives and sync merges.
 - **Two rendering styles, chosen in Settings → Browsing → "Label style"**
-  (uncommitted): *Dot* (Study A, default) draws a 10 dp circle at the row's
+  (committed `d6025a2`): *Dot* (Study A, default) draws a 10 dp circle at the row's
   trailing edge; *Edge stripe* (Study D) draws a 3 dp bar on the row's
   leading edge, inset 8 dp top and bottom, rounded on its right. One
   `ValueNotifier` (`LabelAppearance.style`) drives every labelled row, so a
   change repaints the browser under the settings page; the value is primed
   before the first frame, re-primed after a database switch and after a
   backup restore, and rides in backups.
+- **Label from the editor** (Slice 2, done and reviewed 2026-09-13,
+  uncommitted): one shared `showLabelPickerSheet` behind both the bulk
+  action and a new **Label** row in the editor's menu (between Move and
+  Share, absent until the note has an id). The row reads the colour fresh
+  from storage and dispatches only on a changed pick; a note deleted
+  elsewhere now reads as "not found" there, as it does for Move and Share.
 
 ## Slice 1 — Commit and see it on a phone
 
@@ -39,16 +45,11 @@ A/B/C/D on the design page are placements, not slices.
    - kill and relaunch: labels and the chosen style persist; backup export →
      import into a fresh database: both survive.
 
-## Slice 2 — Label from the editor (roadmap Slice C)
+## Slice 2 — Label from the editor (roadmap Slice C) — DONE 2026-09-13
 
-- Extract the bulk-label sheet into one shared `showLabelPickerSheet`, and
-  reuse it from selection mode.
-- Add a **Label** row to the editor's overflow menu (after Move, before
-  Share), hidden until the note has an id.
-- Read the current label fresh from storage when the sheet opens; dispatch
-  the existing `SetOptimizedNoteLabel` only when the pick changed.
-- Tests: menu row present/absent, one dispatch per changed pick, sheet
-  returns null on dismiss and pads by the gesture bar.
+Shipped as listed above; the roadmap's Slice C "Shipped" block records the
+deviations. Owed: commit it, then on the phone open a note → ⋮ → Label, pick
+a colour, go back, and check the row shows it with no list jump.
 
 ## Slice 3 — Sort by label (roadmap Slice B)
 

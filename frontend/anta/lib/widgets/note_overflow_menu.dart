@@ -3,7 +3,15 @@ import 'package:flutter/material.dart';
 import '../constants/app_theme.dart';
 import '../l10n/app_localizations.dart';
 
-enum _NoteMenuAction { openFolder, editTitle, move, share, delete, settings }
+enum _NoteMenuAction {
+  openFolder,
+  editTitle,
+  move,
+  label,
+  share,
+  delete,
+  settings,
+}
 
 /// The note editor's app-bar menu — the editor's first one.
 ///
@@ -17,6 +25,7 @@ class NoteOverflowMenu extends StatelessWidget {
     required this.onOpenFolder,
     required this.onEditTitle,
     required this.onMove,
+    this.onLabel,
     required this.onShare,
     required this.onDelete,
     required this.onSettings,
@@ -29,6 +38,12 @@ class NoteOverflowMenu extends StatelessWidget {
   final VoidCallback onOpenFolder;
   final VoidCallback onEditTitle;
   final VoidCallback onMove;
+
+  /// Opens the colour-label picker, or `null` while there is nothing to
+  /// label — a note the early create has not persisted yet has no row to
+  /// carry a colour, so the row is left out of the menu entirely.
+  final VoidCallback? onLabel;
+
   final VoidCallback onShare;
   final VoidCallback onDelete;
   final VoidCallback onSettings;
@@ -49,6 +64,8 @@ class NoteOverflowMenu extends StatelessWidget {
             onEditTitle();
           case _NoteMenuAction.move:
             onMove();
+          case _NoteMenuAction.label:
+            onLabel?.call();
           case _NoteMenuAction.share:
             onShare();
           case _NoteMenuAction.delete:
@@ -78,6 +95,13 @@ class NoteOverflowMenu extends StatelessWidget {
           icon: Icons.drive_file_move_outlined,
           label: l10n.moveToFolder,
         ),
+        if (onLabel != null)
+          _row(
+            colorScheme,
+            value: _NoteMenuAction.label,
+            icon: Icons.label_outline,
+            label: l10n.labelAction,
+          ),
         _row(
           colorScheme,
           value: _NoteMenuAction.share,

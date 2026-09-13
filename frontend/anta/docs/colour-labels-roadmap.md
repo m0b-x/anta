@@ -2,8 +2,9 @@
 
 **Status: Phase 1 DONE and committed as `4b525b9` (2026-09-12). The
 selectable rendering style — dot (Study A) or edge stripe (Study D), decision
-L9 — is DONE and uncommitted on top of it. Phase 2 PLANNED — Slices C, B, A,
-D below, in that order.** The short checklist, with the slices numbered 1–5,
+L9 — is DONE and committed as `d6025a2`. Phase 2: Slice C DONE and reviewed
+2026-09-13 (uncommitted on `d6025a2`; see its "Shipped" block); Slices B, A,
+D below still PLANNED, in that order.** The short checklist, with the slices numbered 1–5,
 is `colour-labels-next-slices.md`; the two lettering schemes are: roadmap
 Slice C = checklist 2, B = 3, A = 4, D = 5. The design page's *studies* A–D
 are placements, not slices.
@@ -321,6 +322,36 @@ new `label_picker_sheet_test.dart` — the sheet returns the pick, returns null
 on barrier dismiss, and pads by `viewPadding` when `viewInsets` is zero (fake
 both through `tester.view`). Update the page test's selection-bar group only
 if its finder relied on the inline sheet.
+
+**Shipped 2026-09-13 (Opus implementation, Fable + Opus review).** As
+scoped, with four deviations worth knowing:
+- `_labelSelected` passes `_commonLabelOf(items)`, not `ItemLabel.none` —
+  point 1 above was stale; the bulk sheet has ringed the selection's common
+  colour since the Phase 1 review and that stayed.
+- The `OptimizedNoteCreated` branch of the editor's bloc listener now ends in
+  a `setState`: nothing else rebuilds the app bar when the early create
+  lands (`hasChanges` flipped before the id arrived), so without it the Label
+  row stayed missing until an unrelated rebuild. Verified by removing the
+  line: the "appears once the early create lands" test fails.
+- `NoteStorageService.getNoteMetadata` reads a **tombstone as null**. The
+  DAO's `getNoteById` does not filter `is_deleted`, so an editor still
+  mounted over a note deleted elsewhere (a second editor for the same note
+  through a `[[wiki link]]` chain, or a sync merge) opened the sheet and had
+  its pick refused silently by `updateNoteLabel`; `_labelNote`, `_moveNote`
+  and `_showExportFormatDialog` now hit their `noteNotFound` branch instead,
+  and `FolderSearchService._refreshStaleNotes` drops such a note from the
+  index rather than re-adding it. `loadNoteWithContent` is unchanged.
+- `_labelNote` does **not** flush saves before reading: a label is not an
+  edit and `updateNote`'s partial companion never carries `label`, so an
+  auto-save in flight cannot stomp the write.
+Tests: six editor-page cases in "the app bar's leading pair and its menu",
+`test/widgets/label_picker_sheet_test.dart` (six), one service case for the
+tombstone read. Left alone on purpose: the sheet's drag handle is now the
+fifth verbatim copy of the 40×4 handle (`bar_switcher_sheet`,
+`content_rows`, `move_history_sheet`, `pairing_sheet`) — a `SheetHandle`
+widget is a separate tidy-up; and `?? widget.noteId` after
+`_saves.effectiveNoteId` is dead (the coordinator seeds the id) but matches
+the page's idiom.
 
 **Paste-ready prompt:**
 

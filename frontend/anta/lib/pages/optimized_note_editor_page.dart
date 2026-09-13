@@ -45,6 +45,7 @@ import '../services/drawer_host_registry.dart';
 import '../services/folder_storage_service.dart';
 import '../services/move_coordinator.dart';
 import '../services/note_storage_service.dart';
+import '../widgets/label_swatch_strip.dart';
 import '../widgets/note_overflow_menu.dart';
 import '../widgets/unified_app_bars.dart';
 import '../utils/editor_width_calculator.dart';
@@ -1731,6 +1732,10 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
                 _position.noteId = id;
                 _counterBloc.add(SetNoteContext(noteId: id));
                 ShortcutHandlerFactory.counterHandler.setActiveNoteId(id);
+                // The app bar reads the id to decide whether it can offer a
+                // Label row; nothing else here rebuilds, so without this the
+                // row would stay missing until some unrelated setState.
+                setState(() {});
               } else if (state is OptimizedNoteContentLoaded) {
                 // Same shared bloc, so two guards, and the id alone is not
                 // enough. The id keeps *another note's* text out of this
@@ -1842,6 +1847,9 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
                     onOpenFolder: _openFolder,
                     onEditTitle: _editTitle,
                     onMove: _moveNote,
+                    onLabel: (_saves.effectiveNoteId ?? widget.noteId) == null
+                        ? null
+                        : _labelNote,
                     onShare: _showExportFormatDialog,
                     onDelete: _deleteNote,
                     onSettings: () => _scaffoldKey.currentState?.openDrawer(),
@@ -2249,6 +2257,31 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       _folderName = null;
     });
     unawaited(_loadFolderName());
+  }
+
+  /// Assigns the note's colour label from the editor.
+  ///
+  /// The current value is read back from storage rather than from
+  /// `widget.metadata`, which is whatever the browser held when it pushed
+  /// this page. Deliberately no flush first: a label is not an edit, and the
+  /// partial companion `updateNote` writes never touches the column.
+  Future<void> _labelNote() async {
+    final noteId = _saves.effectiveNoteId ?? widget.noteId;
+    if (noteId == null) return;
+    final current = await GetIt.I<NoteStorageService>().getNoteMetadata(noteId);
+    if (!mounted) return;
+    if (current == null) {
+      CustomSnackbar.showError(
+        context,
+        AppLocalizations.of(context)!.noteNotFound,
+      );
+      return;
+    }
+    final picked = await showLabelPickerSheet(context, value: current.label);
+    if (!mounted || picked == null || picked == current.label) return;
+    context.read<OptimizedNoteBloc>().add(
+      SetOptimizedNoteLabel(noteId: noteId, label: picked),
+    );
   }
 
   /// Deletes the note the editor is showing, then leaves.

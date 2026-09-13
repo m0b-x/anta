@@ -23,6 +23,7 @@ import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/models/custom_markdown_shortcut.dart';
 import 'package:anta/models/export_format.dart';
+import 'package:anta/models/item_label.dart';
 import 'package:anta/models/nav_destination.dart';
 import 'package:anta/models/note_metadata.dart';
 import 'package:anta/pages/optimized_note_editor_page.dart';
@@ -38,6 +39,7 @@ import 'package:anta/services/markdown_bar_service.dart';
 import 'package:anta/services/note_position_service.dart';
 import 'package:anta/services/note_storage_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/widgets/label_swatch_strip.dart';
 import 'package:anta/widgets/leading_nav_pair.dart';
 import 'package:anta/widgets/markdown_bar.dart';
 import 'package:anta/widgets/modern_editor_wrapper.dart';
@@ -1757,6 +1759,62 @@ void main() {
       await tester.pumpAndSettle();
     }
 
+    /// [pushEditorOverFolder] for a note that does not exist yet: no id, no
+    /// metadata, nothing to label until the early create lands.
+    Future<void> pushNewNoteEditor(WidgetTester tester) async {
+      await tester.pumpWidget(
+        MultiBlocProvider(
+          providers: [
+            BlocProvider<OptimizedNoteBloc>.value(value: noteBloc),
+            BlocProvider<MarkdownBarBloc>.value(value: barBloc),
+            BlocProvider<CounterBloc>.value(value: counterBloc),
+            BlocProvider<ImportExportBloc>.value(value: exportBloc),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            navigatorObservers: [AppNavigator.routeObserver],
+            home: OptimizedNoteEditorPage(folderId: menuFolder.id),
+          ),
+        ),
+      );
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      await settle(tester);
+    }
+
+    /// Types [text] at the caret, the way the delete case does — the edit has
+    /// to go through the controller for the save coordinator to see it.
+    Future<void> type(WidgetTester tester, String text) async {
+      final controller = editorOf(tester).controller;
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 0,
+      );
+      controller.replaceSelection(text);
+      await tester.pump();
+    }
+
+    /// Opens the menu and its Label row, waiting for the fresh metadata read
+    /// the handler does before it can show the sheet.
+    Future<void> openLabelSheet(WidgetTester tester) async {
+      await openMenu(tester);
+      await tester.tap(find.text(AppLocalizationsEn().labelAction));
+      await tester.pumpAndSettle();
+      await settleUntil(
+        tester,
+        () => find.byType(LabelSwatchStrip).evaluate().isNotEmpty,
+      );
+      await tester.pumpAndSettle();
+    }
+
+    /// Takes notes an early create left behind back out of the database, so
+    /// the folder this group hard-deletes in `tearDown` is empty.
+    Future<void> discardNotes(WidgetTester tester, List<String> ids) async {
+      for (final id in ids) {
+        await tester.runAsync(() => db.noteDao.hardDeleteNote(id));
+      }
+    }
+
     testWidgets('the bar leads with the back arrow paired with the drawer', (
       tester,
     ) async {
@@ -1795,18 +1853,171 @@ void main() {
       // are counted by predicate rather than by `byType`.
       expect(
         find.byWidgetPredicate((widget) => widget is PopupMenuItem),
-        findsNWidgets(6),
+        findsNWidgets(7),
       );
       expect(find.text(menuFolder.name), findsOneWidget);
       expect(find.text(l10n.openFolder), findsOneWidget);
       expect(find.text(l10n.editTitle), findsOneWidget);
       expect(find.text(l10n.moveToFolder), findsOneWidget);
+      expect(find.text(l10n.labelAction), findsOneWidget);
       expect(find.text(l10n.shareNote), findsOneWidget);
       expect(find.text(l10n.deleteNote), findsOneWidget);
       expect(find.text(l10n.settings), findsOneWidget);
+      // Appearance sits with move, ahead of sharing and deleting.
+      expect(
+        tester.getCenter(find.text(l10n.labelAction)).dy,
+        inExclusiveRange(
+          tester.getCenter(find.text(l10n.moveToFolder)).dy,
+          tester.getCenter(find.text(l10n.shareNote)).dy,
+        ),
+      );
 
       await tester.tapAt(const Offset(400, 8));
       await tester.pumpAndSettle();
+      await teardownPage(tester);
+    });
+
+    testWidgets('a brand-new note has no Label row', (tester) async {
+      await pushNewNoteEditor(tester);
+      await openMenu(tester);
+
+      final l10n = AppLocalizationsEn();
+      expect(
+        find.text(l10n.labelAction),
+        findsNothing,
+        reason: 'a note with no id has no row to carry a colour',
+      );
+      expect(
+        find.byWidgetPredicate((widget) => widget is PopupMenuItem),
+        findsNWidgets(6),
+      );
+
+      await tester.tapAt(const Offset(400, 8));
+      await tester.pumpAndSettle();
+      await teardownPage(tester);
+    });
+
+    testWidgets('the Label row appears once the early create lands', (
+      tester,
+    ) async {
+      await pushNewNoteEditor(tester);
+      final created = <String>[];
+      final sub = noteBloc.stream.listen((state) {
+        if (state is OptimizedNoteCreated) created.add(state.metadata.id);
+      });
+      addTearDown(sub.cancel);
+
+      await type(tester, 'bench press');
+      await settleUntil(
+        tester,
+        () =>
+            noteBloc.dispatched.whereType<CreateOptimizedNote>().isNotEmpty &&
+            created.isNotEmpty,
+      );
+      await settle(tester);
+
+      await openMenu(tester);
+
+      expect(
+        find.text(AppLocalizationsEn().labelAction),
+        findsOneWidget,
+        reason: 'adopting the new id has to rebuild the bar that reads it',
+      );
+
+      await tester.tapAt(const Offset(400, 8));
+      await tester.pumpAndSettle();
+      await teardownPage(tester);
+      await discardNotes(tester, created);
+    });
+
+    testWidgets('picking a swatch dispatches SetOptimizedNoteLabel once', (
+      tester,
+    ) async {
+      await pushEditorOverFolder(tester);
+      noteBloc.clearDispatched();
+
+      await openLabelSheet(tester);
+      expect(find.byType(LabelSwatchStrip), findsOneWidget);
+
+      await tester.tap(find.bySemanticsLabel(AppLocalizationsEn().labelRed));
+      await tester.pumpAndSettle();
+      await settle(tester);
+
+      final picks = noteBloc.dispatched
+          .whereType<SetOptimizedNoteLabel>()
+          .toList();
+      expect(picks, hasLength(1));
+      expect(picks.single.noteId, menuNote.id);
+      expect(picks.single.label, ItemLabel.red);
+      expect(find.byType(LabelSwatchStrip), findsNothing);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('picking the current value dispatches nothing', (tester) async {
+      await pushEditorOverFolder(tester);
+      // Written *after* the push, so `widget.metadata` still says "none":
+      // the sheet has to read the row rather than the value it was handed.
+      await tester.runAsync(
+        () => storageService.setNoteLabel(menuNote.id, ItemLabel.red),
+      );
+      noteBloc.clearDispatched();
+
+      await openLabelSheet(tester);
+
+      expect(
+        tester.widget<LabelSwatchStrip>(find.byType(LabelSwatchStrip)).value,
+        ItemLabel.red,
+      );
+
+      await tester.tap(find.bySemanticsLabel(AppLocalizationsEn().labelRed));
+      await tester.pumpAndSettle();
+      await settle(tester);
+
+      expect(noteBloc.dispatched.whereType<SetOptimizedNoteLabel>(), isEmpty);
+      expect(find.byType(LabelSwatchStrip), findsNothing);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('dismissing the sheet dispatches nothing', (tester) async {
+      await pushEditorOverFolder(tester);
+      noteBloc.clearDispatched();
+
+      await openLabelSheet(tester);
+      await tester.tapAt(const Offset(400, 8));
+      await tester.pumpAndSettle();
+      await settle(tester);
+
+      expect(noteBloc.dispatched.whereType<SetOptimizedNoteLabel>(), isEmpty);
+      expect(find.byType(LabelSwatchStrip), findsNothing);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('labelling a deleted note says so instead of opening the '
+        'sheet', (tester) async {
+      // A second editor over the same note — a `[[wiki link]]` back to A —
+      // can delete it and pop onto this one, and a merge can tombstone it
+      // outright. The row is still readable, so only the service's tombstone
+      // guard stands between the menu and a write the DAO refuses in silence.
+      await pushEditorOverFolder(tester);
+      await tester.runAsync(() => storageService.deleteNote(menuNote.id));
+      noteBloc.clearDispatched();
+
+      await openMenu(tester);
+      await tester.tap(find.text(AppLocalizationsEn().labelAction));
+      await tester.pumpAndSettle();
+      await settleUntil(
+        tester,
+        () =>
+            find.text(AppLocalizationsEn().noteNotFound).evaluate().isNotEmpty,
+      );
+
+      expect(find.byType(LabelSwatchStrip), findsNothing);
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(noteBloc.dispatched.whereType<SetOptimizedNoteLabel>(), isEmpty);
+
       await teardownPage(tester);
     });
 
