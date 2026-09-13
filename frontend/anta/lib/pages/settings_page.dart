@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../constants/settings_keys.dart';
 import '../l10n/app_localizations.dart';
+import '../models/label_style.dart';
 import '../models/restore_location_mode.dart';
 import '../widgets/app_dialogs.dart';
+import '../services/label_appearance_service.dart';
 import '../services/settings_service.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/settings_search.dart';
@@ -52,6 +54,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _autoSaveEnabled = true;
   int _autoSaveInterval = 5;
   bool _showNotePreview = true;
+  LabelStyle _labelStyle = LabelStyle.dot;
   bool _showStatsBar = true;
   bool _hapticFeedback = true;
   RestoreLocationMode _restoreLocationMode = RestoreLocationMode.everything;
@@ -91,6 +94,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final autoSave = await settings.getAutoSaveEnabled();
     final autoSaveInt = await settings.getAutoSaveInterval();
     final showPreview = await settings.getShowNotePreview();
+    final labelStyle = await settings.getLabelStyle();
     final showStats = await settings.getShowStatsBar();
     final haptic = await settings.getHapticFeedback();
     final restoreLocationMode = await settings.getRestoreLocationMode();
@@ -117,6 +121,7 @@ class _SettingsPageState extends State<SettingsPage> {
       _autoSaveEnabled = autoSave;
       _autoSaveInterval = autoSaveInt;
       _showNotePreview = showPreview;
+      _labelStyle = labelStyle;
       _showStatsBar = showStats;
       _hapticFeedback = haptic;
       _restoreLocationMode = restoreLocationMode;
@@ -268,6 +273,30 @@ class _SettingsPageState extends State<SettingsPage> {
               _onHapticFeedback();
               setState(() => _showNotePreview = value);
               await _settings?.setShowNotePreview(value);
+            },
+          ),
+        ),
+        SettingsEntry(
+          title: l10n.labelStyle,
+          description: l10n.labelStyleDesc,
+          keywords: _keywords(l10n.labelStyleKeywords),
+          builder: (context, title, description) => _choiceRow(
+            title: title,
+            description: description,
+            value: _labelStyle,
+            labels: {
+              LabelStyle.dot: l10n.labelStyleDot,
+              LabelStyle.stripe: l10n.labelStyleStripe,
+            },
+            // Through the service, not the store: the browser sitting under
+            // this page repaints off the published facade, so a write that
+            // skipped it would only show up on the next launch.
+            onChanged: (value) async {
+              _onHapticFeedback();
+              setState(() => _labelStyle = value);
+              await (await LabelAppearanceService.getInstance()).setStyle(
+                value,
+              );
             },
           ),
         ),
@@ -760,6 +789,12 @@ class _SettingsPageState extends State<SettingsPage> {
     // The page ships open — leaving a section folded after a reset hides rows
     // the user just asked to see restored.
     await _settings?.setAppSettingsCollapsedSections(const {});
+    // Last, and through the service rather than the store, so the browser
+    // underneath repaints; it goes last because it is the one call in this
+    // chain that can throw, and nothing after it should be skipped if it does.
+    await (await LabelAppearanceService.getInstance()).setStyle(
+      LabelStyle.fromName(SettingsKeys.defaultLabelStyle),
+    );
 
     setState(() {
       _collapsedSections = const {};
@@ -769,6 +804,7 @@ class _SettingsPageState extends State<SettingsPage> {
       _autoSaveEnabled = SettingsKeys.defaultAutoSaveEnabled;
       _autoSaveInterval = SettingsKeys.defaultAutoSaveInterval;
       _showNotePreview = SettingsKeys.defaultShowNotePreview;
+      _labelStyle = LabelStyle.fromName(SettingsKeys.defaultLabelStyle);
       _showStatsBar = SettingsKeys.defaultShowStatsBar;
       _hapticFeedback = SettingsKeys.defaultHapticFeedback;
       _restoreLocationMode = RestoreLocationMode.everything;

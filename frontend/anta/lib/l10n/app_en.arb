@@ -5954,5 +5954,25 @@
         "example": "Teal"
       }
     }
+  },
+  "labelStyle": "Label style",
+  "@labelStyle": {
+    "description": "Settings row choosing how a colour label is drawn on a row"
+  },
+  "labelStyleDesc": "How a labelled note or folder shows its colour in the list",
+  "@labelStyleDesc": {
+    "description": "Description of the label style setting"
+  },
+  "labelStyleDot": "Dot",
+  "@labelStyleDot": {
+    "description": "Label style option: a dot at the row's trailing edge"
+  },
+  "labelStyleStripe": "Edge stripe",
+  "@labelStyleStripe": {
+    "description": "Label style option: a stripe on the row's leading edge"
+  },
+  "labelStyleKeywords": "colour, color, label, dot, stripe, edge, marker",
+  "@labelStyleKeywords": {
+    "description": "Hidden search keywords for the label style setting"
   }
 }

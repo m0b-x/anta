@@ -371,7 +371,7 @@ class NoteRepository {
       _invalidateFolderCache(note.folderId);
       _noteChangesController.add(
         NoteChange(
-          type: NoteChangeType.updated,
+          type: NoteChangeType.labelled,
           noteId: noteId,
           folderId: note.folderId,
           note: note,
@@ -408,7 +408,7 @@ class NoteRepository {
       _noteCache.put(note.id, note);
       _noteChangesController.add(
         NoteChange(
-          type: NoteChangeType.updated,
+          type: NoteChangeType.labelled,
           noteId: note.id,
           folderId: note.folderId,
           note: note,

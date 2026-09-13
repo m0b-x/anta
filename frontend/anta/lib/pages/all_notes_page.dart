@@ -22,6 +22,7 @@ import '../services/drawer_host_registry.dart';
 import '../services/folder_search_service.dart';
 import '../services/folder_storage_service.dart';
 import '../services/note_storage_service.dart';
+import '../services/label_appearance_service.dart';
 import '../services/settings_service.dart';
 import '../utils/bloc_helpers.dart';
 import '../widgets/app_drawer.dart';
@@ -178,6 +179,10 @@ class _AllNotesPageState extends State<AllNotesPage> with RouteAware {
   /// keyboard animation frame.
   Future<void> _loadSettings() async {
     final settings = await SettingsService.getInstance();
+    // Re-primes the label style after a database switch, the way the folder
+    // browser does: this page is just as likely to be the one on screen when
+    // the switch lands, and its rows read the facade synchronously.
+    await LabelAppearanceService.getInstance();
     final swipe = await settings.getFolderSwipeEnabled();
     final showPreview = await settings.getShowNotePreview();
     if (!mounted) return;

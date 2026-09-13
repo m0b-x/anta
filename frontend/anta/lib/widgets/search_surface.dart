@@ -4,9 +4,10 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/search/search_bloc.dart';
 import '../constants/app_icon_sizes.dart';
 import '../constants/app_spacing.dart';
+import '../constants/label_appearance.dart';
 import '../constants/row_metrics.dart';
 import '../l10n/app_localizations.dart';
-import '../models/item_label.dart';
+import '../models/label_style.dart';
 import '../models/note_metadata.dart';
 import '../models/search_scope.dart';
 import '../services/app_navigator.dart';
@@ -305,8 +306,24 @@ class SearchResultRow extends StatelessWidget {
     this.showDate = false,
   });
 
+  /// Every result subscribes, labelled or not, for the reason [NoteRow]
+  /// gives: one root widget type whatever the label.
   @override
   Widget build(BuildContext context) {
+    return ValueListenableBuilder<LabelStyle>(
+      valueListenable: LabelAppearance.style,
+      builder: (context, style, _) => _buildRow(
+        context,
+        LabelRowDecoration.resolve(
+          context,
+          label: metadata.label,
+          style: style,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRow(BuildContext context, LabelRowDecoration decoration) {
     final l10n = AppLocalizations.of(context)!;
     final colorScheme = Theme.of(context).colorScheme;
     final title = metadata.title.isEmpty ? l10n.untitledNote : metadata.title;
@@ -351,6 +368,8 @@ class SearchResultRow extends StatelessWidget {
 
     return ContentRowShell(
       position: groupPosition,
+      edgeStripe: decoration.stripeColor,
+      edgeStripeSemantics: decoration.stripeSemantics,
       child: InkWell(
         onTap: () => AppNavigator.toNoteEditorInstant(
           context,
@@ -367,7 +386,7 @@ class SearchResultRow extends StatelessWidget {
             // The label dot sits at the trailing edge, the way it does on a
             // note row, so a result and the browser row it stands for read the
             // same. An unlabelled result keeps the bare Column it always had.
-            child: metadata.label == ItemLabel.none
+            child: !decoration.showsDot
                 ? body
                 : Row(
                     children: [

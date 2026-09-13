@@ -7,11 +7,12 @@ import '../bloc/import_export/import_export_event.dart';
 import '../bloc/optimized_folder/optimized_folder_bloc.dart';
 import '../bloc/optimized_folder/optimized_folder_event.dart';
 import '../constants/app_colors.dart';
+import '../constants/label_appearance.dart';
 import '../constants/row_metrics.dart';
 import '../controllers/selection_controller.dart';
 import '../l10n/app_localizations.dart';
 import '../models/folder.dart';
-import '../models/item_label.dart';
+import '../models/label_style.dart';
 import '../models/movable_item.dart';
 import '../services/app_navigator.dart';
 import '../services/folder_storage_service.dart';
@@ -71,8 +72,21 @@ class FolderRow extends StatelessWidget {
     currentParentId: parentId,
   );
 
+  /// Every row subscribes, labelled or not, so the root widget type never
+  /// changes with the label and a folder's first label rebuilds the row in
+  /// place rather than remounting its [DragTarget] under a drag.
   @override
   Widget build(BuildContext context) {
+    return ValueListenableBuilder<LabelStyle>(
+      valueListenable: LabelAppearance.style,
+      builder: (context, style, _) => _buildRow(
+        context,
+        LabelRowDecoration.resolve(context, label: folder.label, style: style),
+      ),
+    );
+  }
+
+  Widget _buildRow(BuildContext context, LabelRowDecoration decoration) {
     final isSelecting = selection != null && selection!.isActive;
     final isSelected = selection != null && selection!.contains(_ref);
     final colorScheme = Theme.of(context).colorScheme;
@@ -82,6 +96,8 @@ class FolderRow extends StatelessWidget {
       isSelected: isSelected,
       isDropTarget: isDropTarget,
       dividerIndent: RowMetrics.dividerIndentWithGlyph,
+      edgeStripe: decoration.stripeColor,
+      edgeStripeSemantics: decoration.stripeSemantics,
       child: InkWell(
         onTap: isSelecting
             ? () => onTapInSelection?.call(_ref)
@@ -134,7 +150,7 @@ class FolderRow extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: RowMetrics.gap),
-                _buildTrailing(context),
+                _buildTrailing(context, decoration),
               ],
             ),
           ),
@@ -187,7 +203,7 @@ class FolderRow extends StatelessWidget {
     return result;
   }
 
-  Widget _buildTrailing(BuildContext context) {
+  Widget _buildTrailing(BuildContext context, LabelRowDecoration decoration) {
     final trailing = isReorderMode
         ? ReorderableDragStartListener(
             index: index ?? 0,
@@ -199,7 +215,7 @@ class FolderRow extends StatelessWidget {
           )
         : RowCountChevron(count: noteCount);
 
-    if (folder.label == ItemLabel.none) return trailing;
+    if (!decoration.showsDot) return trailing;
 
     return Row(
       mainAxisSize: MainAxisSize.min,

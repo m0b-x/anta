@@ -336,21 +336,21 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   /// Shaped on [updateFolderPosition] — read the row, stamp a fresh HLC,
   /// write `version + 1` — and refuses a tombstone: a label picked from a
   /// sheet that outlived the folder would otherwise resurrect it on the next
-  /// merge.
+  /// merge. `updated_at` is left alone and an unchanged label is a no-op,
+  /// for the reasons `NoteDao.updateNoteLabel` gives.
   Future<Folder?> updateFolderLabel({
     required String id,
     required ItemLabel label,
   }) async {
     final existing = await getFolderById(id);
     if (existing == null || existing.isDeleted) return null;
+    if (existing.label == label.storageValue) return existing;
 
-    final now = DateTime.now();
     final hlc = db.generateHlc();
 
     await (update(folders)..where((f) => f.id.equals(id))).write(
       FoldersCompanion(
         label: Value(label.storageValue),
-        updatedAt: Value(now),
         hlcTimestamp: Value(hlc),
         deviceId: Value(db.deviceId),
         version: Value(existing.version + 1),
@@ -364,8 +364,9 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   /// does, so the statement count does not move with the size of the
   /// selection.
   ///
-  /// Returns how many rows changed. Tombstones are skipped by the
-  /// `is_deleted = 0` clause rather than by a pre-read.
+  /// Returns how many rows actually changed. Tombstones and rows already
+  /// carrying [label] are skipped by the `WHERE` clause rather than by a
+  /// pre-read; `updated_at` is left alone.
   Future<int> updateLabelForFolders({
     required List<String> ids,
     required ItemLabel label,
@@ -373,19 +374,18 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     if (ids.isEmpty) return 0;
     final unique = ids.toSet().toList(growable: false);
     final placeholders = List.filled(unique.length, '?').join(', ');
-    final now = DateTime.now();
     final hlc = db.generateHlc();
 
     return customUpdate(
-      'UPDATE folders SET label = ?, updated_at = ?, hlc_timestamp = ?, '
+      'UPDATE folders SET label = ?, hlc_timestamp = ?, '
       'device_id = ?, version = version + 1 '
-      'WHERE id IN ($placeholders) AND is_deleted = 0',
+      'WHERE id IN ($placeholders) AND is_deleted = 0 AND label <> ?',
       variables: [
         Variable<int>(label.storageValue),
-        Variable<DateTime>(now),
         Variable<String>(hlc),
         Variable<String>(db.deviceId),
         for (final id in unique) Variable<String>(id),
+        Variable<int>(label.storageValue),
       ],
       updates: {folders},
     );

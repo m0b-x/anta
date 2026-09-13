@@ -70,6 +70,17 @@ class RowMetrics {
   /// only thing that ever moves the name beside it.
   static const double labelDotSize = 10.0;
 
+  /// The colour-label stripe on a row's leading edge, the dot's alternative.
+  static const double labelStripeWidth = 3.0;
+
+  /// How far the stripe stops short of the row's top and bottom, so a run of
+  /// labelled rows reads as separate marks rather than one continuous bar.
+  static const double labelStripeInset = 8.0;
+
+  /// Only the stripe's right-hand corners round: its left edge is flush with
+  /// the group's, where the group's own clip rounds it on an end row.
+  static const double labelStripeRadius = 3.0;
+
   /// The bare descendant count on a folder or smart row.
   static const double countFontSize = 14.0;
 

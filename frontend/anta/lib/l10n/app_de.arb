@@ -2605,5 +2605,10 @@
   "labelTeal": "Blaugrün",
   "labelBlue": "Blau",
   "labelPink": "Rosa",
-  "labelSemantics": "Etikett {color}"
+  "labelSemantics": "Etikett {color}",
+  "labelStyle": "Etikettenstil",
+  "labelStyleDesc": "Wie eine Notiz oder ein Ordner mit Etikett seine Farbe in der Liste zeigt",
+  "labelStyleDot": "Punkt",
+  "labelStyleStripe": "Randstreifen",
+  "labelStyleKeywords": "Farbe, Etikett, Punkt, Streifen, Rand, Markierung"
 }

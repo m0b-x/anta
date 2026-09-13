@@ -116,6 +116,53 @@ void main() {
         isNull,
       );
     });
+
+    test('leaves updated_at alone, so labelling does not say "edited"',
+        () async {
+      final folder = await seedFolder();
+      final note = await seedNote(folder.id);
+
+      final updated = await db.noteDao.updateNoteLabel(
+        id: note.id,
+        label: ItemLabel.orange,
+      );
+
+      expect(
+        updated!.updatedAt,
+        note.updatedAt,
+        reason:
+            'a label edits nothing in the note; carrying it to the top of '
+            'the "last updated" sort is what this write must not do',
+      );
+      final reread = await db.noteDao.getNoteById(note.id);
+      expect(reread!.updatedAt, note.updatedAt);
+    });
+
+    test('writing the label it already has is a no-op', () async {
+      final folder = await seedFolder();
+      final note = await seedNote(folder.id);
+      final labelled = await db.noteDao.updateNoteLabel(
+        id: note.id,
+        label: ItemLabel.green,
+      );
+
+      final again = await db.noteDao.updateNoteLabel(
+        id: note.id,
+        label: ItemLabel.green,
+      );
+
+      expect(again, isNotNull);
+      expect(again!.version, labelled!.version);
+      expect(again.hlcTimestamp, labelled.hlcTimestamp);
+      expect(again.updatedAt, labelled.updatedAt);
+      final reread = await db.noteDao.getNoteById(note.id);
+      expect(reread!.version, labelled.version);
+      expect(
+        reread.hlcTimestamp,
+        labelled.hlcTimestamp,
+        reason: 'a row that did not change must not travel on the next sync',
+      );
+    });
   });
 
   group('updateFolderLabel', () {
@@ -253,6 +300,183 @@ void main() {
       expect(changed, 1);
       final after = await db.noteDao.getNoteById(dead.id);
       expect(ItemLabel.fromStorage(after!.label), ItemLabel.none);
+    });
+
+    test('a tombstoned folder in the selection is skipped', () async {
+      final live = await seedFolder('Live');
+      final dead = await seedFolder('Dead');
+      await db.folderDao.softDeleteFolder(dead.id);
+      final tombstone = await db.folderDao.getFolderById(dead.id);
+
+      final changed = await db.folderDao.updateLabelForFolders(
+        ids: [live.id, dead.id],
+        label: ItemLabel.teal,
+      );
+
+      expect(changed, 1);
+      final after = await db.folderDao.getFolderById(dead.id);
+      expect(ItemLabel.fromStorage(after!.label), ItemLabel.none);
+      expect(after.version, tombstone!.version);
+      expect(
+        after.hlcTimestamp,
+        tombstone.hlcTimestamp,
+        reason: 'a bulk label must not resurrect a deleted folder on merge',
+      );
+    });
+
+    test('leaves updated_at alone for every row it does touch', () async {
+      final folder = await seedFolder();
+      final first = await seedNote(folder.id, 'One');
+      final second = await seedNote(folder.id, 'Two');
+
+      final changed = await db.noteDao.updateLabelForNotes(
+        ids: [first.id, second.id],
+        label: ItemLabel.pink,
+      );
+
+      expect(changed, 2);
+      final rows = await db.noteDao.getNotesByIds([first.id, second.id]);
+      final byId = {for (final row in rows) row.id: row};
+      expect(byId[first.id]!.updatedAt, first.updatedAt);
+      expect(byId[second.id]!.updatedAt, second.updatedAt);
+    });
+
+    test('counts only the rows whose colour actually moves', () async {
+      final folder = await seedFolder();
+      final ids = <String>[];
+      for (var i = 0; i < 20; i++) {
+        final note = await seedNote(folder.id, 'Note $i');
+        ids.add(note.id);
+      }
+      final alreadyBlue = ids.take(5).toList(growable: false);
+      await db.noteDao.updateLabelForNotes(
+        ids: alreadyBlue,
+        label: ItemLabel.blue,
+      );
+      final before = await db.noteDao.getNotesByIds(alreadyBlue);
+      final versionsBefore = {for (final row in before) row.id: row.version};
+
+      final changed = await db.noteDao.updateLabelForNotes(
+        ids: ids,
+        label: ItemLabel.blue,
+      );
+
+      expect(
+        changed,
+        15,
+        reason:
+            'the `label <> ?` clause is what keeps a selection that is mostly '
+            'that colour already from re-stamping every row',
+      );
+      final after = await db.noteDao.getNotesByIds(alreadyBlue);
+      for (final row in after) {
+        expect(row.version, versionsBefore[row.id]);
+      }
+    });
+
+    test('a duplicated id is one row, not two', () async {
+      final folder = await seedFolder();
+      final note = await seedNote(folder.id);
+
+      final changed = await db.noteDao.updateLabelForNotes(
+        ids: [note.id, note.id],
+        label: ItemLabel.yellow,
+      );
+
+      expect(changed, 1);
+      final after = await db.noteDao.getNoteById(note.id);
+      expect(after!.version, note.version + 1);
+    });
+
+    test('a duplicated folder id is one row too', () async {
+      final folder = await seedFolder();
+
+      final changed = await db.folderDao.updateLabelForFolders(
+        ids: [folder.id, folder.id],
+        label: ItemLabel.yellow,
+      );
+
+      expect(changed, 1);
+      final after = await db.folderDao.getFolderById(folder.id);
+      expect(after!.version, folder.version + 1);
+    });
+  });
+
+  group('the label survives the writes around it', () {
+    test('a title edit keeps it, and the FTS row finds it', () async {
+      final folder = await seedFolder();
+      final note = await db.noteDao.createNote(
+        folderId: folder.id,
+        title: 'Zercher carry',
+        preview: 'heavy',
+        contentLength: 5,
+        chunkCount: 1,
+      );
+      await db.noteDao.updateNoteLabel(id: note.id, label: ItemLabel.red);
+
+      final hits = await db.noteDao.fullTextSearch('Zercher');
+      expect(hits, hasLength(1));
+      expect(
+        ItemLabel.fromStorage(hits.single.label),
+        ItemLabel.red,
+        reason:
+            'fullTextSearch hand-builds its Note rows; a column left out of '
+            'that list reads as the default on every search result',
+      );
+
+      await db.noteDao.updateNote(id: note.id, title: 'Zercher carries');
+
+      final after = await db.noteDao.getNoteById(note.id);
+      expect(ItemLabel.fromStorage(after!.label), ItemLabel.red);
+      final renamed = await db.noteDao.fullTextSearch('carries');
+      expect(ItemLabel.fromStorage(renamed.single.label), ItemLabel.red);
+    });
+
+    test('a move to another folder keeps it', () async {
+      final source = await seedFolder('Source');
+      final target = await seedFolder('Target');
+      final note = await seedNote(source.id);
+      await db.noteDao.updateNoteLabel(id: note.id, label: ItemLabel.teal);
+
+      final moved = await db.noteDao.moveNote(
+        id: note.id,
+        targetFolderId: target.id,
+      );
+
+      expect(moved!.folderId, target.id);
+      expect(ItemLabel.fromStorage(moved.label), ItemLabel.teal);
+    });
+
+    test('a reorder keeps it', () async {
+      final folder = await seedFolder();
+      final first = await seedNote(folder.id, 'One');
+      final second = await seedNote(folder.id, 'Two');
+      await db.noteDao.updateNoteLabel(id: first.id, label: ItemLabel.orange);
+      await db.noteDao.updateNoteLabel(id: second.id, label: ItemLabel.pink);
+
+      // What `MixedReorderService` calls through `NoteRepository`.
+      await db.noteDao.setNotePositions({first.id: 1, second.id: 0});
+
+      final rows = await db.noteDao.getNotesByIds([first.id, second.id]);
+      final byId = {for (final row in rows) row.id: row};
+      expect(byId[first.id]!.position, 1);
+      expect(byId[second.id]!.position, 0);
+      expect(ItemLabel.fromStorage(byId[first.id]!.label), ItemLabel.orange);
+      expect(ItemLabel.fromStorage(byId[second.id]!.label), ItemLabel.pink);
+    });
+
+    test('a folder rename keeps it', () async {
+      final folder = await seedFolder();
+      await db.folderDao.updateFolderLabel(
+        id: folder.id,
+        label: ItemLabel.green,
+      );
+
+      await db.folderDao.updateFolder(id: folder.id, name: 'Renamed');
+
+      final after = await db.folderDao.getFolderById(folder.id);
+      expect(after!.name, 'Renamed');
+      expect(ItemLabel.fromStorage(after.label), ItemLabel.green);
     });
   });
 

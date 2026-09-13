@@ -16,6 +16,7 @@ import 'event_skip_service.dart';
 import 'event_template_service.dart';
 import 'calendar_palette_service.dart';
 import 'filter_preset_service.dart';
+import 'label_appearance_service.dart';
 import 'vocabulary_service.dart';
 import 'category_service.dart';
 import 'counter_service.dart';
@@ -224,6 +225,10 @@ class BackupService {
       // Which picker geometry they prefer — a display preference, carried
       // for the same reason `theme_mode` and `word_wrap` are.
       SettingsKeys.colorPickerMode,
+      // How a labelled row draws its colour — a display preference like the
+      // one above it; the labels themselves travel on the note and folder
+      // rows, not here.
+      SettingsKeys.labelStyle,
       // Which editor surface the note opens on: live rendering, and whether
       // the deprecated preview is available at all. Additive — a backup
       // written before these keys existed simply leaves both at their
@@ -389,6 +394,12 @@ class BackupService {
       // and correctly instead of falling back to the built-ins.
       CalendarPaletteService.reset();
       await CalendarPaletteService.getInstance();
+
+      // Same reason for the label style: every labelled row on screen reads
+      // the published value, so a restored `label_style` has to reach the
+      // facade now rather than on the next launch.
+      LabelAppearanceService.reset();
+      await LabelAppearanceService.getInstance();
 
       final counterData = data['counterData'] as Map<String, dynamic>?;
       if (counterData != null) {

@@ -4721,4 +4721,21 @@ class AppLocalizationsEn extends AppLocalizations {
   String labelSemantics(String color) {
     return '$color label';
   }
+
+  @override
+  String get labelStyle => 'Label style';
+
+  @override
+  String get labelStyleDesc =>
+      'How a labelled note or folder shows its colour in the list';
+
+  @override
+  String get labelStyleDot => 'Dot';
+
+  @override
+  String get labelStyleStripe => 'Edge stripe';
+
+  @override
+  String get labelStyleKeywords =>
+      'colour, color, label, dot, stripe, edge, marker';
 }

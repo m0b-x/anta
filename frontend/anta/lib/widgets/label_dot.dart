@@ -4,6 +4,7 @@ import '../constants/app_colors.dart';
 import '../constants/row_metrics.dart';
 import '../l10n/app_localizations.dart';
 import '../models/item_label.dart';
+import '../models/label_style.dart';
 
 /// The colour label of a note or folder, as the small filled circle drawn at
 /// the trailing edge of its browser row.
@@ -43,6 +44,49 @@ class LabelDot extends StatelessWidget {
           border: Border.all(color: AppColors.labelRing(brightness), width: 1),
         ),
       ),
+    );
+  }
+}
+
+/// What one row has to draw for its label, once the label and the chosen
+/// [LabelStyle] are both known.
+///
+/// Exists so the three rows that carry a label — note, folder, search
+/// result — do not each restate the same two-way switch, and so the stripe's
+/// colour and its accessible name are resolved in exactly one place.
+@immutable
+class LabelRowDecoration {
+  /// The stripe's fill, non-null only for a labelled row in the stripe style.
+  final Color? stripeColor;
+
+  /// The stripe's accessible name — the same string [LabelDot] carries.
+  final String? stripeSemantics;
+
+  /// Whether this row draws the trailing dot.
+  final bool showsDot;
+
+  const LabelRowDecoration._({
+    this.stripeColor,
+    this.stripeSemantics,
+    this.showsDot = false,
+  });
+
+  /// Nothing at all: an unlabelled row, in either style.
+  static const LabelRowDecoration none = LabelRowDecoration._();
+
+  factory LabelRowDecoration.resolve(
+    BuildContext context, {
+    required ItemLabel label,
+    required LabelStyle style,
+  }) {
+    if (label == ItemLabel.none) return none;
+    if (style == LabelStyle.dot) {
+      return const LabelRowDecoration._(showsDot: true);
+    }
+    final l10n = AppLocalizations.of(context)!;
+    return LabelRowDecoration._(
+      stripeColor: AppColors.labelColor(label, Theme.of(context).brightness),
+      stripeSemantics: l10n.labelSemantics(label.displayName(l10n)),
     );
   }
 }

@@ -8181,6 +8181,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{color} label'**
   String labelSemantics(String color);
+
+  /// Settings row choosing how a colour label is drawn on a row
+  ///
+  /// In en, this message translates to:
+  /// **'Label style'**
+  String get labelStyle;
+
+  /// Description of the label style setting
+  ///
+  /// In en, this message translates to:
+  /// **'How a labelled note or folder shows its colour in the list'**
+  String get labelStyleDesc;
+
+  /// Label style option: a dot at the row's trailing edge
+  ///
+  /// In en, this message translates to:
+  /// **'Dot'**
+  String get labelStyleDot;
+
+  /// Label style option: a stripe on the row's leading edge
+  ///
+  /// In en, this message translates to:
+  /// **'Edge stripe'**
+  String get labelStyleStripe;
+
+  /// Hidden search keywords for the label style setting
+  ///
+  /// In en, this message translates to:
+  /// **'colour, color, label, dot, stripe, edge, marker'**
+  String get labelStyleKeywords;
 }
 
 class _AppLocalizationsDelegate

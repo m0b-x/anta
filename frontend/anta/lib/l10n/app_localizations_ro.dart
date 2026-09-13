@@ -4803,4 +4803,21 @@ class AppLocalizationsRo extends AppLocalizations {
   String labelSemantics(String color) {
     return 'Etichetă $color';
   }
+
+  @override
+  String get labelStyle => 'Stil etichetă';
+
+  @override
+  String get labelStyleDesc =>
+      'Cum își arată culoarea în listă o notiță sau un folder cu etichetă';
+
+  @override
+  String get labelStyleDot => 'Punct';
+
+  @override
+  String get labelStyleStripe => 'Dungă laterală';
+
+  @override
+  String get labelStyleKeywords =>
+      'culoare, etichetă, punct, dungă, margine, marcaj';
 }

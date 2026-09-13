@@ -493,6 +493,7 @@ class FolderSearchService {
         _searchIndex.removeNote(change.noteId);
         _staleNoteIds.remove(change.noteId);
       case NoteChangeType.moved:
+      case NoteChangeType.labelled:
         break;
       case NoteChangeType.created:
       case NoteChangeType.updated:

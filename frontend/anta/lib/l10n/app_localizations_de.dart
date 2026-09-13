@@ -4758,4 +4758,21 @@ class AppLocalizationsDe extends AppLocalizations {
   String labelSemantics(String color) {
     return 'Etikett $color';
   }
+
+  @override
+  String get labelStyle => 'Etikettenstil';
+
+  @override
+  String get labelStyleDesc =>
+      'Wie eine Notiz oder ein Ordner mit Etikett seine Farbe in der Liste zeigt';
+
+  @override
+  String get labelStyleDot => 'Punkt';
+
+  @override
+  String get labelStyleStripe => 'Randstreifen';
+
+  @override
+  String get labelStyleKeywords =>
+      'Farbe, Etikett, Punkt, Streifen, Rand, Markierung';
 }

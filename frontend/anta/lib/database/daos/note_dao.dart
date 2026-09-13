@@ -398,6 +398,15 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
   /// label picked from a sheet that outlived the note would otherwise
   /// resurrect it on the next merge.
   ///
+  /// `updated_at` is deliberately **not** touched, unlike every other write
+  /// here: a label says something *about* the note and edits nothing in it,
+  /// so labelling an old note must not carry it to the top of the
+  /// "last updated" sort or stamp its row "Today". The HLC and version still
+  /// move, which is all the merge needs to carry the label across devices.
+  ///
+  /// Writing the label a note already has is a no-op — no HLC, no version —
+  /// so the row does not travel on the next sync for nothing.
+  ///
   /// The FTS index is untouched on purpose: it holds title and preview, and a
   /// label is neither.
   Future<Note?> updateNoteLabel({
@@ -406,14 +415,13 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
   }) async {
     final existing = await getNoteById(id);
     if (existing == null || existing.isDeleted) return null;
+    if (existing.label == label.storageValue) return existing;
 
-    final now = DateTime.now();
     final hlc = db.generateHlc();
 
     await (update(notes)..where((n) => n.id.equals(id))).write(
       NotesCompanion(
         label: Value(label.storageValue),
-        updatedAt: Value(now),
         hlcTimestamp: Value(hlc),
         deviceId: Value(db.deviceId),
         version: Value(existing.version + 1),
@@ -427,8 +435,11 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
   /// `version + 1` arithmetic itself, so the statement count does not move
   /// with the size of the selection.
   ///
-  /// Returns how many rows changed. Tombstones are skipped by the
-  /// `is_deleted = 0` clause rather than by a pre-read.
+  /// Returns how many rows actually changed. Tombstones and rows already
+  /// carrying [label] are skipped by the `WHERE` clause rather than by a
+  /// pre-read, so a selection that is mostly that colour already costs one
+  /// statement and touches only the rows whose colour moves. `updated_at` is
+  /// left alone for the reason [updateNoteLabel] gives.
   Future<int> updateLabelForNotes({
     required List<String> ids,
     required ItemLabel label,
@@ -436,19 +447,18 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
     if (ids.isEmpty) return 0;
     final unique = ids.toSet().toList(growable: false);
     final placeholders = List.filled(unique.length, '?').join(', ');
-    final now = DateTime.now();
     final hlc = db.generateHlc();
 
     return customUpdate(
-      'UPDATE notes SET label = ?, updated_at = ?, hlc_timestamp = ?, '
+      'UPDATE notes SET label = ?, hlc_timestamp = ?, '
       'device_id = ?, version = version + 1 '
-      'WHERE id IN ($placeholders) AND is_deleted = 0',
+      'WHERE id IN ($placeholders) AND is_deleted = 0 AND label <> ?',
       variables: [
         Variable<int>(label.storageValue),
-        Variable<DateTime>(now),
         Variable<String>(hlc),
         Variable<String>(db.deviceId),
         for (final id in unique) Variable<String>(id),
+        Variable<int>(label.storageValue),
       ],
       updates: {notes},
     );

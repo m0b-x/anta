@@ -54,29 +54,37 @@ class SelectionActionBar extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              _Action(
-                icon: Icons.label_outline,
-                label: l10n.labelSelected,
-                color: colorScheme.primary,
-                onPressed: enabled ? onLabel : null,
+              Flexible(
+                child: _Action(
+                  icon: Icons.label_outline,
+                  label: l10n.labelSelected,
+                  color: colorScheme.primary,
+                  onPressed: enabled ? onLabel : null,
+                ),
               ),
-              _Action(
-                icon: Icons.drive_file_move_outline,
-                label: l10n.moveSelected,
-                color: colorScheme.primary,
-                onPressed: enabled ? onMove : null,
+              Flexible(
+                child: _Action(
+                  icon: Icons.drive_file_move_outline,
+                  label: l10n.moveSelected,
+                  color: colorScheme.primary,
+                  onPressed: enabled ? onMove : null,
+                ),
               ),
-              _Action(
-                icon: Icons.share_outlined,
-                label: l10n.shareSelected,
-                color: colorScheme.primary,
-                onPressed: enabled ? onShare : null,
+              Flexible(
+                child: _Action(
+                  icon: Icons.share_outlined,
+                  label: l10n.shareSelected,
+                  color: colorScheme.primary,
+                  onPressed: enabled ? onShare : null,
+                ),
               ),
-              _Action(
-                icon: Icons.delete_outline,
-                label: l10n.deleteSelected,
-                color: colorScheme.error,
-                onPressed: enabled ? onDelete : null,
+              Flexible(
+                child: _Action(
+                  icon: Icons.delete_outline,
+                  label: l10n.deleteSelected,
+                  color: colorScheme.error,
+                  onPressed: enabled ? onDelete : null,
+                ),
               ),
             ],
           ),
@@ -113,7 +121,13 @@ class _Action extends StatelessWidget {
           children: [
             Icon(icon, color: c, size: RowMetrics.bottomBarGlyphSize),
             const SizedBox(height: 2),
-            Text(label, style: TextStyle(color: c, fontSize: 11)),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: c, fontSize: 11),
+            ),
           ],
         ),
       ),

@@ -10,7 +10,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/bloc/import_export/import_export_bloc.dart';
 import 'package:anta/bloc/optimized_folder/optimized_folder_bloc.dart';
+import 'package:anta/bloc/optimized_folder/optimized_folder_event.dart';
 import 'package:anta/bloc/optimized_note/optimized_note_bloc.dart';
+import 'package:anta/bloc/optimized_note/optimized_note_event.dart';
 import 'package:anta/bloc/search/search_bloc.dart';
 import 'package:anta/constants/app_bar_metrics.dart';
 import 'package:anta/constants/app_colors.dart';
@@ -19,6 +21,7 @@ import 'package:anta/constants/row_metrics.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
+import 'package:anta/models/item_label.dart';
 import 'package:anta/models/nav_destination.dart';
 import 'package:anta/models/search_scope.dart';
 import 'package:anta/pages/all_notes_page.dart';
@@ -42,6 +45,7 @@ import 'package:anta/widgets/content_rows.dart';
 import 'package:anta/widgets/folder_overflow_menu.dart';
 import 'package:anta/widgets/folder_row.dart';
 import 'package:anta/widgets/folder_sliver_app_bar.dart';
+import 'package:anta/widgets/label_swatch_strip.dart';
 import 'package:anta/widgets/leading_nav_pair.dart';
 import 'package:anta/widgets/note_row.dart';
 import 'package:anta/widgets/search_surface.dart';
@@ -79,7 +83,13 @@ void main() {
   late Folder grandchild;
   late Folder notesOnly;
 
+  // Installed before the BLoCs are built, because `BlocBase` captures
+  // `Bloc.observer` in its constructor: an observer swapped in later never
+  // sees an event from a BLoC that already exists.
+  final events = _EventLog();
+
   setUpAll(() async {
+    Bloc.observer = events;
     tempDir = await Directory.systemTemp.createTemp('anta_folder_page');
     SharedPreferences.setMockInitialValues({});
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -2034,6 +2044,285 @@ void main() {
       await teardownPage(tester);
     });
   });
+
+  group('colour labels', () {
+    /// Every event both browser BLoCs receive, so a pick can be shown to
+    /// dispatch once — and, when nothing changed, not at all. The page's own
+    /// BLoCs are the real ones over the real database, so the event is the
+    /// only place the "did it change?" decision is visible.
+    setUp(events.clear);
+
+    /// Puts every label back so a case that follows sees the rows it seeded.
+    ///
+    /// `runAsync` because drift answers in real time: an `await` on it from
+    /// inside the test's own `FakeAsync` zone never completes.
+    Future<void> clearLabels(
+      WidgetTester tester,
+      List<String> noteIds,
+      List<String> folderIds,
+    ) {
+      return tester.runAsync(() async {
+        for (final id in noteIds) {
+          await noteService.setNoteLabel(id, ItemLabel.none);
+        }
+        for (final id in folderIds) {
+          await folderService.setFolderLabel(id, ItemLabel.none);
+        }
+      });
+    }
+
+    /// Seeds labels straight through storage, outside the BLoCs, and answers
+    /// with the ids it labelled — the rows are found by title because the
+    /// suite's fixtures are seeded in `setUpAll` without keeping them.
+    Future<List<String>> labelNotes(
+      WidgetTester tester,
+      String folderId,
+      List<String> titles,
+      ItemLabel label,
+    ) async {
+      final ids = <String>[];
+      await tester.runAsync(() async {
+        final page = await noteService.loadNotesPaginated(
+          folderId: folderId,
+          pageSize: 50,
+        );
+        for (final title in titles) {
+          final note = page.notes.firstWhere((n) => n.title == title);
+          ids.add(note.id);
+          if (label != ItemLabel.none) {
+            await noteService.setNoteLabel(note.id, label);
+          }
+        }
+      });
+      return ids;
+    }
+
+    /// The note rows actually on screen, in the order the list drew them.
+    ///
+    /// Fifteen notes sharing one creation millisecond order by id under the
+    /// `updatedDesc` tiebreak, so which titles are above the fold is not
+    /// something a test may assume.
+    List<NoteRow> visibleNoteRows(WidgetTester tester) =>
+        tester.widgetList<NoteRow>(find.byType(NoteRow)).toList();
+
+    /// Labels rows already on screen and lets the reload they trigger land.
+    Future<void> labelIds(
+      WidgetTester tester,
+      List<String> ids,
+      ItemLabel label,
+    ) async {
+      await tester.runAsync(() async {
+        for (final id in ids) {
+          await noteService.setNoteLabel(id, label);
+        }
+      });
+      await settle(tester);
+    }
+
+    ItemLabel ringedValue(WidgetTester tester) =>
+        tester.widget<LabelSwatchStrip>(find.byType(LabelSwatchStrip)).value;
+
+    /// A sheet's route animation, then the page's real async work.
+    ///
+    /// Deliberately not `pumpAndSettle`: a label write ends in a reload, and
+    /// the refresh spinner that reload puts on screen never stops animating,
+    /// so a settle after one would sit until the test's own timeout.
+    Future<void> flushSheet(WidgetTester tester) async {
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await settle(tester);
+    }
+
+    testWidgets('a row\'s long-press sheet leads with the strip, and only a '
+        'changed colour is dispatched', (tester) async {
+      final noteId = (await labelNotes(tester, notesOnly.id, [
+        'Loose 1',
+      ], ItemLabel.red)).single;
+
+      await pumpPage(tester, folderId: notesOnly.id, title: 'Loose notes');
+      await tester.longPress(find.text('Loose 1'));
+      await flushSheet(tester);
+
+      expect(find.byType(LabelSwatchStrip), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.byType(LabelSwatchStrip)).dy,
+        lessThan(tester.getTopLeft(find.text(l10n.select)).dy),
+        reason: 'the strip is the sheet header, above the first action',
+      );
+      expect(ringedValue(tester), ItemLabel.red);
+
+      events.clear();
+      await tester.tap(find.bySemanticsLabel(l10n.labelBlue));
+      await flushSheet(tester);
+
+      final dispatched = events.of<SetOptimizedNoteLabel>();
+      expect(dispatched, hasLength(1));
+      expect(dispatched.single.noteId, noteId);
+      expect(dispatched.single.label, ItemLabel.blue);
+
+      // And again, picking the colour the row already wears.
+      await tester.longPress(find.text('Loose 1'));
+      await flushSheet(tester);
+      expect(ringedValue(tester), ItemLabel.blue);
+
+      events.clear();
+      await tester.tap(find.bySemanticsLabel(l10n.labelBlue));
+      await flushSheet(tester);
+
+      expect(
+        events.of<SetOptimizedNoteLabel>(),
+        isEmpty,
+        reason: 'a pick that changes nothing must not cost a write or a sync',
+      );
+      expect(find.byType(LabelSwatchStrip), findsNothing);
+
+      await teardownPage(tester);
+      await clearLabels(tester, [noteId], const []);
+    });
+
+    testWidgets('the bulk sheet rings the selection\'s common label, or none '
+        'when they disagree', (tester) async {
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+      final rows = visibleNoteRows(tester).take(2).toList();
+      expect(rows, hasLength(2));
+      final ids = [for (final row in rows) row.metadata.id];
+      final titles = [for (final row in rows) row.metadata.title];
+      await labelIds(tester, ids, ItemLabel.red);
+
+      await enterSelection(tester);
+
+      // A red note and an unlabelled folder: the two disagree.
+      await tester.tap(find.text(titles.first));
+      await tester.tap(find.text('Week 1'));
+      await flushSheet(tester);
+      expect(
+        tester.widget<SelectionAppBar>(find.byType(SelectionAppBar)).count,
+        2,
+      );
+
+      await tester.tap(find.byIcon(Icons.label_outline));
+      await flushSheet(tester);
+
+      expect(ringedValue(tester), ItemLabel.none);
+      await tester.tapAt(const Offset(400, 8));
+      await flushSheet(tester);
+
+      // Now two rows that agree.
+      await tester.tap(find.text('Week 1'));
+      await tester.tap(find.text(titles.last));
+      await flushSheet(tester);
+
+      await tester.tap(find.byIcon(Icons.label_outline));
+      await flushSheet(tester);
+
+      expect(
+        ringedValue(tester),
+        ItemLabel.red,
+        reason: 'a uniformly red selection must not open on "no label"',
+      );
+
+      await tester.tapAt(const Offset(400, 8));
+      await flushSheet(tester);
+      await leaveSelection(tester);
+      await teardownPage(tester);
+      await clearLabels(tester, ids, const []);
+    });
+
+    testWidgets('a bulk pick sends one event per kind and leaves selection', (
+      tester,
+    ) async {
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+      final session = visibleNoteRows(tester).first.metadata;
+      final sessionId = session.id;
+
+      await enterSelection(tester);
+      await tester.tap(find.text(session.title));
+      await tester.tap(find.text('Week 1'));
+      await flushSheet(tester);
+
+      await tester.tap(find.byIcon(Icons.label_outline));
+      await flushSheet(tester);
+
+      events.clear();
+      await tester.tap(find.bySemanticsLabel(l10n.labelGreen));
+      await flushSheet(tester);
+
+      final notes = events.of<SetOptimizedNotesLabel>();
+      final folders = events.of<SetOptimizedFoldersLabel>();
+      expect(notes, hasLength(1));
+      expect(notes.single.noteIds, [sessionId]);
+      expect(notes.single.label, ItemLabel.green);
+      expect(folders, hasLength(1));
+      expect(folders.single.folderIds, [grandchild.id]);
+      expect(folders.single.label, ItemLabel.green);
+
+      expect(
+        find.byType(SelectionActionBar),
+        findsNothing,
+        reason: 'the pick is the end of the selection, not the start of one',
+      );
+
+      await teardownPage(tester);
+      await clearLabels(tester, [sessionId], [grandchild.id]);
+    });
+
+    testWidgets('the bulk sheet clears the gesture bar even with no keyboard '
+        'up', (tester) async {
+      // A gesture bar and no keyboard. `FakeViewPadding` is in *physical*
+      // pixels, so 96 over the test view's 3x ratio is the 32 dp the sheet
+      // has to clear.
+      tester.view.viewInsets = FakeViewPadding.zero;
+      tester.view.padding = const FakeViewPadding(bottom: 96);
+      tester.view.viewPadding = const FakeViewPadding(bottom: 96);
+      addTearDown(tester.view.reset);
+
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+      final session = visibleNoteRows(tester).first.metadata;
+
+      await enterSelection(tester);
+      await tester.tap(find.text(session.title));
+      await flushSheet(tester);
+
+      await tester.tap(find.byIcon(Icons.label_outline));
+      await flushSheet(tester);
+
+      expect(
+        find.ancestor(
+          of: find.byType(LabelSwatchStrip),
+          matching: find.byWidgetPredicate(
+            (widget) =>
+                widget is Padding &&
+                widget.padding == const EdgeInsets.only(bottom: 32),
+          ),
+        ),
+        findsOneWidget,
+        reason:
+            'padding by viewInsets alone is this app\'s most-repeated bug — '
+            'with no keyboard up it is zero and the strip lands under the '
+            'gesture bar',
+      );
+
+      await tester.tapAt(const Offset(400, 8));
+      await flushSheet(tester);
+      await leaveSelection(tester);
+      await teardownPage(tester);
+    });
+  });
+}
+
+/// Every BLoC event the page dispatched, in order.
+class _EventLog extends BlocObserver {
+  final List<Object?> events = [];
+
+  void clear() => events.clear();
+
+  List<T> of<T>() => events.whereType<T>().toList(growable: false);
+
+  @override
+  void onEvent(Bloc<dynamic, dynamic> bloc, Object? event) {
+    events.add(event);
+    super.onEvent(bloc, event);
+  }
 }
 
 /// Records page routes only: the ancestor menu is itself a route, and its

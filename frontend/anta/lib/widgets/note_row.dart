@@ -7,10 +7,11 @@ import '../bloc/import_export/import_export_bloc.dart';
 import '../bloc/import_export/import_export_event.dart';
 import '../bloc/optimized_note/optimized_note_bloc.dart';
 import '../bloc/optimized_note/optimized_note_event.dart';
+import '../constants/label_appearance.dart';
 import '../constants/row_metrics.dart';
 import '../controllers/selection_controller.dart';
 import '../l10n/app_localizations.dart';
-import '../models/item_label.dart';
+import '../models/label_style.dart';
 import '../models/movable_item.dart';
 import '../models/note_metadata.dart';
 import '../services/app_navigator.dart';
@@ -100,8 +101,27 @@ class NoteRow extends StatelessWidget {
     );
   }
 
+  /// Every row subscribes, labelled or not: the root widget is then the same
+  /// type whatever the label, so giving a note its first label rebuilds the
+  /// row in place instead of remounting it (which would drop an in-flight
+  /// drag over it). A style flip rebuilds the visible rows once, which a
+  /// list this size does not notice.
   @override
   Widget build(BuildContext context) {
+    return ValueListenableBuilder<LabelStyle>(
+      valueListenable: LabelAppearance.style,
+      builder: (context, style, _) => _buildRow(
+        context,
+        LabelRowDecoration.resolve(
+          context,
+          label: metadata.label,
+          style: style,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRow(BuildContext context, LabelRowDecoration decoration) {
     final l10n = AppLocalizations.of(context)!;
     final ref = _refFor(context);
     final isSelecting = selection != null && selection!.isActive;
@@ -112,6 +132,8 @@ class NoteRow extends StatelessWidget {
     final row = ContentRowShell(
       position: groupPosition,
       isSelected: isSelected,
+      edgeStripe: decoration.stripeColor,
+      edgeStripeSemantics: decoration.stripeSemantics,
       child: InkWell(
         onTap: isSelecting
             ? () => onTapInSelection?.call(ref)
@@ -181,7 +203,7 @@ class NoteRow extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (metadata.label != ItemLabel.none) ...[
+                if (decoration.showsDot) ...[
                   const SizedBox(width: RowMetrics.gap),
                   LabelDot(label: metadata.label),
                 ],

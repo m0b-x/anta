@@ -5,6 +5,7 @@ import 'package:anta/bloc/optimized_note/optimized_note_bloc.dart';
 import 'package:anta/bloc/optimized_note/optimized_note_event.dart';
 import 'package:anta/bloc/optimized_note/optimized_note_state.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/models/item_label.dart';
 import 'package:anta/models/note_metadata.dart';
 import 'package:anta/repositories/note_repository.dart';
 import 'package:anta/services/folder_search_service.dart';
@@ -24,9 +25,14 @@ class _FakeNoteStorage extends NoteStorageService {
   final List<({int page, int pageSize})> loads = [];
   final List<List<String>> bulkDeletes = [];
   final List<List<String>> preloads = [];
+  final List<({String id, ItemLabel label})> labels = [];
+  final List<({List<String> ids, ItemLabel label})> bulkLabels = [];
 
   /// How many of the next loads should throw, for the failure paths.
   int failNextLoads = 0;
+
+  /// Set to make every label write throw, for the error path.
+  bool failLabels = false;
 
   @override
   Future<PaginatedNotes> loadNotesPaginated({
@@ -58,6 +64,28 @@ class _FakeNoteStorage extends NoteStorageService {
       for (final note in all)
         if (!noteIds.contains(note.id)) note,
     ];
+  }
+
+  @override
+  Future<NoteMetadata?> setNoteLabel(String noteId, ItemLabel label) async {
+    labels.add((id: noteId, label: label));
+    if (failLabels) throw StateError('storage unavailable');
+    final index = all.indexWhere((note) => note.id == noteId);
+    if (index < 0) return null;
+    final updated = all[index].copyWith(label: label);
+    all = [...all]..[index] = updated;
+    return updated;
+  }
+
+  @override
+  Future<int> setLabelForNotes(List<String> noteIds, ItemLabel label) async {
+    bulkLabels.add((ids: noteIds, label: label));
+    if (failLabels) throw StateError('storage unavailable');
+    all = [
+      for (final note in all)
+        if (noteIds.contains(note.id)) note.copyWith(label: label) else note,
+    ];
+    return noteIds.length;
   }
 
   @override
@@ -295,6 +323,97 @@ void main() {
 
       expect(storage.bulkDeletes, isEmpty);
       expect(storage.loads, isEmpty);
+      await bloc.close();
+    });
+  });
+
+  group('labelling', () {
+    test('one note reaches storage and the list reloads behind it', () async {
+      final bloc = await openedOnPageOne();
+      storage.loads.clear();
+
+      bloc.add(
+        const SetOptimizedNoteLabel(noteId: 'n000', label: ItemLabel.red),
+      );
+      await pumpEventQueue();
+
+      expect(storage.labels, [(id: 'n000', label: ItemLabel.red)]);
+      expect(
+        storage.loads,
+        hasLength(1),
+        reason: 'the event ends in a RefreshNotes so the row repaints',
+      );
+      final first = (bloc.state as OptimizedNoteLoaded)
+          .paginatedNotes
+          .notes
+          .first;
+      expect(first.label, ItemLabel.red);
+      await bloc.close();
+    });
+
+    test('a selection is one bulk call and one reload', () async {
+      final bloc = await openedOnPageOne();
+      storage.loads.clear();
+
+      bloc.add(
+        const SetOptimizedNotesLabel(
+          noteIds: ['n000', 'n001', 'n002'],
+          label: ItemLabel.blue,
+        ),
+      );
+      await pumpEventQueue();
+
+      expect(storage.bulkLabels, hasLength(1));
+      expect(storage.bulkLabels.single.ids, ['n000', 'n001', 'n002']);
+      expect(storage.bulkLabels.single.label, ItemLabel.blue);
+      expect(storage.loads, hasLength(1));
+      expect(
+        idsIn(bloc.state).take(3),
+        ['n000', 'n001', 'n002'],
+        reason: 'a colour never reorders the list',
+      );
+      await bloc.close();
+    });
+
+    test('an empty selection touches neither storage nor the list', () async {
+      final bloc = await openedOnPageOne();
+      storage.loads.clear();
+
+      bloc.add(
+        const SetOptimizedNotesLabel(noteIds: [], label: ItemLabel.blue),
+      );
+      await pumpEventQueue();
+
+      expect(storage.bulkLabels, isEmpty);
+      expect(storage.loads, isEmpty);
+      await bloc.close();
+    });
+
+    test('a throwing write reports the folder it failed in', () async {
+      final bloc = await openedOnPageOne();
+      storage.failLabels = true;
+
+      bloc.add(
+        const SetOptimizedNoteLabel(noteId: 'n000', label: ItemLabel.red),
+      );
+      await pumpEventQueue();
+
+      expect(bloc.state, isA<OptimizedNoteError>());
+      expect((bloc.state as OptimizedNoteError).folderId, 'f1');
+      await bloc.close();
+    });
+
+    test('a throwing bulk write reports the folder it failed in', () async {
+      final bloc = await openedOnPageOne();
+      storage.failLabels = true;
+
+      bloc.add(
+        const SetOptimizedNotesLabel(noteIds: ['n000'], label: ItemLabel.red),
+      );
+      await pumpEventQueue();
+
+      expect(bloc.state, isA<OptimizedNoteError>());
+      expect((bloc.state as OptimizedNoteError).folderId, 'f1');
       await bloc.close();
     });
   });

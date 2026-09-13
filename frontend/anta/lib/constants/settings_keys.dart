@@ -25,6 +25,13 @@ class SettingsKeys {
   static const String autoSaveEnabled = 'auto_save_enabled';
   static const String autoSaveInterval = 'auto_save_interval';
   static const String showNotePreview = 'show_note_preview';
+
+  /// How a labelled row draws its colour (a `LabelStyle` name) — the trailing
+  /// dot or the leading edge stripe. Rendering only: it changes nothing about
+  /// what a label is or how it is stored.
+  static const String labelStyle = 'label_style';
+  static const String defaultLabelStyle = 'dot';
+
   static const String showStatsBar = 'show_stats_bar';
   static const String defaultNotesSortOrder = 'default_notes_sort_order';
   static const String hapticFeedback = 'haptic_feedback';

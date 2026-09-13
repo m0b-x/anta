@@ -1444,5 +1444,10 @@
   "labelTeal": "Turcoaz",
   "labelBlue": "Albastru",
   "labelPink": "Roz",
-  "labelSemantics": "Etichetă {color}"
+  "labelSemantics": "Etichetă {color}",
+  "labelStyle": "Stil etichetă",
+  "labelStyleDesc": "Cum își arată culoarea în listă o notiță sau un folder cu etichetă",
+  "labelStyleDot": "Punct",
+  "labelStyleStripe": "Dungă laterală",
+  "labelStyleKeywords": "culoare, etichetă, punct, dungă, margine, marcaj"
 }

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../models/folder.dart' as model;
+import '../models/folder_change.dart';
 import 'folder_search_service.dart' show normalizeForSearch;
 import 'folder_storage_service.dart';
 
@@ -29,8 +30,11 @@ class FolderNameIndex {
   FolderNameIndex({required FolderStorageService folderService})
     : _folderService = folderService {
     // Any folder change invalidates the index lazily — we mark dirty and
-    // rebuild on next search rather than on every event.
-    _invalidationSub = _folderService.changes.listen((_) => _markDirty());
+    // rebuild on next search rather than on every event. A colour label
+    // changes no name, so it is the one event that does not.
+    _invalidationSub = _folderService.changes.listen((change) {
+      if (change.type != FolderChangeType.labelled) _markDirty();
+    });
   }
 
   bool get isBuilt => _isBuilt;

@@ -25,6 +25,7 @@ import 'pages/onboarding_page.dart';
 import 'services/app_navigator.dart';
 import 'services/counter_service.dart';
 import 'services/import_export_service.dart';
+import 'services/label_appearance_service.dart';
 import 'services/navigation_history_service.dart';
 import 'services/settings_service.dart';
 
@@ -178,6 +179,11 @@ void main() async {
   }
 
   await configureDependencies();
+
+  // Seeds `LabelAppearance.style` before the first frame, so a browser opened
+  // straight into the stripe style renders it rather than flashing the dot it
+  // defaults to and swapping a frame later.
+  await LabelAppearanceService.getInstance();
 
   // Best-effort sweep of stale exports left in the system temp dir
   // (crashes, denied share dialogs, files from prior installs). Fire

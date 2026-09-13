@@ -555,7 +555,8 @@ class ImportExportService {
         content = (decoded[JsonKeys.content] as String?) ?? '';
         createdAt = _tryParseDate(decoded[JsonKeys.createdAt]);
         updatedAt = _tryParseDate(decoded[JsonKeys.updatedAt]);
-        label = ItemLabel.fromName(decoded[JsonKeys.label] as String?);
+        final rawLabel = decoded[JsonKeys.label];
+        label = ItemLabel.fromName(rawLabel is String ? rawLabel : null);
       case ExportFormat.markdown:
         final lines = raw.split('\n');
         if (lines.isNotEmpty && lines.first.startsWith('# ')) {
@@ -741,12 +742,13 @@ class ImportExportService {
       final decoded = jsonDecode(raw);
       if (decoded is! Map<String, dynamic>) return null;
       final name = decoded[JsonKeys.name];
+      final rawLabel = decoded[JsonKeys.label];
       return _FolderMeta(
         name: (name is String && name.trim().isNotEmpty) ? name : null,
         createdAt: _tryParseDate(decoded[JsonKeys.createdAt]),
         noteSortOrder: decoded[JsonKeys.noteSortOrder] as String?,
         subfolderSortOrder: decoded[JsonKeys.subfolderSortOrder] as String?,
-        label: ItemLabel.fromName(decoded[JsonKeys.label] as String?),
+        label: ItemLabel.fromName(rawLabel is String ? rawLabel : null),
       );
     } catch (_) {
       return null;

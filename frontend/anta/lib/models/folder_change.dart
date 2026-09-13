@@ -1,6 +1,10 @@
 import '../database/database.dart';
 
-enum FolderChangeType { created, updated, deleted, moved }
+/// What happened to a folder, as the change stream tells its subscribers.
+///
+/// [labelled] is kept apart from [updated] so the folder-name index can
+/// ignore it: a colour changes no name.
+enum FolderChangeType { created, updated, deleted, moved, labelled }
 
 class FolderChange {
   final FolderChangeType type;

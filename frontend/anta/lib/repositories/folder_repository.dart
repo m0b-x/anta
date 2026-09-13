@@ -267,7 +267,7 @@ class FolderRepository {
       _invalidateParentCache(folder.parentId);
       _folderChangesController.add(
         FolderChange(
-          type: FolderChangeType.updated,
+          type: FolderChangeType.labelled,
           folderId: folderId,
           parentId: folder.parentId,
           folder: folder,
@@ -300,7 +300,7 @@ class FolderRepository {
       _folderCache[folder.id] = folder;
       _folderChangesController.add(
         FolderChange(
-          type: FolderChangeType.updated,
+          type: FolderChangeType.labelled,
           folderId: folder.id,
           parentId: folder.parentId,
           folder: folder,

@@ -11,6 +11,7 @@ import '../constants/settings_keys.dart';
 import '../models/editor_settings.dart';
 import '../models/fasting_appearance.dart';
 import '../models/fasting_schedule.dart';
+import '../models/label_style.dart';
 import '../models/nav_destination.dart';
 import '../models/restore_location_mode.dart';
 import '../database/database.dart';
@@ -377,6 +378,15 @@ class SettingsService {
 
   Future<void> setShowNotePreview(bool value) async {
     await _setBool(SettingsKeys.showNotePreview, value);
+  }
+
+  Future<LabelStyle> getLabelStyle() async {
+    final raw = await _db.userSettingsDao.getValue(SettingsKeys.labelStyle);
+    return LabelStyle.fromName(raw ?? SettingsKeys.defaultLabelStyle);
+  }
+
+  Future<void> setLabelStyle(LabelStyle style) async {
+    await _db.userSettingsDao.setValue(SettingsKeys.labelStyle, style.name);
   }
 
   // Show stats bar in note editor

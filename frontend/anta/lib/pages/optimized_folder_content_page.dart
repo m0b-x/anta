@@ -31,6 +31,7 @@ import '../models/search_scope.dart';
 import '../repositories/note_repository.dart';
 import '../services/folder_search_service.dart';
 import '../services/folder_storage_service.dart';
+import '../services/label_appearance_service.dart';
 import '../services/mixed_reorder_service.dart';
 import '../services/move_coordinator.dart';
 import '../services/move_history_service.dart';
@@ -560,6 +561,10 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   /// keyboard animation frame.
   Future<void> _loadSettings() async {
     final settings = await SettingsService.getInstance();
+    // Idempotent and cheap, and the one place that re-primes the label style
+    // after a database switch drops every singleton: the browser is the
+    // screen the switch lands on, and its rows read the facade synchronously.
+    await LabelAppearanceService.getInstance();
     final folderSwipe = await settings.getFolderSwipeEnabled();
     final showPreview = await settings.getShowNotePreview();
     if (!mounted) return;
@@ -780,6 +785,25 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     );
   }
 
+  /// The label every picked item already carries, or [ItemLabel.none] when
+  /// they disagree — what the bulk sheet rings, so a selection that is
+  /// uniformly red does not open on "no label".
+  ItemLabel _commonLabelOf(List<MovableItemRef> items) {
+    ItemLabel? common;
+    for (final ref in items) {
+      final label = switch (ref.kind) {
+        MovableItemKind.folder =>
+          _visibleFolders.where((f) => f.id == ref.id).firstOrNull?.label,
+        MovableItemKind.note =>
+          _visibleNotes.where((n) => n.id == ref.id).firstOrNull?.label,
+      };
+      if (label == null) return ItemLabel.none;
+      if (common != null && common != label) return ItemLabel.none;
+      common = label;
+    }
+    return common ?? ItemLabel.none;
+  }
+
   /// The bulk colour-label pick: a plain sheet holding the same strip the
   /// row's long-press menu shows, applied to every picked note and folder in
   /// one write per kind.
@@ -793,6 +817,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
 
     final l10n = AppLocalizations.of(context)!;
     final colorScheme = Theme.of(context).colorScheme;
+    final current = _commonLabelOf(items);
 
     final picked = await showModalBottomSheet<ItemLabel>(
       context: context,
@@ -837,7 +862,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   child: LabelSwatchStrip(
-                    value: ItemLabel.none,
+                    value: current,
                     onChanged: (label) =>
                         Navigator.of(sheetContext).pop(label),
                   ),

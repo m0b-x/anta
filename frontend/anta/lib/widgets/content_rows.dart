@@ -38,6 +38,18 @@ class ContentRowShell extends StatelessWidget {
 
   final Widget child;
 
+  /// The colour-label stripe drawn on this row's leading edge, or null for a
+  /// row that has no label or draws it as a trailing dot.
+  ///
+  /// Null is not "transparent": it is the whole [Stack] gone, so every
+  /// unlabelled row — and every row at all while the dot style is on — keeps
+  /// exactly the tree it had before the stripe existed.
+  final Color? edgeStripe;
+
+  /// The accessible name of that stripe, the same `<Colour> label` the dot
+  /// carries so the two styles read identically to a screen reader.
+  final String? edgeStripeSemantics;
+
   const ContentRowShell({
     super.key,
     required this.position,
@@ -45,6 +57,8 @@ class ContentRowShell extends StatelessWidget {
     this.dividerIndent = RowMetrics.dividerIndentPlain,
     this.isSelected = false,
     this.isDropTarget = false,
+    this.edgeStripe,
+    this.edgeStripeSemantics,
   });
 
   @override
@@ -59,6 +73,51 @@ class ContentRowShell extends StatelessWidget {
       bottom: position.isLast ? radius : Radius.zero,
     );
 
+    final stripe = edgeStripe;
+    // Wraps the row's content and never the divider: the stripe is a mark on
+    // the row, and a group's hairline belongs to neither of the two rows it
+    // separates. It sits above the selected tint and the ink because it is a
+    // later child of the same Material, and stops 3dp in, well short of the
+    // 16dp the content starts at. MergeSemantics folds the stripe's name into
+    // the row's one node, which is what the dot gets for free by living
+    // inside the InkWell — without it a screen reader stops twice per row.
+    // The hairline is the dot's ring, for the dot's reason: yellow on a light
+    // row needs an edge.
+    final content = stripe == null
+        ? child
+        : MergeSemantics(
+            child: Stack(
+              children: [
+                child,
+                Positioned(
+                  left: 0,
+                  top: RowMetrics.labelStripeInset,
+                  bottom: RowMetrics.labelStripeInset,
+                  width: RowMetrics.labelStripeWidth,
+                  child: Semantics(
+                    label: edgeStripeSemantics,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: stripe,
+                        border: Border.all(
+                          color: AppColors.labelRing(
+                            Theme.of(context).brightness,
+                          ),
+                          width: 1,
+                        ),
+                        borderRadius: const BorderRadius.horizontal(
+                          right: Radius.circular(
+                            RowMetrics.labelStripeRadius,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+
     final body = Container(
       foregroundDecoration: isDropTarget
           ? BoxDecoration(
@@ -69,7 +128,7 @@ class ContentRowShell extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          child,
+          content,
           if (!position.isLast)
             Divider(
               height: 1,

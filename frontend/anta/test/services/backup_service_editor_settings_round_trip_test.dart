@@ -6,11 +6,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:anta/constants/label_appearance.dart';
 import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
+import 'package:anta/models/label_style.dart';
 import 'package:anta/services/backup_service.dart';
 import 'package:anta/services/counter_service.dart';
+import 'package:anta/services/label_appearance_service.dart';
 import 'package:anta/services/settings_service.dart';
 
 /// Which surface a note opens on is now two settings — live rendering, and
@@ -81,6 +84,50 @@ void main() {
       expect(await restored.getPreviewModeEnabled(), isTrue);
     },
   );
+
+  test('the label style survives an export/import round trip', () async {
+    // Both the facade and the singleton are process-global, and this case
+    // deliberately leaves them on the stripe: without this the next test in
+    // the file — and the next file in the shard — inherits a browser it
+    // never asked for and a service bound to this test's database.
+    addTearDown(() {
+      LabelAppearanceService.reset();
+      LabelAppearance.style.value = LabelStyle.dot;
+    });
+    final settings = await SettingsService.getInstance();
+    await settings.setLabelStyle(LabelStyle.stripe);
+
+    final backup = await BackupService.getInstance();
+    final exported = await backup.exportAllData();
+    final exportedSettings = exported['settings'] as Map<String, dynamic>;
+
+    expect(
+      exportedSettings[SettingsKeys.labelStyle],
+      LabelStyle.stripe.name,
+      reason: 'a key outside the allow-list is dropped without a warning',
+    );
+
+    final json = jsonEncode(exported);
+    await settings.setLabelStyle(LabelStyle.dot);
+    LabelAppearanceService.reset();
+    await LabelAppearanceService.getInstance();
+    expect(LabelAppearance.style.value, LabelStyle.dot);
+
+    final result = await backup.importFromJson(json);
+    expect(result.success, isTrue, reason: 'error: ${result.error}');
+
+    expect(
+      LabelAppearance.style.value,
+      LabelStyle.stripe,
+      reason: 'a restore republishes the style to the rows on screen',
+    );
+
+    SettingsService.reset();
+    DatabaseLifecycle.notifyDatabaseSwitching();
+    final restored = await SettingsService.getInstance();
+
+    expect(await restored.getLabelStyle(), LabelStyle.stripe);
+  });
 
   test('a backup written before these keys existed still imports', () async {
     final backup = await BackupService.getInstance();

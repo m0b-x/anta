@@ -128,14 +128,13 @@ class _LabelSwatch extends StatelessWidget {
       label: name,
       child: Tooltip(
         message: name,
+        excludeFromSemantics: true,
         child: SizedBox(
           height: LabelSwatchStrip.tapTarget,
-          child: Center(
-            child: InkWell(
-              onTap: onTap,
-              customBorder: const CircleBorder(),
-              child: swatch,
-            ),
+          child: InkWell(
+            onTap: onTap,
+            customBorder: const CircleBorder(),
+            child: Center(child: swatch),
           ),
         ),
       ),
