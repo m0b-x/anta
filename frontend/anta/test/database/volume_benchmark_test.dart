@@ -207,6 +207,9 @@ String _column(NoteSortField field) => switch (field) {
   NoteSortField.createdAt => '"created_at" ASC',
   NoteSortField.updatedAt => '"updated_at" DESC',
   NoteSortField.position => '"position" ASC',
+  NoteSortField.label =>
+    'CASE WHEN label = 0 THEN 1 ELSE 0 END ASC, "label" ASC, '
+        '"updated_at" DESC',
 };
 
 /// Microseconds for [operation], best of three so a single GC pause or a

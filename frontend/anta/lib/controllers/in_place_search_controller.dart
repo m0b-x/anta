@@ -17,7 +17,16 @@ import '../models/search_scope.dart';
 /// bar swap, and a second notification would rebuild the page twice for one
 /// tap.
 class InPlaceSearchController {
-  InPlaceSearchController({required this.bloc});
+  /// Primes the chip row as the host is built rather than when search opens.
+  ///
+  /// The in-place hosts build their bloc at page mount and keep it for the
+  /// life of the page, and the chip row is part of the search bar's committed
+  /// height — so reading the colours at open time grew an already-visible bar
+  /// by 60 dp a frame later. Priming here means the row is there on the frame
+  /// the field appears on, or not at all.
+  InPlaceSearchController({required this.bloc}) {
+    bloc.add(const SearchLabelsPrimed());
+  }
 
   final SearchBloc bloc;
   final TextEditingController textController = TextEditingController();
@@ -49,6 +58,11 @@ class InPlaceSearchController {
   /// Tears search down without asking for a frame, so a caller can run it and
   /// its own bar-swap compensation back to back in one tick. Returns false if
   /// search was not up.
+  ///
+  /// [SearchCleared] rather than a reset: the bloc outlives the field, and
+  /// the next [open] is what blanks it — including the colour filter, which
+  /// this deliberately leaves standing so the surface is not repainted on its
+  /// way off screen.
   bool leave() {
     if (!_searching) return false;
     _searching = false;
@@ -80,11 +94,14 @@ class InPlaceSearchController {
 
   /// Re-runs whichever pass is on screen so a note edited through a result
   /// comes back with a fresh title and snippet.
+  ///
+  /// `keepLabels` because this is a refresh and not an opening: the colours
+  /// are part of what is on screen here, and an open deliberately drops them.
   void refresh() {
     final state = bloc.state;
     final query = state.query.trim();
     if (query.isEmpty) {
-      bloc.add(SearchOpened(scope: state.scope));
+      bloc.add(SearchOpened(scope: state.scope, keepLabels: true));
       return;
     }
     if (state.phase == SearchPhase.full) {

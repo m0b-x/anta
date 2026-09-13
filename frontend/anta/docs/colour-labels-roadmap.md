@@ -2,9 +2,12 @@
 
 **Status: Phase 1 DONE and committed as `4b525b9` (2026-09-12). The
 selectable rendering style — dot (Study A) or edge stripe (Study D), decision
-L9 — is DONE and committed as `d6025a2`. Phase 2: Slice C DONE and reviewed
-2026-09-13 (uncommitted on `d6025a2`; see its "Shipped" block); Slices B, A,
-D below still PLANNED, in that order.** The short checklist, with the slices numbered 1–5,
+L9 — is DONE and committed as `d6025a2`. Phase 2: Slice C DONE, reviewed and
+committed as `0984341` (2026-09-13); Slices B and A DONE the same day, with
+both §2 follow-ups (in-place folder refresh, darker light-mode yellow and
+orange), strict-reviewed and fixed, UNCOMMITTED on `0984341` — see the
+"Shipped" blocks under each slice. Slice D (names) was DROPPED by the owner
+on 2026-09-13; the feature is complete without it.** The short checklist, with the slices numbered 1–5,
 is `colour-labels-next-slices.md`; the two lettering schemes are: roadmap
 Slice C = checklist 2, B = 3, A = 4, D = 5. The design page's *studies* A–D
 are placements, not slices.
@@ -152,20 +155,33 @@ Fixed in the tree:
 
 Known and left, with the reason:
 
-- **Light-mode contrast of yellow (1.9:1) and orange (2.5:1)** against the
-  row surface is below the 3:1 graphics floor as a 3 dp stripe; dark mode is
-  5.5:1 or better everywhere. The ring helps the edge, not the ratio.
-  Decide on device whether to darken the light-mode yellow/orange hexes in
-  `AppColors` (L2 allows per-theme tuning).
-- **Bulk actions flash the list** (label, delete, move alike):
-  `_selection.clear()` drops the page's optimistic list and the folder bloc's
-  refresh passes through a `Loading` state, so the browser can show its
-  spinner and lose scroll offset for a frame. Pre-existing shape shared with
-  bulk delete; a fix is the folder bloc reloading in place the way the note
-  bloc does (`_loadLoadedPages`), which also stops `RefreshFolders` snapping a
-  paginated folder list back to page 1. Worth a slice of its own.
-- **Bulk label fans out N+1 refreshes** through the per-item change events,
-  exactly as bulk delete does today. Same follow-up as above.
+- **Light-mode yellow and orange — DONE 2026-09-13.** Darkened to `#A8890E`
+  (3.19:1) and `#D27318` (3.22:1) against the light row surface, level with
+  green and teal; `test/constants/label_contrast_test.dart` computes WCAG
+  luminance for all seven hues in both themes against `rowGroup` and pins
+  the 3:1 floor, so a future palette tune-up stays free as long as it
+  clears it. The dark values were untouched.
+- **Bulk actions flash the list — DONE 2026-09-13.** `OptimizedFolderBloc`
+  now has the note bloc's `_loadLoadedPages` and `_onRefreshFolders` reloads
+  `pageSize × loadedPages` in place — no `Loading` state, no snap to page 1
+  — unless the refresh targets a parent other than the one on screen (then
+  the full load, as before). `_onLoadMoreFolders` reads at the list's own
+  page size and advances the counter only after a successful read; both
+  blocs' load-more bail if a refresh moved the state under them. On the page,
+  bulk move, drop-on-folder, pull-to-refresh, the post-import reload and the
+  return from a created note go through `_refreshData()` (the two refresh
+  events) instead of `_loadData()`. Pinned by `optimized_folder_bloc_test.dart`
+  "refreshing in place" and the browser page's "bulk actions leave the list
+  where it was" (which also records the bloc stream, because the spinner
+  frame is a race the frame sweep alone cannot force).
+- **N+1 refresh fan-out — DONE 2026-09-13.** Both blocs coalesce: every
+  `add(Refresh…)` — the handlers' own and `_onExternalChange`'s — goes
+  through `_scheduleRefresh(id)`, which collects ids and flushes one event
+  per distinct parent/folder on a `Timer(Duration.zero)` (a microtask does
+  not work: broadcast-stream events arrive one microtask apart, so it
+  coalesced nothing), guarded by `isClosed` and cancelled in `close()`. Ten
+  changes on one parent are one reload. `bloc_concurrency` is not a
+  dependency and was not added.
 - **Drop-target border** paints over the stripe while a drag hovers a
   labelled folder; the primary border is the stronger signal at that moment.
 - The group's 14 dp corner shaves at most 1.35 dp off the stripe's tip on
@@ -417,6 +433,34 @@ group — the sort sheet offers Label, choosing it persists `labelAsc` to the
 folder's `noteSortOrder`, and the menu's trailing sort label reads "Label".
 A `schema_parity_test` run is mandatory if an index was added.
 
+**Shipped 2026-09-13 (Opus implementation, two-reviewer pass, fixes).**
+- **No index, no schema v40.** `EXPLAIN QUERY PLAN` for the label sort in a
+  folder is `SEARCH notes USING INDEX idx_notes_position (folder_id=?)` +
+  `USE TEMP B-TREE FOR ORDER BY` — byte-for-byte the plan the `title` and
+  `updated_at` sorts have always had, which is point 3's "match the
+  neighbours" case. A trial `idx_notes_folder_label` changed nothing: the
+  `CASE` leading the ORDER BY is not indexable. `query_plan_test.dart` pins
+  the shape *and* that the neighbour sort has the same one, so if `title`
+  ever becomes index-ordered the label sort is owed the same.
+- `_unlabelledLast` is a `CustomExpression<int>` (`CASE WHEN label = 0 THEN 1
+  ELSE 0 END`), one private const per DAO (they name different tables'
+  columns; importing one DAO from the other would be worse). `ascending` is
+  deliberately not consulted for the label field — there is no `labelDesc`.
+- Folders order by plain `name` (what `FolderSortField.name` already used,
+  not `LOWER(name)`), then `id`. **The label sort is the only folder sort
+  that ends on `id`** — the four older ones have no tiebreak at all, a
+  pre-existing gap left alone so shipped orderings do not move; worth its
+  own follow-up.
+- **Both sort sheets scroll** (`SafeArea > SingleChildScrollView > Column`,
+  `showRowActionSheet`'s precedent): seven rows (≈448 dp) overflowed
+  `showModalBottomSheet`'s 9/16 cap on a 360×800 phone, and the widget
+  tests at 2400 dp tall could not see it. Pinned at 360×640.
+- Tests: `note_pagination_test.dart` "sorting by colour label" (3),
+  `folder_pagination_test.dart` (new, 4), `query_plan_test.dart` (3),
+  `query_count_test.dart` (1), two sort-sheet cases in the browser page
+  test (one at 360×640). `volume_benchmark_test.dart`'s exhaustive
+  `_column` switch gained the case.
+
 **Paste-ready prompt:**
 
 > Implement Slice B of `docs/colour-labels-roadmap.md` in
@@ -489,6 +533,75 @@ the chip row height equals `preferredHeight` with seven labels in use at
 shows the row only with labels in use, tapping a dot chip dispatches
 `SearchLabelsChanged`.
 
+**Shipped 2026-09-13 (Opus implementation, two-reviewer pass, fixes).** The
+scope above is what shipped, with these deviations — the code is the truth:
+- **The label-only listing is its own DAO query, not `quickSearch`'s
+  empty-query rule.** Point 2's plan read `quickSearch`'s 300-newest page
+  and filtered in memory, which builds 300 rows to show 50 and cannot see a
+  labelled note older than the 300 newest (worse inside a folder scope).
+  `NoteDao.labelledNotes({labels, folderIds, limit})` (`WHERE is_deleted = 0
+  AND label IN (…) [AND folder_id IN (…)] ORDER BY updated_at DESC, id LIMIT
+  ?`) and `countLabelledNotes` share one WHERE writer; unscoped the plan is
+  `SCAN notes USING INDEX idx_notes_updated` + a temp b-tree for the `id`
+  tiebreak only, scoped it leads with `idx_notes_position (folder_id=?)`
+  and sorts the survivors (pinned as-is). `NoteStorageService.labelledNotes
+  → LabelledNotes(notes, total)`, `FolderSearchService.labelledNotes` maps
+  to `SearchResult(matches: const [])`. `quickSearch('')` returns `[]`
+  again unconditionally; `labels:` on `quickSearch` and `SearchFilter.labels`
+  (OR, empty = no filter, applied before the `limit` cut) cover the typed
+  passes. The bloc's `_runLabelled` asks for `recentsPageSize` (50) and puts
+  the rows in `titleHits`; `SearchState.labelledTotal` carries the COUNT so
+  the header says how many exist, not how many are listed.
+- **`labelsInUse` is scoped in SQL** (`AND folder_id IN (subtree)`) — the
+  bloc resolves `_folderIdsFor(scope)` once and hands the same set to the
+  pass and to `labelsInUse`, run in parallel (`Future.wait`); reloaded on
+  open, clear, submit, scope change and the hosts' way-back refresh (a
+  `SearchQueryChanged` whose query equals the one in state), **never on a
+  fresh keystroke** (zero extra statements on the typing path, pinned). A
+  stale set cannot overwrite a fresh one: `labelsInUse` is applied only if
+  `state.scope` still equals the scope it was read for.
+- **A chip tap inside the keystroke debounce filters the text on screen.**
+  `SearchLabelsChanged` leaves `_pendingQuery` alone (the `SearchScopeChanged`
+  rule, not the `SearchCleared` one) and `_onLabelsChanged` runs
+  `_pendingQuery ?? state.query`, then nulls it so the debounced keystroke
+  fires into nothing — one pass, with the text *and* the colour. The first
+  implementation dropped the keystroke and listed "everything red" under a
+  field that said "p".
+- **The filter does not outlive the surface.** `SearchOpened({keepLabels})`:
+  `InPlaceSearchController.open()` clears the colours (as it clears the
+  query); `refresh()` and `SearchPage.didPopNext`, which re-dispatch
+  `SearchOpened` for an empty query, pass `keepLabels: true`. `SearchCleared`
+  (field emptied) keeps them — emptying the field with Red picked is how
+  "everything red" is asked.
+- **The root's chip row is there on the first frame.** `SearchLabelsPrimed`,
+  dispatched from `InPlaceSearchController`'s constructor (the in-place
+  hosts build the bloc at page mount), reads `labelsInUse` before search
+  can open; without it `SearchFieldAppBar.bottom` flipped from null to 60 dp
+  under a visible bar. `SearchPage` is not primed (it opens at once).
+- **Chips**: `SearchScopeChips` is a fixed-height (`preferredHeight − md`)
+  horizontal scroller; `folderScope` is nullable and `shows(folderScope:,
+  labelsInUse:)` is the one predicate both hosts use for the root rule. A
+  selected dot chip wears the swatch strip's 2 dp `primary` ring (the dot on
+  `secondaryContainer` falls below 3:1 for yellow/orange/green — the ring
+  carries the selection instead of fill contrast); chips stay 40×40. Dot
+  semantics inside a chip are the colour name alone.
+- **Header**: names joined with ", ", then " · N notes" from the ICU message
+  (`labelledNotesHeader`, ro carries `few`); label-only rows show path ·
+  date like the recents they replace (`showDate: state.isLabelOnly`).
+- `ItemLabel.inPaletteOrder(Iterable)` is the one palette-order filter
+  (DAO and header); `FolderSearchService.quickHitLimit` is the one 10.
+- Tests: `search_bloc_test.dart` groups "label filtering" and "leaving and
+  reopening", `folder_search_service_labels_test.dart` (new),
+  `query_count_test.dart` "labels in use" + "the colour listing",
+  `query_plan_test.dart`, `search_surface_header_test.dart` (new: the header
+  renders the total over fewer rows), browser page "search hosted in place"
+  cases (row height at 360 dp with seven colours, root rule, first-frame
+  row, toggle dispatch, header), `search_page_test.dart` "colour label
+  chips".
+- Known: at ~2× text scale the pinned 48 dp row clips the word chips (the
+  old `Wrap` clipped inside the same `preferredHeight`, so not a regression).
+  The device pass of the row with the keyboard up (§5.2 item 4) is owed.
+
 **Paste-ready prompt:**
 
 > Implement Slice A of `docs/colour-labels-roadmap.md` in
@@ -506,7 +619,10 @@ shows the row only with labels in use, tapping a dot chip dispatches
 > the chip row's measured height at 360 dp with seven labels, `flutter test`
 > counts.
 
-### Slice D — Named labels (optional polish)
+### Slice D — Named labels (optional polish) — DROPPED 2026-09-13 by the owner
+
+Kept below as the record of what was considered; not to be built unless the
+owner reopens it.
 
 **Why:** "Red" means nothing a week later; "Client" does. Names also fix the
 accessibility gap of seven hues that yellow/green/orange colour-blind users

@@ -842,7 +842,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     await MoveCoordinator.moveItems(context, items: items);
     if (mounted) {
       _selection.clear();
-      _loadData();
+      _refreshData();
     }
   }
 
@@ -958,12 +958,30 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     );
     if (mounted) {
       _selection.clear();
-      _loadData();
+      _refreshData();
     }
   }
 
   void _preloadNoteContent(List<String> noteIds) {
     context.read<OptimizedNoteBloc>().add(PreloadNoteContent(noteIds));
+  }
+
+  /// Re-reads the list without starting it over.
+  ///
+  /// [_loadData] goes through `LoadFoldersPaginated`, which emits a Loading
+  /// state first — and a move made from selection mode has just dropped
+  /// [_localMixed], so that frame renders the cold-start spinner and throws
+  /// the scroll offset away with it. A refresh keeps every page the list had
+  /// and emits straight to Loaded.
+  void _refreshData() {
+    context.read<OptimizedFolderBloc>().add(
+      RefreshFolders(parentId: widget.folderId),
+    );
+    if (widget.folderId != null) {
+      context.read<OptimizedNoteBloc>().add(
+        RefreshNotes(folderId: widget.folderId),
+      );
+    }
   }
 
   void _loadData() {
@@ -1017,7 +1035,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
         notificationPredicate: (notification) =>
             !_searching && defaultScrollNotificationPredicate(notification),
         onRefresh: () async {
-          _loadData();
+          _refreshData();
         },
         child: BlocBuilder<SearchBloc, SearchState>(
           bloc: _search.bloc,
@@ -1034,6 +1052,8 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
                           : AppLocalizations.of(context)!.searchInFolder,
                       selectedScope: searchState.scope,
                       folderScope: _folderScope,
+                      labelsInUse: searchState.labelsInUse,
+                      selectedLabels: searchState.labels,
                       onLeave: _exitSearch,
                     ),
                     ...SearchSurface.resultSlivers(context, searchState),
@@ -1363,7 +1383,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
       );
       // The import wrote new folders/notes; refresh the visible list so
       // the user sees them immediately.
-      _loadData();
+      _refreshData();
     }
     // Reset the bloc back to Initial so the next operation starts from a
     // clean slate (also so the next InProgress emission triggers).
@@ -1436,147 +1456,176 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     );
   }
 
+  /// The two sort sheets are twins and scroll for the same reason: seven
+  /// note orders plus a header come to roughly 450 dp, which is over
+  /// [showModalBottomSheet]'s 9/16 cap on a 360x800 phone and well over it on
+  /// a 360x640 one. Scrolling is how every other tall sheet in the app copes
+  /// (see `showRowActionSheet`); a fixed [Column] simply overflows.
   void _showFolderSortOptions() {
     final l10n = AppLocalizations.of(context)!;
 
     showModalBottomSheet(
       context: context,
       builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  const Icon(Icons.folder_outlined),
-                  const SizedBox(width: 12),
-                  Text(
-                    l10n.sortFolders,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ],
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    const Icon(Icons.folder_outlined),
+                    const SizedBox(width: 12),
+                    Text(
+                      l10n.sortFolders,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ],
+                ),
               ),
-            ),
-            _buildSortOption(
-              icon: Icons.sort_by_alpha,
-              title: '${l10n.sortByName} (A-Z)',
-              isSelected: _foldersSortOrder == FoldersSortOrder.nameAsc,
-              onTap: () {
-                AppNavigator.pop(context);
-                _sortFoldersBy(FoldersSortOrder.nameAsc);
-              },
-            ),
-            _buildSortOption(
-              icon: Icons.sort_by_alpha,
-              title: '${l10n.sortByName} (Z-A)',
-              isSelected: _foldersSortOrder == FoldersSortOrder.nameDesc,
-              onTap: () {
-                AppNavigator.pop(context);
-                _sortFoldersBy(FoldersSortOrder.nameDesc);
-              },
-            ),
-            _buildSortOption(
-              icon: Icons.calendar_today,
-              title: '${l10n.sortByCreated} (${l10n.descending})',
-              isSelected: _foldersSortOrder == FoldersSortOrder.createdDesc,
-              onTap: () {
-                AppNavigator.pop(context);
-                _sortFoldersBy(FoldersSortOrder.createdDesc);
-              },
-            ),
-            _buildSortOption(
-              icon: Icons.calendar_today,
-              title: '${l10n.sortByCreated} (${l10n.ascending})',
-              isSelected: _foldersSortOrder == FoldersSortOrder.createdAsc,
-              onTap: () {
-                AppNavigator.pop(context);
-                _sortFoldersBy(FoldersSortOrder.createdAsc);
-              },
-            ),
-          ],
+              _buildSortOption(
+                icon: Icons.sort_by_alpha,
+                title: '${l10n.sortByName} (A-Z)',
+                isSelected: _foldersSortOrder == FoldersSortOrder.nameAsc,
+                onTap: () {
+                  AppNavigator.pop(context);
+                  _sortFoldersBy(FoldersSortOrder.nameAsc);
+                },
+              ),
+              _buildSortOption(
+                icon: Icons.sort_by_alpha,
+                title: '${l10n.sortByName} (Z-A)',
+                isSelected: _foldersSortOrder == FoldersSortOrder.nameDesc,
+                onTap: () {
+                  AppNavigator.pop(context);
+                  _sortFoldersBy(FoldersSortOrder.nameDesc);
+                },
+              ),
+              _buildSortOption(
+                icon: Icons.calendar_today,
+                title: '${l10n.sortByCreated} (${l10n.descending})',
+                isSelected: _foldersSortOrder == FoldersSortOrder.createdDesc,
+                onTap: () {
+                  AppNavigator.pop(context);
+                  _sortFoldersBy(FoldersSortOrder.createdDesc);
+                },
+              ),
+              _buildSortOption(
+                icon: Icons.calendar_today,
+                title: '${l10n.sortByCreated} (${l10n.ascending})',
+                isSelected: _foldersSortOrder == FoldersSortOrder.createdAsc,
+                onTap: () {
+                  AppNavigator.pop(context);
+                  _sortFoldersBy(FoldersSortOrder.createdAsc);
+                },
+              ),
+              _buildSortOption(
+                icon: Icons.label_outline,
+                title: l10n.sortByLabel,
+                isSelected: _foldersSortOrder == FoldersSortOrder.labelAsc,
+                onTap: () {
+                  AppNavigator.pop(context);
+                  _sortFoldersBy(FoldersSortOrder.labelAsc);
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
+  /// Scrolls for the reason [_showFolderSortOptions] gives — this is the
+  /// taller of the twins.
   void _showNoteSortOptions() {
     final l10n = AppLocalizations.of(context)!;
 
     showModalBottomSheet(
       context: context,
       builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  const Icon(Icons.note_outlined),
-                  const SizedBox(width: 12),
-                  Text(
-                    l10n.sortNotes,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ],
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    const Icon(Icons.note_outlined),
+                    const SizedBox(width: 12),
+                    Text(
+                      l10n.sortNotes,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ],
+                ),
               ),
-            ),
-            _buildSortOption(
-              icon: Icons.sort_by_alpha,
-              title: '${l10n.sortByTitle} (A-Z)',
-              isSelected: _notesSortOrder == NotesSortOrder.titleAsc,
-              onTap: () {
-                AppNavigator.pop(context);
-                _sortNotesBy(NotesSortOrder.titleAsc);
-              },
-            ),
-            _buildSortOption(
-              icon: Icons.sort_by_alpha,
-              title: '${l10n.sortByTitle} (Z-A)',
-              isSelected: _notesSortOrder == NotesSortOrder.titleDesc,
-              onTap: () {
-                AppNavigator.pop(context);
-                _sortNotesBy(NotesSortOrder.titleDesc);
-              },
-            ),
-            _buildSortOption(
-              icon: Icons.update,
-              title: '${l10n.sortByUpdated} (${l10n.descending})',
-              isSelected: _notesSortOrder == NotesSortOrder.updatedDesc,
-              onTap: () {
-                AppNavigator.pop(context);
-                _sortNotesBy(NotesSortOrder.updatedDesc);
-              },
-            ),
-            _buildSortOption(
-              icon: Icons.update,
-              title: '${l10n.sortByUpdated} (${l10n.ascending})',
-              isSelected: _notesSortOrder == NotesSortOrder.updatedAsc,
-              onTap: () {
-                AppNavigator.pop(context);
-                _sortNotesBy(NotesSortOrder.updatedAsc);
-              },
-            ),
-            _buildSortOption(
-              icon: Icons.calendar_today,
-              title: '${l10n.sortByCreated} (${l10n.descending})',
-              isSelected: _notesSortOrder == NotesSortOrder.createdDesc,
-              onTap: () {
-                AppNavigator.pop(context);
-                _sortNotesBy(NotesSortOrder.createdDesc);
-              },
-            ),
-            _buildSortOption(
-              icon: Icons.calendar_today,
-              title: '${l10n.sortByCreated} (${l10n.ascending})',
-              isSelected: _notesSortOrder == NotesSortOrder.createdAsc,
-              onTap: () {
-                AppNavigator.pop(context);
-                _sortNotesBy(NotesSortOrder.createdAsc);
-              },
-            ),
-          ],
+              _buildSortOption(
+                icon: Icons.sort_by_alpha,
+                title: '${l10n.sortByTitle} (A-Z)',
+                isSelected: _notesSortOrder == NotesSortOrder.titleAsc,
+                onTap: () {
+                  AppNavigator.pop(context);
+                  _sortNotesBy(NotesSortOrder.titleAsc);
+                },
+              ),
+              _buildSortOption(
+                icon: Icons.sort_by_alpha,
+                title: '${l10n.sortByTitle} (Z-A)',
+                isSelected: _notesSortOrder == NotesSortOrder.titleDesc,
+                onTap: () {
+                  AppNavigator.pop(context);
+                  _sortNotesBy(NotesSortOrder.titleDesc);
+                },
+              ),
+              _buildSortOption(
+                icon: Icons.update,
+                title: '${l10n.sortByUpdated} (${l10n.descending})',
+                isSelected: _notesSortOrder == NotesSortOrder.updatedDesc,
+                onTap: () {
+                  AppNavigator.pop(context);
+                  _sortNotesBy(NotesSortOrder.updatedDesc);
+                },
+              ),
+              _buildSortOption(
+                icon: Icons.update,
+                title: '${l10n.sortByUpdated} (${l10n.ascending})',
+                isSelected: _notesSortOrder == NotesSortOrder.updatedAsc,
+                onTap: () {
+                  AppNavigator.pop(context);
+                  _sortNotesBy(NotesSortOrder.updatedAsc);
+                },
+              ),
+              _buildSortOption(
+                icon: Icons.calendar_today,
+                title: '${l10n.sortByCreated} (${l10n.descending})',
+                isSelected: _notesSortOrder == NotesSortOrder.createdDesc,
+                onTap: () {
+                  AppNavigator.pop(context);
+                  _sortNotesBy(NotesSortOrder.createdDesc);
+                },
+              ),
+              _buildSortOption(
+                icon: Icons.calendar_today,
+                title: '${l10n.sortByCreated} (${l10n.ascending})',
+                isSelected: _notesSortOrder == NotesSortOrder.createdAsc,
+                onTap: () {
+                  AppNavigator.pop(context);
+                  _sortNotesBy(NotesSortOrder.createdAsc);
+                },
+              ),
+              _buildSortOption(
+                icon: Icons.label_outline,
+                title: l10n.sortByLabel,
+                isSelected: _notesSortOrder == NotesSortOrder.labelAsc,
+                onTap: () {
+                  AppNavigator.pop(context);
+                  _sortNotesBy(NotesSortOrder.labelAsc);
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1652,6 +1701,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
         FoldersSortOrder.createdDesc => l10n.sortByCreated,
         FoldersSortOrder.positionAsc ||
         FoldersSortOrder.positionDesc => l10n.sortByCustom,
+        FoldersSortOrder.labelAsc => l10n.sortByLabel,
       };
     }
     return switch (_notesSortOrder) {
@@ -1662,6 +1712,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
       NotesSortOrder.titleAsc || NotesSortOrder.titleDesc => l10n.sortByTitle,
       NotesSortOrder.positionAsc ||
       NotesSortOrder.positionDesc => l10n.sortByCustom,
+      NotesSortOrder.labelAsc => l10n.sortByLabel,
     };
   }
 
@@ -2365,7 +2416,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   void _createNewNote() {
     AppNavigator.toNoteEditor(context, folderId: widget.folderId!).then((_) {
       if (mounted) {
-        _loadData();
+        _refreshData();
       }
     });
   }

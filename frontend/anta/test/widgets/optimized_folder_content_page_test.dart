@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:anta/bloc/import_export/import_export_bloc.dart';
 import 'package:anta/bloc/optimized_folder/optimized_folder_bloc.dart';
 import 'package:anta/bloc/optimized_folder/optimized_folder_event.dart';
+import 'package:anta/bloc/optimized_folder/optimized_folder_state.dart';
 import 'package:anta/bloc/optimized_note/optimized_note_bloc.dart';
 import 'package:anta/bloc/optimized_note/optimized_note_event.dart';
 import 'package:anta/bloc/search/search_bloc.dart';
@@ -607,6 +608,122 @@ void main() {
 
       await tester.tapAt(const Offset(400, 8));
       await tester.pumpAndSettle();
+      await teardownPage(tester);
+    });
+
+    testWidgets('the note sort sheet offers Label and persists the choice', (
+      tester,
+    ) async {
+      // Seven rows plus a header since the colour-label sort joined them,
+      // which does not fit the 800x600 default surface.
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await pumpPage(tester, folderId: folder.id);
+      await openMenu(tester);
+      await tester.tap(find.text(l10n.sortBy));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l10n.sortNotes));
+      await tester.pumpAndSettle();
+
+      expect(find.text(l10n.sortByLabel), findsOneWidget);
+      expect(find.byIcon(Icons.label_outline), findsOneWidget);
+
+      await tester.tap(find.text(l10n.sortByLabel));
+      await tester.pumpAndSettle();
+      await settle(tester);
+
+      // Read through the DAO rather than the service: the repository caches
+      // folders, and what matters is the row the next launch will parse.
+      // `runAsync` because drift answers in real time — an `await` on it from
+      // inside the test's own `FakeAsync` zone never completes.
+      final stored = await tester.runAsync(
+        () => db.folderDao.getFolderById(folder.id),
+      );
+      expect(stored!.noteSortOrder, NotesSortOrder.labelAsc.name);
+
+      // And the menu's trailing sort row now names it.
+      await openMenu(tester);
+      expect(find.text(l10n.sortByLabel), findsOneWidget);
+      expect(find.text(l10n.sortByUpdated), findsNothing);
+
+      await dismissMenu(tester);
+      await teardownPage(tester);
+    });
+
+    /// Seven note orders plus a header come to roughly 450 dp, and
+    /// `showModalBottomSheet` caps a sheet at 9/16 of the screen — 360 dp on
+    /// a 360x640 phone. The rows have to be reachable by scrolling, not
+    /// clipped off the bottom.
+    testWidgets('the note sort sheet scrolls on a short phone rather than '
+        'overflowing', (tester) async {
+      tester.view.physicalSize = const Size(360, 640);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await pumpPage(tester, folderId: folder.id);
+      await openMenu(tester);
+      await tester.tap(find.text(l10n.sortBy));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l10n.sortNotes));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: 'a fixed Column taller than the cap overflows the sheet',
+      );
+
+      await tester.scrollUntilVisible(
+        find.text(l10n.sortByLabel),
+        120,
+        scrollable: find.descendant(
+          of: find.byType(BottomSheet),
+          matching: find.byType(Scrollable),
+        ),
+      );
+      await tester.tap(find.text(l10n.sortByLabel));
+      await tester.pumpAndSettle();
+      await settle(tester);
+
+      final stored = await tester.runAsync(
+        () => db.folderDao.getFolderById(folder.id),
+      );
+      expect(stored!.noteSortOrder, NotesSortOrder.labelAsc.name);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('the folder sort sheet offers Label and persists the choice', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await pumpPage(tester, folderId: folder.id);
+      await openMenu(tester);
+      await tester.tap(find.text(l10n.sortBy));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l10n.sortFolders));
+      await tester.pumpAndSettle();
+
+      expect(find.text(l10n.sortByLabel), findsOneWidget);
+      expect(find.byIcon(Icons.label_outline), findsOneWidget);
+
+      await tester.tap(find.text(l10n.sortByLabel));
+      await tester.pumpAndSettle();
+      await settle(tester);
+
+      final stored = await tester.runAsync(
+        () => db.folderDao.getFolderById(folder.id),
+      );
+      expect(stored!.subfolderSortOrder, FoldersSortOrder.labelAsc.name);
+      // The notes' own order is untouched — the two sheets write different
+      // columns and the menu keeps reporting the note sort inside a folder.
+      expect(stored.noteSortOrder, NotesSortOrder.updatedDesc.name);
+
       await teardownPage(tester);
     });
 
@@ -1777,6 +1894,228 @@ void main() {
         .map((header) => header.label)
         .toList();
 
+    /// Every case in this group opens search, and search reads which colours
+    /// are in use — so a colour left behind by one case would put chips in
+    /// front of the next one. Cleared on both sides for that reason.
+    Future<void> clearLabels() async {
+      final page = await noteService.loadNotesPaginated(pageSize: 200);
+      for (final note in page.notes) {
+        if (note.label != ItemLabel.none) {
+          await noteService.setNoteLabel(note.id, ItemLabel.none);
+        }
+      }
+    }
+
+    setUp(clearLabels);
+    tearDown(clearLabels);
+
+    /// Colours the first [labels].length notes of [folderId], outside fake
+    /// async — a bare await on drift inside `testWidgets` never completes.
+    Future<List<String>> paint(
+      WidgetTester tester,
+      List<ItemLabel> labels, {
+      required String folderId,
+    }) async {
+      final ids = <String>[];
+      await tester.runAsync(() async {
+        final page = await noteService.loadNotesPaginated(
+          folderId: folderId,
+          pageSize: 50,
+        );
+        for (var i = 0; i < labels.length; i++) {
+          await noteService.setNoteLabel(page.notes[i].id, labels[i]);
+          ids.add(page.notes[i].id);
+        }
+      });
+      return ids;
+    }
+
+    Finder labelChips(WidgetTester tester) => find.descendant(
+      of: find.byType(SearchScopeChips),
+      matching: find.byType(FilterChip),
+    );
+
+    testWidgets('a folder with no colours in it shows the scope pair alone', (
+      tester,
+    ) async {
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+
+      await openSearch(tester);
+
+      expect(find.byType(SearchScopeChips), findsOneWidget);
+      expect(labelChips(tester), findsNothing);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('the root grows the row it normally has none of, once a '
+        'colour is in use', (tester) async {
+      await pumpPage(tester);
+      await openSearch(tester);
+      expect(
+        find.byType(SearchScopeChips),
+        findsNothing,
+        reason: 'the root has no second scope to offer',
+      );
+      await closeSearch(tester);
+
+      await paint(tester, [ItemLabel.red], folderId: child.id);
+      await openSearch(tester);
+
+      expect(find.byType(SearchScopeChips), findsOneWidget);
+      expect(labelChips(tester), findsOneWidget);
+      expect(
+        find.widgetWithText(ChoiceChip, l10n.everywhere),
+        findsNothing,
+        reason: 'the scope pair stays hidden at the root; only colours show',
+      );
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('the chip row keeps its reserved height at 360 dp with seven '
+        'colours in use, and scrolls instead', (tester) async {
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+
+      await paint(tester, ItemLabel.assignable.toList(), folderId: child.id);
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+      await openSearch(tester);
+
+      expect(labelChips(tester), findsNWidgets(7));
+      expect(
+        tester.getSize(find.byType(SearchScopeChips)).height,
+        SearchScopeChips.preferredHeight,
+        reason:
+            'the sliver bar committed to this height before the row was '
+            'built; a taller row is cut off, not accommodated',
+      );
+
+      final scrollable = find.descendant(
+        of: find.byType(SearchScopeChips),
+        matching: find.byType(Scrollable),
+      );
+      expect(
+        tester.widget<Scrollable>(scrollable).axisDirection,
+        AxisDirection.right,
+      );
+      expect(
+        tester.state<ScrollableState>(scrollable).position.maxScrollExtent,
+        greaterThan(0),
+        reason: 'nine chips do not fit 360 dp; they have to be reachable',
+      );
+      expect(tester.takeException(), isNull);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('tapping a colour dispatches the whole set, and tapping it '
+        'again empties it', (tester) async {
+      await paint(tester, [ItemLabel.red, ItemLabel.teal], folderId: child.id);
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+      await openSearch(tester);
+      expect(labelChips(tester), findsNWidgets(2));
+      events.clear();
+
+      await tester.tap(labelChips(tester).first);
+      await flush(tester);
+
+      expect(events.of<SearchLabelsChanged>().last.labels, {ItemLabel.red});
+
+      await tester.tap(labelChips(tester).last);
+      await flush(tester);
+
+      expect(events.of<SearchLabelsChanged>().last.labels, {
+        ItemLabel.red,
+        ItemLabel.teal,
+      });
+
+      await tester.tap(labelChips(tester).first);
+      await flush(tester);
+
+      expect(events.of<SearchLabelsChanged>().last.labels, {ItemLabel.teal});
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('a colour with an empty field heads its notes with the '
+        'colour names and a count', (tester) async {
+      await paint(tester, [
+        ItemLabel.red,
+        ItemLabel.red,
+        ItemLabel.teal,
+      ], folderId: child.id);
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+      await openSearch(tester);
+      expect(sectionLabels(tester), [l10n.recent]);
+
+      await tester.tap(labelChips(tester).first);
+      await flush(tester);
+      await tester.tap(labelChips(tester).last);
+      await flush(tester);
+
+      // Names joined with a comma, count after them with the ` · ` the path
+      // line uses: one separator doing both jobs read as a three-item list.
+      expect(sectionLabels(tester), [l10n.labelledNotesHeader(3, 'Red, Teal')]);
+      expect(find.byType(SearchResultRow), findsNWidgets(3));
+      expect(searchBloc(tester).state.phase, SearchPhase.quick);
+      expect(
+        searchBloc(tester).state.labelledTotal,
+        3,
+        reason: 'the header counts the colours\' notes, not the rows listed',
+      );
+
+      // These rows stand in for the recents, so they read like them:
+      // path · date, not a hit with its reason stripped out.
+      expect(
+        tester
+            .widgetList<SearchResultRow>(find.byType(SearchResultRow))
+            .every((row) => row.showDate),
+        isTrue,
+      );
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('the listing counts every note of the colour, past the rows '
+        'it shows', (tester) async {
+      await paint(tester, [
+        ItemLabel.red,
+        ItemLabel.red,
+        ItemLabel.red,
+      ], folderId: child.id);
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+      await openSearch(tester);
+
+      await tester.tap(labelChips(tester).first);
+      await flush(tester);
+
+      expect(sectionLabels(tester), [l10n.labelledNotesHeader(3, 'Red')]);
+      expect(find.byType(SearchResultRow), findsNWidgets(3));
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('dropping the last colour with an empty field goes back to '
+        'recents', (tester) async {
+      await paint(tester, [ItemLabel.red], folderId: child.id);
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+      await openSearch(tester);
+
+      await tester.tap(labelChips(tester).first);
+      await flush(tester);
+      expect(sectionLabels(tester), isNot(contains(l10n.recent)));
+
+      await tester.tap(labelChips(tester).first);
+      await flush(tester);
+
+      expect(sectionLabels(tester), [l10n.recent]);
+      expect(searchBloc(tester).state.phase, SearchPhase.idle);
+
+      await teardownPage(tester);
+    });
+
     testWidgets('the search icon swaps the whole bar for a field, chips and '
         'recents', (tester) async {
       await pumpPage(tester, folderId: child.id, title: 'Winter block');
@@ -1802,6 +2141,83 @@ void main() {
       expect(find.byType(NoteRow), findsNothing);
       expect(find.byType(FolderRow), findsNothing);
       expect(find.byIcon(Icons.create_new_folder_outlined), findsNothing);
+
+      await teardownPage(tester);
+    });
+
+    /// The chip row lives in the search bar's `bottom`, whose height the
+    /// sliver commits to before the row is built — so a row that arrives one
+    /// frame late grows an already-visible bar by 60 dp under the user's
+    /// thumb. The bloc reads the colours when the page mounts instead.
+    testWidgets('the root\'s chip row is there on the first frame search is '
+        'up', (tester) async {
+      await paint(tester, [ItemLabel.red], folderId: child.id);
+      await pumpPage(tester);
+
+      await tester.tap(find.byIcon(Icons.search));
+      await tester.pump();
+
+      expect(
+        find.byType(SearchScopeChips),
+        findsOneWidget,
+        reason:
+            'the colours were primed as the page mounted; reading them when '
+            'search opens is what made the bar jump',
+      );
+      expect(
+        find.descendant(
+          of: find.byType(SearchScopeChips),
+          matching: find.byType(FilterChip),
+        ),
+        findsOneWidget,
+      );
+
+      await flush(tester);
+      await teardownPage(tester);
+    });
+
+    testWidgets('a selected colour chip wears the picker\'s ring', (
+      tester,
+    ) async {
+      await paint(tester, [ItemLabel.red], folderId: child.id);
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+      await openSearch(tester);
+
+      final primary = Theme.of(
+        tester.element(find.byType(SearchScopeChips)),
+      ).colorScheme.primary;
+
+      /// The 2 dp `primary` circle, told apart from the dot's own hairline
+      /// by its colour and width.
+      Finder ring() => find.descendant(
+        of: labelChips(tester),
+        matching: find.byWidgetPredicate((widget) {
+          if (widget is! Container) return false;
+          final decoration = widget.decoration;
+          if (decoration is! BoxDecoration) return false;
+          final border = decoration.border?.top;
+          return border != null && border.color == primary && border.width == 2;
+        }),
+      );
+
+      expect(ring(), findsNothing, reason: 'an unselected chip is a bare dot');
+      final unselected = tester.getSize(labelChips(tester).first);
+
+      await tester.tap(labelChips(tester).first);
+      await flush(tester);
+
+      expect(
+        ring(),
+        findsOneWidget,
+        reason:
+            'the fill alone is under 3:1 for the paler hues, so selection is '
+            'said with the same ring the swatch picker draws',
+      );
+      expect(
+        tester.getSize(labelChips(tester).first),
+        unselected,
+        reason: 'selecting a chip must not resize it',
+      );
 
       await teardownPage(tester);
     });
@@ -2305,6 +2721,185 @@ void main() {
       await tester.tapAt(const Offset(400, 8));
       await flushSheet(tester);
       await leaveSelection(tester);
+      await teardownPage(tester);
+    });
+  });
+
+  /// Bulk actions used to blink the whole list away.
+  ///
+  /// Leaving selection mode drops the page's cached row list, and a refresh
+  /// used to re-dispatch `LoadFoldersPaginated`, which emits a Loading state
+  /// first — so the frame in between rendered the cold-start spinner where
+  /// the rows had been, and the scroll offset went with it.
+  ///
+  /// Declared last on purpose: its fixtures are seeded into `Week 1`, which
+  /// every earlier case reads as an empty folder, and the notes it adds move
+  /// the descendant counts and the global note count two of them assert on.
+  group('bulk actions leave the list where it was', () {
+    late Folder bulkParent;
+
+    setUpAll(() async {
+      bulkParent = grandchild;
+      // Six folders, so a full folder row is still on screen once the list
+      // has been scrolled, and enough notes that it can be scrolled at all.
+      for (var i = 1; i <= 6; i++) {
+        await db.folderDao.createFolder(
+          name: 'Bulk folder $i',
+          parentId: bulkParent.id,
+        );
+      }
+      for (var i = 1; i <= 18; i++) {
+        await noteService.createNote(
+          folderId: bulkParent.id,
+          title: 'Bulk note $i',
+          content: 'seeded',
+        );
+      }
+    });
+
+    /// [settle], with a frame-by-frame assertion that the browser's
+    /// cold-start spinner never appears. It is the page's only
+    /// [CircularProgressIndicator]: the pull-to-refresh one is built only
+    /// while that gesture is running.
+    Future<void> settleWithoutSpinner(WidgetTester tester) async {
+      for (var i = 0; i < 40; i++) {
+        // The first slices hand the real event loop a single turn each, so
+        // the frame between a BLoC's first emission and the one that follows
+        // its database round trip is actually drawn. A 5 ms slice swallows
+        // the pair whole and no test could ever see the spinner.
+        await tester.runAsync(
+          () => Future<void>.delayed(
+            i < 12 ? Duration.zero : const Duration(milliseconds: 5),
+          ),
+        );
+        await tester.pump(const Duration(milliseconds: 16));
+        expect(
+          find.byType(CircularProgressIndicator),
+          findsNothing,
+          reason: 'frame ${i + 1} after the bulk action flashed a spinner',
+        );
+      }
+    }
+
+    /// The title of the first row of [T] sitting clear of both bars. Tapping
+    /// one that is half under the selection bar or the action bar misses.
+    String visibleRowTitle<T extends Widget>(
+      WidgetTester tester,
+      String Function(T row) titleOf,
+    ) {
+      for (final element in find.byType(T).evaluate()) {
+        final finder = find.byWidget(element.widget);
+        final rect = tester.getRect(finder);
+        if (rect.top > 80 && rect.bottom < 460) {
+          return titleOf(element.widget as T);
+        }
+      }
+      fail('no $T is fully on screen');
+    }
+
+    /// Enters selection mode from a list already scrolled to [offset], picks
+    /// one folder and one note that are on screen, and answers the titles.
+    Future<(String, String)> selectOnePair(
+      WidgetTester tester,
+      double offset,
+    ) async {
+      scrollPosition(tester).jumpTo(offset);
+      await tester.pumpAndSettle();
+
+      await enterSelection(tester);
+
+      final folderTitle = visibleRowTitle<FolderRow>(
+        tester,
+        (row) => row.folder.name,
+      );
+      final noteTitle = visibleRowTitle<NoteRow>(
+        tester,
+        (row) => row.metadata.title,
+      );
+      await tester.tap(find.text(folderTitle));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(noteTitle));
+      await tester.pumpAndSettle();
+      return (folderTitle, noteTitle);
+    }
+
+    testWidgets('a bulk label shows no spinner and keeps the offset', (
+      tester,
+    ) async {
+      await pumpPage(tester, folderId: bulkParent.id, title: 'Week 1');
+      final (folderTitle, noteTitle) = await selectOnePair(tester, 200);
+
+      final before = {
+        for (final title in [folderTitle, noteTitle])
+          title: tester.getTopLeft(find.text(title)).dy,
+      };
+
+      await tester.tap(find.byIcon(Icons.label_outline));
+      await tester.pumpAndSettle();
+
+      final seen = <OptimizedFolderState>[];
+      final sub = folderBloc.stream.listen(seen.add);
+      await tester.tap(find.bySemanticsLabel(l10n.labelGreen));
+
+      await settleWithoutSpinner(tester);
+      await tester.runAsync(() => sub.cancel());
+
+      expect(
+        seen.whereType<OptimizedFolderLoading>(),
+        isEmpty,
+        reason:
+            'the page has just dropped its optimistic list, so a Loading '
+            'state reaching it is the spinner',
+      );
+      expect(
+        scrollPosition(tester).pixels,
+        200,
+        reason: 'the list comes back to the offset it was labelled at',
+      );
+      for (final entry in before.entries) {
+        expect(
+          tester.getTopLeft(find.text(entry.key)).dy,
+          moreOrLessEquals(entry.value, epsilon: 1),
+          reason: entry.key,
+        );
+      }
+      expect(find.byType(SelectionActionBar), findsNothing);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('a bulk delete shows no spinner and keeps the offset', (
+      tester,
+    ) async {
+      await pumpPage(tester, folderId: bulkParent.id, title: 'Week 1');
+      final (folderTitle, noteTitle) = await selectOnePair(tester, 200);
+
+      await tester.tap(find.byIcon(Icons.delete_outline));
+      await tester.pumpAndSettle();
+
+      final seen = <OptimizedFolderState>[];
+      final sub = folderBloc.stream.listen(seen.add);
+      await tester.tap(find.widgetWithText(FilledButton, l10n.delete));
+
+      await settleWithoutSpinner(tester);
+      await tester.runAsync(() => sub.cancel());
+
+      expect(
+        seen.whereType<OptimizedFolderLoading>(),
+        isEmpty,
+        reason:
+            'the page has just dropped its optimistic list, so a Loading '
+            'state reaching it is the spinner',
+      );
+      expect(
+        scrollPosition(tester).pixels,
+        200,
+        reason: 'the list comes back to the offset it was deleted from',
+      );
+      expect(find.text(folderTitle), findsNothing);
+      expect(find.text(noteTitle), findsNothing);
+      expect(find.byType(SelectionActionBar), findsNothing);
+
       await teardownPage(tester);
     });
   });

@@ -1007,6 +1007,10 @@
   "@sortByTitle": {
     "description": "Sortieroption für Titel"
   },
+  "sortByLabel": "Etikett",
+  "@sortByLabel": {
+    "description": "Sortieroption für Farbetikett"
+  },
   "ascending": "Aufsteigend",
   "@ascending": {
     "description": "Aufsteigende Sortierreihenfolge"
@@ -2610,5 +2614,6 @@
   "labelStyleDesc": "Wie eine Notiz oder ein Ordner mit Etikett seine Farbe in der Liste zeigt",
   "labelStyleDot": "Punkt",
   "labelStyleStripe": "Randstreifen",
-  "labelStyleKeywords": "Farbe, Etikett, Punkt, Streifen, Rand, Markierung"
+  "labelStyleKeywords": "Farbe, Etikett, Punkt, Streifen, Rand, Markierung",
+  "labelledNotesHeader": "{count, plural, =1{{names} · 1 Notiz} other{{names} · {count} Notizen}}"
 }

@@ -3496,6 +3496,12 @@ abstract class AppLocalizations {
   /// **'Title'**
   String get sortByTitle;
 
+  /// Sort option for colour label
+  ///
+  /// In en, this message translates to:
+  /// **'Label'**
+  String get sortByLabel;
+
   /// Ascending sort order
   ///
   /// In en, this message translates to:
@@ -8211,6 +8217,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'colour, color, label, dot, stripe, edge, marker'**
   String get labelStyleKeywords;
+
+  /// Search results section header when colour-label chips are filtering and nothing is typed: the selected colour names, then how many notes carry them
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{{names} · 1 note} other{{names} · {count} notes}}'**
+  String labelledNotesHeader(int count, String names);
 }
 
 class _AppLocalizationsDelegate

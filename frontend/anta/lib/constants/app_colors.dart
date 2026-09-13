@@ -22,10 +22,15 @@ class AppColors {
   static const Color deleteAction = Colors.red;
 
   /// The seven fixed label hues, light theme.
+  ///
+  /// Every hue clears 3:1 against the light row surface (`#FEF7FF`), the
+  /// graphics-contrast floor a 3 dp stripe needs; yellow and orange are the
+  /// two that had to be darkened for it (from `#D9B426` at 1.9:1 and
+  /// `#E9862B` at 2.5:1), and they now sit where green and teal already were.
   static const Map<ItemLabel, Color> _labelLight = {
     ItemLabel.red: Color(0xFFD8434A),
-    ItemLabel.orange: Color(0xFFE9862B),
-    ItemLabel.yellow: Color(0xFFD9B426),
+    ItemLabel.orange: Color(0xFFD27318),
+    ItemLabel.yellow: Color(0xFFA8890E),
     ItemLabel.green: Color(0xFF3E9B57),
     ItemLabel.teal: Color(0xFF1F9A9E),
     ItemLabel.blue: Color(0xFF3573E0),

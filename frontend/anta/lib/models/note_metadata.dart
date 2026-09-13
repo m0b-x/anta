@@ -223,3 +223,23 @@ class PaginatedNotes extends Equatable {
     isLoading,
   ];
 }
+
+/// What a colour filter with nothing typed answers: the notes wearing one of
+/// the picked colours, newest first, and how many there are in all.
+///
+/// Not a [PaginatedNotes]: this listing is capped rather than paged — there is
+/// no next page to ask for — but the header above it still says how many notes
+/// the colours gather, which [total] and not [notes] is the answer to.
+class LabelledNotes extends Equatable {
+  final List<NoteMetadata> notes;
+
+  /// Every note the colours gather, whether or not it fitted under the cap.
+  final int total;
+
+  const LabelledNotes({required this.notes, required this.total});
+
+  static const LabelledNotes empty = LabelledNotes(notes: [], total: 0);
+
+  @override
+  List<Object?> get props => [notes, total];
+}

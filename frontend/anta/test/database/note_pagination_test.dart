@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/database/daos/note_dao.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/models/item_label.dart';
 
 import 'support/db_test_support.dart';
 
@@ -123,6 +124,137 @@ void main() {
       await page(sortField: NoteSortField.updatedAt, offset: 0),
       ['n002', 'n000', 'n001'],
     );
+  });
+
+  /// Inserts one note per entry, so a test can state the exact `(label,
+  /// updatedAt)` pair each id carries. Ids are inserted out of sorted order on
+  /// purpose — a passing assertion must come from the ORDER BY, not from
+  /// insertion order.
+  Future<void> seedLabelledNotes(
+    Map<String, (ItemLabel, DateTime)> notes,
+  ) async {
+    final stamp = DateTime.utc(2026, 3, 1, 10, 30, 15);
+    await db.folderDao.insertFolder(
+      FoldersCompanion.insert(
+        id: folderId,
+        name: 'Training',
+        hlcTimestamp: '0',
+        deviceId: 'test',
+        createdAt: stamp,
+        updatedAt: stamp,
+      ),
+    );
+    await db.batch((batch) {
+      for (final entry in notes.entries) {
+        final (label, updatedAt) = entry.value;
+        batch.insert(
+          db.notes,
+          NotesCompanion.insert(
+            id: entry.key,
+            folderId: folderId,
+            title: 'Session',
+            hlcTimestamp: '0',
+            deviceId: 'test',
+            createdAt: stamp,
+            updatedAt: updatedAt,
+            position: const Value(0),
+            label: Value(label.storageValue),
+          ),
+        );
+      }
+    });
+  }
+
+  group('sorting by colour label', () {
+    final stamp = DateTime.utc(2026, 3, 1, 10, 30, 15);
+
+    test(
+      'labelled notes come first in palette order, unlabelled last',
+      () async {
+        // `none` stores 0, so a plain `ORDER BY label` would put the unlabelled
+        // notes *first* — the opposite of what someone who just picked "sort by
+        // label" is looking for. The CASE term is what inverts that.
+        await seedLabelledNotes({
+          'n-pink': (ItemLabel.pink, stamp),
+          'n-none-a': (ItemLabel.none, stamp),
+          'n-red': (ItemLabel.red, stamp),
+          'n-none-b': (ItemLabel.none, stamp),
+          'n-teal': (ItemLabel.teal, stamp),
+        });
+
+        expect(
+          await page(
+            sortField: NoteSortField.label,
+            ascending: true,
+            offset: 0,
+          ),
+          ['n-red', 'n-teal', 'n-pink', 'n-none-a', 'n-none-b'],
+        );
+      },
+    );
+
+    test('notes sharing a label fall back to updated_at then id', () async {
+      await seedLabelledNotes({
+        'n-c': (ItemLabel.red, stamp),
+        'n-a': (ItemLabel.red, stamp.add(const Duration(hours: 1))),
+        'n-b': (ItemLabel.red, stamp),
+        'n-z': (ItemLabel.none, stamp.add(const Duration(hours: 2))),
+      });
+
+      expect(
+        await page(sortField: NoteSortField.label, ascending: true, offset: 0),
+        [
+          // Most recently updated of the red run first…
+          'n-a',
+          // …then the two that tie on `updated_at`, in id order.
+          'n-b',
+          'n-c',
+          // Unlabelled last however recently it was touched.
+          'n-z',
+        ],
+      );
+    });
+
+    test('a page boundary inside a run of ties serves each note once', () async {
+      // Forty notes, two labels, one timestamp: every note ties with nineteen
+      // others on both ordering terms that precede `id`, so the boundary at
+      // twenty falls in the middle of a run. Without the trailing `id` the two
+      // `LIMIT/OFFSET` reads need not agree, and a note is served twice while
+      // another is served on neither page.
+      await seedLabelledNotes({
+        for (var i = 0; i < 40; i++)
+          'n${i.toString().padLeft(3, '0')}': (
+            i.isEven ? ItemLabel.red : ItemLabel.none,
+            stamp,
+          ),
+      });
+
+      final first = await page(
+        sortField: NoteSortField.label,
+        ascending: true,
+        offset: 0,
+      );
+      final second = await page(
+        sortField: NoteSortField.label,
+        ascending: true,
+        offset: 20,
+      );
+
+      expect(first, hasLength(20));
+      expect(second, hasLength(20));
+      expect(
+        {...first, ...second},
+        hasLength(40),
+        reason: 'the label sort repeated or dropped a row across its pages',
+      );
+      // And the halves are the two label runs, in id order within each.
+      expect(first, [
+        for (var i = 0; i < 40; i += 2) 'n${i.toString().padLeft(3, '0')}',
+      ]);
+      expect(second, [
+        for (var i = 1; i < 40; i += 2) 'n${i.toString().padLeft(3, '0')}',
+      ]);
+    });
   });
 
   test('the ordered page still walks its index', () async {

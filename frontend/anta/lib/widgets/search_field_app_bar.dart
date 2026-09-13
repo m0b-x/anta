@@ -4,6 +4,7 @@ import '../constants/app_bar_metrics.dart';
 import '../constants/app_colors.dart';
 import '../controllers/in_place_search_controller.dart';
 import '../l10n/app_localizations.dart';
+import '../models/item_label.dart';
 import '../models/search_scope.dart';
 import 'search_surface.dart';
 
@@ -23,6 +24,8 @@ class SearchFieldAppBar extends StatelessWidget {
     required this.selectedScope,
     required this.onLeave,
     this.folderScope,
+    this.labelsInUse = const [],
+    this.selectedLabels = const {},
   });
 
   final InPlaceSearchController search;
@@ -36,13 +39,23 @@ class SearchFieldAppBar extends StatelessWidget {
 
   /// The folder half of the scope choice. Null on a host that has no second
   /// scope to offer — the root browser and the note lists are already
-  /// searching everywhere — and the chip row is then dropped entirely.
+  /// searching everywhere — where the row is dropped entirely unless there
+  /// are colour chips to carry on their own.
   final FolderScope? folderScope;
+
+  /// The colours notes in the current scope carry, for the label chips.
+  final List<ItemLabel> labelsInUse;
+
+  /// The colours currently filtering the results.
+  final Set<ItemLabel> selectedLabels;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final scope = folderScope;
+    final showsChips = SearchScopeChips.shows(
+      folderScope: folderScope,
+      labelsInUse: labelsInUse,
+    );
 
     return SliverAppBar(
       pinned: true,
@@ -70,15 +83,17 @@ class SearchFieldAppBar extends StatelessWidget {
           onClear: search.clearQuery,
         ),
       ],
-      bottom: scope == null
+      bottom: !showsChips
           ? null
           : PreferredSize(
               preferredSize: const Size.fromHeight(
                 SearchScopeChips.preferredHeight,
               ),
               child: SearchScopeChips(
-                folderScope: scope,
+                folderScope: folderScope,
                 selected: selectedScope,
+                labelsInUse: labelsInUse,
+                selectedLabels: selectedLabels,
               ),
             ),
     );

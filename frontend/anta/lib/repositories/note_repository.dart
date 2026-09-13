@@ -418,6 +418,40 @@ class NoteRepository {
     return changed;
   }
 
+  /// Which colours live notes actually carry, in palette order.
+  ///
+  /// Deliberately uncached: it is read when a search surface opens or comes
+  /// back from a note, which is exactly when a label may just have changed,
+  /// and it is one `SELECT DISTINCT` either way.
+  Future<List<ItemLabel>> labelsInUse({Set<String>? folderIds}) {
+    return _noteDao.labelsInUse(folderIds: folderIds);
+  }
+
+  /// The notes wearing one of [labels], newest first — the search surface's
+  /// label-only listing.
+  ///
+  /// Uncached for the reason [labelsInUse] gives, and because the cache here
+  /// is keyed by folder: this read crosses folders by design.
+  Future<List<Note>> labelledNotes({
+    required Set<ItemLabel> labels,
+    Set<String>? folderIds,
+    required int limit,
+  }) {
+    return _noteDao.labelledNotes(
+      labels: labels,
+      folderIds: folderIds,
+      limit: limit,
+    );
+  }
+
+  /// How many notes [labelledNotes] would list without its cap.
+  Future<int> countLabelledNotes({
+    required Set<ItemLabel> labels,
+    Set<String>? folderIds,
+  }) {
+    return _noteDao.countLabelledNotes(labels: labels, folderIds: folderIds);
+  }
+
   Future<Note?> moveNote({
     required String noteId,
     required String targetFolderId,

@@ -33,6 +33,22 @@ enum ItemLabel {
   /// separately.
   static Iterable<ItemLabel> get assignable => values.skip(1);
 
+  /// The labels [picked] contains, in declaration order — the palette order
+  /// the swatch strip, the chip row and every header naming colours all read
+  /// in.
+  ///
+  /// A `Set<ItemLabel>` has no order of its own, so every surface that shows
+  /// several labels at once used to re-roll this comprehension; they are the
+  /// same list and it is declared here. [none] is never included: it is the
+  /// absence of a label rather than one of them.
+  static List<ItemLabel> inPaletteOrder(Iterable<ItemLabel> picked) {
+    final wanted = picked.toSet();
+    return [
+      for (final label in assignable)
+        if (wanted.contains(label)) label,
+    ];
+  }
+
   /// The label stored as [value], or [none] for null and for anything outside
   /// the enum — a column written by a newer build, or a hand-edited database,
   /// reads as unlabelled rather than crashing the row.

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:anta/constants/search_constants.dart';
 import '../models/isolate_data.dart';
+import '../models/item_label.dart';
 import '../models/note_change.dart';
 import '../models/note_metadata.dart';
 import 'note_storage_service.dart';
@@ -203,6 +204,12 @@ class SearchFilter {
   /// searches everywhere; an **empty** set matches nothing, which is what a
   /// scope pointing at a folder that has since been deleted must do.
   final Set<String>? folderIds;
+
+  /// The colour labels a note may carry to survive the filter, OR-ed
+  /// together. **Empty is no filter at all** — unlike [folderIds], where the
+  /// empty set is a scope that matches nothing: a label filter is built by
+  /// tapping chips, and having tapped none means "every colour, and none".
+  final Set<ItemLabel> labels;
   final DateTime? fromDate;
   final DateTime? toDate;
   final int? minContentLength;
@@ -211,6 +218,7 @@ class SearchFilter {
 
   const SearchFilter({
     this.folderIds,
+    this.labels = const {},
     this.fromDate,
     this.toDate,
     this.minContentLength,
@@ -220,6 +228,10 @@ class SearchFilter {
 
   bool matches(NoteMetadata metadata) {
     if (folderIds != null && !folderIds!.contains(metadata.folderId)) {
+      return false;
+    }
+
+    if (labels.isNotEmpty && !labels.contains(metadata.label)) {
       return false;
     }
 
@@ -451,6 +463,11 @@ class SearchIndex {
 class FolderSearchService {
   static const int _quickSearchPageSize = 300;
 
+  /// How many hits a per-keystroke pass shows. Declared here rather than as a
+  /// bare default on [quickSearch] so the bloc that calls it can name the
+  /// same number instead of keeping a copy that could drift from it.
+  static const int quickHitLimit = 10;
+
   /// One page of the index build, looped until the last page comes back
   /// short. It used to be the whole build: a database with more notes than
   /// this indexed the first page and silently answered every later note's
@@ -670,10 +687,17 @@ class FolderSearchService {
   /// page by one folder id, not by a set, and the scoped folder's notes are
   /// spread across its descendants. [_quickSearchPageSize] is the ceiling
   /// that keeps this honest for v1.
+  ///
+  /// [labels] is the colour filter, OR-ed across the set and empty for no
+  /// filter. It **narrows** a typed query and never stands in for one: an
+  /// empty query finds nothing here whatever the filter says, because
+  /// "everything red" is a listing rather than a search and [labelledNotes]
+  /// answers it out of SQLite instead of out of one page.
   Future<List<SearchResult>> quickSearch(
     String query, {
     Set<String>? folderIds,
-    int limit = 10,
+    Set<ItemLabel> labels = const {},
+    int limit = quickHitLimit,
     bool caseSensitive = false,
   }) async {
     await initialize();
@@ -693,6 +717,9 @@ class FolderSearchService {
 
     for (final metadata in paginatedNotes.notes) {
       if (folderIds != null && !folderIds.contains(metadata.folderId)) {
+        continue;
+      }
+      if (labels.isNotEmpty && !labels.contains(metadata.label)) {
         continue;
       }
 
@@ -737,6 +764,50 @@ class FolderSearchService {
     results.sort((a, b) => b.relevanceScore.compareTo(a.relevanceScore));
 
     return results.take(limit).toList();
+  }
+
+  /// Every note wearing one of [labels], newest first, as search results with
+  /// nothing highlighted — the listing a colour chip produces with the field
+  /// empty, and the total the header above it counts.
+  ///
+  /// Not a [quickSearch] with an empty query: nothing is being searched for,
+  /// so there is no text to score, no offsets to paint, and no reason to read
+  /// a page of notes the colour was never going to keep. The colour is a
+  /// `WHERE` clause here, which is what lets [limit] mean "rows shown" and
+  /// lets a red note older than the newest few hundred still be listed.
+  ///
+  /// [folderIds] is a whole subtree; an empty set matches nothing. An empty
+  /// [labels] returns nothing, the way [quickSearch] with an empty query
+  /// does — with no colour picked there is no listing to make.
+  Future<({List<SearchResult> results, int total})> labelledNotes({
+    required Set<ItemLabel> labels,
+    Set<String>? folderIds,
+    int limit = 50,
+  }) async {
+    await initialize();
+
+    if (labels.isEmpty) return (results: const <SearchResult>[], total: 0);
+    if (folderIds != null && folderIds.isEmpty) {
+      return (results: const <SearchResult>[], total: 0);
+    }
+
+    final listing = await _storageService.labelledNotes(
+      labels: labels,
+      folderIds: folderIds,
+      limit: limit,
+    );
+
+    return (
+      results: [
+        for (final metadata in listing.notes)
+          SearchResult(
+            metadata: metadata,
+            matches: const [],
+            relevanceScore: 0,
+          ),
+      ],
+      total: listing.total,
+    );
   }
 
   List<SearchMatch> _findMatches(

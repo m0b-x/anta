@@ -117,7 +117,9 @@ class _SearchViewState extends State<_SearchView> with RouteAware {
     final bloc = context.read<SearchBloc>();
     final state = bloc.state;
     if (state.query.trim().isEmpty) {
-      bloc.add(SearchOpened(scope: state.scope));
+      // `keepLabels` because this is a refresh: a colour picked before the
+      // push is what the surface is showing, and an open drops the filter.
+      bloc.add(SearchOpened(scope: state.scope, keepLabels: true));
       return;
     }
     if (state.phase == SearchPhase.full) {

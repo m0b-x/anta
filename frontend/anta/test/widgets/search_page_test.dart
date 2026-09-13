@@ -11,6 +11,7 @@ import 'package:anta/constants/row_metrics.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
+import 'package:anta/models/item_label.dart';
 import 'package:anta/pages/search_page.dart';
 import 'package:anta/repositories/folder_repository.dart';
 import 'package:anta/repositories/note_repository.dart';
@@ -19,6 +20,7 @@ import 'package:anta/services/folder_search_service.dart';
 import 'package:anta/services/folder_storage_service.dart';
 import 'package:anta/services/note_storage_service.dart';
 import 'package:anta/widgets/content_rows.dart';
+import 'package:anta/widgets/label_dot.dart';
 import 'package:anta/widgets/search_surface.dart';
 
 /// The standalone search route end to end: a real database under a real
@@ -348,6 +350,104 @@ void main() {
       await pumpPage(tester);
 
       expect(find.byType(ContentRowShell), findsWidgets);
+      await teardownPage(tester);
+    });
+  });
+
+  /// The standalone route has no second scope to offer, so before colours it
+  /// never drew the chip row at all. It draws the same widget as the in-place
+  /// host now, carrying colours alone.
+  group('colour label chips', () {
+    Future<void> paint(WidgetTester tester, Map<String, ItemLabel> byTitle) {
+      return tester.runAsync(() async {
+        final page = await noteService.loadNotesPaginated(pageSize: 50);
+        for (final entry in byTitle.entries) {
+          final note = page.notes.firstWhere((n) => n.title == entry.key);
+          await noteService.setNoteLabel(note.id, entry.value);
+          addTearDown(() => noteService.setNoteLabel(note.id, ItemLabel.none));
+        }
+      });
+    }
+
+    Finder labelChips() => find.descendant(
+      of: find.byType(SearchScopeChips),
+      matching: find.byType(FilterChip),
+    );
+
+    testWidgets('an unscoped surface still has no row when nothing is '
+        'coloured', (tester) async {
+      await pumpPage(tester);
+
+      expect(find.byType(SearchScopeChips), findsNothing);
+      await teardownPage(tester);
+    });
+
+    testWidgets('a colour in use gives the unscoped surface a row of dots '
+        'and no scope pair', (tester) async {
+      await paint(tester, {'Squat plan': ItemLabel.red});
+      await pumpPage(tester);
+
+      expect(find.byType(SearchScopeChips), findsOneWidget);
+      expect(labelChips(), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, l10n.everywhere), findsNothing);
+      expect(
+        tester
+            .getSemantics(
+              find.descendant(
+                of: labelChips(),
+                matching: find.byType(LabelDot),
+              ),
+            )
+            .label,
+        l10n.labelRed,
+        reason:
+            'a chip whose whole content is a circle has nothing else to say; '
+            'the dot\'s own "Red label" would repeat the control',
+      );
+      await teardownPage(tester);
+    });
+
+    testWidgets('a scoped surface shows the pair, then the dots', (
+      tester,
+    ) async {
+      await paint(tester, {
+        'Squat plan': ItemLabel.red,
+        'Week 1 session': ItemLabel.teal,
+      });
+      await pumpPage(tester, folderId: trainingId, folderName: 'Training');
+
+      expect(find.widgetWithText(ChoiceChip, 'Training'), findsOneWidget);
+      expect(labelChips(), findsNWidgets(2));
+
+      final pair = tester.getRect(
+        find.widgetWithText(ChoiceChip, l10n.everywhere),
+      );
+      expect(
+        tester.getRect(labelChips().first).left,
+        greaterThan(pair.right),
+        reason: 'the colours follow the scope pair, never lead it',
+      );
+      await teardownPage(tester);
+    });
+
+    testWidgets('tapping a dot lists that colour under a header naming it', (
+      tester,
+    ) async {
+      await paint(tester, {
+        'Squat plan': ItemLabel.red,
+        'Shopping': ItemLabel.red,
+      });
+      await pumpPage(tester);
+      expect(sectionLabels(tester), [l10n.recent]);
+
+      await tester.tap(labelChips().first);
+      await settle(tester, rounds: 40);
+
+      expect(sectionLabels(tester), [l10n.labelledNotesHeader(2, 'Red')]);
+      expect(
+        rowTitles(tester),
+        unorderedEquals(<String>['Squat plan', 'Shopping']),
+      );
       await teardownPage(tester);
     });
   });

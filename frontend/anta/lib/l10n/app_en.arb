@@ -2459,6 +2459,10 @@
   "@sortByTitle": {
     "description": "Sort option for title"
   },
+  "sortByLabel": "Label",
+  "@sortByLabel": {
+    "description": "Sort option for colour label"
+  },
   "ascending": "Ascending",
   "@ascending": {
     "description": "Ascending sort order"
@@ -5974,5 +5978,13 @@
   "labelStyleKeywords": "colour, color, label, dot, stripe, edge, marker",
   "@labelStyleKeywords": {
     "description": "Hidden search keywords for the label style setting"
+  },
+  "labelledNotesHeader": "{count, plural, =1{{names} · 1 note} other{{names} · {count} notes}}",
+  "@labelledNotesHeader": {
+    "description": "Search results section header when colour-label chips are filtering and nothing is typed: the selected colour names, then how many notes carry them",
+    "placeholders": {
+      "count": { "type": "int", "example": "3" },
+      "names": { "type": "String", "example": "Red · Teal" }
+    }
   }
 }

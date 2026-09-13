@@ -6,6 +6,12 @@ import '../models/item_label.dart';
 import '../constants/app_constants.dart';
 import 'duplicate_name_exception.dart';
 
+/// The orderings the browser offers for a folder's subfolders.
+///
+/// **Append only.** A folder persists its choice as the member's `name` in
+/// `folders.subfolderSortOrder`, and an older build that meets a name it does
+/// not know falls back to the default rather than failing — so a member may be
+/// added to the end, but never renamed, reordered or removed.
 enum FoldersSortOrder {
   nameAsc,
   nameDesc,
@@ -13,6 +19,10 @@ enum FoldersSortOrder {
   createdDesc,
   positionAsc,
   positionDesc,
+
+  /// Labelled folders first in palette order, unlabelled last. There is no
+  /// descending twin — reversing a palette answers no question.
+  labelAsc,
 }
 
 class PaginatedFolders {
@@ -464,6 +474,8 @@ class FolderStorageService {
         return (FolderSortField.position, true);
       case FoldersSortOrder.positionDesc:
         return (FolderSortField.position, false);
+      case FoldersSortOrder.labelAsc:
+        return (FolderSortField.label, true);
     }
   }
 

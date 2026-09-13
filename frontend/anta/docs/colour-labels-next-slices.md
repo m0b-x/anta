@@ -20,12 +20,30 @@ A/B/C/D on the design page are placements, not slices.
   change repaints the browser under the settings page; the value is primed
   before the first frame, re-primed after a database switch and after a
   backup restore, and rides in backups.
-- **Label from the editor** (Slice 2, done and reviewed 2026-09-13,
-  uncommitted): one shared `showLabelPickerSheet` behind both the bulk
-  action and a new **Label** row in the editor's menu (between Move and
-  Share, absent until the note has an id). The row reads the colour fresh
-  from storage and dispatches only on a changed pick; a note deleted
-  elsewhere now reads as "not found" there, as it does for Move and Share.
+- **Label from the editor** (Slice 2, committed `0984341`): one shared
+  `showLabelPickerSheet` behind both the bulk action and a new **Label** row
+  in the editor's menu (between Move and Share, absent until the note has an
+  id). The row reads the colour fresh from storage and dispatches only on a
+  changed pick; a note deleted elsewhere now reads as "not found" there, as
+  it does for Move and Share.
+- **Sort by label** (Slice 3, done 2026-09-13, uncommitted): `labelAsc` on
+  both sort enums — labelled first in palette order, unlabelled last, then
+  newest first (notes) or by name (folders), always ending on `id`. A row in
+  each sort sheet; both sheets now scroll so seven rows fit a 360×640 phone.
+  No index: the plan matches the existing per-folder sorts.
+- **Filter by label in search** (Slice 4, done 2026-09-13, uncommitted): a
+  dot chip per colour in use after the scope chips (at the root too, only
+  when something is labelled, present from the first frame), multi-select
+  OR, filtering whatever pass is showing; with nothing typed the chips list
+  "everything red" newest first through their own indexed query, headed by
+  the colour names and the true count. A chip tapped mid-keystroke filters
+  the text on screen; closing search drops the colours, coming back from a
+  note keeps them.
+- **Both follow-ups** (done 2026-09-13, uncommitted): light-mode yellow and
+  orange darkened to clear 3:1, pinned by a contrast test; bulk label, move
+  and delete no longer flash the browser or lose the scroll offset — the
+  folder bloc reloads in place and both blocs coalesce a burst of change
+  events into one reload.
 
 ## Slice 1 — Commit and see it on a phone
 
@@ -48,60 +66,54 @@ A/B/C/D on the design page are placements, not slices.
 ## Slice 2 — Label from the editor (roadmap Slice C) — DONE 2026-09-13
 
 Shipped as listed above; the roadmap's Slice C "Shipped" block records the
-deviations. Owed: commit it, then on the phone open a note → ⋮ → Label, pick
-a colour, go back, and check the row shows it with no list jump.
+deviations. Owed on the phone: open a note → ⋮ → Label, pick a colour, go
+back, and check the row shows it with no list jump.
 
-## Slice 3 — Sort by label (roadmap Slice B)
+## Slice 3 — Sort by label (roadmap Slice B) — DONE 2026-09-13
 
-- Append `labelAsc` to both sort enums (labelled first in palette order,
-  unlabelled last, then by date, still ending on `id`).
-- One new row in each sort sheet, plus the case in the menu's sort label.
-- Add a partial index **only** if the query plan shows a temp b-tree that the
-  existing per-folder sorts avoid; then both creation paths, schema v40,
-  parity and plan tests.
-- Tests: ordering and page boundaries, sheet persists `labelAsc` to the
-  folder, menu label reads "Label".
+Shipped as listed above; the roadmap's Slice B "Shipped" block has the query
+plans and the reasons there is no index.
 
-## Slice 4 — Filter by label in search (roadmap Slice A)
+## Slice 4 — Filter by label in search (roadmap Slice A) — DONE 2026-09-13
 
-- `SearchState.labels` (multi-select, OR) and `labelsInUse` (one `SELECT
-  DISTINCT`), event `SearchLabelsChanged`.
-- The chips row becomes one fixed-height horizontal scroller: the two scope
-  chips, a divider, then a dot chip per colour in use (shown at the root
-  too, only when something is labelled).
-- A selected label filters the current pass and makes the empty query list
-  the labelled notes; clearing the last label with no query returns to
-  recents. `quickSearch` lifts its empty-query early return only when a label
-  filter is present.
-- A results header naming the selected colours with a count.
-- Tests: bloc transitions incl. the stale-pass guard, service filter, chip row
-  height at 360 dp with seven colours, root visibility.
+Shipped as listed above; the roadmap's Slice A "Shipped" block records the
+deviations (own DAO query for the listing, the pending-keystroke rule, the
+open/refresh split, the primed root row, the ringed selected chip).
 
-## Slice 5 — Named labels (roadmap Slice D, optional)
+## Slice 5 — Named labels — DROPPED 2026-09-13
 
-- One JSON settings key `label_names` (colour → name), in the backup
-  allow-list.
-- Fold names into the existing `LabelAppearanceService` / `LabelAppearance`
-  facade (do not add a second service), so dot semantics, stripe semantics,
-  swatch tooltips, Slice 3's sort row and Slice 4's chips pick names up with
-  no further edits.
-- A "Labels" settings page: seven rows, dot + text field, 24 characters,
-  clearing restores the default name.
-- Tests: service round-trip and reset, backup round-trip, tooltip/semantics
-  read the name and revert.
+The owner decided the feature is complete without names. The roadmap keeps
+the Slice D text as the record.
 
-## Follow-up worth its own slice (found in the 2026-09-12 review)
+## Follow-ups from the 2026-09-12 review — DONE 2026-09-13
 
-- **Bulk actions flash the browser list.** Leaving selection drops the
-  page's optimistic list, and the folder bloc's refresh passes through a
-  loading state, so bulk label, move and delete can show the spinner for a
-  frame and lose the scroll offset; the same refresh snaps a paginated
-  folder list back to page one. Fix: make the folder bloc reload in place
-  the way the note bloc already does. Not label-specific, so not in the
-  slices above.
-- **Light-mode yellow and orange** are below the 3:1 graphics-contrast
-  floor as a 3 dp stripe (dark mode is fine). Judge on the phone; darkening
-  the two light-mode hex values in `AppColors` is a one-line change.
+Both shipped with Slices 3 and 4 (see "Done so far"); the roadmap's §2
+"Known and left" entries say exactly what changed.
+
+## What is owed now
+
+1. **Commit** Slices 3 + 4 and the two follow-ups (everything uncommitted on
+   `0984341`; the full suite is green).
+2. **Phone pass** (Android, light and dark):
+   - sort sheet: seven rows, scrolls, Label row reachable one-handed;
+     choosing it groups the coloured notes first in palette order;
+   - search in a folder with colours in use: the chip row keeps its height
+     with the keyboard up, scrolls past seven dots, a selected dot wears the
+     purple ring; tap a dot with the field empty → the list is headed
+     "Red · N notes" and shows path · date rows; type a letter → narrows;
+     tap a chip while typing fast → the text is kept;
+   - root: open search, the dot row is there on the very first frame (no
+     jump under the field); close search, reopen: the colours are cleared;
+     open a note from a result, label it from ⋮, come back: its chip is
+     offered and the filter you had is still applied;
+   - selection mode → Label / Move / Delete on a list scrolled past the first
+     page: no spinner, no jump, the list stays where it was;
+   - light mode: yellow and orange dots and stripes read on the row surface.
+3. **Follow-ups worth their own change** (not label-specific): the four
+   older folder sorts have no `id` tiebreak (the label sort is the only one
+   that does); a `SheetDragHandle` widget for the five verbatim 40×4 handles;
+   `optimized_folder_content_page_test.dart` is order-dependent (its last
+   group seeds rows earlier counts assert on).
 
 ## Not planned
 

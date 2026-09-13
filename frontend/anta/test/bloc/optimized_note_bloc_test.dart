@@ -102,9 +102,17 @@ class _FakeSearchService implements FolderSearchService {
   Future<List<SearchResult>> quickSearch(
     String query, {
     Set<String>? folderIds,
+    Set<ItemLabel> labels = const {},
     int limit = 10,
     bool caseSensitive = false,
   }) async => const [];
+
+  @override
+  Future<({List<SearchResult> results, int total})> labelledNotes({
+    required Set<ItemLabel> labels,
+    Set<String>? folderIds,
+    int limit = 50,
+  }) async => (results: const <SearchResult>[], total: 0);
 
   @override
   Future<List<SearchResult>> search(

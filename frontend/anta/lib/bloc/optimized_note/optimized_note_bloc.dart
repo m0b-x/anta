@@ -19,6 +19,15 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
   PaginatedNotes? _lastPaginatedNotes;
   StreamSubscription<NoteChange>? _changesSubscription;
 
+  /// The folders a refresh has been asked for but not yet dispatched for.
+  ///
+  /// A bulk label or delete raises one [NoteChange] per note, and a refresh
+  /// re-reads every page the list has — so labelling twenty rows used to cost
+  /// twenty full reads of the visible list. Collecting the folders and
+  /// flushing them at the end of the tick makes that one read per folder.
+  final Set<String?> _pendingRefreshFolders = {};
+  Timer? _refreshTimer;
+
   OptimizedNoteBloc({
     required NoteStorageService storageService,
     required FolderSearchService searchService,
@@ -47,8 +56,33 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
         (change.type == NoteChangeType.moved &&
             change.sourceFolderId == _currentFolderId);
     if (affectsCurrent) {
-      add(RefreshNotes(folderId: _currentFolderId));
+      _scheduleRefresh(_currentFolderId);
     }
+  }
+
+  /// Asks for a reload of [folderId], at most once per tick per folder.
+  ///
+  /// Every path that reloads the list goes through this, the writes' own
+  /// post-write refresh included: a bulk write raises its change events *and*
+  /// ends in a refresh, and the two used to arrive as N + 1 reads of the same
+  /// rows.
+  /// A zero-duration [Timer] rather than a microtask: the change events being
+  /// coalesced arrive one microtask apart (a broadcast stream delivers them
+  /// that way), so a microtask flush would run *between* two of them and
+  /// coalesce nothing.
+  void _scheduleRefresh(String? folderId) {
+    _pendingRefreshFolders.add(folderId);
+    _refreshTimer ??= Timer(Duration.zero, () {
+      _refreshTimer = null;
+      final folders = _pendingRefreshFolders.toList(growable: false);
+      _pendingRefreshFolders.clear();
+      // A page popped while its own write was in flight closes this bloc
+      // before the flush runs, and `add` on a closed bloc throws.
+      if (isClosed) return;
+      for (final folder in folders) {
+        add(RefreshNotes(folderId: folder));
+      }
+    });
   }
 
   Future<void> _onLoadNotesPaginated(
@@ -117,12 +151,16 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
     if (!currentState.paginatedNotes.hasMore) return;
     if (currentState.isLoadingMore) return;
 
-    emit(
-      currentState.copyWith(
-        isLoadingMore: true,
-        folderId: event.folderId ?? _currentFolderId,
-      ),
+    // The state this page is being appended to, emitted rather than merely
+    // captured: this bloc processes events concurrently, so a refresh can
+    // land while the read below is in flight, and building the combined
+    // state from `currentState` afterwards would put the pre-refresh rows
+    // back on screen.
+    final loading = currentState.copyWith(
+      isLoadingMore: true,
+      folderId: event.folderId ?? _currentFolderId,
     );
+    emit(loading);
 
     // Counted up only once the page is actually in hand: a failed read used
     // to leave the counter advanced, so the next load-more skipped the page
@@ -137,8 +175,12 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
         sortOrder: _currentSortOrder,
       );
 
+      // Something else owns the list now, and it re-read every page this one
+      // was about to extend.
+      if (!identical(state, loading)) return;
+
       final combinedNotes = [
-        ...currentState.paginatedNotes.notes,
+        ...loading.paginatedNotes.notes,
         ...morePaginatedNotes.notes,
       ];
 
@@ -150,7 +192,7 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
       _lastPaginatedNotes = updatedPaginatedNotes;
 
       emit(
-        currentState.copyWith(
+        loading.copyWith(
           paginatedNotes: updatedPaginatedNotes,
           isLoadingMore: false,
           folderId: event.folderId ?? _currentFolderId,
@@ -158,8 +200,9 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
       );
     } catch (e, stackTrace) {
       _logError('Failed to load more notes', e, stackTrace);
+      if (!identical(state, loading)) return;
       emit(
-        currentState.copyWith(
+        loading.copyWith(
           isLoadingMore: false,
           folderId: event.folderId ?? _currentFolderId,
         ),
@@ -211,7 +254,7 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
       await _searchService.updateIndex(metadata.id, event.title, event.content);
 
       emit(OptimizedNoteCreated(metadata: metadata));
-      add(RefreshNotes(folderId: event.folderId));
+      _scheduleRefresh(event.folderId);
     } catch (e, stackTrace) {
       _logError('Failed to create note', e, stackTrace);
       emit(
@@ -242,7 +285,7 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
       }
 
       if (_currentFolderId != null) {
-        add(RefreshNotes(folderId: _currentFolderId));
+        _scheduleRefresh(_currentFolderId);
       }
 
       event.completer?.complete();
@@ -264,7 +307,7 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
   ) async {
     try {
       await _storageService.setNoteLabel(event.noteId, event.label);
-      add(RefreshNotes(folderId: _currentFolderId));
+      _scheduleRefresh(_currentFolderId);
     } catch (e, stackTrace) {
       _logError('Failed to label note', e, stackTrace);
       emit(
@@ -283,7 +326,7 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
     if (event.noteIds.isEmpty) return;
     try {
       await _storageService.setLabelForNotes(event.noteIds, event.label);
-      add(RefreshNotes(folderId: _currentFolderId));
+      _scheduleRefresh(_currentFolderId);
     } catch (e, stackTrace) {
       _logError('Failed to label notes', e, stackTrace);
       emit(
@@ -303,7 +346,7 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
       await _storageService.deleteNote(event.noteId);
       await _searchService.removeFromIndex(event.noteId);
 
-      add(RefreshNotes(folderId: _currentFolderId));
+      _scheduleRefresh(_currentFolderId);
     } catch (e, stackTrace) {
       _logError('Failed to delete note', e, stackTrace);
       emit(
@@ -326,7 +369,7 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
         await _searchService.removeFromIndex(noteId);
       }
 
-      add(RefreshNotes(folderId: _currentFolderId));
+      _scheduleRefresh(_currentFolderId);
     } catch (e, stackTrace) {
       _logError('Failed to delete notes', e, stackTrace);
       emit(
@@ -396,7 +439,7 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
       );
 
       // Refresh to get updated order
-      add(RefreshNotes(folderId: event.folderId));
+      _scheduleRefresh(event.folderId);
     } catch (e, stackTrace) {
       _logError('Failed to reorder notes', e, stackTrace);
       emit(
@@ -420,6 +463,7 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
 
   @override
   Future<void> close() {
+    _refreshTimer?.cancel();
     _changesSubscription?.cancel();
     _storageService.dispose();
     _searchService.dispose();

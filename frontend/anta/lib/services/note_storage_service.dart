@@ -8,6 +8,12 @@ import '../utils/compression_utils.dart';
 import '../constants/app_constants.dart';
 import 'duplicate_name_exception.dart';
 
+/// The orderings the browser offers for a folder's notes.
+///
+/// **Append only.** A folder persists its choice as the member's `name` in
+/// `folders.noteSortOrder`, and an older build that meets a name it does not
+/// know falls back to the default rather than failing — so a member may be
+/// added to the end, but never renamed, reordered or removed.
 enum NotesSortOrder {
   updatedDesc,
   updatedAsc,
@@ -17,6 +23,10 @@ enum NotesSortOrder {
   titleDesc,
   positionAsc,
   positionDesc,
+
+  /// Labelled notes first in palette order, unlabelled last. There is no
+  /// descending twin — reversing a palette answers no question.
+  labelAsc,
 }
 
 class NoteStorageService {
@@ -281,6 +291,52 @@ class NoteStorageService {
     return _repository.setLabelForMany(noteIds: noteIds, label: label);
   }
 
+  /// The colours at least one live note carries, in palette order, so the
+  /// search surface can offer a chip per label that exists instead of all
+  /// seven.
+  ///
+  /// [folderIds] is a whole subtree: `null` looks everywhere, an empty set
+  /// matches nothing.
+  Future<List<ItemLabel>> labelsInUse({Set<String>? folderIds}) async {
+    await initialize();
+    return _repository.labelsInUse(folderIds: folderIds);
+  }
+
+  /// The notes wearing one of [labels], newest first and capped at [limit],
+  /// together with how many there are in all.
+  ///
+  /// This is what a colour filter with nothing typed lists. It reads the
+  /// colour out of SQLite rather than out of a page held in memory, so the
+  /// cap counts rows the user will actually see and a labelled note older
+  /// than the cap's worth of newer ones is still found.
+  ///
+  /// [folderIds] is a whole subtree, as everywhere else; an empty [labels] is
+  /// a programming error, since no colour is the absence of this question
+  /// rather than a version of it.
+  Future<LabelledNotes> labelledNotes({
+    required Set<ItemLabel> labels,
+    Set<String>? folderIds,
+    required int limit,
+  }) async {
+    await initialize();
+    if (labels.isEmpty) return LabelledNotes.empty;
+
+    final notes = await _repository.labelledNotes(
+      labels: labels,
+      folderIds: folderIds,
+      limit: limit,
+    );
+    final total = await _repository.countLabelledNotes(
+      labels: labels,
+      folderIds: folderIds,
+    );
+
+    return LabelledNotes(
+      notes: notes.map(_noteToMetadata).toList(),
+      total: total,
+    );
+  }
+
   Future<void> deleteNote(String noteId) async {
     await initialize();
     await _repository.deleteNote(noteId);
@@ -448,6 +504,8 @@ class NoteStorageService {
         return (NoteSortField.position, true);
       case NotesSortOrder.positionDesc:
         return (NoteSortField.position, false);
+      case NotesSortOrder.labelAsc:
+        return (NoteSortField.label, true);
     }
   }
 

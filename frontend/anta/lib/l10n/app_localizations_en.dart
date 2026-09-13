@@ -2001,6 +2001,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get sortByTitle => 'Title';
 
   @override
+  String get sortByLabel => 'Label';
+
+  @override
   String get ascending => 'Ascending';
 
   @override
@@ -4738,4 +4741,15 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get labelStyleKeywords =>
       'colour, color, label, dot, stripe, edge, marker';
+
+  @override
+  String labelledNotesHeader(int count, String names) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$names · $count notes',
+      one: '$names · 1 note',
+    );
+    return '$_temp0';
+  }
 }

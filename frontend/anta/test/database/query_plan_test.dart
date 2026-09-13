@@ -5,6 +5,7 @@ import 'package:anta/database/daos/note_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/migrations/database_migrations.dart';
 import 'package:anta/database/migrations/database_schema.dart';
+import 'package:anta/models/item_label.dart';
 
 import 'support/db_test_support.dart';
 
@@ -106,6 +107,136 @@ void main() {
       );
       expect(plan, usesIndex('idx_folders_position'));
       expect(plan, isNot(sortsInMemory));
+    });
+
+    // The colour-label sort (roadmap Slice B) is the one ordering the app
+    // issues that no index can supply: it leads with
+    // `CASE WHEN label = 0 THEN 1 ELSE 0 END`, an expression, so SQLite has
+    // to materialise the rows and sort them. These two tests exist to record
+    // that this is *deliberate and already the norm* rather than an
+    // oversight — `title` and `updated_at` have sorted in memory since the
+    // browser shipped, so a partial `(folder_id, label, updated_at DESC)`
+    // index was measured and rejected: with the CASE leading the ORDER BY
+    // the planner does not even choose it, and the plan below is byte-for-byte
+    // what it is without it.
+    test(
+      'sorting a folder by label has the shape the other sorts have',
+      () async {
+        Future<List<String>> planFor(NoteSortField field) => planOf(
+          () => db.noteDao.getNotesPaginated(
+            folderId: 'f1',
+            limit: 50,
+            offset: 0,
+            sortField: field,
+            ascending: true,
+          ),
+        );
+
+        final label = await planFor(NoteSortField.label);
+        expect(label, usesIndex('idx_notes_position'));
+        expect(label, sortsInMemory);
+
+        // The neighbour that makes the line above a statement about the
+        // *feature* rather than about the label sort alone. If a future change
+        // ever makes `title` index-ordered, this fails and the label sort is
+        // owed the same treatment.
+        expect(await planFor(NoteSortField.title), sortsInMemory);
+      },
+    );
+
+    test('sorting every note by label scans rather than searching', () async {
+      // `folderId: null` is the shape `AllNotesPage` would take if it ever
+      // offered this sort. It has no folder predicate to search on, so the
+      // plan degrades from SEARCH to SCAN — worth pinning, because that is
+      // the version an index could not rescue either.
+      final plan = await planOf(
+        () => db.noteDao.getNotesPaginated(
+          limit: 50,
+          offset: 0,
+          sortField: NoteSortField.label,
+          ascending: true,
+        ),
+      );
+      expect(plan, contains(contains('SCAN notes')));
+      expect(plan, sortsInMemory);
+    });
+
+    /// The colour listing the search surface shows with nothing typed. It
+    /// replaced a 300-row page read filtered in memory, so what it costs
+    /// SQLite is the whole point of it existing.
+    test(
+      'listing every note of a colour walks the newest-first index',
+      () async {
+        final plan = await planOf(
+          () => db.noteDao.labelledNotes(
+            labels: const {ItemLabel.red, ItemLabel.teal},
+            limit: 50,
+          ),
+        );
+
+        // `idx_notes_updated` is `(updated_at DESC) WHERE is_deleted = 0`, so
+        // the newest rows come off it in order and `LIMIT` stops the walk —
+        // which is what makes the cap mean "rows shown".
+        expect(plan, usesIndex('idx_notes_updated'));
+        expect(
+          plan,
+          isNot(sortsInMemory),
+          reason:
+              'the index supplies the ordering; materialising every '
+              'labelled row to sort it would defeat the LIMIT',
+        );
+        // The one thing it cannot supply is the `id` tiebreak among rows
+        // sharing a second, which SQLite sorts per timestamp group rather than
+        // over the whole result. Pinned because it is the honest shape of this
+        // plan, not an oversight.
+        expect(
+          plan,
+          contains(contains('USE TEMP B-TREE FOR LAST TERM OF ORDER BY')),
+        );
+      },
+    );
+
+    test(
+      'a folder scope trades the ordering index for the folder one',
+      () async {
+        final plan = await planOf(
+          () => db.noteDao.labelledNotes(
+            labels: const {ItemLabel.red},
+            folderIds: const {'f1', 'f2'},
+            limit: 50,
+          ),
+        );
+
+        // Scoped, the planner leads with the folder predicate and sorts what
+        // survives it — `SEARCH … idx_notes_position (folder_id=?)` plus a full
+        // `USE TEMP B-TREE FOR ORDER BY`. That is the right trade at this size
+        // (a subtree is a fraction of the library, and searching beats scanning
+        // the whole ordering index), and it is recorded rather than asserted
+        // away: a scoped listing genuinely does sort in memory.
+        expect(
+          plan,
+          contains(contains('SEARCH notes USING INDEX idx_notes_position')),
+        );
+        expect(plan, sortsInMemory);
+        expect(plan, isNot(contains(contains('SCAN notes'))));
+      },
+    );
+
+    test('sorting subfolders by label matches the name sort', () async {
+      Future<List<String>> planFor(FolderSortField field) => planOf(
+        () => db.folderDao.getFoldersPaginated(
+          parentId: 'p1',
+          limit: 50,
+          offset: 0,
+          sortField: field,
+          ascending: true,
+        ),
+      );
+
+      final label = await planFor(FolderSortField.label);
+      expect(label, usesIndex('idx_folders_position'));
+      expect(label, sortsInMemory);
+      expect(await planFor(FolderSortField.name), sortsInMemory);
     });
 
     test('batched folder counts index both halves of the walk', () async {

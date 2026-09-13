@@ -2029,6 +2029,9 @@ class AppLocalizationsRo extends AppLocalizations {
   String get sortByTitle => 'Titlu';
 
   @override
+  String get sortByLabel => 'Etichetă';
+
+  @override
   String get ascending => 'Crescător';
 
   @override
@@ -4820,4 +4823,16 @@ class AppLocalizationsRo extends AppLocalizations {
   @override
   String get labelStyleKeywords =>
       'culoare, etichetă, punct, dungă, margine, marcaj';
+
+  @override
+  String labelledNotesHeader(int count, String names) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$names · $count de notițe',
+      few: '$names · $count notițe',
+      one: '$names · 1 notiță',
+    );
+    return '$_temp0';
+  }
 }

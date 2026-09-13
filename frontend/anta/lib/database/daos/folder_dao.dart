@@ -110,6 +110,19 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
         query.orderBy([
           (f) => OrderingTerm(expression: f.position, mode: orderMode),
         ]);
+      // Labelled folders first, in palette order, unlabelled last — the note
+      // sort's rule, with `name` where the notes use `updated_at DESC`. There
+      // is no descending variant, so `ascending` is deliberately not consulted
+      // here, and this is the one folder sort that ends on `id`: the label
+      // runs are wide enough that a page boundary would otherwise fall inside
+      // a run of ties and re-serve or skip a row.
+      case FolderSortField.label:
+        query.orderBy([
+          (f) => OrderingTerm(expression: _unlabelledLast),
+          (f) => OrderingTerm(expression: f.label),
+          (f) => OrderingTerm(expression: f.name),
+          (f) => OrderingTerm(expression: f.id),
+        ]);
     }
 
     query.limit(limit, offset: offset);
@@ -717,4 +730,14 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   }
 }
 
-enum FolderSortField { name, createdAt, updatedAt, position }
+enum FolderSortField { name, createdAt, updatedAt, position, label }
+
+/// Sorts unlabelled rows (`label = 0`, [ItemLabel.none]) after labelled ones
+/// while leaving the labelled rows in palette order.
+///
+/// Spelled as raw SQL because it is an *ordering expression*, not a column:
+/// no index can supply it, so `FolderSortField.label` sorts in a temp B-tree
+/// by design. The note DAO carries the twin of this for the same reason.
+const _unlabelledLast = CustomExpression<int>(
+  'CASE WHEN label = 0 THEN 1 ELSE 0 END',
+);

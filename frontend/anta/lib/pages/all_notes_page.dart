@@ -352,6 +352,8 @@ class _AllNotesPageState extends State<AllNotesPage> with RouteAware {
                       search: _search,
                       hintText: l10n.searchAll,
                       selectedScope: searchState.scope,
+                      labelsInUse: searchState.labelsInUse,
+                      selectedLabels: searchState.labels,
                       onLeave: _exitSearch,
                     ),
                     ...SearchSurface.resultSlivers(context, searchState),

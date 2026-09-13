@@ -4,6 +4,7 @@ import 'package:anta/constants/event_presence.dart';
 import 'package:anta/database/daos/note_dao.dart';
 import 'package:anta/database/daos/content_chunk_dao.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/models/item_label.dart';
 import 'package:anta/repositories/note_repository.dart';
 
 import 'support/db_test_support.dart';
@@ -109,6 +110,25 @@ void main() {
       ascending: true,
     );
     // One SELECT for the page. Anything more means per-row work crept in.
+    expect(
+      counter.count,
+      1,
+      reason: 'issued:\n${counter.statements.join('\n')}',
+    );
+  });
+
+  test('sorting a folder page by label is still one statement', () async {
+    counter.reset();
+    await db.noteDao.getNotesPaginated(
+      folderId: _folderId,
+      limit: 50,
+      offset: 0,
+      sortField: NoteSortField.label,
+      ascending: true,
+    );
+    // The label sort is the only ordering built from an expression rather
+    // than a column. It must still be one SELECT — resolving the palette
+    // order in Dart would mean reading the whole folder to serve a page.
     expect(
       counter.count,
       1,
@@ -673,6 +693,233 @@ void main() {
         0,
         reason: 'issued:\n${counter.statements.join('\n')}',
       );
+    });
+  });
+
+  /// The search surface offers one chip per colour a note in scope actually
+  /// wears, and it asks for that set every time search opens or comes back
+  /// from a note. A `DISTINCT` is the whole answer; paging the notes and
+  /// tallying in memory would be O(rows) on an interaction path.
+  group('labels in use', () {
+    const otherFolderId = 'f2';
+
+    Future<void> label(String noteId, ItemLabel value) {
+      return db.noteDao.updateNoteLabel(id: noteId, label: value);
+    }
+
+    setUp(() async {
+      final now = DateTime.now();
+      await db.batch((batch) {
+        batch.insert(
+          db.folders,
+          FoldersCompanion.insert(
+            id: otherFolderId,
+            name: 'Squat',
+            hlcTimestamp: '0',
+            deviceId: 'test',
+            createdAt: now,
+            updatedAt: now,
+          ),
+        );
+        for (var i = 0; i < 5; i++) {
+          batch.insert(
+            db.notes,
+            NotesCompanion.insert(
+              id: 'o$i',
+              folderId: otherFolderId,
+              title: 'Other $i',
+              hlcTimestamp: '0',
+              deviceId: 'test',
+              createdAt: now,
+              updatedAt: now,
+            ),
+          );
+        }
+      });
+    });
+
+    test('one statement answers, however many notes carry a colour', () async {
+      for (var i = 0; i < 20; i++) {
+        await label('n$i', ItemLabel.values[1 + (i % 7)]);
+      }
+
+      counter.reset();
+      final labels = await db.noteDao.labelsInUse();
+
+      expect(labels, hasLength(7));
+      expect(
+        counter.count,
+        1,
+        reason:
+            'labelsInUse must stay one SELECT DISTINCT. Issued:\n'
+            '${counter.statements.join('\n')}',
+      );
+      expect(
+        counter.statements.single.toUpperCase(),
+        contains('DISTINCT'),
+        reason: 'the set must come from SQLite, not from a page read back',
+      );
+    });
+
+    test('a folder scope rides in the same statement', () async {
+      await label('n0', ItemLabel.red);
+      await label('o0', ItemLabel.blue);
+
+      counter.reset();
+      final labels = await db.noteDao.labelsInUse(folderIds: {otherFolderId});
+
+      expect(labels, [ItemLabel.blue]);
+      expect(
+        counter.count,
+        1,
+        reason:
+            'the scope must be an IN (…) on the one query, never a second '
+            'pass. Issued:\n${counter.statements.join('\n')}',
+      );
+      expect(counter.statements.single.toUpperCase(), contains('IN ('));
+    });
+
+    test(
+      'the colours come back in palette order, never storage order',
+      () async {
+        await label('n0', ItemLabel.pink);
+        await label('n1', ItemLabel.red);
+        await label('n2', ItemLabel.teal);
+
+        expect(await db.noteDao.labelsInUse(), [
+          ItemLabel.red,
+          ItemLabel.teal,
+          ItemLabel.pink,
+        ]);
+      },
+    );
+
+    test('unlabelled notes are not a colour', () async {
+      expect(await db.noteDao.labelsInUse(), isEmpty);
+    });
+
+    // Through the DAO rather than the file's batch seed, for the reason the
+    // bulk-delete group gives: only a row that reached `notes_fts` may be
+    // removed from it.
+    test('a tombstoned note takes its colour with it', () async {
+      final note = await db.noteDao.createNote(
+        folderId: otherFolderId,
+        title: 'Doomed',
+      );
+      await label(note.id, ItemLabel.green);
+      expect(await db.noteDao.labelsInUse(), [ItemLabel.green]);
+
+      await db.noteDao.softDeleteNoteWithChunks(note.id);
+
+      expect(
+        await db.noteDao.labelsInUse(),
+        isEmpty,
+        reason:
+            'a chip whose only note is deleted would filter to nothing every '
+            'time it was tapped',
+      );
+    });
+
+    test('an empty folder scope touches the database not at all', () async {
+      await label('n0', ItemLabel.red);
+
+      counter.reset();
+      expect(await db.noteDao.labelsInUse(folderIds: const {}), isEmpty);
+      expect(
+        counter.count,
+        0,
+        reason:
+            'an empty subtree matches nothing, the way a search filter does, '
+            'and `IN ()` is not even valid SQL',
+      );
+    });
+  });
+
+  /// The listing behind those chips: with nothing typed, a colour is the
+  /// whole query. It used to be a 300-row page read filtered in memory, which
+  /// read six rows for every one it could show and still missed a labelled
+  /// note older than those 300.
+  group('the colour listing', () {
+    Future<void> label(String noteId, ItemLabel value) {
+      return db.noteDao.updateNoteLabel(id: noteId, label: value);
+    }
+
+    test('listing a colour is one statement, however many wear it', () async {
+      for (var i = 0; i < 30; i++) {
+        await label('n$i', ItemLabel.red);
+      }
+
+      counter.reset();
+      final listed = await db.noteDao.labelledNotes(
+        labels: const {ItemLabel.red},
+        limit: 20,
+      );
+
+      expect(listed, hasLength(20));
+      expect(
+        counter.count,
+        1,
+        reason:
+            'the colour is a WHERE clause and the cap is a LIMIT; reading a '
+            'page and keeping the coloured rows is what this replaced. '
+            'Issued:\n${counter.statements.join('\n')}',
+      );
+    });
+
+    test('counting them is one statement of its own', () async {
+      for (var i = 0; i < 30; i++) {
+        await label('n$i', ItemLabel.red);
+      }
+
+      counter.reset();
+      final total = await db.noteDao.countLabelledNotes(
+        labels: const {ItemLabel.red},
+      );
+
+      expect(total, 30);
+      expect(
+        counter.count,
+        1,
+        reason:
+            'the header\'s total must be a COUNT(*), not the listing read '
+            'again without its cap. Issued:\n${counter.statements.join('\n')}',
+      );
+    });
+
+    test('a folder scope rides in the same statement', () async {
+      await label('n0', ItemLabel.red);
+
+      counter.reset();
+      await db.noteDao.labelledNotes(
+        labels: const {ItemLabel.red},
+        folderIds: {_folderId},
+        limit: 20,
+      );
+
+      expect(counter.count, 1);
+      expect(counter.statements.single.toUpperCase(), contains('IN ('));
+    });
+
+    test('an empty folder scope touches the database not at all', () async {
+      await label('n0', ItemLabel.red);
+
+      counter.reset();
+      expect(
+        await db.noteDao.labelledNotes(
+          labels: const {ItemLabel.red},
+          folderIds: const {},
+          limit: 20,
+        ),
+        isEmpty,
+      );
+      expect(
+        await db.noteDao.countLabelledNotes(
+          labels: const {ItemLabel.red},
+          folderIds: const {},
+        ),
+        0,
+      );
+      expect(counter.count, 0);
     });
   });
 

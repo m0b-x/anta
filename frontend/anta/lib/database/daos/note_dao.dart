@@ -125,6 +125,18 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
           (n) => OrderingTerm(expression: n.position, mode: orderMode),
           (n) => OrderingTerm(expression: n.id),
         ]);
+      // Labelled notes first, in palette order, unlabelled last — the user
+      // sorted by colour to see the coloured ones, so `none` (0) sorts to the
+      // bottom rather than to the top its storage value would give it. There
+      // is no descending variant (reversing a palette is not a question
+      // anyone asks), so `ascending` is deliberately not consulted here.
+      case NoteSortField.label:
+        query.orderBy([
+          (n) => OrderingTerm(expression: _unlabelledLast),
+          (n) => OrderingTerm(expression: n.label),
+          (n) => OrderingTerm(expression: n.updatedAt, mode: OrderingMode.desc),
+          (n) => OrderingTerm(expression: n.id),
+        ]);
     }
 
     query.limit(limit, offset: offset);
@@ -462,6 +474,145 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
       ],
       updates: {notes},
     );
+  }
+
+  /// Every colour a live note actually carries, in palette order.
+  ///
+  /// One `SELECT DISTINCT` however many notes exist — the search surface's
+  /// label chips offer exactly this set, so the query runs on the path that
+  /// opens search and must not grow with the library. The folder scope rides
+  /// in the same statement as an `IN (…)` rather than being applied over a
+  /// page in memory, because the chips have to be right even when the scoped
+  /// subtree holds more notes than one page.
+  ///
+  /// [folderIds] is a whole subtree, the way a search filter's folder set is:
+  /// `null` looks everywhere, and an **empty** set matches nothing, which is
+  /// what a scope pointing at a folder that has since been deleted must do.
+  /// Values this build does not know — a column written by a newer one — are
+  /// dropped rather than offered as a chip that could draw nothing.
+  Future<List<ItemLabel>> labelsInUse({Set<String>? folderIds}) async {
+    if (folderIds != null && folderIds.isEmpty) return const [];
+
+    final variables = <Variable<Object>>[];
+    final buffer = StringBuffer(
+      'SELECT DISTINCT label FROM notes WHERE is_deleted = 0 AND label != 0',
+    );
+    if (folderIds != null) {
+      final ids = folderIds.toList(growable: false);
+      buffer.write(
+        ' AND folder_id IN (${List.filled(ids.length, '?').join(', ')})',
+      );
+      for (final id in ids) {
+        variables.add(Variable<String>(id));
+      }
+    }
+
+    final rows = await customSelect(
+      buffer.toString(),
+      variables: variables,
+      readsFrom: {notes},
+    ).get();
+
+    return ItemLabel.inPaletteOrder({
+      for (final row in rows) ItemLabel.fromStorage(row.read<int>('label')),
+    });
+  }
+
+  /// Every live note wearing one of [labels], newest first, capped at [limit].
+  ///
+  /// The search surface's label-only listing — "everything red", with nothing
+  /// typed — reads this rather than filtering a page in memory. Paging the
+  /// newest 300 notes and keeping the coloured ones read six rows for every
+  /// one it could show, and still missed a red note older than those 300
+  /// entirely; the colour belongs in the `WHERE` clause, where the cap can
+  /// mean what it says.
+  ///
+  /// Ordered `updated_at DESC, id` for the reason [getNotesPaginated] gives:
+  /// `updated_at` is stored to the second, so without the id tiebreak two
+  /// reads need not agree about rows sharing a timestamp.
+  ///
+  /// [folderIds] is a whole subtree, the way a search filter's folder set is:
+  /// `null` looks everywhere, and an **empty** set matches nothing without
+  /// issuing a statement at all. An empty [labels] is a programming error —
+  /// "no colour" is not a filter this answers, it is the absence of one, and
+  /// the caller has a recents list for that.
+  Future<List<Note>> labelledNotes({
+    required Set<ItemLabel> labels,
+    Set<String>? folderIds,
+    required int limit,
+  }) async {
+    assert(labels.isNotEmpty, 'labelledNotes needs at least one colour');
+    if (labels.isEmpty) return const [];
+    if (folderIds != null && folderIds.isEmpty) return const [];
+
+    final variables = <Variable<Object>>[];
+    final buffer = StringBuffer('SELECT * FROM notes WHERE is_deleted = 0');
+    _writeLabelledWhere(buffer, variables, labels, folderIds);
+    buffer.write(' ORDER BY updated_at DESC, id LIMIT ?');
+    variables.add(Variable<int>(limit));
+
+    final rows = await customSelect(
+      buffer.toString(),
+      variables: variables,
+      readsFrom: {notes},
+    ).get();
+    return [for (final row in rows) notes.map(row.data)];
+  }
+
+  /// How many live notes wear one of [labels] — the total the label-only
+  /// listing's header counts, which is not the same as how many rows it
+  /// shows: the listing is capped and the count is not.
+  ///
+  /// Same `WHERE` clause as [labelledNotes], and the same rules for
+  /// [folderIds] and an empty [labels].
+  Future<int> countLabelledNotes({
+    required Set<ItemLabel> labels,
+    Set<String>? folderIds,
+  }) async {
+    assert(labels.isNotEmpty, 'countLabelledNotes needs at least one colour');
+    if (labels.isEmpty) return 0;
+    if (folderIds != null && folderIds.isEmpty) return 0;
+
+    final variables = <Variable<Object>>[];
+    final buffer = StringBuffer(
+      'SELECT COUNT(*) AS c FROM notes WHERE is_deleted = 0',
+    );
+    _writeLabelledWhere(buffer, variables, labels, folderIds);
+
+    final row = await customSelect(
+      buffer.toString(),
+      variables: variables,
+      readsFrom: {notes},
+    ).getSingle();
+    return row.read<int>('c');
+  }
+
+  /// The `label IN (…)` and optional `folder_id IN (…)` terms both label
+  /// queries share, so the listing and the count it is captioned with can
+  /// never disagree about which rows they are about.
+  void _writeLabelledWhere(
+    StringBuffer buffer,
+    List<Variable<Object>> variables,
+    Set<ItemLabel> labels,
+    Set<String>? folderIds,
+  ) {
+    final labelValues = labels.toList(growable: false);
+    buffer.write(
+      ' AND label IN (${List.filled(labelValues.length, '?').join(', ')})',
+    );
+    for (final label in labelValues) {
+      variables.add(Variable<int>(label.storageValue));
+    }
+
+    if (folderIds != null) {
+      final ids = folderIds.toList(growable: false);
+      buffer.write(
+        ' AND folder_id IN (${List.filled(ids.length, '?').join(', ')})',
+      );
+      for (final id in ids) {
+        variables.add(Variable<String>(id));
+      }
+    }
   }
 
   /// Reorder notes within a folder
@@ -872,4 +1023,14 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
   }
 }
 
-enum NoteSortField { title, createdAt, updatedAt, position }
+enum NoteSortField { title, createdAt, updatedAt, position, label }
+
+/// Sorts unlabelled rows (`label = 0`, [ItemLabel.none]) after labelled ones
+/// while leaving the labelled rows in palette order.
+///
+/// Spelled as raw SQL because it is an *ordering expression*, not a column:
+/// no index can supply it, so `NoteSortField.label` sorts in a temp B-tree by
+/// design and an index on `(folder_id, label, …)` would buy nothing.
+const _unlabelledLast = CustomExpression<int>(
+  'CASE WHEN label = 0 THEN 1 ELSE 0 END',
+);

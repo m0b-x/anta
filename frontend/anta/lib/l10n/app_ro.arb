@@ -587,6 +587,7 @@
   "sortByUpdated": "Ultima actualizare",
   "sortByCreated": "Data creării",
   "sortByTitle": "Titlu",
+  "sortByLabel": "Etichetă",
   "ascending": "Crescător",
   "descending": "Descrescător",
   "loadingContent": "Se încarcă conținutul...",
@@ -1449,5 +1450,6 @@
   "labelStyleDesc": "Cum își arată culoarea în listă o notiță sau un folder cu etichetă",
   "labelStyleDot": "Punct",
   "labelStyleStripe": "Dungă laterală",
-  "labelStyleKeywords": "culoare, etichetă, punct, dungă, margine, marcaj"
+  "labelStyleKeywords": "culoare, etichetă, punct, dungă, margine, marcaj",
+  "labelledNotesHeader": "{count, plural, =1{{names} · 1 notiță} few{{names} · {count} notițe} other{{names} · {count} de notițe}}"
 }
