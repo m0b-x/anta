@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../constants/app_colors.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_colors.dart';
 import '../constants/calendar_icons.dart';
@@ -1108,6 +1109,9 @@ class _AgendaCard extends StatelessWidget {
     final range = secondaryLine;
 
     return Card(
+      // The browser's row-group tone over the panel's page ground — see
+      // `CalendarBottomPanel.build`.
+      color: theme.colorScheme.rowGroup,
       margin: EdgeInsets.zero,
       clipBehavior: Clip.antiAlias,
       child: Opacity(

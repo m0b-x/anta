@@ -57,6 +57,17 @@ class DevOptions extends ChangeNotifier {
     }
   }
 
+  /// Caption the calendar's add button with the last scroll notification its
+  /// collapse rule saw and what it decided
+  bool _showAddButtonTrace = false;
+  bool get showAddButtonTrace => _showAddButtonTrace;
+  set showAddButtonTrace(bool value) {
+    if (_showAddButtonTrace != value) {
+      _showAddButtonTrace = value;
+      notifyListeners();
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // PERFORMANCE MONITORING
   // ═══════════════════════════════════════════════════════════════════════════
@@ -168,6 +179,7 @@ class DevOptions extends ChangeNotifier {
       _colorMarkdownBlocks ||
       _showBlockBoundaries ||
       _showWhitespace ||
+      _showAddButtonTrace ||
       _showRenderTime ||
       _showFpsCounter ||
       _showChunkIndicators ||
@@ -184,6 +196,7 @@ class DevOptions extends ChangeNotifier {
     _colorMarkdownBlocks = false;
     _showBlockBoundaries = false;
     _showWhitespace = false;
+    _showAddButtonTrace = false;
     _showRenderTime = false;
     _showFpsCounter = false;
     _showChunkIndicators = false;
@@ -208,6 +221,7 @@ class DevOptions extends ChangeNotifier {
     _colorMarkdownBlocks = map['colorMarkdownBlocks'] ?? false;
     _showBlockBoundaries = map['showBlockBoundaries'] ?? false;
     _showWhitespace = map['showWhitespace'] ?? false;
+    _showAddButtonTrace = map['showAddButtonTrace'] ?? false;
     _showRenderTime = map['showRenderTime'] ?? false;
     _showFpsCounter = map['showFpsCounter'] ?? false;
     _showChunkIndicators = map['showChunkIndicators'] ?? false;
@@ -226,6 +240,7 @@ class DevOptions extends ChangeNotifier {
     'colorMarkdownBlocks': _colorMarkdownBlocks,
     'showBlockBoundaries': _showBlockBoundaries,
     'showWhitespace': _showWhitespace,
+    'showAddButtonTrace': _showAddButtonTrace,
     'showRenderTime': _showRenderTime,
     'showFpsCounter': _showFpsCounter,
     'showChunkIndicators': _showChunkIndicators,

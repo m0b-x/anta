@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../bloc/calendar/calendar_bloc.dart';
+import '../constants/app_colors.dart';
 import '../l10n/app_localizations.dart';
 import '../models/agenda_day_list_mode.dart';
 import '../models/calendar_appearance.dart';
@@ -263,19 +264,28 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        _PanelModeBar(
-          mode: _mode,
-          onChanged: _setMode,
-          expanded: widget.expanded,
-          onToggleExpanded: widget.onToggleExpanded,
-        ),
-        // SafeArea keeps the panel's content above the device's system
-        // navigation bar (gesture pill / 3-button bar) — without it the
-        // last rows render underneath and can't be tapped.
-        Expanded(child: SafeArea(top: false, child: _buildPanel(context))),
-      ],
+    // The panel sits on the browser's page ground and its cards on the
+    // browser's row-group tone (`SurfaceRoles`), which is what separates a
+    // day card from the page in light — on plain `surface` the card's
+    // default fill was one tone away and barely read. The grid above keeps
+    // `surface`, so in light it reads as a sheet over the panel; in dark the
+    // ground *is* `surface` and only the cards lift.
+    return ColoredBox(
+      color: Theme.of(context).colorScheme.pageGround,
+      child: Column(
+        children: [
+          _PanelModeBar(
+            mode: _mode,
+            onChanged: _setMode,
+            expanded: widget.expanded,
+            onToggleExpanded: widget.onToggleExpanded,
+          ),
+          // SafeArea keeps the panel's content above the device's system
+          // navigation bar (gesture pill / 3-button bar) — without it the
+          // last rows render underneath and can't be tapped.
+          Expanded(child: SafeArea(top: false, child: _buildPanel(context))),
+        ],
+      ),
     );
   }
 

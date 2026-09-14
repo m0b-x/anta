@@ -3286,6 +3286,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get showWhitespaceDesc => 'Visualize spaces, tabs, and newlines';
 
   @override
+  String get showAddButtonTrace => 'Trace the calendar add button';
+
+  @override
+  String get showAddButtonTraceDesc =>
+      'Show the last scroll event the add button reacted to and whether it extended or collapsed';
+
+  @override
   String get performanceMonitoring => 'Performance Monitoring';
 
   @override

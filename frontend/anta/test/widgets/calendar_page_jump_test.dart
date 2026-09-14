@@ -22,6 +22,7 @@ import 'package:anta/services/folder_storage_service.dart';
 import 'package:anta/services/import_export_service.dart';
 import 'package:anta/services/note_storage_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/widgets/calendar_add_fab.dart';
 import 'package:anta/widgets/calendar_day_bars.dart';
 import 'package:anta/widgets/calendar_day_cell.dart';
 
@@ -309,5 +310,27 @@ void main() {
           'the doubled layout is not a transient frame or two — it is the '
           'whole animation',
     );
+  });
+
+  testWidgets('a day change re-extends the add button', (tester) async {
+    // The one moment the label is the whole point of the button is when the
+    // day it names just changed — whatever the list under it was doing. A
+    // day panel that keeps its scroll position across the change emits no
+    // notification the collapse rule could act on, so the page resets it.
+    sizeSurface(tester);
+    await pumpCalendar(tester);
+
+    final fab = tester.widget<CalendarAddFab>(find.byType(CalendarAddFab));
+    final extended = fab.extended as ValueNotifier<bool>;
+    extended.value = false;
+    await tester.pumpAndSettle();
+    expect(find.text('Today'), findsNothing);
+
+    await jumpTo(tester, DateTime.utc(today.year, today.month + 1, 15));
+
+    expect(extended.value, isTrue);
+    final rebuilt = tester.widget<CalendarAddFab>(find.byType(CalendarAddFab));
+    expect(rebuilt.selectedDay, isNot(today));
+    expect(identical(rebuilt.extended, extended), isTrue);
   });
 }

@@ -5692,6 +5692,18 @@ abstract class AppLocalizations {
   /// **'Visualize spaces, tabs, and newlines'**
   String get showWhitespaceDesc;
 
+  /// Developer option: caption the calendar's add button with the scroll notification its collapse rule last saw and what it decided
+  ///
+  /// In en, this message translates to:
+  /// **'Trace the calendar add button'**
+  String get showAddButtonTrace;
+
+  /// Description for the add button trace developer option
+  ///
+  /// In en, this message translates to:
+  /// **'Show the last scroll event the add button reacted to and whether it extended or collapsed'**
+  String get showAddButtonTraceDesc;
+
   /// Section title for performance monitoring options
   ///
   /// In en, this message translates to:

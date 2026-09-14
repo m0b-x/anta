@@ -27,6 +27,7 @@ import '../constants/public_holidays.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
+import '../models/dev_options.dart';
 import '../models/calendar_grid_filters.dart';
 import '../models/calendar_event.dart';
 import '../models/calendar_selection_source.dart';
@@ -172,6 +173,10 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   /// dirty the 42-cell grid and the whole bottom panel, which is exactly what
   /// their `sameGridInputs` / `samePanelInputs` gates exist to avoid.
   final ValueNotifier<bool> _fabExtended = ValueNotifier(true);
+
+  /// The last collapse decision, for the developer-options trace above the
+  /// button. Written only while that option is on; null renders nothing.
+  final ValueNotifier<String?> _fabTrace = ValueNotifier(null);
 
   /// Raw bottom view inset, republished once per keyboard animation frame.
   final ValueNotifier<double> _keyboardInset = ValueNotifier(0);
@@ -419,6 +424,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   void dispose() {
     AppNavigator.routeObserver.unsubscribe(this);
     _fabExtended.dispose();
+    _fabTrace.dispose();
     _keyboardInset.removeListener(_handleKeyboardInset);
     _keyboardInset.dispose();
     _gridCollapsed.dispose();
@@ -442,6 +448,9 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     _handleKeyboardInset();
     _loadSettings();
     _reloadIfStale();
+    // Coming back to the page is a fresh look at it: whatever the list was
+    // doing before the settings trip, the label is the useful state now.
+    _fabExtended.value = true;
   }
 
   /// Re-reads the event store when it was replaced underneath the bloc.
@@ -775,6 +784,13 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
       resizeToAvoidBottomInset: false,
       appBar: AppBar(
         title: Text(l10n.calendar),
+        // Flat like the browser bars. Material's scrolled-under state painted
+        // a band behind the title whenever the panel list scrolled — and in
+        // this Flutter it is a *colour* state (the default background resolves
+        // to `surfaceContainer` while scrolled under), so a pinned colour is
+        // what stops it; the zero elevation only drops the shadow.
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        scrolledUnderElevation: 0,
         actions: [
           // The three icon buttons scroll as a group on a narrow screen; the
           // overflow menu after them never does — it stays flush at the trailing
@@ -887,14 +903,22 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
       // ticks the panel generates. Each half sits under its own
       // RepaintBoundary so a panel repaint cannot dirty the 42-cell grid's
       // layer.
-      // Catches scrolls from whichever panel mode is mounted, so the add
-      // button's collapse needs no plumbing through the panel. `fabExtendedFor`
-      // owns the rules — notably that horizontal scrollables (the agenda's
-      // chip row, the timeline's hour track) are ignored.
-      body: NotificationListener<UserScrollNotification>(
+      // Catches scroll traffic from whichever panel mode is mounted, so the
+      // add button's collapse needs no plumbing through the panel.
+      // `fabExtendedFor` owns the rules — it reads where the content *is*
+      // (updates, overscroll, a list mounting or reshaping), never the
+      // finger, and ignores horizontal scrollables (the agenda's chip row,
+      // the timeline's hour track, the grid's month pager). The listener is
+      // typed to the base class because metrics notifications are not
+      // `ScrollNotification`s.
+      body: NotificationListener<Notification>(
         onNotification: (notification) {
           final extended = fabExtendedFor(notification);
           if (extended != null) _fabExtended.value = extended;
+          if (DevOptions.instance.showAddButtonTrace) {
+            final line = describeFabNotification(notification, extended);
+            if (line != null) _fabTrace.value = line;
+          }
           // Never swallow it: the panel's own scroll machinery listens too.
           return false;
         },
@@ -1034,8 +1058,12 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
                           loaded: state,
                           appearance: _appearance,
                           expanded: _panelExpanded,
-                          onToggleExpanded: () =>
-                              setState(() => _panelExpanded = !_panelExpanded),
+                          onToggleExpanded: () => setState(() {
+                            _panelExpanded = !_panelExpanded;
+                            // The panel just changed shape under the button;
+                            // start it labelled, as a fresh list would.
+                            _fabExtended.value = true;
+                          }),
                           onEditEvent: (event, day) => _openEditorSheet(
                             context,
                             initialEvent: event,
@@ -1068,19 +1096,32 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
           },
         ),
       ),
-      floatingActionButton: BlocBuilder<CalendarBloc, CalendarPageState>(
-        buildWhen: (previous, current) =>
-            _selectedDayOf(previous) != _selectedDayOf(current),
-        builder: (context, state) {
-          return CalendarAddFab(
-            // Inert until the calendar services have resolved. The editor
-            // reads `CalendarCategories`, which stays empty until then, so an
-            // early tap would open a picker showing no categories and default
-            // the event to the `other` fallback.
-            selectedDay: _selectedDayOf(state),
-            appearance: _appearance,
-            extended: _fabExtended,
-            onPressed: (day) => _openEditorSheet(context, day: day),
+      // The outer builder follows the developer options so the trace caption
+      // appears the moment its toggle flips, without a page rebuild.
+      floatingActionButton: ListenableBuilder(
+        listenable: DevOptions.instance,
+        builder: (context, _) {
+          final trace = DevOptions.instance.showAddButtonTrace
+              ? _fabTrace
+              : null;
+          if (trace == null) _fabTrace.value = null;
+          return BlocBuilder<CalendarBloc, CalendarPageState>(
+            buildWhen: (previous, current) =>
+                _selectedDayOf(previous) != _selectedDayOf(current),
+            builder: (context, state) {
+              return CalendarAddFab(
+                // Inert until the calendar services have resolved. The editor
+                // reads `CalendarCategories`, which stays empty until then, so
+                // an early tap would open a picker showing no categories and
+                // default the event to the `other` fallback.
+                selectedDay: _selectedDayOf(state),
+                appearance: _appearance,
+                extended: _fabExtended,
+                trace: trace,
+                onPressed: (day) => _openEditorSheet(context, day: day),
+                onLongPressed: (day) => _quickAddFromTemplate(context, day),
+              );
+            },
           );
         },
       ),
@@ -1095,6 +1136,15 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
       listeners: [
         BlocListener<ImportExportBloc, ImportExportState>(
           listener: _onImportExportState,
+        ),
+        BlocListener<CalendarBloc, CalendarPageState>(
+          // A new target day is the one moment the label is the whole point
+          // of the button, wherever the list happened to be — and a day
+          // panel that keeps its scroll position across the change would
+          // otherwise leave a bare `+` naming nothing.
+          listenWhen: (previous, current) =>
+              _selectedDayOf(previous) != _selectedDayOf(current),
+          listener: (context, state) => _fabExtended.value = true,
         ),
         BlocListener<CalendarBloc, CalendarPageState>(
           // Month-level, not day-level: the neighbours only move when the

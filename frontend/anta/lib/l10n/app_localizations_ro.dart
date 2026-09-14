@@ -3338,6 +3338,13 @@ class AppLocalizationsRo extends AppLocalizations {
       'Vizualizează spațiile, taburile și liniile noi';
 
   @override
+  String get showAddButtonTrace => 'Urmărește butonul de adăugare din calendar';
+
+  @override
+  String get showAddButtonTraceDesc =>
+      'Afișează ultimul eveniment de derulare la care a reacționat butonul de adăugare și dacă s-a extins sau s-a restrâns';
+
+  @override
   String get performanceMonitoring => 'Monitorizarea performanței';
 
   @override

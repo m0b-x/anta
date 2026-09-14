@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../constants/app_colors.dart';
 import '../constants/app_spacing.dart';
 import '../constants/calendar_colors.dart';
 import '../l10n/app_localizations.dart';
@@ -227,6 +228,9 @@ class DaySummaryPanel extends StatelessWidget {
                   // occurrence puts inside it — is never reused for a
                   // different entry.
                   key: ValueKey(entry.key),
+                  // The browser's row-group tone over the panel's page
+                  // ground — see `CalendarBottomPanel.build`.
+                  color: Theme.of(context).colorScheme.rowGroup,
                   margin: EdgeInsets.zero,
                   clipBehavior: Clip.antiAlias,
                   // A Positioned stripe inside a Stack sizes itself off the

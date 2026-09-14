@@ -3306,6 +3306,13 @@ class AppLocalizationsDe extends AppLocalizations {
       'Leerzeichen, Tabs und Zeilenumbrüche visualisieren';
 
   @override
+  String get showAddButtonTrace => 'Kalender-Hinzufügen-Button verfolgen';
+
+  @override
+  String get showAddButtonTraceDesc =>
+      'Das letzte Scroll-Ereignis anzeigen, auf das der Hinzufügen-Button reagiert hat, und ob er sich aus- oder eingeklappt hat';
+
+  @override
   String get performanceMonitoring => 'Leistungsüberwachung';
 
   @override

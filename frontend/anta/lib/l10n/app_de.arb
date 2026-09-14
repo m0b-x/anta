@@ -2512,6 +2512,8 @@
   "showBlockBoundariesDesc": "Rahmen um jedes analysierte Element zeichnen",
   "showWhitespace": "Leerzeichen anzeigen",
   "showWhitespaceDesc": "Leerzeichen, Tabs und Zeilenumbrüche visualisieren",
+  "showAddButtonTrace": "Kalender-Hinzufügen-Button verfolgen",
+  "showAddButtonTraceDesc": "Das letzte Scroll-Ereignis anzeigen, auf das der Hinzufügen-Button reagiert hat, und ob er sich aus- oder eingeklappt hat",
   "performanceMonitoring": "Leistungsüberwachung",
   "showRenderTime": "Renderzeit anzeigen",
   "showRenderTimeDesc": "Anzeigen, wie lange die Vorschau zum Rendern braucht",

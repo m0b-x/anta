@@ -237,6 +237,12 @@ class _DeveloperOptionsPageState extends State<DeveloperOptionsPage> {
             value: devOptions.showWhitespace,
             apply: (v) => devOptions.showWhitespace = v,
           ),
+          toggle(
+            title: l10n.showAddButtonTrace,
+            description: l10n.showAddButtonTraceDesc,
+            value: devOptions.showAddButtonTrace,
+            apply: (v) => devOptions.showAddButtonTrace = v,
+          ),
         ],
       ),
       SettingsSectionData(

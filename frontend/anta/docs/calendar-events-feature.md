@@ -4313,3 +4313,130 @@ run against a database that is *partly* what it expects.
 
 Design record: the assume-absent addendum in
 `docs/presence-tracking-roadmap.md`.
+
+## Addendum (2026-09-14): the add button per theme, and the panel ground
+
+An emulator pass in both themes found the page's chrome fighting its content
+in three places, none of them structural. All three shipped together; the
+design record is the "Calendar Add Button Mocks" canvas (nine phone
+artboards, light and dark, three button treatments and the layered panel).
+
+**The add button was the only heavy object on the page.** `CalendarAddFab`
+overrode the FAB's colour to raw `primary` and left Material's elevation at 6,
+on a page whose bars, cards and segmented control are all flat. In dark the
+primary role is a pale tint, so the button was the brightest thing on screen —
+brighter than the today ring it sits under. The fix is **per theme**, through
+the pure `calendarAddFabColors(scheme:, appearance:)`:
+
+- **Light keeps the filled look.** `appearance.accentOr(primary)` with the
+  glyph picked by `ThemeData.estimateBrightnessForColor`, exactly as before: a
+  saturated primary on a pale ground is what a filled FAB is for, and it is
+  the one place on the page that colour appears at full strength.
+- **Dark takes the container tone.** The scheme's own `primaryContainer` /
+  `onPrimaryContainer` pair for the theme accent — what Material gives a FAB
+  when nothing overrides it. A user-picked accent has no container role, so
+  it gets a 0.90-lightness glyph of its own hue over a fill of that hue at
+  **the lightest of 0.32 / 0.28 / 0.24 that clears 4.5:1** under the glyph.
+  One fixed stop cannot serve every hue: at 0.32 a purple sits a clear tone
+  above the surface while teal or cyan, luminous hues, leave the glyph under
+  3:1; at 0.24 the teal reads but the purple sinks into the surface. The
+  fill steps down only as far as the glyph needs.
+- **Elevation is 2 in every state** (`CalendarAddFab.elevation`; rest, focus,
+  pressed, disabled — hover +2), the least that still separates the button
+  from rows scrolling under it.
+
+The split is deliberate and was chosen over "tonal in both": on light's
+layered panel ground (below) the pale container tone had barely 1.1:1 against
+the ground and the page's one primary action stopped being findable at a
+glance. Guards: `test/widgets/calendar_add_fab_test.dart` pins both themes,
+the elevation, and the glyph contrast on every built-in swatch.
+
+**Light had no layering.** Grid, panel and day card all sat on `surface`, and
+the card's default `surfaceContainerLow` fill was one tone away, so it barely
+separated. `CalendarBottomPanel` now paints `SurfaceRoles.pageGround` behind
+everything it hosts and its cards — `DaySummaryPanel`'s rows and every
+`_AgendaCard` — are `rowGroup`: the browser's exact pairing, one tone between
+card and ground in both themes. The grid stays on `surface`, so in light it
+reads as a sheet over the panel; in dark the ground *is* `surface` and only
+the cards lift, from `surfaceContainerLow` to `surfaceContainer`. The
+divider between grid and panel stays: in dark the tone does not change and
+the line is still what separates them. The timeline's blocks are 16 % tints
+of their event colour and need nothing.
+
+**The app bar tinted on scroll.** Material's scrolled-under state painted a
+band behind the title whenever the panel list scrolled. The first fix tried,
+`scrolledUnderElevation: 0`, left the band in place: in the current Flutter
+the scrolled-under look is a **colour state** — the app bar's default
+background resolves to `surfaceContainer` while content is scrolled under it,
+whatever the elevation — so the calendar bar now pins
+`backgroundColor: surface` as well, exactly what `UnifiedAppBar` does for the
+browser bars. Verified by pixel sampling on the emulator: app bar and grid
+both `#FEF7FF` (light) / `#141218` (dark) at rest and mid-scroll.
+
+Out of scope and noted for later: in dark, the card avatar paints the
+category colour as a glyph over that same colour at 16 %, which for a deep
+purple category lands near 1.3:1. It predates this change and lives in the
+same two card files.
+
+## Addendum (2026-09-14, later): the add button's collapse rule, rewritten
+
+The owner reported the button "sporadically becomes only a plus" with no
+logic they could follow. The review found the rule was internally consistent
+and wrong in two ways that together produce exactly that report.
+
+**What the old rule did.** `fabExtendedFor` consumed `UserScrollNotification`:
+`reverse` → collapse, `forward` or `idle` → extend. Flutter dispatches that
+notification only when the *drag direction* changes, and `idle` arrives the
+moment the finger lifts (`beginActivity` sets it when the new activity is not
+scrolling; a fling keeps the old direction until it ends, then goes idle). So:
+
+- on an ordinary drag the button collapsed while the finger was moving and
+  popped back the instant it stopped — a flicker that reads as random;
+- when the list went away mid-scroll (a mode switch, a row tap that
+  re-anchored the agenda, a day change that rebuilt the panel) the idle never
+  came, and the button stayed a bare `+` with nothing left to re-extend it —
+  a short day panel that cannot scroll never emits anything, so it stayed
+  that way until the user happened to scroll something vertical.
+
+**What it does now.** The rule reads where the content *is*, never the
+finger. `fabExtendedFor` takes the base `Notification` and decides:
+
+| Notification | Decision |
+| --- | --- |
+| any on a non-vertical axis | leave alone |
+| `ScrollMetricsNotification` at the top (within `fabTopSlack` = 8 px) | extend |
+| `ScrollMetricsNotification` off the top | leave alone (a lazy list grows its extent while being read) |
+| `OverscrollNotification` past the top | extend |
+| `ScrollUpdateNotification` at the top | extend |
+| `ScrollUpdateNotification` moving content down (delta > 0) | collapse |
+| `ScrollUpdateNotification` moving content up (delta < 0) | extend |
+| `UserScrollNotification`, start, end | leave alone |
+
+In the reader's words: the label shows while the list is at the top or
+coming back toward it, hides once they have read down into it, and stays
+hidden until they come back up. A fresh list (mode switch) mounts at pixels 0
+and re-extends the button through its own first metrics notification, so no
+mode plumbing is needed. Three explicit resets to extended cover what no
+notification can: a **`selectedDay` change** (a `BlocListener` — a day panel
+that keeps its scroll position across the change would otherwise leave a `+`
+naming nothing, on the one occasion the label is the whole point),
+**`didPopNext`**, and the **panel expand toggle**.
+
+**Two additions while there.** A **long press** on the button runs the
+day-cell quick-add from a template for the same day — the same affordance,
+reachable by the thumb already on the button. That required the button's
+tooltip to become a manual-trigger `Tooltip` wrapped *outside* a
+`GestureDetector`: the FAB's own `tooltip:` claims the long press to show
+itself, and the outer detector would never fire. And a **developer option**,
+*Trace the calendar add button* (Developer Options → Visualization), captions
+the button with the last notification the rule saw and what it decided
+(`describeFabNotification`, e.g. `update ↓ v 142px → collapse`), through a
+page-owned `ValueNotifier<String?>` written only while the option is on and
+excluded from the button's semantics. Turn it on, scroll, and every state
+change has a visible cause.
+
+Guards: `test/widgets/calendar_add_fab_test.dart` tables the rule
+(collapse past the slack, extend on the way up, metrics at top vs mid-read,
+overscroll both ends, the finger lifting changing nothing, horizontal
+ignored), the long press, and the trace caption; the page-level reset on a
+day change is pinned in `test/widgets/calendar_page_jump_test.dart`.

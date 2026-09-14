@@ -4082,6 +4082,14 @@
   "@showWhitespaceDesc": {
     "description": "Description for show whitespace option"
   },
+  "showAddButtonTrace": "Trace the calendar add button",
+  "@showAddButtonTrace": {
+    "description": "Developer option: caption the calendar's add button with the scroll notification its collapse rule last saw and what it decided"
+  },
+  "showAddButtonTraceDesc": "Show the last scroll event the add button reacted to and whether it extended or collapsed",
+  "@showAddButtonTraceDesc": {
+    "description": "Description for the add button trace developer option"
+  },
 
   "performanceMonitoring": "Performance Monitoring",
   "@performanceMonitoring": {
