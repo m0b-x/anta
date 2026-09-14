@@ -1,0 +1,20 @@
+#!/bin/sh
+# Entry point for POSIX shells, Git Bash included. Compiles the tool on first
+# use and then runs the binary, so no verb pays for JIT startup.
+set -e
+root=$(cd "$(dirname "$0")/../.." && pwd)
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) exe="$root/build/qa/qa.exe" ;;
+  *) exe="$root/build/qa/qa" ;;
+esac
+if [ ! -x "$exe" ] && [ ! -f "$exe" ]; then
+  echo "qa: compiling $exe (one-off, ~30 s)…" >&2
+  mkdir -p "$root/build/qa"
+  ( cd "$root" && dart compile exe tool/qa/qa.dart -o "$exe" >&2 )
+fi
+if [ ! -f "$exe" ]; then
+  echo "qa: could not compile the exe; falling back to \`dart run\`" >&2
+  cd "$root"
+  exec dart run tool/qa/qa.dart "$@"
+fi
+exec "$exe" "$@"

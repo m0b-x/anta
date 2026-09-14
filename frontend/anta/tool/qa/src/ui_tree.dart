@@ -150,7 +150,7 @@ class UiNode {
 
 /// A parsed, flattened accessibility hierarchy.
 class UiTree {
-  UiTree(this.nodes);
+  const UiTree(this.nodes);
 
   final List<UiNode> nodes;
 
@@ -199,6 +199,80 @@ class UiTree {
     }
     return null;
   }
+
+  /// Package that owns the screen this dump was taken from.
+  ///
+  /// The largest top-level window wins, because that is the window the user is
+  /// actually looking at; a dump with no top-level node falls back to the
+  /// commonest package that is not part of the system chrome, so a dialog
+  /// drawn over the app still reports the dialog's owner rather than the
+  /// status bar's.
+  String? get foregroundPackage {
+    UiNode? largest;
+    for (final node in nodes) {
+      if (node.parentIndex != -1) continue;
+      if (node.packageName.isEmpty) continue;
+      if (_systemPackages.contains(node.packageName)) continue;
+      final area = node.bounds.width * node.bounds.height;
+      if (largest == null ||
+          area > largest.bounds.width * largest.bounds.height) {
+        largest = node;
+      }
+    }
+    if (largest != null) return largest.packageName;
+
+    final counts = <String, int>{};
+    for (final node in nodes) {
+      if (node.packageName.isEmpty) continue;
+      if (_systemPackages.contains(node.packageName)) continue;
+      counts[node.packageName] = (counts[node.packageName] ?? 0) + 1;
+    }
+    if (counts.isEmpty) return null;
+    var best = counts.keys.first;
+    counts.forEach((package, count) {
+      if (count > (counts[best] ?? 0)) best = package;
+    });
+    return best;
+  }
+
+  /// Up to [limit] labels in tree order, for telling a failed lookup what it
+  /// could have matched instead.
+  ///
+  /// Nodes that carry a real label come first and nodes identified only by a
+  /// resource id fill the rest: a screen has far more ids than labels, and a
+  /// listing drowned in `drag_layer` and `scrim_view` tells the reader
+  /// nothing about which screen they are on.
+  List<String> interestingLabels({int limit = 20, int clip = 40}) {
+    final labels = <String>[];
+    final ids = <String>[];
+
+    String? clean(String raw) {
+      final text = raw.replaceAll('\n', ' / ').trim();
+      if (text.isEmpty) return null;
+      return text.length <= clip ? text : '${text.substring(0, clip - 1)}…';
+    }
+
+    for (final node in nodes) {
+      if (!node.interesting) continue;
+      final described = node.contentDesc.isNotEmpty
+          ? clean(node.contentDesc)
+          : (node.text.isNotEmpty ? clean(node.text) : null);
+      if (described != null) {
+        if (!labels.contains(described)) labels.add(described);
+        continue;
+      }
+      final id = clean(node.shortId);
+      if (id != null && !ids.contains('id:$id')) ids.add('id:$id');
+    }
+    final combined = [...labels, ...ids];
+    return combined.length <= limit ? combined : combined.sublist(0, limit);
+  }
+
+  /// Chrome that is drawn over every app and so never identifies the screen.
+  static const Set<String> _systemPackages = {
+    'com.android.systemui',
+    'android',
+  };
 
   /// Parses `uiautomator dump` XML, dropping zero-size nodes.
   static UiTree parse(String rawXml) {

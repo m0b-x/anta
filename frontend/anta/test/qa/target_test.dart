@@ -161,6 +161,47 @@ void main() {
       expect(ambiguous.resolve('  Delete  ').node?.index, 0);
     });
   });
+
+  group('target forms recognised without a dump', () {
+    test('#N is the index form', () {
+      expect(isIndexTarget('#12'), isTrue);
+      expect(isIndexTarget('  #0 '), isTrue);
+      expect(isIndexTarget('#'), isFalse);
+      expect(isIndexTarget('#a'), isFalse);
+      expect(isIndexTarget('12'), isFalse);
+    });
+
+    test('x,y is the point form', () {
+      expect(isPointTarget('640,1200'), isTrue);
+      expect(isPointTarget(' -1 , 2 '), isTrue);
+      expect(isPointTarget('640'), isFalse);
+      expect(isPointTarget('id:foo'), isFalse);
+    });
+
+    test('a label is neither', () {
+      expect(isIndexTarget('Search all notes'), isFalse);
+      expect(isPointTarget('Search all notes'), isFalse);
+    });
+  });
+
+  group('onScreenListing', () {
+    test('a missed label says which package and what was there', () {
+      expect(
+        () => resolver.resolve('Nothing here at all'),
+        throwsA(isA<TargetFailure>()
+            .having((e) => e.message, 'message',
+                contains('on screen (com.alexzamfir.anta)'))
+            .having((e) => e.message, 'message', contains('Search all notes'))),
+      );
+    });
+
+    test('an empty tree still produces a usable sentence', () {
+      expect(
+        const TargetResolver(UiTree([])).onScreenListing(),
+        'on screen (unknown): nothing labelled',
+      );
+    });
+  });
 }
 
 UiNode _node(int index, {String desc = '', String text = ''}) => UiNode(

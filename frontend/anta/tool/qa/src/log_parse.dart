@@ -89,6 +89,95 @@ List<String> errorLines(String logText, {int limit = 50}) {
   return hits.sublist(hits.length - limit);
 }
 
+/// Lines a QA launch prints on the `[qa]` channel as it consumes its markers.
+class QaMarkerLines {
+  const QaMarkerLines({this.reset, this.seed, this.onboarding});
+
+  /// `[qa] reset: cleared preferences and qa.db`
+  final String? reset;
+
+  /// `[qa] seed: imported 4 folders, 3 notes` — or the failure wording.
+  final String? seed;
+
+  /// `[qa] onboarding marked completed`
+  final String? onboarding;
+
+  List<String> get all =>
+      [reset, seed, onboarding].whereType<String>().toList();
+
+  /// Whether the seed line reports that the import did not happen.
+  ///
+  /// `QaBootstrap` prints `seed: import failed: …` for a rejected backup and
+  /// `seed: threw …` for one that blew up, and both leave the database in a
+  /// state the checklist below it would silently mis-read.
+  bool get seedFailed {
+    final line = seed;
+    if (line == null) return false;
+    return line.contains('import failed') || line.contains('threw');
+  }
+}
+
+final RegExp _qaLine = RegExp(r'\[qa\]\s*(.*)$');
+
+/// Picks the `[qa]` lines out of a run log or a logcat dump.
+///
+/// The same three lines reach two different places — `flutter run`'s log, and
+/// logcat when the VM service handshake lost its race — so both are scanned
+/// and the last occurrence of each wins.
+QaMarkerLines parseQaMarkers(String text) {
+  String? reset;
+  String? seed;
+  String? onboarding;
+  for (final raw in text.split('\n')) {
+    final match = _qaLine.firstMatch(raw.trimRight());
+    if (match == null) continue;
+    final body = match.group(1)!.trim();
+    if (body.startsWith('reset')) {
+      reset = body;
+    } else if (body.startsWith('seed')) {
+      seed = body;
+    } else if (body.startsWith('onboarding')) {
+      onboarding = body;
+    }
+  }
+  return QaMarkerLines(reset: reset, seed: seed, onboarding: onboarding);
+}
+
+final RegExp _emulatorFatal = RegExp(
+  r'PANIC:|ERROR\s+\||emulator: ERROR|Could not launch|already running|'
+  r'is already in use|hypervisor|WHPX|HAXM|Failed to|Address already in use',
+);
+
+/// The line that says a just-started emulator is not going to come up.
+///
+/// Without it `boot` waits out its whole six minutes on a failure the
+/// emulator announced in its first second.
+String? emulatorFatalLine(String logText) =>
+    _firstMatching(logText, _emulatorFatal);
+
+/// Log lines that look like errors but are not the app's fault.
+/// Firebase with no signed-in user logs two lines, not one — the "Exception
+/// encountered" header and the "decryption failed" body — so the whole tag is
+/// the pattern.
+final List<RegExp> knownNoisePatterns = [
+  RegExp('FirebearStorageCryptoHelper'),
+];
+
+/// Whether a line is one of the errors that is always there and never means
+/// anything — Firebase with no signed-in user, so far.
+bool isKnownNoise(String line) =>
+    knownNoisePatterns.any((pattern) => pattern.hasMatch(line));
+
+/// Splits error hits into the ones worth reading and the ones that are noise.
+(List<String>, List<String>) partitionKnownNoise(List<String> hits) {
+  final real = <String>[];
+  final noise = <String>[];
+  for (final hit in hits) {
+    (isKnownNoise(hit) ? noise : real).add(hit);
+  }
+  return (real, noise);
+}
+
 final RegExp _logcatNoise = RegExp(
   r'flutter|anta|AndroidRuntime|FATAL|^\s*E/|\bE\s+\w',
   caseSensitive: false,

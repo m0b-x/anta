@@ -27,7 +27,19 @@ class QaPaths {
   String get runStamp => _join(buildQa, ['run.started']);
   String get dtdTxt => _join(buildQa, ['dtd.txt']);
   String get vmTxt => _join(buildQa, ['vm.txt']);
-  String get fixturesDir => _join(projectRoot, ['tool', 'qa', 'fixtures']);
+  String get lastDump => _join(buildQa, ['last_dump.xml']);
+  String get emulatorLog => _join(buildQa, ['emulator.log']);
+  String get emulatorErr => _join(buildQa, ['emulator.err']);
+  String get emulatorPid => _join(buildQa, ['emulator.pid']);
+  String get toolQaDir => _join(projectRoot, ['tool', 'qa']);
+  String get pubspecLock => _join(projectRoot, ['pubspec.lock']);
+  String get fixturesDir => _join(toolQaDir, ['fixtures']);
+
+  /// Compiled tool, and the two names the in-place self-rebuild swaps through.
+  String get qaExe =>
+      _join(buildQa, [Platform.isWindows ? 'qa.exe' : 'qa']);
+  String get qaExeNew => '$qaExe.new';
+  String get qaExeOld => '$qaExe.old';
 
   Directory ensureBuildQa() => Directory(buildQa)..createSync(recursive: true);
 

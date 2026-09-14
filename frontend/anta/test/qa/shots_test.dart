@@ -30,7 +30,14 @@ class _FakeDevice implements Device {
   Future<int?> appPid(String packageId) async => null;
 
   @override
-  Future<UiTree> dumpUi() async => UiTree(const []);
+  Future<UiTree> dumpUi() async => const UiTree([]);
+
+  @override
+  Future<String> dumpUiXml() async =>
+      '<?xml version="1.0"?><hierarchy rotation="0"/>';
+
+  @override
+  Future<DeviceProbe> probe() async => DeviceProbe(screen: await screenSize());
 
   @override
   Future<void> forceStop(String packageId) async {}

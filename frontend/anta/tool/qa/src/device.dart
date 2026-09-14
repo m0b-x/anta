@@ -2,6 +2,7 @@ import 'adb.dart';
 import 'errors.dart';
 import 'gestures.dart';
 import 'input_text.dart';
+import 'shell_batch.dart';
 import 'ui_tree.dart';
 
 /// Physical screen size in pixels, plus any `wm size` override in force.
@@ -37,12 +38,133 @@ class ScreenSize {
   }
 }
 
+/// Everything one batched device probe answers at once.
+///
+/// Each field is null when the device did not report it, which is different
+/// from "reported false": an Android image that words a `dumpsys` line
+/// differently should read as unknown, not as locked.
+class DeviceProbe {
+  const DeviceProbe({
+    required this.screen,
+    this.appPid,
+    this.resumedActivity,
+    this.awake,
+    this.locked,
+    this.imeShown,
+  });
+
+  final ScreenSize screen;
+  final int? appPid;
+  final String? resumedActivity;
+  final bool? awake;
+  final bool? locked;
+  final bool? imeShown;
+
+  /// The package half of the resumed activity component.
+  String? get foregroundPackage {
+    final activity = resumedActivity;
+    if (activity == null) return null;
+    final slash = activity.indexOf('/');
+    return slash <= 0 ? activity : activity.substring(0, slash);
+  }
+
+  static String flag(bool? value, String yes, String no) =>
+      value == null ? '?' : (value ? yes : no);
+}
+
+/// Reads `wm size` and `wm density` output into a [ScreenSize].
+ScreenSize parseScreenSize(String sizeOutput, String densityOutput) {
+  final physical = _matchSize(sizeOutput, 'Physical size');
+  final override = _matchSize(sizeOutput, 'Override size');
+  if (physical == null) {
+    throw DeviceFailure('could not read `wm size` output: $sizeOutput');
+  }
+  final dpi = RegExp(r'Physical density:\s*(\d+)').firstMatch(densityOutput);
+  return ScreenSize(
+    physicalWidth: physical.$1,
+    physicalHeight: physical.$2,
+    density: dpi == null ? 160 : int.parse(dpi.group(1)!),
+    overrideWidth: override?.$1,
+    overrideHeight: override?.$2,
+  );
+}
+
+(int, int)? _matchSize(String output, String label) {
+  final match = RegExp('$label:\\s*(\\d+)x(\\d+)').firstMatch(output);
+  if (match == null) return null;
+  return (int.parse(match.group(1)!), int.parse(match.group(2)!));
+}
+
+/// Finds a `uiautomator` that is registered but should not be.
+///
+/// The bracket is load-bearing: `adb shell pgrep -f uiautomator` matches the
+/// very shell that is running it, so the plain form always reports a leftover
+/// and never means anything. `[u]iautomator` is a regex that matches the real
+/// process and not the literal text in this command line.
+const String leftoverUiautomatorProbe = "pgrep -f '[u]iautomator' || true";
+
+/// Kills that leftover, with the same bracket for the same reason.
+const String killLeftoverUiautomator = "pkill -f '[u]iautomator' || true";
+
+/// The commands [parseDeviceProbe] expects, in order.
+///
+/// The `dumpsys` reads are piped into the device's own `grep` so only one line
+/// crosses the adb connection instead of the whole service dump, and stderr is
+/// dropped because `dumpsys` complains loudly when `grep -m1` closes the pipe
+/// on it.
+List<ShellCommand> deviceProbeCommands(String packageId) => [
+      const ShellCommand(['wm', 'size']),
+      const ShellCommand(['wm', 'density']),
+      ShellCommand(['pidof', packageId]),
+      const ShellCommand.raw(
+        'dumpsys activity activities 2>/dev/null | '
+        "grep -m1 -E 'mResumedActivity|topResumedActivity'",
+      ),
+      const ShellCommand.raw(
+        'dumpsys power 2>/dev/null | grep -m1 mWakefulness',
+      ),
+      const ShellCommand.raw(
+        'dumpsys window 2>/dev/null | grep -m1 isKeyguardShowing',
+      ),
+      const ShellCommand.raw(
+        'dumpsys input_method 2>/dev/null | grep -m1 mInputShown',
+      ),
+    ];
+
+/// Turns the seven probe outputs into one [DeviceProbe].
+DeviceProbe parseDeviceProbe(List<String> outputs) {
+  String at(int index) => index < outputs.length ? outputs[index] : '';
+  return DeviceProbe(
+    screen: parseScreenSize(at(0), at(1)),
+    appPid: int.tryParse(at(2).trim().split(RegExp(r'\s+')).first),
+    resumedActivity: parseResumedActivity(at(3)),
+    awake: _boolFrom(at(4), RegExp(r'mWakefulness=(\w+)'), 'Awake'),
+    locked: _boolFrom(at(5), RegExp(r'isKeyguardShowing=(\w+)'), 'true'),
+    imeShown: _boolFrom(at(6), RegExp(r'mInputShown=(\w+)'), 'true'),
+  );
+}
+
+/// The `package/.Activity` component named by a `dumpsys activity` line.
+String? parseResumedActivity(String line) {
+  final match = RegExp(r'([A-Za-z0-9_.]+/[A-Za-z0-9_.]+)').firstMatch(line);
+  return match?.group(1);
+}
+
+bool? _boolFrom(String output, RegExp pattern, String trueValue) {
+  final match = pattern.firstMatch(output);
+  if (match == null) return null;
+  return match.group(1) == trueValue;
+}
+
 /// Platform-neutral surface the verbs drive. Android is implemented; the iOS
 /// simulator is Phase B.
 abstract class Device {
   String get id;
 
   Future<ScreenSize> screenSize();
+
+  /// One round trip that answers everything `state` and `doctor` need.
+  Future<DeviceProbe> probe();
 
   Future<void> tap(int x, int y);
 
@@ -53,6 +175,9 @@ abstract class Device {
   Future<void> key(String keycode);
 
   Future<UiTree> dumpUi();
+
+  /// The raw accessibility XML, so the caller can cache exactly what it read.
+  Future<String> dumpUiXml();
 
   Future<List<int>> screencapPng();
 
@@ -72,29 +197,49 @@ class AndroidDevice implements Device {
   @override
   String get id => adb.serial ?? defaultSerial;
 
+  ScreenSize? _screenSize;
+
+  /// One `adb shell` for both halves, then cached: the screen does not change
+  /// under a single verb, and `scroll-to` used to ask for it once per swipe.
   @override
   Future<ScreenSize> screenSize() async {
-    final size = await adb.shellLenient(['wm', 'size']);
-    final density = await adb.shellLenient(['wm', 'density']);
-    final physical = _parseSize(size, 'Physical size');
-    final override = _parseSize(size, 'Override size');
-    if (physical == null) {
-      throw DeviceFailure('could not read `wm size` output: $size');
-    }
-    final dpi = RegExp(r'Physical density:\s*(\d+)').firstMatch(density);
-    return ScreenSize(
-      physicalWidth: physical.$1,
-      physicalHeight: physical.$2,
-      density: dpi == null ? 160 : int.parse(dpi.group(1)!),
-      overrideWidth: override?.$1,
-      overrideHeight: override?.$2,
-    );
+    final cached = _screenSize;
+    if (cached != null) return cached;
+    final outputs = await adb.shellBatch(const [
+      ShellCommand(['wm', 'size']),
+      ShellCommand(['wm', 'density']),
+    ]);
+    return _screenSize = parseScreenSize(outputs[0], outputs[1]);
   }
 
-  static (int, int)? _parseSize(String output, String label) {
-    final match = RegExp('$label:\\s*(\\d+)x(\\d+)').firstMatch(output);
-    if (match == null) return null;
-    return (int.parse(match.group(1)!), int.parse(match.group(2)!));
+  @override
+  Future<DeviceProbe> probe() async {
+    final outputs = await adb.shellBatch(deviceProbeCommands(packageId));
+    final probed = parseDeviceProbe(outputs);
+    _screenSize ??= probed.screen;
+    return probed;
+  }
+
+  /// Whether an IME is showing, for the warning `type` prints when it is not.
+  ///
+  /// Batched with the `input text` itself so the check costs no extra round
+  /// trip; the warning is printed after both have run.
+  Future<bool?> typeTextChecked(String text) async {
+    final outputs = await adb.shellBatch([
+      const ShellCommand.raw(
+        'dumpsys input_method 2>/dev/null | grep -m1 mInputShown',
+      ),
+      // Raw, because [escapeForInputText] has already quoted the payload for
+      // the device shell; quoting it a second time types the quotes.
+      ShellCommand.raw('input text ${escapeForInputText(text)}'),
+    ]);
+    return _boolFrom(outputs[0], RegExp(r'mInputShown=(\w+)'), 'true');
+  }
+
+  /// Whether the package has an APK installed, from `pm path`.
+  Future<bool> isInstalled() async {
+    final out = await adb.shellLenient(['pm', 'path', packageId]);
+    return out.contains('package:');
   }
 
   @override
@@ -126,22 +271,48 @@ class AndroidDevice implements Device {
   }
 
   @override
-  Future<UiTree> dumpUi() async {
+  Future<UiTree> dumpUi() async => UiTree.parse(await dumpUiXml());
+
+  @override
+  Future<String> dumpUiXml() async {
     Object? lastError;
     for (var attempt = 0; attempt < 3; attempt++) {
       if (attempt > 0) {
         await Future<void>.delayed(const Duration(milliseconds: 300));
       }
       try {
-        return UiTree.parse(await _rawDump());
+        final xml = await _rawDump();
+        UiTree.parse(xml);
+        return xml;
       } on QaException catch (e) {
         lastError = e;
       }
     }
     throw DeviceFailure(
-      'uiautomator dump failed three times (it fails while an animation is '
-      'running — wait for the screen to settle). Last error: $lastError',
+      'uiautomator dump failed three times. ${await _dumpFailureCause()} '
+      'Last error: $lastError',
     );
+  }
+
+  /// Which of the two known causes this failure is, so the agent does not
+  /// have to guess or spend a call finding out.
+  Future<String> _dumpFailureCause() async {
+    try {
+      final leftover = await adb.shellLenient(
+        [leftoverUiautomatorProbe],
+        timeout: const Duration(seconds: 10),
+      );
+      if (leftover.trim().isNotEmpty) {
+        return 'A leftover uiautomator is registered (pid '
+            '${leftover.trim().split(RegExp(r'\s+')).join(', ')}) — run '
+            '`qa doctor --fix`.';
+      }
+    } on QaException {
+      return 'It fails while an animation is running — wait for the screen to '
+          'settle.';
+    }
+    return 'No leftover uiautomator process, so this is the animation case: '
+        'wait for the screen to settle and try again.';
   }
 
   Future<String> _rawDump() async {
@@ -195,6 +366,9 @@ class IosSimulator implements Device {
   Future<ScreenSize> screenSize() => _unsupported('screenSize');
 
   @override
+  Future<DeviceProbe> probe() => _unsupported('state');
+
+  @override
   Future<void> tap(int x, int y) => _unsupported('tap');
 
   @override
@@ -208,6 +382,9 @@ class IosSimulator implements Device {
 
   @override
   Future<UiTree> dumpUi() => _unsupported('dump');
+
+  @override
+  Future<String> dumpUiXml() => _unsupported('dump');
 
   @override
   Future<List<int>> screencapPng() => _unsupported('shot');

@@ -46,8 +46,12 @@ void main() {
 
     test('an explicit -d wins over everything', () {
       expect(
-        selectSerial(explicit: 'R58M', envValue: 'ignored', available: two),
-        'R58M',
+        selectSerial(
+          explicit: 'emulator-5556',
+          envValue: 'emulator-5554',
+          available: two,
+        ),
+        'emulator-5556',
       );
     });
 
@@ -69,15 +73,59 @@ void main() {
       );
     });
 
-    test('nothing attached falls back to the default emulator serial', () {
-      expect(selectSerial(available: const []), defaultSerial);
-      expect(defaultSerial, 'emulator-5554');
+    test('nothing attached names the verb that fixes it', () {
+      expect(
+        () => selectSerial(available: const []),
+        throwsA(isA<DeviceFailure>().having(
+          (e) => e.message,
+          'message',
+          'no device attached — run `qa boot`',
+        )),
+      );
     });
 
-    test('an offline device does not count as the sole device', () {
+    test('an offline device is explained, not silently defaulted', () {
       final offline =
           parseDevices('List of devices attached\nemulator-5554\toffline\n');
-      expect(selectSerial(available: offline), defaultSerial);
+      expect(
+        () => selectSerial(available: offline),
+        throwsA(isA<DeviceFailure>()
+            .having((e) => e.message, 'message', contains('is offline'))
+            .having((e) => e.message, 'message', contains('cold-boot'))),
+      );
+    });
+
+    test('an unauthorized device points at the on-device prompt', () {
+      final blocked =
+          parseDevices('List of devices attached\nR58M\tunauthorized\n');
+      expect(
+        () => selectSerial(available: blocked),
+        throwsA(isA<DeviceFailure>().having(
+            (e) => e.message, 'message', contains('USB-debugging prompt'))),
+      );
+    });
+
+    test('an explicit serial that is attached but unusable says which', () {
+      final offline =
+          parseDevices('List of devices attached\nemulator-5554\toffline\n');
+      expect(
+        () => selectSerial(explicit: 'emulator-5554', available: offline),
+        throwsA(isA<DeviceFailure>()
+            .having((e) => e.message, 'message', contains('is offline'))),
+      );
+    });
+
+    test('an explicit serial that is not attached lists what is', () {
+      expect(
+        () => selectSerial(explicit: 'nosuch', available: one),
+        throwsA(isA<DeviceFailure>()
+            .having((e) => e.message, 'message', contains('nosuch is not attached'))
+            .having((e) => e.message, 'message', contains('emulator-5554 (device)'))),
+      );
+    });
+
+    test('the documented default serial is still the emulator name', () {
+      expect(defaultSerial, 'emulator-5554');
     });
   });
 
@@ -130,14 +178,14 @@ void main() {
   group('AndroidDevice', () {
     test('screenSize reads the physical size, density and override',
         () async {
-      final fake = FakeProcessRunner();
-      fake.script(
-        'adb -s e shell wm size',
-        const RunOutcome(
-            0, 'Physical size: 1280x2856\nOverride size: 1080x2400', ''),
+      final fake = FakeProcessRunner(
+        defaultOutcome: const RunOutcome(
+          0,
+          'Physical size: 1280x2856\nOverride size: 1080x2400\n'
+              '__QA_SEP__\nPhysical density: 480\n__QA_SEP__\n',
+          '',
+        ),
       );
-      fake.script('adb -s e shell wm density',
-          const RunOutcome(0, 'Physical density: 480', ''));
       final device =
           AndroidDevice(Adb(executable: 'adb', runner: fake, serial: 'e'));
       final size = await device.screenSize();
@@ -152,11 +200,14 @@ void main() {
     });
 
     test('without an override the physical size is the size', () async {
-      final fake = FakeProcessRunner();
-      fake.script('adb -s e shell wm size',
-          const RunOutcome(0, 'Physical size: 1280x2856', ''));
-      fake.script('adb -s e shell wm density',
-          const RunOutcome(0, 'Physical density: 480', ''));
+      final fake = FakeProcessRunner(
+        defaultOutcome: const RunOutcome(
+          0,
+          'Physical size: 1280x2856\n__QA_SEP__\nPhysical density: 480\n'
+              '__QA_SEP__\n',
+          '',
+        ),
+      );
       final size =
           await AndroidDevice(Adb(executable: 'adb', runner: fake, serial: 'e'))
               .screenSize();

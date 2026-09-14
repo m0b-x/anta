@@ -19,6 +19,16 @@ class ResolvedTarget {
   String toString() => '$description at $x,$y';
 }
 
+final RegExp _indexTargetForm = RegExp(r'^#(\d+)$');
+final RegExp _pointTargetForm = RegExp(r'^(-?\d+)\s*,\s*(-?\d+)$');
+
+/// Whether a target is the `#12` flat-index form, which resolves against the
+/// dump the agent last read rather than against a fresh one.
+bool isIndexTarget(String target) => _indexTargetForm.hasMatch(target.trim());
+
+/// Whether a target is a raw `x,y` coordinate, which needs no dump at all.
+bool isPointTarget(String target) => _pointTargetForm.hasMatch(target.trim());
+
 /// How a label was matched, weakest last.
 enum MatchPass { exact, caseInsensitive, substring }
 
@@ -44,8 +54,8 @@ class TargetResolver {
 
   final UiTree tree;
 
-  static final RegExp _indexForm = RegExp(r'^#(\d+)$');
-  static final RegExp _pointForm = RegExp(r'^(-?\d+)\s*,\s*(-?\d+)$');
+  static final RegExp _indexForm = _indexTargetForm;
+  static final RegExp _pointForm = _pointTargetForm;
 
   ResolvedTarget resolve(String target, {int? nth}) {
     final trimmed = target.trim();
@@ -118,10 +128,21 @@ class TargetResolver {
         MatchPass.substring => value.toLowerCase().contains(label.toLowerCase()),
       };
 
+  /// What is on screen right now, phrased for an error message.
+  ///
+  /// A failed lookup that lists the alternatives costs the agent no follow-up
+  /// call to find out which screen it is actually on.
+  String onScreenListing() {
+    final labels = tree.interestingLabels();
+    final package = tree.foregroundPackage ?? 'unknown';
+    if (labels.isEmpty) return 'on screen ($package): nothing labelled';
+    return 'on screen ($package): ${labels.map((l) => '"$l"').join(' | ')}';
+  }
+
   ResolvedTarget _pick(List<TargetMatch> matches, String target, int? nth) {
     if (matches.isEmpty) {
       throw TargetFailure(
-        'no node matches "$target". Run `dump` to see what is on screen.',
+        'no node matches "$target". ${onScreenListing()}',
       );
     }
     if (nth != null) {

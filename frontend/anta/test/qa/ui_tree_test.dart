@@ -163,4 +163,96 @@ void main() {
       );
     });
   });
+
+  group('foregroundPackage', () {
+    test('is the app on every ANTA dump captured from the device', () {
+      for (final name in const [
+        'folder_root_dump.xml',
+        'folder_list_dump.xml',
+        'search_results_dump.xml',
+      ]) {
+        expect(
+          UiTree.parse(_fixture(name)).foregroundPackage,
+          'com.alexzamfir.anta',
+          reason: name,
+        );
+      }
+    });
+
+    test('is the launcher when the app is not on screen', () {
+      expect(
+        UiTree.parse(_fixture('launcher_dump.xml')).foregroundPackage,
+        'com.google.android.apps.nexuslauncher',
+      );
+    });
+
+    test('an empty tree has no foreground package', () {
+      expect(const UiTree([]).foregroundPackage, isNull);
+    });
+
+    test('system chrome never wins the top-level vote', () {
+      final tree = UiTree.parse(
+        '<?xml version="1.0"?><hierarchy rotation="0">'
+        '<node class="android.widget.FrameLayout" package="com.android.systemui" '
+        'bounds="[0,0][1280,2856]"/>'
+        '<node class="android.widget.FrameLayout" package="com.foo.bar" '
+        'bounds="[0,0][1280,300]"/>'
+        '</hierarchy>',
+      );
+      expect(tree.foregroundPackage, 'com.foo.bar');
+    });
+
+    test('falls back to the commonest package when nothing is top level', () {
+      final tree = UiTree.parse(
+        '<?xml version="1.0"?><hierarchy rotation="0">'
+        '<node class="a" package="android" bounds="[0,0][10,10]">'
+        '<node class="b" package="com.foo.bar" bounds="[0,0][5,5]"/>'
+        '<node class="c" package="com.foo.bar" bounds="[0,0][4,4]"/>'
+        '<node class="d" package="com.other" bounds="[0,0][3,3]"/>'
+        '</node></hierarchy>',
+      );
+      expect(tree.foregroundPackage, 'com.foo.bar');
+    });
+  });
+
+  group('interestingLabels', () {
+    test('lists the real labels of the folder root, in tree order', () {
+      final labels = UiTree.parse(_fixture('folder_root_dump.xml'))
+          .interestingLabels();
+      expect(labels, contains('Search all notes'));
+      expect(labels.indexOf('Search all notes'),
+          lessThan(labels.indexOf('New folder')));
+    });
+
+    test('id-only nodes come after every labelled one', () {
+      final labels = UiTree.parse(_fixture('folder_root_dump.xml'))
+          .interestingLabels();
+      final firstId = labels.indexWhere((l) => l.startsWith('id:'));
+      if (firstId == -1) return;
+      expect(
+        labels.sublist(firstId).every((l) => l.startsWith('id:')),
+        isTrue,
+      );
+    });
+
+    test('a multi-line label is flattened with a separator', () {
+      final labels = UiTree.parse(_fixture('folder_root_dump.xml'))
+          .interestingLabels();
+      expect(labels.any((l) => l.contains(' / ')), isTrue);
+      expect(labels.every((l) => !l.contains('\n')), isTrue);
+    });
+
+    test('honours the limit and the clip', () {
+      final labels = UiTree.parse(_fixture('launcher_dump.xml'))
+          .interestingLabels(limit: 5, clip: 8);
+      expect(labels, hasLength(5));
+      expect(labels.every((l) => l.length <= 8), isTrue);
+    });
+
+    test('never repeats a label', () {
+      final labels = UiTree.parse(_fixture('folder_list_dump.xml'))
+          .interestingLabels(limit: 100);
+      expect(labels.toSet(), hasLength(labels.length));
+    });
+  });
 }

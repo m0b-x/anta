@@ -60,8 +60,63 @@ void main() {
 
   group('logcatStamp', () {
     test('is the MM-DD HH:MM:SS.mmm shape adb logcat -T accepts', () {
-      final stamp = logcatStamp(DateTime(2026, 9, 13, 17, 42, 3, 7));
+      final stamp = rawLogcatStamp(DateTime(2026, 9, 13, 17, 42, 3, 7));
       expect(stamp, '09-13 17:42:03.007');
+    });
+
+    test('backdates by the clock-skew margin', () {
+      final now = DateTime(2026, 9, 13, 17, 42, 3, 7);
+      expect(
+        logcatStamp(now),
+        rawLogcatStamp(now.subtract(logcatStampMargin)),
+      );
+      expect(logcatStamp(now), '09-13 17:41:48.007');
+    });
+
+    test('the margin is large enough for the emulator clock drift', () {
+      expect(logcatStampMargin.inSeconds, greaterThanOrEqualTo(10));
+    });
+  });
+
+  group('writeWrapperScript', () {
+    late Directory temp;
+    late QaPaths paths;
+
+    setUp(() {
+      temp = Directory.systemTemp.createTempSync('anta_qa_');
+      paths = QaPaths(temp.path);
+    });
+
+    tearDown(() => temp.deleteSync(recursive: true));
+
+    test('the emulator wrapper has no idle stdin pipe', () {
+      final file = writeWrapperScript(
+        paths: paths,
+        baseName: 'emulator_cmd',
+        executable: 'emulator',
+        arguments: const ['-avd', 'Pixel'],
+        posixLogPath: paths.emulatorLog,
+      );
+      final script = file.readAsStringSync();
+      expect(script, contains('-avd Pixel'));
+      expect(script, isNot(contains('ping -n 61')));
+    });
+
+    test('the flutter wrapper keeps the idle stdin pipe on Windows', () {
+      final file = writeWrapperScript(
+        paths: paths,
+        baseName: 'run_cmd',
+        executable: 'flutter',
+        arguments: const ['run'],
+        posixLogPath: paths.runLog,
+        idleStdin: true,
+      );
+      final script = file.readAsStringSync();
+      if (Platform.isWindows) {
+        expect(script, contains('ping -n 61'));
+      } else {
+        expect(script, contains('exec "flutter" run'));
+      }
     });
   });
 

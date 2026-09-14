@@ -47,8 +47,22 @@ class LaunchResult {
   final String logPath;
 }
 
-/// Timestamp in the `MM-DD HH:MM:SS.mmm` shape `adb logcat -T` accepts.
-String logcatStamp(DateTime now) {
+/// How far back a recorded logcat stamp is dated.
+///
+/// `adb logcat -T` compares against the **device** clock, and the emulator's
+/// runs a couple of seconds behind the host: a stamp taken on the host at the
+/// moment of launch is in the guest's future, so the lines the launch is about
+/// to print are filtered out and the wait looks like the app said nothing. A
+/// margin costs a few extra lines and removes the whole class of failure.
+const Duration logcatStampMargin = Duration(seconds: 15);
+
+/// Timestamp in the `MM-DD HH:MM:SS.mmm` shape `adb logcat -T` accepts,
+/// already backdated by [logcatStampMargin].
+String logcatStamp(DateTime now) => rawLogcatStamp(now.subtract(logcatStampMargin));
+
+/// The same format with no margin applied, for tests and for callers that
+/// have their own clock-skew story.
+String rawLogcatStamp(DateTime now) {
   String two(int v) => v.toString().padLeft(2, '0');
   return '${two(now.month)}-${two(now.day)} ${two(now.hour)}:'
       '${two(now.minute)}:${two(now.second)}.'
@@ -65,28 +79,51 @@ File writeLaunchWrapper({
   required QaPaths paths,
   required String flutterExecutable,
   required List<String> arguments,
+}) =>
+    writeWrapperScript(
+      paths: paths,
+      baseName: 'run_cmd',
+      executable: flutterExecutable,
+      arguments: arguments,
+      posixLogPath: paths.runLog,
+      idleStdin: true,
+    );
+
+/// Writes one wrapper script that a detached start can own.
+///
+/// [idleStdin] is the third Windows trap and belongs only to `flutter run`:
+/// the idle loop on the left of the pipe writes nothing and never exits, so
+/// stdin stays open without ever delivering a keystroke. A resident runner
+/// quits the moment stdin reports end-of-file, which is what a redirected file
+/// or a closed pipe hands it seconds after startup. The emulator does not read
+/// stdin at all, so it gets a plain invocation.
+File writeWrapperScript({
+  required QaPaths paths,
+  required String baseName,
+  required String executable,
+  required List<String> arguments,
+  required String posixLogPath,
+  bool idleStdin = false,
 }) {
   paths.ensureBuildQa();
   final quoted = arguments.map(_quote).join(' ');
   if (Platform.isWindows) {
-    final file = File(joinPath(paths.buildQa, ['run_cmd.bat']));
-    // The idle loop on the left of the pipe writes nothing and never exits, so
-    // `flutter run`'s stdin stays open without ever delivering a keystroke. A
-    // resident runner quits the moment stdin reports end-of-file, which is
-    // what a redirected file or a closed pipe hands it seconds after startup.
+    final file = File(joinPath(paths.buildQa, ['$baseName.bat']));
+    final idle = idleStdin
+        ? '(for /l %%i in (1,0,2) do @ping -n 61 127.0.0.1 >nul) | '
+        : '';
     file.writeAsStringSync(
       '@echo off\r\n'
       'cd /d "${paths.projectRoot}"\r\n'
-      '(for /l %%i in (1,0,2) do @ping -n 61 127.0.0.1 >nul) | '
-      '"$flutterExecutable" $quoted\r\n',
+      '$idle"$executable" $quoted\r\n',
     );
     return file;
   }
-  final file = File(joinPath(paths.buildQa, ['run_cmd.sh']));
+  final file = File(joinPath(paths.buildQa, ['$baseName.sh']));
   file.writeAsStringSync(
     '#!/bin/sh\n'
     'cd "${paths.projectRoot}" || exit 3\n'
-    'exec "$flutterExecutable" $quoted > "${paths.runLog}" 2>&1\n',
+    'exec "$executable" $quoted > "$posixLogPath" 2>&1\n',
   );
   Process.runSync('chmod', ['+x', file.path]);
   return file;
@@ -139,7 +176,13 @@ String findFlutter({Map<String, String>? environment}) {
 /// without one. Its own stdout is never read — the pid comes back through a
 /// file, so nothing here waits on a pipe the long-lived tree also holds, which
 /// is what would otherwise keep the caller's shell from returning.
-Future<int> _startWrapper(QaPaths paths, File wrapper) async {
+Future<int> startWrapperDetached({
+  required QaPaths paths,
+  required File wrapper,
+  required String logPath,
+  required String errPath,
+  required String pidPath,
+}) async {
   if (!Platform.isWindows) {
     final process = await Process.start(
       '/bin/sh',
@@ -147,10 +190,11 @@ Future<int> _startWrapper(QaPaths paths, File wrapper) async {
       mode: ProcessStartMode.detached,
       workingDirectory: paths.projectRoot,
     );
+    File(pidPath).writeAsStringSync('${process.pid}');
     return process.pid;
   }
   String quote(String value) => value.replaceAll("'", "''");
-  final pidFile = File(paths.runPid);
+  final pidFile = File(pidPath);
   if (pidFile.existsSync()) pidFile.deleteSync();
   await Process.start(
     'powershell.exe',
@@ -160,10 +204,10 @@ Future<int> _startWrapper(QaPaths paths, File wrapper) async {
       '-Command',
       "\$p = Start-Process -FilePath 'cmd.exe' "
           "-ArgumentList '/c','\"${quote(wrapper.path)}\"' "
-          "-RedirectStandardOutput '${quote(paths.runLog)}' "
-          "-RedirectStandardError '${quote(paths.runErr)}' "
+          "-RedirectStandardOutput '${quote(logPath)}' "
+          "-RedirectStandardError '${quote(errPath)}' "
           '-PassThru; '
-          "Set-Content -Path '${quote(paths.runPid)}' -Value \$p.Id",
+          "Set-Content -Path '${quote(pidPath)}' -Value \$p.Id",
     ],
     mode: ProcessStartMode.normal,
   );
@@ -174,9 +218,34 @@ Future<int> _startWrapper(QaPaths paths, File wrapper) async {
     final pid = int.tryParse(pidFile.readAsStringSync().trim());
     if (pid != null) return pid;
   }
-  throw DeviceFailure(
-    'the run wrapper never reported a pid into ${paths.runPid}',
+  throw DeviceFailure('the wrapper never reported a pid into $pidPath');
+}
+
+/// Whether a pid is still running, without signalling it.
+///
+/// `boot` polls this so a launcher that died on its first second aborts the
+/// wait instead of sitting out six minutes.
+Future<bool> isProcessAlive(int pid, ProcessRunner runner) async {
+  if (Platform.isWindows) {
+    final result = await runner.run(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        'if (Get-Process -Id $pid -ErrorAction SilentlyContinue) '
+            "{ 'alive' } else { 'gone' }",
+      ],
+      timeout: const Duration(seconds: 20),
+    );
+    return result.stdout.contains('alive');
+  }
+  final result = await runner.run(
+    '/bin/sh',
+    ['-c', 'kill -0 $pid'],
+    timeout: const Duration(seconds: 10),
   );
+  return result.ok;
 }
 
 /// Starts a background `flutter` command and waits for its service URIs.
@@ -207,7 +276,13 @@ Future<LaunchResult> launchDetached({
     flutterExecutable: flutterExecutable,
     arguments: arguments,
   );
-  final pid = await _startWrapper(paths, wrapper);
+  final pid = await startWrapperDetached(
+    paths: paths,
+    wrapper: wrapper,
+    logPath: paths.runLog,
+    errPath: paths.runErr,
+    pidPath: paths.runPid,
+  );
 
   final deadline = DateTime.now().add(timeout);
   const softGrace = Duration(seconds: 20);
@@ -253,7 +328,11 @@ Future<LaunchResult> launchDetached({
   );
 }
 
-String _tail(String text, {int lines = 25}) {
+String _tail(String text, {int lines = 25}) => tailLines(text, lines: lines);
+
+/// The last [lines] lines of a log, for an error message that has to show its
+/// working.
+String tailLines(String text, {int lines = 25}) {
   final all = text.trimRight().split('\n');
   return all.sublist(all.length > lines ? all.length - lines : 0).join('\n');
 }
@@ -289,6 +368,15 @@ Get-CimInstance Win32_Process -Filter "Name='dart.exe'" |
   ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; $_.ProcessId }
 ''';
 
+/// The same query without the kill, so `doctor` can report orphans without
+/// changing anything until `--fix` says so.
+const String orphanedDdsListScript = r'''
+Get-CimInstance Win32_Process -Filter "Name='dart.exe'" |
+  Where-Object { $_.CommandLine -like '*development-service*' } |
+  Where-Object { -not (Get-Process -Id $_.ParentProcessId -ErrorAction SilentlyContinue) } |
+  ForEach-Object { $_.ProcessId }
+''';
+
 /// Kills leftover Dart Development Service processes that no longer have a
 /// parent, and returns their pids.
 ///
@@ -314,6 +402,12 @@ Future<List<int>> reapOrphanedServices(ProcessRunner runner) async {
 /// `Start-Process` refuses to point both at one.
 String readRunLog(QaPaths paths) =>
     [_readFile(paths.runLog), _readFile(paths.runErr)]
+        .where((text) => text.isNotEmpty)
+        .join('\n');
+
+/// The emulator's own output, captured the same way for the same reason.
+String readEmulatorLog(QaPaths paths) =>
+    [_readFile(paths.emulatorLog), _readFile(paths.emulatorErr)]
         .where((text) => text.isNotEmpty)
         .join('\n');
 

@@ -1,8 +1,11 @@
 # QA harness
 
 **Status: Phase A shipped and proved end to end 2026-09-13 — Android on
-Windows, driver and app seams together. Phase B (iOS on macOS) planned.
-Phase C (on-device `integration_test` suites) possible, not shipped.**
+Windows, driver and app seams together. Speed, context and error handling
+reworked 2026-09-14 (compiled-by-default wrapper, batched probes, `steps`,
+post-action `--wait/--shot/--dump`, `doctor`, `wake`, `relaunch`, `[qa]` marker
+verification) — see Speed below. Phase B (iOS on macOS) planned. Phase C
+(on-device `integration_test` suites) possible, not shipped.**
 
 ## What the end-to-end pass proved (2026-09-13, emulator-5554, Android 16)
 
@@ -39,33 +42,80 @@ is the architecture and the roadmap.
 ## Architecture
 
 ```
+tool/qa/qa.cmd               Windows entry: compiles build/qa/qa.exe on first use, then runs it
+tool/qa/qa                   POSIX/Git Bash entry, same contract
 tool/qa/qa.dart              verb dispatch (package:args CommandRunner), exit codes
 tool/qa/src/
   errors.dart                QaException + the four exit codes (0/1/2/3)
-  paths.dart                 build/qa layout, package-root discovery
+  paths.dart                 build/qa layout, package-root discovery, exe swap names
   process_runner.dart        ProcessRunner interface + the real one (fakeable)
+  self_build.dart            staleness decision, `dart compile exe`, running-exe swap
   adb.dart                   SdkTools (locate adb/emulator/qemu-img), Adb, serial selection
+  shell_batch.dart           several device commands per `adb shell`, split on a separator
   device.dart                Device abstraction: AndroidDevice + IosSimulator placeholder
-  ui_tree.dart               uiautomator XML -> flat UiNode list
+  ui_tree.dart               uiautomator XML -> flat UiNode list, foreground package
+  dump_cache.dart            build/qa/last_dump.xml, so `#N` means what you read
   target.dart                target string -> node/point, with match precedence
+  shell_words.dart           `steps` line -> argv, POSIX quoting rules
   input_text.dart            `input text` escaping, keycode aliases
   gestures.dart              swipe geometry with edge avoidance
   shots.dart                 screencap + downscale + naming
   markers.dart               QA marker files pushed through run-as
-  runner.dart                detached `flutter run`, DTD/VM URI capture
+  doctor.dart                the `doctor` checks, as pure functions over captured output
+  log_parse.dart             run-log URIs, launch failures, `[qa]` markers, emulator fatals
+  runner.dart                detached `flutter run` and emulator, DTD/VM URI capture
   fixtures/                  seed backups pushed by `run --seed`
 test/qa/                     unit tests against fakes and real captured dumps
 test_driver/main_driver.dart Flutter Driver entry point (`enableFlutterDriverExtension`)
+build/qa/qa.exe              the compiled tool (rebuilt automatically when sources move)
+build/qa/last_dump.xml       the accessibility tree `#N` targets resolve against
+build/qa/emulator.log        the emulator's own output, so a failed `boot` can explain itself
 ```
 
 No file under `tool/qa/src/` imports Flutter, so everything runs under plain
 `dart run` and is still importable from `flutter test` by relative path.
 
+### Speed
+
+Measured on `emulator-5554`, Windows 11, 2026-09-14. "Before" is
+`dart run tool/qa/qa.dart <verb>`; "after" is `tool\qa\qa.cmd <verb>` against
+the compiled binary. Both columns are the median of two runs.
+
+| Verb | Before | After |
+| --- | ---: | ---: |
+| `state` | 2,010 ms | 131 ms |
+| `dump` | 3,933 ms | 2,054 ms |
+| `tap "Search all notes"` | 4,054 ms | 2,389 ms |
+| `key back` | 1,932 ms | 405 ms |
+| `key back --settle 0` | — | 91 ms |
+| `shot t0` | 2,280 ms | 552 ms |
+| `wait "Search all notes"` | 3,947 ms | 2,039 ms |
+| `tap "#13"` (cached index) | — | 421 ms |
+| five-verb flow, five processes | 25,745 ms | 7,688 ms |
+| five-verb flow, one `steps` | — | 7,320 ms |
+
+Three separate savings are stacked here. The compiled binary removes ~1.9 s of
+JIT startup from every verb. Batching removes adb round trips: `state` was
+`wm size` + `wm density` + `pidof` + a full `dumpsys activity activities`, and
+is now one `adb shell` whose `dumpsys` reads are piped into the device's own
+`grep`. And a target that does not need a fresh tree — `#N`, `x,y` — no longer
+pays for `uiautomator dump`, which is ~2 s of pure device time and the floor
+under everything that still dumps.
+
+`steps` barely beats five compiled processes on the clock (7.3 s vs 7.7 s):
+process startup is ~30 ms once the binary exists. Its point is the **agent**
+round trip — one tool call and one model turn instead of five — which is the
+dominant cost of a device pass and the reason `--wait`/`--shot`/`--dump` exist
+on every acting verb.
+
 ### The Windows launcher
 
 `runner.dart` looks over-engineered and is not. Three independent Windows
 behaviours each break a detached `flutter run` silently, and the launcher has
-to dodge all three at once:
+to dodge all three at once. `boot` reuses the same machinery for the emulator
+(`writeWrapperScript` + `startWrapperDetached`, minus the idle stdin pipe,
+which only a resident `flutter run` needs), which is what gives
+`build/qa/emulator.log` and lets a failed boot quote the line that killed it:
 
 | Behaviour | Symptom | Answer |
 | --- | --- | --- |

@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'errors.dart';
 import 'process_runner.dart';
+import 'shell_batch.dart';
 
 /// Locates the Android SDK command line tools without assuming PATH.
 class SdkTools {
@@ -98,17 +99,47 @@ class Adb {
   List<String> _prefix(List<String> args) =>
       serial == null ? args : ['-s', serial!, ...args];
 
+  /// Runs one `adb` invocation.
+  ///
+  /// A timeout here is rewrapped once, because the shape it usually has on
+  /// this setup is not "the command is slow" but "adbd on the guest stopped
+  /// answering", and the fix for that is the owner's to make.
   Future<RunOutcome> raw(
     List<String> args, {
     Duration timeout = const Duration(seconds: 30),
     bool binary = false,
     bool withSerial = true,
-  }) {
-    return runner.run(
-      executable,
-      withSerial ? _prefix(args) : args,
+  }) async {
+    try {
+      return await runner.run(
+        executable,
+        withSerial ? _prefix(args) : args,
+        timeout: timeout,
+        binary: binary,
+      );
+    } on QaException catch (e) {
+      if (!e.message.startsWith('timed out after')) rethrow;
+      throw DeviceFailure(adbTimeoutMessage(timeout, args));
+    }
+  }
+
+  /// Runs several device commands inside a single `adb shell`.
+  ///
+  /// One `adb` process on Windows costs about as much as the commands it
+  /// carries, so a probe that wants six answers asks for them at once and
+  /// splits the output on [batchSeparator].
+  Future<List<String>> shellBatch(
+    List<ShellCommand> commands, {
+    Duration timeout = const Duration(seconds: 45),
+  }) async {
+    if (commands.isEmpty) return const [];
+    final result = await raw(
+      ['shell', buildBatchScript(commands)],
       timeout: timeout,
-      binary: binary,
+    );
+    return splitBatchOutput(
+      result.ok ? result.stdout : result.combined,
+      commands.length,
     );
   }
 
@@ -148,9 +179,11 @@ class Adb {
     return result.bytes ?? const <int>[];
   }
 
-  Future<List<AdbDevice>> devices() async {
+  Future<List<AdbDevice>> devices({
+    Duration timeout = const Duration(seconds: 20),
+  }) async {
     final result = await raw(['devices', '-l'],
-        timeout: const Duration(seconds: 20), withSerial: false);
+        timeout: timeout, withSerial: false);
     if (!result.ok) {
       throw DeviceFailure('adb devices failed: ${result.combined}');
     }
@@ -191,16 +224,52 @@ List<AdbDevice> parseDevices(String output) {
   return devices;
 }
 
-/// Chooses which serial to talk to: explicit flag, env, sole device, default.
+/// The emulator this harness was built around; still the name in the docs.
 const String defaultSerial = 'emulator-5554';
 
+/// What to say about an `adb` call that never came back.
+///
+/// The quick-boot snapshot trap makes this the likeliest failure on this
+/// setup, and the only cure is a cold boot the owner has to do themselves.
+String adbTimeoutMessage(Duration timeout, List<String> args) =>
+    'adb did not answer in ${timeout.inSeconds}s (${args.join(' ')}) — the '
+    "emulator's adbd may be degraded (quick-boot snapshot trap: the owner "
+    'must cold-boot it; never do it from this tool). Run `qa doctor`.';
+
+/// Explains one unusable `adb devices` state in terms of what to do next.
+String unusableDeviceMessage(String serial, String state) => switch (state) {
+      'offline' => '$serial is offline — adbd on the guest is wedged; the '
+          'owner has to close and cold-boot the emulator (this tool never '
+          'restarts it)',
+      'unauthorized' =>
+        '$serial is unauthorized — accept the USB-debugging prompt on the '
+            'device',
+      _ => '$serial is in state "$state", not "device"',
+    };
+
+/// Chooses which serial to talk to: explicit flag, env, then the sole device.
+///
+/// There is no silent default any more. A verb that runs against nothing
+/// attached used to fail deep inside the first `adb shell` with whatever that
+/// command happened to say; now it fails here, saying what is actually wrong.
 String selectSerial({
   String? explicit,
   String? envValue,
   required List<AdbDevice> available,
 }) {
-  if (explicit != null && explicit.isNotEmpty) return explicit;
-  if (envValue != null && envValue.isNotEmpty) return envValue;
+  final wanted = (explicit != null && explicit.isNotEmpty)
+      ? explicit
+      : ((envValue != null && envValue.isNotEmpty) ? envValue : null);
+  if (wanted != null) {
+    for (final device in available) {
+      if (device.serial != wanted) continue;
+      if (device.usable) return wanted;
+      throw DeviceFailure(unusableDeviceMessage(wanted, device.state));
+    }
+    throw DeviceFailure(
+      '$wanted is not attached. ${_attachedSummary(available)}',
+    );
+  }
   final usable = available.where((d) => d.usable).toList();
   if (usable.length == 1) return usable.single.serial;
   if (usable.length > 1) {
@@ -209,5 +278,16 @@ String selectSerial({
       'Attached: ${usable.map((d) => d.serial).join(', ')}',
     );
   }
-  return defaultSerial;
+  if (available.isEmpty) {
+    throw DeviceFailure('no device attached — run `qa boot`');
+  }
+  throw DeviceFailure(
+    available
+        .map((d) => unusableDeviceMessage(d.serial, d.state))
+        .join('; '),
+  );
 }
+
+String _attachedSummary(List<AdbDevice> available) => available.isEmpty
+    ? 'Nothing is attached — run `qa boot`.'
+    : 'Attached: ${available.map((d) => '${d.serial} (${d.state})').join(', ')}.';

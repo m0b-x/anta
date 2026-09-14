@@ -170,4 +170,156 @@ E/AndroidRuntime( 1): FATAL EXCEPTION: main
     });
   });
 
+  group('parseQaMarkers', () {
+    const captured = '''
+09-14 11:24:56.136 I/flutter (10263): [IMPORTANT:flutter/shell/…] Impeller
+09-14 11:24:56.172 I/flutter (10263): The Dart VM service is listening on http://127.0.0.1:38345/x=/
+09-14 11:24:56.870 I/flutter (10263): [qa] reset: cleared preferences and qa.db
+09-14 11:24:57.269 I/flutter (10263): [qa] seed: imported 4 folders, 3 notes
+09-14 11:24:57.272 I/flutter (10263): [qa] onboarding marked completed
+''';
+
+    test('reads the three lines of a real seeded launch', () {
+      final markers = parseQaMarkers(captured);
+      expect(markers.reset, 'reset: cleared preferences and qa.db');
+      expect(markers.seed, 'seed: imported 4 folders, 3 notes');
+      expect(markers.onboarding, 'onboarding marked completed');
+      expect(markers.all, hasLength(3));
+      expect(markers.seedFailed, isFalse);
+    });
+
+    test('reads them out of a plain run.log too', () {
+      final markers = parseQaMarkers(
+        'Syncing files to device…\n'
+        'I/flutter ( 7344): [qa] reset: cleared preferences and qa.db\n'
+        'I/flutter ( 7344): [qa] onboarding marked completed\n',
+      );
+      expect(markers.reset, isNotNull);
+      expect(markers.seed, isNull);
+      expect(markers.all, hasLength(2));
+    });
+
+    test('a log with none of them is all null', () {
+      final markers = parseQaMarkers('Running Gradle task…');
+      expect(markers.reset, isNull);
+      expect(markers.seed, isNull);
+      expect(markers.onboarding, isNull);
+      expect(markers.all, isEmpty);
+      expect(markers.seedFailed, isFalse);
+    });
+
+    test('the last occurrence of a marker wins', () {
+      final markers = parseQaMarkers(
+        '[qa] seed: imported 1 folders, 1 notes\n'
+        '[qa] seed: imported 4 folders, 3 notes\n',
+      );
+      expect(markers.seed, 'seed: imported 4 folders, 3 notes');
+    });
+
+    test('a rejected backup reads as a failed seed', () {
+      final markers = parseQaMarkers(
+        '09-14 11:32:10.648 I/flutter (11580): [qa] seed: import failed: '
+        'FormatException: Unexpected character (at character 1)\n',
+      );
+      expect(markers.seedFailed, isTrue);
+    });
+
+    test('a seed that threw reads as a failed seed', () {
+      expect(
+        parseQaMarkers('[qa] seed: threw Bad state: no database').seedFailed,
+        isTrue,
+      );
+    });
+
+    test('a successful import is not a failure', () {
+      expect(
+        parseQaMarkers('[qa] seed: imported 0 folders, 0 notes').seedFailed,
+        isFalse,
+      );
+    });
+  });
+
+  group('emulatorFatalLine', () {
+    test('catches the PANIC the emulator prints for a broken AVD', () {
+      expect(
+        emulatorFatalLine('emulator: Android emulator version 35.1\n'
+            'PANIC: Cannot find AVD system path.\n'),
+        'PANIC: Cannot find AVD system path.',
+      );
+    });
+
+    test('catches a second instance of the same AVD', () {
+      expect(
+        emulatorFatalLine(
+          "emulator: ERROR: Running multiple emulators with the same AVD is "
+          'an experimental feature.\n',
+        ),
+        isNotNull,
+      );
+    });
+
+    test('catches a hypervisor failure', () {
+      expect(
+        emulatorFatalLine('emulator: WHPX is not installed\n'),
+        isNotNull,
+      );
+    });
+
+    test('catches a port clash', () {
+      expect(
+        emulatorFatalLine('emulator: ERROR: Address already in use\n'),
+        isNotNull,
+      );
+    });
+
+    test('a healthy boot log has no fatal line', () {
+      expect(
+        emulatorFatalLine(
+          'emulator: Android emulator version 35.1.4.0\n'
+          'INFO    | Storing crashdata in: /tmp/x\n'
+          'INFO    | Boot completed in 21387 ms\n',
+        ),
+        isNull,
+      );
+    });
+  });
+
+  group('known noise', () {
+    test('both Firebase lines are noise, not app errors', () {
+      expect(
+        isKnownNoise(
+          'E/FirebearStorageCryptoHelper(11893): Exception encountered while '
+          'decrypting bytes:',
+        ),
+        isTrue,
+      );
+      expect(
+        isKnownNoise('E/FirebearStorageCryptoHelper(11893): decryption failed'),
+        isTrue,
+      );
+    });
+
+    test('a real exception is not noise', () {
+      expect(
+        isKnownNoise('E/flutter (123): Unhandled Exception: Bad state'),
+        isFalse,
+      );
+    });
+
+    test('partitionKnownNoise keeps order within each half', () {
+      final (real, noise) = partitionKnownNoise([
+        'E/flutter: Exception A',
+        'E/FirebearStorageCryptoHelper: decryption failed',
+        'E/flutter: Exception B',
+      ]);
+      expect(real, ['E/flutter: Exception A', 'E/flutter: Exception B']);
+      expect(noise, hasLength(1));
+    });
+
+    test('a clean log partitions into two empty halves', () {
+      final (real, noise) = partitionKnownNoise(const []);
+      expect(real, isEmpty);
+      expect(noise, isEmpty);
+    });
+  });
 }
