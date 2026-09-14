@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/app_settings/app_settings_bloc.dart';
 import '../bloc/markdown_bar/markdown_bar_bloc.dart';
+import '../constants/semantics_ids.dart';
 import '../core/di/injection.dart';
 import '../l10n/app_localizations.dart';
 import 'app_dialogs.dart';
@@ -124,6 +125,7 @@ class _AppDrawerState extends State<AppDrawer> {
                   icon: Icons.calendar_month_rounded,
                   title: l10n.calendar,
                   subtitle: l10n.calendarDesc,
+                  identifier: SemanticsIds.drawerCalendar,
                   onTap: () {
                     AppNavigator.pop(context);
                     AppNavigator.toCalendar(context);
@@ -187,6 +189,7 @@ class _AppDrawerState extends State<AppDrawer> {
                   icon: Icons.settings_rounded,
                   title: l10n.appSettings,
                   subtitle: l10n.appSettingsDesc,
+                  identifier: SemanticsIds.drawerSettings,
                   onTap: () =>
                       _openSettingsPage(context, AppNavigator.toSettings),
                 ),
@@ -195,6 +198,7 @@ class _AppDrawerState extends State<AppDrawer> {
                   icon: Icons.storage_rounded,
                   title: l10n.databaseSettings,
                   subtitle: l10n.databaseSettingsDesc,
+                  identifier: SemanticsIds.settingsDatabases,
                   onTap: () => _openSettingsPage(
                     context,
                     AppNavigator.toDatabaseSettings,
@@ -215,6 +219,7 @@ class _AppDrawerState extends State<AppDrawer> {
                   icon: Icons.palette_rounded,
                   title: l10n.themeSettings,
                   subtitle: l10n.themeSettingsDesc,
+                  identifier: SemanticsIds.settingsAppearance,
                   onTap: () {
                     AppNavigator.pop(context);
                     _showThemeDialog(context);
@@ -439,6 +444,25 @@ class _AppDrawerState extends State<AppDrawer> {
   }
 
   Widget _buildMenuItem({
+    required BuildContext context,
+    required IconData icon,
+    required String title,
+    String? subtitle,
+    required VoidCallback onTap,
+    String? identifier,
+  }) {
+    final row = _buildMenuTile(
+      context: context,
+      icon: icon,
+      title: title,
+      subtitle: subtitle,
+      onTap: onTap,
+    );
+    if (identifier == null) return row;
+    return Semantics(identifier: identifier, child: row);
+  }
+
+  Widget _buildMenuTile({
     required BuildContext context,
     required IconData icon,
     required String title,

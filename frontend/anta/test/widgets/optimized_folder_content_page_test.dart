@@ -20,6 +20,7 @@ import 'package:anta/constants/app_colors.dart';
 import 'package:anta/constants/app_spacing.dart';
 import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/row_metrics.dart';
+import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
@@ -2910,6 +2911,162 @@ void main() {
       expect(find.byType(SelectionActionBar), findsNothing);
 
       await teardownPage(tester);
+    });
+  });
+
+  /// The ids an accessibility-tree driver targets. They are a contract with
+  /// something outside this repository, so "the control still exists" is not
+  /// enough — the id has to be on it.
+  group('automation identifiers', () {
+    testWidgets('the root page carries its smart rows and search', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.drawerAllNotes),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.drawerRecent),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.searchOpen),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.createFolder),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.createNote),
+        findsNothing,
+        reason: 'a note cannot live at the root, so that half is the importer',
+      );
+      // The row's own text survives alongside the id.
+      expect(
+        find.descendant(
+          of: find.bySemanticsIdentifier(SemanticsIds.drawerAllNotes),
+          matching: find.text(l10n.allNotes),
+        ),
+        findsOneWidget,
+      );
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('a folder page carries the nav pair and both create buttons', (
+      tester,
+    ) async {
+      await pumpPage(tester, folderId: folder.id);
+
+      expect(find.bySemanticsIdentifier(SemanticsIds.navBack), findsOneWidget);
+      expect(find.bySemanticsIdentifier(SemanticsIds.navMenu), findsOneWidget);
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.createFolder),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.createNote),
+        findsOneWidget,
+      );
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('the search field carries its id once opened', (tester) async {
+      await pumpPage(tester);
+
+      await tester.tap(find.bySemanticsIdentifier(SemanticsIds.searchOpen));
+      await settle(tester);
+
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.searchField),
+        findsOneWidget,
+        reason: 'tapping the tagged button has to reach the tagged field',
+      );
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('the create-folder dialog carries confirm and cancel', (
+      tester,
+    ) async {
+      await pumpPage(tester, folderId: folder.id);
+
+      await tester.tap(find.bySemanticsIdentifier(SemanticsIds.createFolder));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.sheetConfirm),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.sheetCancel),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.bySemanticsIdentifier(SemanticsIds.sheetCancel));
+      await tester.pumpAndSettle();
+      await settle(tester);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('a tagged button keeps its id and its label on one node', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      await pumpPage(tester, folderId: folder.id);
+
+      // What an `adb shell uiautomator dump` shows as one row. A tooltip lands
+      // on SemanticsData.tooltip, not label, and Android reads it as the
+      // content description — so the Flutter Driver finder for these is
+      // ByTooltipMessage, never BySemanticsLabel.
+      for (final (identifier, tooltip) in <(String, String)>[
+        (SemanticsIds.searchOpen, l10n.searchInFolder),
+        (SemanticsIds.createFolder, l10n.newFolder),
+      ]) {
+        // getSemanticsData() is the merged view — what the platform, and so
+        // `uiautomator dump`, actually receives for the node.
+        final data = tester
+            .getSemantics(find.bySemanticsIdentifier(identifier))
+            .getSemanticsData();
+        expect(data.identifier, identifier, reason: identifier);
+        expect(data.tooltip, tooltip, reason: identifier);
+        expect(
+          data.hasAction(SemanticsAction.tap),
+          isTrue,
+          reason: '$identifier must stay tappable on the tagged node',
+        );
+        expect(
+          find.byTooltip(tooltip),
+          findsOneWidget,
+          reason: 'the driver ByTooltipMessage finder must still resolve it',
+        );
+      }
+
+      // A row with real text keeps a label, so BySemanticsLabel works there.
+      await teardownPage(tester);
+      handle.dispose();
+    });
+
+    testWidgets('a tagged row keeps a label a BySemanticsLabel finder sees', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      await pumpPage(tester);
+
+      final data = tester
+          .getSemantics(find.bySemanticsIdentifier(SemanticsIds.drawerAllNotes))
+          .getSemanticsData();
+      expect(data.identifier, SemanticsIds.drawerAllNotes);
+      expect(data.label, contains(l10n.allNotes));
+      expect(find.bySemanticsLabel(data.label), findsWidgets);
+
+      await teardownPage(tester);
+      handle.dispose();
     });
   });
 }

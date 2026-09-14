@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../constants/app_colors.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/item_label.dart';
 import 'label_dot.dart';
@@ -66,9 +67,13 @@ Future<ItemLabel?> showLabelPickerSheet(
               const Divider(),
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8),
-                child: LabelSwatchStrip(
-                  value: value,
-                  onChanged: (label) => Navigator.of(sheetContext).pop(label),
+                child: Semantics(
+                  identifier: SemanticsIds.labelPicker,
+                  explicitChildNodes: true,
+                  child: LabelSwatchStrip(
+                    value: value,
+                    onChanged: (label) => Navigator.of(sheetContext).pop(label),
+                  ),
                 ),
               ),
               const SizedBox(height: 8),

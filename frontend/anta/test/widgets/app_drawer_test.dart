@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 
+import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/l10n/app_localizations.dart';
@@ -137,6 +138,54 @@ void main() {
       await settings.setFolderSwipeEnabled(false);
 
       expect(await dragEnabledOnSettingsPage(tester), isFalse);
+    });
+  });
+
+  group('automation identifiers', () {
+    testWidgets('every tagged drawer destination carries its id', (
+      tester,
+    ) async {
+      await pumpHost(tester);
+      hostState(tester).openDrawer();
+      await settle(tester);
+
+      for (final id in [
+        SemanticsIds.drawerCalendar,
+        SemanticsIds.drawerSettings,
+        SemanticsIds.settingsAppearance,
+        SemanticsIds.settingsDatabases,
+      ]) {
+        expect(
+          find.bySemanticsIdentifier(id),
+          findsOneWidget,
+          reason: '$id is missing from the drawer',
+        );
+      }
+
+      // The id rides next to the row's own text rather than replacing it:
+      // a driver finds the control, a screen reader still reads the row.
+      expect(
+        find.descendant(
+          of: find.bySemanticsIdentifier(SemanticsIds.drawerSettings),
+          matching: find.text(l10n.appSettings),
+        ),
+        findsOneWidget,
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('the leading nav pair carries both halves', (tester) async {
+      await pumpHost(tester);
+      hostState(tester).openDrawer();
+      await settle(tester);
+      await tester.tap(find.text(l10n.appSettingsDesc));
+      await settle(tester);
+
+      expect(find.bySemanticsIdentifier(SemanticsIds.navBack), findsOneWidget);
+      expect(find.bySemanticsIdentifier(SemanticsIds.navMenu), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
     });
   });
 }

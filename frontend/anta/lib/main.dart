@@ -20,6 +20,7 @@ import 'constants/app_icon_sizes.dart';
 import 'constants/app_spacing.dart';
 import 'constants/app_theme.dart';
 import 'core/di/injection.dart';
+import 'core/qa/qa_bootstrap.dart';
 import 'pages/optimized_folder_content_page.dart';
 import 'pages/onboarding_page.dart';
 import 'services/app_navigator.dart';
@@ -155,6 +156,9 @@ void installErrorHooks() {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Namespaces preferences and honours a reset marker before anything opens
+  // preferences or a database. Compiled out unless `ANTA_QA` is defined.
+  await QaBootstrap.beforeDependencies();
   installErrorHooks();
   await initializeDateFormatting();
 
@@ -179,6 +183,11 @@ void main() async {
   }
 
   await configureDependencies();
+
+  // Imports a seed marker and skips onboarding, so the first frame of a QA run
+  // is the folder root over known data. Compiled out unless `ANTA_QA` is
+  // defined.
+  await QaBootstrap.afterDependencies();
 
   // Seeds `LabelAppearance.style` before the first frame, so a browser opened
   // straight into the stripe style renders it rather than flashing the dot it

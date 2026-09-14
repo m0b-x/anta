@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../constants/app_bar_metrics.dart';
 import '../constants/app_colors.dart';
+import '../constants/semantics_ids.dart';
 import '../controllers/in_place_search_controller.dart';
 import '../l10n/app_localizations.dart';
 import '../models/item_label.dart';
@@ -125,23 +126,26 @@ class SearchBarField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return TextField(
-      controller: controller,
-      focusNode: focusNode,
-      textInputAction: TextInputAction.search,
-      decoration: InputDecoration(
-        hintText: hintText,
-        border: InputBorder.none,
-        isDense: true,
-        contentPadding: EdgeInsets.zero,
-        hintStyle: TextStyle(
-          color: colorScheme.outline,
-          fontSize: AppBarMetrics.titleFontSize,
+    return Semantics(
+      identifier: SemanticsIds.searchField,
+      child: TextField(
+        controller: controller,
+        focusNode: focusNode,
+        textInputAction: TextInputAction.search,
+        decoration: InputDecoration(
+          hintText: hintText,
+          border: InputBorder.none,
+          isDense: true,
+          contentPadding: EdgeInsets.zero,
+          hintStyle: TextStyle(
+            color: colorScheme.outline,
+            fontSize: AppBarMetrics.titleFontSize,
+          ),
         ),
+        style: const TextStyle(fontSize: AppBarMetrics.titleFontSize),
+        onChanged: onChanged,
+        onSubmitted: onSubmitted,
       ),
-      style: const TextStyle(fontSize: AppBarMetrics.titleFontSize),
-      onChanged: onChanged,
-      onSubmitted: onSubmitted,
     );
   }
 }

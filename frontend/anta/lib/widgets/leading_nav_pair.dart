@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 
 import '../constants/app_bar_metrics.dart';
+import '../constants/semantics_ids.dart';
+import 'automation_id.dart';
 
 /// The leading control of every bar that has somewhere to go back to: the
 /// back arrow and the drawer button side by side, split by a hairline.
@@ -68,6 +70,7 @@ class LeadingNavPair extends StatelessWidget {
             builder: (context) => _NavButton(
               icon: const Icon(Icons.menu_rounded),
               tooltip: MaterialLocalizations.of(context).openAppDrawerTooltip,
+              identifier: SemanticsIds.navMenu,
               onPressed: onMenu,
             ),
           ),
@@ -83,6 +86,7 @@ class LeadingNavPair extends StatelessWidget {
         final button = _NavButton(
           icon: const BackButtonIcon(),
           tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+          identifier: SemanticsIds.navBack,
           onPressed: onBack,
           onLongPress: longPress == null ? null : () => longPress(context),
         );
@@ -108,17 +112,26 @@ class _NavButton extends StatelessWidget {
   const _NavButton({
     required this.icon,
     required this.tooltip,
+    required this.identifier,
     required this.onPressed,
     this.onLongPress,
   });
 
   final Widget icon;
   final String tooltip;
+
+  /// The automation id, merged onto the button's own node so a dump shows one
+  /// node carrying both the id and the tooltip.
+  final String identifier;
   final VoidCallback onPressed;
   final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
+    return AutomationId(identifier: identifier, child: _buildButton());
+  }
+
+  Widget _buildButton() {
     return IconButton(
       icon: icon,
       tooltip: tooltip,

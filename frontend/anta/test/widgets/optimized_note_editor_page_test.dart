@@ -17,6 +17,7 @@ import 'package:anta/bloc/optimized_note/optimized_note_state.dart';
 import 'package:anta/constants/app_spacing.dart';
 import 'package:anta/constants/font_constants.dart';
 import 'package:anta/constants/markdown_constants.dart';
+import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
@@ -2165,6 +2166,40 @@ void main() {
 
       expect(exportService.shared, hasLength(1));
       expect(exportService.shared.single.format, ExportFormat.markdown);
+
+      await teardownPage(tester);
+    });
+  });
+
+  /// The ids an accessibility-tree driver targets. The editor's own nodes —
+  /// one per visible line plus the text field — must survive the annotation,
+  /// which is why it is an explicit-children container rather than a merge.
+  group('automation identifiers', () {
+    testWidgets('the loaded editor carries body, toolbar and overflow', (
+      tester,
+    ) async {
+      await loadNote(tester);
+
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.editorBody),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.editorToolbar),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.editorMore),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.bySemanticsIdentifier(SemanticsIds.editorBody),
+          matching: find.byType(ModernEditorWrapper),
+        ),
+        findsOneWidget,
+        reason: 'the id has to sit on the editing surface, not beside it',
+      );
 
       await teardownPage(tester);
     });

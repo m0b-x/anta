@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../constants/app_theme.dart';
+import '../constants/semantics_ids.dart';
+import 'automation_id.dart';
 import '../l10n/app_localizations.dart';
 
 enum _NoteMenuAction {
@@ -53,6 +55,17 @@ class NoteOverflowMenu extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final colorScheme = Theme.of(context).colorScheme;
 
+    return AutomationId(
+      identifier: SemanticsIds.editorMore,
+      child: _buildMenu(context, l10n, colorScheme),
+    );
+  }
+
+  Widget _buildMenu(
+    BuildContext context,
+    AppLocalizations l10n,
+    ColorScheme colorScheme,
+  ) {
     return PopupMenuButton<_NoteMenuAction>(
       icon: const Icon(Icons.more_vert),
       constraints: const BoxConstraints.tightFor(width: AppTheme.menuWidth),

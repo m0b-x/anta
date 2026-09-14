@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
 
+import '../constants/semantics_ids.dart';
+import 'automation_id.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../utils/event_agenda.dart';
@@ -84,26 +86,29 @@ class CalendarAddFab extends StatelessWidget {
     return ValueListenableBuilder<bool>(
       valueListenable: extended,
       builder: (context, isExtended, _) {
-        return FloatingActionButton.extended(
-          tooltip: l10n.addEvent,
-          backgroundColor: accent,
-          foregroundColor: onAccent,
-          onPressed: day == null ? null : () => onPressed(day),
-          // With no day there is nothing to name, so a labelled button would
-          // be worse than a circle. `FloatingActionButton.extended` animates
-          // between the two itself — there is no custom transition here.
-          isExtended: isExtended && day != null,
-          icon: const Icon(Icons.add_rounded),
-          label: Text(
-            day == null
-                ? ''
-                : AgendaListView.shortDayLabel(
-                    l10n,
-                    day,
-                    EventAgenda.dateOnly(DateTime.now()),
-                  ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+        return AutomationId(
+          identifier: SemanticsIds.calendarAddEvent,
+          child: FloatingActionButton.extended(
+            tooltip: l10n.addEvent,
+            backgroundColor: accent,
+            foregroundColor: onAccent,
+            onPressed: day == null ? null : () => onPressed(day),
+            // With no day there is nothing to name, so a labelled button would
+            // be worse than a circle. `FloatingActionButton.extended` animates
+            // between the two itself — there is no custom transition here.
+            isExtended: isExtended && day != null,
+            icon: const Icon(Icons.add_rounded),
+            label: Text(
+              day == null
+                  ? ''
+                  : AgendaListView.shortDayLabel(
+                      l10n,
+                      day,
+                      EventAgenda.dateOnly(DateTime.now()),
+                    ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
         );
       },

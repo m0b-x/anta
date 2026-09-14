@@ -73,6 +73,7 @@ import '../services/vocabulary_service.dart';
 import '../constants/app_constants.dart';
 import '../constants/app_spacing.dart';
 import '../constants/font_constants.dart';
+import '../constants/semantics_ids.dart';
 
 class OptimizedNoteEditorPage extends StatefulWidget {
   final String folderId;
@@ -2016,30 +2017,36 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     final settings = _editorSettings.value;
     final history = _historyState;
     _builtHistory = history;
-    return MarkdownBar(
-      shortcuts: _shortcuts,
-      isPreviewMode: showPreview,
-      canUndo: history.canUndo,
-      canRedo: history.canRedo,
-      previewFontSize: showPreview ? _previewFontSize : settings.editorFontSize,
-      shortcutRatio: settings.toolbarShortcutRatio,
-      splitEnabled: settings.toolbarSplitEnabled,
-      utilityConfigs: settings.toolbarUtilityConfig,
-      onUndo: () => _historyObserver.undo(),
-      onRedo: () => _historyObserver.redo(),
-      onPaste: () => _contentController.paste(),
-      onSwitchBar: _showBarSwitcher,
-      onDecreaseFontSize: _decreaseFontSize,
-      onIncreaseFontSize: _increaseFontSize,
-      onSettings: _openMarkdownSettings,
-      onShortcutPressed: _handleShortcut,
-      onReorderComplete: _handleReorderComplete,
-      onUtilityReorderComplete: _handleUtilityReorderComplete,
-      onShare: _showExportFormatDialog,
-      onCounter: _showCounterPicker,
-      onScrollToTop: () => _scrollToEdge(toTop: true),
-      onScrollToBottom: () => _scrollToEdge(toTop: false),
-      suggestions: _vocabularySuggestions,
+    return Semantics(
+      identifier: SemanticsIds.editorToolbar,
+      explicitChildNodes: true,
+      child: MarkdownBar(
+        shortcuts: _shortcuts,
+        isPreviewMode: showPreview,
+        canUndo: history.canUndo,
+        canRedo: history.canRedo,
+        previewFontSize: showPreview
+            ? _previewFontSize
+            : settings.editorFontSize,
+        shortcutRatio: settings.toolbarShortcutRatio,
+        splitEnabled: settings.toolbarSplitEnabled,
+        utilityConfigs: settings.toolbarUtilityConfig,
+        onUndo: () => _historyObserver.undo(),
+        onRedo: () => _historyObserver.redo(),
+        onPaste: () => _contentController.paste(),
+        onSwitchBar: _showBarSwitcher,
+        onDecreaseFontSize: _decreaseFontSize,
+        onIncreaseFontSize: _increaseFontSize,
+        onSettings: _openMarkdownSettings,
+        onShortcutPressed: _handleShortcut,
+        onReorderComplete: _handleReorderComplete,
+        onUtilityReorderComplete: _handleUtilityReorderComplete,
+        onShare: _showExportFormatDialog,
+        onCounter: _showCounterPicker,
+        onScrollToTop: () => _scrollToEdge(toTop: true),
+        onScrollToBottom: () => _scrollToEdge(toTop: false),
+        suggestions: _vocabularySuggestions,
+      ),
     );
   }
 
@@ -2113,49 +2120,57 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     final settings = _editorSettings.value;
     final markdownRendering = settings.liveMarkdownRendering;
 
-    return KeyedSubtree(
-      key: _editorWrapperKey,
-      child: ModernEditorWrapper(
-        // Toggling live markdown rendering remounts the editor so all
-        // cached line paragraphs are rebuilt with the new span builder.
-        // That is also why the whole settings bundle has to have landed
-        // before this first mounts (B4) — a key that flips one frame in
-        // would remount the CodeEditor mid-initialization.
-        //
-        // Money config is NOT folded into this key: it resolves
-        // asynchronously on note open, and a remount there tears the
-        // CodeEditor down during its own mount, crashing re_editor's
-        // controller-delegate handoff. It is applied non-destructively
-        // via [EditorRenderController.applyMoneyConfig] (cache clear) +
-        // a repaint nudge in [_refreshMoneyConfig] instead.
-        key: ValueKey(markdownRendering ? 'editor-md' : 'editor'),
-        controller: _contentController,
-        focusNode: _contentFocusNode,
-        scrollController: _editorScrollController,
-        searchController: _searchController,
-        editorFontSize: settings.editorFontSize,
-        onTextChanged: _edits.onTextChanged,
-        showLineNumbers: settings.showLineNumbers,
-        wordWrap: settings.wordWrap,
-        showCursorLine: settings.showCursorLine,
-        checkboxTapToggle: markdownRendering,
-        // Editor link taps confirm via snackbar before the preview's
-        // opener runs (scheme validation + localized errors); fence
-        // lines render raw so taps there stay plain editing.
-        onOpenLink: markdownRendering ? _handleEditorLinkTap : null,
-        onOpenTag: markdownRendering ? _handleTagTap : null,
-        onOpenWikiLink: markdownRendering ? _handleWikiLinkTap : null,
-        onMoneyTap: markdownRendering && _render.moneyConfig.enabled
-            ? _handleMoneyTap
-            : null,
-        isFenceLine: markdownRendering ? _render.lineInFence : null,
-        colorPalette: _render.palette,
-        lineNumbersKey: _lineNumbersKey,
-        scrollIndicatorKey: _scrollIndicatorKey,
-        // Chunk debug visualization (matches preview mode)
-        linesPerChunk: _previewLinesPerChunk,
-        showChunkColors: showChunkDebug && devOptions.colorMarkdownBlocks,
-        showChunkBorders: showChunkDebug && devOptions.showBlockBoundaries,
+    return Semantics(
+      identifier: SemanticsIds.editorBody,
+      // The editor publishes a node per visible line plus its own text field;
+      // an annotation that merged them would flatten the whole surface into
+      // one label. This one is a container above them and changes nothing
+      // underneath it.
+      explicitChildNodes: true,
+      child: KeyedSubtree(
+        key: _editorWrapperKey,
+        child: ModernEditorWrapper(
+          // Toggling live markdown rendering remounts the editor so all
+          // cached line paragraphs are rebuilt with the new span builder.
+          // That is also why the whole settings bundle has to have landed
+          // before this first mounts (B4) — a key that flips one frame in
+          // would remount the CodeEditor mid-initialization.
+          //
+          // Money config is NOT folded into this key: it resolves
+          // asynchronously on note open, and a remount there tears the
+          // CodeEditor down during its own mount, crashing re_editor's
+          // controller-delegate handoff. It is applied non-destructively
+          // via [EditorRenderController.applyMoneyConfig] (cache clear) +
+          // a repaint nudge in [_refreshMoneyConfig] instead.
+          key: ValueKey(markdownRendering ? 'editor-md' : 'editor'),
+          controller: _contentController,
+          focusNode: _contentFocusNode,
+          scrollController: _editorScrollController,
+          searchController: _searchController,
+          editorFontSize: settings.editorFontSize,
+          onTextChanged: _edits.onTextChanged,
+          showLineNumbers: settings.showLineNumbers,
+          wordWrap: settings.wordWrap,
+          showCursorLine: settings.showCursorLine,
+          checkboxTapToggle: markdownRendering,
+          // Editor link taps confirm via snackbar before the preview's
+          // opener runs (scheme validation + localized errors); fence
+          // lines render raw so taps there stay plain editing.
+          onOpenLink: markdownRendering ? _handleEditorLinkTap : null,
+          onOpenTag: markdownRendering ? _handleTagTap : null,
+          onOpenWikiLink: markdownRendering ? _handleWikiLinkTap : null,
+          onMoneyTap: markdownRendering && _render.moneyConfig.enabled
+              ? _handleMoneyTap
+              : null,
+          isFenceLine: markdownRendering ? _render.lineInFence : null,
+          colorPalette: _render.palette,
+          lineNumbersKey: _lineNumbersKey,
+          scrollIndicatorKey: _scrollIndicatorKey,
+          // Chunk debug visualization (matches preview mode)
+          linesPerChunk: _previewLinesPerChunk,
+          showChunkColors: showChunkDebug && devOptions.colorMarkdownBlocks,
+          showChunkBorders: showChunkDebug && devOptions.showBlockBoundaries,
+        ),
       ),
     );
   }

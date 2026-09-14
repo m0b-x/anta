@@ -2233,9 +2233,10 @@ over-counts every line — use `git diff --no-index` (or
 `--strip-trailing-cr`); a cherry-pick of a change the fork already
 carries can apply with **no conflict** and leave a duplicate member — a
 compile error, not a merge marker — so `dart analyze` after every pick;
-the app does not compile in `flutter_driver`'s extension, so device
-checks go through `adb shell input tap/text/swipe` + `exec-out screencap`
-with a DTD connection for runtime errors; `LinkedHashMap.identity()`
+the "app does not compile in `flutter_driver`'s extension" belief
+recorded here was wrong — the dev dependency was simply absent (spike
+2026-09-13; `test_driver/main_driver.dart` now exists and `qa run` uses
+it, see the `qa-emulator` skill); `LinkedHashMap.identity()`
 never calls a key's `==`/`hashCode` (it is `identical`/`identityHashCode`
 by construction), so a counting span measures only the L2 fall-through;
 a `const` constructor on a `TextSpan` subclass that is only ever invoked

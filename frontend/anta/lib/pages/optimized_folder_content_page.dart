@@ -17,6 +17,7 @@ import '../bloc/optimized_note/optimized_note_state.dart';
 import '../bloc/search/search_bloc.dart';
 import '../constants/app_colors.dart';
 import '../constants/row_metrics.dart';
+import '../constants/semantics_ids.dart';
 import '../constants/settings_keys.dart';
 import '../controllers/in_place_search_controller.dart';
 import '../controllers/selection_controller.dart';
@@ -39,6 +40,7 @@ import '../services/note_storage_service.dart';
 import '../services/settings_service.dart';
 import '../widgets/infinite_scroll_list.dart';
 import '../widgets/app_drawer.dart';
+import '../widgets/automation_id.dart';
 import '../widgets/content_rows.dart';
 import '../widgets/folder_overflow_menu.dart';
 import '../widgets/folder_row.dart';
@@ -97,6 +99,7 @@ class _SmartRow extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.position,
+    required this.identifier,
     required this.onTap,
     this.count,
   });
@@ -105,10 +108,18 @@ class _SmartRow extends StatelessWidget {
   final String label;
   final int? count;
   final RowGroupPosition position;
+
+  /// The automation id, on a node of its own above the row so the row's own
+  /// merged label and tap action are left exactly as they were.
+  final String identifier;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    return Semantics(identifier: identifier, child: _buildRow(context));
+  }
+
+  Widget _buildRow(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
 
     return ContentRowShell(
@@ -1068,12 +1079,15 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
                         eyebrow: isRootPage ? null : _eyebrowLabel(context),
                         onShowAncestors: isRootPage ? null : _showAncestorMenu,
                         actions: [
-                          IconButton(
-                            icon: const Icon(Icons.search),
-                            tooltip: widget.folderId != null
-                                ? AppLocalizations.of(context)!.searchInFolder
-                                : AppLocalizations.of(context)!.searchAll,
-                            onPressed: _openSearch,
+                          AutomationId(
+                            identifier: SemanticsIds.searchOpen,
+                            child: IconButton(
+                              icon: const Icon(Icons.search),
+                              tooltip: widget.folderId != null
+                                  ? AppLocalizations.of(context)!.searchInFolder
+                                  : AppLocalizations.of(context)!.searchAll,
+                              onPressed: _openSearch,
+                            ),
                           ),
                           StreamBuilder<int>(
                             stream: GetIt.I<MoveHistoryService>().changes,
@@ -1213,6 +1227,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
                     _barButton(
                       icon: Icons.create_new_folder_outlined,
                       tooltip: l10n.newFolder,
+                      identifier: SemanticsIds.createFolder,
                       onPressed: _showCreateFolderDialog,
                     ),
                     if (isRootPage)
@@ -1225,6 +1240,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
                       _barButton(
                         icon: Icons.note_add_outlined,
                         tooltip: l10n.newNote,
+                        identifier: SemanticsIds.createNote,
                         onPressed: _createNewNote,
                       ),
                   ],
@@ -1256,8 +1272,9 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     required IconData icon,
     required String tooltip,
     required VoidCallback onPressed,
+    String? identifier,
   }) {
-    return IconButton(
+    final button = IconButton(
       icon: Icon(icon),
       iconSize: RowMetrics.bottomBarGlyphSize,
       color: Theme.of(context).colorScheme.primary,
@@ -1269,6 +1286,8 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
       tooltip: tooltip,
       onPressed: onPressed,
     );
+    if (identifier == null) return button;
+    return AutomationId(identifier: identifier, child: button);
   }
 
   /// What this folder holds, read off the same paginated states the list
@@ -1866,12 +1885,14 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
           label: l10n.allNotes,
           count: count,
           position: RowGroupPosition.first,
+          identifier: SemanticsIds.drawerAllNotes,
           onTap: () => AppNavigator.toAllNotes(context),
         ),
         _SmartRow(
           icon: Icons.schedule_outlined,
           label: l10n.recent,
           position: RowGroupPosition.last,
+          identifier: SemanticsIds.drawerRecent,
           onTap: () => AppNavigator.toRecentNotes(context),
         ),
       ],

@@ -1,0 +1,162 @@
+{
+  "version": 7,
+  "exportedAt": "2026-01-01T09:00:00.000",
+  "folders": [
+    {
+      "id": "qa-folder-training",
+      "name": "Training",
+      "parentId": null,
+      "position": 0,
+      "createdAt": "2026-01-01T09:00:00.000",
+      "updatedAt": "2026-01-01T09:00:00.000",
+      "noteSortOrder": null,
+      "subfolderSortOrder": null,
+      "label": "blue"
+    },
+    {
+      "id": "qa-folder-money",
+      "name": "Money",
+      "parentId": null,
+      "position": 1,
+      "createdAt": "2026-01-01T09:00:00.000",
+      "updatedAt": "2026-01-01T09:00:00.000",
+      "noteSortOrder": null,
+      "subfolderSortOrder": null,
+      "label": "green"
+    },
+    {
+      "id": "qa-folder-inbox",
+      "name": "Inbox",
+      "parentId": null,
+      "position": 2,
+      "createdAt": "2026-01-01T09:00:00.000",
+      "updatedAt": "2026-01-01T09:00:00.000",
+      "noteSortOrder": null,
+      "subfolderSortOrder": null,
+      "label": "none"
+    },
+    {
+      "id": "qa-folder-week-1",
+      "name": "Week 1",
+      "parentId": "qa-folder-training",
+      "position": 0,
+      "createdAt": "2026-01-01T09:00:00.000",
+      "updatedAt": "2026-01-01T09:00:00.000",
+      "noteSortOrder": null,
+      "subfolderSortOrder": null,
+      "label": "none"
+    }
+  ],
+  "notes": [
+    {
+      "id": "qa-note-session-1",
+      "folderId": "qa-folder-week-1",
+      "title": "Session 1",
+      "content": "# Session 1\n\n## Warm up\n\n- [x] Bike 10 min\n- [ ] Mobility flow\n\n## Main lifts\n\n- Squat\n  - 5 x 5 @ 100 kg\n  - last set felt heavy\n- Bench\n  - 5 x 5 @ 70 kg\n\nTagged #training for the weekly review.\n\nNext one is [[Session 2]].\n",
+      "preview": "# Session 1",
+      "createdAt": "2026-01-01T09:05:00.000",
+      "updatedAt": "2026-01-01T09:05:00.000",
+      "label": "teal"
+    },
+    {
+      "id": "qa-note-session-2",
+      "folderId": "qa-folder-week-1",
+      "title": "Session 2",
+      "content": "# Session 2\n\n## Checklist\n\n- [ ] Deadlift\n- [ ] Row\n  - [ ] warm up set\n\nBack to [[Session 1]] for the numbers. #training\n",
+      "preview": "# Session 2",
+      "createdAt": "2026-01-01T09:06:00.000",
+      "updatedAt": "2026-01-01T09:06:00.000",
+      "label": "none"
+    },
+    {
+      "id": "qa-note-ledger",
+      "folderId": "qa-folder-money",
+      "title": "January",
+      "content": "# January\n\n$= 1000 opening balance\n$- 12.50 coffee\n$- 240 rent\n$+ 80 refund\n$$ balance\n$? since checkpoint\n\n## Budget\n\n$! 500 eating out\n$- 32 dinner #food\n$! remaining\n",
+      "preview": "# January",
+      "createdAt": "2026-01-01T09:07:00.000",
+      "updatedAt": "2026-01-01T09:07:00.000",
+      "label": "none"
+    }
+  ],
+  "settings": {
+    "money_ledger_enabled": "true"
+  },
+  "counterData": {
+    "counters": "[{\"id\":\"qa-counter-sets\",\"name\":\"Sets\",\"counterStartValue\":1,\"counterStep\":1,\"counterScope\":\"global\",\"isPinned\":true,\"createdAt\":\"2026-01-01T09:00:00.000\"},{\"id\":\"qa-counter-reps\",\"name\":\"Reps\",\"counterStartValue\":0,\"counterStep\":5,\"counterScope\":\"perNote\",\"isPinned\":false,\"createdAt\":\"2026-01-01T09:00:00.000\"}]",
+    "globalValues": "{\"qa-counter-sets\":12}",
+    "noteValues": "{}",
+    "noteValueExtras": "{}"
+  },
+  "calendarCategories": [
+    {
+      "id": "qa-category-strength",
+      "name": "Strength",
+      "colorValue": 4284955319,
+      "iconKey": "fitness_center",
+      "sortOrder": 100,
+      "isBuiltIn": false,
+      "isHidden": false,
+      "createdAtMs": 1767250800000,
+      "updatedAtMs": 1767250800000
+    }
+  ],
+  "calendarEvents": [
+    {
+      "id": "qa-event-weekly-lift",
+      "title": "Lifting session",
+      "category": "qa-category-strength",
+      "startDateMs": 1767225600000,
+      "allDay": false,
+      "iconKey": "fitness_center",
+      "ruleKind": "weekly",
+      "rulePayload": "{\"weekdays\":[1,4]}",
+      "endDateMs": null,
+      "startMinute": 1080,
+      "durationMinutes": 90,
+      "description": "Squat and bench, see [[Session 1]].",
+      "noteId": null,
+      "colorValue": null,
+      "tintIcon": true,
+      "priority": 2,
+      "retroactive": false,
+      "countOccurrences": true,
+      "countStyle": "numbered",
+      "tracksPresence": false,
+      "assumeAbsent": false,
+      "assumeAbsentFromMs": null,
+      "perOccurrenceDescriptions": false,
+      "showInDayRail": true,
+      "createdAtMs": 1767250800000,
+      "updatedAtMs": 1767250800000
+    },
+    {
+      "id": "qa-event-checkup",
+      "title": "Yearly checkup",
+      "category": "other",
+      "startDateMs": 1770076800000,
+      "allDay": true,
+      "iconKey": "event",
+      "ruleKind": "oneTime",
+      "rulePayload": null,
+      "endDateMs": null,
+      "startMinute": null,
+      "durationMinutes": null,
+      "description": "Bring the blood test results.",
+      "noteId": null,
+      "colorValue": null,
+      "tintIcon": false,
+      "priority": 3,
+      "retroactive": false,
+      "countOccurrences": false,
+      "countStyle": "numbered",
+      "tracksPresence": false,
+      "assumeAbsent": false,
+      "assumeAbsentFromMs": null,
+      "perOccurrenceDescriptions": false,
+      "showInDayRail": true,
+      "createdAtMs": 1767250800000,
+      "updatedAtMs": 1767250800000
+    }
+  ]
+}

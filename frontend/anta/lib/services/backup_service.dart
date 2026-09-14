@@ -306,13 +306,26 @@ class BackupService {
       int foldersImported = 0;
       int notesImported = 0;
 
-      for (final folderData in folders) {
-        final map = folderData as Map<String, dynamic>;
-        await _db.folderDao.createFolder(
+      // An import appends copies, so every row gets a fresh id — which means
+      // every reference to an archived id has to be translated to the id the
+      // copy actually got. Without this a restore onto a database that does
+      // not already contain the archive's rows (a fresh install, the
+      // onboarding path) inserts subfolders and notes under ids that exist
+      // nowhere, and they are invisible in the browser.
+      final folderIdMap = <String, String>{};
+      final noteIdMap = <String, String>{};
+
+      for (final map in _foldersParentsFirst(folders)) {
+        final archivedParent = map[JsonKeys.parentId] as String?;
+        final folder = await _db.folderDao.createFolder(
           name: map[JsonKeys.name] as String,
-          parentId: map[JsonKeys.parentId] as String?,
+          parentId: archivedParent == null
+              ? null
+              : folderIdMap[archivedParent] ?? archivedParent,
           label: ItemLabel.fromName(map[JsonKeys.label] as String?),
         );
+        final archivedId = map[JsonKeys.id];
+        if (archivedId is String) folderIdMap[archivedId] = folder.id;
         foldersImported++;
       }
 
@@ -320,15 +333,18 @@ class BackupService {
         final map = noteData as Map<String, dynamic>;
         final content = map[JsonKeys.content] as String? ?? '';
         final preview = NoteMetadata.generatePreview(content);
+        final archivedFolderId = map[JsonKeys.folderId] as String;
 
         final note = await _db.noteDao.createNote(
-          folderId: map[JsonKeys.folderId] as String,
+          folderId: folderIdMap[archivedFolderId] ?? archivedFolderId,
           title: map[JsonKeys.title] as String,
           preview: preview,
           contentLength: content.length,
           chunkCount: 1,
           label: ItemLabel.fromName(map[JsonKeys.label] as String?),
         );
+        final archivedNoteId = map[JsonKeys.id];
+        if (archivedNoteId is String) noteIdMap[archivedNoteId] = note.id;
 
         await _db.contentChunkDao.saveContent(
           noteId: note.id,
@@ -366,7 +382,7 @@ class BackupService {
       if (noteBarAssignments != null) {
         for (final entry in noteBarAssignments.entries) {
           await _db.userSettingsDao.setValue(
-            'note_bar_${entry.key}',
+            'note_bar_${noteIdMap[entry.key] ?? entry.key}',
             entry.value.toString(),
           );
         }
@@ -379,7 +395,8 @@ class BackupService {
       if (noteMoneyCurrencies != null) {
         for (final entry in noteMoneyCurrencies.entries) {
           await _db.userSettingsDao.setValue(
-            '${SettingsKeys.moneyNoteCurrencyPrefix}${entry.key}',
+            '${SettingsKeys.moneyNoteCurrencyPrefix}'
+            '${noteIdMap[entry.key] ?? entry.key}',
             entry.value.toString(),
           );
         }
@@ -449,23 +466,25 @@ class BackupService {
       final calendarEvents = data['calendarEvents'] as List?;
       if (calendarEvents != null) {
         // Backups older than v7 store priorities on the retired
-        // 5-is-highest scale; flip them so the user's ranking survives.
+        // 5-is-highest scale; flip them so the user's ranking survives. The
+        // linked note, meanwhile, was copied under a new id in every version,
+        // so the link is re-pointed at the copy.
         final backupVersion = data['version'] as int? ?? 1;
-        final events = backupVersion >= 7
-            ? calendarEvents
-            : [
-                for (final event in calendarEvents)
-                  if (event is Map<String, dynamic>)
-                    {
-                      ...event,
-                      if (event['priority'] is int &&
-                          (event['priority'] as int) >= 1 &&
-                          (event['priority'] as int) <= 5)
-                        'priority': 6 - (event['priority'] as int),
-                    }
-                  else
-                    event,
-              ];
+        final events = [
+          for (final event in calendarEvents)
+            if (event is Map<String, dynamic>)
+              {
+                ...event,
+                'noteId': ?noteIdMap[event['noteId']],
+                if (backupVersion < 7 &&
+                    event['priority'] is int &&
+                    (event['priority'] as int) >= 1 &&
+                    (event['priority'] as int) <= 5)
+                  'priority': 6 - (event['priority'] as int),
+              }
+            else
+              event,
+        ];
         await (await CalendarEventService.getInstance()).importData(events);
       }
       // Per-occurrence description overrides (v24+ backups). Unlike the keys
@@ -523,6 +542,43 @@ class BackupService {
     } catch (e) {
       return ImportResult(success: false, error: e.toString());
     }
+  }
+
+  /// The archive's folder rows, ordered so a parent always precedes its
+  /// children.
+  ///
+  /// `exportAllData` writes them in whatever order `getAllFolders` returned,
+  /// and a child created before its parent cannot be re-pointed at the copy
+  /// the parent will become. A parent the archive does not carry, and a cycle
+  /// no export could produce but a hand-edited file could, both simply stop
+  /// the walk — that row still imports, with its parent id as written.
+  static List<Map<String, dynamic>> _foldersParentsFirst(List<dynamic> rows) {
+    final maps = <Map<String, dynamic>>[
+      for (final raw in rows)
+        if (raw is Map<String, dynamic>) raw,
+    ];
+    final byId = <String, Map<String, dynamic>>{
+      for (final map in maps)
+        if (map[JsonKeys.id] is String) map[JsonKeys.id] as String: map,
+    };
+
+    final ordered = <Map<String, dynamic>>[];
+    final placed = <Map<String, dynamic>>{};
+
+    void place(Map<String, dynamic> map, Set<String> chain) {
+      if (!placed.add(map)) return;
+      final parentId = map[JsonKeys.parentId];
+      if (parentId is String && !chain.contains(parentId)) {
+        final parent = byId[parentId];
+        if (parent != null) place(parent, {...chain, parentId});
+      }
+      ordered.add(map);
+    }
+
+    for (final map in maps) {
+      place(map, const {});
+    }
+    return ordered;
   }
 
   Future<bool> hasExistingData() async {

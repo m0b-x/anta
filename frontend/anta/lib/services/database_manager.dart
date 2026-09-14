@@ -3,6 +3,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/qa/qa_mode.dart';
+
 /// Service for managing multiple SQLite databases
 class DatabaseManager {
   static DatabaseManager? _instance;
@@ -21,9 +23,26 @@ class DatabaseManager {
     return _instance!;
   }
 
+  /// The database an install opens when it has never switched.
+  ///
+  /// A QA build falls back to its own database instead of the owner's. Its
+  /// preferences are namespaced, so the stored `active_database` of a normal
+  /// build is invisible to it and this fallback is what it lands on — while
+  /// switching databases from Settings keeps working in both builds.
+  ///
+  /// Takes [qaEnabled] rather than reading [QaMode.enabled] directly so the
+  /// decision is testable: the constant is fixed at compile time.
+  static String defaultDatabaseName({
+    required bool qaEnabled,
+    String qaDatabaseName = QaMode.databaseName,
+  }) {
+    return qaEnabled ? qaDatabaseName : _defaultDatabaseName;
+  }
+
   /// Get the name of the currently active database
   String getActiveDatabaseName() {
-    return _prefs.getString(_keyActiveDatabase) ?? _defaultDatabaseName;
+    return _prefs.getString(_keyActiveDatabase) ??
+        defaultDatabaseName(qaEnabled: QaMode.enabled);
   }
 
   /// Set the active database name
@@ -210,9 +229,13 @@ class DatabaseManager {
       await shm.delete();
     }
 
-    // If the deleted database was the active one, switch to default
+    // If the deleted database was the active one, switch to default — the QA
+    // one in a QA build, so deleting from Settings can never drop that build
+    // onto the owner's database.
     if (getActiveDatabaseName() == name) {
-      await setActiveDatabaseName(_defaultDatabaseName);
+      await setActiveDatabaseName(
+        defaultDatabaseName(qaEnabled: QaMode.enabled),
+      );
     }
   }
 

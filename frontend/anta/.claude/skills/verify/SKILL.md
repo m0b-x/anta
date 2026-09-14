@@ -22,13 +22,26 @@ dart analyze lib
 
 This is the minimum bar for any Dart change. Also analyze `packages/re_editor` if the fork was touched: `dart analyze packages/re_editor/lib`.
 
-## 3. Run the app (behavioral verification)
+## 3. Tests
+
+```powershell
+flutter test                                             # whole suite (~4,600 tests, benchmarks skipped)
+flutter test test/utils/markdown_money_syntax_test.dart  # single file
+flutter test test/qa --plain-name "escaping"             # single case
+flutter test --tags benchmark --run-skipped              # seeded-volume DB timings
+```
+
+Tests are welcome (standing permission, 2026-08-16): new services and blocs ship with focused suites against fakes — see `test/bloc/sync_bloc_test.dart` for the pattern. Known noise: `test/database/vocabulary_crdt_test.dart` "moves the HLC" is a flake, and a `sqlite3.dll` lock crash is transient — rerun before investigating.
+
+## 4. Run the app (behavioral verification)
 
 ```powershell
 flutter run
 ```
 
 Launches on the connected device/emulator (Android is the primary target; Windows desktop works for quick UI checks: `flutter run -d windows`). Hot reload with `r`, hot restart with `R` in the run console.
+
+**For a device pass, load the `qa-emulator` skill instead of driving adb by hand.** It covers booting the emulator, running against an isolated QA database (`dart run tool/qa/qa.dart run --fresh --seed …`), screenshots, tapping and typing by label, the Dart MCP / Flutter Driver layer, and the trap list.
 
 Release / device helpers:
 
@@ -48,5 +61,5 @@ Release / device helpers:
 
 ## Notes
 
-- The test suite is small and targeted (`test/` — currently the money-ledger grammar in `test/utils/markdown_money_syntax_test.dart`). Run `flutter test` when the change touches covered code; a single file is `flutter test test/utils/markdown_money_syntax_test.dart`, a single case adds `--plain-name "<substring>"`. Otherwise verification is analyzer + running the app, and the project convention remains **no new tests unless explicitly requested**.
-- Do not use `flutter analyze` on the whole workspace (platform shells add noise); `dart analyze lib` is the convention.
+- Do not use `flutter analyze` on the whole workspace (platform shells add noise); `dart analyze lib` is the convention. Add `packages/re_editor/lib` when the fork changed, and `tool test_driver` when the QA harness changed.
+- A device pass is not optional for UI work that changes layout, gestures or navigation — and it goes through the `qa-emulator` skill so the recipe stays in one place.

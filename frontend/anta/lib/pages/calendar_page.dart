@@ -24,6 +24,7 @@ import '../constants/event_skips.dart';
 import '../constants/fasting_calendar.dart';
 import '../constants/occurrence_descriptions.dart';
 import '../constants/public_holidays.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_grid_filters.dart';
@@ -49,6 +50,7 @@ import '../utils/keyboard_inset_tracker.dart';
 import '../utils/markdown_color_syntax.dart';
 import '../utils/wiki_link_title.dart';
 import '../widgets/app_dialogs.dart';
+import '../widgets/automation_id.dart';
 import '../widgets/calendar_add_fab.dart';
 import '../widgets/calendar_bottom_panel.dart';
 import '../widgets/calendar_day_bars.dart';
@@ -1942,13 +1944,19 @@ class _CalendarTable extends StatelessWidget {
           return Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              IconButton(
-                tooltip: l10n.goToToday,
-                visualDensity: VisualDensity.compact,
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                icon: const Icon(Icons.today_rounded, size: 20),
-                onPressed: () => _goToToday(context),
+              AutomationId(
+                identifier: SemanticsIds.calendarToday,
+                child: IconButton(
+                  tooltip: l10n.goToToday,
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 36,
+                    minHeight: 36,
+                  ),
+                  icon: const Icon(Icons.today_rounded, size: 20),
+                  onPressed: () => _goToToday(context),
+                ),
               ),
               const SizedBox(width: AppSpacing.xs),
               Flexible(

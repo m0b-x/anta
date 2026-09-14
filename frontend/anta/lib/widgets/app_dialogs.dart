@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../constants/semantics_ids.dart';
+import 'automation_id.dart';
 import '../l10n/app_localizations.dart';
 import '../models/counter.dart';
 import '../services/app_navigator.dart';
@@ -60,23 +62,28 @@ class AppDialogs {
         title: Text(title),
         content: contentWidget ?? Text(content!),
         actions: [
-          TextButton(
-            onPressed: () => AppNavigator.pop(ctx, false),
-            child: Text(cancelText ?? l10n.cancel),
-          ),
-          if (isDestructive)
-            FilledButton(
-              style: FilledButton.styleFrom(
-                backgroundColor: theme.colorScheme.error,
-              ),
-              onPressed: () => AppNavigator.pop(ctx, true),
-              child: Text(confirmText ?? l10n.delete),
-            )
-          else
-            FilledButton(
-              onPressed: () => AppNavigator.pop(ctx, true),
-              child: Text(confirmText ?? l10n.save),
+          AutomationId(
+            identifier: SemanticsIds.sheetCancel,
+            child: TextButton(
+              onPressed: () => AppNavigator.pop(ctx, false),
+              child: Text(cancelText ?? l10n.cancel),
             ),
+          ),
+          AutomationId(
+            identifier: SemanticsIds.sheetConfirm,
+            child: isDestructive
+                ? FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: theme.colorScheme.error,
+                    ),
+                    onPressed: () => AppNavigator.pop(ctx, true),
+                    child: Text(confirmText ?? l10n.delete),
+                  )
+                : FilledButton(
+                    onPressed: () => AppNavigator.pop(ctx, true),
+                    child: Text(confirmText ?? l10n.save),
+                  ),
+          ),
         ],
       ),
     );
@@ -124,13 +131,19 @@ class AppDialogs {
           onSubmitted: (val) => AppNavigator.pop(ctx, val),
         ),
         actions: [
-          TextButton(
-            onPressed: () => AppNavigator.pop(ctx),
-            child: Text(cancelText ?? l10n.cancel),
+          AutomationId(
+            identifier: SemanticsIds.sheetCancel,
+            child: TextButton(
+              onPressed: () => AppNavigator.pop(ctx),
+              child: Text(cancelText ?? l10n.cancel),
+            ),
           ),
-          FilledButton(
-            onPressed: () => AppNavigator.pop(ctx, controller.text),
-            child: Text(confirmText ?? l10n.save),
+          AutomationId(
+            identifier: SemanticsIds.sheetConfirm,
+            child: FilledButton(
+              onPressed: () => AppNavigator.pop(ctx, controller.text),
+              child: Text(confirmText ?? l10n.save),
+            ),
           ),
         ],
       ),
