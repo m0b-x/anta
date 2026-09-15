@@ -507,6 +507,39 @@ class SettingsKeys {
   /// `AgendaDayListMode`).
   static const String defaultCalendarDayListMode = 'list';
 
+  // ── Event alerts (v40) ──────────────────────────────────────────────
+
+  /// What a new **timed** event's first alert is seeded with, encoded as
+  /// `mode:offsetMinutes` — or the literal `none` for "no default", which
+  /// starts new events with no alerts at all.
+  static const String alertDefaultTimed = 'alert_default_timed';
+  static const String defaultAlertDefaultTimed = 'notify:10';
+
+  /// The same for an **all-day** event, encoded as
+  /// `mode:daysBefore:minuteOfDay`. The default is a notification at 09:00 on
+  /// the day itself — where Apple and Google both land, and the only sensible
+  /// anchor for a day that has no time of its own.
+  static const String alertDefaultAllDay = 'alert_default_all_day';
+  static const String defaultAlertDefaultAllDay = 'notify:0:540';
+
+  /// Default alarm sound id. Empty means the built-in sound.
+  static const String alertSound = 'alert_sound';
+  static const String defaultAlertSound = '';
+
+  /// How long Snooze postpones a ring, in minutes. One length for every alert,
+  /// because a screen used half asleep should not ask a question.
+  static const String alertSnoozeMinutes = 'alert_snooze_minutes';
+  static const int defaultAlertSnoozeMinutes = 10;
+  static const int minAlertSnoozeMinutes = 5;
+  static const int maxAlertSnoozeMinutes = 30;
+
+  /// How long an unacknowledged alarm keeps ringing before it gives up, in
+  /// minutes.
+  static const String alertSilenceAfterMinutes = 'alert_silence_after_minutes';
+  static const int defaultAlertSilenceAfterMinutes = 10;
+  static const int minAlertSilenceAfterMinutes = 1;
+  static const int maxAlertSilenceAfterMinutes = 30;
+
   /// Maximum number of recently-used custom event colors to remember.
   ///
   /// Only the retired [recentEventColors] key is bounded by it; it caps how

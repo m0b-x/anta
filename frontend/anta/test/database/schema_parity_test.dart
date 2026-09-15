@@ -369,6 +369,112 @@ void main() {
     expect(byName['id']!.read<int>('pk'), 1);
   });
 
+  test('the alert table matches its frozen migration DDL', () async {
+    // Frozen at v40, born with the CRDT block — so the v29/v32 shape, not the
+    // v27 one: **no** DEFAULT on the identity columns, because this is a new
+    // table where every insert must stamp them or fail, and `deleted_at` is
+    // the only nullable member of the block.
+    final columns = await db
+        .customSelect('PRAGMA table_info(calendar_event_alerts)')
+        .get();
+    final byName = {for (final row in columns) row.read<String>('name'): row};
+
+    expect(byName.keys.toSet(), {
+      'id',
+      'event_id',
+      'mode',
+      // Both offset sets live on every row: the planner picks by the derived
+      // `event.time == null`, so an event flipped to all-day keeps alerts that
+      // still mean something. Dropping either column would make that flip
+      // lossy.
+      'offset_minutes',
+      'days_before',
+      'day_minute',
+      'sound',
+      'enabled',
+      'created_at',
+      'updated_at',
+      'hlc_timestamp',
+      'device_id',
+      'version',
+      'is_deleted',
+      'deleted_at',
+    });
+
+    for (final name in byName.keys) {
+      final nullable = const {'day_minute', 'sound', 'deleted_at'};
+      expect(
+        byName[name]!.read<int>('notnull'),
+        nullable.contains(name) ? 0 : 1,
+        reason: nullable.contains(name)
+            ? 'calendar_event_alerts.$name must stay nullable'
+            : 'calendar_event_alerts.$name should be NOT NULL',
+      );
+    }
+
+    // NULL is a meaning of its own here — *use the settings default* — so a
+    // `NOT NULL DEFAULT 540` would freeze every alert at 09:00 and make the
+    // setting inert for everything already saved.
+    expect(byName['day_minute']!.readNullable<String>('dflt_value'), isNull);
+
+    expect(byName['mode']!.read<String>('dflt_value'), "'notify'");
+    expect(byName['offset_minutes']!.read<String>('dflt_value'), '0');
+    expect(byName['days_before']!.read<String>('dflt_value'), '0');
+    // An alert exists to fire; a row arrives armed and the hub switch is what
+    // turns it off.
+    expect(byName['enabled']!.read<String>('dflt_value'), '1');
+    expect(byName['version']!.read<String>('dflt_value'), '1');
+    expect(byName['is_deleted']!.read<String>('dflt_value'), '0');
+    expect(byName['hlc_timestamp']!.readNullable<String>('dflt_value'), isNull);
+    expect(byName['device_id']!.readNullable<String>('dflt_value'), isNull);
+    expect(byName['id']!.read<int>('pk'), 1);
+  });
+
+  test('the registration table matches its frozen migration DDL', () async {
+    // The one calendar table with **no** CRDT block, and that is the feature:
+    // it mirrors a single device's OS scheduler, is never exported or merged,
+    // and hard deletes are allowed because any reconcile can rebuild it.
+    final columns = await db
+        .customSelect('PRAGMA table_info(alert_registrations)')
+        .get();
+    final byName = {for (final row in columns) row.read<String>('name'): row};
+
+    expect(byName.keys.toSet(), {
+      'os_id',
+      'alert_id',
+      'event_id',
+      'day',
+      'fire_at',
+      'kind',
+      'state',
+      'backend',
+      'created_at',
+      'updated_at',
+    });
+
+    for (final name in byName.keys) {
+      expect(
+        byName[name]!.read<int>('notnull'),
+        1,
+        reason: 'alert_registrations.$name should be NOT NULL',
+      );
+    }
+
+    // `day` is a date-only **UTC** day and `fire_at` a **local** instant, both
+    // in epoch milliseconds. Storing them as Drift `DateTime`s would put them
+    // through one implicit conversion (and unix *seconds*), which is exactly
+    // the shift the calendar's date helpers exist to undo.
+    expect(byName['day']!.read<String>('type'), 'INTEGER');
+    expect(byName['fire_at']!.read<String>('type'), 'INTEGER');
+
+    expect(byName['kind']!.read<String>('dflt_value'), "'scheduled'");
+    expect(byName['state']!.read<String>('dflt_value'), "'pending'");
+    // No default: the gateway that placed the registration is the only thing
+    // that knows which backend holds it, so a row must say.
+    expect(byName['backend']!.readNullable<String>('dflt_value'), isNull);
+    expect(byName['os_id']!.read<int>('pk'), 1);
+  });
+
   test('the vocabulary tables match their frozen migration DDL', () async {
     // Frozen at v32, born with the CRDT block — so the v29 template shape, not
     // the v27/v28 one: no DEFAULT on the identity columns, `deleted_at` the
@@ -463,8 +569,14 @@ void main() {
         // from when, and NULL there means the whole event.
         'assume_absent',
         'assume_absent_from',
+        // v40's "this event exists only until its alarm is acknowledged".
+        // Same two paths again, and the same no-backfill argument: an event
+        // that could not carry an alarm could not be removed by one.
+        'remove_after_alert',
       ]),
     );
+    expect(byName['remove_after_alert']!.read<int>('notnull'), 1);
+    expect(byName['remove_after_alert']!.read<String>('dflt_value'), '0');
     expect(byName['per_occurrence_descriptions']!.read<int>('notnull'), 1);
     // Off is the pre-v28 reading: one shared description for every day.
     expect(

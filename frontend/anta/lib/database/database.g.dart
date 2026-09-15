@@ -3981,6 +3981,21 @@ class $CalendarEventsTable extends CalendarEvents
         type: DriftSqlType.dateTime,
         requiredDuringInsert: false,
       );
+  static const VerificationMeta _removeAfterAlertMeta = const VerificationMeta(
+    'removeAfterAlert',
+  );
+  @override
+  late final GeneratedColumn<bool> removeAfterAlert = GeneratedColumn<bool>(
+    'remove_after_alert',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("remove_after_alert" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -4091,6 +4106,7 @@ class $CalendarEventsTable extends CalendarEvents
     showInDayRail,
     assumeAbsent,
     assumeAbsentFrom,
+    removeAfterAlert,
     createdAt,
     updatedAt,
     hlcTimestamp,
@@ -4295,6 +4311,15 @@ class $CalendarEventsTable extends CalendarEvents
         ),
       );
     }
+    if (data.containsKey('remove_after_alert')) {
+      context.handle(
+        _removeAfterAlertMeta,
+        removeAfterAlert.isAcceptableOrUnknown(
+          data['remove_after_alert']!,
+          _removeAfterAlertMeta,
+        ),
+      );
+    }
     if (data.containsKey('created_at')) {
       context.handle(
         _createdAtMeta,
@@ -4449,6 +4474,10 @@ class $CalendarEventsTable extends CalendarEvents
         DriftSqlType.dateTime,
         data['${effectivePrefix}assume_absent_from'],
       ),
+      removeAfterAlert: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}remove_after_alert'],
+      )!,
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -4512,6 +4541,15 @@ class CalendarEventRow extends DataClass
   final bool? showInDayRail;
   final bool assumeAbsent;
   final DateTime? assumeAbsentFrom;
+
+  /// Whether acknowledging this event's first alert deletes the event
+  /// (**v40**). A statement about the event's purpose — a quick alarm exists
+  /// only until it rings — not about any one alert, which is why it lives
+  /// here and not on `calendar_event_alerts`.
+  ///
+  /// Off by default, and read by nothing on the rendering path: `occursOn`,
+  /// the grid, presence and skips never see it.
+  final bool removeAfterAlert;
   final DateTime createdAt;
   final DateTime updatedAt;
   final String hlcTimestamp;
@@ -4544,6 +4582,7 @@ class CalendarEventRow extends DataClass
     this.showInDayRail,
     required this.assumeAbsent,
     this.assumeAbsentFrom,
+    required this.removeAfterAlert,
     required this.createdAt,
     required this.updatedAt,
     required this.hlcTimestamp,
@@ -4601,6 +4640,7 @@ class CalendarEventRow extends DataClass
     if (!nullToAbsent || assumeAbsentFrom != null) {
       map['assume_absent_from'] = Variable<DateTime>(assumeAbsentFrom);
     }
+    map['remove_after_alert'] = Variable<bool>(removeAfterAlert);
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
     map['hlc_timestamp'] = Variable<String>(hlcTimestamp);
@@ -4659,6 +4699,7 @@ class CalendarEventRow extends DataClass
       assumeAbsentFrom: assumeAbsentFrom == null && nullToAbsent
           ? const Value.absent()
           : Value(assumeAbsentFrom),
+      removeAfterAlert: Value(removeAfterAlert),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
       hlcTimestamp: Value(hlcTimestamp),
@@ -4705,6 +4746,7 @@ class CalendarEventRow extends DataClass
       assumeAbsentFrom: serializer.fromJson<DateTime?>(
         json['assumeAbsentFrom'],
       ),
+      removeAfterAlert: serializer.fromJson<bool>(json['removeAfterAlert']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
       hlcTimestamp: serializer.fromJson<String>(json['hlcTimestamp']),
@@ -4744,6 +4786,7 @@ class CalendarEventRow extends DataClass
       'showInDayRail': serializer.toJson<bool?>(showInDayRail),
       'assumeAbsent': serializer.toJson<bool>(assumeAbsent),
       'assumeAbsentFrom': serializer.toJson<DateTime?>(assumeAbsentFrom),
+      'removeAfterAlert': serializer.toJson<bool>(removeAfterAlert),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
       'hlcTimestamp': serializer.toJson<String>(hlcTimestamp),
@@ -4779,6 +4822,7 @@ class CalendarEventRow extends DataClass
     Value<bool?> showInDayRail = const Value.absent(),
     bool? assumeAbsent,
     Value<DateTime?> assumeAbsentFrom = const Value.absent(),
+    bool? removeAfterAlert,
     DateTime? createdAt,
     DateTime? updatedAt,
     String? hlcTimestamp,
@@ -4818,6 +4862,7 @@ class CalendarEventRow extends DataClass
     assumeAbsentFrom: assumeAbsentFrom.present
         ? assumeAbsentFrom.value
         : this.assumeAbsentFrom,
+    removeAfterAlert: removeAfterAlert ?? this.removeAfterAlert,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     hlcTimestamp: hlcTimestamp ?? this.hlcTimestamp,
@@ -4878,6 +4923,9 @@ class CalendarEventRow extends DataClass
       assumeAbsentFrom: data.assumeAbsentFrom.present
           ? data.assumeAbsentFrom.value
           : this.assumeAbsentFrom,
+      removeAfterAlert: data.removeAfterAlert.present
+          ? data.removeAfterAlert.value
+          : this.removeAfterAlert,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       hlcTimestamp: data.hlcTimestamp.present
@@ -4917,6 +4965,7 @@ class CalendarEventRow extends DataClass
           ..write('showInDayRail: $showInDayRail, ')
           ..write('assumeAbsent: $assumeAbsent, ')
           ..write('assumeAbsentFrom: $assumeAbsentFrom, ')
+          ..write('removeAfterAlert: $removeAfterAlert, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('hlcTimestamp: $hlcTimestamp, ')
@@ -4954,6 +5003,7 @@ class CalendarEventRow extends DataClass
     showInDayRail,
     assumeAbsent,
     assumeAbsentFrom,
+    removeAfterAlert,
     createdAt,
     updatedAt,
     hlcTimestamp,
@@ -4990,6 +5040,7 @@ class CalendarEventRow extends DataClass
           other.showInDayRail == this.showInDayRail &&
           other.assumeAbsent == this.assumeAbsent &&
           other.assumeAbsentFrom == this.assumeAbsentFrom &&
+          other.removeAfterAlert == this.removeAfterAlert &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt &&
           other.hlcTimestamp == this.hlcTimestamp &&
@@ -5024,6 +5075,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
   final Value<bool?> showInDayRail;
   final Value<bool> assumeAbsent;
   final Value<DateTime?> assumeAbsentFrom;
+  final Value<bool> removeAfterAlert;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   final Value<String> hlcTimestamp;
@@ -5057,6 +5109,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     this.showInDayRail = const Value.absent(),
     this.assumeAbsent = const Value.absent(),
     this.assumeAbsentFrom = const Value.absent(),
+    this.removeAfterAlert = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.hlcTimestamp = const Value.absent(),
@@ -5091,6 +5144,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     this.showInDayRail = const Value.absent(),
     this.assumeAbsent = const Value.absent(),
     this.assumeAbsentFrom = const Value.absent(),
+    this.removeAfterAlert = const Value.absent(),
     required DateTime createdAt,
     required DateTime updatedAt,
     this.hlcTimestamp = const Value.absent(),
@@ -5131,6 +5185,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     Expression<bool>? showInDayRail,
     Expression<bool>? assumeAbsent,
     Expression<DateTime>? assumeAbsentFrom,
+    Expression<bool>? removeAfterAlert,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
     Expression<String>? hlcTimestamp,
@@ -5166,6 +5221,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
       if (showInDayRail != null) 'show_in_day_rail': showInDayRail,
       if (assumeAbsent != null) 'assume_absent': assumeAbsent,
       if (assumeAbsentFrom != null) 'assume_absent_from': assumeAbsentFrom,
+      if (removeAfterAlert != null) 'remove_after_alert': removeAfterAlert,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (hlcTimestamp != null) 'hlc_timestamp': hlcTimestamp,
@@ -5202,6 +5258,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     Value<bool?>? showInDayRail,
     Value<bool>? assumeAbsent,
     Value<DateTime?>? assumeAbsentFrom,
+    Value<bool>? removeAfterAlert,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
     Value<String>? hlcTimestamp,
@@ -5237,6 +5294,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
       showInDayRail: showInDayRail ?? this.showInDayRail,
       assumeAbsent: assumeAbsent ?? this.assumeAbsent,
       assumeAbsentFrom: assumeAbsentFrom ?? this.assumeAbsentFrom,
+      removeAfterAlert: removeAfterAlert ?? this.removeAfterAlert,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       hlcTimestamp: hlcTimestamp ?? this.hlcTimestamp,
@@ -5325,6 +5383,9 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     if (assumeAbsentFrom.present) {
       map['assume_absent_from'] = Variable<DateTime>(assumeAbsentFrom.value);
     }
+    if (removeAfterAlert.present) {
+      map['remove_after_alert'] = Variable<bool>(removeAfterAlert.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -5379,6 +5440,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
           ..write('showInDayRail: $showInDayRail, ')
           ..write('assumeAbsent: $assumeAbsent, ')
           ..write('assumeAbsentFrom: $assumeAbsentFrom, ')
+          ..write('removeAfterAlert: $removeAfterAlert, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('hlcTimestamp: $hlcTimestamp, ')
@@ -10283,6 +10345,1480 @@ class EventSkipsCompanion extends UpdateCompanion<EventSkipRow> {
   }
 }
 
+class $EventAlertsTable extends EventAlerts
+    with TableInfo<$EventAlertsTable, EventAlertRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $EventAlertsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _eventIdMeta = const VerificationMeta(
+    'eventId',
+  );
+  @override
+  late final GeneratedColumn<String> eventId = GeneratedColumn<String>(
+    'event_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _modeMeta = const VerificationMeta('mode');
+  @override
+  late final GeneratedColumn<String> mode = GeneratedColumn<String>(
+    'mode',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('notify'),
+  );
+  static const VerificationMeta _offsetMinutesMeta = const VerificationMeta(
+    'offsetMinutes',
+  );
+  @override
+  late final GeneratedColumn<int> offsetMinutes = GeneratedColumn<int>(
+    'offset_minutes',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _daysBeforeMeta = const VerificationMeta(
+    'daysBefore',
+  );
+  @override
+  late final GeneratedColumn<int> daysBefore = GeneratedColumn<int>(
+    'days_before',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _dayMinuteMeta = const VerificationMeta(
+    'dayMinute',
+  );
+  @override
+  late final GeneratedColumn<int> dayMinute = GeneratedColumn<int>(
+    'day_minute',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _soundMeta = const VerificationMeta('sound');
+  @override
+  late final GeneratedColumn<String> sound = GeneratedColumn<String>(
+    'sound',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _enabledMeta = const VerificationMeta(
+    'enabled',
+  );
+  @override
+  late final GeneratedColumn<bool> enabled = GeneratedColumn<bool>(
+    'enabled',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("enabled" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _hlcTimestampMeta = const VerificationMeta(
+    'hlcTimestamp',
+  );
+  @override
+  late final GeneratedColumn<String> hlcTimestamp = GeneratedColumn<String>(
+    'hlc_timestamp',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _deviceIdMeta = const VerificationMeta(
+    'deviceId',
+  );
+  @override
+  late final GeneratedColumn<String> deviceId = GeneratedColumn<String>(
+    'device_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _versionMeta = const VerificationMeta(
+    'version',
+  );
+  @override
+  late final GeneratedColumn<int> version = GeneratedColumn<int>(
+    'version',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(1),
+  );
+  static const VerificationMeta _isDeletedMeta = const VerificationMeta(
+    'isDeleted',
+  );
+  @override
+  late final GeneratedColumn<bool> isDeleted = GeneratedColumn<bool>(
+    'is_deleted',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_deleted" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _deletedAtMeta = const VerificationMeta(
+    'deletedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> deletedAt = GeneratedColumn<DateTime>(
+    'deleted_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    eventId,
+    mode,
+    offsetMinutes,
+    daysBefore,
+    dayMinute,
+    sound,
+    enabled,
+    createdAt,
+    updatedAt,
+    hlcTimestamp,
+    deviceId,
+    version,
+    isDeleted,
+    deletedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'calendar_event_alerts';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<EventAlertRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('event_id')) {
+      context.handle(
+        _eventIdMeta,
+        eventId.isAcceptableOrUnknown(data['event_id']!, _eventIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_eventIdMeta);
+    }
+    if (data.containsKey('mode')) {
+      context.handle(
+        _modeMeta,
+        mode.isAcceptableOrUnknown(data['mode']!, _modeMeta),
+      );
+    }
+    if (data.containsKey('offset_minutes')) {
+      context.handle(
+        _offsetMinutesMeta,
+        offsetMinutes.isAcceptableOrUnknown(
+          data['offset_minutes']!,
+          _offsetMinutesMeta,
+        ),
+      );
+    }
+    if (data.containsKey('days_before')) {
+      context.handle(
+        _daysBeforeMeta,
+        daysBefore.isAcceptableOrUnknown(data['days_before']!, _daysBeforeMeta),
+      );
+    }
+    if (data.containsKey('day_minute')) {
+      context.handle(
+        _dayMinuteMeta,
+        dayMinute.isAcceptableOrUnknown(data['day_minute']!, _dayMinuteMeta),
+      );
+    }
+    if (data.containsKey('sound')) {
+      context.handle(
+        _soundMeta,
+        sound.isAcceptableOrUnknown(data['sound']!, _soundMeta),
+      );
+    }
+    if (data.containsKey('enabled')) {
+      context.handle(
+        _enabledMeta,
+        enabled.isAcceptableOrUnknown(data['enabled']!, _enabledMeta),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    if (data.containsKey('hlc_timestamp')) {
+      context.handle(
+        _hlcTimestampMeta,
+        hlcTimestamp.isAcceptableOrUnknown(
+          data['hlc_timestamp']!,
+          _hlcTimestampMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_hlcTimestampMeta);
+    }
+    if (data.containsKey('device_id')) {
+      context.handle(
+        _deviceIdMeta,
+        deviceId.isAcceptableOrUnknown(data['device_id']!, _deviceIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_deviceIdMeta);
+    }
+    if (data.containsKey('version')) {
+      context.handle(
+        _versionMeta,
+        version.isAcceptableOrUnknown(data['version']!, _versionMeta),
+      );
+    }
+    if (data.containsKey('is_deleted')) {
+      context.handle(
+        _isDeletedMeta,
+        isDeleted.isAcceptableOrUnknown(data['is_deleted']!, _isDeletedMeta),
+      );
+    }
+    if (data.containsKey('deleted_at')) {
+      context.handle(
+        _deletedAtMeta,
+        deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  EventAlertRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return EventAlertRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      eventId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}event_id'],
+      )!,
+      mode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}mode'],
+      )!,
+      offsetMinutes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}offset_minutes'],
+      )!,
+      daysBefore: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}days_before'],
+      )!,
+      dayMinute: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}day_minute'],
+      ),
+      sound: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}sound'],
+      ),
+      enabled: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}enabled'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+      hlcTimestamp: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}hlc_timestamp'],
+      )!,
+      deviceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}device_id'],
+      )!,
+      version: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}version'],
+      )!,
+      isDeleted: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_deleted'],
+      )!,
+      deletedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}deleted_at'],
+      ),
+    );
+  }
+
+  @override
+  $EventAlertsTable createAlias(String alias) {
+    return $EventAlertsTable(attachedDatabase, alias);
+  }
+}
+
+class EventAlertRow extends DataClass implements Insertable<EventAlertRow> {
+  final String id;
+  final String eventId;
+
+  /// `notify` | `ring` — see `AlertMode`. Unknown values decode to `notify`,
+  /// the quieter of the two, so a row written by a newer build can never
+  /// surprise an older one with noise.
+  final String mode;
+
+  /// Minutes before the occurrence's start, for a **timed** event. `0` is
+  /// "at start"; negative offsets (after start) are deliberately not modelled.
+  final int offsetMinutes;
+
+  /// Whole days before the occurrence, for an **all-day** event. `0` is
+  /// "on the day".
+  final int daysBefore;
+
+  /// Minute of day the all-day alert fires at. `NULL` means the Calendar
+  /// settings default.
+  final int? dayMinute;
+
+  /// Alarm sound id; `NULL` is the default sound. Meaningless for `notify`,
+  /// which plays whatever its notification channel plays.
+  final String? sound;
+
+  /// The hub switch. A disabled alert is **kept** and never registered, so
+  /// turning it back on restores exactly what it said.
+  final bool enabled;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  final String hlcTimestamp;
+  final String deviceId;
+  final int version;
+  final bool isDeleted;
+  final DateTime? deletedAt;
+  const EventAlertRow({
+    required this.id,
+    required this.eventId,
+    required this.mode,
+    required this.offsetMinutes,
+    required this.daysBefore,
+    this.dayMinute,
+    this.sound,
+    required this.enabled,
+    required this.createdAt,
+    required this.updatedAt,
+    required this.hlcTimestamp,
+    required this.deviceId,
+    required this.version,
+    required this.isDeleted,
+    this.deletedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['event_id'] = Variable<String>(eventId);
+    map['mode'] = Variable<String>(mode);
+    map['offset_minutes'] = Variable<int>(offsetMinutes);
+    map['days_before'] = Variable<int>(daysBefore);
+    if (!nullToAbsent || dayMinute != null) {
+      map['day_minute'] = Variable<int>(dayMinute);
+    }
+    if (!nullToAbsent || sound != null) {
+      map['sound'] = Variable<String>(sound);
+    }
+    map['enabled'] = Variable<bool>(enabled);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    map['hlc_timestamp'] = Variable<String>(hlcTimestamp);
+    map['device_id'] = Variable<String>(deviceId);
+    map['version'] = Variable<int>(version);
+    map['is_deleted'] = Variable<bool>(isDeleted);
+    if (!nullToAbsent || deletedAt != null) {
+      map['deleted_at'] = Variable<DateTime>(deletedAt);
+    }
+    return map;
+  }
+
+  EventAlertsCompanion toCompanion(bool nullToAbsent) {
+    return EventAlertsCompanion(
+      id: Value(id),
+      eventId: Value(eventId),
+      mode: Value(mode),
+      offsetMinutes: Value(offsetMinutes),
+      daysBefore: Value(daysBefore),
+      dayMinute: dayMinute == null && nullToAbsent
+          ? const Value.absent()
+          : Value(dayMinute),
+      sound: sound == null && nullToAbsent
+          ? const Value.absent()
+          : Value(sound),
+      enabled: Value(enabled),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+      hlcTimestamp: Value(hlcTimestamp),
+      deviceId: Value(deviceId),
+      version: Value(version),
+      isDeleted: Value(isDeleted),
+      deletedAt: deletedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(deletedAt),
+    );
+  }
+
+  factory EventAlertRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return EventAlertRow(
+      id: serializer.fromJson<String>(json['id']),
+      eventId: serializer.fromJson<String>(json['eventId']),
+      mode: serializer.fromJson<String>(json['mode']),
+      offsetMinutes: serializer.fromJson<int>(json['offsetMinutes']),
+      daysBefore: serializer.fromJson<int>(json['daysBefore']),
+      dayMinute: serializer.fromJson<int?>(json['dayMinute']),
+      sound: serializer.fromJson<String?>(json['sound']),
+      enabled: serializer.fromJson<bool>(json['enabled']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+      hlcTimestamp: serializer.fromJson<String>(json['hlcTimestamp']),
+      deviceId: serializer.fromJson<String>(json['deviceId']),
+      version: serializer.fromJson<int>(json['version']),
+      isDeleted: serializer.fromJson<bool>(json['isDeleted']),
+      deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'eventId': serializer.toJson<String>(eventId),
+      'mode': serializer.toJson<String>(mode),
+      'offsetMinutes': serializer.toJson<int>(offsetMinutes),
+      'daysBefore': serializer.toJson<int>(daysBefore),
+      'dayMinute': serializer.toJson<int?>(dayMinute),
+      'sound': serializer.toJson<String?>(sound),
+      'enabled': serializer.toJson<bool>(enabled),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+      'hlcTimestamp': serializer.toJson<String>(hlcTimestamp),
+      'deviceId': serializer.toJson<String>(deviceId),
+      'version': serializer.toJson<int>(version),
+      'isDeleted': serializer.toJson<bool>(isDeleted),
+      'deletedAt': serializer.toJson<DateTime?>(deletedAt),
+    };
+  }
+
+  EventAlertRow copyWith({
+    String? id,
+    String? eventId,
+    String? mode,
+    int? offsetMinutes,
+    int? daysBefore,
+    Value<int?> dayMinute = const Value.absent(),
+    Value<String?> sound = const Value.absent(),
+    bool? enabled,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    String? hlcTimestamp,
+    String? deviceId,
+    int? version,
+    bool? isDeleted,
+    Value<DateTime?> deletedAt = const Value.absent(),
+  }) => EventAlertRow(
+    id: id ?? this.id,
+    eventId: eventId ?? this.eventId,
+    mode: mode ?? this.mode,
+    offsetMinutes: offsetMinutes ?? this.offsetMinutes,
+    daysBefore: daysBefore ?? this.daysBefore,
+    dayMinute: dayMinute.present ? dayMinute.value : this.dayMinute,
+    sound: sound.present ? sound.value : this.sound,
+    enabled: enabled ?? this.enabled,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+    hlcTimestamp: hlcTimestamp ?? this.hlcTimestamp,
+    deviceId: deviceId ?? this.deviceId,
+    version: version ?? this.version,
+    isDeleted: isDeleted ?? this.isDeleted,
+    deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+  );
+  EventAlertRow copyWithCompanion(EventAlertsCompanion data) {
+    return EventAlertRow(
+      id: data.id.present ? data.id.value : this.id,
+      eventId: data.eventId.present ? data.eventId.value : this.eventId,
+      mode: data.mode.present ? data.mode.value : this.mode,
+      offsetMinutes: data.offsetMinutes.present
+          ? data.offsetMinutes.value
+          : this.offsetMinutes,
+      daysBefore: data.daysBefore.present
+          ? data.daysBefore.value
+          : this.daysBefore,
+      dayMinute: data.dayMinute.present ? data.dayMinute.value : this.dayMinute,
+      sound: data.sound.present ? data.sound.value : this.sound,
+      enabled: data.enabled.present ? data.enabled.value : this.enabled,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      hlcTimestamp: data.hlcTimestamp.present
+          ? data.hlcTimestamp.value
+          : this.hlcTimestamp,
+      deviceId: data.deviceId.present ? data.deviceId.value : this.deviceId,
+      version: data.version.present ? data.version.value : this.version,
+      isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
+      deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('EventAlertRow(')
+          ..write('id: $id, ')
+          ..write('eventId: $eventId, ')
+          ..write('mode: $mode, ')
+          ..write('offsetMinutes: $offsetMinutes, ')
+          ..write('daysBefore: $daysBefore, ')
+          ..write('dayMinute: $dayMinute, ')
+          ..write('sound: $sound, ')
+          ..write('enabled: $enabled, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('hlcTimestamp: $hlcTimestamp, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('version: $version, ')
+          ..write('isDeleted: $isDeleted, ')
+          ..write('deletedAt: $deletedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    eventId,
+    mode,
+    offsetMinutes,
+    daysBefore,
+    dayMinute,
+    sound,
+    enabled,
+    createdAt,
+    updatedAt,
+    hlcTimestamp,
+    deviceId,
+    version,
+    isDeleted,
+    deletedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is EventAlertRow &&
+          other.id == this.id &&
+          other.eventId == this.eventId &&
+          other.mode == this.mode &&
+          other.offsetMinutes == this.offsetMinutes &&
+          other.daysBefore == this.daysBefore &&
+          other.dayMinute == this.dayMinute &&
+          other.sound == this.sound &&
+          other.enabled == this.enabled &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt &&
+          other.hlcTimestamp == this.hlcTimestamp &&
+          other.deviceId == this.deviceId &&
+          other.version == this.version &&
+          other.isDeleted == this.isDeleted &&
+          other.deletedAt == this.deletedAt);
+}
+
+class EventAlertsCompanion extends UpdateCompanion<EventAlertRow> {
+  final Value<String> id;
+  final Value<String> eventId;
+  final Value<String> mode;
+  final Value<int> offsetMinutes;
+  final Value<int> daysBefore;
+  final Value<int?> dayMinute;
+  final Value<String?> sound;
+  final Value<bool> enabled;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+  final Value<String> hlcTimestamp;
+  final Value<String> deviceId;
+  final Value<int> version;
+  final Value<bool> isDeleted;
+  final Value<DateTime?> deletedAt;
+  final Value<int> rowid;
+  const EventAlertsCompanion({
+    this.id = const Value.absent(),
+    this.eventId = const Value.absent(),
+    this.mode = const Value.absent(),
+    this.offsetMinutes = const Value.absent(),
+    this.daysBefore = const Value.absent(),
+    this.dayMinute = const Value.absent(),
+    this.sound = const Value.absent(),
+    this.enabled = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.hlcTimestamp = const Value.absent(),
+    this.deviceId = const Value.absent(),
+    this.version = const Value.absent(),
+    this.isDeleted = const Value.absent(),
+    this.deletedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  EventAlertsCompanion.insert({
+    required String id,
+    required String eventId,
+    this.mode = const Value.absent(),
+    this.offsetMinutes = const Value.absent(),
+    this.daysBefore = const Value.absent(),
+    this.dayMinute = const Value.absent(),
+    this.sound = const Value.absent(),
+    this.enabled = const Value.absent(),
+    required DateTime createdAt,
+    required DateTime updatedAt,
+    required String hlcTimestamp,
+    required String deviceId,
+    this.version = const Value.absent(),
+    this.isDeleted = const Value.absent(),
+    this.deletedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       eventId = Value(eventId),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt),
+       hlcTimestamp = Value(hlcTimestamp),
+       deviceId = Value(deviceId);
+  static Insertable<EventAlertRow> custom({
+    Expression<String>? id,
+    Expression<String>? eventId,
+    Expression<String>? mode,
+    Expression<int>? offsetMinutes,
+    Expression<int>? daysBefore,
+    Expression<int>? dayMinute,
+    Expression<String>? sound,
+    Expression<bool>? enabled,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
+    Expression<String>? hlcTimestamp,
+    Expression<String>? deviceId,
+    Expression<int>? version,
+    Expression<bool>? isDeleted,
+    Expression<DateTime>? deletedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (eventId != null) 'event_id': eventId,
+      if (mode != null) 'mode': mode,
+      if (offsetMinutes != null) 'offset_minutes': offsetMinutes,
+      if (daysBefore != null) 'days_before': daysBefore,
+      if (dayMinute != null) 'day_minute': dayMinute,
+      if (sound != null) 'sound': sound,
+      if (enabled != null) 'enabled': enabled,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (hlcTimestamp != null) 'hlc_timestamp': hlcTimestamp,
+      if (deviceId != null) 'device_id': deviceId,
+      if (version != null) 'version': version,
+      if (isDeleted != null) 'is_deleted': isDeleted,
+      if (deletedAt != null) 'deleted_at': deletedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  EventAlertsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? eventId,
+    Value<String>? mode,
+    Value<int>? offsetMinutes,
+    Value<int>? daysBefore,
+    Value<int?>? dayMinute,
+    Value<String?>? sound,
+    Value<bool>? enabled,
+    Value<DateTime>? createdAt,
+    Value<DateTime>? updatedAt,
+    Value<String>? hlcTimestamp,
+    Value<String>? deviceId,
+    Value<int>? version,
+    Value<bool>? isDeleted,
+    Value<DateTime?>? deletedAt,
+    Value<int>? rowid,
+  }) {
+    return EventAlertsCompanion(
+      id: id ?? this.id,
+      eventId: eventId ?? this.eventId,
+      mode: mode ?? this.mode,
+      offsetMinutes: offsetMinutes ?? this.offsetMinutes,
+      daysBefore: daysBefore ?? this.daysBefore,
+      dayMinute: dayMinute ?? this.dayMinute,
+      sound: sound ?? this.sound,
+      enabled: enabled ?? this.enabled,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      hlcTimestamp: hlcTimestamp ?? this.hlcTimestamp,
+      deviceId: deviceId ?? this.deviceId,
+      version: version ?? this.version,
+      isDeleted: isDeleted ?? this.isDeleted,
+      deletedAt: deletedAt ?? this.deletedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (eventId.present) {
+      map['event_id'] = Variable<String>(eventId.value);
+    }
+    if (mode.present) {
+      map['mode'] = Variable<String>(mode.value);
+    }
+    if (offsetMinutes.present) {
+      map['offset_minutes'] = Variable<int>(offsetMinutes.value);
+    }
+    if (daysBefore.present) {
+      map['days_before'] = Variable<int>(daysBefore.value);
+    }
+    if (dayMinute.present) {
+      map['day_minute'] = Variable<int>(dayMinute.value);
+    }
+    if (sound.present) {
+      map['sound'] = Variable<String>(sound.value);
+    }
+    if (enabled.present) {
+      map['enabled'] = Variable<bool>(enabled.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (hlcTimestamp.present) {
+      map['hlc_timestamp'] = Variable<String>(hlcTimestamp.value);
+    }
+    if (deviceId.present) {
+      map['device_id'] = Variable<String>(deviceId.value);
+    }
+    if (version.present) {
+      map['version'] = Variable<int>(version.value);
+    }
+    if (isDeleted.present) {
+      map['is_deleted'] = Variable<bool>(isDeleted.value);
+    }
+    if (deletedAt.present) {
+      map['deleted_at'] = Variable<DateTime>(deletedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('EventAlertsCompanion(')
+          ..write('id: $id, ')
+          ..write('eventId: $eventId, ')
+          ..write('mode: $mode, ')
+          ..write('offsetMinutes: $offsetMinutes, ')
+          ..write('daysBefore: $daysBefore, ')
+          ..write('dayMinute: $dayMinute, ')
+          ..write('sound: $sound, ')
+          ..write('enabled: $enabled, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('hlcTimestamp: $hlcTimestamp, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('version: $version, ')
+          ..write('isDeleted: $isDeleted, ')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $AlertRegistrationsTable extends AlertRegistrations
+    with TableInfo<$AlertRegistrationsTable, AlertRegistrationRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $AlertRegistrationsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _osIdMeta = const VerificationMeta('osId');
+  @override
+  late final GeneratedColumn<int> osId = GeneratedColumn<int>(
+    'os_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _alertIdMeta = const VerificationMeta(
+    'alertId',
+  );
+  @override
+  late final GeneratedColumn<String> alertId = GeneratedColumn<String>(
+    'alert_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _eventIdMeta = const VerificationMeta(
+    'eventId',
+  );
+  @override
+  late final GeneratedColumn<String> eventId = GeneratedColumn<String>(
+    'event_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _dayMeta = const VerificationMeta('day');
+  @override
+  late final GeneratedColumn<int> day = GeneratedColumn<int>(
+    'day',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _fireAtMeta = const VerificationMeta('fireAt');
+  @override
+  late final GeneratedColumn<int> fireAt = GeneratedColumn<int>(
+    'fire_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _kindMeta = const VerificationMeta('kind');
+  @override
+  late final GeneratedColumn<String> kind = GeneratedColumn<String>(
+    'kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('scheduled'),
+  );
+  static const VerificationMeta _stateMeta = const VerificationMeta('state');
+  @override
+  late final GeneratedColumn<String> state = GeneratedColumn<String>(
+    'state',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('pending'),
+  );
+  static const VerificationMeta _backendMeta = const VerificationMeta(
+    'backend',
+  );
+  @override
+  late final GeneratedColumn<String> backend = GeneratedColumn<String>(
+    'backend',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    osId,
+    alertId,
+    eventId,
+    day,
+    fireAt,
+    kind,
+    state,
+    backend,
+    createdAt,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'alert_registrations';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<AlertRegistrationRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('os_id')) {
+      context.handle(
+        _osIdMeta,
+        osId.isAcceptableOrUnknown(data['os_id']!, _osIdMeta),
+      );
+    }
+    if (data.containsKey('alert_id')) {
+      context.handle(
+        _alertIdMeta,
+        alertId.isAcceptableOrUnknown(data['alert_id']!, _alertIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_alertIdMeta);
+    }
+    if (data.containsKey('event_id')) {
+      context.handle(
+        _eventIdMeta,
+        eventId.isAcceptableOrUnknown(data['event_id']!, _eventIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_eventIdMeta);
+    }
+    if (data.containsKey('day')) {
+      context.handle(
+        _dayMeta,
+        day.isAcceptableOrUnknown(data['day']!, _dayMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_dayMeta);
+    }
+    if (data.containsKey('fire_at')) {
+      context.handle(
+        _fireAtMeta,
+        fireAt.isAcceptableOrUnknown(data['fire_at']!, _fireAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_fireAtMeta);
+    }
+    if (data.containsKey('kind')) {
+      context.handle(
+        _kindMeta,
+        kind.isAcceptableOrUnknown(data['kind']!, _kindMeta),
+      );
+    }
+    if (data.containsKey('state')) {
+      context.handle(
+        _stateMeta,
+        state.isAcceptableOrUnknown(data['state']!, _stateMeta),
+      );
+    }
+    if (data.containsKey('backend')) {
+      context.handle(
+        _backendMeta,
+        backend.isAcceptableOrUnknown(data['backend']!, _backendMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_backendMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {osId};
+  @override
+  AlertRegistrationRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return AlertRegistrationRow(
+      osId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}os_id'],
+      )!,
+      alertId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}alert_id'],
+      )!,
+      eventId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}event_id'],
+      )!,
+      day: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}day'],
+      )!,
+      fireAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}fire_at'],
+      )!,
+      kind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}kind'],
+      )!,
+      state: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}state'],
+      )!,
+      backend: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}backend'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $AlertRegistrationsTable createAlias(String alias) {
+    return $AlertRegistrationsTable(attachedDatabase, alias);
+  }
+}
+
+class AlertRegistrationRow extends DataClass
+    implements Insertable<AlertRegistrationRow> {
+  /// The 31-bit id handed to the platform, derived deterministically from the
+  /// database name, the alert id, the occurrence day and the kind — so
+  /// reconcile is idempotent across process deaths, and two databases can
+  /// never cancel each other's alarms.
+  final int osId;
+  final String alertId;
+  final String eventId;
+
+  /// Occurrence day, date-only UTC, epoch milliseconds.
+  final int day;
+
+  /// The local instant the platform was asked to fire at, epoch milliseconds.
+  final int fireAt;
+
+  /// `scheduled` | `snooze`. A snooze is its own registration, so an unrelated
+  /// reconcile of the same event leaves it alone.
+  final String kind;
+
+  /// `pending` | `fired` | `stopped` | `cancelled`.
+  final String state;
+
+  /// Which gateway backend holds it — `alarm` | `notification`.
+  final String backend;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  const AlertRegistrationRow({
+    required this.osId,
+    required this.alertId,
+    required this.eventId,
+    required this.day,
+    required this.fireAt,
+    required this.kind,
+    required this.state,
+    required this.backend,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['os_id'] = Variable<int>(osId);
+    map['alert_id'] = Variable<String>(alertId);
+    map['event_id'] = Variable<String>(eventId);
+    map['day'] = Variable<int>(day);
+    map['fire_at'] = Variable<int>(fireAt);
+    map['kind'] = Variable<String>(kind);
+    map['state'] = Variable<String>(state);
+    map['backend'] = Variable<String>(backend);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  AlertRegistrationsCompanion toCompanion(bool nullToAbsent) {
+    return AlertRegistrationsCompanion(
+      osId: Value(osId),
+      alertId: Value(alertId),
+      eventId: Value(eventId),
+      day: Value(day),
+      fireAt: Value(fireAt),
+      kind: Value(kind),
+      state: Value(state),
+      backend: Value(backend),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory AlertRegistrationRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return AlertRegistrationRow(
+      osId: serializer.fromJson<int>(json['osId']),
+      alertId: serializer.fromJson<String>(json['alertId']),
+      eventId: serializer.fromJson<String>(json['eventId']),
+      day: serializer.fromJson<int>(json['day']),
+      fireAt: serializer.fromJson<int>(json['fireAt']),
+      kind: serializer.fromJson<String>(json['kind']),
+      state: serializer.fromJson<String>(json['state']),
+      backend: serializer.fromJson<String>(json['backend']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'osId': serializer.toJson<int>(osId),
+      'alertId': serializer.toJson<String>(alertId),
+      'eventId': serializer.toJson<String>(eventId),
+      'day': serializer.toJson<int>(day),
+      'fireAt': serializer.toJson<int>(fireAt),
+      'kind': serializer.toJson<String>(kind),
+      'state': serializer.toJson<String>(state),
+      'backend': serializer.toJson<String>(backend),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  AlertRegistrationRow copyWith({
+    int? osId,
+    String? alertId,
+    String? eventId,
+    int? day,
+    int? fireAt,
+    String? kind,
+    String? state,
+    String? backend,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) => AlertRegistrationRow(
+    osId: osId ?? this.osId,
+    alertId: alertId ?? this.alertId,
+    eventId: eventId ?? this.eventId,
+    day: day ?? this.day,
+    fireAt: fireAt ?? this.fireAt,
+    kind: kind ?? this.kind,
+    state: state ?? this.state,
+    backend: backend ?? this.backend,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  AlertRegistrationRow copyWithCompanion(AlertRegistrationsCompanion data) {
+    return AlertRegistrationRow(
+      osId: data.osId.present ? data.osId.value : this.osId,
+      alertId: data.alertId.present ? data.alertId.value : this.alertId,
+      eventId: data.eventId.present ? data.eventId.value : this.eventId,
+      day: data.day.present ? data.day.value : this.day,
+      fireAt: data.fireAt.present ? data.fireAt.value : this.fireAt,
+      kind: data.kind.present ? data.kind.value : this.kind,
+      state: data.state.present ? data.state.value : this.state,
+      backend: data.backend.present ? data.backend.value : this.backend,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('AlertRegistrationRow(')
+          ..write('osId: $osId, ')
+          ..write('alertId: $alertId, ')
+          ..write('eventId: $eventId, ')
+          ..write('day: $day, ')
+          ..write('fireAt: $fireAt, ')
+          ..write('kind: $kind, ')
+          ..write('state: $state, ')
+          ..write('backend: $backend, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    osId,
+    alertId,
+    eventId,
+    day,
+    fireAt,
+    kind,
+    state,
+    backend,
+    createdAt,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is AlertRegistrationRow &&
+          other.osId == this.osId &&
+          other.alertId == this.alertId &&
+          other.eventId == this.eventId &&
+          other.day == this.day &&
+          other.fireAt == this.fireAt &&
+          other.kind == this.kind &&
+          other.state == this.state &&
+          other.backend == this.backend &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class AlertRegistrationsCompanion
+    extends UpdateCompanion<AlertRegistrationRow> {
+  final Value<int> osId;
+  final Value<String> alertId;
+  final Value<String> eventId;
+  final Value<int> day;
+  final Value<int> fireAt;
+  final Value<String> kind;
+  final Value<String> state;
+  final Value<String> backend;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+  const AlertRegistrationsCompanion({
+    this.osId = const Value.absent(),
+    this.alertId = const Value.absent(),
+    this.eventId = const Value.absent(),
+    this.day = const Value.absent(),
+    this.fireAt = const Value.absent(),
+    this.kind = const Value.absent(),
+    this.state = const Value.absent(),
+    this.backend = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+  });
+  AlertRegistrationsCompanion.insert({
+    this.osId = const Value.absent(),
+    required String alertId,
+    required String eventId,
+    required int day,
+    required int fireAt,
+    this.kind = const Value.absent(),
+    this.state = const Value.absent(),
+    required String backend,
+    required DateTime createdAt,
+    required DateTime updatedAt,
+  }) : alertId = Value(alertId),
+       eventId = Value(eventId),
+       day = Value(day),
+       fireAt = Value(fireAt),
+       backend = Value(backend),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt);
+  static Insertable<AlertRegistrationRow> custom({
+    Expression<int>? osId,
+    Expression<String>? alertId,
+    Expression<String>? eventId,
+    Expression<int>? day,
+    Expression<int>? fireAt,
+    Expression<String>? kind,
+    Expression<String>? state,
+    Expression<String>? backend,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
+  }) {
+    return RawValuesInsertable({
+      if (osId != null) 'os_id': osId,
+      if (alertId != null) 'alert_id': alertId,
+      if (eventId != null) 'event_id': eventId,
+      if (day != null) 'day': day,
+      if (fireAt != null) 'fire_at': fireAt,
+      if (kind != null) 'kind': kind,
+      if (state != null) 'state': state,
+      if (backend != null) 'backend': backend,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+    });
+  }
+
+  AlertRegistrationsCompanion copyWith({
+    Value<int>? osId,
+    Value<String>? alertId,
+    Value<String>? eventId,
+    Value<int>? day,
+    Value<int>? fireAt,
+    Value<String>? kind,
+    Value<String>? state,
+    Value<String>? backend,
+    Value<DateTime>? createdAt,
+    Value<DateTime>? updatedAt,
+  }) {
+    return AlertRegistrationsCompanion(
+      osId: osId ?? this.osId,
+      alertId: alertId ?? this.alertId,
+      eventId: eventId ?? this.eventId,
+      day: day ?? this.day,
+      fireAt: fireAt ?? this.fireAt,
+      kind: kind ?? this.kind,
+      state: state ?? this.state,
+      backend: backend ?? this.backend,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (osId.present) {
+      map['os_id'] = Variable<int>(osId.value);
+    }
+    if (alertId.present) {
+      map['alert_id'] = Variable<String>(alertId.value);
+    }
+    if (eventId.present) {
+      map['event_id'] = Variable<String>(eventId.value);
+    }
+    if (day.present) {
+      map['day'] = Variable<int>(day.value);
+    }
+    if (fireAt.present) {
+      map['fire_at'] = Variable<int>(fireAt.value);
+    }
+    if (kind.present) {
+      map['kind'] = Variable<String>(kind.value);
+    }
+    if (state.present) {
+      map['state'] = Variable<String>(state.value);
+    }
+    if (backend.present) {
+      map['backend'] = Variable<String>(backend.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('AlertRegistrationsCompanion(')
+          ..write('osId: $osId, ')
+          ..write('alertId: $alertId, ')
+          ..write('eventId: $eventId, ')
+          ..write('day: $day, ')
+          ..write('fireAt: $fireAt, ')
+          ..write('kind: $kind, ')
+          ..write('state: $state, ')
+          ..write('backend: $backend, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $VocabulariesTable extends Vocabularies
     with TableInfo<$VocabulariesTable, VocabularyRow> {
   @override
@@ -11626,6 +13162,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $CalendarFilterPresetsTable calendarFilterPresets =
       $CalendarFilterPresetsTable(this);
   late final $EventSkipsTable eventSkips = $EventSkipsTable(this);
+  late final $EventAlertsTable eventAlerts = $EventAlertsTable(this);
+  late final $AlertRegistrationsTable alertRegistrations =
+      $AlertRegistrationsTable(this);
   late final $VocabulariesTable vocabularies = $VocabulariesTable(this);
   late final $VocabularyItemsTable vocabularyItems = $VocabularyItemsTable(
     this,
@@ -11662,6 +13201,10 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     this as AppDatabase,
   );
   late final EventSkipDao eventSkipDao = EventSkipDao(this as AppDatabase);
+  late final EventAlertDao eventAlertDao = EventAlertDao(this as AppDatabase);
+  late final AlertRegistrationDao alertRegistrationDao = AlertRegistrationDao(
+    this as AppDatabase,
+  );
   late final VocabularyDao vocabularyDao = VocabularyDao(this as AppDatabase);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
@@ -11683,6 +13226,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     eventTemplates,
     calendarFilterPresets,
     eventSkips,
+    eventAlerts,
+    alertRegistrations,
     vocabularies,
     vocabularyItems,
   ];
@@ -13557,6 +15102,7 @@ typedef $$CalendarEventsTableCreateCompanionBuilder =
       Value<bool?> showInDayRail,
       Value<bool> assumeAbsent,
       Value<DateTime?> assumeAbsentFrom,
+      Value<bool> removeAfterAlert,
       required DateTime createdAt,
       required DateTime updatedAt,
       Value<String> hlcTimestamp,
@@ -13592,6 +15138,7 @@ typedef $$CalendarEventsTableUpdateCompanionBuilder =
       Value<bool?> showInDayRail,
       Value<bool> assumeAbsent,
       Value<DateTime?> assumeAbsentFrom,
+      Value<bool> removeAfterAlert,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
       Value<String> hlcTimestamp,
@@ -13728,6 +15275,11 @@ class $$CalendarEventsTableFilterComposer
 
   ColumnFilters<DateTime> get assumeAbsentFrom => $composableBuilder(
     column: $table.assumeAbsentFrom,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get removeAfterAlert => $composableBuilder(
+    column: $table.removeAfterAlert,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -13896,6 +15448,11 @@ class $$CalendarEventsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<bool> get removeAfterAlert => $composableBuilder(
+    column: $table.removeAfterAlert,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -14039,6 +15596,11 @@ class $$CalendarEventsTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<bool> get removeAfterAlert => $composableBuilder(
+    column: $table.removeAfterAlert,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
 
@@ -14124,6 +15686,7 @@ class $$CalendarEventsTableTableManager
                 Value<bool?> showInDayRail = const Value.absent(),
                 Value<bool> assumeAbsent = const Value.absent(),
                 Value<DateTime?> assumeAbsentFrom = const Value.absent(),
+                Value<bool> removeAfterAlert = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<String> hlcTimestamp = const Value.absent(),
@@ -14157,6 +15720,7 @@ class $$CalendarEventsTableTableManager
                 showInDayRail: showInDayRail,
                 assumeAbsent: assumeAbsent,
                 assumeAbsentFrom: assumeAbsentFrom,
+                removeAfterAlert: removeAfterAlert,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 hlcTimestamp: hlcTimestamp,
@@ -14192,6 +15756,7 @@ class $$CalendarEventsTableTableManager
                 Value<bool?> showInDayRail = const Value.absent(),
                 Value<bool> assumeAbsent = const Value.absent(),
                 Value<DateTime?> assumeAbsentFrom = const Value.absent(),
+                Value<bool> removeAfterAlert = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime updatedAt,
                 Value<String> hlcTimestamp = const Value.absent(),
@@ -14225,6 +15790,7 @@ class $$CalendarEventsTableTableManager
                 showInDayRail: showInDayRail,
                 assumeAbsent: assumeAbsent,
                 assumeAbsentFrom: assumeAbsentFrom,
+                removeAfterAlert: removeAfterAlert,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 hlcTimestamp: hlcTimestamp,
@@ -16627,6 +18193,704 @@ typedef $$EventSkipsTableProcessedTableManager =
       EventSkipRow,
       PrefetchHooks Function()
     >;
+typedef $$EventAlertsTableCreateCompanionBuilder =
+    EventAlertsCompanion Function({
+      required String id,
+      required String eventId,
+      Value<String> mode,
+      Value<int> offsetMinutes,
+      Value<int> daysBefore,
+      Value<int?> dayMinute,
+      Value<String?> sound,
+      Value<bool> enabled,
+      required DateTime createdAt,
+      required DateTime updatedAt,
+      required String hlcTimestamp,
+      required String deviceId,
+      Value<int> version,
+      Value<bool> isDeleted,
+      Value<DateTime?> deletedAt,
+      Value<int> rowid,
+    });
+typedef $$EventAlertsTableUpdateCompanionBuilder =
+    EventAlertsCompanion Function({
+      Value<String> id,
+      Value<String> eventId,
+      Value<String> mode,
+      Value<int> offsetMinutes,
+      Value<int> daysBefore,
+      Value<int?> dayMinute,
+      Value<String?> sound,
+      Value<bool> enabled,
+      Value<DateTime> createdAt,
+      Value<DateTime> updatedAt,
+      Value<String> hlcTimestamp,
+      Value<String> deviceId,
+      Value<int> version,
+      Value<bool> isDeleted,
+      Value<DateTime?> deletedAt,
+      Value<int> rowid,
+    });
+
+class $$EventAlertsTableFilterComposer
+    extends Composer<_$AppDatabase, $EventAlertsTable> {
+  $$EventAlertsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get eventId => $composableBuilder(
+    column: $table.eventId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get mode => $composableBuilder(
+    column: $table.mode,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get offsetMinutes => $composableBuilder(
+    column: $table.offsetMinutes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get daysBefore => $composableBuilder(
+    column: $table.daysBefore,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get dayMinute => $composableBuilder(
+    column: $table.dayMinute,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sound => $composableBuilder(
+    column: $table.sound,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get hlcTimestamp => $composableBuilder(
+    column: $table.hlcTimestamp,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get version => $composableBuilder(
+    column: $table.version,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isDeleted => $composableBuilder(
+    column: $table.isDeleted,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$EventAlertsTableOrderingComposer
+    extends Composer<_$AppDatabase, $EventAlertsTable> {
+  $$EventAlertsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get eventId => $composableBuilder(
+    column: $table.eventId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get mode => $composableBuilder(
+    column: $table.mode,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get offsetMinutes => $composableBuilder(
+    column: $table.offsetMinutes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get daysBefore => $composableBuilder(
+    column: $table.daysBefore,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get dayMinute => $composableBuilder(
+    column: $table.dayMinute,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sound => $composableBuilder(
+    column: $table.sound,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get hlcTimestamp => $composableBuilder(
+    column: $table.hlcTimestamp,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get version => $composableBuilder(
+    column: $table.version,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get isDeleted => $composableBuilder(
+    column: $table.isDeleted,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$EventAlertsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $EventAlertsTable> {
+  $$EventAlertsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get eventId =>
+      $composableBuilder(column: $table.eventId, builder: (column) => column);
+
+  GeneratedColumn<String> get mode =>
+      $composableBuilder(column: $table.mode, builder: (column) => column);
+
+  GeneratedColumn<int> get offsetMinutes => $composableBuilder(
+    column: $table.offsetMinutes,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get daysBefore => $composableBuilder(
+    column: $table.daysBefore,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get dayMinute =>
+      $composableBuilder(column: $table.dayMinute, builder: (column) => column);
+
+  GeneratedColumn<String> get sound =>
+      $composableBuilder(column: $table.sound, builder: (column) => column);
+
+  GeneratedColumn<bool> get enabled =>
+      $composableBuilder(column: $table.enabled, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get hlcTimestamp => $composableBuilder(
+    column: $table.hlcTimestamp,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get deviceId =>
+      $composableBuilder(column: $table.deviceId, builder: (column) => column);
+
+  GeneratedColumn<int> get version =>
+      $composableBuilder(column: $table.version, builder: (column) => column);
+
+  GeneratedColumn<bool> get isDeleted =>
+      $composableBuilder(column: $table.isDeleted, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get deletedAt =>
+      $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+}
+
+class $$EventAlertsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $EventAlertsTable,
+          EventAlertRow,
+          $$EventAlertsTableFilterComposer,
+          $$EventAlertsTableOrderingComposer,
+          $$EventAlertsTableAnnotationComposer,
+          $$EventAlertsTableCreateCompanionBuilder,
+          $$EventAlertsTableUpdateCompanionBuilder,
+          (
+            EventAlertRow,
+            BaseReferences<_$AppDatabase, $EventAlertsTable, EventAlertRow>,
+          ),
+          EventAlertRow,
+          PrefetchHooks Function()
+        > {
+  $$EventAlertsTableTableManager(_$AppDatabase db, $EventAlertsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$EventAlertsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$EventAlertsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$EventAlertsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> eventId = const Value.absent(),
+                Value<String> mode = const Value.absent(),
+                Value<int> offsetMinutes = const Value.absent(),
+                Value<int> daysBefore = const Value.absent(),
+                Value<int?> dayMinute = const Value.absent(),
+                Value<String?> sound = const Value.absent(),
+                Value<bool> enabled = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<String> hlcTimestamp = const Value.absent(),
+                Value<String> deviceId = const Value.absent(),
+                Value<int> version = const Value.absent(),
+                Value<bool> isDeleted = const Value.absent(),
+                Value<DateTime?> deletedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => EventAlertsCompanion(
+                id: id,
+                eventId: eventId,
+                mode: mode,
+                offsetMinutes: offsetMinutes,
+                daysBefore: daysBefore,
+                dayMinute: dayMinute,
+                sound: sound,
+                enabled: enabled,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                hlcTimestamp: hlcTimestamp,
+                deviceId: deviceId,
+                version: version,
+                isDeleted: isDeleted,
+                deletedAt: deletedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String eventId,
+                Value<String> mode = const Value.absent(),
+                Value<int> offsetMinutes = const Value.absent(),
+                Value<int> daysBefore = const Value.absent(),
+                Value<int?> dayMinute = const Value.absent(),
+                Value<String?> sound = const Value.absent(),
+                Value<bool> enabled = const Value.absent(),
+                required DateTime createdAt,
+                required DateTime updatedAt,
+                required String hlcTimestamp,
+                required String deviceId,
+                Value<int> version = const Value.absent(),
+                Value<bool> isDeleted = const Value.absent(),
+                Value<DateTime?> deletedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => EventAlertsCompanion.insert(
+                id: id,
+                eventId: eventId,
+                mode: mode,
+                offsetMinutes: offsetMinutes,
+                daysBefore: daysBefore,
+                dayMinute: dayMinute,
+                sound: sound,
+                enabled: enabled,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                hlcTimestamp: hlcTimestamp,
+                deviceId: deviceId,
+                version: version,
+                isDeleted: isDeleted,
+                deletedAt: deletedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$EventAlertsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $EventAlertsTable,
+      EventAlertRow,
+      $$EventAlertsTableFilterComposer,
+      $$EventAlertsTableOrderingComposer,
+      $$EventAlertsTableAnnotationComposer,
+      $$EventAlertsTableCreateCompanionBuilder,
+      $$EventAlertsTableUpdateCompanionBuilder,
+      (
+        EventAlertRow,
+        BaseReferences<_$AppDatabase, $EventAlertsTable, EventAlertRow>,
+      ),
+      EventAlertRow,
+      PrefetchHooks Function()
+    >;
+typedef $$AlertRegistrationsTableCreateCompanionBuilder =
+    AlertRegistrationsCompanion Function({
+      Value<int> osId,
+      required String alertId,
+      required String eventId,
+      required int day,
+      required int fireAt,
+      Value<String> kind,
+      Value<String> state,
+      required String backend,
+      required DateTime createdAt,
+      required DateTime updatedAt,
+    });
+typedef $$AlertRegistrationsTableUpdateCompanionBuilder =
+    AlertRegistrationsCompanion Function({
+      Value<int> osId,
+      Value<String> alertId,
+      Value<String> eventId,
+      Value<int> day,
+      Value<int> fireAt,
+      Value<String> kind,
+      Value<String> state,
+      Value<String> backend,
+      Value<DateTime> createdAt,
+      Value<DateTime> updatedAt,
+    });
+
+class $$AlertRegistrationsTableFilterComposer
+    extends Composer<_$AppDatabase, $AlertRegistrationsTable> {
+  $$AlertRegistrationsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get osId => $composableBuilder(
+    column: $table.osId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get alertId => $composableBuilder(
+    column: $table.alertId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get eventId => $composableBuilder(
+    column: $table.eventId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get day => $composableBuilder(
+    column: $table.day,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get fireAt => $composableBuilder(
+    column: $table.fireAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get state => $composableBuilder(
+    column: $table.state,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get backend => $composableBuilder(
+    column: $table.backend,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$AlertRegistrationsTableOrderingComposer
+    extends Composer<_$AppDatabase, $AlertRegistrationsTable> {
+  $$AlertRegistrationsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get osId => $composableBuilder(
+    column: $table.osId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get alertId => $composableBuilder(
+    column: $table.alertId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get eventId => $composableBuilder(
+    column: $table.eventId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get day => $composableBuilder(
+    column: $table.day,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get fireAt => $composableBuilder(
+    column: $table.fireAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get state => $composableBuilder(
+    column: $table.state,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get backend => $composableBuilder(
+    column: $table.backend,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$AlertRegistrationsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $AlertRegistrationsTable> {
+  $$AlertRegistrationsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get osId =>
+      $composableBuilder(column: $table.osId, builder: (column) => column);
+
+  GeneratedColumn<String> get alertId =>
+      $composableBuilder(column: $table.alertId, builder: (column) => column);
+
+  GeneratedColumn<String> get eventId =>
+      $composableBuilder(column: $table.eventId, builder: (column) => column);
+
+  GeneratedColumn<int> get day =>
+      $composableBuilder(column: $table.day, builder: (column) => column);
+
+  GeneratedColumn<int> get fireAt =>
+      $composableBuilder(column: $table.fireAt, builder: (column) => column);
+
+  GeneratedColumn<String> get kind =>
+      $composableBuilder(column: $table.kind, builder: (column) => column);
+
+  GeneratedColumn<String> get state =>
+      $composableBuilder(column: $table.state, builder: (column) => column);
+
+  GeneratedColumn<String> get backend =>
+      $composableBuilder(column: $table.backend, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$AlertRegistrationsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $AlertRegistrationsTable,
+          AlertRegistrationRow,
+          $$AlertRegistrationsTableFilterComposer,
+          $$AlertRegistrationsTableOrderingComposer,
+          $$AlertRegistrationsTableAnnotationComposer,
+          $$AlertRegistrationsTableCreateCompanionBuilder,
+          $$AlertRegistrationsTableUpdateCompanionBuilder,
+          (
+            AlertRegistrationRow,
+            BaseReferences<
+              _$AppDatabase,
+              $AlertRegistrationsTable,
+              AlertRegistrationRow
+            >,
+          ),
+          AlertRegistrationRow,
+          PrefetchHooks Function()
+        > {
+  $$AlertRegistrationsTableTableManager(
+    _$AppDatabase db,
+    $AlertRegistrationsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$AlertRegistrationsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$AlertRegistrationsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$AlertRegistrationsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<int> osId = const Value.absent(),
+                Value<String> alertId = const Value.absent(),
+                Value<String> eventId = const Value.absent(),
+                Value<int> day = const Value.absent(),
+                Value<int> fireAt = const Value.absent(),
+                Value<String> kind = const Value.absent(),
+                Value<String> state = const Value.absent(),
+                Value<String> backend = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+              }) => AlertRegistrationsCompanion(
+                osId: osId,
+                alertId: alertId,
+                eventId: eventId,
+                day: day,
+                fireAt: fireAt,
+                kind: kind,
+                state: state,
+                backend: backend,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> osId = const Value.absent(),
+                required String alertId,
+                required String eventId,
+                required int day,
+                required int fireAt,
+                Value<String> kind = const Value.absent(),
+                Value<String> state = const Value.absent(),
+                required String backend,
+                required DateTime createdAt,
+                required DateTime updatedAt,
+              }) => AlertRegistrationsCompanion.insert(
+                osId: osId,
+                alertId: alertId,
+                eventId: eventId,
+                day: day,
+                fireAt: fireAt,
+                kind: kind,
+                state: state,
+                backend: backend,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$AlertRegistrationsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $AlertRegistrationsTable,
+      AlertRegistrationRow,
+      $$AlertRegistrationsTableFilterComposer,
+      $$AlertRegistrationsTableOrderingComposer,
+      $$AlertRegistrationsTableAnnotationComposer,
+      $$AlertRegistrationsTableCreateCompanionBuilder,
+      $$AlertRegistrationsTableUpdateCompanionBuilder,
+      (
+        AlertRegistrationRow,
+        BaseReferences<
+          _$AppDatabase,
+          $AlertRegistrationsTable,
+          AlertRegistrationRow
+        >,
+      ),
+      AlertRegistrationRow,
+      PrefetchHooks Function()
+    >;
 typedef $$VocabulariesTableCreateCompanionBuilder =
     VocabulariesCompanion Function({
       required String id,
@@ -17305,6 +19569,10 @@ class $AppDatabaseManager {
       $$CalendarFilterPresetsTableTableManager(_db, _db.calendarFilterPresets);
   $$EventSkipsTableTableManager get eventSkips =>
       $$EventSkipsTableTableManager(_db, _db.eventSkips);
+  $$EventAlertsTableTableManager get eventAlerts =>
+      $$EventAlertsTableTableManager(_db, _db.eventAlerts);
+  $$AlertRegistrationsTableTableManager get alertRegistrations =>
+      $$AlertRegistrationsTableTableManager(_db, _db.alertRegistrations);
   $$VocabulariesTableTableManager get vocabularies =>
       $$VocabulariesTableTableManager(_db, _db.vocabularies);
   $$VocabularyItemsTableTableManager get vocabularyItems =>

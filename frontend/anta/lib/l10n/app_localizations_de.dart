@@ -3050,6 +3050,63 @@ class AppLocalizationsDe extends AppLocalizations {
   String get eventNoSkippedDays => 'Keine';
 
   @override
+  String get eventAlertAtStart => 'Zum Start';
+
+  @override
+  String eventAlertMinutesBefore(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Min. vorher',
+      one: '1 Min. vorher',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String eventAlertHoursBefore(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Std. vorher',
+      one: '1 Std. vorher',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String eventAlertDaysBefore(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Tage vorher',
+      one: '1 Tag vorher',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String eventAlertAllDayOnDay(String time) {
+    return 'Am Tag selbst, $time';
+  }
+
+  @override
+  String eventAlertAllDayDayBefore(String time) {
+    return 'Am Vortag, $time';
+  }
+
+  @override
+  String eventAlertAllDayDaysBefore(int count, String time) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Tage vorher, $time',
+      one: '1 Tag vorher, $time',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get eventTemplates => 'Terminvorlagen';
 
   @override

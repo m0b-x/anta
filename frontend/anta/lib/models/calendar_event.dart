@@ -223,6 +223,21 @@ class CalendarEvent extends Equatable {
   /// event still stays out.
   final bool? showInDayRail;
 
+  /// Whether acknowledging this event's first alert deletes the event
+  /// (**v40**).
+  ///
+  /// A statement about the event's *purpose* — a quick alarm exists only until
+  /// it rings — which is why it lives on the event rather than on one of its
+  /// alerts. Off by default, offered by the editor only while the event is
+  /// one-time and has an alert, and set by the quick-alarm sheet.
+  ///
+  /// Nothing on the rendering path reads it: [occursOn], the grid, the agenda,
+  /// presence and skips are all unaware. The alarm page's Stop and the
+  /// reminder's Done are the only readers, and they act through
+  /// `CalendarEventService.deleteById`, which tombstones — so the removal
+  /// syncs and survives an Undo.
+  final bool removeAfterAlert;
+
   /// Optional free-form description / notes for the event (e.g., "focus on
   /// hamstrings, drop sets on the third exercise"). `null` or empty means
   /// no description. Stored verbatim as markdown source — rendering happens
@@ -273,6 +288,7 @@ class CalendarEvent extends Equatable {
     this.assumeAbsentFrom,
     this.perOccurrenceDescriptions = false,
     this.showInDayRail,
+    this.removeAfterAlert = false,
     this.time,
     this.description,
     this.noteId,
@@ -302,6 +318,7 @@ class CalendarEvent extends Equatable {
     DateTime? assumeAbsentFrom,
     bool? perOccurrenceDescriptions,
     bool? showInDayRail,
+    bool? removeAfterAlert,
     EventTime? time,
     String? description,
     String? noteId,
@@ -338,6 +355,7 @@ class CalendarEvent extends Equatable {
       showInDayRail: clearShowInDayRail
           ? null
           : (showInDayRail ?? this.showInDayRail),
+      removeAfterAlert: removeAfterAlert ?? this.removeAfterAlert,
       time: clearTime ? null : (time ?? this.time),
       description: clearDescription ? null : (description ?? this.description),
       noteId: clearNoteId ? null : (noteId ?? this.noteId),
@@ -484,6 +502,7 @@ class CalendarEvent extends Equatable {
     assumeAbsentFrom,
     perOccurrenceDescriptions,
     showInDayRail,
+    removeAfterAlert,
     time,
     description,
     noteId,

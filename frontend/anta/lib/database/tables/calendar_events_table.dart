@@ -108,6 +108,16 @@ class CalendarEvents extends Table {
   BoolColumn get showInDayRail => boolean().nullable()();
   BoolColumn get assumeAbsent => boolean().withDefault(const Constant(false))();
   DateTimeColumn get assumeAbsentFrom => dateTime().nullable()();
+
+  /// Whether acknowledging this event's first alert deletes the event
+  /// (**v40**). A statement about the event's purpose — a quick alarm exists
+  /// only until it rings — not about any one alert, which is why it lives
+  /// here and not on `calendar_event_alerts`.
+  ///
+  /// Off by default, and read by nothing on the rendering path: `occursOn`,
+  /// the grid, presence and skips never see it.
+  BoolColumn get removeAfterAlert =>
+      boolean().withDefault(const Constant(false))();
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
 

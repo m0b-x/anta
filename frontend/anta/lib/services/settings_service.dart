@@ -9,6 +9,7 @@ import '../constants/fasting_calendar.dart';
 import '../constants/font_constants.dart';
 import '../constants/settings_keys.dart';
 import '../models/editor_settings.dart';
+import '../models/event_alert.dart';
 import '../models/fasting_appearance.dart';
 import '../models/fasting_schedule.dart';
 import '../models/label_style.dart';
@@ -1472,8 +1473,23 @@ class SettingsService {
     SettingsKeys.calendarDayRailBasePosition,
   ];
 
+  /// The five event-alert options (**v40**), read as one statement.
+  ///
+  /// Permission state is deliberately **not** among them: it is per device,
+  /// the user can revoke it in Android's own settings between two frames, and
+  /// a cached copy would be a lie the moment it mattered. The gateway is asked
+  /// live instead.
+  static const List<String> _alertKeys = [
+    SettingsKeys.alertDefaultTimed,
+    SettingsKeys.alertDefaultAllDay,
+    SettingsKeys.alertSound,
+    SettingsKeys.alertSnoozeMinutes,
+    SettingsKeys.alertSilenceAfterMinutes,
+  ];
+
   static const List<String> _calendarPageKeys = [
     ..._calendarAppearanceKeys,
+    ..._alertKeys,
     SettingsKeys.calendarGridFilters,
     SettingsKeys.markdownCustomColors,
     SettingsKeys.calendarFastingTraditions,
@@ -1483,6 +1499,83 @@ class SettingsService {
     SettingsKeys.calendarFastingSchedule,
     SettingsKeys.calendarFastingWeekdays,
   ];
+
+  /// Decodes the alert bundle out of an already-read key/value map.
+  ///
+  /// Pure and static, so [getAlertSettings] and [getCalendarPageSettings]
+  /// share one implementation and cannot disagree about what `notify:10`
+  /// means — the failure mode that would otherwise show up as an editor
+  /// seeding one default and the settings page displaying another.
+  static AlertSettings _decodeAlertSettings(Map<String, String> values) {
+    return (
+      timedDefault: _decodeTimedAlertDefault(
+        values[SettingsKeys.alertDefaultTimed],
+      ),
+      allDayDefault: _decodeAllDayAlertDefault(
+        values[SettingsKeys.alertDefaultAllDay],
+      ),
+      sound: values[SettingsKeys.alertSound] ?? SettingsKeys.defaultAlertSound,
+      snoozeMinutes: _decodeInt(
+        values[SettingsKeys.alertSnoozeMinutes],
+        SettingsKeys.defaultAlertSnoozeMinutes,
+      ).clamp(
+        SettingsKeys.minAlertSnoozeMinutes,
+        SettingsKeys.maxAlertSnoozeMinutes,
+      ),
+      silenceAfterMinutes: _decodeInt(
+        values[SettingsKeys.alertSilenceAfterMinutes],
+        SettingsKeys.defaultAlertSilenceAfterMinutes,
+      ).clamp(
+        SettingsKeys.minAlertSilenceAfterMinutes,
+        SettingsKeys.maxAlertSilenceAfterMinutes,
+      ),
+    );
+  }
+
+  /// `mode:offsetMinutes`, or `none` for "seed a new timed event with no
+  /// alert". Anything unparseable falls back to the shipped default rather
+  /// than to `none`: a corrupt row should not silently stop reminding.
+  static TimedAlertDefault? _decodeTimedAlertDefault(String? raw) {
+    final value = raw ?? SettingsKeys.defaultAlertDefaultTimed;
+    if (value == _alertDefaultNone) return null;
+    final parts = value.split(':');
+    if (parts.length != 2) return _decodeTimedAlertDefault(null);
+    final offset = int.tryParse(parts[1]);
+    if (offset == null || offset < 0) return _decodeTimedAlertDefault(null);
+    return (mode: AlertMode.fromName(parts[0]), offsetMinutes: offset);
+  }
+
+  /// `mode:daysBefore:minuteOfDay`, or `none`.
+  static AllDayAlertDefault? _decodeAllDayAlertDefault(String? raw) {
+    final value = raw ?? SettingsKeys.defaultAlertDefaultAllDay;
+    if (value == _alertDefaultNone) return null;
+    final parts = value.split(':');
+    if (parts.length != 3) return _decodeAllDayAlertDefault(null);
+    final days = int.tryParse(parts[1]);
+    final minute = int.tryParse(parts[2]);
+    if (days == null || days < 0 || minute == null) {
+      return _decodeAllDayAlertDefault(null);
+    }
+    return (
+      mode: AlertMode.fromName(parts[0]),
+      daysBefore: days,
+      dayMinute: minute.clamp(0, EventAlert.minutesPerDay - 1),
+    );
+  }
+
+  /// The stored value that means "a new event gets no alert".
+  static const String _alertDefaultNone = 'none';
+
+  /// Every event-alert option in one statement.
+  ///
+  /// The editor seeds a new event's first alert from it, and the scheduler
+  /// reads the snooze and silence lengths — so it is read on a save path and
+  /// on a ring path, never inside `build`.
+  Future<AlertSettings> getAlertSettings() async {
+    return _decodeAlertSettings(
+      await _db.userSettingsDao.getValuesFor(_alertKeys),
+    );
+  }
 
   static CalendarAppearance _decodeCalendarAppearance(
     Map<String, String> values,
@@ -1576,6 +1669,7 @@ class SettingsService {
       FastingAppearance fastingAppearance,
       bool fastingGreatFasts,
       FastingSchedule fastingSchedule,
+      AlertSettings alerts,
     })
   >
   getCalendarPageSettings() async {
@@ -1601,6 +1695,7 @@ class SettingsService {
         values[SettingsKeys.calendarFastingSchedule],
         values[SettingsKeys.calendarFastingWeekdays],
       ),
+      alerts: _decodeAlertSettings(values),
     );
   }
 

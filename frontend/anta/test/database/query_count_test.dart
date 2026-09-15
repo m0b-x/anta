@@ -1022,6 +1022,94 @@ void main() {
       expect(counter.count, 0);
     });
   });
+
+  group('event alerts', () {
+    /// Alerts for [count] events, three each — the shape a per-event read in a
+    /// loop would be invisible in: sixty fast statements still beat one.
+    Future<void> seedAlerts(int count) async {
+      final now = DateTime.now();
+      await db.batch((batch) {
+        for (var e = 0; e < count; e++) {
+          for (var a = 0; a < 3; a++) {
+            batch.insert(
+              db.eventAlerts,
+              EventAlertsCompanion.insert(
+                id: 'e$e-a$a',
+                eventId: 'e$e',
+                hlcTimestamp: '0',
+                deviceId: 'test',
+                createdAt: now,
+                updatedAt: now,
+                offsetMinutes: Value(a * 10),
+              ),
+            );
+          }
+        }
+      });
+    }
+
+    test('loading every live alert is one statement', () async {
+      await seedAlerts(20);
+      counter.reset();
+
+      final alerts = await db.eventAlertDao.getAllActive();
+
+      expect(alerts, hasLength(60));
+      expect(
+        counter.count,
+        1,
+        reason:
+            'EventAlertService loads the whole table into the EventAlerts '
+            'facade at startup. A read per event would look fine in a query '
+            'plan and cost one statement per alerted event on the '
+            'pre-first-paint path. Issued:\n${counter.statements.join('\n')}',
+      );
+    });
+
+    test('replacing an event\'s alerts is one read plus the rows it changes', () async {
+      await seedAlerts(5);
+      counter.reset();
+
+      // Two kept, one dropped: one SELECT for the event, one UPDATE per
+      // changed row — never a SELECT per alert to find its version.
+      await db.eventAlertDao.replaceForEvent('e0', [
+        EventAlertsCompanion.insert(
+          id: 'e0-a0',
+          eventId: 'e0',
+          hlcTimestamp: '0',
+          deviceId: 'test',
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        ),
+        EventAlertsCompanion.insert(
+          id: 'e0-a1',
+          eventId: 'e0',
+          hlcTimestamp: '0',
+          deviceId: 'test',
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        ),
+      ]);
+
+      expect(
+        counter.selects,
+        hasLength(1),
+        reason: 'one read for the whole event, not one per alert. Issued:\n'
+            '${counter.statements.join('\n')}',
+      );
+    });
+
+    test('the tombstone cascade is one statement for any number of alerts', () async {
+      await seedAlerts(1);
+      counter.reset();
+
+      await db.eventAlertDao.tombstoneForEvent('e0');
+
+      // `version + 1` is arithmetic SQL does itself — the reorder path's old
+      // SELECT-then-UPDATE per row is the failure this file was built on.
+      expect(counter.count, 1);
+    });
+  });
 }
 
 Future<void> _seedChunks(

@@ -12,6 +12,7 @@ import '../models/note_metadata.dart';
 import 'calendar_event_service.dart';
 import 'event_occurrence_service.dart';
 import 'event_presence_service.dart';
+import 'event_alert_service.dart';
 import 'event_skip_service.dart';
 import 'event_template_service.dart';
 import 'calendar_palette_service.dart';
@@ -104,6 +105,8 @@ class BackupService {
         .exportData();
     final eventSkips = await (await EventSkipService.getInstance())
         .exportData();
+    final eventAlerts = await (await EventAlertService.getInstance())
+        .exportData();
     final eventTemplates = await (await EventTemplateService.getInstance())
         .exportData();
     final filterPresets = await (await FilterPresetService.getInstance())
@@ -142,6 +145,13 @@ class BackupService {
       // membership, not rendering: an absent key is a database where every
       // occurrence still exists.
       'eventSkips': eventSkips,
+      // Purely additive (v40): an absent key on an older backup is a database
+      // where nothing was ever set to speak up, which is what those installs
+      // had. Live rows only, no CRDT identity — and `alert_registrations` is
+      // **never** here: it mirrors one device's OS scheduler and is rebuilt by
+      // the next reconcile. The event's own `removeAfterAlert` rides
+      // `calendarEvents`, so the version stays 7.
+      'eventAlerts': eventAlerts,
       // Purely additive (v29): an absent key on an older backup is a database
       // with no templates, which is what those installs had.
       'eventTemplates': eventTemplates,
@@ -525,6 +535,20 @@ class BackupService {
           await skips.importData(eventSkips);
         } else {
           await skips.clearAllForImport();
+        }
+      }
+      // Event alerts (v40+ backups). The same strand rule, keyed to
+      // `calendarEvents` for the same reason — and this is the one where the
+      // consequence is loudest: an alert left behind against an id the event
+      // import has just handed to a different event does not draw a wrong
+      // badge, it rings.
+      final eventAlerts = data['eventAlerts'] as List?;
+      if (eventAlerts != null || calendarEvents != null) {
+        final alerts = await EventAlertService.getInstance();
+        if (eventAlerts != null) {
+          await alerts.importData(eventAlerts);
+        } else {
+          await alerts.clearAllForImport();
         }
       }
       final publicHolidays = data['publicHolidays'] as List?;

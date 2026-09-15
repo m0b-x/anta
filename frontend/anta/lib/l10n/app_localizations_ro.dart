@@ -3081,6 +3081,67 @@ class AppLocalizationsRo extends AppLocalizations {
   String get eventNoSkippedDays => 'Niciuna';
 
   @override
+  String get eventAlertAtStart => 'La început';
+
+  @override
+  String eventAlertMinutesBefore(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'cu $count de min înainte',
+      few: 'cu $count min înainte',
+      one: 'cu 1 min înainte',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String eventAlertHoursBefore(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'cu $count de ore înainte',
+      few: 'cu $count ore înainte',
+      one: 'cu 1 oră înainte',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String eventAlertDaysBefore(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'cu $count de zile înainte',
+      few: 'cu $count zile înainte',
+      one: 'cu o zi înainte',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String eventAlertAllDayOnDay(String time) {
+    return 'În ziua respectivă, $time';
+  }
+
+  @override
+  String eventAlertAllDayDayBefore(String time) {
+    return 'Cu o zi înainte, $time';
+  }
+
+  @override
+  String eventAlertAllDayDaysBefore(int count, String time) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'cu $count de zile înainte, $time',
+      few: 'cu $count zile înainte, $time',
+      one: 'cu o zi înainte, $time',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get eventTemplates => 'Șabloane de evenimente';
 
   @override

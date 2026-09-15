@@ -7,6 +7,7 @@ import '../database/daos/calendar_event_dao.dart';
 import '../models/calendar_event.dart';
 import '../models/recurrence_rule.dart';
 import '../models/recurrence_rule_codec.dart';
+import 'event_alert_service.dart';
 import 'event_occurrence_service.dart';
 import 'event_presence_service.dart';
 import 'event_skip_service.dart';
@@ -141,17 +142,28 @@ class CalendarEventService {
   /// description rows in bulk: turning either flag off or changing the rule
   /// leaves them dormant, because the stored delta is the durable record of a
   /// deliberate act and flipping the toggle back on must restore every one.
+  ///
+  /// Since **v40** the cascade also covers the event's alerts — tombstoned,
+  /// like every other CRDT child — and its OS registrations, which are **hard
+  /// deleted** instead. That asymmetry is the device-local rule: an alert is
+  /// the user's data and merges, a registration describes this phone's
+  /// scheduler and is rebuilt by the next reconcile. Both matter more than the
+  /// rows above: a stranded alert does not draw a stale badge, it wakes the
+  /// phone up for an event that no longer exists.
   Future<void> deleteById(String id) async {
     await _db.transaction(() async {
       await _dao.softDeleteById(id);
       await _db.eventAbsenceDao.tombstoneForEvent(id);
       await _db.eventOccurrenceDao.tombstoneForEvent(id);
       await _db.eventSkipDao.tombstoneForEvent(id);
+      await _db.eventAlertDao.tombstoneForEvent(id);
+      await _db.alertRegistrationDao.deleteForEvent(id);
     });
     _cache = List.unmodifiable(_cache.where((e) => e.id != id));
     await _refreshOccurrences();
     await _refreshPresence();
     await _refreshSkips();
+    await _refreshAlerts();
   }
 
   /// Removes every custom calendar event, cascading to their occurrence
@@ -163,11 +175,14 @@ class CalendarEventService {
       await _db.eventOccurrenceDao.deleteAll();
       await _db.eventAbsenceDao.deleteAll();
       await _db.eventSkipDao.deleteAll();
+      await _db.eventAlertDao.deleteAll();
+      await _db.alertRegistrationDao.deleteAll();
     });
     _cache = const [];
     await _refreshOccurrences();
     await _refreshPresence();
     await _refreshSkips();
+    await _refreshAlerts();
   }
 
   /// Republishes the occurrence facade after a cascade. Tolerates the service
@@ -200,6 +215,18 @@ class CalendarEventService {
       await service.refreshAfterEventRemoval();
     } catch (e) {
       debugPrint('[CalendarEventService] Skip refresh error: $e');
+    }
+  }
+
+  /// The alert twin, with the same tolerance — and the loudest consequence if
+  /// it is skipped: a facade still holding a deleted event's alerts is what
+  /// the planner would plan from.
+  Future<void> _refreshAlerts() async {
+    try {
+      final service = await EventAlertService.getInstance();
+      await service.refreshAfterEventRemoval();
+    } catch (e) {
+      debugPrint('[CalendarEventService] Alert refresh error: $e');
     }
   }
 
@@ -237,6 +264,7 @@ class CalendarEventService {
           'assumeAbsentFromMs': row.assumeAbsentFrom?.millisecondsSinceEpoch,
           'perOccurrenceDescriptions': row.perOccurrenceDescriptions,
           'showInDayRail': row.showInDayRail,
+          'removeAfterAlert': row.removeAfterAlert,
           'createdAtMs': row.createdAt.millisecondsSinceEpoch,
           'updatedAtMs': row.updatedAt.millisecondsSinceEpoch,
         },
@@ -363,6 +391,13 @@ class CalendarEventService {
             showInDayRail: map['showInDayRail'] is bool
                 ? Value(map['showInDayRail'] as bool)
                 : const Value.absent(),
+            // Absent in pre-v40 backups: default false, because an event that
+            // could not carry an alarm could not be removed by one either.
+            // The alerts themselves ride the separate `eventAlerts` key, which
+            // is why this one needs no version bump.
+            removeAfterAlert: map['removeAfterAlert'] is bool
+                ? Value(map['removeAfterAlert'] as bool)
+                : const Value.absent(),
             createdAt: Value(
               DateTime.fromMillisecondsSinceEpoch(createdMs, isUtc: true),
             ),
@@ -406,6 +441,7 @@ class CalendarEventService {
           : _dateOnlyUtc(row.assumeAbsentFrom!),
       perOccurrenceDescriptions: row.perOccurrenceDescriptions,
       showInDayRail: row.showInDayRail,
+      removeAfterAlert: row.removeAfterAlert,
       rule: _decodeRule(row.ruleKind, row.rulePayload),
     );
   }
@@ -471,6 +507,7 @@ class CalendarEventService {
       assumeAbsentFrom: Value(event.assumeAbsentFrom),
       perOccurrenceDescriptions: Value(event.perOccurrenceDescriptions),
       showInDayRail: Value(event.showInDayRail),
+      removeAfterAlert: Value(event.removeAfterAlert),
       createdAt: Value(updatedAt),
       updatedAt: Value(updatedAt),
     );

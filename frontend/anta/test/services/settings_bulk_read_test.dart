@@ -4,6 +4,7 @@ import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/models/calendar_appearance.dart';
+import 'package:anta/models/event_alert.dart';
 import 'package:anta/models/fasting_appearance.dart';
 import 'package:anta/services/settings_service.dart';
 
@@ -232,6 +233,122 @@ void main() {
       final bundle = await settings.getCalendarPageSettings();
 
       expect(bundle.appearance.dayRailStyle, DayRailStyle.none);
+    });
+  });
+
+  group('event alerts', () {
+    test('the alert bundle costs one statement', () async {
+      counter.reset();
+      await settings.getAlertSettings();
+
+      expect(counter.count, 1);
+    });
+
+    test('the defaults are what a fresh install reads', () async {
+      final alerts = await settings.getAlertSettings();
+
+      expect(alerts.timedDefault, (mode: AlertMode.notify, offsetMinutes: 10));
+      expect(alerts.allDayDefault, (
+        mode: AlertMode.notify,
+        daysBefore: 0,
+        dayMinute: 540,
+      ));
+      expect(alerts.sound, '');
+      expect(alerts.snoozeMinutes, 10);
+      expect(alerts.silenceAfterMinutes, 10);
+    });
+
+    test('the calendar page bundle decodes the same values', () async {
+      // One decoder, two callers: the editor seeding a new event's alert and
+      // the settings page displaying the default must never disagree about
+      // what `notify:10` means.
+      await db.userSettingsDao.setValue(
+        SettingsKeys.alertDefaultTimed,
+        'ring:45',
+      );
+
+      final page = await settings.getCalendarPageSettings();
+
+      expect(page.alerts, await settings.getAlertSettings());
+      expect(page.alerts.timedDefault, (
+        mode: AlertMode.ring,
+        offsetMinutes: 45,
+      ));
+    });
+
+    test('"none" means a new event starts with no alert', () async {
+      await db.userSettingsDao.setValue(SettingsKeys.alertDefaultTimed, 'none');
+      await db.userSettingsDao.setValue(
+        SettingsKeys.alertDefaultAllDay,
+        'none',
+      );
+
+      final alerts = await settings.getAlertSettings();
+
+      expect(alerts.timedDefault, isNull);
+      expect(alerts.allDayDefault, isNull);
+    });
+
+    test('a corrupt value falls back to the shipped default, not to none', () async {
+      // The direction matters: a row this build cannot parse must not silently
+      // stop reminding, which is the one failure the user would notice only by
+      // missing something.
+      await db.userSettingsDao.setValue(
+        SettingsKeys.alertDefaultTimed,
+        'notify',
+      );
+      await db.userSettingsDao.setValue(
+        SettingsKeys.alertDefaultAllDay,
+        'ring:x:y',
+      );
+
+      final alerts = await settings.getAlertSettings();
+
+      expect(alerts.timedDefault, (mode: AlertMode.notify, offsetMinutes: 10));
+      expect(alerts.allDayDefault, (
+        mode: AlertMode.notify,
+        daysBefore: 0,
+        dayMinute: 540,
+      ));
+    });
+
+    test('an unknown mode decodes to the quieter tier', () async {
+      await db.userSettingsDao.setValue(
+        SettingsKeys.alertDefaultTimed,
+        'siren:5',
+      );
+
+      final alerts = await settings.getAlertSettings();
+
+      expect(alerts.timedDefault, (mode: AlertMode.notify, offsetMinutes: 5));
+    });
+
+    test('the two sliders are clamped to their ranges', () async {
+      await db.userSettingsDao.setValue(SettingsKeys.alertSnoozeMinutes, '900');
+      await db.userSettingsDao.setValue(
+        SettingsKeys.alertSilenceAfterMinutes,
+        '0',
+      );
+
+      final alerts = await settings.getAlertSettings();
+
+      expect(alerts.snoozeMinutes, SettingsKeys.maxAlertSnoozeMinutes);
+      expect(
+        alerts.silenceAfterMinutes,
+        SettingsKeys.minAlertSilenceAfterMinutes,
+      );
+    });
+
+    test('an out-of-day minute is clamped into the day', () async {
+      await db.userSettingsDao.setValue(
+        SettingsKeys.alertDefaultAllDay,
+        'notify:1:5000',
+      );
+
+      final alerts = await settings.getAlertSettings();
+
+      expect(alerts.allDayDefault!.dayMinute, EventAlert.minutesPerDay - 1);
+      expect(alerts.allDayDefault!.daysBefore, 1);
     });
   });
 }

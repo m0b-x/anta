@@ -10,6 +10,7 @@ import '../../services/calendar_event_service.dart';
 import '../../services/category_service.dart';
 import '../../services/event_occurrence_service.dart';
 import '../../services/event_presence_service.dart';
+import '../../services/event_alert_service.dart';
 import '../../services/event_skip_service.dart';
 import '../../services/event_template_service.dart';
 import '../../services/note_money_ledger_service.dart';
@@ -180,7 +181,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
 
   /// Awaits one service's construction, logging rather than rethrowing.
   ///
-  /// Lets the seven resolve through a single [Future.wait] without its
+  /// Lets the eight resolve through a single [Future.wait] without its
   /// fail-fast semantics turning one bad service into an empty calendar.
   static Future<void> _resolveQuietly(
     Future<Object?> init,
@@ -562,7 +563,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   /// This is where the calendar's first load lives now that the services are
   /// no longer constructed before `runApp`. Two properties it must keep:
   ///
-  /// The seven `getInstance()` calls run through one [Future.wait] rather than
+  /// The eight `getInstance()` calls run through one [Future.wait] rather than
   /// sequentially — each is a separate round trip to the Drift isolate, so
   /// awaiting them in order makes the latencies add rather than overlap. That
   /// was the roadmap's complaint about the old DI block, and it applies just
@@ -593,6 +594,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       _resolveQuietly(EventPresenceService.getInstance(), 'presence'),
       _resolveQuietly(EventSkipService.getInstance(), 'skips'),
       _resolveQuietly(EventTemplateService.getInstance(), 'templates'),
+      _resolveQuietly(EventAlertService.getInstance(), 'alerts'),
     ]);
     try {
       final resolved = await resolving;

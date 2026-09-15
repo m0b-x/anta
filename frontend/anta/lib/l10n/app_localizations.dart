@@ -5242,6 +5242,48 @@ abstract class AppLocalizations {
   /// **'None'**
   String get eventNoSkippedDays;
 
+  /// Alert timing for a timed event with no lead time
+  ///
+  /// In en, this message translates to:
+  /// **'At start'**
+  String get eventAlertAtStart;
+
+  /// Alert timing for a timed event, minutes of lead time
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{1 min before} other{{count} min before}}'**
+  String eventAlertMinutesBefore(int count);
+
+  /// Alert timing for a timed event, whole hours of lead time
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{1 h before} other{{count} h before}}'**
+  String eventAlertHoursBefore(int count);
+
+  /// Alert timing for a timed event, whole days of lead time
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{1 day before} other{{count} days before}}'**
+  String eventAlertDaysBefore(int count);
+
+  /// Alert timing for an all-day event firing on the day itself
+  ///
+  /// In en, this message translates to:
+  /// **'On the day, {time}'**
+  String eventAlertAllDayOnDay(String time);
+
+  /// Alert timing for an all-day event firing the previous day
+  ///
+  /// In en, this message translates to:
+  /// **'The day before, {time}'**
+  String eventAlertAllDayDayBefore(String time);
+
+  /// Alert timing for an all-day event firing several days ahead
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{1 day before, {time}} other{{count} days before, {time}}}'**
+  String eventAlertAllDayDaysBefore(int count, String time);
+
   /// Title of the event templates management page
   ///
   /// In en, this message translates to:

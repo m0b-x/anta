@@ -1,6 +1,8 @@
+import '../constants/event_alerts.dart';
 import '../constants/event_skips.dart';
 import '../constants/public_holidays.dart';
 import '../models/calendar_event.dart';
+import '../models/event_alert.dart';
 import '../models/recurrence_rule.dart';
 
 /// Serializes [CalendarEvent]s to an RFC 5545 iCalendar (`.ics`) document so
@@ -101,7 +103,68 @@ abstract final class IcsSerializer {
       lines.add(_dateListProperty('RDATE', rDates, time));
     }
 
+    lines.addAll(_alarms(event, first, time));
+
     lines.add('END:VEVENT');
+    return lines;
+  }
+
+  /// One `VALARM` per **enabled** alert (**v40**).
+  ///
+  /// Read from the [EventAlerts] facade rather than passed in, exactly as the
+  /// skip filter above reads [EventSkips]: the serializer is called from the
+  /// export path with nothing but a list of events, and threading alerts
+  /// through would give this file a second source of truth for them.
+  /// A disabled alert registers nothing on the phone, so it exports nothing.
+  ///
+  /// The two tiers map to the two actions RFC 5545 has: `DISPLAY` for a
+  /// reminder (which needs a `DESCRIPTION`), `AUDIO` for an alarm. Nothing in
+  /// the format can express "ring until stopped", so a receiving calendar will
+  /// treat both as ordinary alarms — which is the honest reading of what it
+  /// can do.
+  ///
+  /// A timed event's offset is a relative `TRIGGER:-PT{n}M`, which is what
+  /// makes it follow every occurrence of the `RRULE`. An all-day event has no
+  /// start instant to be relative to, so its trigger is absolute — computed
+  /// per the all-day rule (`daysBefore` back from the day, at `dayMinute` or
+  /// the 09:00 default) for the **first** occurrence only, and written as UTC
+  /// because RFC 5545 allows no other form for an absolute trigger.
+  static List<String> _alarms(
+    CalendarEvent event,
+    DateTime first,
+    EventTime? time,
+  ) {
+    final alerts = EventAlerts.alertsFor(event.id);
+    if (alerts.isEmpty) return const [];
+    final lines = <String>[];
+    for (final alert in alerts) {
+      if (!alert.enabled) continue;
+      final isAlarm = alert.mode == AlertMode.ring;
+      lines.add('BEGIN:VALARM');
+      lines.add(isAlarm ? 'ACTION:AUDIO' : 'ACTION:DISPLAY');
+      if (!isAlarm) lines.add('DESCRIPTION:${_escape(event.title)}');
+      if (time != null) {
+        lines.add('TRIGGER:-PT${alert.offsetMinutes}M');
+      } else {
+        final anchor = first.subtract(Duration(days: alert.daysBefore));
+        final minute = alert.dayMinute ?? kDefaultAlertDayMinute;
+        // The planner's own fire instant: the occurrence day rebuilt as a
+        // **local** midnight, plus the minute of day. RFC 5545 allows an
+        // absolute trigger in UTC only, so unlike `DTSTART` — which stays
+        // floating, because the app records no timezone — this one has to be
+        // converted. The two are consistent: both name the same instant on the
+        // machine that wrote the file.
+        final localFire = DateTime(
+          anchor.year,
+          anchor.month,
+          anchor.day,
+        ).add(Duration(minutes: minute));
+        lines.add(
+          'TRIGGER;VALUE=DATE-TIME:${_formatUtcStamp(localFire.toUtc())}',
+        );
+      }
+      lines.add('END:VALARM');
+    }
     return lines;
   }
 

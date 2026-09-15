@@ -592,6 +592,85 @@ void main() {
       expect(await indexNames(db), contains('idx_notes_ltitle'));
     });
   });
+
+  // Both v40 indexes are **partial**, and on different predicates: the alert
+  // one on `is_deleted = 0`, the registration one on `state = 'pending'`. A
+  // partial index is only usable when the query restates its `WHERE` clause,
+  // so these assert the plan *and* the SQL text — the latter because the
+  // shipped Android SQLite will not infer a partial index's predicate from a
+  // bound parameter, and the host running `flutter test` will.
+  group('event alerts', () {
+    test('the per-event cascade finds its rows through the index', () async {
+      final plan = await planOf(
+        () => db.eventAlertDao.tombstoneForEvent('e1'),
+        containing: 'calendar_event_alerts',
+      );
+
+      expect(plan, usesIndex('idx_calendar_event_alerts_active'));
+      expect(plan, isNot(contains(contains('SCAN calendar_event_alerts'))));
+    });
+
+    test('the cascade spells both predicates as literals', () async {
+      final sql = await sqlOf(() => db.eventAlertDao.tombstoneForEvent('e1'));
+
+      expect(sql, contains('is_deleted = 0'));
+      expect(
+        sql,
+        contains('event_id = ?'),
+        reason: 'only the id is bound; the tombstone filter must stay literal '
+            'or the partial index stops matching on the shipped SQLite',
+      );
+    });
+
+    test('the pending read is indexed and needs no temp B-tree', () async {
+      final plan = await planOf(() => db.alertRegistrationDao.pending());
+
+      // Partial on `state = 'pending'` and keyed by `fire_at`: the filter and
+      // the ordering come out of the same index, which is what keeps the
+      // reconcile read O(pending) rather than O(every registration ever made).
+      expect(plan, usesIndex('idx_alert_registrations_pending'));
+      expect(plan, isNot(sortsInMemory));
+    });
+
+    test('the pending read spells its state predicate as a literal', () async {
+      final sql = await sqlOf(() => db.alertRegistrationDao.pending());
+
+      expect(sql, contains("state = 'pending'"));
+      expect(sql, isNot(contains('?')));
+    });
+
+    test('the per-event registration cascade uses its own index', () async {
+      final plan = await planOf(
+        () => db.alertRegistrationDao.deleteForEvent('e1'),
+      );
+
+      expect(plan, usesIndex('idx_alert_registrations_event'));
+    });
+
+    test('v39 → v40 creates all three on an existing install', () async {
+      // The fresh-install half first: `createAllIndexes` must already produce
+      // them, or upgraders end up faster than new users — the
+      // `idx_folders_position` failure v25 existed to repair.
+      const names = [
+        'idx_calendar_event_alerts_active',
+        'idx_alert_registrations_pending',
+        'idx_alert_registrations_event',
+      ];
+      expect(await indexNames(db), containsAll(names));
+
+      for (final name in names) {
+        await db.customStatement('DROP INDEX $name');
+      }
+
+      await DatabaseMigrations(db).runMigrations(
+        db.createMigrator(),
+        DatabaseSchema.v39ItemLabels,
+        DatabaseSchema.v40EventAlerts,
+      );
+
+      expect(await indexNames(db), containsAll(names));
+    });
+  });
 }
 
 CalendarEventsCompanion _event(String id) {

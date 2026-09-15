@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/calendar_palette.dart';
+import 'package:anta/constants/event_alerts.dart';
 import 'package:anta/constants/event_presence.dart';
 import 'package:anta/constants/event_skips.dart';
 import 'package:anta/constants/occurrence_descriptions.dart';
@@ -15,6 +16,7 @@ import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/models/calendar_event.dart';
+import 'package:anta/models/event_alert.dart';
 import 'package:anta/models/event_template.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/backup_service.dart';
@@ -22,6 +24,7 @@ import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/calendar_palette_service.dart';
 import 'package:anta/services/category_service.dart';
 import 'package:anta/services/counter_service.dart';
+import 'package:anta/services/event_alert_service.dart';
 import 'package:anta/services/event_occurrence_service.dart';
 import 'package:anta/services/event_presence_service.dart';
 import 'package:anta/services/event_skip_service.dart';
@@ -353,4 +356,155 @@ void main() {
       reason: 'an unmarked day of a pre-v37 event was attended by default',
     );
   });
+
+  group('event alerts (v40)', () {
+    late AppDatabase db;
+    late BackupService backup;
+
+    /// One alerted event, exported, then wiped along with every singleton that
+    /// caches it — so anything asserted afterwards can only have come from the
+    /// archive.
+    Future<String> seedAndExport() async {
+      db = await AppDatabase.getInstance();
+      await db.calendarEventDao.deleteAll();
+      await db.eventAlertDao.deleteAll();
+      DatabaseLifecycle.notifyDatabaseSwitching();
+
+      await (await CalendarEventService.getInstance()).upsert(
+        CalendarEvent(
+          id: 'alerted-event',
+          title: 'Bench',
+          categoryId: 'other',
+          startDate: DateTime.utc(2026, 8, 1),
+          rule: const OneTimeRecurrence(),
+          time: const EventTime(startMinute: 18 * 60),
+          removeAfterAlert: true,
+        ),
+      );
+      await (await EventAlertService.getInstance()).replaceForEvent(
+        'alerted-event',
+        const [
+          EventAlert(
+            id: 'alert-1',
+            eventId: 'alerted-event',
+            mode: AlertMode.ring,
+            offsetMinutes: 15,
+            sound: 'chime',
+          ),
+          EventAlert(
+            id: 'alert-2',
+            eventId: 'alerted-event',
+            daysBefore: 1,
+            dayMinute: 1200,
+            enabled: false,
+          ),
+        ],
+      );
+
+      backup = await BackupService.getInstance();
+      final exported = await backup.exportAllData();
+      expect(
+        exported['version'],
+        7,
+        reason: 'alerts are additive; the format version must not move',
+      );
+      expect(
+        exported.keys,
+        isNot(contains('alertRegistrations')),
+        reason: 'registrations mirror one phone\'s OS scheduler and are never '
+            'carried to another device',
+      );
+      return jsonEncode(exported);
+    }
+
+    Future<void> wipe() async {
+      await db.calendarEventDao.deleteAll();
+      await db.eventAlertDao.deleteAll();
+      DatabaseLifecycle.notifyDatabaseSwitching();
+      // Reconstructing the service here republishes from the emptied table,
+      // which is what proves the wipe landed — without it every assertion
+      // below would pass on leftovers.
+      await EventAlertService.getInstance();
+      expect(
+        EventAlerts.alertsFor('alerted-event'),
+        isEmpty,
+        reason: 'the wipe must land or the assertions below prove nothing',
+      );
+      DatabaseLifecycle.notifyDatabaseSwitching();
+    }
+
+    test('alerts and the removal flag round-trip', () async {
+      final json = await seedAndExport();
+      await wipe();
+
+      final result = await backup.importFromJson(json);
+      expect(result.success, isTrue, reason: 'error: ${result.error}');
+
+      await EventAlertService.getInstance();
+      final restored = EventAlerts.alertsFor('alerted-event');
+      expect(restored, hasLength(2));
+      final alarm = restored.firstWhere((a) => a.id == 'alert-1');
+      expect(alarm.mode, AlertMode.ring);
+      expect(alarm.offsetMinutes, 15);
+      expect(alarm.sound, 'chime');
+      // Both offset sets ride the archive, so an event flipped to all-day
+      // after a restore still finds an alert that means something.
+      final reminder = restored.firstWhere((a) => a.id == 'alert-2');
+      expect(reminder.daysBefore, 1);
+      expect(reminder.dayMinute, 1200);
+      expect(
+        reminder.enabled,
+        isFalse,
+        reason: 'a disabled alert is kept data, not absent data',
+      );
+
+      // The flag rides `calendarEvents` as an additive key, so nothing else
+      // proves it survives a real export.
+      final event = (await CalendarEventService.getInstance()).events
+          .firstWhere((e) => e.id == 'alerted-event');
+      expect(event.removeAfterAlert, isTrue);
+    });
+
+    test('an archive with events but no alerts clears the table', () async {
+      final json = await seedAndExport();
+      final stripped = jsonDecode(json) as Map<String, dynamic>
+        ..remove('eventAlerts');
+
+      // Not a wipe first: the alerts are still there, which is the whole
+      // point. The event import wipes and reinserts the id space, so an alert
+      // left behind would not draw a stale badge — it would ring for whatever
+      // event later takes that id.
+      final result = await backup.importFromJson(jsonEncode(stripped));
+      expect(result.success, isTrue, reason: 'error: ${result.error}');
+
+      await EventAlertService.getInstance();
+      expect(EventAlerts.alertsFor('alerted-event'), isEmpty);
+      expect(await db.select(db.eventAlerts).get(), isEmpty);
+    });
+
+    test('a pre-v40 archive imports cleanly', () async {
+      final json = await seedAndExport();
+      final legacy = jsonDecode(json) as Map<String, dynamic>
+        ..remove('eventAlerts');
+      for (final raw in legacy['calendarEvents'] as List) {
+        (raw as Map).remove('removeAfterAlert');
+      }
+      await wipe();
+
+      final result = await backup.importFromJson(jsonEncode(legacy));
+
+      expect(result.success, isTrue, reason: 'error: ${result.error}');
+      await EventAlertService.getInstance();
+      expect(EventAlerts.alertsFor('alerted-event'), isEmpty);
+      final event = (await CalendarEventService.getInstance()).events
+          .firstWhere((e) => e.id == 'alerted-event');
+      expect(
+        event.removeAfterAlert,
+        isFalse,
+        reason: 'an install that could not set an alarm could not have asked '
+            'to be deleted by one',
+      );
+    });
+  });
 }
+

@@ -3,11 +3,16 @@
 **Status: PROPOSED, nothing shipped. Phase 0 DONE on the emulator
 (2026-09-14, branch `spike/event-alerts-ring`, commit `359f317`, results in
 §10); the owner's phone pass of the same spike is owed (§9, §10.4).**
-Phases 1–4 are planned and not started. Decisions A1–A14 (§1) were
-proposed on 2026-09-14 and are to be confirmed by the owner at the Phase 1
-kickoff; A5 is now backed by the spike; A15 (the Windows build) was found
-by the spike and **settled the same day** — the ATL component is installed
-and the spike branch builds for Windows.
+Phases 1–4 were split on 2026-09-15 into the prerequisites P1–P5 and
+Sessions 1–9 of §8; **Session 1 DONE 2026-09-15** (Opus, Fable-reviewed,
+5,044 tests green, uncommitted on `b05418a` — commit before Session 2;
+deviations recorded under its prompt). Decisions A1–A14 (§1)
+were proposed on 2026-09-14 and **confirmed as proposed on 2026-09-15**
+(P1, P2, P5 in §8.1); A5 stands on the emulator spike alone because the
+owner **waived the phone pass** (P3) — the §9 checklist after Session 4 is
+the first real-phone evidence; A15 (the Windows build) was found by the
+spike and **settled the same day** — the ATL component is installed and
+the spike branch builds for Windows.
 Design source: the studies artifact (both themes, 360 dp frames):
 https://claude.ai/code/artifact/27747ab0-bb8c-463f-b6cf-5b5449db01c5
 Research: five read-only Opus passes on 2026-09-14 (events model and
@@ -58,7 +63,7 @@ number of events, and swapping the platform backend touches one file.
   safety apps and would be refused; iOS alarms are AlarmKit on 26+ and
   time-sensitive notifications below.
 
-## 1. Decisions (proposed 2026-09-14; confirm at Phase 1 kickoff)
+## 1. Decisions (proposed 2026-09-14; A1–A14 confirmed as proposed 2026-09-15, §8.1)
 
 | Id | Question | Proposed | Why |
 | --- | --- | --- | --- |
@@ -590,14 +595,49 @@ widget test ever touches a plugin channel.
   `quick_alarm_sheet_test.dart`, `alerts_page_test.dart`; the alert sheet
   and the quick sheet join `sheet_bottom_clearance_test.dart`.
 
-## 8. Phases and prompts
+## 8. Prerequisites, sessions and prompts
 
-Execution model: Fable plans and reviews; Opus implements each phase from
+Execution model: Fable plans and reviews; Opus implements each session from
 the prompt below; Sonnet takes the mechanical parts (ARB ×3, DDL, gen-l10n).
-Each phase ends with `dart analyze lib`, `flutter test`, `flutter run -d
-windows` still launching, and a device pass through the QA harness. The
-owner's real phone is needed for Phase 0's OEM questions and for every
-"ring" acceptance; the emulator cannot answer battery or vendor behaviour.
+Every session ends with `dart analyze lib`, `flutter test`, `flutter run -d
+windows` still launching, the device pass named in its row, a Fable review
+of the diff, and **a commit** — the next session starts on a clean tree,
+never on top of an uncommitted predecessor. The owner's real phone is
+needed for the spike's OEM questions and for every "ring" acceptance; the
+emulator cannot answer battery or vendor behaviour. Phase names stay as
+the grouping the rest of this document refers to: Phase 1 = Sessions 1–4,
+Phase 2 = Sessions 5–6, Phase 3 = Session 7, Phase 4 = Sessions 8–9.
+
+### 8.1 Prerequisites
+
+| Id | What | Who | Gates | Status |
+| --- | --- | --- | --- | --- |
+| P1 | Confirm the four decisions that shape the v40 DDL: A2 (up to five per event, one row each), A3 (`remove_after_alert` on the event, not the alert), A4 (`days_before` + `day_minute` per alert), A14 (no timezone column). Changing any of them after Session 1 means a v41. | owner | Session 1 | **confirmed 2026-09-15**, all four as proposed |
+| P2 | Confirm the surface decisions: A1 (vocabulary), A8 (one snooze length), A12 (where a tap opens) before Session 3; A11 (quick alarms in `other` with the alarm icon) before Session 6. | owner | Sessions 3, 6 | **confirmed 2026-09-15**, all four as proposed |
+| P3 | Phone pass of the spike (§10.4 recipe: release-signed build of `spike/event-alerts-ring`, `adb install -r`, never uninstall): PIN keyguard, overnight Doze, reboot before the fire time, Force stop, DND access, audibility, the `restricted` bucket; vendor and OS version recorded in §10. Its output is the A5 verdict — `alarm` for the Alarm tier, or the notification-plugin fallback if `setExactAndAllowWhileIdle` defers overnight. | owner | Session 3 | **waived 2026-09-15** by the owner: A5 stands on the emulator verdict alone (`alarm` for the Alarm tier), the §11 Doze and OEM risks stay open, and the gateway's one-file fallback switch is the mitigation. The first real-phone evidence is the §9 checklist after Session 4; a PIN-keyguard failure there reopens A5 |
+| P4 | A15 — the Windows build with the notification plugin. | owner | Session 3 | **done 2026-09-14**; the CLAUDE.md / `verify` note lands with the dependencies in Session 3 |
+| P5 | Planner scope: this split builds the **full horizon planner** in Session 2 rather than the one-time-only cut the 2026-09-14 Phase 1 prompt asked for. The walk is `occursOnUtcDay` either way, so one-time-only saves no code and would leave Session 5 rewriting tested code; what is deferred to Session 5 is proving recurrence on a device, not planning it. | owner | Session 2 | **confirmed 2026-09-15**: full horizon |
+
+Housekeeping, not gates: the spike's debug APK is still on the emulator
+(the first `qa run` from `main` reinstalls the stock build); if the
+emulator reports "Lost connection to device" after a launch, cold-boot it;
+add dependencies from Git Bash (PowerShell 5.1 eats the caret, §10.2).
+
+### 8.2 Session ledger
+
+| # | Session | Phase | Needs | Device pass | Ends with |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Persistence and domain — **DONE 2026-09-15** | 1a | P1 | none | v40 live, `EventAlertService` in the calendar `Future.wait`, backup + `.ics` round-trips green |
+| 2 | Planner, scheduler, gateway seam | 1b | S1, P5 | none (Windows launch only) | every reconcile trigger wired against `NoOpAlertGateway`; alerts exist only through tests |
+| 3 | Android gateway and the ring | 1c | S2, P2, P3 | emulator + phone | Test alarm in 10 s rings on a locked screen, alarm page Stop / Snooze work, force-stop copy in place |
+| 4 | Editor, detail, rows | 1d | S3 | emulator, then §9 rows 1–7 on the phone | the Phase 1 acceptance: one-time alarm end to end, remove-after + Undo |
+| 5 | Recurrence proven, missed path, hub | 2a | S4 | emulator, §9 row 8 | Mon/Wed/Fri recipe passes, Alerts hub live |
+| 6 | Quick alarm and templates | 2b | S5, P2 (A11) | emulator | FAB long-press → Alarm… → rings; v41 template alerts |
+| 7 | Power and harness | 3 | S6 | emulator | sound picker, presence prompt, `qa alerts` / `qa fire` |
+| 8 | iOS runner builds | 4a | S7, the Mac | simulator | `flutter run` on a simulator reaches the browser |
+| 9 | `DarwinAlertGateway` | 4b | S8, an iPhone | iPhone | §6.2 acceptance |
+
+### Phase 0 — Investigation (started 2026-09-14)
 
 ### Phase 0 — Investigation (started 2026-09-14)
 
@@ -616,105 +656,312 @@ notification --noredact`, `dumpsys audio` / `media.audio_flinger`, `[spike]`
 logcat lines. Deliverable: the report in §10 and a verdict on A5. The
 owner's phone repeats S2–S7 and S9 (§9).
 
-### Phase 1 — One-time alerts (3 sessions)
+Every prompt below is preceded by the same preamble, which is not
+repeated: *Read `docs/event-alerts-roadmap.md` §0–§7 and §10 first, then
+`COPILOT_CONTEXT.md`, the `anta-context`, `calendar-events`,
+`drift-migrations` and `l10n` skills, and `docs/calendar-events-feature.md`
+§3, §6 and §10. Line numbers in the roadmap are as of `4610292` — re-grep
+before editing. Hard rules: never GetIt for DB-backed services; every
+plugin call behind the gateway; permission requests only from a user
+action; no code comments beyond `///` doc comments; no new markdown docs.
+Before finishing run what the change requires (`dart run build_runner
+build --delete-conflicting-outputs`, `flutter gen-l10n` and check
+`untranslated.txt`, `dart analyze lib`, `flutter test`, `flutter run -d
+windows` reaches the browser). Report every deviation from the roadmap in
+a "Deviations" list and do not edit the roadmap yourself.*
 
-Paste-ready prompt for Opus:
+### Session 1 — Persistence and domain (Phase 1a)
 
-> Implement Phase 1 of `docs/event-alerts-roadmap.md` on top of the current
-> `main`. Read that roadmap's §1–§7 and §10 first, then `COPILOT_CONTEXT.md`,
-> the `anta-context`, `calendar-events`, `drift-migrations` and `l10n`
-> skills, and `docs/calendar-events-feature.md` §3, §6 and §10. Scope: the
-> v40 schema and migration (§4.1) with parity and query-plan tests; `EventAlert`
-> + `EventAlertDao` + `EventAlertService` + the `EventAlerts` facade (§3.1);
-> `AlertRegistrationDao`; `AlertPlanner` (pure, explicit `now`) and
-> `AlertScheduler` for **one-time events only** (horizon rules still apply
-> but the walk may stop at the first occurrence); `AlertGateway` with
-> `AndroidAlertGateway` on the backend §10 chose and `NoOpAlertGateway`,
-> registered in `injection.dart` behind `AlertAvailability`; `AlertPayload`;
+Needs P1. No device. Nothing in this session imports a plugin.
+
+> Implement Session 1 of `docs/event-alerts-roadmap.md` on top of the
+> current `main`. Scope: the v40 schema and migration exactly as §4.1
+> (`DatabaseSchema.v40EventAlerts`, both table classes in the
+> `@DriftDatabase` list, `_migrateV39ToV40` with the guarded column,
+> indexes through `DatabaseIndexes`); `EventAlert` + `AlertMode` (§2.1)
+> with `copyWith`, the JSON codec, and `EventAlert.describe(l10n, event)`
+> as the one formatter — its ARB keys ×3 now; `CalendarEvent.
+> removeAfterAlert` (§2.2) through the model, the DAO and the JSON key,
+> default false, read by nothing else; `EventAlertDao` and
+> `AlertRegistrationDao` (§3.1) with the CRDT stamping of
+> `calendar_event_dao.dart`; `EventAlertService` + the `EventAlerts`
+> facade in the `EventSkipService` shape, registered with
+> `DatabaseLifecycle` and added to the calendar services' `Future.wait`;
+> `CalendarEventService.deleteById` cascading alerts and registrations;
+> backup key `eventAlerts` with the strand rule keyed to `calendarEvents`
+> and `removeAfterAlert` riding `calendarEvents` (§4.2, no version bump);
+> `.ics` `VALARM` (§4.3); the five settings keys with `getAlertSettings()`
+> and pure decoders (§4.4), added to `_calendarPageKeys` — no settings UI
+> yet. Tests: `test/models/event_alert_test.dart` (codec, `describe`
+> table, both offset sets surviving an all-day flip), `test/services/
+> event_alert_service_test.dart` (in-memory DB, CRDT stamping,
+> `replaceForEvent` tombstones, cascade on `deleteById`, backup round-trip
+> including the strand rule), `test/database/` parity for both tables, the
+> two partial indexes in the query-plan suite, one statement for
+> `getAllActive`, and a `VALARM` case in the `.ics` suite. Update the
+> `calendar-events` skill's schema lineage to v40 and its seven-services
+> rule to eight. Acceptance: `flutter test` green, `flutter run -d windows`
+> launches, and a fresh v39 database migrates with the three DDL
+> statements applied once.
+
+Shipped 2026-09-15 as written, 4,951 → 5,044 tests. Deviations that later
+sessions must know: `alert_registrations.created_at` / `updated_at` are
+Drift `DateTime` columns (unix seconds) while `day` / `fire_at` stay raw
+epoch-ms ints, asserted in `schema_parity_test`; the all-day `VALARM`
+absolute trigger is written in UTC (RFC 5545 allows no other form) while
+`DTSTART` stays floating; `getAlertSettings()` returns the `AlertSettings`
+record typedef (`lib/models/event_alert.dart`) with `TimedAlertDefault?` /
+`AllDayAlertDefault?` sub-records, and `getCalendarPageSettings()` carries
+it as `alerts:`; `EventAlertDao.replaceForEvent` takes companions and
+re-homes an alert whose `eventId` disagrees with the argument; the `.ics`
+test lives in its own `ics_serializer_alarm_test.dart`; the
+`calendar-events` skill's lineage gained the missing v39 entry alongside
+v40. Review finding for Session 2: `CalendarEventService.deleteAll` (the
+event-import wipe) hard-deletes every registration while the OS still
+holds the entries, so reconcile must cancel platform entries whose payload
+names the active database but which the plan does not contain — the
+registry alone cannot be trusted to know about them.
+
+### Session 2 — Planner, scheduler and the gateway seam (Phase 1b)
+
+Needs Session 1 committed and P5. No device: the only gateway is
+`NoOpAlertGateway`, and alerts exist only through tests.
+
+> Implement Session 2 of `docs/event-alerts-roadmap.md` on the committed
+> Session 1 tree. Scope: `AlertHorizon` in `lib/constants/
+> alert_constants.dart`; `AlertPlanner` (§2.4–§2.6) — pure, `now` a
+> parameter, the **full horizon** over every `RecurrenceRule` through
+> `occursOnUtcDay` (skips, `endDate`, retroactive and the holiday-reading
+> rules included), both offset sets chosen by `event.time == null`, past
+> `fireAt` never registered; `AlertPayload` (§3.1); the `os_id` hash and
+> linear probe (§3.3); the `AlertGateway` interface, `NoOpAlertGateway`,
+> `AlertAvailability`, and the GetIt registration in the `AuthService`
+> shape — every platform gets the no-op this session; `AlertScheduler`
+> (§3.1, §3.4) with `reconcileAll` / `reconcileEvent` diffing against the
+> registry and never cancelling wholesale, OS-truth pruning of `pending`,
+> the active-database payload filter (A9) applied in both directions —
+> registry rows the OS does not know are dropped, and platform entries
+> that name the active database but are absent from the plan are
+> cancelled, because the event-import wipe empties the registry while the
+> OS keeps its entries (Session 1 review finding) — `snooze` as its own
+> registration (`kind = snooze`, A8) that an unrelated reconcile leaves
+> alone, `stop`, `cancelSnooze`, the late-fire marking and the 7-day
+> sweep, one serialized chain seeded `null`, and the await of the four
+> services before planning; the reconcile triggers of §3.2 — launch
+> post-frame `unawaited`, a new `resumed` branch in `_MyAppState.
+> didChangeAppLifecycleState` debounced 2 s, `CalendarBloc` create /
+> update / delete / skip / unskip calling `reconcileEvent` exactly once,
+> the end of `BackupService.importFromJson` calling `reconcileAll`;
 > `PendingNavigationQueue` drained from `main.dart` after the restore
-> post-frame callback plus a `resumed` lifecycle branch that reconciles;
-> `CalendarPage(initialDay:, initialEventId:)` optional parameters that
-> select the day and open the detail sheet after `CalendarPageLoaded`
-> (through the shared bloc — `getIt<CalendarBloc>()` is a factory and must
-> not be used); the editor Alerts rows and `AlertEditorSheet` (§5.1–5.2)
-> including the remove switch; the detail-sheet rows (§5.3); the row badges
-> (§5.4); `AlarmPage` + `AlertRingController` (§5.5) with Stop / Snooze /
-> Open / Keep and the A3 removal + Undo; the Calendar settings Alerts
-> section (§5.7) with the three permission rows, the two defaults, snooze
-> and silence sliders and the test button; settings keys (§4.4) with a bulk
-> getter and decoders; backup key `eventAlerts` with the strand rule (§4.2);
-> `.ics` VALARM (§4.3); ARB keys ×3; the tests in §7 that apply to one-time
-> events. Copy the build steps from §10.2 and the API gotchas from §10.5
-> verbatim: `warningNotificationOnKill: false`, `androidStaleAfter: 30
-> min`, ignore `Alarm.ringing`'s initial empty set, dedupe the cold-start
-> payload, cancel handled full-screen notifications at once, hoist the
-> non-const `Int32List`, `cancel({required id})`, strip `READ_EXTERNAL_
-> STORAGE` with `tools:node="remove"`. A15 must be settled first or
-> `flutter run -d windows` fails on `atlbase.h`. Hard rules: never GetIt
-> for DB-backed services; every plugin call behind the gateway;
-> `Alarm.set()` throws — catch it; permission requests only from a user
-> action; no code comments beyond `///` doc comments; no new markdown
-> docs. Before finishing: `dart run build_runner build
-> --delete-conflicting-outputs`, `flutter gen-l10n` (check untranslated.txt),
-> `dart analyze lib`, `flutter test`, `flutter run -d windows` reaches the
-> browser, and a `qa run` device pass: create a one-time event 2 minutes
-> ahead with an alarm, lock the screen (`adb shell input keyevent
-> KEYCODE_SLEEP`), confirm the alarm page appears (`qa state`, screenshot),
-> Stop, confirm the registration is `stopped` and the event still exists;
-> repeat with the remove switch on and confirm the event is tombstoned and
-> Undo restores it. Report every deviation from the roadmap in a
-> "Deviations" list, and do not edit the roadmap yourself.
+> post-frame callback and deduped on `osId`; `CalendarPage(initialDay:,
+> initialEventId:)` selecting the day and opening the detail sheet after
+> `CalendarPageLoaded` through the shared bloc (`getIt<CalendarBloc>()` is
+> a factory — do not use it). Tests: `test/utils/alert_planner_test.dart`
+> as the §7 table (timed, all-day, one-time, weekly with skips and
+> `endDate`, workdays with a holiday profile, the three horizon caps,
+> past-today exclusion, spring-forward gap, disabled alert, five alerts on
+> one event); `test/services/alert_scheduler_test.dart` with a
+> `FakeAlertGateway` recording `schedule` / `cancel` (diff semantics,
+> OS-truth pruning, multi-database filter, snooze survival, missed path,
+> the serialized chain under `FakeAsync`); `test/bloc/
+> calendar_alerts_test.dart` (each handler reconciles once); a widget test
+> that `initialEventId` opens the detail sheet on the right day.
+> Acceptance: `flutter test` green with no plugin channel stubbed anywhere,
+> `flutter run -d windows` launches and logs one reconcile against the
+> no-op gateway.
 
-### Phase 2 — Recurring, re-arming, hub, quick alarm (2 sessions)
+### Session 3 — Android gateway and the ring (Phase 1c)
 
-> Implement Phase 2 of `docs/event-alerts-roadmap.md` on the Phase 1 tree.
-> Scope: the full horizon planner (§2.5) over every `RecurrenceRule`
-> including skips, `endDate`, retroactive and the holiday-reading rules,
-> re-planned on every resume; re-arm on Stop; snooze registrations (§2.3
-> `kind = snooze`, A8) that survive unrelated reconciles; the late-fire
-> "Missed" path (§3.4, A10); the Alerts hub page and drawer row (§5.6) with
-> `ToggleEventAlert`; the quick-alarm row and sheet (§5.8); alerts inside
-> event templates (`calendar_event_templates` gains an `alerts` JSON column
-> in a v41 migration — additive, backup key rides `eventTemplates`); the
-> agenda's `EventSummaryProvider` subtitle segment for `removeAfterAlert`;
-> the planner and scheduler table tests for recurring rules (§7). Device
-> pass: a Mon/Wed/Fri event with an alarm, confirm two registrations in
-> `dumpsys alarm`, fire the first (set it 2 minutes ahead), Stop, confirm
-> the third occurrence is now registered; cancel Wednesday through Skip
-> this day and confirm its registration is gone; snooze once and confirm an
-> unrelated event edit leaves the snooze in place. Deviations list, no
-> roadmap edits.
+Needs Session 2 committed, P2 (A1, A8, A12) and P3's A5 verdict. Device:
+the emulator, then the owner's phone for the ring itself.
 
-### Phase 3 — Power and harness (1–2 sessions)
+> Implement Session 3 of `docs/event-alerts-roadmap.md` on the committed
+> Session 2 tree. Scope: the dependencies of §6.1 added from Git Bash and
+> the §10.2 build steps verbatim (desugaring, the notification plugin's
+> three receivers, the permission list, `showWhenLocked` + `turnScreenOn`,
+> `tools:node="remove"` on `READ_EXTERNAL_STORAGE`, the regenerated
+> desktop registrants committed, the `ic_alert` icon and the default sound
+> asset); the two channels with localized names and fixed ids;
+> `AndroidAlertGateway` on the A5 backend with the fallback path (§3.4)
+> switchable in that one file, and the §10.5 gotchas applied:
+> `warningNotificationOnKill: false`, `androidStaleAfter: 30 min` mapped
+> to the "Missed" notification, `Alarm.ringing`'s initial empty set
+> ignored, `Alarm.set()` caught, the cold-start payload deduped, handled
+> full-screen notifications cancelled at once, the non-const `Int32List`
+> hoisted, `cancel({required id})`; `permissions()`,
+> `requestNotifications()`, `openFullScreenIntentSettings()`,
+> `stopRinging`, the `ringing` stream and `launchIntent()`; the reminder
+> tier's Snooze / Done actions in the background isolate, payload-only,
+> never planning (§11); `AlarmPage` + `AlertRingController` (§5.5) —
+> Stop, Snooze {n} min, Open event, Keep the event, the database chip
+> (A9), `PopScope(canPop: false)`, pushed with `rootPushInstant` and never
+> recorded as a `NavDestination`, the A3 removal through `deleteById`
+> (the calendar-page Undo snackbar comes in Session 4); the Calendar
+> settings Alerts section (§5.7) limited to the three permission rows, the
+> Snooze and Silence-after sliders, the one-line force-stop note, and
+> `Test alarm in 10 s` with the synthetic payload the page labels
+> `alertsTestAlarm` — the two defaults and the sound row come later; ARB
+> keys ×3; the A15 prerequisite recorded in `CLAUDE.md`'s commands section
+> and the `verify` skill. Tests: `alarm_page_test.dart` (every button, the
+> chip, the stale-inset note), a gateway unit test for the `os_id` /
+> payload round trip, `flutter test` still plugin-free through the no-op
+> gateway. Device pass on the emulator: `qa run`, Developer Options on,
+> Test alarm in 10 s, `adb shell input keyevent KEYCODE_SLEEP`, confirm the
+> alarm page appears (`qa state`, screenshot), Stop, confirm the
+> registration is `stopped`; Snooze with the slider at 5 min and confirm
+> the second ring; `am kill` the app before a test alarm and confirm it
+> still rings; confirm the leftover notification is gone after Stop.
+> Owner's phone: the same four steps, plus a PIN keyguard.
 
-> Implement Phase 3 of `docs/event-alerts-roadmap.md`: sound picker with
-> preview, volume fade-in and vibration pattern through the gateway (only
-> what the chosen backend supports), the presence prompt on the alarm page
-> for `tracksPresence` events (A13: an "I was there" tonal button that
-> dispatches `SetOccurrencePresence` and nothing else), per-template
-> defaults, `DevOptions.fireNextAlertInTenSeconds`, and the QA verbs
-> `qa alerts` (list pending registrations from `dumpsys alarm` and the
-> plugin's pending list, `--cancel` clears the QA database's entries) and
-> `qa fire` (schedules the next pending registration 10 s ahead via a
-> `--define`-gated seam). Update `docs/qa-harness.md` and the qa-emulator
-> skill for the two verbs.
+### Session 4 — Editor, detail and rows (Phase 1d)
 
-### Phase 4 — iOS (2–3 sessions, on the Mac)
+Needs Session 3 committed. Device: the emulator, then §9 rows 1–7 on
+the owner's phone. This closes Phase 1.
 
-> First make the iOS runner build at all (Podfile, deployment target,
-> usage strings, Firebase pods). Then implement `DarwinAlertGateway` per
-> §6.2: reminders through the notification plugin with `timeSensitive`,
-> alarms through `flutter_alarmkit` on iOS 26+ with a runtime check and the
-> time-sensitive fallback below, `willPresent` handling, the 64-pending
-> window (A7 already fits), the widget extension, and the device pass on a
-> real iPhone (lock screen, Focus, silent switch, reboot).
+> Implement Session 4 of `docs/event-alerts-roadmap.md` on the committed
+> Session 3 tree. Scope: the editor Alerts rows (§5.1) inside the Time
+> zone, seeded from `alert_default_timed` / `alert_default_all_day`, the
+> result record gaining `alerts` and `removeAfterAlert`, the remove switch
+> only while the event is one-time and has an alarm; `AlertEditorSheet`
+> (§5.2) without the Sound row (Session 7), padded by `max(viewInsets,
+> viewPadding)` and added to `sheet_bottom_clearance_test.dart`;
+> `CalendarBloc._onCreateEvent` / `_onUpdateEvent` persisting the result's
+> alerts through `EventAlertService.replaceForEvent` before the
+> `reconcileEvent` Session 2 wired; `POST_NOTIFICATIONS` requested the
+> first time an alert is saved and never elsewhere, a denial leaving the
+> alert saved; the detail-sheet rows (§5.3) with the next `fire_at`
+> resolved once in `initState`; the row badges (§5.4) read synchronously
+> from `EventAlerts`; the `EventSummaryProvider` subtitle segment
+> "removed after it rings" (§2.2); the two default rows in the settings
+> Alerts section and their reset; the A3 "Removed · Undo" snackbar on the
+> calendar page after Stop / Done / tap (§3.5), Undo resurrecting the
+> tombstone through `upsert`; ARB keys ×3. Tests: `alert_editor_sheet_
+> test.dart`, the clearance suite, a bloc test that an edited alert list
+> reaches `replaceForEvent` once, badge and subtitle tests. Device pass on
+> the emulator: create a one-time event 2 minutes ahead with an alarm,
+> lock the screen, confirm the alarm page, Stop, confirm the registration
+> is `stopped` and the event still exists; repeat with the remove switch
+> on and confirm the event is tombstoned and Undo restores it; create a
+> reminder 2 minutes ahead, confirm the banner with Snooze / Done, and
+> that a cold-start tap opens the detail sheet on the right day. Then
+> update `COPILOT_CONTEXT.md` with the calendar bullet of §13 and replace
+> `docs/calendar-events-feature.md` §11's reminders row with a pointer
+> here plus a new §12.
+
+### Session 5 — Recurrence proven, missed path, hub (Phase 2a)
+
+Needs Session 4 committed and the owner's phone pass of §9 rows 1–7
+reported. Device: the emulator, §9 row 8 on the phone.
+
+> Implement Session 5 of `docs/event-alerts-roadmap.md` on the committed
+> Session 4 tree. Scope: prove the Session 2 planner and scheduler on
+> recurring events end to end — re-arm on Stop through `reconcileEvent`,
+> the horizon re-planned on every resume so a holiday profile change
+> reaches the OS, skip and unskip moving registrations, the late-fire
+> "Missed" path on launch and from `AlarmDropped(cause: staleAtBoot)`
+> (§3.4, A10) — and fix whatever the device disproves; the Alerts hub
+> page and drawer row (§5.6) with `NavDestinationKind.alerts` appended,
+> the two permission banners with Turn on actions, rows grouped by day
+> through `AgendaListView.dayHeaderLabel`, the `Switch` bound to `enabled`
+> through a new `ToggleEventAlert` that reconciles the event, snoozed rows
+> showing both times, long-press Cancel on a `removeAfterAlert` event
+> (A3); ARB keys ×3. Tests: `alerts_page_test.dart`, `ToggleEventAlert` in
+> the bloc suite, and any planner or scheduler rows the device pass
+> proves missing. Device pass: a Mon/Wed/Fri event with an alarm, confirm
+> two registrations in `dumpsys alarm | grep -i anta`, fire the first
+> (set it 2 minutes ahead), Stop, confirm the third occurrence is now
+> registered; Skip this day on Wednesday and confirm its registration is
+> gone; snooze once and confirm an unrelated event edit leaves the snooze
+> in place; set the phone clock 40 minutes past a pending alarm with the
+> app closed, open it, confirm a quiet "Missed" notification and no ring.
+
+### Session 6 — Quick alarm and templates (Phase 2b)
+
+Needs Session 5 committed and P2's A11. Device: the emulator. This
+closes Phase 2.
+
+> Implement Session 6 of `docs/event-alerts-roadmap.md` on the committed
+> Session 5 tree. Scope: the `quickAlarmRow` in `EventTemplatePickerSheet`
+> above `templateBlankEvent`, and the FAB long-press branch in
+> `calendar_page.dart` changed so the sheet opens even with no templates
+> (§5.8); `QuickAlarmSheet` (big time defaulting to the next quarter hour,
+> the three chips, the name field defaulting to "Alarm", Type segmented
+> with Alarm default, the remove switch on) saving a `CreateCalendarEvent`
+> on the selected day with `categoryId: 'other'`, `iconKey: 'alarm'`,
+> `removeAfterAlert: true` and one alert at `offsetMinutes: 0`, then the
+> `quickAlarmSet` snackbar with Undo in the template-add pattern; alerts
+> inside event templates — `calendar_event_templates` gains an `alerts`
+> JSON column in a v41 migration (additive, guarded, backup rides
+> `eventTemplates` with absent = none), the template editor gains the same
+> Alerts rows as the event editor, and creating from a template seeds its
+> alerts; ARB keys ×3. Tests: `quick_alarm_sheet_test.dart` and the
+> clearance suite, v41 parity, a template round-trip with alerts through
+> backup, a bloc test that a quick alarm creates exactly one event and one
+> alert. Device pass: FAB long-press with no templates → Alarm… → In 20
+> min → confirm the event on today with the alarm icon and one
+> registration; set one 2 minutes ahead, lock, Stop, confirm the event is
+> gone from the day list and Undo restores it; create a template with an
+> alert and confirm an event made from it carries the alert.
+
+### Session 7 — Power and harness (Phase 3)
+
+Needs Session 6 committed. Device: the emulator.
+
+> Implement Session 7 of `docs/event-alerts-roadmap.md` on the committed
+> Session 6 tree. Scope: the Sound row in `AlertEditorSheet` and the
+> `alert_sound` settings row backed by a sound picker sheet that plays a
+> 2 s preview through the gateway; volume fade-in and a vibration pattern
+> through the gateway, only what the A5 backend supports; the presence
+> prompt on the alarm page for `tracksPresence` events (A13: an opt-in per
+> event, an "I was there" tonal button that dispatches
+> `SetOccurrencePresence` and nothing else — the page never marks);
+> `DevOptions.fireNextAlertInTenSeconds`; the QA verbs `qa alerts` (list
+> pending registrations from `dumpsys alarm` and the plugin's pending
+> list; `--cancel` clears the QA database's entries by payload) and
+> `qa fire` (schedules the next pending registration 10 s ahead through a
+> `--define`-gated seam); ARB keys ×3. Tests: the sound picker and the
+> presence button in the widget suites, the seam under a fake gateway.
+> Update `docs/qa-harness.md`, the qa-emulator skill and `CLAUDE.md`'s
+> commands for the two verbs. Device pass: `qa fire` rings within 15 s of
+> the call, a tracked event's alarm page shows the prompt and marks
+> presence once, an untracked event's page does not show it.
+
+### Session 8 — iOS runner builds (Phase 4a, on the Mac)
+
+Needs Session 7 committed and the Mac. Device: a simulator.
+
+> Make the iOS runner of the ANTA app build and launch at all: Podfile,
+> deployment target, usage strings (`NSAlarmKitUsageDescription` included),
+> the Firebase pods the sync feature already declares, signing for a
+> simulator. Change nothing in `lib/`; `NoOpAlertGateway` still serves
+> iOS this session. Acceptance: `flutter run` on a simulator reaches the
+> folder browser, `flutter test` unchanged. Record every Xcode / CocoaPods
+> version and workaround in a "Deviations" list for `docs/`.
+
+### Session 9 — `DarwinAlertGateway` (Phase 4b, on the Mac)
+
+Needs Session 8 committed and a real iPhone.
+
+> Implement `DarwinAlertGateway` per §6.2 of `docs/event-alerts-roadmap.md`
+> on the committed Session 8 tree: reminders through the notification
+> plugin with `interruptionLevel: timeSensitive` and `willPresent`
+> handled; alarms through `flutter_alarmkit` on iOS 26+ behind a runtime
+> version check, one `fixed` alarm per `PlannedFire`, the widget
+> extension, and a time-sensitive notification with a ≤30 s sound below
+> 26; the 64-pending window (A7 already fits); `AlertAvailability`
+> extended to iOS. Tests: the gateway behind the existing fakes, no
+> planner or scheduler changes. Device pass on the iPhone: lock screen,
+> Focus, the silent switch, and a reboot before the fire time; §9 rows 2,
+> 3 and 7.
 
 ## 9. Verification checklist (owner's phone, after each phase)
 
-Before Phase 1: the **phone pass of the spike itself** (§10.4 recipe —
-release-signed build of `spike/event-alerts-ring`, never uninstall):
-PIN keyguard, overnight Doze, reboot before the fire time, Force stop,
-DND access, audibility. Note the vendor and OS version in §10.
+The **phone pass of the spike itself** (§10.4 recipe — release-signed
+build of `spike/event-alerts-ring`, never uninstall: PIN keyguard,
+overnight Doze, reboot before the fire time, Force stop, DND access,
+audibility) was **waived on 2026-09-15** (P3). The rows below, run after
+Session 4, are therefore the first time a real phone sees a ring; note
+the vendor and OS version in §10 when they run.
 
 - [ ] Fresh install: no permission prompt at launch; the first saved alert
       asks for notifications; denying leaves the alert saved.

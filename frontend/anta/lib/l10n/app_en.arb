@@ -3756,6 +3756,53 @@
   "@eventNoSkippedDays": {
     "description": "Subtitle of the skipped-days row when nothing is cancelled"
   },
+  "eventAlertAtStart": "At start",
+  "@eventAlertAtStart": {
+    "description": "Alert timing for a timed event with no lead time"
+  },
+  "eventAlertMinutesBefore": "{count, plural, one{1 min before} other{{count} min before}}",
+  "@eventAlertMinutesBefore": {
+    "description": "Alert timing for a timed event, minutes of lead time",
+    "placeholders": {
+      "count": { "type": "int", "example": "10" }
+    }
+  },
+  "eventAlertHoursBefore": "{count, plural, one{1 h before} other{{count} h before}}",
+  "@eventAlertHoursBefore": {
+    "description": "Alert timing for a timed event, whole hours of lead time",
+    "placeholders": {
+      "count": { "type": "int", "example": "2" }
+    }
+  },
+  "eventAlertDaysBefore": "{count, plural, one{1 day before} other{{count} days before}}",
+  "@eventAlertDaysBefore": {
+    "description": "Alert timing for a timed event, whole days of lead time",
+    "placeholders": {
+      "count": { "type": "int", "example": "2" }
+    }
+  },
+  "eventAlertAllDayOnDay": "On the day, {time}",
+  "@eventAlertAllDayOnDay": {
+    "description": "Alert timing for an all-day event firing on the day itself",
+    "placeholders": {
+      "time": { "type": "String", "example": "09:00" }
+    }
+  },
+  "eventAlertAllDayDayBefore": "The day before, {time}",
+  "@eventAlertAllDayDayBefore": {
+    "description": "Alert timing for an all-day event firing the previous day",
+    "placeholders": {
+      "time": { "type": "String", "example": "20:00" }
+    }
+  },
+  "eventAlertAllDayDaysBefore": "{count, plural, one{1 day before, {time}} other{{count} days before, {time}}}",
+  "@eventAlertAllDayDaysBefore": {
+    "description": "Alert timing for an all-day event firing several days ahead",
+    "placeholders": {
+      "count": { "type": "int", "example": "7" },
+      "time": { "type": "String", "example": "09:00" }
+    }
+  },
   "eventTemplates": "Event templates",
   "@eventTemplates": {
     "description": "Title of the event templates management page"

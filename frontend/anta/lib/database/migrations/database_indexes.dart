@@ -12,6 +12,7 @@ class DatabaseIndexes {
     await _createCounterIndexes();
     await createCalendarIndexes();
     await createCalendarDeltaIndexes();
+    await createAlertIndexes();
     await _createFtsTable();
     await createUniqueNameIndexes();
     await createNoteTitleIndex();
@@ -194,6 +195,46 @@ class DatabaseIndexes {
     await _db.customStatement(
       'CREATE INDEX IF NOT EXISTS idx_calendar_event_absences_active '
       'ON calendar_event_absences(event_id, day, status) WHERE is_deleted = 0',
+    );
+  }
+
+  /// The three indexes behind event alerts (**v40**). Public because the v40
+  /// migration calls this directly, so upgraders and fresh installs get the
+  /// same definitions from the same place.
+  ///
+  /// `idx_calendar_event_alerts_active` is partial on live rows for the reason
+  /// every other CRDT table's is: tombstones are never collected, and the two
+  /// per-event statements that matter — the live read the editor and the
+  /// facade refresh do, and the `replaceForEvent` / delete cascade update —
+  /// both filter them out. The predicate is spelled as the literal
+  /// `is_deleted = 0` rather than through Drift's `.equals(false)`: that emits
+  /// a bound `?`, and whether SQLite can prove a bound parameter implies a
+  /// partial index's `WHERE` is version-dependent (3.53 can, the version
+  /// shipping to Android cannot). Every statement that wants this index spells
+  /// the same literal.
+  ///
+  /// `idx_alert_registrations_pending` is partial on `state = 'pending'` and
+  /// keyed by `fire_at`, which is the whole of the reconcile read: the pending
+  /// set, soonest first. Being partial keeps it to the handful of live
+  /// registrations instead of every `fired`/`stopped` row waiting for the
+  /// 7-day sweep, and being keyed by `fire_at` is what spares the ordering a
+  /// temp B-tree.
+  ///
+  /// `idx_alert_registrations_event` serves the per-event cascade and
+  /// re-registration; it is a plain index because those statements do not
+  /// filter by state.
+  Future<void> createAlertIndexes() async {
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_calendar_event_alerts_active '
+      'ON calendar_event_alerts(event_id) WHERE is_deleted = 0',
+    );
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_alert_registrations_pending '
+      "ON alert_registrations(fire_at) WHERE state = 'pending'",
+    );
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_alert_registrations_event '
+      'ON alert_registrations(event_id)',
     );
   }
 

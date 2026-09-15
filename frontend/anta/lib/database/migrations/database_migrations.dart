@@ -201,6 +201,11 @@ class DatabaseMigrations {
       toVersion: DatabaseSchema.v39ItemLabels,
       migrate: _migrateV38ToV39,
     ),
+    Migration(
+      fromVersion: DatabaseSchema.v39ItemLabels,
+      toVersion: DatabaseSchema.v40EventAlerts,
+      migrate: _migrateV39ToV40,
+    ),
   ];
 
   Future<void> runMigrations(Migrator m, int from, int to) async {
@@ -1501,5 +1506,84 @@ class DatabaseMigrations {
         'ALTER TABLE $table ADD COLUMN label INTEGER NOT NULL DEFAULT 0',
       );
     }
+  }
+
+  /// v39 → v40: event alerts — `calendar_event_alerts`, `alert_registrations`
+  /// and the one flag on `calendar_events` that says an event exists only
+  /// until its alarm is acknowledged.
+  ///
+  /// Two brand-new tables and one guarded column, so it is the v29/v30 shape
+  /// plus the v19/v33/v39 one:
+  ///
+  /// - `calendar_event_alerts` carries the five CRDT columns with **no**
+  ///   `DEFAULT ''` on the identity pair — a new table, so every insert must
+  ///   stamp them, the `calendar_event_skips` rule rather than the artifact
+  ///   v27 had to leave on `calendar_events`.
+  /// - `alert_registrations` carries **none** of them, deliberately: it
+  ///   mirrors what this device's operating system currently holds, is never
+  ///   exported or synced, and is rebuilt from scratch by any reconcile.
+  /// - `remove_after_alert` is an `ALTER TABLE` guarded by `PRAGMA table_info`
+  ///   so a partial upgrade can be re-run. `NOT NULL DEFAULT 0` needs no
+  ///   backfill: an event that could not have an alarm could not be removed by
+  ///   one either.
+  ///
+  /// No backfill anywhere else, and no backup version bump — an older archive
+  /// simply has no alerts, which is what those installs had.
+  ///
+  /// The DDL is frozen at this version and must never be re-derived from the
+  /// live Drift declarations. Idempotent by `CREATE TABLE IF NOT EXISTS`, the
+  /// column guard, and `DatabaseIndexes.createAlertIndexes`' own
+  /// `IF NOT EXISTS` — which is the same method `createAllIndexes` calls, so
+  /// an upgraded database and a fresh one cannot end up with different index
+  /// definitions.
+  Future<void> _migrateV39ToV40(Migrator m, GeneratedDatabase db) async {
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS calendar_event_alerts (
+        id TEXT NOT NULL PRIMARY KEY,
+        event_id TEXT NOT NULL,
+        mode TEXT NOT NULL DEFAULT 'notify',
+        offset_minutes INTEGER NOT NULL DEFAULT 0,
+        days_before INTEGER NOT NULL DEFAULT 0,
+        day_minute INTEGER NULL,
+        sound TEXT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        hlc_timestamp TEXT NOT NULL,
+        device_id TEXT NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        deleted_at INTEGER NULL
+      )
+    ''');
+
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS alert_registrations (
+        os_id INTEGER NOT NULL PRIMARY KEY,
+        alert_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        day INTEGER NOT NULL,
+        fire_at INTEGER NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'scheduled',
+        state TEXT NOT NULL DEFAULT 'pending',
+        backend TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+
+    final eventColumns = <String>{
+      for (final row
+          in await _db.customSelect('PRAGMA table_info(calendar_events)').get())
+        row.read<String>('name'),
+    };
+    if (!eventColumns.contains('remove_after_alert')) {
+      await _db.customStatement(
+        'ALTER TABLE calendar_events '
+        'ADD COLUMN remove_after_alert INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+
+    await DatabaseIndexes(_db).createAlertIndexes();
   }
 }
