@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:get_it/get_it.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -9,6 +10,7 @@ import '../constants/json_keys.dart';
 import '../constants/settings_keys.dart';
 import '../models/item_label.dart';
 import '../models/note_metadata.dart';
+import 'alert_scheduler.dart';
 import 'calendar_event_service.dart';
 import 'event_occurrence_service.dart';
 import 'event_presence_service.dart';
@@ -556,6 +558,19 @@ class BackupService {
         await (await PublicHolidayService.getInstance()).importData(
           publicHolidays,
         );
+      }
+
+      // A restore replaces the event store wholesale, so every registration
+      // the platform holds now names an event id that may belong to something
+      // else entirely — and a stranded alert does not draw wrong, it rings.
+      // Best-effort: a restore that worked must not report failure because the
+      // scheduler could not reach the platform.
+      try {
+        await (await AlertScheduler.getInstance()).reconcileAll(
+          AlertReconcileReason.backupRestored,
+        );
+      } catch (e) {
+        debugPrint('[BackupService] Alert reconcile after import failed: $e');
       }
 
       return ImportResult(

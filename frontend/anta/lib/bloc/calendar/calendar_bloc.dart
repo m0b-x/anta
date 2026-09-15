@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../constants/public_holidays.dart';
 import '../../models/calendar_event.dart';
 import '../../models/calendar_grid_filters.dart';
+import '../../services/alert_scheduler.dart';
 import '../../services/calendar_event_service.dart';
 import '../../services/category_service.dart';
 import '../../services/event_occurrence_service.dart';
@@ -161,9 +162,21 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   final Map<DateTime, ({int revision, int net})> _monthNetCache = {};
   static const int _maxMonthNetEntries = 36;
 
-  CalendarBloc({required FutureOr<CalendarEventService> service})
-    : _seed = service,
-      super(const CalendarPageInitial()) {
+  /// Brings the operating system back in line with one event's alerts.
+  ///
+  /// Injected rather than resolved, so a bloc test can watch the call without
+  /// standing up a database and a scheduler; the default is the real one,
+  /// which resolves its singleton itself and swallows every failure. The bloc
+  /// stays thin either way — it knows *that* alerts must be reconciled, never
+  /// what that means.
+  final AlertReconciler _reconcileAlerts;
+
+  CalendarBloc({
+    required FutureOr<CalendarEventService> service,
+    AlertReconciler? alertReconciler,
+  }) : _seed = service,
+       _reconcileAlerts = alertReconciler ?? AlertScheduler.reconcileEventById,
+       super(const CalendarPageInitial()) {
     on<LoadCalendarEvents>(_onLoad);
     on<SelectCalendarDay>(_onSelectDay);
     on<ChangeFocusedDay>(_onChangeFocusedDay);
@@ -709,6 +722,12 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     } catch (e) {
       debugPrint('[CalendarBloc] Money ledger refresh error: $e');
     }
+    // Unawaited, and deliberately the bloc's whole involvement with alerts:
+    // the write has landed, the user is owed the emit now, and the platform
+    // pass is best-effort — a launch or a resume reconciles again.
+    unawaited(
+      _reconcileAlerts(normalized.id, AlertReconcileReason.eventChanged),
+    );
     emit(
       current.copyWith(
         allEvents: service.events,
@@ -743,6 +762,9 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     } catch (e) {
       debugPrint('[CalendarBloc] Money ledger refresh error: $e');
     }
+    unawaited(
+      _reconcileAlerts(normalized.id, AlertReconcileReason.eventChanged),
+    );
     emit(current.copyWith(allEvents: service.events));
   }
 
@@ -763,6 +785,12 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       return;
     }
     _invalidateDayCache();
+    // The delete cascaded the alert rows and the registry rows, but the
+    // platform still holds the entries — cancelling them is exactly what this
+    // pass is for.
+    unawaited(
+      _reconcileAlerts(event.eventId, AlertReconcileReason.eventChanged),
+    );
     emit(current.copyWith(allEvents: service.events));
   }
 
@@ -885,6 +913,11 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       return;
     }
     _invalidateDayCache();
+    // Alerts follow the skip rule, never the presence one: a cancelled
+    // occurrence does not exist, so whatever the OS holds for it has to go.
+    unawaited(
+      _reconcileAlerts(event.eventId, AlertReconcileReason.occurrenceChanged),
+    );
     emit(current.copyWith(membershipRevision: current.membershipRevision + 1));
   }
 
@@ -905,6 +938,9 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       return;
     }
     _invalidateDayCache();
+    unawaited(
+      _reconcileAlerts(event.eventId, AlertReconcileReason.occurrenceChanged),
+    );
     emit(current.copyWith(membershipRevision: current.membershipRevision + 1));
   }
 

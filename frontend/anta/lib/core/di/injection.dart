@@ -16,6 +16,7 @@ import '../../services/navigation_history_service.dart';
 import '../../services/move_history_store.dart';
 import '../../services/recent_destinations_service.dart';
 import '../../services/folder_name_index.dart';
+import '../../services/alert_gateway.dart';
 import '../../services/auth_service.dart';
 import '../../services/firebase_auth_service.dart';
 import '../../services/pairing_gateway.dart';
@@ -143,6 +144,20 @@ Future<void> _registerServices() async {
   // pairing state lives in `PairingService`, which is on the reset contract.
   getIt.registerSingleton<PairingGateway>(
     canSync ? FirestorePairingGateway() : const NoOpPairingGateway(),
+  );
+
+  // Stateless and global for the same reason the two above are: it holds no
+  // database reference, so a database switch has nothing to reset here. The
+  // scheduler that drives it is the opposite — a `DatabaseLifecycle`
+  // singleton — and reads this binding through GetIt.
+  //
+  // Every platform gets the no-op binding for now, `AlertAvailability`
+  // included: the Android binding arrives in Session 3 and is what that gate
+  // will select. Until then alerts are planned, diffed and recorded exactly as
+  // they will be, and nothing reaches an operating system.
+  getIt.registerSingleton<AlertGateway>(
+    const NoOpAlertGateway(),
+    dispose: (gateway) => gateway.dispose(),
   );
 }
 

@@ -49,6 +49,16 @@ abstract final class EventTimeFormatter {
     return '$start – $endLabel (+$daysOver)';
   }
 
+  /// One minute of day as a bare `HH:mm`, with no [BuildContext] and no
+  /// [AppLocalizations] — the same neutral skeleton [formatRange] uses.
+  ///
+  /// Exists for the alert payload, which is composed in a service: the label a
+  /// notification body and the alarm page show is formatted once, at schedule
+  /// time on the UI thread, because the app never sets `Intl.defaultLocale`
+  /// and a background isolate would render it in the system locale instead.
+  static String formatMinuteOfDay(int minute) =>
+      _format24h(minute % EventTime.minutesPerDay);
+
   /// Formats a single minute-of-day using Material's locale-aware format.
   static String formatMinute(int minute, BuildContext context) {
     return MaterialLocalizations.of(

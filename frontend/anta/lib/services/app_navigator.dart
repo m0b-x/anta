@@ -421,6 +421,23 @@ abstract final class AppNavigator {
     );
   }
 
+  /// Opens the calendar on [day] with [eventId]'s detail sheet already up —
+  /// where a tapped reminder lands (**A12**).
+  ///
+  /// A **root** push: the tap is delivered by the platform with no
+  /// `BuildContext` of its own. Stamped with the plain calendar destination
+  /// because the day and the event are where this particular trip started, not
+  /// part of the location worth restoring on the next launch.
+  static Future<void> toCalendarOccurrence({
+    required DateTime day,
+    required String eventId,
+  }) {
+    return rootPush<void>(
+      CalendarPage(initialDay: day, initialEventId: eventId),
+      destination: const NavDestination(NavDestinationKind.calendar),
+    );
+  }
+
   static Future<void> toCalendarSettings(BuildContext context) {
     return push(
       context,

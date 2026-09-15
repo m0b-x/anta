@@ -23,11 +23,13 @@ import 'core/di/injection.dart';
 import 'core/qa/qa_bootstrap.dart';
 import 'pages/optimized_folder_content_page.dart';
 import 'pages/onboarding_page.dart';
+import 'services/alert_scheduler.dart';
 import 'services/app_navigator.dart';
 import 'services/counter_service.dart';
 import 'services/import_export_service.dart';
 import 'services/label_appearance_service.dart';
 import 'services/navigation_history_service.dart';
+import 'services/pending_navigation.dart';
 import 'services/settings_service.dart';
 
 /// How much of an exception string the on-screen placeholder carries. Long
@@ -216,17 +218,84 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   late final NavigationHistoryObserver _navigationHistoryObserver =
       NavigationHistoryObserver(getIt<NavigationHistoryService>());
 
+  /// Coalesces the resume reconcile. A resume often arrives in bursts — an
+  /// inset animation, a permission dialog closing — and the pass walks the
+  /// whole horizon, so it waits for the app to settle first.
+  Timer? _resumeReconcile;
+
+  /// Whether the launch restore has had its turn. An alert tap must land
+  /// **above** the remembered location, never underneath it, so nothing is
+  /// drained until the replay has been queued.
+  bool _navigationReady = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    PendingNavigationQueue.instance.addListener(_scheduleNavigationDrain);
     _checkOnboarding();
+    // Post-frame and unawaited: the launch reconcile reads four services and
+    // talks to the platform, and none of that may sit between the user and
+    // the first frame. `all`, because a launch is the one moment nothing has
+    // told us what changed — a reboot, a force stop, a clock change and a
+    // week of skipped occurrences all look the same from here.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_reconcileAlerts(AlertReconcileReason.launch));
+    });
   }
 
   @override
   void dispose() {
+    _resumeReconcile?.cancel();
+    PendingNavigationQueue.instance.removeListener(_scheduleNavigationDrain);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  /// Re-derives the alert horizon and makes the platform match it.
+  ///
+  /// Every failure is swallowed: the scheduler is best-effort by nature — the
+  /// permission may be gone, the plugin may throw — and nothing the user is
+  /// doing depends on it succeeding right now.
+  Future<void> _reconcileAlerts(AlertReconcileReason reason) async {
+    try {
+      final scheduler = await AlertScheduler.getInstance();
+      await scheduler.reconcileAll(reason);
+    } catch (e) {
+      debugPrint('[main] Alert reconcile (${reason.name}) failed: $e');
+    }
+  }
+
+  void _scheduleNavigationDrain() {
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _drainPendingNavigation(),
+    );
+  }
+
+  /// Routes the alert taps that arrived while there was nowhere to push them.
+  ///
+  /// `AppNavigator`'s navigator accessor force-unwraps, so a cold-start tap
+  /// has to wait for a navigator to exist; the queue is what holds it, and
+  /// [_navigationReady] is what keeps it from landing under the restored
+  /// location.
+  void _drainPendingNavigation() {
+    if (!_navigationReady) return;
+    if (AppNavigator.navigatorKey.currentState == null) return;
+    for (final intent in PendingNavigationQueue.instance.drain()) {
+      switch (intent) {
+        case OpenEventIntent():
+          unawaited(
+            AppNavigator.toCalendarOccurrence(
+              day: intent.payload.dayUtc,
+              eventId: intent.payload.eventId,
+            ),
+          );
+        case OpenAlarmIntent():
+          // The alarm page is Session 3. The intent is typed now so the queue
+          // and this switch do not change shape when it lands.
+          break;
+      }
+    }
   }
 
   @override
@@ -249,6 +318,18 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     if (state == AppLifecycleState.paused) {
       FocusManager.instance.primaryFocus?.unfocus();
     }
+    // The resume branch is what makes the horizon roll forward without the
+    // user doing anything: a phone left closed for a week comes back with
+    // every registration in the past, and this is where they are marked and
+    // replanned. It is also what carries a holiday-profile change to the OS,
+    // since the rules that read `PublicHolidays` are re-walked here.
+    if (state == AppLifecycleState.resumed) {
+      _resumeReconcile?.cancel();
+      _resumeReconcile = Timer(const Duration(seconds: 2), () {
+        unawaited(_reconcileAlerts(AlertReconcileReason.resumed));
+      });
+      _scheduleNavigationDrain();
+    }
   }
 
   Future<void> _checkOnboarding() async {
@@ -267,9 +348,16 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       _didRestoreLocation = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         AppNavigator.restoreLastLocation();
+        // Straight after the replay is queued, never before: an alert tap
+        // opens on top of the remembered chain, not underneath it.
+        _navigationReady = true;
+        _drainPendingNavigation();
       });
     } else if (!completed) {
       getIt<NavigationHistoryService>().beginRecording();
+      // Onboarding restores nothing, so there is nothing to land above.
+      _navigationReady = true;
+      _drainPendingNavigation();
     }
   }
 

@@ -154,11 +154,22 @@ abstract final class IcsSerializer {
         // floating, because the app records no timezone — this one has to be
         // converted. The two are consistent: both name the same instant on the
         // machine that wrote the file.
+        //
+        // The minute goes in the constructor's minute slot rather than being
+        // added to local midnight: local midnight carries the *pre*-transition
+        // UTC offset, so adding absolute minutes across a DST boundary lands
+        // an hour off the wall clock the user set (07:00 becomes 08:00 on the
+        // spring-forward day and 06:00 on the fall-back one). The constructor
+        // keeps the wall clock and normalises a time inside a spring gap
+        // forward, which is what A14 promises — and what `AlertPlanner`
+        // does for the same instant.
         final localFire = DateTime(
           anchor.year,
           anchor.month,
           anchor.day,
-        ).add(Duration(minutes: minute));
+          0,
+          minute,
+        );
         lines.add(
           'TRIGGER;VALUE=DATE-TIME:${_formatUtcStamp(localFire.toUtc())}',
         );

@@ -45,6 +45,25 @@ class AlertRegistrationDao extends DatabaseAccessor<AppDatabase>
         .get();
   }
 
+  /// One registration by the id the platform holds it under, or `null`.
+  ///
+  /// The read behind Stop and Snooze: both arrive from the OS carrying nothing
+  /// but an `os_id`, and this is what turns that back into an event, an alert
+  /// and an occurrence day. Hits the primary key, so no index is needed.
+  Future<AlertRegistrationRow?> byOsId(int osId) {
+    return (select(
+      alertRegistrations,
+    )..where((r) => r.osId.equals(osId))).getSingleOrNull();
+  }
+
+  /// Every registration of one event, whatever its state — the reason
+  /// `idx_alert_registrations_event` exists.
+  Future<List<AlertRegistrationRow>> forEvent(String eventId) {
+    return (select(
+      alertRegistrations,
+    )..where((r) => r.eventId.equals(eventId))).get();
+  }
+
   /// Moves one registration to a new lifecycle state — `fired`, `stopped` or
   /// `cancelled`. A row the platform no longer knows about is simply absent,
   /// so a miss is a no-op rather than an error.

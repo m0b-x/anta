@@ -4,9 +4,11 @@
 (2026-09-14, branch `spike/event-alerts-ring`, commit `359f317`, results in
 §10); the owner's phone pass of the same spike is owed (§9, §10.4).**
 Phases 1–4 were split on 2026-09-15 into the prerequisites P1–P5 and
-Sessions 1–9 of §8; **Session 1 DONE 2026-09-15** (Opus, Fable-reviewed,
-5,044 tests green, uncommitted on `b05418a` — commit before Session 2;
-deviations recorded under its prompt). Decisions A1–A14 (§1)
+Sessions 1–9 of §8; **Session 1 DONE 2026-09-15** (committed as
+`69fd76d`) and **Session 2 DONE 2026-09-15** (Opus, Fable-reviewed with
+three fixes, 5,153 tests green; deviations recorded under each prompt).
+Session 3 is next and is the first that needs the plugins and the
+emulator. Decisions A1–A14 (§1)
 were proposed on 2026-09-14 and **confirmed as proposed on 2026-09-15**
 (P1, P2, P5 in §8.1); A5 stands on the emulator spike alone because the
 owner **waived the phone pass** (P3) — the §9 checklist after Session 4 is
@@ -158,15 +160,25 @@ hands int-epoch columns back as *local* `DateTime`). The planner is the
 first and only place that does:
 
 ```
-timed:   fireAt = DateTime(day.year, day.month, day.day)          // local
-                    .add(Duration(minutes: time.startMinute - offsetMinutes))
+timed:   fireAt = DateTime(day.year, day.month, day.day,            // local
+                           0, time.startMinute - offsetMinutes)
 all-day: anchor = day − daysBefore (date-only UTC arithmetic, then local)
-         fireAt = DateTime(anchor.year, anchor.month, anchor.day)
-                    .add(Duration(minutes: dayMinute ?? defaults.allDayMinute))
+         fireAt = DateTime(anchor.year, anchor.month, anchor.day,
+                           0, dayMinute ?? defaults.allDayMinute)
 ```
 
+**Wall-clock constructor, never `midnight.add(Duration)`** (corrected
+2026-09-15 after a probe on this machine): local midnight carries the
+offset in force *before* a DST transition and `add` is absolute time, so
+`DateTime(y, m, d).add(Duration(hours: 7))` is 08:00 on the spring-forward
+day and 06:00 on the fall-back day. The constructor form takes the minute
+component out of range on purpose — Dart normalizes it, so `startMinute −
+offsetMinutes < 0` lands on the previous day at the right wall time — and
+rolls a time inside a spring gap forward to the next valid instant, which
+is exactly A14.
+
 `day` is the date-only UTC occurrence day from `occursOnUtcDay`; the
-`y/m/d` fields are read off it and rebuilt as a **local** midnight. The
+`y/m/d` fields are read off it and rebuilt as a **local** wall time. The
 `timezone` package's `tz.TZDateTime.from(fireAt, tz.local)` is used only at
 the gateway boundary for the notification plugin. Never store `fireAt` on
 the alert.
@@ -268,15 +280,33 @@ the active database name (`DatabaseManager.getActiveDatabaseName()`).
   `timeoutAfter: silenceAfter`; a `max`-importance `alerts_alarm` channel.
   No stale cut-off is possible (the system posts it), so A10's "Missed"
   path is done by reconcile on the next launch.
-- **Late fire (A10):** `alarm` reports a boot-recovered alarm older than
-  `androidStaleAfter` (set to 30 min) as `AlarmDropped(cause: staleAtBoot)`
-  on `Alarm.events`; the gateway maps it to the "Missed" notification. On
-  launch/resume, any pending registration whose `fire_at` is in the past
-  and not `fired` is marked `cancelled`; if it is under 24 h old a one-shot
-  "Missed: {title} at {time}" notification is posted; then the horizon is
-  re-planned. A user **Force stop** cancels every pending alarm on both
-  backends (§10.1); the next launch's reconcile is the only recovery, so
-  the settings section says so in one line.
+- **Late fire (A10; rule corrected 2026-09-15 at the Session 2 review):**
+  `alarm` reports a boot-recovered alarm older than `androidStaleAfter`
+  (set to 30 min) as `AlarmDropped(cause: staleAtBoot)` on `Alarm.events`;
+  the gateway maps it to the "Missed" notification — the authoritative
+  source for alarms. The registry path on launch/resume is the second,
+  conservative source, and it measures lateness (`now − fire_at`) in three
+  windows. **In flight** (under `kLateFireGrace`, 30 min): the row stays
+  `pending` and is excluded from the diff — never cancelled, never
+  re-scheduled, never reported — because the launch reconcile that the
+  plugin's own relaunch of the app triggers is post-frame and lands
+  *before* `Alarm.ringing` emits (§10.3 S4: +1.8 s); the ring handler is
+  what marks it `fired` / `stopped`. **Missed** (30 min to 24 h): marked
+  `cancelled`, and only an **alarm-tier** row (its alert resolves to
+  `ring`) earns the quiet "Missed: {title} at {time}" — a reminder is
+  delivered by the OS with no callback to the app, so a gone, past-due
+  reminder row is indistinguishable from a delivered one and reporting it
+  would turn every un-tapped reminder into a "Missed". **Stale** (over
+  24 h): `cancelled`, quiet. Then the horizon is re-planned. A user
+  **Force stop** cancels every pending alarm on both backends (§10.1); the
+  next launch's reconcile is the only recovery, so the settings section
+  says so in one line.
+- **Changed-event payloads:** the registry stores no payload, and the
+  payload carries the title, colour, icon, category and `removeAfterAlert`,
+  so a pass provoked by `reconcileEvent(eventId)` re-schedules every
+  planned entry of *that* event under its existing os id even when
+  `fire_at` and backend match; other events keep the unchanged fast path
+  and snooze rows are left alone.
 - **Delivery hygiene (§10.5):** a cold-start tap arrives twice
   (`onDidReceiveNotificationResponse` + `getNotificationAppLaunchDetails`)
   — the queue dedupes on `osId`; a handled full-screen-intent notification
@@ -628,7 +658,7 @@ add dependencies from Git Bash (PowerShell 5.1 eats the caret, §10.2).
 | # | Session | Phase | Needs | Device pass | Ends with |
 | --- | --- | --- | --- | --- | --- |
 | 1 | Persistence and domain — **DONE 2026-09-15** | 1a | P1 | none | v40 live, `EventAlertService` in the calendar `Future.wait`, backup + `.ics` round-trips green |
-| 2 | Planner, scheduler, gateway seam | 1b | S1, P5 | none (Windows launch only) | every reconcile trigger wired against `NoOpAlertGateway`; alerts exist only through tests |
+| 2 | Planner, scheduler, gateway seam — **DONE 2026-09-15** | 1b | S1, P5 | none (Windows launch only) | every reconcile trigger wired against `NoOpAlertGateway`; alerts exist only through tests |
 | 3 | Android gateway and the ring | 1c | S2, P2, P3 | emulator + phone | Test alarm in 10 s rings on a locked screen, alarm page Stop / Snooze work, force-stop copy in place |
 | 4 | Editor, detail, rows | 1d | S3 | emulator, then §9 rows 1–7 on the phone | the Phase 1 acceptance: one-time alarm end to end, remove-after + Undo |
 | 5 | Recurrence proven, missed path, hub | 2a | S4 | emulator, §9 row 8 | Mon/Wed/Fri recipe passes, Alerts hub live |
@@ -770,6 +800,39 @@ Needs Session 1 committed and P5. No device: the only gateway is
 > `flutter run -d windows` launches and logs one reconcile against the
 > no-op gateway.
 
+Shipped 2026-09-15, 5,044 → 5,153 tests. The review found three defects,
+all fixed the same day: the late-fire rule (§3.4, corrected there — the
+30 min in-flight band, "Missed" for alarm-tier rows only), stale payloads
+on an event edit (§3.4 "Changed-event payloads"), and the default
+reconciler reaching `AppDatabase.getInstance()` before checking for a
+gateway (eighteen existing suites construct `CalendarBloc` under a
+`path_provider` stub; the guard now comes first and `getInstance()` throws
+`StateError` having touched nothing). Deviations later sessions must
+know: `reconcileEvent(id)` is a **full re-plan** (the `total` cap is
+global) that only uses the id for the log and the payload refresh;
+`AlertGateway` has `pendingEntries()` (payloads, for A9) with
+`pendingIds()` derived, `tracksPending` (false on the no-op, which is what
+keeps OS truth from cancelling the horizon on desktop), `showMissed(
+payload)` composed by the binding — so no ARB keys yet — and `backendName`
+(`none` | `alarm` | `notification`); `payload.timeLabel` is the **fire
+instant's** wall clock via the new `EventTimeFormatter.formatMinuteOfDay`;
+`CalendarBloc` takes an optional `AlertReconciler` (default
+`AlertScheduler.reconcileEventById`, which swallows failures) and calls
+it `unawaited` after the emit-worthy write; `AlertScheduler` follows
+`getInstance` / `forTesting` / `reset` with the gateway from GetIt and an
+injectable clock, and awaits skips, holidays and alerts quietly but
+aborts without `CalendarEventService` or `SettingsService`; the four
+services are resolved one at a time; `AlertRegistrationDao` gained
+`byOsId` / `forEvent`; `PendingNavigationQueue.instance` is a static
+`ChangeNotifier` drained by `_MyAppState` after the restore post-frame
+callback and on every resume, deduping on `osId` against the last drained
+batch; `AppNavigator.toCalendarOccurrence` is a root push stamped as the
+plain `calendar` destination; `CalendarPage(initialDay:, initialEventId:)`
+is served once by a post-frame check or a `BlocListener`, whichever sees
+`CalendarPageLoaded` first. Known gaps carried into the Session 3 prompt:
+`stop` does not cancel a standing snooze, a warm reminder tap stacks a
+second calendar route, and the ring handler must mark `fired` at once.
+
 ### Session 3 — Android gateway and the ring (Phase 1c)
 
 Needs Session 2 committed, P2 (A1, A8, A12) and P3's A5 verdict. Device:
@@ -805,7 +868,17 @@ the emulator, then the owner's phone for the ring itself.
 > and the `verify` skill. Tests: `alarm_page_test.dart` (every button, the
 > chip, the stale-inset note), a gateway unit test for the `os_id` /
 > payload round trip, `flutter test` still plugin-free through the no-op
-> gateway. Device pass on the emulator: `qa run`, Developer Options on,
+> gateway. Three items the Session 2 review hands you: the ring handler
+> marks a registration `fired` through the scheduler's serialized chain
+> the moment `Alarm.ringing` emits, before anything else, because the
+> launch reconcile treats a row under 30 min late as in flight only until
+> something settles it (§3.4); `AlertRingController.stop` cancels a
+> standing `snooze` registration of the same alert and day, which
+> `AlertScheduler.stop` deliberately does not; and
+> `AppNavigator.toCalendarOccurrence` must reuse a calendar route that is
+> already on the stack instead of pushing a second `CalendarPage` on a
+> warm tap (the `_livePageRoutes` / `_collapseOnto` helpers exist for
+> this). Device pass on the emulator: `qa run`, Developer Options on,
 > Test alarm in 10 s, `adb shell input keyevent KEYCODE_SLEEP`, confirm the
 > alarm page appears (`qa state`, screenshot), Stop, confirm the
 > registration is `stopped`; Snooze with the slider at 5 min and confirm

@@ -147,6 +147,50 @@ void main() {
       );
     });
 
+    // The absolute trigger is the same fire instant `AlertPlanner` computes,
+    // so it obeys the same rule: the minute goes in the **constructor's**
+    // minute slot, never added to local midnight as a `Duration`. Local
+    // midnight carries the pre-transition UTC offset, so absolute addition
+    // exports 08:00 for a 07:00 alert on the spring-forward day and 06:00 on
+    // the fall-back one. On a host with no transition on these dates the two
+    // forms agree and this is simply the ordinary case, which must also hold.
+    for (final day in [
+      DateTime.utc(2026, 3, 29),
+      DateTime.utc(2026, 10, 25),
+      DateTime.utc(2026, 3, 8),
+      DateTime.utc(2026, 11, 1),
+    ]) {
+      test('a 07:00 trigger stays 07:00 local on ${day.toIso8601String()}', () {
+        publish([alert(dayMinute: 7 * 60)]);
+
+        final ics = IcsSerializer.serialize(
+          events: [
+            CalendarEvent(
+              id: 'e1',
+              title: 'Leg day',
+              categoryId: 'gym',
+              startDate: day,
+              rule: const OneTimeRecurrence(),
+            ),
+          ],
+          now: DateTime.utc(2026, 1, 1),
+        );
+
+        final expected = DateTime(day.year, day.month, day.day, 7).toUtc();
+        expect(
+          ics,
+          contains(
+            'TRIGGER;VALUE=DATE-TIME:'
+            '${expected.year}'
+            '${expected.month.toString().padLeft(2, '0')}'
+            '${expected.day.toString().padLeft(2, '0')}T'
+            '${expected.hour.toString().padLeft(2, '0')}'
+            '${expected.minute.toString().padLeft(2, '0')}00Z',
+          ),
+        );
+      });
+    }
+
     test('a null day minute uses the shipped default', () {
       publish([alert(dayMinute: null)]);
       final withDefault = export(event());

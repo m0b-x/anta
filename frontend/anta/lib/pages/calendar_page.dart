@@ -133,16 +133,33 @@ class SheetGuard {
 }
 
 class CalendarPage extends StatelessWidget {
-  const CalendarPage({super.key});
+  /// Day to select as soon as the page has loaded, or null for the bloc's own
+  /// selection. Date-only UTC, like every other day in this subsystem.
+  final DateTime? initialDay;
+
+  /// Event whose detail sheet opens on [initialDay] once the page has loaded.
+  ///
+  /// The landing spot for a tapped reminder (**A12**). Both are one-shot: a
+  /// rebuild, a settings return or a reload must not reopen a sheet the user
+  /// has already dismissed.
+  final String? initialEventId;
+
+  const CalendarPage({super.key, this.initialDay, this.initialEventId});
 
   @override
   Widget build(BuildContext context) {
-    return const _CalendarView();
+    return _CalendarView(
+      initialDay: initialDay,
+      initialEventId: initialEventId,
+    );
   }
 }
 
 class _CalendarView extends StatefulWidget {
-  const _CalendarView();
+  final DateTime? initialDay;
+  final String? initialEventId;
+
+  const _CalendarView({this.initialDay, this.initialEventId});
 
   @override
   State<_CalendarView> createState() => _CalendarViewState();
@@ -397,6 +414,66 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     super.initState();
     _keyboardInset.addListener(_handleKeyboardInset);
     _loadSettings();
+    // `CalendarBloc` is app-wide and is loaded at launch, so by the time this
+    // page mounts its state is usually *already* `CalendarPageLoaded` — a
+    // listener alone would never fire. The post-frame pass covers that case,
+    // the listener covers a genuinely cold calendar, and `_initialTargetDone`
+    // keeps whichever wins from being the second one.
+    if (widget.initialDay != null || widget.initialEventId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _applyInitialTarget(context.read<CalendarBloc>().state);
+      });
+    }
+  }
+
+  /// Whether the `initialDay` / `initialEventId` request has been served.
+  bool _initialTargetDone = false;
+
+  /// Selects the requested day and opens the requested event's detail sheet,
+  /// exactly once.
+  ///
+  /// The selection is dispatched as `navigation`, not `grid` or `agendaRow`:
+  /// arriving from a notification is not the user scrolling a list, and the
+  /// agenda's anchor must not be truncated by it.
+  void _applyInitialTarget(CalendarPageState state) {
+    if (_initialTargetDone) return;
+    if (state is! CalendarPageLoaded) return;
+    _initialTargetDone = true;
+
+    final requested = widget.initialDay;
+    final day = requested == null
+        ? state.selectedDay
+        : DateTime.utc(requested.year, requested.month, requested.day);
+    if (requested != null) {
+      context.read<CalendarBloc>().add(
+        SelectCalendarDay(
+          day: day,
+          focusedDay: day,
+          source: CalendarSelectionSource.navigation,
+        ),
+      );
+    }
+
+    final eventId = widget.initialEventId;
+    if (eventId == null) return;
+    CalendarEvent? target;
+    for (final event in state.allEvents) {
+      if (event.id != eventId) continue;
+      target = event;
+      break;
+    }
+    // An event deleted between the alert firing and the tap simply lands on
+    // its day with nothing open — better than an error for something that is
+    // genuinely gone.
+    if (target == null) return;
+    final event = target;
+    // After the frame the selection lands in, so the sheet opens over the day
+    // it describes rather than over the previous one.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(_openDetailSheet(context, event, day));
+    });
   }
 
   /// Folds one keyboard animation frame into the format decision and the
@@ -1136,6 +1213,14 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
       listeners: [
         BlocListener<ImportExportBloc, ImportExportState>(
           listener: _onImportExportState,
+        ),
+        BlocListener<CalendarBloc, CalendarPageState>(
+          // Serves `initialDay` / `initialEventId` when the calendar was not
+          // yet loaded at mount. Once-only through `_initialTargetDone`, which
+          // the post-frame pass in `initState` shares.
+          listenWhen: (previous, current) =>
+              !_initialTargetDone && current is CalendarPageLoaded,
+          listener: (context, state) => _applyInitialTarget(state),
         ),
         BlocListener<CalendarBloc, CalendarPageState>(
           // A new target day is the one moment the label is the whole point
