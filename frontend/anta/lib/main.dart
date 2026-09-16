@@ -21,8 +21,11 @@ import 'constants/app_spacing.dart';
 import 'constants/app_theme.dart';
 import 'core/di/injection.dart';
 import 'core/qa/qa_bootstrap.dart';
+import 'models/alert_payload.dart';
+import 'pages/alarm_page.dart';
 import 'pages/optimized_folder_content_page.dart';
 import 'pages/onboarding_page.dart';
+import 'services/alert_gateway.dart';
 import 'services/alert_scheduler.dart';
 import 'services/app_navigator.dart';
 import 'services/counter_service.dart';
@@ -228,11 +231,15 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   /// drained until the replay has been queued.
   bool _navigationReady = false;
 
+  /// Live subscription to the gateway's ring stream, for as long as the app is.
+  StreamSubscription<AlertPayload>? _ringing;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     PendingNavigationQueue.instance.addListener(_scheduleNavigationDrain);
+    _listenForRings();
     _checkOnboarding();
     // Post-frame and unawaited: the launch reconcile reads four services and
     // talks to the platform, and none of that may sit between the user and
@@ -247,9 +254,55 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   @override
   void dispose() {
     _resumeReconcile?.cancel();
+    unawaited(_ringing?.cancel());
     PendingNavigationQueue.instance.removeListener(_scheduleNavigationDrain);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  /// Subscribes to the gateway's rings, and drains the alert the app may have
+  /// been launched by.
+  ///
+  /// Both go through [PendingNavigationQueue] rather than pushing directly: a
+  /// ring can arrive while the process is still starting, `AppNavigator`'s
+  /// navigator accessor force-unwraps, and the queue is what holds an intent
+  /// until there is somewhere to put it — and what dedupes the cold-start tap
+  /// the notification plugin delivers twice.
+  void _listenForRings() {
+    final AlertGateway gateway;
+    try {
+      gateway = getIt<AlertGateway>();
+    } catch (e) {
+      debugPrint('[main] no AlertGateway to listen to: $e');
+      return;
+    }
+    _ringing = gateway.ringing.listen((payload) {
+      // **Before anything else.** The launch reconcile that the ring's own
+      // relaunch of the app provokes runs post-frame, a second or two before
+      // `Alarm.ringing` emits, and it leaves a row under `kLateFireGrace` late
+      // exactly as it found it — in flight, waiting for something to settle
+      // it. This is that something; without it the row ages out of the grace
+      // window and the next launch reports a "Missed" for a ring the user
+      // heard and stopped.
+      unawaited(AlertScheduler.markFiredById(payload.osId));
+      PendingNavigationQueue.instance.enqueue(
+        OpenAlarmIntent(payload: payload),
+      );
+    });
+    unawaited(_drainLaunchIntent(gateway));
+  }
+
+  Future<void> _drainLaunchIntent(AlertGateway gateway) async {
+    try {
+      final intent = await gateway.launchIntent();
+      if (intent == null) return;
+      if (intent is OpenAlarmIntent) {
+        unawaited(AlertScheduler.markFiredById(intent.osId));
+      }
+      PendingNavigationQueue.instance.enqueue(intent);
+    } catch (e) {
+      debugPrint('[main] launch intent failed: $e');
+    }
   }
 
   /// Re-derives the alert horizon and makes the platform match it.
@@ -291,9 +344,13 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             ),
           );
         case OpenAlarmIntent():
-          // The alarm page is Session 3. The intent is typed now so the queue
-          // and this switch do not change shape when it lands.
-          break;
+          // Instant, and deliberately unstamped: a restored last location must
+          // never reopen a ring that is long over.
+          unawaited(
+            AppNavigator.rootPushInstant<void>(
+              AlarmPage(payload: intent.payload),
+            ),
+          );
       }
     }
   }

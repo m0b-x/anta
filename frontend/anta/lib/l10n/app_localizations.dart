@@ -8277,6 +8277,228 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{count, plural, =1{{names} · 1 note} other{{names} · {count} notes}}'**
   String labelledNotesHeader(int count, String names);
+
+  /// Alarm shown as the eyebrow of the full-screen ring page
+  ///
+  /// In en, this message translates to:
+  /// **'Alarm'**
+  String get alarmPageTitle;
+
+  /// Primary action on the alarm page and on the alarm notification: stop the ring
+  ///
+  /// In en, this message translates to:
+  /// **'Stop'**
+  String get alarmStop;
+
+  /// Alarm page action: postpone the ring by the configured number of minutes
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Snooze 1 min} other{Snooze {count} min}}'**
+  String alarmSnoozeMinutes(int count);
+
+  /// Alarm page action: stop ringing and open the event in the calendar
+  ///
+  /// In en, this message translates to:
+  /// **'Open event'**
+  String get alarmOpenEvent;
+
+  /// Alarm page action for an event set to be removed after it rings: keep it instead
+  ///
+  /// In en, this message translates to:
+  /// **'Keep the event'**
+  String get alarmKeepEvent;
+
+  /// Confirmation shown on the alarm page after Keep the event was pressed
+  ///
+  /// In en, this message translates to:
+  /// **'The event will be kept'**
+  String get alarmKeptEvent;
+
+  /// Alarm page caption explaining the remove-after-it-rings flag
+  ///
+  /// In en, this message translates to:
+  /// **'This event is removed once you stop the alarm'**
+  String get alarmRemoveAfterCaption;
+
+  /// Chip on the alarm page when the alarm belongs to a database that is not the active one
+  ///
+  /// In en, this message translates to:
+  /// **'From database {name}'**
+  String alarmFromDatabase(String name);
+
+  /// Action on the alarm page's database chip: switch to that database
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get alarmOpenDatabase;
+
+  /// Calendar settings section holding reminder and alarm options
+  ///
+  /// In en, this message translates to:
+  /// **'Alerts'**
+  String get calendarAlertsSection;
+
+  /// Permission row: whether the app may post notifications at all
+  ///
+  /// In en, this message translates to:
+  /// **'Notifications'**
+  String get alertsNotifications;
+
+  /// Description of the notification permission row
+  ///
+  /// In en, this message translates to:
+  /// **'Needed for reminders and alarms to show'**
+  String get alertsNotificationsDesc;
+
+  /// Permission row: whether an alarm may take over a locked screen
+  ///
+  /// In en, this message translates to:
+  /// **'Full-screen alarms'**
+  String get alertsFullScreenAlarms;
+
+  /// Description of the full-screen alarm permission row
+  ///
+  /// In en, this message translates to:
+  /// **'Lets an alarm take over a locked screen'**
+  String get alertsFullScreenAlarmsDesc;
+
+  /// Permission row: whether the system exempts the app from battery optimisation
+  ///
+  /// In en, this message translates to:
+  /// **'Unrestricted battery'**
+  String get alertsBattery;
+
+  /// Description of the battery optimisation row
+  ///
+  /// In en, this message translates to:
+  /// **'Battery limits can delay or drop an alarm'**
+  String get alertsBatteryDesc;
+
+  /// Status chip on a permission row when the permission is held
+  ///
+  /// In en, this message translates to:
+  /// **'On'**
+  String get alertsPermissionOn;
+
+  /// Status chip on a permission row when the permission is missing
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get alertsPermissionOff;
+
+  /// Action on a permission row that raises the system prompt
+  ///
+  /// In en, this message translates to:
+  /// **'Turn on'**
+  String get alertsTurnOn;
+
+  /// Action on a permission row that opens the matching system settings page
+  ///
+  /// In en, this message translates to:
+  /// **'Open settings'**
+  String get alertsOpenSettings;
+
+  /// Slider: how long Snooze postpones an alert
+  ///
+  /// In en, this message translates to:
+  /// **'Snooze length'**
+  String get alertsSnoozeLength;
+
+  /// Caption under the snooze length slider
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Snooze postpones an alert by 1 minute} other{Snooze postpones an alert by {count} minutes}}'**
+  String alertsSnoozeLengthDesc(int count);
+
+  /// Slider: how long an unanswered alarm keeps ringing
+  ///
+  /// In en, this message translates to:
+  /// **'Silence after'**
+  String get alertsSilenceAfter;
+
+  /// Caption under the silence-after slider
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{An unanswered alarm stops after 1 minute} other{An unanswered alarm stops after {count} minutes}}'**
+  String alertsSilenceAfterDesc(int count);
+
+  /// Note under the alert settings explaining that a force stop cancels pending alarms
+  ///
+  /// In en, this message translates to:
+  /// **'Force stopping ANTA disarms every alarm until you open it again.'**
+  String get alertsForceStopNote;
+
+  /// Button that schedules a ring ten seconds from now, and the title the alarm page shows for it
+  ///
+  /// In en, this message translates to:
+  /// **'Test alarm in 10 s'**
+  String get alertsTestAlarm;
+
+  /// Confirmation after the test alarm was scheduled
+  ///
+  /// In en, this message translates to:
+  /// **'Test alarm set for 10 seconds from now'**
+  String get alertsTestAlarmScheduled;
+
+  /// Error shown when the platform refused the test alarm
+  ///
+  /// In en, this message translates to:
+  /// **'The alarm could not be scheduled'**
+  String get alertsTestAlarmFailed;
+
+  /// Android notification channel name for the reminder tier
+  ///
+  /// In en, this message translates to:
+  /// **'Reminders'**
+  String get alertsReminderChannel;
+
+  /// Android notification channel description for the reminder tier
+  ///
+  /// In en, this message translates to:
+  /// **'Event reminders you can snooze or dismiss'**
+  String get alertsReminderChannelDesc;
+
+  /// Android notification channel name for the alarm tier
+  ///
+  /// In en, this message translates to:
+  /// **'Alarms'**
+  String get alertsAlarmChannel;
+
+  /// Android notification channel description for the alarm tier
+  ///
+  /// In en, this message translates to:
+  /// **'Event alarms that ring until stopped'**
+  String get alertsAlarmChannelDesc;
+
+  /// Action button on a reminder notification
+  ///
+  /// In en, this message translates to:
+  /// **'Snooze'**
+  String get alertsSnoozeAction;
+
+  /// Action button on a reminder notification that dismisses it
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get alertsDoneAction;
+
+  /// Body of a reminder that was snoozed from the notification shade
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Snoozed 1 minute} other{Snoozed {count} minutes}}'**
+  String alertsSnoozedBody(int count);
+
+  /// Title of the quiet notification reporting an alarm that never rang
+  ///
+  /// In en, this message translates to:
+  /// **'Missed: {title}'**
+  String alertsMissedTitle(String title);
+
+  /// Body of the quiet notification reporting an alarm that never rang
+  ///
+  /// In en, this message translates to:
+  /// **'It was due at {time}'**
+  String alertsMissedBody(String time);
 }
 
 class _AppLocalizationsDelegate

@@ -70,6 +70,17 @@ abstract class AlertGateway {
   /// the whole horizon on every pass.
   bool get tracksPending;
 
+  /// The os ids of rings in progress — everything emitted on [ringing] that
+  /// has not been stopped or snoozed yet.
+  ///
+  /// Reconcile seeds its cancel set with these. The `alarm` package keeps a
+  /// ringing entry in its storage until `Alarm.stop`, so it still appears in
+  /// [pendingEntries] with a fire instant now in the past, and once the ring
+  /// handler has marked its row `fired` the registry no longer calls it in
+  /// flight either — without this a resume reconcile two seconds into the
+  /// ring would find an entry nobody planned and silence it.
+  Set<int> get ringingIds => const {};
+
   /// Hands one planned fire to the platform. Returns false when the platform
   /// refused it (a revoked exact-alarm permission, a plugin exception); the
   /// scheduler records nothing for a refusal, so the next reconcile tries

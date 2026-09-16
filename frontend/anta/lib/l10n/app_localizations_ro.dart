@@ -4903,4 +4903,165 @@ class AppLocalizationsRo extends AppLocalizations {
     );
     return '$_temp0';
   }
+
+  @override
+  String get alarmPageTitle => 'Alarmă';
+
+  @override
+  String get alarmStop => 'Oprește';
+
+  @override
+  String alarmSnoozeMinutes(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Amână $count de min',
+      few: 'Amână $count min',
+      one: 'Amână 1 min',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get alarmOpenEvent => 'Deschide evenimentul';
+
+  @override
+  String get alarmKeepEvent => 'Păstrează evenimentul';
+
+  @override
+  String get alarmKeptEvent => 'Evenimentul va fi păstrat';
+
+  @override
+  String get alarmRemoveAfterCaption =>
+      'Acest eveniment este șters după ce oprești alarma';
+
+  @override
+  String alarmFromDatabase(String name) {
+    return 'Din baza de date $name';
+  }
+
+  @override
+  String get alarmOpenDatabase => 'Deschide';
+
+  @override
+  String get calendarAlertsSection => 'Alerte';
+
+  @override
+  String get alertsNotifications => 'Notificări';
+
+  @override
+  String get alertsNotificationsDesc =>
+      'Necesare pentru ca mementourile și alarmele să apară';
+
+  @override
+  String get alertsFullScreenAlarms => 'Alarme pe tot ecranul';
+
+  @override
+  String get alertsFullScreenAlarmsDesc =>
+      'Permite unei alarme să preia ecranul blocat';
+
+  @override
+  String get alertsBattery => 'Baterie nerestricționată';
+
+  @override
+  String get alertsBatteryDesc =>
+      'Restricțiile de baterie pot întârzia sau anula o alarmă';
+
+  @override
+  String get alertsPermissionOn => 'Activ';
+
+  @override
+  String get alertsPermissionOff => 'Inactiv';
+
+  @override
+  String get alertsTurnOn => 'Activează';
+
+  @override
+  String get alertsOpenSettings => 'Deschide setările';
+
+  @override
+  String get alertsSnoozeLength => 'Durata amânării';
+
+  @override
+  String alertsSnoozeLengthDesc(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Amânarea mută alerta cu $count de minute',
+      few: 'Amânarea mută alerta cu $count minute',
+      one: 'Amânarea mută alerta cu 1 minut',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get alertsSilenceAfter => 'Oprire automată după';
+
+  @override
+  String alertsSilenceAfterDesc(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'O alarmă fără răspuns se oprește după $count de minute',
+      few: 'O alarmă fără răspuns se oprește după $count minute',
+      one: 'O alarmă fără răspuns se oprește după 1 minut',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get alertsForceStopNote =>
+      'Oprirea forțată a ANTA dezactivează toate alarmele până când redeschizi aplicația.';
+
+  @override
+  String get alertsTestAlarm => 'Alarmă de test în 10 s';
+
+  @override
+  String get alertsTestAlarmScheduled =>
+      'Alarmă de test setată peste 10 secunde';
+
+  @override
+  String get alertsTestAlarmFailed => 'Alarma nu a putut fi programată';
+
+  @override
+  String get alertsReminderChannel => 'Mementouri';
+
+  @override
+  String get alertsReminderChannelDesc =>
+      'Mementouri pentru evenimente, de amânat sau de închis';
+
+  @override
+  String get alertsAlarmChannel => 'Alarme';
+
+  @override
+  String get alertsAlarmChannelDesc =>
+      'Alarme pentru evenimente, care sună până le oprești';
+
+  @override
+  String get alertsSnoozeAction => 'Amână';
+
+  @override
+  String get alertsDoneAction => 'Gata';
+
+  @override
+  String alertsSnoozedBody(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Amânat $count de minute',
+      few: 'Amânat $count minute',
+      one: 'Amânat 1 minut',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String alertsMissedTitle(String title) {
+    return 'Ratat: $title';
+  }
+
+  @override
+  String alertsMissedBody(String time) {
+    return 'Era programat la $time';
+  }
 }

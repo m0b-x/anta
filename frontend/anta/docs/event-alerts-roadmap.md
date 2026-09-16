@@ -7,8 +7,10 @@ Phases 1–4 were split on 2026-09-15 into the prerequisites P1–P5 and
 Sessions 1–9 of §8; **Session 1 DONE 2026-09-15** (committed as
 `69fd76d`) and **Session 2 DONE 2026-09-15** (Opus, Fable-reviewed with
 three fixes, 5,153 tests green; deviations recorded under each prompt).
-Session 3 is next and is the first that needs the plugins and the
-emulator. Decisions A1–A14 (§1)
+**Session 3 DONE 2026-09-16** — the plugins are in, `AndroidAlertGateway`
+is registered on Android, and a test alarm rings on a slept emulator
+screen (5,172 tests green; the owner's phone pass is owed). Session 4 is
+next. Decisions A1–A14 (§1)
 were proposed on 2026-09-14 and **confirmed as proposed on 2026-09-15**
 (P1, P2, P5 in §8.1); A5 stands on the emulator spike alone because the
 owner **waived the phone pass** (P3) — the §9 checklist after Session 4 is
@@ -280,18 +282,28 @@ the active database name (`DatabaseManager.getActiveDatabaseName()`).
   `timeoutAfter: silenceAfter`; a `max`-importance `alerts_alarm` channel.
   No stale cut-off is possible (the system posts it), so A10's "Missed"
   path is done by reconcile on the next launch.
-- **Late fire (A10; rule corrected 2026-09-15 at the Session 2 review):**
-  `alarm` reports a boot-recovered alarm older than `androidStaleAfter`
-  (set to 30 min) as `AlarmDropped(cause: staleAtBoot)` on `Alarm.events`;
-  the gateway maps it to the "Missed" notification — the authoritative
-  source for alarms. The registry path on launch/resume is the second,
-  conservative source, and it measures lateness (`now − fire_at`) in three
-  windows. **In flight** (under `kLateFireGrace`, 30 min): the row stays
+- **Late fire (A10; rule corrected 2026-09-15 at the Session 2 review,
+  source corrected 2026-09-16 at the Session 3 review):** `alarm` drops a
+  boot-recovered alarm older than `androidStaleAfter` (set to 30 min) as
+  `AlarmDropped(cause: staleAtBoot)` on `Alarm.events`, but that event
+  carries an id and nothing else and the alarm is already unsaved when it
+  is delivered, so the gateway cannot compose a "Missed" from it and does
+  not subscribe. The registry path on launch/resume is the **only** Missed
+  source for both tiers; because `androidStaleAfter` equals
+  `kLateFireGrace`, a dropped alarm's row is past the grace window at the
+  very launch that delivers the drop. It measures lateness (`now −
+  fire_at`) in three windows. **In flight** (under `kLateFireGrace`, 30 min): the row stays
   `pending` and is excluded from the diff — never cancelled, never
   re-scheduled, never reported — because the launch reconcile that the
   plugin's own relaunch of the app triggers is post-frame and lands
   *before* `Alarm.ringing` emits (§10.3 S4: +1.8 s); the ring handler is
-  what marks it `fired` / `stopped`. **Missed** (30 min to 24 h): marked
+  what marks it `fired` / `stopped`. A row the ring handler has marked
+  `fired` is neither pending nor in flight, yet `alarm` keeps the entry in
+  its storage until Stop, so reconcile also seeds its cancel set with
+  `AlertGateway.ringingIds` — without that the resume reconcile the alarm
+  page's own appearance provokes would find an entry nobody planned and
+  silence it two seconds into the ring (Session 3 review). **Missed** (30
+  min to 24 h): marked
   `cancelled`, and only an **alarm-tier** row (its alert resolves to
   `ring`) earns the quiet "Missed: {title} at {time}" — a reminder is
   delivered by the OS with no callback to the app, so a gone, past-due
@@ -659,7 +671,7 @@ add dependencies from Git Bash (PowerShell 5.1 eats the caret, §10.2).
 | --- | --- | --- | --- | --- | --- |
 | 1 | Persistence and domain — **DONE 2026-09-15** | 1a | P1 | none | v40 live, `EventAlertService` in the calendar `Future.wait`, backup + `.ics` round-trips green |
 | 2 | Planner, scheduler, gateway seam — **DONE 2026-09-15** | 1b | S1, P5 | none (Windows launch only) | every reconcile trigger wired against `NoOpAlertGateway`; alerts exist only through tests |
-| 3 | Android gateway and the ring | 1c | S2, P2, P3 | emulator + phone | Test alarm in 10 s rings on a locked screen, alarm page Stop / Snooze work, force-stop copy in place |
+| 3 | Android gateway and the ring — **DONE 2026-09-16** (emulator; owner's phone pass owed) | 1c | S2, P2, P3 | emulator + phone | Test alarm in 10 s rings on a locked screen, alarm page Stop / Snooze work, force-stop copy in place |
 | 4 | Editor, detail, rows | 1d | S3 | emulator, then §9 rows 1–7 on the phone | the Phase 1 acceptance: one-time alarm end to end, remove-after + Undo |
 | 5 | Recurrence proven, missed path, hub | 2a | S4 | emulator, §9 row 8 | Mon/Wed/Fri recipe passes, Alerts hub live |
 | 6 | Quick alarm and templates | 2b | S5, P2 (A11) | emulator | FAB long-press → Alarm… → rings; v41 template alerts |
@@ -885,6 +897,88 @@ the emulator, then the owner's phone for the ring itself.
 > the second ring; `am kill` the app before a test alarm and confirm it
 > still rings; confirm the leftover notification is gone after Stop.
 > Owner's phone: the same four steps, plus a PIN keyguard.
+
+Shipped 2026-09-16, 5,153 → 5,170 tests (5,172 after the review below), emulator pass green (test alarm
+rings from a slept screen in ~2 s, Stop leaves the registration `stopped`
+and no notification behind, a 5-minute snooze re-rings, an `am kill` before
+the fire time is survived). Deviations later sessions must know:
+`AlertPayload` gained **`snoozeMinutes`** (key `snoozeMin`, clamped on
+decode, defaulted for an older payload) because the reminder tier's Snooze
+runs in a background isolate with no settings service, and a **test-alarm
+sentinel** `AlertPayload.testEventId` with `payload.isTest` — a test ring
+has no event row, no alert row and no occurrence, so the sentinel is what
+the alarm page titles itself from and what keeps the Missed path from
+resolving an event that was never there. `AlertScheduler` gained
+`markFired` / `markFiredById` (the ring handler's first act, through the
+serialized chain), `cancelSnoozeForAlert(alertId, dayUtc)` (the alarm
+page's Stop calls it; `stop` still does not), `scheduleTestAlarm` — which
+records its registration as **`kind = snooze`**, because the diff owns only
+what the planner produced and a `scheduled` row it cannot re-derive would
+be cancelled by the next reconcile — and a `_snooze` fallback that rebuilds
+the synthetic event/alert pair for a test ring, without which Snooze was
+the one button on the alarm page that silently did nothing. Two Session 2
+semantics were **extended, not rewritten**, both found on the emulator: a
+platform entry whose payload says `snooze` is never cancelled by reconcile
+(the background isolate cannot write a registry row for the snooze it
+posts, and the registry-row rule alone does not cover it), and
+`PendingNavigationQueue`'s dedupe memory now expires after
+`doubleDeliveryWindow` (5 s) — a snooze's os id is a hash of (database,
+alert, day, kind), so snoozing the same alert twice on the same day re-arms
+it under the *same* id and the unbounded memory dropped the second ring as
+an echo, hours later, with the phone ringing and no page to stop it. The
+binding is `lib/services/android_alert_gateway.dart` with
+`kAlarmTierUsesNotifications` as the A5 switch; `cancel` asks **both**
+backends, since a tier's backend can be switched under a standing entry.
+`permissions().fullScreenIntent` and the battery status are answered by a
+small `com.alexzamfir.anta/alerts` `MethodChannel` in `MainActivity.kt`:
+the notification plugin's `requestFullScreenIntentPermission()` *navigates
+to the settings page* when the answer is no, which a status row must not
+do, and battery exemption has no Dart binding at all — that channel is also
+what makes the §5.7 battery row a working link. The Alarm tier's
+Silence-after is a gateway-held `Timer` (the `alarm` package has no
+timeout of its own; the fallback path gets the platform's `timeoutAfter`).
+Channel names and every notification string are localized from the app's
+**stored** language, read once at gateway init — channel names are
+immutable after creation anyway — and the background isolate falls back to
+the device locale, because reading the setting there would mean a database.
+`AlarmPage` takes a `@visibleForTesting` controller so the A9 chip is
+reachable without `path_provider`, and `AlertRingController._resolveEvent`
+requires the active database name to **equal** the payload's: an
+unresolved name reads as "not ours", so a failed lookup never deletes the
+event that happens to carry that id in the database which *is* open.
+`AppNavigator.toCalendarOccurrence` now collapses onto a live calendar
+route and publishes the request through
+`AppNavigator.pendingCalendarOccurrence`, which `CalendarPage` serves and
+clears; the cold path still takes the constructor arguments.
+
+The Fable review (2026-09-16) found two defects and fixed them the same
+day, 5,170 → 5,172 tests. **A real alarm was silenced two seconds into the
+ring:** the ring handler marks the row `fired`, which takes it out of both
+`pending()` and the in-flight band, while `alarm` keeps the entry in its
+storage until Stop — so the `resumed` reconcile the alarm page's own
+appearance provokes found a platform entry with a past fire instant that
+nobody planned and cancelled it. The emulator pass could not see this
+because the test alarm's payload says `snooze: true`, which the cancel loop
+already skips. Fix: `AlertGateway.ringingIds` (default empty; the Android
+binding reports what it has emitted and not yet stopped) seeds the
+reconcile's cancel set next to the in-flight rows, with a scheduler test
+that fails without it. **A tap on a "Missed" notice opened the ring page**
+and marked the cancelled row `fired`: the notice carries the alarm's own
+payload, so `isAlarm` routed it to `_emitRing`; `isMissedNotification`
+now tells the two apart by the notification id (`missedNotificationId`) in
+both the response callback and the cold-start launch details, and a Missed
+tap is an `OpenEventIntent`. Also: the gateway's `AlarmDropped`
+subscription was dead code — the event carries only an id and the alarm is
+already unsaved when it arrives — so it was removed and §3.4 now names the
+registry path as the only Missed source; the permission rows render
+nothing rather than "Not supported" until the platform has answered, and
+are re-read on app resume because the two "Open settings" links return
+before the user has toggled anything; and `kAlertRingVolume` (0.8) is
+documented as what it is — an override of the phone's alarm volume for the
+duration of the ring — which is a product choice the owner may want to
+revisit in Session 7. Owed: the owner's phone pass (§9 and the PIN
+keyguard), and the §5.7 rows this session deliberately left out — the two
+defaults and the sound row.
 
 ### Session 4 — Editor, detail and rows (Phase 1d)
 
@@ -1193,8 +1287,9 @@ hand, then reinstall `main`.
   `warningNotificationOnKill` defaults **true** (set false, or declare
   `NotificationOnKillService`); `androidStaleAfter` defaults to 15 min and
   drops stale alarms as `AlarmDropped(cause: staleAtBoot)` on
-  `Alarm.events` — pass 30 min for A10 and map the drop to the "Missed"
-  notification; `Alarm.ringing` emits an **empty set on subscribe**
+  `Alarm.events` — pass 30 min for A10; the drop event carries only the id
+  and the alarm is already unsaved, so the registry reports the miss
+  (§3.4); `Alarm.ringing` emits an **empty set on subscribe**
   (rxdart `ValueStream`) — guard `isEmpty` or every launch pushes a ring
   page; its channel is created lazily at importance 4 and cannot be
   configured from Dart.

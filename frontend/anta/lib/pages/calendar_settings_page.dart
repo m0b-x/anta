@@ -1,5 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:get_it/get_it.dart';
+import '../constants/alert_constants.dart';
+import '../constants/app_spacing.dart';
 import '../constants/calendar_colors.dart';
 import '../constants/fasting_calendar.dart';
 import '../constants/public_holidays.dart';
@@ -11,6 +16,10 @@ import '../models/fasting_appearance.dart';
 import '../models/fasting_schedule.dart';
 import '../widgets/fasting_schedule_sheet.dart';
 import '../widgets/fasting_style_sheet.dart';
+import '../constants/semantics_ids.dart';
+import '../services/alert_gateway.dart';
+import '../services/alert_scheduler.dart';
+import '../services/android_alert_gateway.dart';
 import '../services/app_navigator.dart';
 import '../services/calendar_event_service.dart';
 import '../services/calendar_palette_service.dart';
@@ -20,6 +29,7 @@ import '../services/settings_service.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/settings_search.dart';
 import '../widgets/app_dialogs.dart';
+import '../widgets/automation_id.dart';
 import '../widgets/removed_holidays_sheet.dart';
 import '../widgets/settings_search_field.dart';
 import '../widgets/settings_section_list.dart';
@@ -35,7 +45,8 @@ class CalendarSettingsPage extends StatefulWidget {
   State<CalendarSettingsPage> createState() => _CalendarSettingsPageState();
 }
 
-class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
+class _CalendarSettingsPageState extends State<CalendarSettingsPage>
+    with WidgetsBindingObserver {
   // Persisted fold state is keyed on these, so they are frozen strings, not
   // titles and not positions — renaming or reordering a section must not
   // reopen a card the user folded shut.
@@ -45,6 +56,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
   static const String _sectionFiltering = 'filtering';
   static const String _sectionFasting = 'fasting';
   static const String _sectionEvents = 'events';
+  static const String _sectionAlerts = 'alerts';
 
   SettingsService? _settings;
   bool _isLoading = true;
@@ -62,6 +74,12 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
   int _eventCount = 0;
   int _descriptionLimit = SettingsKeys.defaultEventDescriptionLimit;
 
+  AlertGateway? _alertGateway;
+  AlertPermissions? _alertPermissions;
+  AlertPermissionState _batteryOptimization = AlertPermissionState.unsupported;
+  int _snoozeMinutes = SettingsKeys.defaultAlertSnoozeMinutes;
+  int _silenceAfterMinutes = SettingsKeys.defaultAlertSilenceAfterMinutes;
+
   Set<FastingTradition> _fastingTraditions = const {};
   FastingAppearance _fastingAppearance = const FastingAppearance();
   bool _fastingGreatFasts = true;
@@ -70,13 +88,25 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadSettings();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _searchController.dispose();
     super.dispose();
+  }
+
+  /// The two permission links leave the app for Android's own settings, and
+  /// their "Open settings" call returns the moment the intent is launched —
+  /// long before the user has toggled anything — so the rows are re-read when
+  /// the app comes back, not when the call returns.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || _isLoading) return;
+    unawaited(_refreshAlertPermissions());
   }
 
   Future<void> _loadSettings() async {
@@ -90,6 +120,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     final fastingGreatFasts = await settings.getFastingOrthodoxGreatFasts();
     final fastingSchedule = await settings.getFastingSchedule();
     final descriptionLimit = await settings.getEventDescriptionLimit();
+    final alerts = await settings.getAlertSettings();
     final collapsedSections = await settings
         .getCalendarSettingsCollapsedSections();
     // Publishes the palette facade the fasting style sheet's swatch picker
@@ -110,11 +141,42 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
       _eventService = eventService;
       _eventCount = eventService.events.length;
       _descriptionLimit = descriptionLimit;
+      _snoozeMinutes = alerts.snoozeMinutes;
+      _silenceAfterMinutes = alerts.silenceAfterMinutes;
       _fastingTraditions = fastingTraditions;
       _fastingAppearance = fastingAppearance;
       _fastingGreatFasts = fastingGreatFasts;
       _fastingSchedule = fastingSchedule;
       _isLoading = false;
+    });
+    // After the first frame, never before it: three of these are platform
+    // round trips, and a permission the user changed in Android's own
+    // settings has to be re-read on every visit rather than cached.
+    unawaited(_refreshAlertPermissions());
+  }
+
+  /// Asks the gateway what the operating system currently allows.
+  ///
+  /// Never stored: each of these can change between two frames, in a settings
+  /// page this one does not own, and a cached answer would offer to fix
+  /// something already fixed.
+  Future<void> _refreshAlertPermissions() async {
+    AlertGateway? gateway;
+    try {
+      gateway = GetIt.I<AlertGateway>();
+    } catch (_) {
+      // A build with no binding renders the rows as unsupported, which is
+      // exactly what they are there.
+    }
+    final permissions = await gateway?.permissions();
+    final battery = gateway is AndroidAlertGateway
+        ? await gateway.batteryOptimization()
+        : AlertPermissionState.unsupported;
+    if (!mounted) return;
+    setState(() {
+      _alertGateway = gateway;
+      _alertPermissions = permissions;
+      _batteryOptimization = battery;
     });
   }
 
@@ -288,6 +350,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
       _buildFilteringSection(colorScheme, l10n),
       _buildFastingSection(theme, colorScheme, l10n),
       _buildEventsSection(colorScheme, l10n),
+      _buildAlertsSection(colorScheme, l10n),
     ];
   }
 
@@ -678,6 +741,230 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     );
   }
 
+  /// §5.7. Three permission rows, two lengths and a test ring.
+  ///
+  /// The permission rows read **live** from the gateway and are never stored:
+  /// every one of them can be revoked in Android's own settings between two
+  /// frames. Only notifications have a prompt — the other two are links,
+  /// because Android offers no dialog for a full-screen intent and battery
+  /// exemption may not be requested at all under Play policy.
+  SettingsSectionData _buildAlertsSection(
+    ColorScheme colorScheme,
+    AppLocalizations l10n,
+  ) {
+    final permissions = _alertPermissions;
+    final captionStyle = TextStyle(
+      fontSize: 12,
+      color: colorScheme.onSurfaceVariant,
+    );
+    return SettingsSectionData(
+      id: _sectionAlerts,
+      icon: Icons.alarm_rounded,
+      title: l10n.calendarAlertsSection,
+      entries: [
+        SettingsEntry(
+          title: l10n.alertsNotifications,
+          description: l10n.alertsNotificationsDesc,
+          builder: (context, title, description) => _permissionTile(
+            colorScheme: colorScheme,
+            l10n: l10n,
+            icon: Icons.notifications_active_outlined,
+            title: title,
+            description: description,
+            state: permissions?.notifications,
+            actionLabel: l10n.alertsTurnOn,
+            onAction: () async {
+              await _alertGateway?.requestNotifications();
+              await _refreshAlertPermissions();
+            },
+          ),
+        ),
+        SettingsEntry(
+          title: l10n.alertsFullScreenAlarms,
+          description: l10n.alertsFullScreenAlarmsDesc,
+          builder: (context, title, description) => _permissionTile(
+            colorScheme: colorScheme,
+            l10n: l10n,
+            icon: Icons.fullscreen_rounded,
+            title: title,
+            description: description,
+            state: permissions?.fullScreenIntent,
+            actionLabel: l10n.alertsOpenSettings,
+            onAction: () async {
+              await _alertGateway?.openFullScreenIntentSettings();
+              await _refreshAlertPermissions();
+            },
+          ),
+        ),
+        SettingsEntry(
+          title: l10n.alertsBattery,
+          description: l10n.alertsBatteryDesc,
+          builder: (context, title, description) => _permissionTile(
+            colorScheme: colorScheme,
+            l10n: l10n,
+            icon: Icons.battery_saver_rounded,
+            title: title,
+            description: description,
+            state: _batteryOptimization,
+            actionLabel: l10n.alertsOpenSettings,
+            // A link, never a request: asking for the exemption outright is
+            // Play-policy restricted, so the user grants it themselves.
+            onAction: () async {
+              final gateway = _alertGateway;
+              if (gateway is! AndroidAlertGateway) return;
+              await gateway.openBatterySettings();
+            },
+          ),
+        ),
+        SettingsEntry(
+          title: l10n.alertsSnoozeLength,
+          description: l10n.alertsSnoozeLengthDesc(_snoozeMinutes),
+          builder: (context, title, description) => SliderSettingRow(
+            title: title,
+            description: description,
+            value: _snoozeMinutes,
+            min: SettingsKeys.minAlertSnoozeMinutes,
+            max: SettingsKeys.maxAlertSnoozeMinutes,
+            divisions:
+                (SettingsKeys.maxAlertSnoozeMinutes -
+                    SettingsKeys.minAlertSnoozeMinutes) ~/
+                SettingsKeys.alertSnoozeMinutesStep,
+            captionStyle: captionStyle,
+            draftCaption: (draft) => l10n.alertsSnoozeLengthDesc(draft),
+            onCommit: (value) async {
+              _onHapticFeedback();
+              setState(() => _snoozeMinutes = value);
+              await _settings?.setAlertSnoozeMinutes(value);
+            },
+          ),
+        ),
+        SettingsEntry(
+          title: l10n.alertsSilenceAfter,
+          description: l10n.alertsSilenceAfterDesc(_silenceAfterMinutes),
+          builder: (context, title, description) => SliderSettingRow(
+            title: title,
+            description: description,
+            value: _silenceAfterMinutes,
+            min: SettingsKeys.minAlertSilenceAfterMinutes,
+            max: SettingsKeys.maxAlertSilenceAfterMinutes,
+            divisions:
+                SettingsKeys.maxAlertSilenceAfterMinutes -
+                SettingsKeys.minAlertSilenceAfterMinutes,
+            captionStyle: captionStyle,
+            draftCaption: (draft) => l10n.alertsSilenceAfterDesc(draft),
+            onCommit: (value) async {
+              _onHapticFeedback();
+              setState(() => _silenceAfterMinutes = value);
+              await _settings?.setAlertSilenceAfterMinutes(value);
+            },
+          ),
+        ),
+        SettingsEntry(
+          title: l10n.alertsTestAlarm,
+          // The force-stop note rides this row rather than a row of its own:
+          // it is the one thing about alerts nothing in the app can fix, and
+          // it belongs beside the button that proves they work.
+          description: l10n.alertsForceStopNote,
+          builder: (context, title, description) => Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              AppSpacing.sm,
+              AppSpacing.lg,
+              AppSpacing.lg,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                AutomationId(
+                  identifier: SemanticsIds.alertsTestAlarm,
+                  child: OutlinedButton.icon(
+                    onPressed: _scheduleTestAlarm,
+                    icon: const Icon(Icons.alarm_add_rounded),
+                    label: title,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                if (description != null)
+                  DefaultTextStyle.merge(
+                    style: captionStyle,
+                    child: description,
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// One permission row: a status chip when the platform can answer, an action
+  /// when it can answer "no", and the app-wide "not supported" copy on a
+  /// platform that has no such permission at all.
+  Widget _permissionTile({
+    required ColorScheme colorScheme,
+    required AppLocalizations l10n,
+    required IconData icon,
+    required Widget title,
+    required Widget? description,
+    required AlertPermissionState? state,
+    required String actionLabel,
+    required Future<void> Function() onAction,
+  }) {
+    final Widget trailing;
+    switch (state) {
+      case AlertPermissionState.granted:
+        trailing = Chip(
+          label: Text(l10n.alertsPermissionOn),
+          visualDensity: VisualDensity.compact,
+        );
+      case AlertPermissionState.denied:
+        trailing = TextButton(
+          onPressed: () async {
+            _onHapticFeedback();
+            await onAction();
+          },
+          child: Text(actionLabel),
+        );
+      case AlertPermissionState.unsupported:
+        trailing = Text(
+          l10n.notSupportedOnPlatform,
+          style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
+        );
+      case null:
+        // Not answered yet — the platform round trip is still in flight, and
+        // "not supported" for the frames until it lands would be a lie on
+        // exactly the platform that supports it.
+        trailing = const SizedBox.shrink();
+    }
+    return ListTile(
+      leading: Icon(icon, color: colorScheme.primary),
+      title: title,
+      subtitle: description,
+      trailing: trailing,
+    );
+  }
+
+  Future<void> _scheduleTestAlarm() async {
+    final l10n = AppLocalizations.of(context)!;
+    _onHapticFeedback();
+    int? osId;
+    try {
+      final scheduler = await AlertScheduler.getInstance();
+      osId = await scheduler.scheduleTestAlarm(
+        title: l10n.alertsTestAlarm,
+        delay: kAlertTestAlarmDelay,
+      );
+    } catch (e) {
+      debugPrint('[CalendarSettings] test alarm failed: $e');
+    }
+    if (!mounted) return;
+    if (osId == null) {
+      CustomSnackbar.showError(context, l10n.alertsTestAlarmFailed);
+      return;
+    }
+    CustomSnackbar.showSuccess(context, l10n.alertsTestAlarmScheduled);
+  }
+
   void _showResetConfirmation() async {
     final l10n = AppLocalizations.of(context)!;
 
@@ -724,6 +1011,12 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     await _settings?.setEventDescriptionLimit(
       SettingsKeys.defaultEventDescriptionLimit,
     );
+    await _settings?.setAlertSnoozeMinutes(
+      SettingsKeys.defaultAlertSnoozeMinutes,
+    );
+    await _settings?.setAlertSilenceAfterMinutes(
+      SettingsKeys.defaultAlertSilenceAfterMinutes,
+    );
     // The page resets to how it ships, and it ships open — leaving a section
     // folded after a reset hides rows the user just asked to see restored.
     await _settings?.setCalendarSettingsCollapsedSections(const {});
@@ -751,6 +1044,8 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
       _fastingGreatFasts = true;
       _fastingSchedule = const FastingSchedule();
       _descriptionLimit = SettingsKeys.defaultEventDescriptionLimit;
+      _snoozeMinutes = SettingsKeys.defaultAlertSnoozeMinutes;
+      _silenceAfterMinutes = SettingsKeys.defaultAlertSilenceAfterMinutes;
       _collapsedSections = const {};
     });
 

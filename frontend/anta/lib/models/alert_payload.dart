@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:equatable/equatable.dart';
 
 import '../constants/calendar_categories.dart';
+import '../constants/settings_keys.dart';
 import 'event_alert.dart';
 
 /// The JSON keys the payload round-trips through.
@@ -25,6 +26,7 @@ abstract final class AlertPayloadKeys {
   static const String categoryId = 'categoryId';
   static const String removeAfterAlert = 'removeAfterAlert';
   static const String snooze = 'snooze';
+  static const String snoozeMinutes = 'snoozeMin';
 }
 
 /// Everything a ring needs to draw itself, carried by the platform entry.
@@ -78,6 +80,13 @@ class AlertPayload extends Equatable {
   /// Whether this entry is a snooze rather than the planned occurrence.
   final bool snooze;
 
+  /// How many minutes Snooze postpones this alert by.
+  ///
+  /// Carried rather than looked up because the reminder tier's Snooze action
+  /// runs in a **background isolate**: it has no database, no settings service
+  /// and no facade, and re-schedules from this map alone.
+  final int snoozeMinutes;
+
   const AlertPayload({
     required this.database,
     required this.eventId,
@@ -92,7 +101,20 @@ class AlertPayload extends Equatable {
     required this.categoryId,
     this.removeAfterAlert = false,
     this.snooze = false,
+    this.snoozeMinutes = SettingsKeys.defaultAlertSnoozeMinutes,
   });
+
+  /// The event id a **test alarm** carries (§5.7's `Test alarm in 10 s`).
+  ///
+  /// A sentinel rather than a flag of its own: a test ring has no event, no
+  /// alert row and no occurrence, so every consumer that resolves one already
+  /// has to cope with finding nothing. The alarm page reads [isTest] to title
+  /// itself, and the scheduler records the registration as a snooze so the
+  /// diff — which owns only what the plan produced — leaves it alone.
+  static const String testEventId = '__anta_test_alarm__';
+
+  /// Whether this is the settings page's test ring rather than a real alert.
+  bool get isTest => eventId == testEventId;
 
   /// The occurrence day, rebuilt as the date-only UTC day it was stored as.
   DateTime get dayUtc => DateTime.fromMillisecondsSinceEpoch(
@@ -107,6 +129,7 @@ class AlertPayload extends Equatable {
     String? timeLabel,
     bool? snooze,
     bool? removeAfterAlert,
+    int? snoozeMinutes,
   }) {
     return AlertPayload(
       database: database,
@@ -122,6 +145,7 @@ class AlertPayload extends Equatable {
       categoryId: categoryId,
       removeAfterAlert: removeAfterAlert ?? this.removeAfterAlert,
       snooze: snooze ?? this.snooze,
+      snoozeMinutes: snoozeMinutes ?? this.snoozeMinutes,
     );
   }
 
@@ -139,6 +163,7 @@ class AlertPayload extends Equatable {
     AlertPayloadKeys.categoryId: categoryId,
     AlertPayloadKeys.removeAfterAlert: removeAfterAlert,
     AlertPayloadKeys.snooze: snooze,
+    AlertPayloadKeys.snoozeMinutes: snoozeMinutes,
   };
 
   /// Decodes one payload, or `null` when the map carries no usable identity.
@@ -183,6 +208,12 @@ class AlertPayload extends Equatable {
       removeAfterAlert:
           map[AlertPayloadKeys.removeAfterAlert] == true,
       snooze: map[AlertPayloadKeys.snooze] == true,
+      snoozeMinutes: map[AlertPayloadKeys.snoozeMinutes] is int
+          ? (map[AlertPayloadKeys.snoozeMinutes] as int).clamp(
+              SettingsKeys.minAlertSnoozeMinutes,
+              SettingsKeys.maxAlertSnoozeMinutes,
+            )
+          : SettingsKeys.defaultAlertSnoozeMinutes,
     );
   }
 
@@ -218,5 +249,6 @@ class AlertPayload extends Equatable {
     categoryId,
     removeAfterAlert,
     snooze,
+    snoozeMinutes,
   ];
 }

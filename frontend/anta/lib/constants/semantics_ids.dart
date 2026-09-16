@@ -54,4 +54,15 @@ abstract final class SemanticsIds {
 
   /// The colour-label swatch strip, in whichever sheet raised it.
   static const String labelPicker = 'label-picker';
+
+  /// The alarm page's four actions. Tagged because a device pass has to stop a
+  /// ring in whatever language the phone is in, and because the page has no
+  /// app bar and no other landmark to target.
+  static const String alarmStop = 'alarm-stop';
+  static const String alarmSnooze = 'alarm-snooze';
+  static const String alarmOpenEvent = 'alarm-open-event';
+  static const String alarmKeepEvent = 'alarm-keep-event';
+
+  /// The calendar settings row that arms a ring ten seconds from now.
+  static const String alertsTestAlarm = 'alerts-test-alarm';
 }

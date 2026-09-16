@@ -111,3 +111,27 @@ const int kAlertOsIdMask = 0x7fffffff;
 /// a handful of probes cannot happen with a 48-entry horizon, so this is a
 /// termination guard rather than a capacity.
 const int kAlertOsIdMaxProbes = 64;
+
+/// The alarm-stream level a ring is played at, 0..1, **overriding** whatever
+/// the phone's alarm volume was set to for the duration of the ring (the
+/// `alarm` package restores it afterwards). Enforced so a slider left at zero
+/// cannot silence an alarm; short of the ceiling so it is loud, not painful.
+const double kAlertRingVolume = 0.8;
+
+/// How long a ring takes to reach [kAlertRingVolume]. A fade rather than a
+/// jump, because the first second of an alarm is heard at arm's length.
+const Duration kAlertRingFade = Duration(seconds: 3);
+
+/// Keeps "Missed" notice ids out of the registration id space.
+///
+/// A Missed notice reports on a registration and is derived from its id so
+/// reporting the same miss twice replaces the notice instead of stacking two;
+/// the salt is what stops that derivation from landing on a live entry and
+/// cancelling it.
+const int kAlertMissedIdSalt = 0x4d495353;
+
+/// How far ahead the Calendar settings page's `Test alarm` is armed.
+///
+/// Long enough to lock the phone and watch what a real ring does to a locked
+/// screen, short enough that nobody has to wait for it.
+const Duration kAlertTestAlarmDelay = Duration(seconds: 10);

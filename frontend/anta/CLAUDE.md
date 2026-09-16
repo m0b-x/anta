@@ -31,9 +31,15 @@ dart analyze packages/re_editor/lib                     # also, if the fork was 
 flutter gen-l10n                                        # after any lib/l10n/*.arb edit; then check untranslated.txt
 dart run build_runner build --delete-conflicting-outputs # after Drift table/DAO/migration/annotation changes
 flutter run                                             # Android is the primary target
-flutter run -d windows                                  # quick desktop UI check
+flutter run -d windows                                  # quick desktop UI check (needs the VS "C++ ATL" component, below)
 dart run tool/qa/qa.dart <verb>                         # drive the emulator (see the qa-emulator skill)
 ```
+
+`flutter run -d windows` / `flutter build windows` need the Visual Studio
+component **C++ ATL for latest v145 build tools (x86 & x64)**
+(`Microsoft.VisualStudio.Component.VC.ATL`), installed once on this machine:
+`flutter_local_notifications_windows` is an FFI plugin that CMake compiles
+whatever the Dart side does, and its `plugin.cpp` includes `atlbase.h`.
 
 Tests (`test/` — the money-ledger grammar suite, the database suite, and the sync bloc suite):
 

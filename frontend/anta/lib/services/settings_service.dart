@@ -1566,6 +1566,29 @@ class SettingsService {
   /// The stored value that means "a new event gets no alert".
   static const String _alertDefaultNone = 'none';
 
+  /// How long Snooze postpones an alert, clamped on write as well as on read
+  /// so a hand-edited row can never hand the platform a snooze of zero.
+  Future<void> setAlertSnoozeMinutes(int value) async {
+    await _setInt(
+      SettingsKeys.alertSnoozeMinutes,
+      value.clamp(
+        SettingsKeys.minAlertSnoozeMinutes,
+        SettingsKeys.maxAlertSnoozeMinutes,
+      ),
+    );
+  }
+
+  /// How long an unacknowledged alarm keeps ringing.
+  Future<void> setAlertSilenceAfterMinutes(int value) async {
+    await _setInt(
+      SettingsKeys.alertSilenceAfterMinutes,
+      value.clamp(
+        SettingsKeys.minAlertSilenceAfterMinutes,
+        SettingsKeys.maxAlertSilenceAfterMinutes,
+      ),
+    );
+  }
+
   /// Every event-alert option in one statement.
   ///
   /// The editor seeds a new event's first alert from it, and the scheduler

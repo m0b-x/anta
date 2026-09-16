@@ -421,17 +421,47 @@ abstract final class AppNavigator {
     );
   }
 
+  /// The occurrence a **warm** alert tap asked for.
+  ///
+  /// A live `CalendarPage` cannot be handed new constructor arguments, so
+  /// [toCalendarOccurrence] publishes the request here and the page that is
+  /// already on the stack serves it. Set back to null by whoever serves it, so
+  /// a page mounting later does not replay a trip already made.
+  static final ValueNotifier<({DateTime day, String eventId})?>
+  pendingCalendarOccurrence = ValueNotifier(null);
+
   /// Opens the calendar on [day] with [eventId]'s detail sheet already up —
   /// where a tapped reminder lands (**A12**).
   ///
-  /// A **root** push: the tap is delivered by the platform with no
-  /// `BuildContext` of its own. Stamped with the plain calendar destination
-  /// because the day and the event are where this particular trip started, not
-  /// part of the location worth restoring on the next launch.
+  /// A **root** push when the calendar is not open: the tap is delivered by the
+  /// platform with no `BuildContext` of its own. Stamped with the plain
+  /// calendar destination because the day and the event are where this
+  /// particular trip started, not part of the location worth restoring on the
+  /// next launch.
+  ///
+  /// A **warm** tap — one arriving while a calendar route is already on the
+  /// stack — collapses onto that route instead. Pushing a second
+  /// `CalendarPage` would stack two of the app's heaviest page over each
+  /// other, each with its own grid, panel and scroll position, and leave the
+  /// user two back gestures from where they were.
   static Future<void> toCalendarOccurrence({
     required DateTime day,
     required String eventId,
   }) {
+    final navigator = navigatorKey.currentState;
+    if (navigator != null) {
+      final routes = _livePageRoutes(navigator);
+      final index = routes.lastIndexWhere((route) {
+        final destination = route.settings.arguments;
+        return destination is NavDestination &&
+            destination.kind == NavDestinationKind.calendar;
+      });
+      if (index >= 0) {
+        pendingCalendarOccurrence.value = (day: day, eventId: eventId);
+        _collapseOnto(navigator, routes, index);
+        return Future<void>.value();
+      }
+    }
     return rootPush<void>(
       CalendarPage(initialDay: day, initialEventId: eventId),
       destination: const NavDestination(NavDestinationKind.calendar),

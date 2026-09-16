@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io' show Platform;
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:get_it/get_it.dart';
 import '../../database/database.dart';
@@ -17,6 +20,7 @@ import '../../services/move_history_store.dart';
 import '../../services/recent_destinations_service.dart';
 import '../../services/folder_name_index.dart';
 import '../../services/alert_gateway.dart';
+import '../../services/android_alert_gateway.dart';
 import '../../services/auth_service.dart';
 import '../../services/firebase_auth_service.dart';
 import '../../services/pairing_gateway.dart';
@@ -151,14 +155,29 @@ Future<void> _registerServices() async {
   // scheduler that drives it is the opposite — a `DatabaseLifecycle`
   // singleton — and reads this binding through GetIt.
   //
-  // Every platform gets the no-op binding for now, `AlertAvailability`
-  // included: the Android binding arrives in Session 3 and is what that gate
-  // will select. Until then alerts are planned, diffed and recorded exactly as
-  // they will be, and nothing reaches an operating system.
-  getIt.registerSingleton<AlertGateway>(
-    const NoOpAlertGateway(),
-    dispose: (gateway) => gateway.dispose(),
-  );
+  // `AlertAvailability` is what keeps the plugins off every other platform and
+  // out of every test: desktop, web and `flutter test` all get the no-op
+  // binding, which is why no suite stubs an alarm channel. Alerts are still
+  // planned, diffed and recorded there — they simply reach no operating
+  // system.
+  //
+  // Initialization is **not** awaited. `Alarm.init()` and the notification
+  // plugin's own setup talk to the platform, and nothing between here and the
+  // first frame may wait on that; the gateway brings itself up on the first
+  // call that needs it, and the launch reconcile is already post-frame.
+  if (AlertAvailability.isSupported && Platform.isAndroid) {
+    final gateway = AndroidAlertGateway();
+    getIt.registerSingleton<AlertGateway>(
+      gateway,
+      dispose: (binding) => binding.dispose(),
+    );
+    unawaited(gateway.initialize());
+  } else {
+    getIt.registerSingleton<AlertGateway>(
+      const NoOpAlertGateway(),
+      dispose: (gateway) => gateway.dispose(),
+    );
+  }
 }
 
 void _registerBlocs() {

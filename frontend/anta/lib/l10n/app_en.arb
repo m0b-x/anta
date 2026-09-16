@@ -6041,5 +6041,195 @@
       "count": { "type": "int", "example": "3" },
       "names": { "type": "String", "example": "Red · Teal" }
     }
+  },
+  "alarmPageTitle": "Alarm",
+  "@alarmPageTitle": {
+    "description": "Alarm shown as the eyebrow of the full-screen ring page"
+  },
+  "alarmStop": "Stop",
+  "@alarmStop": {
+    "description": "Primary action on the alarm page and on the alarm notification: stop the ring"
+  },
+  "alarmSnoozeMinutes": "{count, plural, =1{Snooze 1 min} other{Snooze {count} min}}",
+  "@alarmSnoozeMinutes": {
+    "description": "Alarm page action: postpone the ring by the configured number of minutes",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "10"
+      }
+    }
+  },
+  "alarmOpenEvent": "Open event",
+  "@alarmOpenEvent": {
+    "description": "Alarm page action: stop ringing and open the event in the calendar"
+  },
+  "alarmKeepEvent": "Keep the event",
+  "@alarmKeepEvent": {
+    "description": "Alarm page action for an event set to be removed after it rings: keep it instead"
+  },
+  "alarmKeptEvent": "The event will be kept",
+  "@alarmKeptEvent": {
+    "description": "Confirmation shown on the alarm page after Keep the event was pressed"
+  },
+  "alarmRemoveAfterCaption": "This event is removed once you stop the alarm",
+  "@alarmRemoveAfterCaption": {
+    "description": "Alarm page caption explaining the remove-after-it-rings flag"
+  },
+  "alarmFromDatabase": "From database {name}",
+  "@alarmFromDatabase": {
+    "description": "Chip on the alarm page when the alarm belongs to a database that is not the active one",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "work"
+      }
+    }
+  },
+  "alarmOpenDatabase": "Open",
+  "@alarmOpenDatabase": {
+    "description": "Action on the alarm page's database chip: switch to that database"
+  },
+  "calendarAlertsSection": "Alerts",
+  "@calendarAlertsSection": {
+    "description": "Calendar settings section holding reminder and alarm options"
+  },
+  "alertsNotifications": "Notifications",
+  "@alertsNotifications": {
+    "description": "Permission row: whether the app may post notifications at all"
+  },
+  "alertsNotificationsDesc": "Needed for reminders and alarms to show",
+  "@alertsNotificationsDesc": {
+    "description": "Description of the notification permission row"
+  },
+  "alertsFullScreenAlarms": "Full-screen alarms",
+  "@alertsFullScreenAlarms": {
+    "description": "Permission row: whether an alarm may take over a locked screen"
+  },
+  "alertsFullScreenAlarmsDesc": "Lets an alarm take over a locked screen",
+  "@alertsFullScreenAlarmsDesc": {
+    "description": "Description of the full-screen alarm permission row"
+  },
+  "alertsBattery": "Unrestricted battery",
+  "@alertsBattery": {
+    "description": "Permission row: whether the system exempts the app from battery optimisation"
+  },
+  "alertsBatteryDesc": "Battery limits can delay or drop an alarm",
+  "@alertsBatteryDesc": {
+    "description": "Description of the battery optimisation row"
+  },
+  "alertsPermissionOn": "On",
+  "@alertsPermissionOn": {
+    "description": "Status chip on a permission row when the permission is held"
+  },
+  "alertsPermissionOff": "Off",
+  "@alertsPermissionOff": {
+    "description": "Status chip on a permission row when the permission is missing"
+  },
+  "alertsTurnOn": "Turn on",
+  "@alertsTurnOn": {
+    "description": "Action on a permission row that raises the system prompt"
+  },
+  "alertsOpenSettings": "Open settings",
+  "@alertsOpenSettings": {
+    "description": "Action on a permission row that opens the matching system settings page"
+  },
+  "alertsSnoozeLength": "Snooze length",
+  "@alertsSnoozeLength": {
+    "description": "Slider: how long Snooze postpones an alert"
+  },
+  "alertsSnoozeLengthDesc": "{count, plural, =1{Snooze postpones an alert by 1 minute} other{Snooze postpones an alert by {count} minutes}}",
+  "@alertsSnoozeLengthDesc": {
+    "description": "Caption under the snooze length slider",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "10"
+      }
+    }
+  },
+  "alertsSilenceAfter": "Silence after",
+  "@alertsSilenceAfter": {
+    "description": "Slider: how long an unanswered alarm keeps ringing"
+  },
+  "alertsSilenceAfterDesc": "{count, plural, =1{An unanswered alarm stops after 1 minute} other{An unanswered alarm stops after {count} minutes}}",
+  "@alertsSilenceAfterDesc": {
+    "description": "Caption under the silence-after slider",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "10"
+      }
+    }
+  },
+  "alertsForceStopNote": "Force stopping ANTA disarms every alarm until you open it again.",
+  "@alertsForceStopNote": {
+    "description": "Note under the alert settings explaining that a force stop cancels pending alarms"
+  },
+  "alertsTestAlarm": "Test alarm in 10 s",
+  "@alertsTestAlarm": {
+    "description": "Button that schedules a ring ten seconds from now, and the title the alarm page shows for it"
+  },
+  "alertsTestAlarmScheduled": "Test alarm set for 10 seconds from now",
+  "@alertsTestAlarmScheduled": {
+    "description": "Confirmation after the test alarm was scheduled"
+  },
+  "alertsTestAlarmFailed": "The alarm could not be scheduled",
+  "@alertsTestAlarmFailed": {
+    "description": "Error shown when the platform refused the test alarm"
+  },
+  "alertsReminderChannel": "Reminders",
+  "@alertsReminderChannel": {
+    "description": "Android notification channel name for the reminder tier"
+  },
+  "alertsReminderChannelDesc": "Event reminders you can snooze or dismiss",
+  "@alertsReminderChannelDesc": {
+    "description": "Android notification channel description for the reminder tier"
+  },
+  "alertsAlarmChannel": "Alarms",
+  "@alertsAlarmChannel": {
+    "description": "Android notification channel name for the alarm tier"
+  },
+  "alertsAlarmChannelDesc": "Event alarms that ring until stopped",
+  "@alertsAlarmChannelDesc": {
+    "description": "Android notification channel description for the alarm tier"
+  },
+  "alertsSnoozeAction": "Snooze",
+  "@alertsSnoozeAction": {
+    "description": "Action button on a reminder notification"
+  },
+  "alertsDoneAction": "Done",
+  "@alertsDoneAction": {
+    "description": "Action button on a reminder notification that dismisses it"
+  },
+  "alertsSnoozedBody": "{count, plural, =1{Snoozed 1 minute} other{Snoozed {count} minutes}}",
+  "@alertsSnoozedBody": {
+    "description": "Body of a reminder that was snoozed from the notification shade",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "10"
+      }
+    }
+  },
+  "alertsMissedTitle": "Missed: {title}",
+  "@alertsMissedTitle": {
+    "description": "Title of the quiet notification reporting an alarm that never rang",
+    "placeholders": {
+      "title": {
+        "type": "String",
+        "example": "Leg day"
+      }
+    }
+  },
+  "alertsMissedBody": "It was due at {time}",
+  "@alertsMissedBody": {
+    "description": "Body of the quiet notification reporting an alarm that never rang",
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "07:00"
+      }
+    }
   }
 }

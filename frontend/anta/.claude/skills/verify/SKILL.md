@@ -41,6 +41,8 @@ flutter run
 
 Launches on the connected device/emulator (Android is the primary target; Windows desktop works for quick UI checks: `flutter run -d windows`). Hot reload with `r`, hot restart with `R` in the run console.
 
+**The Windows build needs the Visual Studio component "C++ ATL for latest v145 build tools (x86 & x64)"** (`Microsoft.VisualStudio.Component.VC.ATL`), installed once on this machine. `flutter_local_notifications_windows` is an FFI plugin CMake compiles regardless of any Dart-side platform guard, and its `plugin.cpp` includes `atlbase.h`; without the component the build fails with `error C1083: Cannot open include file: 'atlbase.h'`.
+
 **For a device pass, load the `qa-emulator` skill instead of driving adb by hand.** It covers booting the emulator, running against an isolated QA database (`dart run tool/qa/qa.dart run --fresh --seed …`), screenshots, tapping and typing by label, the Dart MCP / Flutter Driver layer, and the trap list.
 
 Release / device helpers:

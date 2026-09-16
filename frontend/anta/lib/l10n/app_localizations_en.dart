@@ -4816,4 +4816,159 @@ class AppLocalizationsEn extends AppLocalizations {
     );
     return '$_temp0';
   }
+
+  @override
+  String get alarmPageTitle => 'Alarm';
+
+  @override
+  String get alarmStop => 'Stop';
+
+  @override
+  String alarmSnoozeMinutes(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Snooze $count min',
+      one: 'Snooze 1 min',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get alarmOpenEvent => 'Open event';
+
+  @override
+  String get alarmKeepEvent => 'Keep the event';
+
+  @override
+  String get alarmKeptEvent => 'The event will be kept';
+
+  @override
+  String get alarmRemoveAfterCaption =>
+      'This event is removed once you stop the alarm';
+
+  @override
+  String alarmFromDatabase(String name) {
+    return 'From database $name';
+  }
+
+  @override
+  String get alarmOpenDatabase => 'Open';
+
+  @override
+  String get calendarAlertsSection => 'Alerts';
+
+  @override
+  String get alertsNotifications => 'Notifications';
+
+  @override
+  String get alertsNotificationsDesc =>
+      'Needed for reminders and alarms to show';
+
+  @override
+  String get alertsFullScreenAlarms => 'Full-screen alarms';
+
+  @override
+  String get alertsFullScreenAlarmsDesc =>
+      'Lets an alarm take over a locked screen';
+
+  @override
+  String get alertsBattery => 'Unrestricted battery';
+
+  @override
+  String get alertsBatteryDesc => 'Battery limits can delay or drop an alarm';
+
+  @override
+  String get alertsPermissionOn => 'On';
+
+  @override
+  String get alertsPermissionOff => 'Off';
+
+  @override
+  String get alertsTurnOn => 'Turn on';
+
+  @override
+  String get alertsOpenSettings => 'Open settings';
+
+  @override
+  String get alertsSnoozeLength => 'Snooze length';
+
+  @override
+  String alertsSnoozeLengthDesc(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Snooze postpones an alert by $count minutes',
+      one: 'Snooze postpones an alert by 1 minute',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get alertsSilenceAfter => 'Silence after';
+
+  @override
+  String alertsSilenceAfterDesc(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'An unanswered alarm stops after $count minutes',
+      one: 'An unanswered alarm stops after 1 minute',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get alertsForceStopNote =>
+      'Force stopping ANTA disarms every alarm until you open it again.';
+
+  @override
+  String get alertsTestAlarm => 'Test alarm in 10 s';
+
+  @override
+  String get alertsTestAlarmScheduled =>
+      'Test alarm set for 10 seconds from now';
+
+  @override
+  String get alertsTestAlarmFailed => 'The alarm could not be scheduled';
+
+  @override
+  String get alertsReminderChannel => 'Reminders';
+
+  @override
+  String get alertsReminderChannelDesc =>
+      'Event reminders you can snooze or dismiss';
+
+  @override
+  String get alertsAlarmChannel => 'Alarms';
+
+  @override
+  String get alertsAlarmChannelDesc => 'Event alarms that ring until stopped';
+
+  @override
+  String get alertsSnoozeAction => 'Snooze';
+
+  @override
+  String get alertsDoneAction => 'Done';
+
+  @override
+  String alertsSnoozedBody(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Snoozed $count minutes',
+      one: 'Snoozed 1 minute',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String alertsMissedTitle(String title) {
+    return 'Missed: $title';
+  }
+
+  @override
+  String alertsMissedBody(String time) {
+    return 'It was due at $time';
+  }
 }

@@ -50,6 +50,12 @@ class FakeAlertGateway implements AlertGateway {
   /// When false, every schedule is refused — the revoked-permission case.
   bool accepts = true;
 
+  /// What the "platform" is ringing right now.
+  final Set<int> ringingNow = {};
+
+  @override
+  Set<int> get ringingIds => ringingNow;
+
   void resetCalls() {
     scheduled.clear();
     cancelled.clear();
@@ -560,6 +566,30 @@ void main() {
         expect(gateway.missed, isEmpty);
       });
     }
+
+    test('a ring the app has been told about is left ringing', () async {
+      await seed(eventAlerts: [alertOf(mode: AlertMode.ring)]);
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final armed = (await registrations()).single;
+      // The ring handler's first act: the row is now `fired`, so it is neither
+      // pending nor in flight — but the `alarm` package still holds the entry
+      // until Stop, and the platform reports it as ringing.
+      await scheduler.markFired(armed.osId);
+      gateway.ringingNow.add(armed.osId);
+      gateway.resetCalls();
+
+      // The resume reconcile the alarm page's own appearance provokes, two
+      // seconds into the ring.
+      now = DateTime(2026, 9, 20, 0, fireAt).add(const Duration(seconds: 2));
+      await scheduler.reconcileAll(AlertReconcileReason.resumed);
+
+      expect(gateway.cancelled, isEmpty);
+      expect(gateway.stopped, isEmpty);
+      expect(gateway.platform.containsKey(armed.osId), isTrue);
+      expect((await rowOf(armed.osId)).state,
+          AlertRegistrationState.fired.name);
+    });
 
     test('an alarm whose alert was deleted is settled quietly', () async {
       await seed(eventAlerts: [alertOf(mode: AlertMode.ring)]);

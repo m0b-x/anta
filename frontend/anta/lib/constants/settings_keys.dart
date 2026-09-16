@@ -532,6 +532,7 @@ class SettingsKeys {
   static const int defaultAlertSnoozeMinutes = 10;
   static const int minAlertSnoozeMinutes = 5;
   static const int maxAlertSnoozeMinutes = 30;
+  static const int alertSnoozeMinutesStep = 5;
 
   /// How long an unacknowledged alarm keeps ringing before it gives up, in
   /// minutes.

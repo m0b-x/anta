@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:get_it/get_it.dart';
 
 import '../constants/alert_constants.dart';
+import '../constants/calendar_categories.dart';
 import '../constants/event_alerts.dart';
 import '../database/daos/alert_registration_dao.dart';
 import '../database/database.dart';
@@ -12,6 +13,7 @@ import '../database/database_lifecycle.dart';
 import '../models/alert_payload.dart';
 import '../models/calendar_event.dart';
 import '../models/event_alert.dart';
+import '../models/recurrence_rule.dart';
 import '../utils/alert_os_id.dart';
 import '../utils/alert_planner.dart';
 import 'alert_gateway.dart';
@@ -200,6 +202,21 @@ class AlertScheduler {
     }
   }
 
+  /// Marks a ringing registration `fired`, swallowing every failure.
+  ///
+  /// The static twin of [markFired], for the ring wiring in `main.dart`: it
+  /// runs before a navigator exists and before anything is on screen, so a
+  /// missing gateway or an unopened database must be silent rather than
+  /// crash the ring it was called for.
+  static Future<void> markFiredById(int osId) async {
+    if (_instance == null && !_hasGateway) return;
+    try {
+      await (await getInstance()).markFired(osId);
+    } catch (e) {
+      debugPrint('[AlertScheduler] markFired($osId) failed: $e');
+    }
+  }
+
   /// Re-derives the whole horizon and makes the platform match it.
   Future<void> reconcileAll(AlertReconcileReason reason) =>
       _serialize(() => _reconcile(reason));
@@ -240,6 +257,139 @@ class AlertScheduler {
     await _gateway.cancel(osId);
     await _dao.markState(osId, AlertRegistrationState.cancelled.name);
   });
+
+  /// Records that a registration is ringing **right now**.
+  ///
+  /// Called the moment `Alarm.ringing` emits, before the alarm page is pushed
+  /// and before anything else touches the row, and it goes through the same
+  /// serialized chain as every other write so it cannot interleave with a
+  /// reconcile. That ordering is the whole point: [_settlePastFires] leaves a
+  /// row under [kLateFireGrace] late exactly as it found it — *in flight* —
+  /// and the ring handler is the only thing allowed to settle one. Without
+  /// this the row stays `pending` until it ages past the grace window and is
+  /// then reported as Missed, for a ring the user actually heard.
+  Future<void> markFired(int osId) => _serialize(() async {
+    await _dao.markState(osId, AlertRegistrationState.fired.name);
+  });
+
+  /// Cancels a standing snooze of the same alert on the same occurrence day.
+  ///
+  /// **Deliberately not part of [stop].** `stop` is about one platform entry;
+  /// this is about the user's intent, and the two differ in exactly one case:
+  /// an alert snoozed at 07:00 and then stopped at its 07:10 ring would leave
+  /// the 07:20 snooze armed to ring a third time for a session already
+  /// acknowledged. The alarm page's Stop calls both; a reconcile calls
+  /// neither, because a snooze is never the plan's to cancel.
+  Future<void> cancelSnoozeForAlert(String alertId, DateTime dayUtc) {
+    return _serialize(() async {
+      final dayMs = DateTime.utc(
+        dayUtc.year,
+        dayUtc.month,
+        dayUtc.day,
+      ).millisecondsSinceEpoch;
+      for (final row in await _dao.pending()) {
+        if (row.alertId != alertId) continue;
+        if (row.day != dayMs) continue;
+        if (AlertKind.fromName(row.kind) != AlertKind.snooze) continue;
+        await _gateway.cancel(row.osId);
+        await _dao.markState(row.osId, AlertRegistrationState.cancelled.name);
+      }
+    });
+  }
+
+  /// Arms the settings page's `Test alarm in 10 s` (§5.7).
+  ///
+  /// Registered like anything else so it can be stopped, swept and — after a
+  /// process kill — found again, but recorded as `kind = snooze`, because the
+  /// diff owns only what the planner produced and a `scheduled` row it cannot
+  /// re-derive would be cancelled by the very next reconcile. The payload
+  /// carries [AlertPayload.testEventId], which is what the alarm page titles
+  /// itself from and what keeps the Missed path from resolving an event that
+  /// was never there.
+  ///
+  /// Returns the os id it was armed under, or null when the platform refused.
+  Future<int?> scheduleTestAlarm({
+    required String title,
+    required Duration delay,
+  }) {
+    return _serialize(() async {
+      final AlertSettings settings;
+      try {
+        settings = await (await SettingsService.getInstance())
+            .getAlertSettings();
+      } catch (e) {
+        debugPrint('[AlertScheduler] test alarm setup failed: $e');
+        return null;
+      }
+      final now = _clock();
+      final fireAt = now.add(delay);
+      final day = DateTime.utc(fireAt.year, fireAt.month, fireAt.day);
+      final event = _testEvent(day, title: title);
+      // A fresh alert id per arming, so two test alarms on the same day do not
+      // land on the same os id. They would otherwise: the seed is a hash of
+      // (database, alert, day, kind), which is exactly the determinism a real
+      // alert wants and exactly what an ad-hoc ring must not have — the second
+      // one is then swallowed by every dedupe between the platform and the
+      // navigation queue, and rings with no page.
+      final alert = _testAlert(
+        '${AlertPayload.testEventId}:${fireAt.millisecondsSinceEpoch}',
+      );
+      final fire = PlannedFire(
+        event: event,
+        alert: alert,
+        day: day,
+        fireAt: fireAt,
+        kind: AlertKind.snooze,
+      );
+      final osId = resolveAlertOsId(
+        seed: alertOsIdSeed(
+          database: _databaseName,
+          alertId: alert.id,
+          dayUtc: day,
+          kind: AlertKind.snooze,
+        ),
+        isTaken: (_) => false,
+      );
+      final payload = _payloadFor(fire, osId, settings.snoozeMinutes);
+      if (!await _gateway.schedule(fire, payload)) return null;
+      await _dao.put(
+        AlertRegistrationsCompanion(
+          osId: Value(osId),
+          alertId: Value(alert.id),
+          eventId: Value(event.id),
+          day: Value(day.millisecondsSinceEpoch),
+          fireAt: Value(fireAt.millisecondsSinceEpoch),
+          kind: Value(AlertKind.snooze.name),
+          state: Value(AlertRegistrationState.pending.name),
+          backend: Value(_gateway.backendName),
+          createdAt: Value(now),
+          updatedAt: Value(now),
+        ),
+      );
+      return osId;
+    });
+  }
+
+  /// The event a test ring stands in for.
+  ///
+  /// [title] is empty everywhere but the arming call, because every surface
+  /// that draws a test alarm titles it from `AlertPayload.isTest` and its own
+  /// localizations rather than from the payload's text.
+  static CalendarEvent _testEvent(DateTime dayUtc, {String title = ''}) {
+    return CalendarEvent(
+      id: AlertPayload.testEventId,
+      title: title,
+      categoryId: CalendarCategories.fallback.id,
+      startDate: dayUtc,
+      rule: const OneTimeRecurrence(),
+    );
+  }
+
+  static EventAlert _testAlert(String alertId) => EventAlert(
+    id: alertId,
+    eventId: AlertPayload.testEventId,
+    mode: AlertMode.ring,
+  );
 
   // ── The pass ─────────────────────────────────────────────────────────
 
@@ -298,6 +448,7 @@ class AlertScheduler {
       await _dao.pending(),
       now,
       eventsById,
+      settings.snoozeMinutes,
     );
     final live = settled.live;
 
@@ -352,7 +503,7 @@ class AlertScheduler {
           existing.backend == _gateway.backendName) {
         continue;
       }
-      final payload = _payloadFor(fire, osId);
+      final payload = _payloadFor(fire, osId, settings.snoozeMinutes);
       if (!await _gateway.schedule(fire, payload)) continue;
       await _dao.put(
         AlertRegistrationsCompanion(
@@ -371,9 +522,15 @@ class AlertScheduler {
       scheduled++;
     }
 
-    // Seeded with the in-flight ids: a ring in progress is not the plan's to
-    // cancel from either direction.
-    final handled = {for (final row in settled.inFlight) row.osId};
+    // Seeded with the in-flight ids and with whatever the gateway says is
+    // ringing right now: a ring in progress is not the plan's to cancel from
+    // either direction. The two sets differ once the ring handler has marked
+    // a row `fired` — it is then neither pending nor in flight, but the
+    // `alarm` package still holds it until Stop.
+    final handled = {
+      for (final row in settled.inFlight) row.osId,
+      ..._gateway.ringingIds,
+    };
     for (final row in live) {
       // A snooze belongs to the user, not to the plan: an unrelated reconcile
       // of the same event must leave it exactly where it is.
@@ -391,6 +548,13 @@ class AlertScheduler {
     for (final entry in osEntries) {
       // A9: an entry belonging to another database is not ours to cancel.
       if (entry.payload.database != _databaseName) continue;
+      // A snooze belongs to the user, not to the plan — the rule the registry
+      // loop above already applies to `kind = snooze` rows, restated here
+      // because a snooze can exist on the platform with no row at all: the
+      // reminder tier's Snooze action runs in a background isolate that has no
+      // database to write one. Cancelling it would silently disarm the ten
+      // minutes the user just asked for.
+      if (entry.payload.snooze) continue;
       if (desired.containsKey(entry.osId)) continue;
       if (!handled.add(entry.osId)) continue;
       await _gateway.cancel(entry.osId);
@@ -429,15 +593,19 @@ class AlertScheduler {
   ///   into a pile of notifications; an alert that no longer exists has nothing
   ///   to say either.
   ///
-  /// This is the *best-effort* Missed source. The authoritative one for the
-  /// alarm tier is the plugin itself: Session 3 maps
-  /// `AlarmDropped(cause: staleAtBoot)` on `Alarm.events` — raised against the
-  /// same [kLateFireGrace] passed as `androidStaleAfter` — to the same call.
+  /// This is the **only** Missed source, for both tiers. The `alarm` package
+  /// does drop a boot-recovered alarm older than `androidStaleAfter` (passed
+  /// as the same [kLateFireGrace]), but its `AlarmDropped` event carries an id
+  /// and nothing else, and the alarm is already gone from the plugin's storage
+  /// when the event is delivered — so there is no payload to post from. The
+  /// row here is, by construction, past the grace window at the very launch
+  /// that delivers the drop, and this pass reports it.
   Future<({List<AlertRegistrationRow> live, List<AlertRegistrationRow> inFlight})>
   _settlePastFires(
     List<AlertRegistrationRow> rows,
     DateTime now,
     Map<String, CalendarEvent> eventsById,
+    int snoozeMinutes,
   ) async {
     final live = <AlertRegistrationRow>[];
     final inFlight = <AlertRegistrationRow>[];
@@ -459,7 +627,7 @@ class AlertScheduler {
       final alert = _alertOf(row.eventId, row.alertId);
       if (alert == null || alert.mode != AlertMode.ring) continue;
       await _gateway.showMissed(
-        _payloadForRow(row, event, fireAt: fireAt),
+        _payloadForRow(row, event, fireAt: fireAt, snoozeMinutes: snoozeMinutes),
       );
     }
     return (live: live, inFlight: inFlight);
@@ -546,20 +714,28 @@ class AlertScheduler {
       return;
     }
 
+    final day = DateTime.fromMillisecondsSinceEpoch(row.day, isUtc: true);
     CalendarEvent? event;
     for (final candidate in eventService.events) {
       if (candidate.id != row.eventId) continue;
       event = candidate;
       break;
     }
-    final alert = _alertOf(row.eventId, row.alertId);
+    var alert = _alertOf(row.eventId, row.alertId);
+    // A test ring has no event row and no alert row — that is what the
+    // sentinel means — so it is rebuilt from the registration instead. Without
+    // this, Snooze is the one button on the alarm page that silently does
+    // nothing for the only alarm the settings page can arm.
+    if (event == null && row.eventId == AlertPayload.testEventId) {
+      event = _testEvent(day);
+      alert = _testAlert(row.alertId);
+    }
 
     await _gateway.stopRinging(osId);
     await _dao.markState(osId, AlertRegistrationState.fired.name);
     if (event == null || alert == null) return;
 
     final now = _clock();
-    final day = DateTime.fromMillisecondsSinceEpoch(row.day, isUtc: true);
     final fire = PlannedFire(
       event: event,
       alert: alert,
@@ -587,7 +763,7 @@ class AlertScheduler {
       ),
       isTaken: occupied.contains,
     );
-    final payload = _payloadFor(fire, snoozeOsId);
+    final payload = _payloadFor(fire, snoozeOsId, settings.snoozeMinutes);
     if (!await _gateway.schedule(fire, payload)) return;
     await _dao.put(
       AlertRegistrationsCompanion(
@@ -607,7 +783,7 @@ class AlertScheduler {
 
   // ── Payloads ─────────────────────────────────────────────────────────
 
-  AlertPayload _payloadFor(PlannedFire fire, int osId) {
+  AlertPayload _payloadFor(PlannedFire fire, int osId, int snoozeMinutes) {
     return AlertPayload(
       database: _databaseName,
       eventId: fire.event.id,
@@ -622,6 +798,7 @@ class AlertScheduler {
       categoryId: fire.event.categoryId,
       removeAfterAlert: fire.event.removeAfterAlert,
       snooze: fire.kind == AlertKind.snooze,
+      snoozeMinutes: snoozeMinutes,
     );
   }
 
@@ -629,6 +806,7 @@ class AlertScheduler {
     AlertRegistrationRow row,
     CalendarEvent event, {
     required DateTime fireAt,
+    required int snoozeMinutes,
   }) {
     final alert = _alertOf(row.eventId, row.alertId);
     return AlertPayload(
@@ -645,6 +823,7 @@ class AlertScheduler {
       categoryId: event.categoryId,
       removeAfterAlert: event.removeAfterAlert,
       snooze: AlertKind.fromName(row.kind) == AlertKind.snooze,
+      snoozeMinutes: snoozeMinutes,
     );
   }
 

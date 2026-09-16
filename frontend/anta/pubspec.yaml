@@ -80,6 +80,11 @@ dependencies:
   firebase_auth: ^6.5.7
   cloud_firestore: ^6.8.0
   google_sign_in: ^7.2.0
+  # Event alerts (Android/iOS only — gated by AlertAvailability)
+  alarm: ^5.13.0
+  flutter_local_notifications: ^22.3.1
+  timezone: ^0.11.1
+  flutter_timezone: ^5.1.0
 
 dev_dependencies:
   flutter_test:
@@ -136,6 +141,11 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  # The default alarm sound. The `alarm` package plays Flutter assets, not
+  # res/raw, so it has to be declared here.
+  assets:
+    - assets/alerts/default_alarm.wav
 
   # To add assets to your application, add an assets section, like this:
   # assets:

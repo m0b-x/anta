@@ -4853,4 +4853,160 @@ class AppLocalizationsDe extends AppLocalizations {
     );
     return '$_temp0';
   }
+
+  @override
+  String get alarmPageTitle => 'Alarm';
+
+  @override
+  String get alarmStop => 'Stopp';
+
+  @override
+  String alarmSnoozeMinutes(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Min. schlummern',
+      one: '1 Min. schlummern',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get alarmOpenEvent => 'Termin öffnen';
+
+  @override
+  String get alarmKeepEvent => 'Termin behalten';
+
+  @override
+  String get alarmKeptEvent => 'Der Termin bleibt erhalten';
+
+  @override
+  String get alarmRemoveAfterCaption =>
+      'Dieser Termin wird entfernt, sobald du den Alarm stoppst';
+
+  @override
+  String alarmFromDatabase(String name) {
+    return 'Aus Datenbank $name';
+  }
+
+  @override
+  String get alarmOpenDatabase => 'Öffnen';
+
+  @override
+  String get calendarAlertsSection => 'Erinnerungen';
+
+  @override
+  String get alertsNotifications => 'Benachrichtigungen';
+
+  @override
+  String get alertsNotificationsDesc =>
+      'Nötig, damit Erinnerungen und Alarme erscheinen';
+
+  @override
+  String get alertsFullScreenAlarms => 'Vollbild-Alarme';
+
+  @override
+  String get alertsFullScreenAlarmsDesc =>
+      'Lässt einen Alarm den gesperrten Bildschirm übernehmen';
+
+  @override
+  String get alertsBattery => 'Uneingeschränkter Akku';
+
+  @override
+  String get alertsBatteryDesc =>
+      'Akku-Beschränkungen können einen Alarm verzögern oder verwerfen';
+
+  @override
+  String get alertsPermissionOn => 'An';
+
+  @override
+  String get alertsPermissionOff => 'Aus';
+
+  @override
+  String get alertsTurnOn => 'Aktivieren';
+
+  @override
+  String get alertsOpenSettings => 'Einstellungen öffnen';
+
+  @override
+  String get alertsSnoozeLength => 'Schlummerdauer';
+
+  @override
+  String alertsSnoozeLengthDesc(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Schlummern verschiebt eine Erinnerung um $count Minuten',
+      one: 'Schlummern verschiebt eine Erinnerung um 1 Minute',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get alertsSilenceAfter => 'Stummschalten nach';
+
+  @override
+  String alertsSilenceAfterDesc(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Ein unbeantworteter Alarm endet nach $count Minuten',
+      one: 'Ein unbeantworteter Alarm endet nach 1 Minute',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get alertsForceStopNote =>
+      'Ein erzwungenes Beenden von ANTA deaktiviert alle Alarme, bis du die App wieder öffnest.';
+
+  @override
+  String get alertsTestAlarm => 'Testalarm in 10 s';
+
+  @override
+  String get alertsTestAlarmScheduled => 'Testalarm in 10 Sekunden gesetzt';
+
+  @override
+  String get alertsTestAlarmFailed => 'Der Alarm konnte nicht geplant werden';
+
+  @override
+  String get alertsReminderChannel => 'Erinnerungen';
+
+  @override
+  String get alertsReminderChannelDesc =>
+      'Termin-Erinnerungen zum Schlummern oder Schließen';
+
+  @override
+  String get alertsAlarmChannel => 'Alarme';
+
+  @override
+  String get alertsAlarmChannelDesc =>
+      'Termin-Alarme, die bis zum Stoppen klingeln';
+
+  @override
+  String get alertsSnoozeAction => 'Schlummern';
+
+  @override
+  String get alertsDoneAction => 'Erledigt';
+
+  @override
+  String alertsSnoozedBody(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Um $count Minuten verschoben',
+      one: 'Um 1 Minute verschoben',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String alertsMissedTitle(String title) {
+    return 'Verpasst: $title';
+  }
+
+  @override
+  String alertsMissedBody(String time) {
+    return 'Fällig war $time';
+  }
 }

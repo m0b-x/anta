@@ -68,6 +68,30 @@ void main() {
     expect(queue.drain().single.osId, 1);
   });
 
+  test('the dedupe memory expires, so a later ring of the same id lands', () {
+    // The os id of a snooze is a hash of (database, alert, day, kind), so
+    // snoozing the same alert twice on the same day re-arms it under exactly
+    // the id the first ring already used. Without an expiry the second ring
+    // is dropped as an echo — hours later, with the phone making noise and no
+    // page to stop it.
+    var now = DateTime(2026, 9, 20, 7);
+    queue.clock = () => now;
+
+    queue.enqueue(OpenAlarmIntent(payload: payloadOf(1)));
+    expect(queue.drain().single.osId, 1);
+
+    // Still inside the window: this is the notification plugin's cold-start
+    // double delivery, which arrives milliseconds apart.
+    now = now.add(const Duration(milliseconds: 8));
+    queue.enqueue(OpenAlarmIntent(payload: payloadOf(1)));
+    expect(queue.isEmpty, isTrue);
+
+    // Past it: a new ring, whatever id it carries.
+    now = now.add(PendingNavigationQueue.doubleDeliveryWindow);
+    queue.enqueue(OpenAlarmIntent(payload: payloadOf(1)));
+    expect(queue.drain().single.osId, 1);
+  });
+
   test('notifies only when something was actually added', () {
     var notifications = 0;
     queue.addListener(() => notifications++);

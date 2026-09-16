@@ -425,6 +425,34 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
         _applyInitialTarget(context.read<CalendarBloc>().state);
       });
     }
+    // A warm alert tap collapses onto this page instead of pushing a second
+    // one, so the request arrives through the notifier rather than through
+    // the constructor. Unlike `initialDay` it can arrive any number of times.
+    AppNavigator.pendingCalendarOccurrence.addListener(
+      _serveOccurrenceRequest,
+    );
+    if (AppNavigator.pendingCalendarOccurrence.value != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _serveOccurrenceRequest();
+      });
+    }
+  }
+
+  /// Serves — and clears — a request published by
+  /// `AppNavigator.toCalendarOccurrence` while this page was already on the
+  /// stack.
+  void _serveOccurrenceRequest() {
+    if (!mounted) return;
+    final request = AppNavigator.pendingCalendarOccurrence.value;
+    if (request == null) return;
+    // Cleared before it is acted on: `_openOccurrence` opens a sheet, and a
+    // request left standing would be replayed by the next page to mount.
+    AppNavigator.pendingCalendarOccurrence.value = null;
+    _openOccurrence(
+      context.read<CalendarBloc>().state,
+      request.day,
+      request.eventId,
+    );
   }
 
   /// Whether the `initialDay` / `initialEventId` request has been served.
@@ -440,8 +468,22 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     if (_initialTargetDone) return;
     if (state is! CalendarPageLoaded) return;
     _initialTargetDone = true;
+    _openOccurrence(state, widget.initialDay, widget.initialEventId);
+  }
 
-    final requested = widget.initialDay;
+  /// Selects [requested] and opens [eventId]'s detail sheet on it.
+  ///
+  /// Shared by the cold path (`initialDay` / `initialEventId`, served once)
+  /// and the warm one (a request published while this page was already up,
+  /// which can arrive again and again), so a tap lands in exactly the same
+  /// place either way.
+  void _openOccurrence(
+    CalendarPageState state,
+    DateTime? requested,
+    String? eventId,
+  ) {
+    if (state is! CalendarPageLoaded) return;
+
     final day = requested == null
         ? state.selectedDay
         : DateTime.utc(requested.year, requested.month, requested.day);
@@ -455,7 +497,6 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
       );
     }
 
-    final eventId = widget.initialEventId;
     if (eventId == null) return;
     CalendarEvent? target;
     for (final event in state.allEvents) {
@@ -502,6 +543,9 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     AppNavigator.routeObserver.unsubscribe(this);
     _fabExtended.dispose();
     _fabTrace.dispose();
+    AppNavigator.pendingCalendarOccurrence.removeListener(
+      _serveOccurrenceRequest,
+    );
     _keyboardInset.removeListener(_handleKeyboardInset);
     _keyboardInset.dispose();
     _gridCollapsed.dispose();

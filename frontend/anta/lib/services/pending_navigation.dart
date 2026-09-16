@@ -60,8 +60,29 @@ class PendingNavigationQueue extends ChangeNotifier {
   /// Ids handed out by the previous drain, kept so the second half of a
   /// double delivery is still recognised when the first half has already been
   /// drained. Only the last batch is remembered — a genuinely new ring of the
-  /// same alert (a snooze carries its own id) must not be swallowed forever.
+  /// same alert must not be swallowed forever.
   Set<int> _lastDrained = const {};
+
+  /// When [_lastDrained] was filled. Paired with [doubleDeliveryWindow]
+  /// because "the last batch" alone is not a short enough memory: the os id of
+  /// a snooze is a hash of (database, alert, day, kind), so snoozing the same
+  /// alert twice on the same day re-arms it under the **same** id — and with
+  /// no expiry the second ring is dropped as a duplicate of the first, hours
+  /// later, with the phone making noise and no page to stop it.
+  DateTime? _lastDrainedAt;
+
+  /// How long a drained id keeps swallowing a repeat.
+  ///
+  /// The double delivery this exists for is the notification plugin's
+  /// cold-start tap, measured at 8 ms apart (§10.1); a second of slack is two
+  /// orders of magnitude of headroom, and anything arriving later is a new
+  /// ring rather than an echo of an old one.
+  static const Duration doubleDeliveryWindow = Duration(seconds: 5);
+
+  /// The clock the window is measured against. A seam, not a setting: a queue
+  /// that reads the wall clock cannot be tested for either half of its rule.
+  @visibleForTesting
+  DateTime Function() clock = DateTime.now;
 
   bool get isEmpty => _queued.isEmpty;
 
@@ -72,10 +93,19 @@ class PendingNavigationQueue extends ChangeNotifier {
   /// was actually added.
   void enqueue(AlertIntent intent) {
     final osId = intent.osId;
-    if (_lastDrained.contains(osId)) return;
+    if (_isEcho(osId)) return;
     if (!_queuedIds.add(osId)) return;
     _queued.add(intent);
     notifyListeners();
+  }
+
+  /// Whether [osId] is the second half of a delivery already handed over, as
+  /// opposed to a genuinely new ring that happens to share an id.
+  bool _isEcho(int osId) {
+    if (!_lastDrained.contains(osId)) return false;
+    final at = _lastDrainedAt;
+    if (at == null) return false;
+    return clock().difference(at) < doubleDeliveryWindow;
   }
 
   /// Hands over everything queued, in arrival order, and empties the queue.
@@ -84,6 +114,7 @@ class PendingNavigationQueue extends ChangeNotifier {
     final drained = List<AlertIntent>.unmodifiable(_queued);
     _queued.clear();
     _lastDrained = Set<int>.unmodifiable(_queuedIds);
+    _lastDrainedAt = clock();
     _queuedIds.clear();
     return drained;
   }
@@ -96,5 +127,7 @@ class PendingNavigationQueue extends ChangeNotifier {
     _queued.clear();
     _queuedIds.clear();
     _lastDrained = const {};
+    _lastDrainedAt = null;
+    clock = DateTime.now;
   }
 }
