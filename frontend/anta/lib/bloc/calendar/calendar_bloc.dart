@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../constants/public_holidays.dart';
 import '../../models/calendar_event.dart';
 import '../../models/calendar_grid_filters.dart';
+import '../../models/event_alert.dart';
 import '../../services/alert_scheduler.dart';
 import '../../services/calendar_event_service.dart';
 import '../../services/category_service.dart';
@@ -171,11 +172,22 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   /// what that means.
   final AlertReconciler _reconcileAlerts;
 
+  /// Makes one event's alert rows match what the editor left it with.
+  ///
+  /// Injected for the same reason [_reconcileAlerts] is, and called for the
+  /// same length of time: the bloc knows *that* a saved event carries a set of
+  /// alerts, never what writing one costs. Unlike the reconcile this is
+  /// **awaited** — the rows are what the next reconcile plans from, so a pass
+  /// that started before they landed would arm the previous set.
+  final AlertWriter _writeAlerts;
+
   CalendarBloc({
     required FutureOr<CalendarEventService> service,
     AlertReconciler? alertReconciler,
+    AlertWriter? alertWriter,
   }) : _seed = service,
        _reconcileAlerts = alertReconciler ?? AlertScheduler.reconcileEventById,
+       _writeAlerts = alertWriter ?? EventAlertService.replaceForEventById,
        super(const CalendarPageInitial()) {
     on<LoadCalendarEvents>(_onLoad);
     on<SelectCalendarDay>(_onSelectDay);
@@ -714,6 +726,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       debugPrint('[CalendarBloc] Create error: $e');
       return;
     }
+    await _persistAlerts(normalized.id, event.alerts);
     _invalidateDayCache();
     try {
       await (await NoteMoneyLedgerService.getInstance()).refresh(
@@ -754,6 +767,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       debugPrint('[CalendarBloc] Update error: $e');
       return;
     }
+    await _persistAlerts(normalized.id, event.alerts);
     _invalidateDayCache();
     try {
       await (await NoteMoneyLedgerService.getInstance()).refresh(
@@ -766,6 +780,22 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       _reconcileAlerts(normalized.id, AlertReconcileReason.eventChanged),
     );
     emit(current.copyWith(allEvents: service.events));
+  }
+
+  /// Persists an editor's alert set, between the event write and the reconcile.
+  ///
+  /// That order is the whole contract: the row has to exist before an alert
+  /// can point at it, and the plan the reconcile derives is read from these
+  /// rows — so a pass that overtook this write would arm the previous set and
+  /// only correct itself at the next launch. A `null` set means the dispatch
+  /// site never showed alerts, which is not the same as showing none.
+  Future<void> _persistAlerts(String eventId, List<EventAlert>? alerts) async {
+    if (alerts == null) return;
+    try {
+      await _writeAlerts(eventId, alerts);
+    } catch (e) {
+      debugPrint('[CalendarBloc] Alert write error: $e');
+    }
   }
 
   Future<void> _onDeleteEvent(

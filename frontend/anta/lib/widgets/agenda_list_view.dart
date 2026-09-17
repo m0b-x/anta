@@ -16,6 +16,7 @@ import '../models/day_summary_entry.dart';
 import '../models/fasting_appearance.dart';
 import '../models/upcoming_agenda_filters.dart';
 import '../utils/markdown_color_syntax.dart';
+import 'event_alert_badge.dart';
 import 'markdown_inline_text.dart';
 import '../services/day_summary_resolver.dart';
 import '../utils/event_agenda.dart';
@@ -1149,6 +1150,8 @@ class _AgendaCard extends StatelessWidget {
                         ),
                       ),
                     ],
+                    if (entry.event case final event?)
+                      EventAlertBadges(event: event),
                   ],
                 ),
                 subtitle:

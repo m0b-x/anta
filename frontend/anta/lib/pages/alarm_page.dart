@@ -92,12 +92,16 @@ class _AlarmPageState extends State<AlarmPage> {
   /// unconditional: leaving the ring going behind the calendar would be the
   /// one way out of this screen that does not silence the phone.
   Future<void> _openEvent() async {
+    // Read before Stop, which is what carries out the removal (**A3**): an
+    // event that Stop deletes is opened on its day alone, where the Undo
+    // snackbar is, rather than as a detail sheet over a tombstone.
+    final removed = _controller.willRemoveEvent;
     await _controller.stop();
     if (!mounted) return;
     _close();
     await AppNavigator.toCalendarOccurrence(
       day: widget.payload.dayUtc,
-      eventId: widget.payload.eventId,
+      eventId: removed ? null : widget.payload.eventId,
     );
   }
 

@@ -6,14 +6,19 @@ import 'package:get_it/get_it.dart';
 import '../constants/alert_constants.dart';
 import '../constants/app_spacing.dart';
 import '../constants/calendar_colors.dart';
+import '../constants/event_alerts.dart';
 import '../constants/fasting_calendar.dart';
 import '../constants/public_holidays.dart';
 import '../constants/settings_keys.dart';
 import '../l10n/app_localizations.dart';
 import '../constants/calendar_icons.dart';
 import '../models/calendar_appearance.dart';
+import '../models/calendar_event.dart';
+import '../models/event_alert.dart';
 import '../models/fasting_appearance.dart';
 import '../models/fasting_schedule.dart';
+import '../models/recurrence_rule.dart';
+import '../widgets/alert_editor_sheet.dart';
 import '../widgets/fasting_schedule_sheet.dart';
 import '../widgets/fasting_style_sheet.dart';
 import '../constants/semantics_ids.dart';
@@ -80,6 +85,12 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage>
   int _snoozeMinutes = SettingsKeys.defaultAlertSnoozeMinutes;
   int _silenceAfterMinutes = SettingsKeys.defaultAlertSilenceAfterMinutes;
 
+  /// What a new event's first alert is seeded with, per shape. `null` is a
+  /// value of its own — "no default" — and is what the rows render as
+  /// `alertsDefaultNone`.
+  TimedAlertDefault? _timedAlertDefault;
+  AllDayAlertDefault? _allDayAlertDefault;
+
   Set<FastingTradition> _fastingTraditions = const {};
   FastingAppearance _fastingAppearance = const FastingAppearance();
   bool _fastingGreatFasts = true;
@@ -143,6 +154,8 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage>
       _descriptionLimit = descriptionLimit;
       _snoozeMinutes = alerts.snoozeMinutes;
       _silenceAfterMinutes = alerts.silenceAfterMinutes;
+      _timedAlertDefault = alerts.timedDefault;
+      _allDayAlertDefault = alerts.allDayDefault;
       _fastingTraditions = fastingTraditions;
       _fastingAppearance = fastingAppearance;
       _fastingGreatFasts = fastingGreatFasts;
@@ -817,6 +830,34 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage>
           ),
         ),
         SettingsEntry(
+          title: l10n.alertsDefaultTimed,
+          description: l10n.alertsDefaultTimedDesc,
+          builder: (context, title, description) => ListTile(
+            leading: Icon(Icons.schedule_rounded, color: colorScheme.primary),
+            title: title,
+            subtitle: description,
+            trailing: Text(
+              _describeDefault(l10n, allDay: false),
+              style: TextStyle(color: colorScheme.onSurfaceVariant),
+            ),
+            onTap: () => _editAlertDefault(allDay: false),
+          ),
+        ),
+        SettingsEntry(
+          title: l10n.alertsDefaultAllDay,
+          description: l10n.alertsDefaultAllDayDesc,
+          builder: (context, title, description) => ListTile(
+            leading: Icon(Icons.today_rounded, color: colorScheme.primary),
+            title: title,
+            subtitle: description,
+            trailing: Text(
+              _describeDefault(l10n, allDay: true),
+              style: TextStyle(color: colorScheme.onSurfaceVariant),
+            ),
+            onTap: () => _editAlertDefault(allDay: true),
+          ),
+        ),
+        SettingsEntry(
           title: l10n.alertsSnoozeLength,
           description: l10n.alertsSnoozeLengthDesc(_snoozeMinutes),
           builder: (context, title, description) => SliderSettingRow(
@@ -944,6 +985,99 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage>
     );
   }
 
+  /// The stand-in event the two default rows describe themselves through.
+  ///
+  /// [EventAlert.describe] answers for an *event*, and a default belongs to no
+  /// event — so the row hands it the one property that decides the reading,
+  /// the derived `allDay`. Anything else on this object is unread.
+  static CalendarEvent _alertSampleEvent({required bool allDay}) =>
+      CalendarEvent(
+        id: '',
+        title: '',
+        categoryId: kDefaultCategoryId,
+        startDate: DateTime.utc(2026),
+        rule: const OneTimeRecurrence(),
+        time: allDay ? null : const EventTime(startMinute: 9 * 60),
+      );
+
+  /// The alert a default currently stands for, as one alert-shaped object, or
+  /// null when the setting says "none".
+  EventAlert? _defaultAlert({required bool allDay}) {
+    if (allDay) {
+      final value = _allDayAlertDefault;
+      if (value == null) return null;
+      return EventAlert(
+        id: 'default',
+        eventId: '',
+        mode: value.mode,
+        daysBefore: value.daysBefore,
+        dayMinute: value.dayMinute,
+      );
+    }
+    final value = _timedAlertDefault;
+    if (value == null) return null;
+    return EventAlert(
+      id: 'default',
+      eventId: '',
+      mode: value.mode,
+      offsetMinutes: value.offsetMinutes,
+    );
+  }
+
+  String _describeDefault(AppLocalizations l10n, {required bool allDay}) {
+    final alert = _defaultAlert(allDay: allDay);
+    if (alert == null) return l10n.alertsDefaultNone;
+    final tier = alert.isAlarm
+        ? l10n.eventAlertModeRing
+        : l10n.eventAlertModeNotify;
+    return '$tier · ${alert.describe(l10n, _alertSampleEvent(allDay: allDay))}';
+  }
+
+  /// Edits one default through the same sheet an event's own alert uses, so
+  /// the timing vocabulary cannot drift between the two. Remove there means
+  /// "no default" — the `none` the decoder reads as "seed nothing".
+  Future<void> _editAlertDefault({required bool allDay}) async {
+    _onHapticFeedback();
+    final sample = _alertSampleEvent(allDay: allDay);
+    final result = await AlertEditorSheet.show(
+      context,
+      alert:
+          _defaultAlert(allDay: allDay) ??
+          AlertEditorSheet.draft(eventId: '', allDay: allDay),
+      event: sample,
+    );
+    if (result == null || !mounted) return;
+    switch (result) {
+      case AlertEditorRemoved():
+        setState(() {
+          if (allDay) {
+            _allDayAlertDefault = null;
+          } else {
+            _timedAlertDefault = null;
+          }
+        });
+        if (allDay) {
+          await _settings?.setAlertDefaultAllDay(null);
+        } else {
+          await _settings?.setAlertDefaultTimed(null);
+        }
+      case AlertEditorSaved(:final alert):
+        if (allDay) {
+          final value = (
+            mode: alert.mode,
+            daysBefore: alert.daysBefore,
+            dayMinute: alert.dayMinute ?? kDefaultAlertDayMinute,
+          );
+          setState(() => _allDayAlertDefault = value);
+          await _settings?.setAlertDefaultAllDay(value);
+        } else {
+          final value = (mode: alert.mode, offsetMinutes: alert.offsetMinutes);
+          setState(() => _timedAlertDefault = value);
+          await _settings?.setAlertDefaultTimed(value);
+        }
+    }
+  }
+
   Future<void> _scheduleTestAlarm() async {
     final l10n = AppLocalizations.of(context)!;
     _onHapticFeedback();
@@ -1017,6 +1151,12 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage>
     await _settings?.setAlertSilenceAfterMinutes(
       SettingsKeys.defaultAlertSilenceAfterMinutes,
     );
+    // The two defaults go back to what the app ships with, not to "none":
+    // reset restores the stock behaviour, and the stock behaviour is that a
+    // new timed event reminds you ten minutes before.
+    final shipped = SettingsService.shippedAlertSettings;
+    await _settings?.setAlertDefaultTimed(shipped.timedDefault);
+    await _settings?.setAlertDefaultAllDay(shipped.allDayDefault);
     // The page resets to how it ships, and it ships open — leaving a section
     // folded after a reset hides rows the user just asked to see restored.
     await _settings?.setCalendarSettingsCollapsedSections(const {});
@@ -1046,6 +1186,8 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage>
       _descriptionLimit = SettingsKeys.defaultEventDescriptionLimit;
       _snoozeMinutes = SettingsKeys.defaultAlertSnoozeMinutes;
       _silenceAfterMinutes = SettingsKeys.defaultAlertSilenceAfterMinutes;
+      _timedAlertDefault = shipped.timedDefault;
+      _allDayAlertDefault = shipped.allDayDefault;
       _collapsedSections = const {};
     });
 

@@ -20,7 +20,16 @@ sealed class AlertIntent {
 
 /// A reminder was tapped: show the event on its own day, detail sheet open.
 final class OpenEventIntent extends AlertIntent {
-  const OpenEventIntent({required super.payload});
+  /// Whether the tap **settled** a live alert, as opposed to merely opening
+  /// the event from a notice about one.
+  ///
+  /// It decides whether A3 applies: a tap on a reminder is an acknowledgement
+  /// and removes an event that asked to be removed, while a tap on the quiet
+  /// "Missed" notice is someone reading about a ring they did not hear — and
+  /// deleting the event underneath them would be the last thing they expect.
+  final bool acknowledged;
+
+  const OpenEventIntent({required super.payload, this.acknowledged = false});
 }
 
 /// An alarm is ringing (or was tapped): show the alarm page.

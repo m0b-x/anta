@@ -1589,6 +1589,48 @@ class SettingsService {
     );
   }
 
+  /// The alert options exactly as the app ships them, decoded through the same
+  /// path a stored value takes.
+  ///
+  /// What reset-to-defaults writes. Derived rather than restated: a second
+  /// spelling of `notify:10` on the settings page is a second answer to what
+  /// "default" means, and the two would drift the first time one changed.
+  static AlertSettings get shippedAlertSettings =>
+      _decodeAlertSettings(const {});
+
+  /// Whether the runtime notification prompt has already been raised once
+  /// (§6.1). See [SettingsKeys.alertNotificationsAsked] for why this is a
+  /// latch rather than a cached permission.
+  Future<bool> getAlertNotificationsAsked() => _getBool(
+    SettingsKeys.alertNotificationsAsked,
+    SettingsKeys.defaultAlertNotificationsAsked,
+  );
+
+  Future<void> setAlertNotificationsAsked(bool value) =>
+      _setBool(SettingsKeys.alertNotificationsAsked, value);
+
+  /// The alert a new **timed** event is seeded with, or `null` for "none".
+  /// Encoded as `mode:offsetMinutes`, the spelling
+  /// [_decodeTimedAlertDefault] reads back.
+  Future<void> setAlertDefaultTimed(TimedAlertDefault? value) async {
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.alertDefaultTimed,
+      value == null
+          ? _alertDefaultNone
+          : '${value.mode.name}:${value.offsetMinutes}',
+    );
+  }
+
+  /// The same for an **all-day** event, as `mode:daysBefore:minuteOfDay`.
+  Future<void> setAlertDefaultAllDay(AllDayAlertDefault? value) async {
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.alertDefaultAllDay,
+      value == null
+          ? _alertDefaultNone
+          : '${value.mode.name}:${value.daysBefore}:${value.dayMinute}',
+    );
+  }
+
   /// Every event-alert option in one statement.
   ///
   /// The editor seeds a new event's first alert from it, and the scheduler

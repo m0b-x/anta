@@ -5,6 +5,7 @@ import '../../constants/event_presence.dart';
 import '../../models/calendar_event.dart';
 import '../../models/calendar_grid_filters.dart';
 import '../../models/calendar_selection_source.dart';
+import '../../models/event_alert.dart';
 
 sealed class CalendarPageEvent extends Equatable {
   const CalendarPageEvent();
@@ -66,19 +67,29 @@ final class ChangeCalendarFilters extends CalendarPageEvent {
 final class CreateCalendarEvent extends CalendarPageEvent {
   final CalendarEvent event;
 
-  const CreateCalendarEvent({required this.event});
+  /// The event's complete alert set (**v40**), or `null` to leave the alert
+  /// table alone — the [SetOccurrenceSkipped] rule, for the same reason: a
+  /// dispatch site that never showed alerts must not be read as one that
+  /// removed them.
+  final List<EventAlert>? alerts;
+
+  const CreateCalendarEvent({required this.event, this.alerts});
 
   @override
-  List<Object?> get props => [event];
+  List<Object?> get props => [event, alerts];
 }
 
 final class UpdateCalendarEvent extends CalendarPageEvent {
   final CalendarEvent event;
 
-  const UpdateCalendarEvent({required this.event});
+  /// See [CreateCalendarEvent.alerts]. `null` is "untouched", an empty list is
+  /// "this event has no alerts any more".
+  final List<EventAlert>? alerts;
+
+  const UpdateCalendarEvent({required this.event, this.alerts});
 
   @override
-  List<Object?> get props => [event];
+  List<Object?> get props => [event, alerts];
 }
 
 final class DeleteCalendarEvent extends CalendarPageEvent {

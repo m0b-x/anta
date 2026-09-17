@@ -1598,12 +1598,86 @@ filters can use it without decoding `time`.
 | No "mark done" / completion log                                    | Medium   | Would need a `completions(event_id, date)` table; surfaces as a check on the day card. |
 | Linked note opens read-through only                                 | Low      | The link is one-way (event → note); a note does not list events that reference it.     |
 | Movable feasts have no out-of-window fallback                      | Low      | Acceptable; users only see seeded window.                                              |
-| No reminders / notifications                                       | Medium   | Requires platform plugin work; intentionally deferred.                                |
+| ~~No reminders / notifications~~ — **resolved, §12**                | —        | Shipped as **event alerts** (schema v40): see §12 below and `docs/event-alerts-roadmap.md`. |
 | Recurrence math has no automated test coverage                     | Medium   | Pure, deterministic logic; high-value target for unit tests (interval phase, Feb-29, day-31 skips). |
 
 ---
 
-## 12. File map (quick reference)
+## 12. Event alerts (schema v40)
+
+Plan of record: `docs/event-alerts-roadmap.md` — decisions A1–A15 (§1), the
+domain model (§2), the architecture (§3), persistence (§4), the UI surfaces
+(§5) and the platform notes (§6). This section is the behaviour summary; the
+roadmap is where a change to any of it is argued.
+
+**An alert is a property of an event**: *when* the phone should speak up
+relative to an occurrence, and *how*. Up to five per event
+(`kMaxAlertsPerEvent`), each a row in `calendar_event_alerts`, each in one of
+two tiers:
+
+- a **Reminder** (`AlertMode.notify`) — a notification with Snooze and Done
+  that silent mode and Focus apply to; a tap opens the event on its day;
+- an **Alarm** (`AlertMode.ring`) — plays on the alarm stream until it is
+  stopped or snoozed, full-screen on a locked phone, heads-up on an unlocked
+  one; a tap opens the alarm page.
+
+An alert carries **both** offset sets — `offsetMinutes` for a timed event,
+`daysBefore` + `dayMinute` for an all-day one — and the planner picks by the
+derived `CalendarEvent.allDay`, so flipping an event between the two is
+non-destructive. `dayMinute == null` means "the Calendar-settings default"
+(09:00 out of the box), so changing that setting moves every alert that never
+chose a time. `EventAlert.describe(l10n, event)` is **the** formatter for
+"10 min before" / "At start" / "On the day, 09:00" — the editor row, the alert
+sheet's chips, the detail row, the badge tooltip and the notification body all
+read it, and a second switch anywhere would be a second answer.
+
+**Where it is edited.** The *Alerts* rows sit inside the editor's Time zone
+(`event_editor_sheet.dart`): one `_PickerTile` per alert, an "Add alert" chip
+that disappears at the cap, and — only while the event is one-time and carries
+an alarm — a *Remove after it rings* switch. Tapping a row opens
+`AlertEditorSheet` (`lib/widgets/alert_editor_sheet.dart`), a draft-and-Save
+sheet with Type, When and a footer removal. **Nothing writes there**: the
+editor reports its complete alert set on `EventEditorSaved.alerts` and
+`CalendarBloc` persists it through `EventAlertService.replaceForEvent` — after
+the event upsert, before the reconcile, because the reconcile plans from the
+rows. A new event is seeded from `alert_default_timed` / `alert_default_all_day`
+(Calendar settings → Alerts; `none` means "seed nothing"), and an existing one
+from the synchronous `EventAlerts` facade.
+
+**Where it shows.** A 14 dp badge beside the title on day-panel and agenda rows
+(`EventAlertBadges`) — `alarm_rounded` in `primary`, `notifications_active_rounded`
+in `onSurfaceVariant`, tooltip = the describe string — read synchronously from
+`EventAlerts.hasAlarm` / `hasReminder`. The detail sheet lists one row per
+alert under the time, each with the next `fire_at` the registry holds, resolved
+**once** in `initState` and never in `build`. An event that removes itself says
+so in its subtitle ("removed after it rings"), composed in
+`EventSummaryProvider._subtitleFor` and mirrored by `AgendaSearchText` so the
+agenda stays findable by what it shows.
+
+**Remove after it rings (A3).** `CalendarEvent.removeAfterAlert` is the event's
+own promise to delete itself once *any* of its alerts is acknowledged — Stop on
+the alarm page, or a tap / foreground Done on a reminder. `AlertAcknowledgement.apply`
+soft-deletes the event (cascading its alerts and registrations), publishes it on
+`AlertRemovalNotice`, and the calendar shows **"Event removed · Undo"**; Undo is
+an ordinary `CreateCalendarEvent` carrying the captured alerts, which resurrects
+the tombstone by the DAO's existing rule. The alarm page's "Keep the event"
+clears the flag before Stop. The flag is cleared on save wherever it cannot take
+effect — a recurring event, or one with nothing that rings.
+
+**Permissions.** `POST_NOTIFICATIONS` is requested **once**, the first time an
+alert is saved, from the calendar page's save path — never at launch, never from
+a reconcile, and never twice (`SettingsKeys.alertNotificationsAsked` latches it,
+because Android refuses to show the dialog a second time). A denial leaves the
+alert saved and registered; the Calendar settings Alerts section is where the
+state is read live and fixed.
+
+**What never rings**, and the device-local registry that backs it, are in the
+roadmap's §2.6 and §2.3 — both are summarised in `COPILOT_CONTEXT.md`'s
+Calendar v40 bullet.
+
+---
+
+## 13. File map (quick reference)
 
 | Concern                  | Path                                                                              |
 | ------------------------ | --------------------------------------------------------------------------------- |
@@ -1629,6 +1703,12 @@ filters can use it without decoding `time`.
 | Service (holidays)       | [lib/services/public_holiday_service.dart](../lib/services/public_holiday_service.dart) |
 | Backup integration       | [lib/services/backup_service.dart](../lib/services/backup_service.dart)           |
 | Editor UI                | [lib/widgets/event_editor_sheet.dart](../lib/widgets/event_editor_sheet.dart)     |
+| Alert model + facade     | [lib/models/event_alert.dart](../lib/models/event_alert.dart), [lib/constants/event_alerts.dart](../lib/constants/event_alerts.dart) |
+| Alert service / DAO      | [lib/services/event_alert_service.dart](../lib/services/event_alert_service.dart), [lib/database/daos/event_alert_dao.dart](../lib/database/daos/event_alert_dao.dart) |
+| Alert planner / scheduler | [lib/utils/alert_planner.dart](../lib/utils/alert_planner.dart), [lib/services/alert_scheduler.dart](../lib/services/alert_scheduler.dart) |
+| Alert platform seam      | [lib/services/alert_gateway.dart](../lib/services/alert_gateway.dart), [lib/services/android_alert_gateway.dart](../lib/services/android_alert_gateway.dart) |
+| Alert UI                 | [lib/widgets/alert_editor_sheet.dart](../lib/widgets/alert_editor_sheet.dart), [lib/widgets/event_alert_badge.dart](../lib/widgets/event_alert_badge.dart), [lib/pages/alarm_page.dart](../lib/pages/alarm_page.dart) |
+| Alert removal + Undo     | [lib/services/alert_removal_notice.dart](../lib/services/alert_removal_notice.dart), [lib/controllers/alert_ring_controller.dart](../lib/controllers/alert_ring_controller.dart) |
 | Category icons & colors  | [lib/constants/calendar_icons.dart](../lib/constants/calendar_icons.dart), [lib/constants/calendar_colors.dart](../lib/constants/calendar_colors.dart) |
 | L10n                     | [lib/l10n/app_en.arb](../lib/l10n/app_en.arb), [lib/l10n/app_de.arb](../lib/l10n/app_de.arb), [lib/l10n/app_ro.arb](../lib/l10n/app_ro.arb) |
 

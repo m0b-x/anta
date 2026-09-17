@@ -541,6 +541,18 @@ class SettingsKeys {
   static const int minAlertSilenceAfterMinutes = 1;
   static const int maxAlertSilenceAfterMinutes = 30;
 
+  /// Whether the runtime notification prompt has already been raised once.
+  ///
+  /// A latch, not a setting: Android shows `POST_NOTIFICATIONS` once and
+  /// silently refuses every later ask, so without it the first alert of every
+  /// session would fire a dialog that can no longer appear. Deliberately
+  /// **outside** the alert bundle and outside reset-to-defaults — resetting
+  /// the calendar's options must not make the app ask again — and deliberately
+  /// not a permission cache: what the user granted is asked of the gateway,
+  /// live, every time it matters.
+  static const String alertNotificationsAsked = 'alert_notifications_asked';
+  static const bool defaultAlertNotificationsAsked = false;
+
   /// Maximum number of recently-used custom event colors to remember.
   ///
   /// Only the retired [recentEventColors] key is bounded by it; it caps how

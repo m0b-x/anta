@@ -5009,4 +5009,115 @@ class AppLocalizationsDe extends AppLocalizations {
   String alertsMissedBody(String time) {
     return 'Fällig war $time';
   }
+
+  @override
+  String get eventAlerts => 'Erinnerungen';
+
+  @override
+  String get eventAlertAdd => 'Erinnerung hinzufügen';
+
+  @override
+  String get eventAlertHint =>
+      'Eine Erinnerung gilt für jeden Termin dieser Serie.';
+
+  @override
+  String get eventAlertRingsUntilStopped => 'Klingelt, bis du stoppst';
+
+  @override
+  String get eventAlertNotification => 'Mitteilung zum Schlummern';
+
+  @override
+  String get eventAlertRemove => 'Erinnerung entfernen';
+
+  @override
+  String get eventAlertRemoveAfter => 'Nach dem Klingeln entfernen';
+
+  @override
+  String get eventAlertRemoveAfterHint =>
+      'Der Termin wird gelöscht, sobald du den Alarm stoppst. Rückgängig geht direkt danach.';
+
+  @override
+  String get eventAlert => 'Erinnerung';
+
+  @override
+  String get eventAlertTypeSection => 'Art';
+
+  @override
+  String get eventAlertModeNotify => 'Mitteilung';
+
+  @override
+  String get eventAlertModeRing => 'Alarm';
+
+  @override
+  String get eventAlertNotifyHint =>
+      'Liegt in der Leiste, mit Schlummern und Erledigt. Lautlos und Fokus gelten.';
+
+  @override
+  String get eventAlertRingHint =>
+      'Spielt über den Weckton, bis du stoppst oder schlummerst.';
+
+  @override
+  String get eventAlertFullScreenOff =>
+      'Vollbild-Alarme sind aus, daher klingelt dies als Banner statt bildschirmfüllend.';
+
+  @override
+  String get eventAlertWhenSection => 'Wann';
+
+  @override
+  String get eventAlertCustom => 'Eigene';
+
+  @override
+  String get eventAlertUnitMinutes => 'Minuten';
+
+  @override
+  String get eventAlertUnitHours => 'Stunden';
+
+  @override
+  String get eventAlertUnitDays => 'Tage';
+
+  @override
+  String get eventAlertOffsetDecrement => 'Weniger Vorlauf';
+
+  @override
+  String get eventAlertOffsetIncrement => 'Mehr Vorlauf';
+
+  @override
+  String get eventAlertOnTheDay => 'Am Tag selbst';
+
+  @override
+  String get eventAlertTheDayBefore => 'Am Vortag';
+
+  @override
+  String get eventAlertAWeekBefore => 'Eine Woche vorher';
+
+  @override
+  String get eventAlertTimeOfDay => 'Uhrzeit';
+
+  @override
+  String eventAlertNext(String time) {
+    return 'Nächste $time';
+  }
+
+  @override
+  String get eventRemovedAfterAlert => 'wird nach dem Klingeln entfernt';
+
+  @override
+  String get eventAlertEventRemoved => 'Termin entfernt';
+
+  @override
+  String get alertsDefaultTimed => 'Termine mit Uhrzeit';
+
+  @override
+  String get alertsDefaultTimedDesc =>
+      'Die Erinnerung, mit der ein neuer Termin mit Uhrzeit startet';
+
+  @override
+  String get alertsDefaultAllDay => 'Ganztägige Termine';
+
+  @override
+  String get alertsDefaultAllDayDesc =>
+      'Die Erinnerung, mit der ein neuer ganztägiger Termin startet';
+
+  @override
+  String get alertsDefaultNone => 'Keine Erinnerung';
 }

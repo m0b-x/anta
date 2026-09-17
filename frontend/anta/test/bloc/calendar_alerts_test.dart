@@ -8,6 +8,7 @@ import 'package:anta/bloc/calendar/calendar_bloc.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/calendar_selection_source.dart';
+import 'package:anta/models/event_alert.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/alert_scheduler.dart';
 import 'package:anta/services/calendar_event_service.dart';
@@ -33,6 +34,12 @@ void main() {
   late AppDatabase db;
   late CalendarBloc bloc;
   late List<({String eventId, AlertReconcileReason reason})> calls;
+  late List<({String eventId, List<EventAlert> alerts})> writes;
+
+  /// Both seams appending to one list, so "the rows are written **before** the
+  /// platform is asked to plan from them" is a property the suite can state
+  /// rather than one the reader has to trust.
+  late List<String> order;
 
   setUpAll(() async {
     tempDir = await Directory.systemTemp.createTemp('anta_calendar_alerts');
@@ -57,10 +64,17 @@ void main() {
     db = await openTestDatabase();
     await EventSkipService.forTesting(db);
     calls = [];
+    writes = [];
+    order = [];
     bloc = CalendarBloc(
       service: CalendarEventService.forTesting(db),
       alertReconciler: (eventId, reason) async {
         calls.add((eventId: eventId, reason: reason));
+        order.add('reconcile');
+      },
+      alertWriter: (eventId, alerts) async {
+        writes.add((eventId: eventId, alerts: alerts));
+        order.add('write');
       },
     );
   });
@@ -197,5 +211,78 @@ void main() {
     );
 
     expect(calls, isEmpty);
+  });
+
+  const alert = EventAlert(id: 'a1', eventId: 'e1', offsetMinutes: 10);
+
+  test('an edited alert list reaches the writer exactly once', () async {
+    await dispatch(const LoadCalendarEvents());
+    await dispatch(CreateCalendarEvent(event: eventOf()));
+    writes.clear();
+    order.clear();
+
+    await dispatch(
+      UpdateCalendarEvent(
+        event: eventOf(title: 'Leg day, later'),
+        alerts: const [alert],
+      ),
+    );
+
+    expect(writes, hasLength(1));
+    expect(writes.single.eventId, 'e1');
+    expect(writes.single.alerts, const [alert]);
+  });
+
+  test('a new event writes its alerts before the platform is asked', () async {
+    await dispatch(const LoadCalendarEvents());
+    order.clear();
+
+    await dispatch(
+      CreateCalendarEvent(event: eventOf(), alerts: const [alert]),
+    );
+
+    // The reconcile plans from the rows, so a pass that overtook the write
+    // would arm the previous set and only correct itself at the next launch.
+    expect(order, ['write', 'reconcile']);
+  });
+
+  test('an empty list is a removal, and null is silence', () async {
+    await dispatch(const LoadCalendarEvents());
+    await dispatch(
+      CreateCalendarEvent(event: eventOf(), alerts: const [alert]),
+    );
+    writes.clear();
+
+    await dispatch(
+      UpdateCalendarEvent(event: eventOf(title: 'Leg day, later')),
+    );
+    expect(writes, isEmpty, reason: 'null means the caller never showed them');
+
+    await dispatch(
+      UpdateCalendarEvent(event: eventOf(), alerts: const []),
+    );
+    expect(writes, hasLength(1));
+    expect(writes.single.alerts, isEmpty);
+  });
+
+  test('a write that throws still lets the event save', () async {
+    await bloc.close();
+    bloc = CalendarBloc(
+      service: CalendarEventService.forTesting(db),
+      alertReconciler: (eventId, reason) async {
+        calls.add((eventId: eventId, reason: reason));
+      },
+      alertWriter: (eventId, alerts) async => throw StateError('no database'),
+    );
+    await dispatch(const LoadCalendarEvents());
+    calls.clear();
+
+    await dispatch(
+      CreateCalendarEvent(event: eventOf(), alerts: const [alert]),
+    );
+
+    final state = bloc.state as CalendarPageLoaded;
+    expect(state.allEvents.map((e) => e.id), contains('e1'));
+    expect(calls, hasLength(1));
   });
 }

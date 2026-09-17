@@ -213,6 +213,11 @@ class EventSummaryProvider implements DaySummaryProvider {
         EventTimeFormatter.formatRange(time, l10n)
       else
         l10n.eventAllDay,
+      // A3 (\u00a72.2). Last, because it is the least of the three facts on an
+      // ordinary day and the first that should be ellipsized \u2014 and here
+      // rather than in the row, so the day panel, the agenda and the agenda's
+      // search text stay in step.
+      if (event.removeAfterAlert) l10n.eventRemovedAfterAlert,
     ];
     return parts.isEmpty ? null : parts.join(' \u00b7 ');
   }

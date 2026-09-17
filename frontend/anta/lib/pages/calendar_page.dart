@@ -34,8 +34,11 @@ import '../models/calendar_selection_source.dart';
 import '../models/day_bar.dart';
 import '../models/day_cell_tint.dart';
 import '../models/day_rail_mark.dart';
+import '../models/event_alert.dart';
 import '../models/recurrence_rule.dart';
 import '../repositories/note_repository.dart';
+import '../services/alert_gateway.dart';
+import '../services/alert_removal_notice.dart';
 import '../services/app_navigator.dart';
 import '../services/cell_tint_resolver.dart';
 import '../services/day_bars_resolver.dart';
@@ -436,6 +439,39 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
         _serveOccurrenceRequest();
       });
     }
+    // A3's Undo (§3.5). The removal happens on the alarm page or on the tap
+    // that launched the app, so the notice is usually already waiting by the
+    // time this page exists — hence the post-frame pass beside the listener,
+    // the same pair the occurrence request uses.
+    AlertRemovalNotice.instance.addListener(_serveRemovalNotice);
+    if (AlertRemovalNotice.instance.hasPending) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _serveRemovalNotice();
+      });
+    }
+  }
+
+  /// Serves — and clears — the event an acknowledged alert deleted (**A3**).
+  ///
+  /// Two writes, both through the bloc: the reload is what drops the deleted
+  /// event out of a state the page never saw change, and Undo is an ordinary
+  /// create, which resurrects the tombstone by the DAO's existing rule and
+  /// carries the alerts the cascade took with it.
+  void _serveRemovalNotice() {
+    if (!mounted) return;
+    final notice = AlertRemovalNotice.instance.take();
+    if (notice == null) return;
+    final bloc = context.read<CalendarBloc>();
+    bloc.add(const LoadCalendarEvents());
+    final l10n = AppLocalizations.of(context)!;
+    CustomSnackbar.showWithAction(
+      context,
+      message: l10n.eventAlertEventRemoved,
+      actionLabel: l10n.undo,
+      onAction: () => bloc.add(
+        CreateCalendarEvent(event: notice.event, alerts: notice.alerts),
+      ),
+    );
   }
 
   /// Serves — and clears — a request published by
@@ -546,6 +582,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     AppNavigator.pendingCalendarOccurrence.removeListener(
       _serveOccurrenceRequest,
     );
+    AlertRemovalNotice.instance.removeListener(_serveRemovalNotice);
     _keyboardInset.removeListener(_handleKeyboardInset);
     _keyboardInset.dispose();
     _gridCollapsed.dispose();
@@ -1449,15 +1486,18 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     if (result == null || !context.mounted) return result;
     final bloc = context.read<CalendarBloc>();
     switch (result) {
-      case EventEditorSaved(:final event):
+      case EventEditorSaved(:final event, :final alerts):
         if (initialEvent == null) {
-          bloc.add(CreateCalendarEvent(event: event));
+          bloc.add(CreateCalendarEvent(event: event, alerts: alerts));
         } else {
-          bloc.add(UpdateCalendarEvent(event: event));
+          bloc.add(UpdateCalendarEvent(event: event, alerts: alerts));
         }
         // The event write lands first so a day override can never reference an
         // event the bloc has not seen yet.
         _dispatchOccurrenceResult(bloc, event.id, result);
+        // A user action, and the only one in the app that asks: the alert is
+        // already saved, so a refusal costs nothing but the ring.
+        unawaited(_requestNotificationsOnFirstAlert(alerts));
       case EventEditorDeleted(:final id):
         bloc.add(DeleteCalendarEvent(eventId: id));
       // Nothing was decided, so there is nothing to write.
@@ -1465,6 +1505,37 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
         break;
     }
     return result;
+  }
+
+  /// Raises Android's notification prompt the **first** time an alert is
+  /// saved, and never anywhere else (§6.1).
+  ///
+  /// Three things make this the right moment and the only one: it follows a
+  /// user action, the alert is already persisted so a refusal costs nothing
+  /// but the ring, and the latch means a denial is never asked about again —
+  /// Android would refuse to show the dialog a second time anyway, so a
+  /// repeated ask is a tap that does nothing. Everything here is best-effort;
+  /// a build with no gateway simply never asks.
+  Future<void> _requestNotificationsOnFirstAlert(
+    List<EventAlert>? alerts,
+  ) async {
+    if (alerts == null || alerts.isEmpty) return;
+    try {
+      final settings = await SettingsService.getInstance();
+      if (await settings.getAlertNotificationsAsked()) return;
+      final gateway = GetIt.I<AlertGateway>();
+      final permissions = await gateway.permissions();
+      // Nothing to ask for on a platform without the permission, and nothing
+      // to ask for when it is already held — but the latch still closes, so a
+      // later revocation is answered by the settings row rather than by a
+      // dialog in the middle of scheduling.
+      if (permissions.notifications == AlertPermissionState.denied) {
+        await gateway.requestNotifications();
+      }
+      await settings.setAlertNotificationsAsked(true);
+    } catch (e) {
+      debugPrint('[CalendarPage] notification prompt skipped: $e');
+    }
   }
 
   /// Single funnel for presence marks, whichever surface produced them — the

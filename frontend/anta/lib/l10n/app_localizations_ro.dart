@@ -5064,4 +5064,115 @@ class AppLocalizationsRo extends AppLocalizations {
   String alertsMissedBody(String time) {
     return 'Era programat la $time';
   }
+
+  @override
+  String get eventAlerts => 'Alerte';
+
+  @override
+  String get eventAlertAdd => 'Adaugă alertă';
+
+  @override
+  String get eventAlertHint =>
+      'O alertă se declanșează la fiecare apariție a evenimentului.';
+
+  @override
+  String get eventAlertRingsUntilStopped => 'Sună până o oprești';
+
+  @override
+  String get eventAlertNotification => 'Notificare pe care o poți amâna';
+
+  @override
+  String get eventAlertRemove => 'Elimină alerta';
+
+  @override
+  String get eventAlertRemoveAfter => 'Elimină după ce sună';
+
+  @override
+  String get eventAlertRemoveAfterHint =>
+      'Evenimentul se șterge când oprești alarma. Poți anula imediat după.';
+
+  @override
+  String get eventAlert => 'Alertă';
+
+  @override
+  String get eventAlertTypeSection => 'Tip';
+
+  @override
+  String get eventAlertModeNotify => 'Notificare';
+
+  @override
+  String get eventAlertModeRing => 'Alarmă';
+
+  @override
+  String get eventAlertNotifyHint =>
+      'Stă în bara de notificări, cu Amână și Gata. Modul silențios și Focus se aplică.';
+
+  @override
+  String get eventAlertRingHint =>
+      'Sună pe canalul de alarmă până o oprești sau o amâni.';
+
+  @override
+  String get eventAlertFullScreenOff =>
+      'Alarmele pe tot ecranul sunt dezactivate, așa că aceasta sună ca banner.';
+
+  @override
+  String get eventAlertWhenSection => 'Când';
+
+  @override
+  String get eventAlertCustom => 'Personalizat';
+
+  @override
+  String get eventAlertUnitMinutes => 'Minute';
+
+  @override
+  String get eventAlertUnitHours => 'Ore';
+
+  @override
+  String get eventAlertUnitDays => 'Zile';
+
+  @override
+  String get eventAlertOffsetDecrement => 'Mai puțin timp înainte';
+
+  @override
+  String get eventAlertOffsetIncrement => 'Mai mult timp înainte';
+
+  @override
+  String get eventAlertOnTheDay => 'În ziua respectivă';
+
+  @override
+  String get eventAlertTheDayBefore => 'Cu o zi înainte';
+
+  @override
+  String get eventAlertAWeekBefore => 'Cu o săptămână înainte';
+
+  @override
+  String get eventAlertTimeOfDay => 'Ora';
+
+  @override
+  String eventAlertNext(String time) {
+    return 'Următoarea $time';
+  }
+
+  @override
+  String get eventRemovedAfterAlert => 'se elimină după ce sună';
+
+  @override
+  String get eventAlertEventRemoved => 'Eveniment eliminat';
+
+  @override
+  String get alertsDefaultTimed => 'Evenimente cu oră';
+
+  @override
+  String get alertsDefaultTimedDesc =>
+      'Alerta cu care pornește un eveniment nou cu oră';
+
+  @override
+  String get alertsDefaultAllDay => 'Evenimente de o zi';
+
+  @override
+  String get alertsDefaultAllDayDesc =>
+      'Alerta cu care pornește un eveniment nou de o zi întreagă';
+
+  @override
+  String get alertsDefaultNone => 'Fără alertă';
 }

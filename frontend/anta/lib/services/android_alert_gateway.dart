@@ -19,6 +19,7 @@ import '../models/alert_payload.dart';
 import '../utils/alert_os_id.dart';
 import '../utils/alert_planner.dart';
 import 'alert_gateway.dart';
+import 'alert_removal_notice.dart';
 import 'pending_navigation.dart';
 import 'settings_service.dart';
 
@@ -394,11 +395,16 @@ class AndroidAlertGateway extends AlertGateway {
     switch (response.actionId) {
       case kAlertDoneActionId:
         unawaited(_plugin.cancel(id: payload.osId));
+        // Done in the foreground is an acknowledgement like any other, so A3
+        // applies. The background isolate's copy of this branch cannot do the
+        // same — it has no database — which is why an event removed that way
+        // waits for the next foreground acknowledgement instead.
+        unawaited(AlertAcknowledgement.apply(payload));
       case kAlertSnoozeActionId:
         unawaited(_snoozeFromBackground(_plugin, payload));
       default:
         PendingNavigationQueue.instance.enqueue(
-          OpenEventIntent(payload: payload),
+          OpenEventIntent(payload: payload, acknowledged: true),
         );
     }
   }
@@ -737,7 +743,9 @@ class AndroidAlertGateway extends AlertGateway {
         await _plugin.cancel(id: payload.osId);
         _launchIntent = OpenAlarmIntent(payload: payload);
       } else {
-        _launchIntent = OpenEventIntent(payload: payload);
+        // A cold-start tap on a live reminder settles it, exactly as the warm
+        // one does.
+        _launchIntent = OpenEventIntent(payload: payload, acknowledged: true);
       }
       return _launchIntent;
     } catch (e) {

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/alert_payload.dart';
 import '../models/calendar_event.dart';
+import '../services/alert_removal_notice.dart';
 import '../services/alert_scheduler.dart';
 import '../services/calendar_event_service.dart';
 import '../services/database_manager.dart';
@@ -144,16 +145,12 @@ class AlertRingController extends ChangeNotifier {
     }
   }
 
-  Future<void> _removeEvent() async {
-    final event = await _resolveEvent();
-    if (event == null) return;
-    try {
-      final service = await CalendarEventService.getInstance();
-      await service.deleteById(event.id);
-    } catch (e) {
-      debugPrint('[AlertRingController] remove failed: $e');
-    }
-  }
+  /// A3 through the one acknowledgement path the reminder tier's tap and Done
+  /// also take: the delete, the Undo notice **and the reconcile after it** —
+  /// [stop] re-planned the event before the delete, so without that second
+  /// pass a one-time event with two alarms would keep its later one armed in
+  /// the OS for an event that no longer exists.
+  Future<void> _removeEvent() => AlertAcknowledgement.apply(payload);
 
   /// The event this ring belongs to, or null when it is not this database's to
   /// touch.

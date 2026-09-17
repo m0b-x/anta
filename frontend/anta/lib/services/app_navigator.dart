@@ -427,11 +427,13 @@ abstract final class AppNavigator {
   /// [toCalendarOccurrence] publishes the request here and the page that is
   /// already on the stack serves it. Set back to null by whoever serves it, so
   /// a page mounting later does not replay a trip already made.
-  static final ValueNotifier<({DateTime day, String eventId})?>
+  static final ValueNotifier<({DateTime day, String? eventId})?>
   pendingCalendarOccurrence = ValueNotifier(null);
 
   /// Opens the calendar on [day] with [eventId]'s detail sheet already up —
-  /// where a tapped reminder lands (**A12**).
+  /// where a tapped reminder lands (**A12**). A null [eventId] lands on the
+  /// day alone: the tap that acknowledged a "remove after it rings" event has
+  /// nothing left to open (**A3**).
   ///
   /// A **root** push when the calendar is not open: the tap is delivered by the
   /// platform with no `BuildContext` of its own. Stamped with the plain
@@ -446,7 +448,7 @@ abstract final class AppNavigator {
   /// user two back gestures from where they were.
   static Future<void> toCalendarOccurrence({
     required DateTime day,
-    required String eventId,
+    required String? eventId,
   }) {
     final navigator = navigatorKey.currentState;
     if (navigator != null) {

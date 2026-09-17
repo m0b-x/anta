@@ -297,6 +297,54 @@ class AlertScheduler {
     });
   }
 
+  /// When each of [eventId]'s alerts is next due, as the registry holds it.
+  ///
+  /// A read, so it deliberately does **not** join the serialized write chain:
+  /// the detail sheet asks once while it is opening, and queueing behind a
+  /// reconcile would make a sheet wait on a platform round trip to draw a line
+  /// of text. A row the OS has since forgotten is answered by the next
+  /// reconcile, not here — this reports what the app believes is armed.
+  ///
+  /// Keyed by alert id and filtered to the future: a row still `pending` with
+  /// a fire instant in the past is one the ring handler has not settled yet,
+  /// and calling that "next" would be a lie on the one surface that names a
+  /// time.
+  Future<Map<String, DateTime>> nextFiresForEvent(String eventId) async {
+    final now = _clock();
+    final next = <String, DateTime>{};
+    for (final row in await _dao.forEvent(eventId)) {
+      if (AlertRegistrationState.fromName(row.state) !=
+          AlertRegistrationState.pending) {
+        continue;
+      }
+      final fireAt = DateTime.fromMillisecondsSinceEpoch(row.fireAt);
+      if (!fireAt.isAfter(now)) continue;
+      final current = next[row.alertId];
+      if (current == null || fireAt.isBefore(current)) {
+        next[row.alertId] = fireAt;
+      }
+    }
+    return next;
+  }
+
+  /// [nextFiresForEvent] for a surface that holds no scheduler, swallowing
+  /// every failure into an empty map.
+  ///
+  /// Swallowing is the point: on desktop, in a widget test and in any build
+  /// without a gateway there is no registry to read, and a detail sheet that
+  /// threw rather than simply omitting "Next …" would be a crash in service of
+  /// a subtitle.
+  static Future<Map<String, DateTime>> nextFiresForEventById(
+    String eventId,
+  ) async {
+    try {
+      return await (await getInstance()).nextFiresForEvent(eventId);
+    } catch (e) {
+      debugPrint('[AlertScheduler] next fires for $eventId failed: $e');
+      return const {};
+    }
+  }
+
   /// Arms the settings page's `Test alarm in 10 s` (§5.7).
   ///
   /// Registered like anything else so it can be stopped, swept and — after a

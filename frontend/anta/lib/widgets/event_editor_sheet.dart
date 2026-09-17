@@ -11,9 +11,11 @@ import '../constants/calendar_bounds.dart';
 import '../constants/event_skips.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_icons.dart';
+import '../constants/event_alerts.dart';
 import '../constants/event_priorities.dart';
 import '../constants/font_constants.dart';
 import '../constants/occurrence_descriptions.dart';
+import '../constants/semantics_ids.dart';
 import '../constants/settings_keys.dart';
 import '../controllers/editor_edit_tracker.dart';
 import '../controllers/editor_render_controller.dart';
@@ -22,6 +24,7 @@ import '../controllers/shortcut_applier.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
+import '../models/event_alert.dart';
 import '../models/event_template.dart';
 import '../models/custom_markdown_shortcut.dart';
 import '../models/recurrence_rule.dart';
@@ -36,6 +39,8 @@ import '../utils/list_aware_paste.dart';
 import '../utils/markdown_color_syntax.dart';
 import '../utils/markdown_editor_span_builder.dart';
 import '../utils/re_editor_search_controller.dart';
+import 'alert_editor_sheet.dart';
+import 'automation_id.dart';
 import 'calendar_date_picker_sheet.dart';
 import 'category_picker_sheet.dart';
 import 'event_description_sheet.dart';
@@ -76,11 +81,24 @@ class EventEditorSaved extends EventEditorResult {
   /// the sheet stays write-free exactly as it is for descriptions.
   final Set<DateTime>? skippedDays;
 
+  /// The complete alert set the form left the event with (**v40**), or `null`
+  /// when this result was produced by a path that never showed them.
+  ///
+  /// A whole set, like [skippedDays], because `EventAlertService.replaceForEvent`
+  /// is a set write: it tombstones what is missing and upserts what is there,
+  /// in one transaction, so a diff computed here would be a second answer to a
+  /// question the DAO already answers.
+  ///
+  /// `removeAfterAlert` is deliberately **not** beside it — it is a column on
+  /// the event, so it rides [event] and cannot drift from what was saved.
+  final List<EventAlert>? alerts;
+
   const EventEditorSaved(
     this.event, {
     this.occurrenceDay,
     this.occurrenceDescription,
     this.skippedDays,
+    this.alerts,
   });
 }
 
@@ -510,7 +528,53 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   /// `{name:text}` runs show the user's custom colours.
   MarkdownColorPalette _colorPalette = MarkdownColorPalette.presets;
 
+  /// The event's alerts as the sheet is editing them (**v40**).
+  ///
+  /// Draft state like the skip set: nothing is written here, the list rides
+  /// the result and `CalendarBloc` persists it through
+  /// `EventAlertService.replaceForEvent`. Seeded from the synchronous
+  /// [EventAlerts] facade for an existing event, and from the Calendar-settings
+  /// default for a new one — which arrives with [_loadSheetSettings], after
+  /// the first frame.
+  List<EventAlert> _alerts = const [];
+
+  /// Whether the user has added, edited or removed an alert themselves. The
+  /// asynchronous seed below only fires while this is false, so a default
+  /// landing late can never overwrite a choice already made.
+  bool _alertsTouched = false;
+
+  /// Draft state for `CalendarEvent.removeAfterAlert` (**A3**). Meaningless
+  /// unless the event is one-time and carries an alarm, and cleared on save in
+  /// that case — the same shape [_assumeAbsent] follows.
+  bool _removeAfterAlert = false;
+
+  TimedAlertDefault? _timedAlertDefault;
+  AllDayAlertDefault? _allDayAlertDefault;
+
   bool get _isEditing => widget.initialEvent != null;
+
+  /// Whether the event fires on exactly one day, which is the only shape
+  /// "remove after it rings" can mean anything on: deleting a weekly event
+  /// because Monday rang would take Wednesday and Friday with it.
+  bool get _isOneTimeEvent =>
+      _mode == _RepeatMode.oneTime && _additionalDates.isEmpty;
+
+  bool get _hasAlarmAlert => _alerts.any((alert) => alert.isAlarm);
+
+  /// A stand-in event carrying the one property [EventAlert.describe] reads —
+  /// the derived `allDay` — as the *form* currently has it.
+  ///
+  /// Built rather than taken from `widget.initialEvent` on purpose: toggling
+  /// All day has to re-describe every alert row immediately, and the saved
+  /// event still says what it said when the sheet opened.
+  CalendarEvent get _alertPreviewEvent => CalendarEvent(
+    id: widget.initialEvent?.id ?? '',
+    title: '',
+    categoryId: _categoryId,
+    startDate: _date,
+    rule: const OneTimeRecurrence(),
+    time: _isAllDay ? null : EventTime(startMinute: _startMinute),
+  );
 
   @override
   void initState() {
@@ -581,6 +645,15 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
         : _normalize(initial!.assumeAbsentFrom!);
     _showInDayRail = initial?.showInDayRail;
     _perOccurrenceDescriptions = initial?.perOccurrenceDescriptions ?? false;
+    // Synchronous on purpose: the facade is published before the calendar
+    // page can open this sheet, so an existing event's alerts are on screen in
+    // the first frame rather than appearing under the user's thumb. A new
+    // event's default arrives with [_loadSheetSettings] — there is nothing to
+    // read here for an event that does not exist yet.
+    _alerts = initial == null
+        ? const []
+        : List<EventAlert>.of(EventAlerts.alertsFor(initial.id));
+    _removeAfterAlert = initial?.removeAfterAlert ?? false;
     _initRecurrenceFrom(initial?.rule ?? const OneTimeRecurrence());
     // Only a saved event that was actually counting carries a style the user
     // can be said to have chosen; otherwise the persisted value is just the
@@ -1182,12 +1255,98 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     setState(() => _iconKey = picked);
   }
 
+  /// Gives a brand-new event the alert the Calendar settings say it should
+  /// start with (§5.1). Runs inside [_loadSheetSettings]'s `setState`.
+  ///
+  /// Three guards, each closing a way the seed could be a lie: an existing
+  /// event's alerts are its own, a user who already added one has said what
+  /// they want, and a default of `none` means new events get nothing at all.
+  void _seedDefaultAlert() {
+    if (_isEditing || _alertsTouched || _alerts.isNotEmpty) return;
+    final hasDefault = _isAllDay
+        ? _allDayAlertDefault != null
+        : _timedAlertDefault != null;
+    if (!hasDefault) return;
+    _alerts = [
+      AlertEditorSheet.draft(
+        eventId: '',
+        allDay: _isAllDay,
+        timedDefault: _timedAlertDefault,
+        allDayDefault: _allDayAlertDefault,
+      ),
+    ];
+  }
+
+  /// Opens the alert sheet on a brand-new alert, and keeps it only if the user
+  /// saves. Never offers Remove there: closing the sheet already means "no".
+  Future<void> _addAlert() async {
+    if (_alerts.length >= kMaxAlertsPerEvent) return;
+    final draft = AlertEditorSheet.draft(
+      eventId: widget.initialEvent?.id ?? '',
+      allDay: _isAllDay,
+      timedDefault: _timedAlertDefault,
+      allDayDefault: _allDayAlertDefault,
+    );
+    final result = await AlertEditorSheet.show(
+      context,
+      alert: draft,
+      event: _alertPreviewEvent,
+      canRemove: false,
+      showRemoveAfter: _isOneTimeEvent,
+      removeAfterAlert: _removeAfterAlert,
+    );
+    if (!mounted) return;
+    switch (result) {
+      case null:
+      case AlertEditorRemoved():
+        return;
+      case AlertEditorSaved(:final alert, :final removeAfterAlert):
+        setState(() {
+          _alertsTouched = true;
+          _alerts = [..._alerts, alert];
+          if (_isOneTimeEvent) _removeAfterAlert = removeAfterAlert;
+        });
+    }
+  }
+
+  Future<void> _editAlert(EventAlert alert) async {
+    final result = await AlertEditorSheet.show(
+      context,
+      alert: alert,
+      event: _alertPreviewEvent,
+      showRemoveAfter: _isOneTimeEvent,
+      removeAfterAlert: _removeAfterAlert,
+    );
+    if (!mounted || result == null) return;
+    setState(() {
+      _alertsTouched = true;
+      switch (result) {
+        case AlertEditorRemoved():
+          _alerts = [for (final a in _alerts) if (a.id != alert.id) a];
+        case AlertEditorSaved(:final alert, :final removeAfterAlert):
+          _alerts = [
+            for (final existing in _alerts)
+              if (existing.id == alert.id) alert else existing,
+          ];
+          if (_isOneTimeEvent) _removeAfterAlert = removeAfterAlert;
+      }
+    });
+  }
+
+  void _removeAlert(EventAlert alert) {
+    setState(() {
+      _alertsTouched = true;
+      _alerts = [for (final a in _alerts) if (a.id != alert.id) a];
+    });
+  }
+
   Future<void> _loadSheetSettings() async {
     final settings = await SettingsService.getInstance();
     final palette = await settings.getColorPalette();
     final liveRendering = await settings.getLiveMarkdownRendering();
     final descriptionLimit = await settings.getEventDescriptionLimit();
     final railStyle = await settings.getCalendarDayRailStyle();
+    final alertSettings = await settings.getAlertSettings();
     if (!mounted) return;
     // Both reach the editor surface non-destructively: the span memos are
     // cleared and re_editor is nudged to rebuild its display paragraphs.
@@ -1201,6 +1360,9 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
       _liveMarkdownRendering = liveRendering;
       _descriptionLimit = descriptionLimit;
       _dayRailEnabled = railStyle != DayRailStyle.none;
+      _timedAlertDefault = alertSettings.timedDefault;
+      _allDayAlertDefault = alertSettings.allDayDefault;
+      _seedDefaultAlert();
     });
     if (rerender) _descriptionController.forceRepaint();
   }
@@ -1391,6 +1553,12 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             startMinute: _startMinute,
             durationMinutes: _durationMinutes,
           );
+    // A3 rides the same rule its switch is gated on, for the same reason the
+    // flags above do: an event edited into a series, or left with nothing that
+    // rings, must not keep a promise to delete itself.
+    final savedRule = _buildRule();
+    final effectiveRemoveAfterAlert =
+        _removeAfterAlert && _hasAlarmAlert && savedRule is OneTimeRecurrence;
     // For a multi-date one-time event, anchor the start on the earliest date
     // so ordering / "starts on" reflect the real first occurrence.
     final effectiveStart =
@@ -1406,7 +1574,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             title: title,
             categoryId: _categoryId,
             startDate: effectiveStart,
-            rule: _buildRule(),
+            rule: savedRule,
             endDate: effectiveEnd,
             retroactive: effectiveRetroactive,
             countOccurrences: effectiveCountOccurrences,
@@ -1416,6 +1584,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             assumeAbsentFrom: effectiveAssumeAbsentFrom,
             showInDayRail: effectiveShowInDayRail,
             perOccurrenceDescriptions: effectivePerOccurrenceDescriptions,
+            removeAfterAlert: effectiveRemoveAfterAlert,
             time: effectiveTime,
             description: effectiveDescription,
             noteId: _noteId,
@@ -1428,7 +1597,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             title: title,
             categoryId: _categoryId,
             startDate: effectiveStart,
-            rule: _buildRule(),
+            rule: savedRule,
             endDate: effectiveEnd,
             retroactive: effectiveRetroactive,
             countOccurrences: effectiveCountOccurrences,
@@ -1438,6 +1607,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             assumeAbsentFrom: effectiveAssumeAbsentFrom,
             showInDayRail: effectiveShowInDayRail,
             perOccurrenceDescriptions: effectivePerOccurrenceDescriptions,
+            removeAfterAlert: effectiveRemoveAfterAlert,
             time: effectiveTime,
             description: effectiveDescription,
             noteId: _noteId,
@@ -1470,6 +1640,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
         skippedDays: _skippedDays != null && event.rule is! OneTimeRecurrence
             ? _skippedDays
             : null,
+        alerts: List<EventAlert>.unmodifiable(_alerts),
       ),
     );
   }
@@ -2373,6 +2544,75 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                               onPressed: _clearEndTime,
                             ),
                       onTap: _pickEndTime,
+                    ),
+                  ],
+                  _SectionLabel(text: l10n.eventAlerts),
+                  for (final alert in _alerts) ...[
+                    _PickerTile(
+                      leading: CircleAvatar(
+                        child: Icon(
+                          alert.isAlarm
+                              ? Icons.alarm_rounded
+                              : Icons.notifications_active_rounded,
+                        ),
+                      ),
+                      title: alert.describe(l10n, _alertPreviewEvent),
+                      subtitle: alert.isAlarm
+                          ? l10n.eventAlertRingsUntilStopped
+                          : l10n.eventAlertNotification,
+                      trailing: IconButton(
+                        tooltip: l10n.eventAlertRemove,
+                        icon: const Icon(Icons.close_rounded),
+                        onPressed: () => _removeAlert(alert),
+                      ),
+                      onTap: () => _editAlert(alert),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  // Hidden at the cap rather than disabled: a chip that
+                  // refuses is a control the user has to learn the rule of,
+                  // and five alerts on one event is already an argument.
+                  if (_alerts.length < kMaxAlertsPerEvent)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: AutomationId(
+                        identifier: SemanticsIds.eventAlertAdd,
+                        child: ActionChip(
+                          avatar: const Icon(Icons.add_rounded, size: 18),
+                          label: Text(l10n.eventAlertAdd),
+                          onPressed: _addAlert,
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 8),
+                  Text(
+                    l10n.eventAlertHint,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  // Both gates, and both are the same argument as everywhere
+                  // else in this form: never offer a choice that cannot take
+                  // effect. A recurring event would lose Wednesday and Friday
+                  // because Monday rang, and a reminder is not what stops an
+                  // alarm.
+                  if (_isOneTimeEvent && _hasAlarmAlert) ...[
+                    const SizedBox(height: 12),
+                    AutomationId(
+                      identifier: SemanticsIds.eventAlertRemoveAfter,
+                      child: Card(
+                        margin: EdgeInsets.zero,
+                        child: SwitchListTile(
+                          value: _removeAfterAlert,
+                          onChanged: (value) =>
+                              setState(() => _removeAfterAlert = value),
+                          secondary: const CircleAvatar(
+                            child: Icon(Icons.auto_delete_outlined),
+                          ),
+                          title: Text(l10n.eventAlertRemoveAfter),
+                          subtitle: Text(l10n.eventAlertRemoveAfterHint),
+                        ),
+                      ),
                     ),
                   ],
                   _GroupHeader(text: l10n.eventSectionDetails),

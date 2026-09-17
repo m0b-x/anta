@@ -6231,5 +6231,147 @@
         "example": "07:00"
       }
     }
+  },
+  "eventAlerts": "Alerts",
+  "@eventAlerts": {
+    "description": "Section label above the alert rows in the event editor"
+  },
+  "eventAlertAdd": "Add alert",
+  "@eventAlertAdd": {
+    "description": "Chip that adds another alert to the event"
+  },
+  "eventAlertHint": "An alert fires for every occurrence of this event.",
+  "@eventAlertHint": {
+    "description": "Hint under the alert rows in the event editor"
+  },
+  "eventAlertRingsUntilStopped": "Rings until you stop it",
+  "@eventAlertRingsUntilStopped": {
+    "description": "Subtitle of an alarm-tier alert row"
+  },
+  "eventAlertNotification": "Notification you can snooze",
+  "@eventAlertNotification": {
+    "description": "Subtitle of a reminder-tier alert row"
+  },
+  "eventAlertRemove": "Remove alert",
+  "@eventAlertRemove": {
+    "description": "Removes one alert from the event"
+  },
+  "eventAlertRemoveAfter": "Remove after it rings",
+  "@eventAlertRemoveAfter": {
+    "description": "Switch deleting the event once its alarm is acknowledged"
+  },
+  "eventAlertRemoveAfterHint": "The event is deleted once you stop the alarm. Undo is offered right after.",
+  "@eventAlertRemoveAfterHint": {
+    "description": "Hint under the remove-after-it-rings switch"
+  },
+  "eventAlert": "Alert",
+  "@eventAlert": {
+    "description": "Title of the sheet that edits one alert"
+  },
+  "eventAlertTypeSection": "Type",
+  "@eventAlertTypeSection": {
+    "description": "Section label above the reminder/alarm choice"
+  },
+  "eventAlertModeNotify": "Reminder",
+  "@eventAlertModeNotify": {
+    "description": "The quieter alert tier: a notification"
+  },
+  "eventAlertModeRing": "Alarm",
+  "@eventAlertModeRing": {
+    "description": "The loud alert tier: rings until stopped"
+  },
+  "eventAlertNotifyHint": "Sits in the shade with Snooze and Done. Silent mode and Focus apply.",
+  "@eventAlertNotifyHint": {
+    "description": "Hint under the type control while Reminder is picked"
+  },
+  "eventAlertRingHint": "Plays on the alarm stream until you stop or snooze it.",
+  "@eventAlertRingHint": {
+    "description": "Hint under the type control while Alarm is picked"
+  },
+  "eventAlertFullScreenOff": "Full-screen alarms are off, so this rings as a banner instead of taking over the screen.",
+  "@eventAlertFullScreenOff": {
+    "description": "Warning shown for an alarm when the full-screen intent permission is missing"
+  },
+  "eventAlertWhenSection": "When",
+  "@eventAlertWhenSection": {
+    "description": "Section label above the alert timing choices"
+  },
+  "eventAlertCustom": "Custom",
+  "@eventAlertCustom": {
+    "description": "Chip that opens the free-form alert offset row"
+  },
+  "eventAlertUnitMinutes": "Minutes",
+  "@eventAlertUnitMinutes": {
+    "description": "Unit of a custom alert offset"
+  },
+  "eventAlertUnitHours": "Hours",
+  "@eventAlertUnitHours": {
+    "description": "Unit of a custom alert offset"
+  },
+  "eventAlertUnitDays": "Days",
+  "@eventAlertUnitDays": {
+    "description": "Unit of a custom alert offset"
+  },
+  "eventAlertOffsetDecrement": "Less time before",
+  "@eventAlertOffsetDecrement": {
+    "description": "Tooltip of the minus button on the custom alert offset"
+  },
+  "eventAlertOffsetIncrement": "More time before",
+  "@eventAlertOffsetIncrement": {
+    "description": "Tooltip of the plus button on the custom alert offset"
+  },
+  "eventAlertOnTheDay": "On the day",
+  "@eventAlertOnTheDay": {
+    "description": "All-day alert firing on the day of the event"
+  },
+  "eventAlertTheDayBefore": "The day before",
+  "@eventAlertTheDayBefore": {
+    "description": "All-day alert firing one day early"
+  },
+  "eventAlertAWeekBefore": "A week before",
+  "@eventAlertAWeekBefore": {
+    "description": "All-day alert firing seven days early"
+  },
+  "eventAlertTimeOfDay": "Time of day",
+  "@eventAlertTimeOfDay": {
+    "description": "Row that picks what time an all-day alert fires at"
+  },
+  "eventAlertNext": "Next {time}",
+  "@eventAlertNext": {
+    "description": "When this alert is next due, shown on the event detail sheet",
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "Mon, 21 Sep 06:50"
+      }
+    }
+  },
+  "eventRemovedAfterAlert": "removed after it rings",
+  "@eventRemovedAfterAlert": {
+    "description": "Subtitle segment on a row whose event deletes itself once acknowledged"
+  },
+  "eventAlertEventRemoved": "Event removed",
+  "@eventAlertEventRemoved": {
+    "description": "Snackbar shown on the calendar after an acknowledged alert deleted its event"
+  },
+  "alertsDefaultTimed": "Timed events",
+  "@alertsDefaultTimed": {
+    "description": "Settings row holding the alert a new timed event starts with"
+  },
+  "alertsDefaultTimedDesc": "The alert a new timed event starts with",
+  "@alertsDefaultTimedDesc": {
+    "description": "Description of the timed default row"
+  },
+  "alertsDefaultAllDay": "All-day events",
+  "@alertsDefaultAllDay": {
+    "description": "Settings row holding the alert a new all-day event starts with"
+  },
+  "alertsDefaultAllDayDesc": "The alert a new all-day event starts with",
+  "@alertsDefaultAllDayDesc": {
+    "description": "Description of the all-day default row"
+  },
+  "alertsDefaultNone": "No alert",
+  "@alertsDefaultNone": {
+    "description": "Value of a default row that seeds no alert at all"
   }
 }

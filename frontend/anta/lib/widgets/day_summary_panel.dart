@@ -8,6 +8,7 @@ import '../l10n/app_localizations.dart';
 import '../models/calendar_event.dart';
 import '../models/day_summary_entry.dart';
 import '../utils/markdown_color_syntax.dart';
+import 'event_alert_badge.dart';
 import 'markdown_inline_text.dart';
 
 /// Renders the calendar's bottom panel: a header naming the selected day
@@ -283,6 +284,8 @@ class DaySummaryPanel extends StatelessWidget {
                                     ),
                                   ),
                                 ],
+                                if (event != null)
+                                  EventAlertBadges(event: event),
                               ],
                             ),
                             subtitle: _buildSubtitle(context, entry),

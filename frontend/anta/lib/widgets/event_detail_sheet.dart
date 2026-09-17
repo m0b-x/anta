@@ -5,13 +5,16 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../constants/calendar_categories.dart';
+import '../constants/event_alerts.dart';
 import '../constants/event_presence.dart';
 import '../constants/event_skips.dart';
 import '../constants/event_priorities.dart';
 import '../constants/occurrence_descriptions.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_event.dart';
+import '../models/event_alert.dart';
 import '../models/recurrence_rule.dart';
+import '../services/alert_scheduler.dart';
 import '../services/event_time_formatter.dart';
 import '../services/recurrence_formatter.dart';
 import '../utils/markdown_color_syntax.dart';
@@ -197,6 +200,19 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
   /// numbers move with the toggle instead of waiting for a reopen.
   late PresenceStats? _stats = _computeStats();
 
+  /// The event's alerts, read once from the synchronous facade. Rebuilding
+  /// this list in `build` would be another map probe per scroll frame for a
+  /// set that cannot change while a read-only sheet is open.
+  late final List<EventAlert> _alerts = EventAlerts.alertsFor(widget.event.id);
+
+  /// When each alert is next due, keyed by alert id — resolved **once** from
+  /// the registry, never in `build`, exactly like [_upcoming].
+  ///
+  /// Empty until the read lands, and empty forever on a platform with no
+  /// registry at all: the row still describes the alert, it simply cannot add
+  /// a date to it.
+  Map<String, DateTime> _nextFires = const {};
+
   /// Whether the present/missed control is offered at all: the event opts in,
   /// the rule repeats, and the caller wired persistence.
   bool get _presenceVisible =>
@@ -249,6 +265,39 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
       .any(
         (line) => MarkdownListSyntax.parse(line)?.kind == MarkdownListKind.task,
       );
+
+  @override
+  void initState() {
+    super.initState();
+    if (_alerts.isNotEmpty) unawaited(_resolveNextFires());
+  }
+
+  /// "10 min before · Next Mon, 21 Sep 06:50" — the shared describe string,
+  /// plus what the registry says is armed when it says anything at all.
+  String _alertLine(
+    BuildContext context,
+    EventAlert alert,
+    AppLocalizations l10n,
+    String localeName,
+  ) {
+    final described = alert.describe(l10n, widget.event);
+    final next = _nextFires[alert.id];
+    if (next == null) return described;
+    // The clock half goes through `MaterialLocalizations`, not a bare `intl`
+    // skeleton: this is widget code, so it can honour the device's 12h/24h
+    // preference — the rule `EventTimeFormatter.formatRangeOfContext` follows.
+    final time = MaterialLocalizations.of(
+      context,
+    ).formatTimeOfDay(TimeOfDay.fromDateTime(next));
+    final when = '${DateFormat.MMMEd(localeName).format(next)} $time';
+    return '$described · ${l10n.eventAlertNext(when)}';
+  }
+
+  Future<void> _resolveNextFires() async {
+    final next = await AlertScheduler.nextFiresForEventById(widget.event.id);
+    if (!mounted || next.isEmpty) return;
+    setState(() => _nextFires = next);
+  }
 
   @override
   void dispose() {
@@ -540,6 +589,18 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
                     ? l10n.eventAllDay
                     : EventTimeFormatter.formatRange(time, l10n),
               ),
+              // One row per alert, under the time they are measured from
+              // (§5.3). Tapping opens the editor, which is where an alert is
+              // changed — this sheet writes nothing.
+              for (final alert in _alerts)
+                _InfoRow(
+                  icon: alert.isAlarm
+                      ? Icons.alarm_rounded
+                      : Icons.notifications_active_rounded,
+                  iconColor: alert.isAlarm ? colorScheme.primary : null,
+                  text: _alertLine(context, alert, l10n, localeName),
+                  onTap: () => _close(EventDetailAction.edit),
+                ),
               if (isRecurring)
                 _InfoRow(
                   icon: Icons.repeat_rounded,
@@ -752,20 +813,38 @@ class _InfoRow extends StatelessWidget {
   final IconData icon;
   final String text;
 
-  const _InfoRow({required this.icon, required this.text});
+  /// Tints the glyph away from the row default. Only the alarm rows use it —
+  /// a ring is the one fact on this sheet that is louder than the rest.
+  final Color? iconColor;
+
+  /// Makes the row a target. Null leaves it exactly as inert as it was.
+  final VoidCallback? onTap;
+
+  const _InfoRow({
+    required this.icon,
+    required this.text,
+    this.iconColor,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
+    final row = Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         children: [
-          Icon(icon, size: 18, color: theme.colorScheme.onSurfaceVariant),
+          Icon(
+            icon,
+            size: 18,
+            color: iconColor ?? theme.colorScheme.onSurfaceVariant,
+          ),
           const SizedBox(width: 10),
           Expanded(child: Text(text, style: theme.textTheme.bodyMedium)),
         ],
       ),
     );
+    if (onTap == null) return row;
+    return InkWell(onTap: onTap, child: row);
   }
 }

@@ -7,6 +7,11 @@ import '../database/database.dart';
 import '../database/database_lifecycle.dart';
 import '../models/event_alert.dart';
 
+/// Writes one event's complete alert set. The seam `CalendarBloc` holds, so a
+/// bloc test can watch the call without standing up a database.
+typedef AlertWriter =
+    Future<void> Function(String eventId, List<EventAlert> alerts);
+
 /// Owns the rows of `calendar_event_alerts` and publishes them to the
 /// synchronous [EventAlerts] facade.
 ///
@@ -63,6 +68,23 @@ class EventAlertService {
   static void reset() {
     _instance = null;
     EventAlerts.resetCache();
+  }
+
+  /// The default [AlertWriter]: resolves the singleton and writes one event's
+  /// alerts.
+  ///
+  /// The `AlertScheduler.reconcileEventById` shape, and the seam
+  /// `CalendarBloc` holds for the same reason — a bloc test can watch the call
+  /// without standing up a database. Failures are **not** swallowed here: an
+  /// alert the user set and the app then dropped in silence is not
+  /// best-effort, and the handler logs it next to the event write it belongs
+  /// with.
+  static Future<void> replaceForEventById(
+    String eventId,
+    List<EventAlert> alerts,
+  ) async {
+    final service = await getInstance();
+    await service.replaceForEvent(eventId, alerts);
   }
 
   /// Mutable working copy behind the published facade. A single event's edit

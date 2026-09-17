@@ -43,6 +43,9 @@ abstract final class AgendaSearchText {
       // there would find rows showing no priority at all.
       if (event.priority != kDefaultEventPriority)
         EventPriorities.labelOf(event.priority, l10n),
+      // A3's segment, which the subtitle renders for the same events — a row
+      // that shows the words has to be findable by typing them.
+      if (event.removeAfterAlert) l10n.eventRemovedAfterAlert,
     ];
     return parts.join(separator);
   }

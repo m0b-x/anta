@@ -8499,6 +8499,210 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'It was due at {time}'**
   String alertsMissedBody(String time);
+
+  /// Section label above the alert rows in the event editor
+  ///
+  /// In en, this message translates to:
+  /// **'Alerts'**
+  String get eventAlerts;
+
+  /// Chip that adds another alert to the event
+  ///
+  /// In en, this message translates to:
+  /// **'Add alert'**
+  String get eventAlertAdd;
+
+  /// Hint under the alert rows in the event editor
+  ///
+  /// In en, this message translates to:
+  /// **'An alert fires for every occurrence of this event.'**
+  String get eventAlertHint;
+
+  /// Subtitle of an alarm-tier alert row
+  ///
+  /// In en, this message translates to:
+  /// **'Rings until you stop it'**
+  String get eventAlertRingsUntilStopped;
+
+  /// Subtitle of a reminder-tier alert row
+  ///
+  /// In en, this message translates to:
+  /// **'Notification you can snooze'**
+  String get eventAlertNotification;
+
+  /// Removes one alert from the event
+  ///
+  /// In en, this message translates to:
+  /// **'Remove alert'**
+  String get eventAlertRemove;
+
+  /// Switch deleting the event once its alarm is acknowledged
+  ///
+  /// In en, this message translates to:
+  /// **'Remove after it rings'**
+  String get eventAlertRemoveAfter;
+
+  /// Hint under the remove-after-it-rings switch
+  ///
+  /// In en, this message translates to:
+  /// **'The event is deleted once you stop the alarm. Undo is offered right after.'**
+  String get eventAlertRemoveAfterHint;
+
+  /// Title of the sheet that edits one alert
+  ///
+  /// In en, this message translates to:
+  /// **'Alert'**
+  String get eventAlert;
+
+  /// Section label above the reminder/alarm choice
+  ///
+  /// In en, this message translates to:
+  /// **'Type'**
+  String get eventAlertTypeSection;
+
+  /// The quieter alert tier: a notification
+  ///
+  /// In en, this message translates to:
+  /// **'Reminder'**
+  String get eventAlertModeNotify;
+
+  /// The loud alert tier: rings until stopped
+  ///
+  /// In en, this message translates to:
+  /// **'Alarm'**
+  String get eventAlertModeRing;
+
+  /// Hint under the type control while Reminder is picked
+  ///
+  /// In en, this message translates to:
+  /// **'Sits in the shade with Snooze and Done. Silent mode and Focus apply.'**
+  String get eventAlertNotifyHint;
+
+  /// Hint under the type control while Alarm is picked
+  ///
+  /// In en, this message translates to:
+  /// **'Plays on the alarm stream until you stop or snooze it.'**
+  String get eventAlertRingHint;
+
+  /// Warning shown for an alarm when the full-screen intent permission is missing
+  ///
+  /// In en, this message translates to:
+  /// **'Full-screen alarms are off, so this rings as a banner instead of taking over the screen.'**
+  String get eventAlertFullScreenOff;
+
+  /// Section label above the alert timing choices
+  ///
+  /// In en, this message translates to:
+  /// **'When'**
+  String get eventAlertWhenSection;
+
+  /// Chip that opens the free-form alert offset row
+  ///
+  /// In en, this message translates to:
+  /// **'Custom'**
+  String get eventAlertCustom;
+
+  /// Unit of a custom alert offset
+  ///
+  /// In en, this message translates to:
+  /// **'Minutes'**
+  String get eventAlertUnitMinutes;
+
+  /// Unit of a custom alert offset
+  ///
+  /// In en, this message translates to:
+  /// **'Hours'**
+  String get eventAlertUnitHours;
+
+  /// Unit of a custom alert offset
+  ///
+  /// In en, this message translates to:
+  /// **'Days'**
+  String get eventAlertUnitDays;
+
+  /// Tooltip of the minus button on the custom alert offset
+  ///
+  /// In en, this message translates to:
+  /// **'Less time before'**
+  String get eventAlertOffsetDecrement;
+
+  /// Tooltip of the plus button on the custom alert offset
+  ///
+  /// In en, this message translates to:
+  /// **'More time before'**
+  String get eventAlertOffsetIncrement;
+
+  /// All-day alert firing on the day of the event
+  ///
+  /// In en, this message translates to:
+  /// **'On the day'**
+  String get eventAlertOnTheDay;
+
+  /// All-day alert firing one day early
+  ///
+  /// In en, this message translates to:
+  /// **'The day before'**
+  String get eventAlertTheDayBefore;
+
+  /// All-day alert firing seven days early
+  ///
+  /// In en, this message translates to:
+  /// **'A week before'**
+  String get eventAlertAWeekBefore;
+
+  /// Row that picks what time an all-day alert fires at
+  ///
+  /// In en, this message translates to:
+  /// **'Time of day'**
+  String get eventAlertTimeOfDay;
+
+  /// When this alert is next due, shown on the event detail sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Next {time}'**
+  String eventAlertNext(String time);
+
+  /// Subtitle segment on a row whose event deletes itself once acknowledged
+  ///
+  /// In en, this message translates to:
+  /// **'removed after it rings'**
+  String get eventRemovedAfterAlert;
+
+  /// Snackbar shown on the calendar after an acknowledged alert deleted its event
+  ///
+  /// In en, this message translates to:
+  /// **'Event removed'**
+  String get eventAlertEventRemoved;
+
+  /// Settings row holding the alert a new timed event starts with
+  ///
+  /// In en, this message translates to:
+  /// **'Timed events'**
+  String get alertsDefaultTimed;
+
+  /// Description of the timed default row
+  ///
+  /// In en, this message translates to:
+  /// **'The alert a new timed event starts with'**
+  String get alertsDefaultTimedDesc;
+
+  /// Settings row holding the alert a new all-day event starts with
+  ///
+  /// In en, this message translates to:
+  /// **'All-day events'**
+  String get alertsDefaultAllDay;
+
+  /// Description of the all-day default row
+  ///
+  /// In en, this message translates to:
+  /// **'The alert a new all-day event starts with'**
+  String get alertsDefaultAllDayDesc;
+
+  /// Value of a default row that seeds no alert at all
+  ///
+  /// In en, this message translates to:
+  /// **'No alert'**
+  String get alertsDefaultNone;
 }
 
 class _AppLocalizationsDelegate

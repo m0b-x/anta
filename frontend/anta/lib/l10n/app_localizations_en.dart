@@ -4971,4 +4971,115 @@ class AppLocalizationsEn extends AppLocalizations {
   String alertsMissedBody(String time) {
     return 'It was due at $time';
   }
+
+  @override
+  String get eventAlerts => 'Alerts';
+
+  @override
+  String get eventAlertAdd => 'Add alert';
+
+  @override
+  String get eventAlertHint =>
+      'An alert fires for every occurrence of this event.';
+
+  @override
+  String get eventAlertRingsUntilStopped => 'Rings until you stop it';
+
+  @override
+  String get eventAlertNotification => 'Notification you can snooze';
+
+  @override
+  String get eventAlertRemove => 'Remove alert';
+
+  @override
+  String get eventAlertRemoveAfter => 'Remove after it rings';
+
+  @override
+  String get eventAlertRemoveAfterHint =>
+      'The event is deleted once you stop the alarm. Undo is offered right after.';
+
+  @override
+  String get eventAlert => 'Alert';
+
+  @override
+  String get eventAlertTypeSection => 'Type';
+
+  @override
+  String get eventAlertModeNotify => 'Reminder';
+
+  @override
+  String get eventAlertModeRing => 'Alarm';
+
+  @override
+  String get eventAlertNotifyHint =>
+      'Sits in the shade with Snooze and Done. Silent mode and Focus apply.';
+
+  @override
+  String get eventAlertRingHint =>
+      'Plays on the alarm stream until you stop or snooze it.';
+
+  @override
+  String get eventAlertFullScreenOff =>
+      'Full-screen alarms are off, so this rings as a banner instead of taking over the screen.';
+
+  @override
+  String get eventAlertWhenSection => 'When';
+
+  @override
+  String get eventAlertCustom => 'Custom';
+
+  @override
+  String get eventAlertUnitMinutes => 'Minutes';
+
+  @override
+  String get eventAlertUnitHours => 'Hours';
+
+  @override
+  String get eventAlertUnitDays => 'Days';
+
+  @override
+  String get eventAlertOffsetDecrement => 'Less time before';
+
+  @override
+  String get eventAlertOffsetIncrement => 'More time before';
+
+  @override
+  String get eventAlertOnTheDay => 'On the day';
+
+  @override
+  String get eventAlertTheDayBefore => 'The day before';
+
+  @override
+  String get eventAlertAWeekBefore => 'A week before';
+
+  @override
+  String get eventAlertTimeOfDay => 'Time of day';
+
+  @override
+  String eventAlertNext(String time) {
+    return 'Next $time';
+  }
+
+  @override
+  String get eventRemovedAfterAlert => 'removed after it rings';
+
+  @override
+  String get eventAlertEventRemoved => 'Event removed';
+
+  @override
+  String get alertsDefaultTimed => 'Timed events';
+
+  @override
+  String get alertsDefaultTimedDesc =>
+      'The alert a new timed event starts with';
+
+  @override
+  String get alertsDefaultAllDay => 'All-day events';
+
+  @override
+  String get alertsDefaultAllDayDesc =>
+      'The alert a new all-day event starts with';
+
+  @override
+  String get alertsDefaultNone => 'No alert';
 }

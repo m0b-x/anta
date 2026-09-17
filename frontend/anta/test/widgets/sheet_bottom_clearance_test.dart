@@ -13,8 +13,10 @@ import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/agenda_day_list.dart';
 import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/calendar_event.dart';
+import 'package:anta/models/event_alert.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/widgets/agenda_day_list_sheet.dart';
+import 'package:anta/widgets/alert_editor_sheet.dart';
 import 'package:anta/widgets/calendar_date_picker_sheet.dart';
 import 'package:anta/widgets/category_editor_sheet.dart';
 import 'package:anta/widgets/color_palette_sheet.dart';
@@ -407,6 +409,31 @@ void main() {
 
     // The markdown bar only docks while the description has focus, so with the
     // form idle the clearance is the scroll view's job.
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+  });
+
+  testWidgets('the alert editor sheet clears the navigation bar', (
+    tester,
+  ) async {
+    sizeSurfaceWithNavBar(tester);
+    await openFrom(
+      tester,
+      (context) => AlertEditorSheet.show(
+        context,
+        alert: const EventAlert(id: 'a1', eventId: 'e1', offsetMinutes: 10),
+        event: CalendarEvent(
+          id: 'e1',
+          title: 'Leg day',
+          categoryId: 'gym',
+          startDate: DateTime.utc(2026, 9, 20),
+          rule: const OneTimeRecurrence(),
+          time: const EventTime(startMinute: 18 * 60),
+        ),
+      ),
+    );
+
+    // The footer's Remove button is the last thing in the scroll view, and it
+    // is exactly what a nav bar eats.
     expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
   });
 

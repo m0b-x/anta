@@ -26,6 +26,7 @@ import 'pages/alarm_page.dart';
 import 'pages/optimized_folder_content_page.dart';
 import 'pages/onboarding_page.dart';
 import 'services/alert_gateway.dart';
+import 'services/alert_removal_notice.dart';
 import 'services/alert_scheduler.dart';
 import 'services/app_navigator.dart';
 import 'services/counter_service.dart';
@@ -331,16 +332,23 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   /// has to wait for a navigator to exist; the queue is what holds it, and
   /// [_navigationReady] is what keeps it from landing under the restored
   /// location.
-  void _drainPendingNavigation() {
+  Future<void> _drainPendingNavigation() async {
     if (!_navigationReady) return;
     if (AppNavigator.navigatorKey.currentState == null) return;
     for (final intent in PendingNavigationQueue.instance.drain()) {
       switch (intent) {
-        case OpenEventIntent():
+        case OpenEventIntent(:final acknowledged):
+          // A3, **awaited** before the navigation: the calendar this is about
+          // to open is where the "Removed · Undo" snackbar lands, and a tap
+          // that removed the event lands on its day with nothing open — a
+          // detail sheet over an event being deleted underneath it would
+          // offer Edit on a tombstone and hide the Undo behind its barrier.
+          final removed =
+              acknowledged && await AlertAcknowledgement.apply(intent.payload);
           unawaited(
             AppNavigator.toCalendarOccurrence(
               day: intent.payload.dayUtc,
-              eventId: intent.payload.eventId,
+              eventId: removed ? null : intent.payload.eventId,
             ),
           );
         case OpenAlarmIntent():

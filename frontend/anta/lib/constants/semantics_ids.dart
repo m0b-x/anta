@@ -65,4 +65,11 @@ abstract final class SemanticsIds {
 
   /// The calendar settings row that arms a ring ten seconds from now.
   static const String alertsTestAlarm = 'alerts-test-alarm';
+
+  /// The event editor's "Add alert" chip and the Save of the sheet it raises.
+  /// A device pass has to arm an alarm on a real event, and both controls sit
+  /// inside a scrolling form with no other stable landmark.
+  static const String eventAlertAdd = 'event-alert-add';
+  static const String alertSheetSave = 'alert-sheet-save';
+  static const String eventAlertRemoveAfter = 'event-alert-remove-after';
 }
