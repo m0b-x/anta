@@ -1671,6 +1671,33 @@ because Android refuses to show the dialog a second time). A denial leaves the
 alert saved and registered; the Calendar settings Alerts section is where the
 state is read live and fixed.
 
+**The Alerts hub** (`lib/pages/alerts_page.dart`, drawer row under CALENDAR,
+`NavDestinationKind.alerts`) is a **view over events' alerts, never a list of
+its own**: nothing is created there and every row leads back to its event (a
+tap is `AppNavigator.toCalendarOccurrence`, the reminder-tap route). Rows come
+from `AlertScheduler.hubEntries()` and answer two questions at once — what the
+phone *will* do (every `pending` registration still ahead, read from the
+registry so a fire the horizon's `total` cap pushed out is not promised) and
+what it *could* do (each **disabled** alert's next occurrence, planned on the
+spot, because a registry-only list would make the hub's own switch a one-way
+door). Grouped by the fire instant's day through `AgendaListView.dayHeaderLabel`.
+The `Switch` dispatches `ToggleEventAlert`, which writes the whole alert set
+with one `enabled` flipped through the same `AlertWriter` the editor's save
+uses, then reconciles the event and bumps `occurrenceRevision` so the row
+badges re-render. A **snoozed** row shows the snoozed instant with the planned
+one struck through beneath it, and trades the switch for *Cancel snooze*
+(`AlertScheduler.cancelSnooze`) — disabling the alert would leave the snooze
+armed, since a snooze is never the plan's to cancel. Long-press on a
+`removeAfterAlert` event cancels the alarm by deleting the event (A3), behind a
+confirm and with the same Undo the calendar shows. Two banners — notifications
+denied, full-screen alarms denied — each with *Turn on* through the gateway,
+re-read on every resume. The page re-reads on a `CalendarBloc` emit and on
+`AlertScheduler.registryRevision`, a process-global counter bumped after every
+turn of the scheduler's serialized chain, which is how a Stop on the alarm
+page or a resume reconcile reaches a hub that is already open. With
+notifications denied an alarm still **plays** but posts nothing, so a dark
+screen stays dark — the banner says so (emulator pass, 2026-09-17).
+
 **What never rings**, and the device-local registry that backs it, are in the
 roadmap's §2.6 and §2.3 — both are summarised in `COPILOT_CONTEXT.md`'s
 Calendar v40 bullet.
@@ -1707,7 +1734,7 @@ Calendar v40 bullet.
 | Alert service / DAO      | [lib/services/event_alert_service.dart](../lib/services/event_alert_service.dart), [lib/database/daos/event_alert_dao.dart](../lib/database/daos/event_alert_dao.dart) |
 | Alert planner / scheduler | [lib/utils/alert_planner.dart](../lib/utils/alert_planner.dart), [lib/services/alert_scheduler.dart](../lib/services/alert_scheduler.dart) |
 | Alert platform seam      | [lib/services/alert_gateway.dart](../lib/services/alert_gateway.dart), [lib/services/android_alert_gateway.dart](../lib/services/android_alert_gateway.dart) |
-| Alert UI                 | [lib/widgets/alert_editor_sheet.dart](../lib/widgets/alert_editor_sheet.dart), [lib/widgets/event_alert_badge.dart](../lib/widgets/event_alert_badge.dart), [lib/pages/alarm_page.dart](../lib/pages/alarm_page.dart) |
+| Alert UI                 | [lib/widgets/alert_editor_sheet.dart](../lib/widgets/alert_editor_sheet.dart), [lib/widgets/event_alert_badge.dart](../lib/widgets/event_alert_badge.dart), [lib/pages/alarm_page.dart](../lib/pages/alarm_page.dart), [lib/pages/alerts_page.dart](../lib/pages/alerts_page.dart) |
 | Alert removal + Undo     | [lib/services/alert_removal_notice.dart](../lib/services/alert_removal_notice.dart), [lib/controllers/alert_ring_controller.dart](../lib/controllers/alert_ring_controller.dart) |
 | Category icons & colors  | [lib/constants/calendar_icons.dart](../lib/constants/calendar_icons.dart), [lib/constants/calendar_colors.dart](../lib/constants/calendar_colors.dart) |
 | L10n                     | [lib/l10n/app_en.arb](../lib/l10n/app_en.arb), [lib/l10n/app_de.arb](../lib/l10n/app_de.arb), [lib/l10n/app_ro.arb](../lib/l10n/app_ro.arb) |

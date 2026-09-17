@@ -8703,6 +8703,72 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No alert'**
   String get alertsDefaultNone;
+
+  /// Title of the Alerts hub page and of its drawer row
+  ///
+  /// In en, this message translates to:
+  /// **'Alerts'**
+  String get alertsTitle;
+
+  /// Subtitle of the Alerts drawer row
+  ///
+  /// In en, this message translates to:
+  /// **'Upcoming reminders and alarms'**
+  String get alertsRowDesc;
+
+  /// Empty state title of the Alerts hub
+  ///
+  /// In en, this message translates to:
+  /// **'No upcoming alerts'**
+  String get alertsEmpty;
+
+  /// Empty state body of the Alerts hub
+  ///
+  /// In en, this message translates to:
+  /// **'Add a reminder or an alarm to an event and it shows up here.'**
+  String get alertsEmptyDesc;
+
+  /// Hub banner shown while the notification permission is denied
+  ///
+  /// In en, this message translates to:
+  /// **'Notifications are off. Reminders stay hidden, and an alarm rings without waking the screen.'**
+  String get alertsNotificationsOffBanner;
+
+  /// Hub banner shown while the full-screen intent permission is denied
+  ///
+  /// In en, this message translates to:
+  /// **'Full-screen alarms are off. Alarms show as a banner on a locked phone.'**
+  String get alertsFullScreenOffBanner;
+
+  /// Subtitle of a snoozed hub row; alert is the alert's own description, e.g. 10 min before
+  ///
+  /// In en, this message translates to:
+  /// **'Snoozed · {alert}'**
+  String alertsSnoozedRow(String alert);
+
+  /// Tooltip of the button that drops a standing snooze
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel snooze'**
+  String get alertsCancelSnooze;
+
+  /// Accessibility label of a hub row's on/off switch
+  ///
+  /// In en, this message translates to:
+  /// **'Alert for {title}'**
+  String alertsToggleLabel(String title);
+
+  /// Title and confirm button of the dialog that cancels a remove-after-it-rings alarm
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel alarm'**
+  String get alertsCancelAlarm;
+
+  /// Body of the cancel-alarm dialog
+  ///
+  /// In en, this message translates to:
+  /// **'\"{title}\" is removed after it rings, so cancelling the alarm removes the event.'**
+  String alertsCancelAlarmConfirm(String title);
 }
 
 class _AppLocalizationsDelegate

@@ -187,3 +187,24 @@ final class ClearOccurrenceSkipped extends CalendarPageEvent {
   @override
   List<Object?> get props => [eventId, day];
 }
+
+/// Flips one alert's `enabled` flag from the Alerts hub (**v40**, §5.6).
+///
+/// Disabling keeps the row and registers nothing; enabling re-arms it. The
+/// alert's own settings are never touched, which is the difference between
+/// this and removing it in the editor. Setting the value an alert already has
+/// is a no-op.
+final class ToggleEventAlert extends CalendarPageEvent {
+  final String eventId;
+  final String alertId;
+  final bool enabled;
+
+  const ToggleEventAlert({
+    required this.eventId,
+    required this.alertId,
+    required this.enabled,
+  });
+
+  @override
+  List<Object?> get props => [eventId, alertId, enabled];
+}

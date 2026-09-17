@@ -5082,4 +5082,46 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get alertsDefaultNone => 'No alert';
+
+  @override
+  String get alertsTitle => 'Alerts';
+
+  @override
+  String get alertsRowDesc => 'Upcoming reminders and alarms';
+
+  @override
+  String get alertsEmpty => 'No upcoming alerts';
+
+  @override
+  String get alertsEmptyDesc =>
+      'Add a reminder or an alarm to an event and it shows up here.';
+
+  @override
+  String get alertsNotificationsOffBanner =>
+      'Notifications are off. Reminders stay hidden, and an alarm rings without waking the screen.';
+
+  @override
+  String get alertsFullScreenOffBanner =>
+      'Full-screen alarms are off. Alarms show as a banner on a locked phone.';
+
+  @override
+  String alertsSnoozedRow(String alert) {
+    return 'Snoozed · $alert';
+  }
+
+  @override
+  String get alertsCancelSnooze => 'Cancel snooze';
+
+  @override
+  String alertsToggleLabel(String title) {
+    return 'Alert for $title';
+  }
+
+  @override
+  String get alertsCancelAlarm => 'Cancel alarm';
+
+  @override
+  String alertsCancelAlarmConfirm(String title) {
+    return '\"$title\" is removed after it rings, so cancelling the alarm removes the event.';
+  }
 }

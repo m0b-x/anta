@@ -5120,4 +5120,46 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get alertsDefaultNone => 'Keine Erinnerung';
+
+  @override
+  String get alertsTitle => 'Erinnerungen';
+
+  @override
+  String get alertsRowDesc => 'Anstehende Mitteilungen und Alarme';
+
+  @override
+  String get alertsEmpty => 'Keine anstehenden Erinnerungen';
+
+  @override
+  String get alertsEmptyDesc =>
+      'Füge einem Termin eine Mitteilung oder einen Alarm hinzu, dann erscheint er hier.';
+
+  @override
+  String get alertsNotificationsOffBanner =>
+      'Benachrichtigungen sind aus. Mitteilungen erscheinen nicht, und ein Alarm klingelt, ohne den Bildschirm zu wecken.';
+
+  @override
+  String get alertsFullScreenOffBanner =>
+      'Vollbild-Alarme sind aus. Auf dem gesperrten Telefon erscheinen Alarme als Banner.';
+
+  @override
+  String alertsSnoozedRow(String alert) {
+    return 'Schlummert · $alert';
+  }
+
+  @override
+  String get alertsCancelSnooze => 'Schlummern abbrechen';
+
+  @override
+  String alertsToggleLabel(String title) {
+    return 'Erinnerung für $title';
+  }
+
+  @override
+  String get alertsCancelAlarm => 'Alarm abbrechen';
+
+  @override
+  String alertsCancelAlarmConfirm(String title) {
+    return '„$title“ wird nach dem Klingeln entfernt, daher entfernt das Abbrechen des Alarms den Termin.';
+  }
 }

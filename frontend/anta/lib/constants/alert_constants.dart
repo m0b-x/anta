@@ -135,3 +135,8 @@ const int kAlertMissedIdSalt = 0x4d495353;
 /// Long enough to lock the phone and watch what a real ring does to a locked
 /// screen, short enough that nobody has to wait for it.
 const Duration kAlertTestAlarmDelay = Duration(seconds: 10);
+
+/// Key prefix the `alarm` package stores its Dart-side list of armed alarms
+/// under, in `SharedPreferences` (`AlarmStorage.prefix`). Spelled here so the
+/// QA reset can spare those entries without importing the plugin.
+const String kAlarmPluginStoragePrefix = '__alarm_id__';

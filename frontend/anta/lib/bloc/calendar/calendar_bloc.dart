@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../constants/event_alerts.dart';
 import '../../constants/public_holidays.dart';
 import '../../models/calendar_event.dart';
 import '../../models/calendar_grid_filters.dart';
@@ -202,6 +203,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     on<SetOccurrencePresence>(_onSetOccurrencePresence);
     on<SetOccurrenceSkipped>(_onSetOccurrenceSkipped);
     on<ClearOccurrenceSkipped>(_onClearOccurrenceSkipped);
+    on<ToggleEventAlert>(_onToggleEventAlert);
   }
 
   /// Awaits one service's construction, logging rather than rethrowing.
@@ -976,5 +978,48 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
 
   static DateTime _dateOnly(DateTime date) {
     return DateTime.utc(date.year, date.month, date.day);
+  }
+
+  /// Flips one alert on or off from the hub.
+  ///
+  /// Goes through the same [AlertWriter] the editor's save uses — the whole
+  /// set, with one alert changed — so there is still exactly one write path
+  /// for an event's alerts, and the same awaited-then-reconcile order. The set
+  /// is read from the [EventAlerts] facade, which is configured by the time
+  /// this state is `CalendarPageLoaded`.
+  ///
+  /// Bumps `occurrenceRevision`: an alert changes no membership, but the row
+  /// badges are drawn from the facade inside memoized rows, and that revision
+  /// is what re-renders them.
+  Future<void> _onToggleEventAlert(
+    ToggleEventAlert event,
+    Emitter<CalendarPageState> emit,
+  ) async {
+    final current = state;
+    if (current is! CalendarPageLoaded) return;
+    final alerts = EventAlerts.alertsFor(event.eventId);
+    var changed = false;
+    final next = <EventAlert>[];
+    for (final alert in alerts) {
+      if (alert.id == event.alertId && alert.enabled != event.enabled) {
+        changed = true;
+        next.add(alert.copyWith(enabled: event.enabled));
+      } else {
+        next.add(alert);
+      }
+    }
+    if (!changed) return;
+    try {
+      await _writeAlerts(event.eventId, next);
+    } catch (e) {
+      debugPrint('[CalendarBloc] Alert toggle error: $e');
+      return;
+    }
+    unawaited(
+      _reconcileAlerts(event.eventId, AlertReconcileReason.eventChanged),
+    );
+    final latest = state;
+    if (latest is! CalendarPageLoaded) return;
+    emit(latest.copyWith(occurrenceRevision: latest.occurrenceRevision + 1));
   }
 }

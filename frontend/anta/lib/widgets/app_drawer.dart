@@ -141,6 +141,17 @@ class _AppDrawerState extends State<AppDrawer> {
                     AppNavigator.toCalendarSettings(context);
                   },
                 ),
+                _buildMenuItem(
+                  context: context,
+                  icon: Icons.notifications_active_rounded,
+                  title: l10n.alertsTitle,
+                  subtitle: l10n.alertsRowDesc,
+                  identifier: SemanticsIds.drawerAlerts,
+                  onTap: () {
+                    AppNavigator.pop(context);
+                    AppNavigator.toAlerts(context);
+                  },
+                ),
 
                 _buildGroupLabel(context, l10n.notes),
                 _buildMenuItem(

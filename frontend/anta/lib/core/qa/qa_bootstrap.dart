@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../constants/alert_constants.dart';
 import '../../services/backup_service.dart';
 import '../../services/settings_service.dart';
 import 'qa_mode.dart';
@@ -108,6 +109,25 @@ class QaBootstrap {
 
   static QaBootstrap? _appInstance;
 
+  /// Clears the QA preference namespace, sparing the `alarm` package's own
+  /// entries.
+  ///
+  /// That package keeps its Dart-side list of armed alarms in the same
+  /// `SharedPreferences` — and therefore under the same QA prefix — while its
+  /// native store re-arms them on every start. Wiping the list leaves alarms
+  /// in AlarmManager that `Alarm.getAlarms()` no longer reports, so the
+  /// reconcile's OS-truth pass can never cancel them and a previous run's
+  /// alarm rings days later (emulator pass, 2026-09-17). Kept, they are
+  /// platform entries naming the QA database that the fresh plan does not
+  /// contain, which is exactly what the first reconcile cancels.
+  static Future<void> _clearPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    for (final key in prefs.getKeys().toList()) {
+      if (key.startsWith(kAlarmPluginStoragePrefix)) continue;
+      await prefs.remove(key);
+    }
+  }
+
   /// The production wiring, built once and reused by both hooks.
   static Future<QaBootstrap> _forApp() async {
     final existing = _appInstance;
@@ -115,8 +135,7 @@ class QaBootstrap {
     final documents = (await getApplicationDocumentsDirectory()).path;
     return _appInstance = QaBootstrap(
       documentsPath: documents,
-      clearPreferences: () async =>
-          (await SharedPreferences.getInstance()).clear(),
+      clearPreferences: _clearPreferences,
       importSeed: (json) async {
         final backup = await BackupService.getInstance();
         final result = await backup.importFromJson(json);

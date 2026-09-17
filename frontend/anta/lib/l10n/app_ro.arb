@@ -1531,5 +1531,16 @@
   "alertsDefaultTimedDesc": "Alerta cu care pornește un eveniment nou cu oră",
   "alertsDefaultAllDay": "Evenimente de o zi",
   "alertsDefaultAllDayDesc": "Alerta cu care pornește un eveniment nou de o zi întreagă",
-  "alertsDefaultNone": "Fără alertă"
+  "alertsDefaultNone": "Fără alertă",
+  "alertsTitle": "Alerte",
+  "alertsRowDesc": "Notificări și alarme viitoare",
+  "alertsEmpty": "Nicio alertă viitoare",
+  "alertsEmptyDesc": "Adaugă o notificare sau o alarmă unui eveniment și apare aici.",
+  "alertsNotificationsOffBanner": "Notificările sunt oprite. Notificările evenimentelor nu apar, iar o alarmă sună fără să aprindă ecranul.",
+  "alertsFullScreenOffBanner": "Alarmele pe tot ecranul sunt oprite. Pe telefonul blocat, alarmele apar ca banner.",
+  "alertsSnoozedRow": "Amânată · {alert}",
+  "alertsCancelSnooze": "Anulează amânarea",
+  "alertsToggleLabel": "Alertă pentru {title}",
+  "alertsCancelAlarm": "Anulează alarma",
+  "alertsCancelAlarmConfirm": "„{title}” este eliminat după ce sună, așa că anularea alarmei elimină evenimentul."
 }

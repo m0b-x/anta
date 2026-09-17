@@ -30,7 +30,8 @@ enum NavDestinationKind {
   syncSettings,
   counterManagement,
   allNotes,
-  recentNotes;
+  recentNotes,
+  alerts;
 
   /// Whether popping this page should raise the drawer beneath it.
   ///

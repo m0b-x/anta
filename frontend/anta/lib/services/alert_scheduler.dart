@@ -10,6 +10,7 @@ import '../constants/event_alerts.dart';
 import '../database/daos/alert_registration_dao.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
+import '../models/alert_hub_entry.dart';
 import '../models/alert_payload.dart';
 import '../models/calendar_event.dart';
 import '../models/event_alert.dart';
@@ -87,6 +88,17 @@ class AlertScheduler {
   /// `FakeAsync` the body runs in and the first reconcile hangs forever. The
   /// `CategoryService._serialize` rule, for the same reason.
   Future<void>? _writes;
+
+  /// Bumped after every turn of the serialized chain — a reconcile, a stop, a
+  /// snooze, a cancelled snooze — which is every way the registry can change.
+  ///
+  /// Process-global rather than per instance because the one surface that
+  /// listens, the Alerts hub, outlives a database switch's singleton reset and
+  /// must not be left holding a notifier nobody bumps any more. A turn that
+  /// changed nothing still bumps: the hub's re-read is one indexed query, and
+  /// telling a no-op from a write would mean threading a flag through every
+  /// branch of the pass for a page that is rarely open.
+  static final ValueNotifier<int> registryRevision = ValueNotifier<int>(0);
 
   AlertScheduler._();
 
@@ -342,6 +354,138 @@ class AlertScheduler {
     } catch (e) {
       debugPrint('[AlertScheduler] next fires for $eventId failed: $e');
       return const {};
+    }
+  }
+
+  /// Everything the Alerts hub lists (§5.6), soonest first.
+  ///
+  /// Two sources, because the hub answers two questions. What **will** the
+  /// phone do: every `pending` registration with a fire instant still ahead —
+  /// the registry, not a fresh plan, so a fire the `total` cap pushed out of
+  /// the horizon is not promised here. And what **could** it do: each disabled
+  /// alert's next occurrence, planned on the spot with the switch imagined on,
+  /// because a registry-only list would make the hub's own switch a one-way
+  /// door — the row would vanish with the registration and take the way back
+  /// with it.
+  ///
+  /// A read outside the serialized chain, for [nextFiresForEvent]'s reason. A
+  /// test ring is left out: it has no event to show and nothing to toggle.
+  Future<List<AlertHubEntry>> hubEntries() async {
+    await _resolveQuietly(EventSkipService.getInstance(), 'skips');
+    await _resolveQuietly(PublicHolidayService.getInstance(), 'holidays');
+    await _resolveQuietly(EventAlertService.getInstance(), 'alerts');
+
+    final CalendarEventService eventService;
+    final AlertSettings settings;
+    try {
+      eventService = await CalendarEventService.getInstance();
+      settings = await (await SettingsService.getInstance())
+          .getAlertSettings();
+    } catch (e) {
+      debugPrint('[AlertScheduler] hub setup failed: $e');
+      return const [];
+    }
+
+    final now = _clock();
+    final events = eventService.events;
+    final eventsById = {for (final event in events) event.id: event};
+    final entries = <AlertHubEntry>[];
+
+    for (final row in await _dao.pending()) {
+      final fireAt = DateTime.fromMillisecondsSinceEpoch(row.fireAt);
+      if (!fireAt.isAfter(now)) continue;
+      final event = eventsById[row.eventId];
+      if (event == null) continue;
+      final alert = _alertOf(row.eventId, row.alertId);
+      if (alert == null) continue;
+      final day = DateTime.fromMillisecondsSinceEpoch(row.day, isUtc: true);
+      final snoozed = AlertKind.fromName(row.kind) == AlertKind.snooze;
+      // Switched off a moment ago, and the reconcile that cancels this row has
+      // not landed yet: the imagined entry below already speaks for it.
+      if (!alert.enabled && !snoozed) continue;
+      entries.add(
+        AlertHubEntry(
+          event: event,
+          alert: alert,
+          day: day,
+          fireAt: fireAt,
+          originalFireAt: snoozed
+              ? AlertPlanner.fireInstant(
+                  event: event,
+                  alert: alert,
+                  day: day,
+                  defaults: settings,
+                )
+              : null,
+          snoozeOsId: snoozed ? row.osId : null,
+        ),
+      );
+    }
+
+    final disabled = <String, EventAlert>{};
+    final imagined = <String, List<EventAlert>>{};
+    for (final event in events) {
+      for (final alert in EventAlerts.alertsFor(event.id)) {
+        if (alert.enabled) continue;
+        disabled[alert.id] = alert;
+        (imagined[event.id] ??= <EventAlert>[]).add(
+          alert.copyWith(enabled: true),
+        );
+      }
+    }
+    if (imagined.isNotEmpty) {
+      final plan = AlertPlanner.plan(
+        events: events,
+        alertsByEvent: imagined,
+        defaults: settings,
+        horizon: AlertHorizon(
+          perAlert: 1,
+          days: _horizon.days,
+          total: _horizon.total,
+        ),
+        now: now,
+      );
+      for (final fire in plan) {
+        entries.add(
+          AlertHubEntry(
+            event: fire.event,
+            alert: disabled[fire.alert.id]!,
+            day: fire.day,
+            fireAt: fire.fireAt,
+          ),
+        );
+      }
+    }
+
+    entries.sort((a, b) {
+      final byInstant = a.fireAt.compareTo(b.fireAt);
+      if (byInstant != 0) return byInstant;
+      final byEvent = a.event.id.compareTo(b.event.id);
+      if (byEvent != 0) return byEvent;
+      return a.alert.id.compareTo(b.alert.id);
+    });
+    return entries;
+  }
+
+  /// [hubEntries] for a page that holds no scheduler, swallowing every failure
+  /// into an empty list — the [nextFiresForEventById] rule.
+  static Future<List<AlertHubEntry>> hubEntriesOrEmpty() async {
+    if (_instance == null && !_hasGateway) return const [];
+    try {
+      return await (await getInstance()).hubEntries();
+    } catch (e) {
+      debugPrint('[AlertScheduler] hub entries failed: $e');
+      return const [];
+    }
+  }
+
+  /// [cancelSnooze] for the same page, swallowing every failure.
+  static Future<void> cancelSnoozeById(int osId) async {
+    if (_instance == null && !_hasGateway) return;
+    try {
+      await (await getInstance()).cancelSnooze(osId);
+    } catch (e) {
+      debugPrint('[AlertScheduler] cancelSnooze($osId) failed: $e');
     }
   }
 
@@ -908,6 +1052,7 @@ class AlertScheduler {
       return await write();
     } finally {
       done.complete();
+      registryRevision.value++;
     }
   }
 }

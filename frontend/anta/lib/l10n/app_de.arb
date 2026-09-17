@@ -2695,5 +2695,16 @@
   "alertsDefaultTimedDesc": "Die Erinnerung, mit der ein neuer Termin mit Uhrzeit startet",
   "alertsDefaultAllDay": "Ganztägige Termine",
   "alertsDefaultAllDayDesc": "Die Erinnerung, mit der ein neuer ganztägiger Termin startet",
-  "alertsDefaultNone": "Keine Erinnerung"
+  "alertsDefaultNone": "Keine Erinnerung",
+  "alertsTitle": "Erinnerungen",
+  "alertsRowDesc": "Anstehende Mitteilungen und Alarme",
+  "alertsEmpty": "Keine anstehenden Erinnerungen",
+  "alertsEmptyDesc": "Füge einem Termin eine Mitteilung oder einen Alarm hinzu, dann erscheint er hier.",
+  "alertsNotificationsOffBanner": "Benachrichtigungen sind aus. Mitteilungen erscheinen nicht, und ein Alarm klingelt, ohne den Bildschirm zu wecken.",
+  "alertsFullScreenOffBanner": "Vollbild-Alarme sind aus. Auf dem gesperrten Telefon erscheinen Alarme als Banner.",
+  "alertsSnoozedRow": "Schlummert · {alert}",
+  "alertsCancelSnooze": "Schlummern abbrechen",
+  "alertsToggleLabel": "Erinnerung für {title}",
+  "alertsCancelAlarm": "Alarm abbrechen",
+  "alertsCancelAlarmConfirm": "„{title}“ wird nach dem Klingeln entfernt, daher entfernt das Abbrechen des Alarms den Termin."
 }

@@ -841,6 +841,177 @@ void main() {
     });
   });
 
+  group('a Mon/Wed/Fri alarm', () {
+    DateTime dayOf(AlertRegistrationRow row) =>
+        DateTime.fromMillisecondsSinceEpoch(row.day, isUtc: true);
+
+    Future<List<DateTime>> pendingDays() async => [
+      for (final row in await registrations())
+        if (row.state == AlertRegistrationState.pending.name) dayOf(row),
+    ]..sort();
+
+    Future<void> seedWeekly() => seed(
+      event: eventOf(
+        startDate: DateTime.utc(2026, 9, 1),
+        rule: const WeeklyRecurrence(
+          weekdays: {DateTime.monday, DateTime.wednesday, DateTime.friday},
+        ),
+      ),
+    );
+
+    test('holds two occurrences, and Stop on the first arms the third',
+        () async {
+      await seedWeekly();
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      expect(await pendingDays(), [
+        DateTime.utc(2026, 9, 16),
+        DateTime.utc(2026, 9, 18),
+      ]);
+      final wednesday = (await registrations()).firstWhere(
+        (row) => dayOf(row) == DateTime.utc(2026, 9, 16),
+      );
+
+      now = DateTime(2026, 9, 16, 18);
+      await scheduler.markFired(wednesday.osId);
+      await scheduler.stop(wednesday.osId);
+
+      expect(await pendingDays(), [
+        DateTime.utc(2026, 9, 18),
+        DateTime.utc(2026, 9, 21),
+      ]);
+      expect(gateway.platform, hasLength(2));
+    });
+
+    test('skipping a day moves its registration on, and unskip brings it back',
+        () async {
+      await seedWeekly();
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final friday = (await registrations()).firstWhere(
+        (row) => dayOf(row) == DateTime.utc(2026, 9, 18),
+      );
+      final skips = await EventSkipService.getInstance();
+
+      await skips.markSkipped('e1', DateTime.utc(2026, 9, 18));
+      await scheduler.reconcileEvent(
+        'e1',
+        AlertReconcileReason.occurrenceChanged,
+      );
+
+      expect(gateway.cancelled, contains(friday.osId));
+      expect(gateway.platform.containsKey(friday.osId), isFalse);
+      expect(await pendingDays(), [
+        DateTime.utc(2026, 9, 16),
+        DateTime.utc(2026, 9, 21),
+      ]);
+
+      await skips.unskip('e1', DateTime.utc(2026, 9, 18));
+      await scheduler.reconcileEvent(
+        'e1',
+        AlertReconcileReason.occurrenceChanged,
+      );
+
+      expect(await pendingDays(), [
+        DateTime.utc(2026, 9, 16),
+        DateTime.utc(2026, 9, 18),
+      ]);
+    });
+  });
+
+  group('the hub', () {
+    test('lists what is armed, soonest first', () async {
+      await seed(
+        event: eventOf(
+          startDate: DateTime.utc(2026, 9, 1),
+          rule: const DailyRecurrence(),
+        ),
+      );
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+
+      final entries = await scheduler.hubEntries();
+
+      expect(entries.map((e) => e.fireAt), [
+        DateTime(2026, 9, 15, 18),
+        DateTime(2026, 9, 16, 18),
+      ]);
+      expect(entries.every((e) => !e.isSnoozed), isTrue);
+      expect(entries.first.day, DateTime.utc(2026, 9, 15));
+    });
+
+    test('a disabled alert keeps one row, so its switch stays reachable',
+        () async {
+      await seed(
+        event: eventOf(
+          startDate: DateTime.utc(2026, 9, 1),
+          rule: const DailyRecurrence(),
+        ),
+        eventAlerts: [alertOf().copyWith(enabled: false)],
+      );
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      expect(await registrations(), isEmpty);
+
+      final entries = await scheduler.hubEntries();
+
+      expect(entries, hasLength(1));
+      expect(entries.single.alert.enabled, isFalse);
+      expect(entries.single.fireAt, DateTime(2026, 9, 15, 18));
+    });
+
+    test('an alert switched off before its reconcile lands is listed once',
+        () async {
+      await seed();
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+
+      await alerts.replaceForEvent('e1', [alertOf().copyWith(enabled: false)]);
+      final entries = await scheduler.hubEntries();
+
+      expect(entries, hasLength(1));
+      expect(entries.single.alert.enabled, isFalse);
+    });
+
+    test('a snooze carries both instants and the id that cancels it',
+        () async {
+      await seed();
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      now = DateTime(2026, 9, 20, 18);
+      await scheduler.snooze((await registrations()).single.osId);
+
+      final entry = (await scheduler.hubEntries()).single;
+
+      expect(entry.isSnoozed, isTrue);
+      expect(entry.fireAt, DateTime(2026, 9, 20, 18, 10));
+      expect(entry.originalFireAt, DateTime(2026, 9, 20, 18));
+
+      await scheduler.cancelSnooze(entry.snoozeOsId!);
+      expect(await scheduler.hubEntries(), isEmpty);
+    });
+
+    test('a test ring is not an event and is left out', () async {
+      final scheduler = schedulerOf();
+      await scheduler.scheduleTestAlarm(
+        title: 'Test',
+        delay: const Duration(seconds: 10),
+      );
+
+      expect(await scheduler.hubEntries(), isEmpty);
+    });
+
+    test('every turn of the chain bumps the registry revision', () async {
+      await seed();
+      final scheduler = schedulerOf();
+      final before = AlertScheduler.registryRevision.value;
+
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+
+      expect(AlertScheduler.registryRevision.value, greaterThan(before));
+    });
+  });
+
   group('serialization', () {
     test('two reconciles run one after the other, not interleaved', () async {
       await seed();

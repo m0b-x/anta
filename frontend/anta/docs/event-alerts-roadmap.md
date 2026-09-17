@@ -13,7 +13,11 @@ screen (5,172 tests green; the owner's phone pass is owed). **Session 4
 DONE 2026-09-17** — editor rows, alert sheet, detail rows, badges, the two
 settings defaults and the A3 Undo are in; the emulator pass (alarm Stop,
 remove + Undo, reminder cold-start tap) is green, which **closes Phase 1**
-in code; the owner's §9 rows 1–7 phone pass is owed and gates Session 5.
+in code; the owner's §9 rows 1–7 phone pass is owed. **Session 5 DONE
+2026-09-17** at the owner's request ahead of that phone pass — recurrence
+proven on the emulator (re-arm on Stop, skip, snooze survival, the Missed
+path), the Alerts hub and its drawer row are live; §9 rows 1–8 are owed
+together.
 Decisions A1–A14 (§1)
 were proposed on 2026-09-14 and **confirmed as proposed on 2026-09-15**
 (P1, P2, P5 in §8.1); A5 stands on the emulator spike alone because the
@@ -677,7 +681,7 @@ add dependencies from Git Bash (PowerShell 5.1 eats the caret, §10.2).
 | 2 | Planner, scheduler, gateway seam — **DONE 2026-09-15** | 1b | S1, P5 | none (Windows launch only) | every reconcile trigger wired against `NoOpAlertGateway`; alerts exist only through tests |
 | 3 | Android gateway and the ring — **DONE 2026-09-16** (emulator; owner's phone pass owed) | 1c | S2, P2, P3 | emulator + phone | Test alarm in 10 s rings on a locked screen, alarm page Stop / Snooze work, force-stop copy in place |
 | 4 | Editor, detail, rows — **DONE 2026-09-17** (emulator; owner's §9 rows 1–7 owed) | 1d | S3 | emulator, then §9 rows 1–7 on the phone | the Phase 1 acceptance: one-time alarm end to end, remove-after + Undo |
-| 5 | Recurrence proven, missed path, hub | 2a | S4 | emulator, §9 row 8 | Mon/Wed/Fri recipe passes, Alerts hub live |
+| 5 | Recurrence proven, missed path, hub — **DONE 2026-09-17** (emulator; owner's §9 rows 1–8 owed) | 2a | S4 | emulator, §9 row 8 | Mon/Wed/Fri recipe passes, Alerts hub live |
 | 6 | Quick alarm and templates | 2b | S5, P2 (A11) | emulator | FAB long-press → Alarm… → rings; v41 template alerts |
 | 7 | Power and harness | 3 | S6 | emulator | sound picker, presence prompt, `qa alerts` / `qa fire` |
 | 8 | iOS runner builds | 4a | S7, the Mac | simulator | `flutter run` on a simulator reaches the browser |
@@ -1113,6 +1117,87 @@ reported. Device: the emulator, §9 row 8 on the phone.
 > gone; snooze once and confirm an unrelated event edit leaves the snooze
 > in place; set the phone clock 40 minutes past a pending alarm with the
 > app closed, open it, confirm a quiet "Missed" notification and no ring.
+
+Shipped 2026-09-17 (Fable, implemented and reviewed in one sitting),
+5,319 → 5,340 tests, **at the owner's request ahead of the §9 rows 1–7 phone
+pass**, which therefore stays owed together with row 8. Emulator pass on the
+Mac's `Medium_Phone_API_36.1` AVD (API 36, a fresh install — the first pass
+on this machine), green on every recipe step, with a weekly alarm seeded
+through a backup fixture rather than typed into the editor (the recipe's
+Mon/Wed/Fri became Mon/Thu/Sat because the pass ran on a Thursday): two
+`AlarmReceiver` entries in `dumpsys alarm` plus the hub listing the same two;
+the first rings, Stop, and the third occurrence is registered; *Skip this
+day* on the next one cancels its entry and the one after takes the slot;
+Snooze arms a `14:11:39` entry that survives an unrelated event's
+`reconcileEvent` (the other event's reminder toggled off from the hub:
+`cancelled=1`, snooze untouched); and the Missed path. **The Missed recipe
+was changed**: moving the phone clock forward would make AlarmManager fire
+the past-due alarm at once, which is a ring, not a miss — so the pass used
+the scenario where a miss is real, `am force-stop` with a snooze pending,
+then a launch 40 minutes after its instant: one quiet "Missed: QA weekly
+alarm — It was due at 14:11", no ring, the two future occurrences still
+armed (the `alarm` package's native store re-arms them on start, so the
+launch reconcile found them and scheduled nothing). `AlarmDropped(cause:
+staleAtBoot)` is not subscribed to, per the Session 3 review (§3.4): the
+registry path is the only Missed source, and this pass is its device proof.
+Nothing in the Session 2 planner or scheduler was disproved; the recipe is
+now also two scheduler tests ("a Mon/Wed/Fri alarm").
+
+Deviations later sessions must know. **The hub lists two sources**
+(`AlertScheduler.hubEntries`, a read outside the serialized chain):
+`pending` registrations still ahead — the registry, as §5.6 asks — *plus*
+each **disabled** alert's next occurrence, planned on the spot with the
+switch imagined on (`perAlert: 1`), because a registry-only list makes the
+hub's own switch a one-way door: the row vanishes with the registration. A
+row whose alert was switched off a moment ago and whose cancel has not
+landed is skipped in favour of the imagined one. The test ring is left out
+(no event). **The "registry revision" is `AlertScheduler.registryRevision`**,
+a process-global `ValueNotifier<int>` bumped in `_serialize`'s `finally` —
+every turn, no-ops included; the hub re-reads on it and on any `CalendarBloc`
+emit, and asks the gateway for permissions on mount and on every resume.
+**`ToggleEventAlert(eventId, alertId, enabled)`** reads the set from the
+`EventAlerts` facade, flips one flag, writes the **whole set** through the
+Session 4 `AlertWriter` (still the only write path), reconciles once,
+unawaited, and bumps `occurrenceRevision` so the row badges re-render; an
+unknown alert or an unchanged value is a no-op. The hub's switch is
+optimistic until the next load. **A snoozed row has no switch** — it offers
+*Cancel snooze* (`cancelSnooze`, unused until now) instead, since disabling
+the alert would leave the snooze armed; it shows the snoozed time with the
+planned one struck through beneath. **Tap opens the calendar, not a sheet
+over the hub**: `AppNavigator.toCalendarOccurrence` (A12's route), which
+lands on the day with the detail sheet up; Back returns to the hub.
+**Long-press Cancel** is behind a confirm dialog and shows the calendar's
+"Event removed · Undo" (alerts captured from the facade before the delete).
+The page is `SettingsAppBar` without the menu pair, builds its body only
+under `CalendarPageLoaded` (the app-wide bloc is what guarantees the
+facades), and takes a loader and a gateway through
+`AlertsPage.forTesting`. The drawer row uses `notifications_active_rounded`
+and `SemanticsIds.drawerAlerts`; `alerts` does not reopen the drawer on pop.
+§10.1's "Force stop disarms alarms" hub banner was **not** added — the
+prompt asks for two banners and the settings section already carries the
+line.
+
+Found on the device. **With notifications denied an alarm still plays but
+posts nothing**, so there is no full-screen intent and a dark screen stays
+dark (the `alarm` package's ring *is* a notification); granted, the same
+ring woke the screen. The hub's notification banner says so in its copy.
+**`qa run|relaunch --fresh` stranded alarms**: the `alarm` package keeps
+its Dart-side list in `SharedPreferences`, under the QA prefix, while its
+native store re-arms on every start — the reset wiped the list, so
+`Alarm.getAlarms()` stopped reporting an entry AlarmManager still held and
+OS truth could never cancel it. The QA reset now spares keys under
+`kAlarmPluginStoragePrefix` and the first reconcile cancels the leftovers
+(verified: `cancelled=2` on the next fresh launch). Production never clears
+preferences, so this was QA-only; Session 7's `qa alerts --cancel` is still
+wanted for entries of *other* QA databases. `qa state` reported `awake=no`
+while `dumpsys power` said `Awake` during a ring on this AVD — a harness
+reading quirk, noted for Session 7. `qa relaunch` force-stops the app,
+which by §10.1 cancels every pending entry; the `alarm` package's native
+re-arm and the launch reconcile bring them back, but it means a relaunch is
+not a neutral act in an alerts pass. One unrelated flake surfaced in the
+full run: `test/database/vocabulary_crdt_test.dart` "stamping an edit…"
+compared two HLCs minted in the same millisecond under load (passes alone,
+3/3). Owed: the owner's §9 rows 1–8.
 
 ### Session 6 — Quick alarm and templates (Phase 2b)
 

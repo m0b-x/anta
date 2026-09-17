@@ -5175,4 +5175,46 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get alertsDefaultNone => 'Fără alertă';
+
+  @override
+  String get alertsTitle => 'Alerte';
+
+  @override
+  String get alertsRowDesc => 'Notificări și alarme viitoare';
+
+  @override
+  String get alertsEmpty => 'Nicio alertă viitoare';
+
+  @override
+  String get alertsEmptyDesc =>
+      'Adaugă o notificare sau o alarmă unui eveniment și apare aici.';
+
+  @override
+  String get alertsNotificationsOffBanner =>
+      'Notificările sunt oprite. Notificările evenimentelor nu apar, iar o alarmă sună fără să aprindă ecranul.';
+
+  @override
+  String get alertsFullScreenOffBanner =>
+      'Alarmele pe tot ecranul sunt oprite. Pe telefonul blocat, alarmele apar ca banner.';
+
+  @override
+  String alertsSnoozedRow(String alert) {
+    return 'Amânată · $alert';
+  }
+
+  @override
+  String get alertsCancelSnooze => 'Anulează amânarea';
+
+  @override
+  String alertsToggleLabel(String title) {
+    return 'Alertă pentru $title';
+  }
+
+  @override
+  String get alertsCancelAlarm => 'Anulează alarma';
+
+  @override
+  String alertsCancelAlarmConfirm(String title) {
+    return '„$title” este eliminat după ce sună, așa că anularea alarmei elimină evenimentul.';
+  }
 }

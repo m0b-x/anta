@@ -32,6 +32,7 @@ abstract final class SemanticsIds {
   /// Drawer destinations.
   static const String drawerSettings = 'drawer-settings';
   static const String drawerCalendar = 'drawer-calendar';
+  static const String drawerAlerts = 'drawer-alerts';
 
   /// The two smart rows above the root browser's folders. Named for the
   /// drawer because that is the vocabulary the driver was written against;

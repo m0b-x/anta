@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
+import 'package:anta/constants/event_alerts.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/calendar_selection_source.dart';
@@ -285,4 +286,67 @@ void main() {
     expect(state.allEvents.map((e) => e.id), contains('e1'));
     expect(calls, hasLength(1));
   });
+
+  group('ToggleEventAlert', () {
+    const reminder = EventAlert(
+      id: 'a1',
+      eventId: 'e1',
+      mode: AlertMode.notify,
+      offsetMinutes: 10,
+    );
+    const alarm = EventAlert(id: 'a2', eventId: 'e1', mode: AlertMode.ring);
+
+    Future<void> seed() async {
+      await dispatch(const LoadCalendarEvents());
+      await dispatch(CreateCalendarEvent(event: eventOf()));
+      EventAlerts.updateCache(
+        byEvent: {
+          'e1': List.unmodifiable(const [reminder, alarm]),
+        },
+      );
+      calls.clear();
+      writes.clear();
+      order.clear();
+    }
+
+    tearDown(EventAlerts.resetCache);
+
+    test('writes the whole set with one alert flipped, then reconciles once',
+        () async {
+      await seed();
+      final before = (bloc.state as CalendarPageLoaded).occurrenceRevision;
+
+      await dispatch(
+        const ToggleEventAlert(eventId: 'e1', alertId: 'a2', enabled: false),
+      );
+
+      expect(writes, hasLength(1));
+      expect(writes.single.eventId, 'e1');
+      expect(writes.single.alerts, [reminder, alarm.copyWith(enabled: false)]);
+      expect(calls, hasLength(1));
+      expect(calls.single.eventId, 'e1');
+      expect(order, ['write', 'reconcile']);
+      expect(
+        (bloc.state as CalendarPageLoaded).occurrenceRevision,
+        before + 1,
+        reason: 'the row badges re-render on this revision',
+      );
+    });
+
+    test('setting the value an alert already has does nothing', () async {
+      await seed();
+
+      bloc.add(
+        const ToggleEventAlert(eventId: 'e1', alertId: 'a2', enabled: true),
+      );
+      bloc.add(
+        const ToggleEventAlert(eventId: 'e1', alertId: 'gone', enabled: false),
+      );
+      await pumpEventQueue();
+
+      expect(writes, isEmpty);
+      expect(calls, isEmpty);
+    });
+  });
 }
+

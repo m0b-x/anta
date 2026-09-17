@@ -6373,5 +6373,64 @@
   "alertsDefaultNone": "No alert",
   "@alertsDefaultNone": {
     "description": "Value of a default row that seeds no alert at all"
+  },
+  "alertsTitle": "Alerts",
+  "@alertsTitle": {
+    "description": "Title of the Alerts hub page and of its drawer row"
+  },
+  "alertsRowDesc": "Upcoming reminders and alarms",
+  "@alertsRowDesc": {
+    "description": "Subtitle of the Alerts drawer row"
+  },
+  "alertsEmpty": "No upcoming alerts",
+  "@alertsEmpty": {
+    "description": "Empty state title of the Alerts hub"
+  },
+  "alertsEmptyDesc": "Add a reminder or an alarm to an event and it shows up here.",
+  "@alertsEmptyDesc": {
+    "description": "Empty state body of the Alerts hub"
+  },
+  "alertsNotificationsOffBanner": "Notifications are off. Reminders stay hidden, and an alarm rings without waking the screen.",
+  "@alertsNotificationsOffBanner": {
+    "description": "Hub banner shown while the notification permission is denied"
+  },
+  "alertsFullScreenOffBanner": "Full-screen alarms are off. Alarms show as a banner on a locked phone.",
+  "@alertsFullScreenOffBanner": {
+    "description": "Hub banner shown while the full-screen intent permission is denied"
+  },
+  "alertsSnoozedRow": "Snoozed · {alert}",
+  "@alertsSnoozedRow": {
+    "description": "Subtitle of a snoozed hub row; alert is the alert's own description, e.g. 10 min before",
+    "placeholders": {
+      "alert": {
+        "type": "String"
+      }
+    }
+  },
+  "alertsCancelSnooze": "Cancel snooze",
+  "@alertsCancelSnooze": {
+    "description": "Tooltip of the button that drops a standing snooze"
+  },
+  "alertsToggleLabel": "Alert for {title}",
+  "@alertsToggleLabel": {
+    "description": "Accessibility label of a hub row's on/off switch",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "alertsCancelAlarm": "Cancel alarm",
+  "@alertsCancelAlarm": {
+    "description": "Title and confirm button of the dialog that cancels a remove-after-it-rings alarm"
+  },
+  "alertsCancelAlarmConfirm": "\"{title}\" is removed after it rings, so cancelling the alarm removes the event.",
+  "@alertsCancelAlarmConfirm": {
+    "description": "Body of the cancel-alarm dialog",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
   }
 }

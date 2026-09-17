@@ -12,6 +12,7 @@ import '../services/folder_storage_service.dart';
 import '../services/navigation_history_service.dart';
 import '../services/settings_service.dart';
 import '../pages/settings_page.dart';
+import '../pages/alerts_page.dart';
 import '../pages/all_notes_page.dart';
 import '../pages/calendar_page.dart';
 import '../pages/calendar_settings_page.dart';
@@ -478,6 +479,14 @@ abstract final class AppNavigator {
     );
   }
 
+  static Future<void> toAlerts(BuildContext context) {
+    return push(
+      context,
+      const AlertsPage(),
+      destination: const NavDestination(NavDestinationKind.alerts),
+    );
+  }
+
   static Future<void> toCalendarCategories(BuildContext context) {
     return push(
       context,
@@ -728,6 +737,7 @@ abstract final class AppNavigator {
       NavDestinationKind.recentNotes => const AllNotesPage(
         mode: AllNotesMode.recent,
       ),
+      NavDestinationKind.alerts => const AlertsPage(),
     };
   }
 }
