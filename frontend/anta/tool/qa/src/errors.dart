@@ -29,7 +29,11 @@ class TargetFailure extends QaException {
   TargetFailure(String message) : super(message, exitTarget);
 }
 
-class NotImplementedOnPlatform extends QaException {
-  NotImplementedOnPlatform(String what)
-      : super('$what: Phase B: not implemented on this platform', exitUsage);
+class UnsupportedOnPlatform extends QaException {
+  UnsupportedOnPlatform(String what, String platform, {String? instead})
+      : super(
+          '$what is not available on $platform'
+          '${instead == null ? '' : ' — $instead'}',
+          exitUsage,
+        );
 }

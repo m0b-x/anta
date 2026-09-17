@@ -32,7 +32,7 @@ void main() {
       importSeed: (json) async {
         importedSeeds.add(json);
         if (seedThrows) throw StateError('bad fixture');
-        return 'ok';
+        return (true, 'ok');
       },
       isOnboardingCompleted: () async => onboardingCompleted,
       markOnboardingCompleted: () async {
@@ -57,6 +57,8 @@ void main() {
   }
 
   setUp(() async {
+    QaBootstrap.log.clear();
+    QaBootstrap.entries.clear();
     tempDir = await Directory.systemTemp.createTemp('anta_qa_bootstrap');
     documents = tempDir.path;
     prefsCleared = 0;
@@ -199,6 +201,43 @@ void main() {
       expect(await database('qa').exists(), isTrue);
       expect(await marker('qa_reset').exists(), isTrue);
       expect(await marker('qa_seed.json').exists(), isTrue);
+    });
+  });
+
+  group('log', () {
+    test('every [qa] line is kept in order for the agent to hand back', () async {
+      await marker('qa_reset').writeAsString('');
+      await marker('qa_seed.json').writeAsString('{"version": 7}');
+      final bootstrap = build();
+      await bootstrap.applyResetMarker();
+      await bootstrap.applySeedMarker();
+      await bootstrap.applyOnboardingSkip();
+      expect(QaBootstrap.log, [
+        'reset: cleared preferences and qa.db',
+        'seed: ok',
+        'onboarding marked completed',
+      ]);
+      expect(QaBootstrap.entries.map((e) => (e.kind, e.ok)), [
+        ('reset', true),
+        ('seed', true),
+        ('onboarding', true),
+      ]);
+    });
+
+    test('a seed that throws is a typed failure, not a wording', () async {
+      seedThrows = true;
+      await marker('qa_seed.json').writeAsString('{}');
+      await build().applySeedMarker();
+      final entry = QaBootstrap.entries.single;
+      expect(entry.kind, 'seed');
+      expect(entry.ok, isFalse);
+      expect(entry.toJson(), {'kind': 'seed', 'ok': false, 'message': entry.message});
+    });
+
+    test('a refused reset is logged too', () async {
+      await marker('qa_reset').writeAsString('');
+      await build(databaseName: 'gym_notes').applyResetMarker();
+      expect(QaBootstrap.log.single, startsWith('reset refused'));
     });
   });
 }

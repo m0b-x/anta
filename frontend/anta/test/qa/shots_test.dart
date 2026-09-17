@@ -4,59 +4,11 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 
-import '../../tool/qa/src/device.dart';
 import '../../tool/qa/src/errors.dart';
-import '../../tool/qa/src/gestures.dart';
 import '../../tool/qa/src/paths.dart';
 import '../../tool/qa/src/shots.dart';
-import '../../tool/qa/src/ui_tree.dart';
 
-class _FakeDevice implements Device {
-  _FakeDevice(this.png);
-
-  final List<int> png;
-
-  @override
-  String get id => 'fake';
-
-  @override
-  Future<List<int>> screencapPng() async => png;
-
-  @override
-  Future<ScreenSize> screenSize() async => const ScreenSize(
-      physicalWidth: 1280, physicalHeight: 2856, density: 480);
-
-  @override
-  Future<int?> appPid(String packageId) async => null;
-
-  @override
-  Future<UiTree> dumpUi() async => const UiTree([]);
-
-  @override
-  Future<String> dumpUiXml() async =>
-      '<?xml version="1.0"?><hierarchy rotation="0"/>';
-
-  @override
-  Future<DeviceProbe> probe() async => DeviceProbe(screen: await screenSize());
-
-  @override
-  Future<void> forceStop(String packageId) async {}
-
-  @override
-  Future<void> key(String keycode) async {}
-
-  @override
-  Future<void> launchActivity(String component) async {}
-
-  @override
-  Future<void> swipePath(SwipePath path) async {}
-
-  @override
-  Future<void> tap(int x, int y) async {}
-
-  @override
-  Future<void> typeText(String text) async {}
-}
+Future<List<int>> Function() _shotOf(List<int> png) => () async => png;
 
 Uint8List _png(int width, int height) =>
     img.encodePng(img.Image(width: width, height: height));
@@ -89,7 +41,7 @@ void main() {
   group('captureShot', () {
     test('downscales by half by default and prints an absolute path', () async {
       final path = await captureShot(
-        _FakeDevice(_png(1280, 2856)),
+        _shotOf(_png(1280, 2856)),
         paths,
         name: 'home',
         now: DateTime(2026, 9, 13, 17, 37, 44),
@@ -103,7 +55,7 @@ void main() {
 
     test('--full keeps the device pixels', () async {
       final path = await captureShot(
-        _FakeDevice(_png(200, 400)),
+        _shotOf(_png(200, 400)),
         paths,
         scale: 1.0,
       );
@@ -114,7 +66,7 @@ void main() {
 
     test('--out writes elsewhere, creating the directory', () async {
       final path = await captureShot(
-        _FakeDevice(_png(100, 100)),
+        _shotOf(_png(100, 100)),
         paths,
         outDir: 'nested/shots',
       );
@@ -123,7 +75,7 @@ void main() {
     });
 
     test('rejects a scale outside (0, 1]', () async {
-      final device = _FakeDevice(_png(100, 100));
+      final device = _shotOf(_png(100, 100));
       expect(() => captureShot(device, paths, scale: 0),
           throwsA(isA<UsageFailure>()));
       expect(() => captureShot(device, paths, scale: 1.5),
@@ -132,14 +84,14 @@ void main() {
 
     test('an empty screencap is a device failure', () async {
       expect(
-        () => captureShot(_FakeDevice(const []), paths),
+        () => captureShot(_shotOf(const []), paths),
         throwsA(isA<DeviceFailure>()),
       );
     });
 
     test('a screencap that is not a PNG is a device failure', () async {
       expect(
-        () => captureShot(_FakeDevice(const [1, 2, 3, 4]), paths),
+        () => captureShot(_shotOf(const [1, 2, 3, 4]), paths),
         throwsA(isA<DeviceFailure>()),
       );
     });

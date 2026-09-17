@@ -82,7 +82,7 @@ void main() {
   group('parseDeviceProbe', () {
     test('reads every field of a real probe', () {
       final probe = parseDeviceProbe(_realProbe);
-      expect(probe.screen.width, 1280);
+      expect(probe.screen!.width, 1280);
       expect(probe.appPid, 8911);
       expect(probe.resumedActivity, 'com.alexzamfir.anta/.MainActivity');
       expect(probe.foregroundPackage, 'com.alexzamfir.anta');

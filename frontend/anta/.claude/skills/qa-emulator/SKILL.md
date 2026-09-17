@@ -1,420 +1,528 @@
 ---
 name: qa-emulator
-description: Drive the ANTA app on the Android emulator (and later iOS simulator) from the command line - boot, launch in an isolated QA database, screenshot, read the accessibility tree, tap/type by label, and read runtime errors. USE FOR - running the app on a device, device passes, screenshots, tapping/typing by label, reading runtime errors, QA checklists. Load together with anta-context.
+description: Drive the ANTA app on an iOS simulator, the macOS desktop build or the Android emulator from the command line - boot, launch in an isolated QA database, screenshot, read the accessibility tree, tap/type by label, and read runtime errors. USE FOR - running the app on a device, device passes, screenshots, tapping/typing by label, reading runtime errors, QA checklists. Load together with anta-context.
 ---
 
-# QA emulator harness
+# QA device harness
 
-One CLI drives the device. Run it from `frontend/anta`, through the wrapper:
+One CLI drives whichever device is attached: an iOS simulator, the macOS
+desktop build, or an Android emulator. Run it from `frontend/anta`, through
+the wrapper:
 
-```powershell
+```bash
+./tool/qa/qa <verb> [args]        # macOS, Linux, Git Bash
 tool\qa\qa.cmd <verb> [args]      # PowerShell / cmd
-./tool/qa/qa <verb> [args]        # Git Bash, macOS, Linux
 ```
 
-The wrapper compiles `build/qa/qa.exe` the first time it is used (~30 s, once
-per `flutter clean`) and runs the binary after that: a verb costs about 30 ms
-of startup instead of ~2 s of JIT. When a file under `tool/qa/` changes, the
-next verb rebuilds itself first (`qa: sources changed since qa.exe was
-built — rebuilding…`, ~2.5 s warm) and then serves the verb, so there is
-nothing to remember. `qa build-exe` forces it; `QA_NO_SELF_REBUILD=1` turns it
-off; `dart run tool/qa/qa.dart <verb>` still works everywhere and never
+The wrapper compiles `build/qa/qa` (`qa.exe` on Windows) the first time it is
+used (~3 s on an M-series Mac, ~30 s on the Windows PC) and runs the binary
+after that: a verb costs about 30 ms of startup instead of ~2 s of JIT. When a
+file under `tool/qa/` changes, the next verb rebuilds itself first
+(`qa: sources changed since qa.exe was built — rebuilding…`) and then serves
+the verb. `qa build-exe` forces it; `QA_NO_SELF_REBUILD=1` turns it off;
+`dart run tool/qa/qa.dart <verb>` still works everywhere and never
 self-rebuilds.
 
-`dart run` prints `Running build hooks...` on stderr before every verb — that
-is the Dart CLI, not this tool. The wrapper has no such noise.
+Exit codes: `0` ok, `1` usage, `2` target not found or ambiguous, `3` device,
+agent or toolchain failure. Every verb takes `--help`.
 
-Exit codes: `0` ok, `1` usage, `2` target not found or ambiguous, `3` device or
-adb failure. Every verb takes `--help`; `-d/--device` (or `ANTA_QA_DEVICE`)
-picks the serial, otherwise the sole attached device. Nothing is assumed: with
-no usable device attached the verb fails with what is actually wrong (`no
-device attached — run \`qa boot\``, `emulator-5554 is offline — …`,
-`unauthorized — accept the USB-debugging prompt on the device`).
+## Which device
+
+`-d/--device` (or `ANTA_QA_DEVICE`) names the target; with neither, the sole
+attached device wins — a booted simulator or a usable adb device. The desktop
+app is never picked implicitly.
+
+| `-d` value | Target |
+| --- | --- |
+| `macos` | the desktop build at `build/macos/Build/Products/Debug/ANTA.app` |
+| `ios` | the one booted simulator |
+| a simulator name (`"iPhone 17 Pro Max"`) or UDID | that simulator (must be booted — `qa boot --sim` otherwise) |
+| `android` or a serial (`emulator-5554`) | that adb device |
+
+`qa devices` lists everything drivable; `--all` adds shut-down simulators. It
+exits 3 when nothing is attached *and* a toolchain problem was seen (adb not
+answering, `xcrun` missing), so a setup check can rely on it. A `-d` hint also
+decides which tools are asked at all: a UDID or `ios` never runs `adb devices`
+(a cold adb daemon can take seconds), a serial never runs `simctl list`, and
+`boot` honours the same hint (`qa -d android boot` starts the AVD).
+Real output, 2026-09-16:
+
+```
+ios      B57A8680-5A8F-4010-96BE-7524481996B1    Booted     iPhone 17 Pro Max (iOS 26.2)
+macos    macos                                   desktop    pass -d macos  (built: …/build/macos/Build/Products/Debug/ANTA.app)
+android  emulator-5554                           device     model:sdk_gphone64_arm64
+```
+
+Every recorded connection (`vm_<device>.txt`, `dtd_<device>.txt`) is per
+device, so a simulator and the desktop app can be driven in the same session
+by switching `-d`. The detached `flutter run` (`run.pid`, `run.log`) is the
+one single slot: a `qa run` on a second device ends the first run's tool
+process (the first app keeps running — `qa relaunch -d <first>` gets its agent
+back in two seconds).
 
 ## Two driving layers
 
-| | adb / uiautomator (this CLI) | Flutter Driver (Dart MCP) |
+| | in-app **agent** (VM service) | **adb** + uiautomator |
 | --- | --- | --- |
-| Works on | any build, debug or release | only the `test_driver/main_driver.dart` entry point, which `qa run` uses by default |
-| Sees | the Android accessibility tree (`dump`), pixels (`shot`) | the widget tree (`widget_inspector get_widget_tree`) |
-| Acts by | screen coordinates resolved from a label | Flutter finders: `ByTooltipMessage`, `BySemanticsLabel`, `ByValueKey`, `ByText`, `ByType` |
-| Types | ASCII only (`adb shell input text`) | any Unicode (`enter_text`) |
-| Waiting | polls dumps (`wait`, `scroll-to`) | frame-synced `waitFor`, `waitForTappable`, `scrollIntoView` |
+| Platforms | iOS simulator, macOS, Android (`--via agent`, proved 2026-09-17: a six-step flow in 0.53 s against 10.5 s for three adb steps) | Android only — the default there |
+| Needs | the driver build (`test_driver/main_driver.dart`, which `qa run` and `qa relaunch` use) | any build, debug or release |
+| Sees | Flutter's own semantics tree: label, value, hint, tooltip, `Semantics.identifier`, flags | the Android accessibility tree, pixels |
+| Acts by | synthesised pointer events, `TestTextInput`, key simulation, `popRoute` | `input tap/swipe/text/keyevent` |
+| Types | any Unicode, inserted at the caret (`--replace` swaps the field) | ASCII only |
+| Waits | frame-synced: every op settles the frame before returning | polls `uiautomator dump` |
+| Dump | ~120 ms | ~2 s |
+| Cannot see | native chrome: permission prompts, the simulator status bar, share sheets | the soft keyboard is fine; Flutter overlays are fine |
 
-Use this CLI to **see** (`dump`, `shot`) and to do anything the app does not
-label. Use Driver to **act** when a tooltip, semantics label or key exists, and
-always for non-ASCII text. `widget_inspector` works on any debug app;
-`flutter_driver_command` returns "The flutter driver extension is not enabled"
-unless the app was started from the driver entry point.
+`--via auto|agent|native` (or `ANTA_QA_VIA`) chooses; `auto` is native on
+Android and the agent elsewhere. The agent lives in
+[`test_driver/qa_agent.dart`](../../../test_driver/qa_agent.dart) and speaks
+the JSON protocol in `tool/qa/src/agent_protocol.dart` through Flutter
+Driver's `request_data` command, so nothing about it ships in a normal build.
+A dump's labels and ids are the same on all three platforms — `"All notes\n3"`,
+`id=search-open`, `"Money\nGreen label\n1"` — so one step file drives all of
+them.
+
+Because the agent owns text entry (`TestTextInput`), a driver build never
+shows the soft keyboard and the Dart MCP's `enter_text` is disabled there; use
+`qa type`. Everything else in the Dart MCP (`widget_inspector`,
+`get_runtime_errors`, `hot_reload`, `flutter_driver_command` finders) works
+against the DTD `qa run` prints.
 
 ## Canonical loop
 
-```powershell
-$q = "tool\qa\qa.cmd"
-& $q doctor                     # first, whenever anything looks off
-& $q boot                       # starts the emulator only if none is attached
-& $q run --fresh --seed tool/qa/fixtures/basic.json
-& $q dtd                        # -> feed to the Dart MCP: dtd connect <uri>
-& $q shot 00_start              # prints a path; Read that path
-& $q dump                       # one line per node - find the label to tap
-& $q tap "Search all notes" --wait id:search-field --shot 01_search
-& $q errors                     # anything the app logged as an error
-& $q unphone                    # only if you used boot --phone
+```bash
+q=./tool/qa/qa
+$q doctor                                     # first, whenever anything looks off
+$q boot                                       # iOS: boots a simulator only if none is; --avd for Android
+$q run --fresh --seed tool/qa/fixtures/basic.json    # builds + installs; ~60 s iOS, ~45 s macOS, minutes on Android
+$q dtd                                        # -> feed to the Dart MCP: dtd connect <uri>
+$q look 00_start                              # ONE call: annotated screenshot (#N tags) + the dump lines
+$q tap "Search all notes" --wait id:search-field --shot 01_search
+$q type "squat ăöü"                           # any Unicode through the agent
+$q expect id:search-field "squat ăöü" --absent "No results found"
+$q errors                                     # run log + platform log + the app's own error buffer
 ```
 
-Do not `kill-run` at the end unless you started the run — leave the app up.
+Use `-d macos` on every line for the desktop app (or `export
+ANTA_QA_DEVICE=macos`). Do not `kill-run` at the end unless you started the
+run — leave the app up.
+
+**First run on a fresh install.** `--fresh`/`--seed` need somewhere to put the
+markers: the app's documents directory, which exists only once the app has
+been installed (simulator) or launched once (macOS sandbox container). On a
+machine that has never run ANTA, do a plain `qa run` first and then
+`qa relaunch --fresh --seed …`; `run` says exactly this when it applies.
 
 ## Fast loop
 
 The wall clock is not the expensive part; **your round trips are**. Five tool
-calls at model latency cost far more than the five adb calls inside them. So:
+calls at model latency cost far more than the five device calls inside them.
 
-- **`steps` runs a whole flow in one call**, sharing one serial resolution, one
-  screen-size cache and one dump cache. Each step prints `[2/5] wait
+- **`steps` runs a whole flow in one call**, sharing one device resolution,
+  one agent connection and one dump cache. Each step prints `[2/5] wait
   id:search-field` and then its own output, indented. The first failure stops
   the run and says `steps: stopped at 2/5`; `--keep-going` runs the rest.
 
   ```bash
   ./tool/qa/qa steps 'tap "Search all notes"' 'wait id:search-field' \
-                     'shot results' 'dump' 'key back'
+                     'type "squat ăöü"' 'shot results' 'key back'
   ./tool/qa/qa steps --file flow.txt      # one step per line, # comments ok
   ```
 
-  **From PowerShell, use the stop-parsing token or `--file`.** PowerShell 5.1
-  strips the inner double quotes out of a native command's arguments, so
-  `& $q steps 'tap "Search all notes"'` reaches the tool as `tap Search all
-  notes` and fails on step 2 with `Could not find a command named "all"`. Both
-  of these work:
+  Measured 2026-09-16 on the iPhone 17 Pro Max simulator: an eight-step flow
+  (tap, wait, type, dump, shot, back, back, dump) took **1.7 s** end to end.
+  From PowerShell 5.1 use `--%` with `\"` escapes or `--file`; it strips the
+  inner quotes otherwise.
 
-  ```powershell
-  tool\qa\qa.cmd --% steps "tap \"Search all notes\"" "key back"
-  tool\qa\qa.cmd steps --file flow.txt
-  ```
+- **`look` is see-everything in one call**: it dumps, takes the screenshot,
+  boxes every interesting node on it with its `#N` tag (orange = tappable,
+  blue = text field, green = scrollable) and prints the dump lines under the
+  path. Read the picture, then `tap "#14"` — no second look needed. `--all`
+  marks every node.
 
-  Git Bash passes `'tap "Search all notes"'` through unchanged.
+- **`expect` is a checklist in one call**: `expect id:search-field "Training"
+  --absent "No results found"` re-checks for `--timeout` seconds and exits 2
+  listing every miss, plus the screen it saw. An ambiguous label counts as
+  present.
 
-- **Act and verify in one call.** `tap`, `longpress`, `type`, `key`, `swipe`,
-  `launch` and `relaunch` all take `--wait <target>` (or `--wait-gone`,
-  `--wait-timeout S`), `--shot <name>` and `--dump`, applied in that order. With
-  no wait they pause `--settle` ms (default 300) before the shot. A `--wait`
-  that times out still takes the `--shot` first and says so, so the failure
-  arrives with the picture of why.
+- **Act and verify in one call.** `tap`, `longpress`, `drag`, `type`, `clear`,
+  `key`, `swipe`, `launch`, `relaunch`, `reload` and `restart` all take
+  `--wait <target>` (or `--wait-gone`, `--wait-timeout S`), `--shot <name>`
+  and `--dump`, applied in that order. A `--wait` that times out still takes
+  the `--shot` first and says so. On the agent path there is no `--settle`
+  pause by default (the op already waited for the frame); on adb it stays
+  300 ms.
 
-- **`relaunch` is the ~3 s reset** when you do not need Driver: it drops the
-  markers, force-stops, `am start`s and waits for the `[qa]` lines. `run` is
-  ~15 s and gives you DTD as well.
+- **Edit, `reload`, verify.** After a code change, `qa reload --wait "New
+  label"` signals the `flutter run` behind `qa run` (SIGUSR1), waits for its
+  `Reloaded … libraries` line and then verifies; `qa restart` (SIGUSR2) resets
+  state, keeps the QA database and the agent. Both are POSIX only; on Windows
+  use the Dart MCP. Measured: reload 0.4 s, restart 1 s including the wait.
 
-- **`#N` resolves against the dump you read**, from `build/qa/last_dump.xml`,
-  not against a fresh one that may have renumbered — the output says
-  `(#18 from the dump 4 s ago)`. `dump --cached` reprints it without touching
-  the device; `x,y` targets skip the dump entirely. Label and `id:` targets
-  always dump fresh.
+- **`perf start` … `perf stop` brackets a flow with frame timing** from
+  inside the app: p50/p90/max build, raster and total ms plus a jank count
+  (frames whose build or raster exceeded 16.7 ms). Use it around typing in
+  the editor or a long scroll; `perf read` samples without stopping.
+
+- **`relaunch` is the ~2 s reset.** It drops the markers, stops the app, starts
+  the installed build with a fixed VM-service port and no auth token, waits for
+  the agent, prints the `[qa]` lines straight from the app's memory and leaves
+  every verb reachable. `run` is the ~1 minute path that also builds, installs
+  and gives you a DTD.
+
+- **`#N` resolves against the dump you read**, from `build/qa/last_dump.txt`,
+  not against a fresh one — the output says `(#18 from the dump 4 s ago)`.
+  `dump --cached` reprints it; `x,y` targets skip the dump entirely.
 
 - **`doctor` first when anything looks off.** One line per check, `ok`/`warn`/
   `FAIL` plus the fix; exit 3 if anything failed. `--fix` applies only the safe
   repairs (wake, unphone, kill a leftover `uiautomator`, clear a stale
-  `run.pid`, reap orphaned services) and then re-runs the checks. It never
-  restarts the emulator, never force-stops the app and never touches app data.
+  `run.pid`, reap orphaned `dart development-service` processes) and re-runs
+  the checks. It never restarts a device, never stops the app and never
+  touches app data.
 
 ## Verbs
 
-Every acting verb (`tap`, `longpress`, `type`, `key`, `swipe`, `launch`,
-`relaunch`) also takes `--wait T` / `--wait-gone T` / `--wait-timeout S` /
-`--settle MS` / `--shot NAME` / `--dump`.
+Every acting verb also takes `--wait T` / `--wait-gone T` / `--wait-timeout S`
+/ `--settle MS` / `--shot NAME` / `--dump`.
 
-| Verb | Example | Real output |
+| Verb | Example | Real output (2026-09-16) |
 | --- | --- | --- |
-| `devices` | `qa devices` | `emulator-5554  device  model:sdk_gphone64_x86_64` |
-| `state [--json]` | `qa state` | `device=emulator-5554  app=pid 8911  resumed=com.alexzamfir.anta/.MainActivity  foreground=com.alexzamfir.anta  awake=yes  locked=no  ime=down  screen=1280x2856 @480dpi (427 x 952 dp)  run.log=yes  dtd=ws://127.0.0.1:60473/_SRrxC0lw0U=` — one batched shell call, ~130 ms |
-| `doctor [--fix] [--json]` | `qa doctor` | twelve `ok  ` / `warn` / `FAIL` lines with a `→ fix` under each problem; see below |
-| `boot [--avd N] [--cold] [--phone]` | `qa boot --phone` | `emulator already up: emulator-5554 (never killed or restarted by this tool)` then `wm size set to 1080x2400 (360x800 dp)` |
-| `wake` | `qa wake` | `awake=yes  locked=no  foreground=com.alexzamfir.anta` |
-| `unphone` | `qa unphone` | `wm size reset: 1280x2856 @480dpi (427 x 952 dp)` |
-| `run [--fresh] [--seed F] [--define K=V] [--no-qa] [--no-driver]` | `qa run --fresh --seed tool/qa/fixtures/basic.json` | `pid=22648  log=…\build\qa\run.log` / `dtd=ws://…` / `vm=http://…` then the three `[qa]` lines (about 15 s warm, up to 4 min on a cold build) |
-| `relaunch [--fresh] [--seed F]` | `qa relaunch --fresh --seed tool/qa/fixtures/basic.json` | `relaunched com.alexzamfir.anta/.MainActivity` then the `[qa]` lines, ~3 s — no Driver |
-| `attach` | `qa attach` | same three lines, against an app already running |
-| `stop` / `kill-run` | `qa kill-run` | `killed run pid 12180` |
-| `dtd [--vm]` | `qa dtd` | `ws://127.0.0.1:59940/vZ2LA9BdQPg=` |
-| `launch` | `qa launch --wait Folders` | `launched com.alexzamfir.anta/.MainActivity` then `found: #16  View  "Folders"  [60,324][334,420]` |
-| `shot [name] [--scale F] [--full] [--out D]` | `qa shot home` | `D:\…\build\qa\shots\20260913_173744_home.png` |
-| `dump [--all] [--json] [--cached]` | `qa dump` | see below; `--cached` adds `[cached, taken 8 s ago]` |
-| `tap <target> [--nth N]` | `qa tap "#18"` | `tapped 640,535  #18  View  "All notes\n3"  id=drawer-all-notes  [0,462][1280,609]  click  (#18 from the dump just now)` |
+| `devices [--all]` | `qa devices` | see above |
+| `state [--json]` | `qa state` | `device=B57A8680-… (ios)  app=pid 16257  lifecycle=resumed  foreground=com.alexzamfir.anta  awake=yes  locked=?  ime=down  screen=1320x2868 @480dpi (440 x 956 dp)  driver=agent  run.log=yes  dtd=ws://…  vm=http://…` |
+| `doctor [--fix] [--json]` | `qa doctor` | see below |
+| `boot [--sim N] [--avd N] [--cold] [--phone]` | `qa boot --sim "iPhone 17 Pro"` | `booting iPhone 17 Pro (A8642AB6-…)…` then `ready: A8642AB6-…  iPhone 17 Pro (iOS 26.2)`; `--avd`, `--cold`, `--phone` are the Android path |
+| `run [--fresh] [--seed F] [--define K=V] [--no-qa] [--no-driver]` | `qa run --fresh --seed tool/qa/fixtures/basic.json` | `pid=14023  log=…/build/qa/run.log` / `dtd=ws://…` / `vm=http://…` then the three `[qa]` lines — 27–62 s on the simulator, 27–44 s on macOS; a cold Android build gets up to 8 minutes with a `still waiting for flutter run (40 s): …` heartbeat every 20 s |
+| `relaunch [--fresh] [--seed F]` | `qa relaunch --fresh --seed tool/qa/fixtures/basic.json` | `launched: xcrun simctl launch com.alexzamfir.anta (vm-service-port 51615)` / `vm=http://127.0.0.1:51615/  (no DTD after a bare launch …)` / `agent: iOS  1320x2868 @3.0x  lifecycle=resumed  semantics=on  textField=none  qa=qa` then the `[qa]` lines — 1.9–2.5 s |
+| `launch` | `qa launch --wait Folders` | brings a running app to the front, or starts it like `relaunch` without markers |
+| `attach` | `qa attach` | `flutter attach` against the running app: DTD + VM URIs again |
+| `stop` / `kill-run` | `qa kill-run` | `killed run pid 14023` then `forgot the URIs recorded for <device> (they died with the run — …)` — only when the recorded URI is the run's own DDS proxy; a URI a later `relaunch` recorded is kept (`kept the VM URI for <device> …`). A device app stays up; a desktop app started by that run dies with it |
+| `dtd [--vm]` | `qa dtd` | `ws://127.0.0.1:51233/FFsxRyTXm7w=`; after a bare `relaunch` there is no DTD and it says so (`--vm` still prints the VM URI) |
+| `agent [info \| <op> [json]]` | `qa agent info` | `iOS  1320x2868 @3.0x  lifecycle=resumed  semantics=on  textField=none  qa=qa  (19 ms round trip, protocol v1, up 515.3 s)` then `documents: …` and the `[qa]` lines |
+| `shot [name] [--scale F] [--full] [--via native\|agent]` | `qa shot home` | `…/build/qa/shots/20260916_205807_home.png` — native `simctl` capture on iOS (0.45 s, includes the status bar), the agent's render on macOS (0.4 s, Flutter view only); `adb screencap` on Android |
+| `dump [--all] [--json] [--cached]` | `qa dump` | see below; ends `14 node(s) of 23 (pass --all for the rest)  [agent]` |
+| `tap <target> [--nth N]` | `qa tap "Search all notes"` | `tapped 1104,258  #9  Button  "Search all notes"  id=search-open  [1032,186][1176,330]  click` |
 | `longpress <target> [--ms]` | `qa longpress "Injury notes"` | `long-pressed 640,2440 for 800ms  …` |
-| `text <target>` | `qa text "#11"` | the node's text |
-| `wait <target> [--gone] [--timeout S]` | `qa wait "Clear search"` | `found: #12  Button  "Clear search"  [1136,156][1280,300]  click` |
-| `scroll-to <target> [--max N] [--in T] [--up]` | `qa scroll-to "Warm-up protocol"` | `found after 0 swipe(s): #32  View  "Warm-up protocol…"` |
-| `type "<text>" [--enter]` | `qa type "squat"` | `typed "squat"` |
-| `key <name>` | `qa key back` | `sent KEYCODE_BACK` |
-| `swipe <dir> [--from x,y] [--dist px] [--ms N]` | `qa swipe up` | `swiped up: 640,1428 -> 640,48 (300ms)` |
-| `steps <line>… [--file F] [--keep-going]` | `qa steps 'tap "Training"' 'key back'` | `[1/2] tap "Training"` then the verb's output, indented two spaces |
-| `logcat [--lines N] [--since-launch] [--all]` | `qa logcat --lines 40` | filtered device log |
-| `errors [--lines N] [--all]` | `qa errors` | `no errors in …\build\qa\run.log (2 known-noise line(s) hidden; --all to show)` |
-| `build-exe` | `qa build-exe` | `D:\…\build\qa\qa.exe  (2568 ms)` |
+| `text <target>` | `qa text id:search-field` | the node's text |
+| `wait <target> [--gone] [--timeout S]` | `qa wait id:search-field` | `found: #8  EditText  "Search all notes"  id=search-field  [216,219][1272,297]  click,focused` |
+| `scroll-to <target> [--max N] [--in T] [--up]` | `qa scroll-to "Warm-up protocol"` | `found after 2 swipe(s): #32  View  "Warm-up protocol…"` |
+| `type "<text>" [--enter] [--replace]` | `qa type "squat ăöü"` | `typed "squat ăöü"  → field: "squat ăöü" (caret 9)` |
+| `key <name>` | `qa key back` | `sent back`; with nothing to pop: `sent back (nothing to pop — already at the root route, so the app was left running)`. Chords work on the agent path: `key meta+z`, `key ctrl+shift+z`, `key shift+tab` |
+| `swipe <dir> [--from x,y] [--dist px] [--ms N]` | `qa swipe up` | `swiped up: 660,1434 -> 660,48 (300ms)` |
+| `look [name] [--all] [--scale F] [--full] [--via]` | `qa look root` | the annotated PNG path, then the dump lines, then `14 node(s) marked; orange = tappable, blue = text field, green = scrollable` |
+| `expect <target>… [--absent T]… [--timeout S]` | `qa expect id:search-open Training --absent Rename` | `ok  present  "id:search-open"` per target; exit 2 with `2 expectation(s) failed after 5s:` + the misses + the screen listing |
+| `drag <from> <to> [--hold ms] [--ms N]` | `qa drag "Week 1" "Inbox"` | `dragged 660,1200 -> 660,976  #19 …  onto  #17 …` (press, hold 600 ms, move over 400 ms — a reorder needs the hold; agent path) |
+| `clear` | `qa clear` | `cleared the focused field` (agent path) |
+| `reload [--timeout S]` / `restart` | `qa reload --wait "New label"` | `reloaded in 253 ms: Reloaded 0 libraries in 75ms (…)` / `restarted in 1046 ms: Restarted application in 984ms.` — needs the live `flutter run` from `qa run` |
+| `perf start\|stop\|read [--json]` | `qa perf stop` | `frames=122 over 2414 ms  jank=0 (build or raster over 16.7 ms)` then one line each for build, raster, total (p50/p90/max ms) |
+| `steps <line>… [--file F] [--keep-going]` | `qa steps 'tap "Training"' 'key back'` | `[1/2] tap "Training"` then the verb's output, indented |
+| `log [--lines N] [--all]` (alias `logcat`) | `qa log --lines 40` | logcat on Android; the simulator's unified log (~1 s, last 10 min) on iOS; the app's stdout (`build/qa/app.log`) on macOS |
+| `errors [--lines N] [--all] [--clear]` | `qa errors` | `no errors in …/run.log` / `no errors in simulator log` / `no errors in agent` — the last is the app's own `FlutterError.onError` buffer, which only the driver build has |
+| `build-exe` | `qa build-exe` | `…/build/qa/qa  (2327 ms)` |
+| `wake`, `unphone` | | Android only; `qa wake -d ios` exits 1 saying so |
 
 ### Reading `doctor`
 
-Real output, healthy emulator, 2026-09-14:
+Real output, iPhone 17 Pro Max simulator, 2026-09-16:
 
 ```
-ok    adb server              D:\…\platform-tools\adb.exe answered (1 device row(s))
-ok    device                  emulator-5554 (device)
-ok    boot                    boot_completed=1 provisioned=1
-ok    awake                   awake=yes locked=no
-ok    screen                  1280x2856 @480dpi (427 x 952 dp)
-ok    app installed           apk present and run-as works (debug build)
-warn  app running             pid 8911, but the foreground is com.google.android.apps.nexuslauncher
-      → run `qa launch` to bring it back to the front
-ok    uiautomator             dump ok in 2003 ms
-ok    /data space             29832 MB free
-ok    host run state          run.pid 2804 is alive
-ok    dtd                     ws://127.0.0.1:60473/_SRrxC0lw0U=
+ok    xcrun                   /usr/bin/xcrun present
+ok    simulator               iPhone 17 Pro Max (iOS 26.2) booted
+ok    app installed           ~/Library/Developer/CoreSimulator/Devices/B57A8680-…/data/Containers/Bundle/Application/C0B007D5-…/Runner.app
+ok    app running             pid 16257, lifecycle resumed
+ok    agent                   answered in 1 ms  iOS  1320x2868 @3.0x  lifecycle=resumed  semantics=on  textField=none  qa=qa
+ok    host run state          run.pid 14023 is alive
+ok    dtd                     ws://127.0.0.1:51233/FFsxRyTXm7w=
 ok    qa.exe                  up to date
 ```
+
+After the app quit under it, the same command said `warn  app running  no
+process`, `FAIL  agent  cannot reach the VM service at ws://127.0.0.1:52186/ws:
+Connection refused. The recorded run is gone … — run `qa relaunch`` and
+`warn  host run state  run.pid names 18253, which is gone` — three lines that
+together mean "relaunch, then `doctor --fix`". `qa=OFF (owner database!)` in
+the agent line is a **FAIL**: the running build is not a QA build and is
+reading the owner's data — `qa run` installs the right one. On Android the
+list is the adb one (adb server, device, boot, awake, screen, app installed,
+app running, uiautomator, /data space) plus an agent line that only matters
+with `--via agent`.
 
 ### Targets
 
 A target is one of:
 
 - `#12` — the flat node index, resolved against **the cached dump**
-  (`build/qa/last_dump.xml`) so the index still means the node you read; the
-  output appends `(#12 from the dump 4 s ago)`. With nothing cached it exits 2
-  with ``no previous dump — run `dump` first or target by label``;
-- `123,456` — raw device pixels, which costs no dump at all;
-- `id:content` — a resource id, full or short;
-- anything else — a **label**, matched against content description, then text,
-  then resource id, in three passes: exact, case-insensitive, case-insensitive
-  substring. The first pass with any hit wins.
+  (`build/qa/last_dump.txt`) so the index still means the node you read;
+- `123,456` — raw device pixels (physical, the same space the screenshots
+  and the dump use), which costs no dump at all;
+- `id:content` — a `Semantics.identifier` from
+  `lib/constants/semantics_ids.dart` (the Android resource id; it never moves
+  with the locale);
+- anything else — a **label**, matched against content description (label +
+  tooltip), then text (the value), then id, in three passes: exact,
+  case-insensitive, case-insensitive substring. The first pass with any hit
+  wins.
 
-An ambiguous label exits 2 and lists the candidates with the `--nth N` (0-based)
-that picks each one. A tap on a node that is not itself clickable retargets to
-the nearest clickable ancestor and says so.
+An ambiguous label exits 2 and lists the candidates with the `--nth N`
+(0-based) that picks each one. **`wait` on an ambiguous label exits 2 at
+once** rather than polling: `"All notes"` matches both `"All notes\n3"` and
+`"Search all notes"` — wait for `id:drawer-all-notes` or `"All notes\n3"`
+instead. A tap on a node that is not itself clickable retargets to the nearest
+clickable ancestor and says so; a tap on a node the dump marked `hidden`
+(scrolled out of view) exits 2 with `scroll-to it first`.
 
-A label that matches nothing exits 2 **with the screen it looked at**, so no
-second call is needed to find out where you are:
+A label that matches nothing exits 2 **with the screen it looked at**:
 
 ```
 qa: no node matches "Nothing here at all". on screen (com.alexzamfir.anta):
 "Open navigation menu" | "Search all notes" | "Show menu" | "Folders" |
 "All notes / 3" | "Recent" | "FOLDERS" | "Inbox / 0" |
 "Money / Green label / 1" | "Training / Blue label / 2" | "New folder" |
-"Import" | "3 folders" | "id:content" | "id:navigationBarBackground"
+"Import" | "3 folders"
 ```
-
-Labelled nodes come first and id-only nodes fill the rest. A `wait` timeout and
-a `scroll-to` that ran out of swipes print the same listing plus
-`foreground=<pkg>`.
 
 ### Reading a dump
 
-`dump` prints `#index  Class  "content-desc"  text="…"  id=…  [l,t][r,b]  flags`,
-labelled/clickable/scrollable nodes only (`--all` for the rest). Real output,
-QA build seeded from `basic.json`:
+`dump` prints `#index  Class  "content-desc"  text="…"  hint="…"  id=…
+[l,t][r,b]  flags`, labelled/clickable/scrollable nodes only (`--all` adds the
+rest, including off-screen `hidden` ones). Real output, simulator, QA build
+seeded from `basic.json`:
 
 ```
-#11  Button  "Open navigation menu"  id=nav-menu  [135,165][261,291]  click
-#13  Button  "Search all notes"  id=search-open  [992,156][1136,300]  click
-#19  View  "All notes
-3"  id=drawer-all-notes  [0,462][1280,609]  click
-#22  View  "Inbox
-0"  [0,873][1280,1020]  click,long
-#23  View  "Money
+#7  Button  "Open navigation menu"  [0,186][168,330]  click
+#9  Button  "Search all notes"  id=search-open  [1032,186][1176,330]  click
+#13  Scroll  [0,0][1320,2586]  scroll
+#14  View  "All notes
+3"  id=drawer-all-notes  [0,492][1320,639]  click
+#18  View  "Money
 Green label
-1"  [0,1020][1280,1167]  click,long
-16 node(s) of 29 (pass --all for the rest)
+1"  [0,1050][1320,1197]  click,long
+#20  Button  "New folder"  id=create-folder  [12,2595][174,2757]  click
+14 node(s) of 23 (pass --all for the rest)  [agent]
 ```
 
-The content description is what ANTA's `Semantics` labels and tooltips produce,
-so it is almost always the localized string — tap by that, or by `id:` for
-anything in `lib/constants/semantics_ids.dart`, which never moves with the
-locale.
+The class is a role derived from the semantics flags (`Button`, `EditText`,
+`Switch`, `CheckBox`, `Scroll`, `Header`, `Image`, `View`), so it reads like
+the Android dump; a text field shows its content as `text="…"` and its
+placeholder as `hint="…"`. The `[agent]` tail says which layer produced it. On
+Android's adb path the format is the uiautomator one from the earlier skill
+version (`android.widget.Button`, `id=` from the resource id).
 
 **Where the ids sit.** A tagged leaf control carries its id, its label and its
 click flag on **one** node, because [`AutomationId`](../../../lib/widgets/automation_id.dart)
 merges the pair. A tagged **container** — `editor-body`, `editor-toolbar`,
-`label-picker` — deliberately keeps its own node above its children, so it
-shows as an unlabelled `View` with only the id:
-
-```
-#12  Button  "Show menu"  id=editor-more  [1136,156][1280,300]  click
-#15  View  id=editor-body  [0,396][1280,2634]
-#19  View  id=editor-toolbar  [0,2634][1280,2784]
-```
-
-`tap id:<name>` works either way: a tap on a node that is not itself clickable
-retargets to the nearest clickable ancestor.
+`label-picker` — keeps its own node above its children, so it shows as an
+unlabelled `View` with only the id; `tap id:<name>` works either way.
 
 ### Reading a screenshot
 
 `shot` prints one absolute path and nothing else. Read that path; the image
-comes back as a picture. It is downscaled 0.5× by default (halves each side) so
-it costs fewer tokens; pass `--full` when you need to judge exact pixels.
+comes back as a picture. It is downscaled 0.5× by default so it costs fewer
+tokens; pass `--full` when you need exact pixels. On iOS the native capture is
+the default and shows the status bar and Dynamic Island; `--via agent` renders
+only the Flutter view (what macOS always gets). Neither layer shows the soft
+keyboard in a driver build — the agent owns text entry.
 
 ## Dart MCP tools
 
-`qa run` and `qa attach` print the DTD URI and save it to `build/qa/dtd.txt`
-(`qa dtd` reprints it; `qa dtd --vm` gives the VM service URI). Then:
+`qa run` and `qa attach` print the DTD URI and save it per device (`qa dtd`
+reprints it; `qa dtd --vm` gives the VM service URI, which `relaunch` also
+records). Then:
 
-- `dtd` tool, command `connect`, `uri: <the ws:// URI>` — connects, and lists
-  the app: `name: Kind: Flutter - Device: sdk gphone64 x86 64 - Package: anta`.
+- `dtd` tool, command `connect`, `uri: <the ws:// URI>` — connects and lists
+  the app. After a bare `relaunch` there is no DTD; the `vm_service` tool's
+  `connect` takes the `--vm` URI instead.
 - `get_runtime_errors` (`clearRuntimeErrors: true` to reset) — the app's
-  uncaught exceptions. `no runtime errors found` is the pass condition for a
-  device check.
-- `hot_reload` / `hot_restart` — apply a code edit without rebuilding.
-- `widget_inspector`, command `get_widget_tree` (`summaryOnly: true` for user
-  code only) — find tooltips, keys and types for Driver finders.
-- `flutter_driver_command` — call shapes proved on this app:
-  - `{command: "get_health"}` → `{"status":"ok"}`
-  - `{command: "waitFor", finderType: "ByTooltipMessage", text: "Search all notes", timeout: "5000"}`
-  - `{command: "tap", finderType: "ByTooltipMessage", text: "Search all notes"}`
-  - `{command: "waitFor", finderType: "ByText", text: "All notes"}`
-  - `{command: "enter_text", text: "ăöü"}` — the Unicode path `qa type` refuses
-  - `{command: "get_text", finderType: "ByValueKey", keyValueString: "…", keyValueType: "String"}`
-
-**Which finder.** `ByTooltipMessage` for icon buttons, `ByText` for rows and
-labels, `ByValueKey` where a key exists. **`BySemanticsLabel` finds almost
-nothing in this app** and always has: it matches a `Semantics` widget that
-declares that literal label, and ANTA's rows compose their label from `Text`
-descendants while its buttons carry a tooltip (which lands on
-`SemanticsData.tooltip`, not `label`). Android still reads the tooltip as the
-content description, which is why `dump` and `tap` see it.
-
-A `waitFor` that times out means the finder matched nothing — check with `dump`
-which screen you are actually on before blaming the harness. Note that a
-Driver timeout is itself reported by `get_runtime_errors` as a
-`FlutterDriverExtension: Timeout while executing waitFor` entry, so clear the
-errors after a probe that was expected to miss.
+  uncaught exceptions. `qa errors` reads the same errors from the agent's
+  buffer without the MCP.
+- `hot_reload` / `hot_restart` — apply a code edit without rebuilding (needs
+  the `flutter run` behind `qa run`; a `relaunch` ends that tool process).
+- `widget_inspector`, command `get_widget_tree` (`summaryOnly: true`).
+- `flutter_driver_command` — finders `ByTooltipMessage` (icon buttons),
+  `ByText` (rows), `ByValueKey`; `BySemanticsLabel` finds almost nothing in
+  this app. `enter_text` is disabled in the driver build — `qa type` types.
 
 ## Isolation model
 
-Proved end to end on 2026-09-13: four QA runs and back, with the owner's
-`gym_notes.db` unchanged to the byte (282,624 bytes, same mtime, `qa.db` beside
-it) and the owner's root showing its own `All notes 14 / 123 / Training` again
-on the next `--no-qa` run.
+Proved end to end on 2026-09-13 on Android (owner's `gym_notes.db` byte-identical
+after four QA runs) and on 2026-09-16 on the iOS simulator and macOS.
 
 - QA builds carry `--dart-define=ANTA_QA=true --dart-define=ANTA_QA_DB=qa`
   (`qa run` adds them unless `--no-qa`). The app then uses the `qa` database
   under `gym_notes/` and a namespaced SharedPreferences prefix, so the owner's
   data is never touched.
-- A QA launch reports what it did on the `[qa]` channel. `qa errors` shows
-  these; so does `qa logcat`:
+- **A QA build cannot reach Firebase.** The signed-in identity belongs to the
+  install, not to a database, so a QA run on a device where the owner is
+  signed in would otherwise act as them: show their name or e-mail on the
+  account screens and create or delete `invites`/`pairs` documents in the
+  production project. `SyncAvailability` therefore answers false whenever
+  `ANTA_QA` is set, which means Firebase is never initialized and the no-op
+  auth and pairing bindings are registered. `agent info` and `doctor` print
+  `cloud=off` so this is checked, not assumed. Testing sync on purpose is an
+  explicit opt-in — `qa run --define ANTA_QA_CLOUD=true` — and every launch
+  then warns, and `doctor` turns the agent line to `warn`. Never screenshot
+  or dump an account screen in such a run.
+- **Everything the tool prints from a log is redacted**: Firebase API keys,
+  OAuth client ids, Firebase app ids, OAuth tokens, JWTs, authorization
+  headers, private keys and e-mail addresses are masked in `log`, `errors`
+  and in the log tails that failure messages quote. Tool output lands in an
+  agent transcript, so this is the one place a secret could leave the
+  machine. Local VM service URIs are not secrets and stay readable.
+- A QA launch reports what it did on the `[qa]` channel, and the driver build
+  also keeps those lines in memory for the agent, which is where `run` and
+  `relaunch` read them from (logcat / the unified log / `app.log` are the
+  fallbacks). A `--fresh` that never produces `[qa] reset`, or a `--seed` that
+  never produces `[qa] seed`, exits 3; so does a seed the app rejected. A
+  fixture that imports nothing is reported as `imported 0 folders, 0 notes`
+  and is **not** a failure — check the count.
+- Markers are files in the app's documents directory:
 
-  ```
-  I/flutter ( 7344): [qa] reset: cleared preferences and qa.db
-  I/flutter ( 7344): [qa] seed: imported 4 folders, 3 notes
-  I/flutter ( 7344): [qa] onboarding marked completed
-  ```
+  | Platform | Documents directory | Delivery |
+  | --- | --- | --- |
+  | iOS simulator | `xcrun simctl get_app_container <udid> com.alexzamfir.anta data` + `/Documents` | a plain file write on the host |
+  | macOS | `~/Library/Containers/com.alexzamfir.anta/Data/Documents` (sandboxed; the agent's `info` confirms the path and `qa agent info` prints it) | a plain file write on the host |
+  | Android | `/data/user/0/com.alexzamfir.anta/app_flutter` | `adb push` to `/data/local/tmp`, then `run-as … cp` (debug builds only) |
 
-  `--fresh` with no `--seed` prints only the reset and onboarding lines and
-  lands on an empty folder root, never on onboarding. A plain `qa run` prints
-  none of them and the QA data from the previous run is still there.
-
-  **`run` and `relaunch` now wait for those lines and check them.** A `--fresh`
-  that never produces `[qa] reset`, or a `--seed` that never produces
-  `[qa] seed`, exits 3 rather than leaving you reading a database that is not
-  the one you asked for; so does a seed the app rejected
-  (`qa: the seed was not imported: seed: import failed: FormatException: …`).
-  A fixture the importer accepts but finds nothing in is reported honestly as
-  `[qa] seed: imported 0 folders, 0 notes` and is **not** a failure — check the
-  count, not just the exit code.
-- `--fresh` drops an empty `qa_reset` marker in the app documents dir; the next
-  QA launch clears the QA prefs and deletes `gym_notes/qa.db*`.
-- `--seed <file>` pushes a full-backup JSON as `qa_seed.json`; the next QA
-  launch imports it. Fixtures live in `tool/qa/fixtures/*.json`.
-- Both markers go in via `/data/local/tmp` and `adb shell run-as
-  com.alexzamfir.anta cp …`, which only works because the app is a debug build.
-- **Caveat**: while a QA build is installed, the launcher icon opens the *QA*
-  database. The owner gets their data back on their next normal `flutter run`.
+  `--fresh` drops an empty `qa_reset`; `--seed <file>` copies a full-backup
+  JSON as `qa_seed.json`. Fixtures live in `tool/qa/fixtures/*.json`.
+- **Caveat**: while a QA build is installed, the app icon opens the *QA*
+  database. The owner gets their data back on the next normal `flutter run`.
 
 ## Traps
 
-- **Right-edge swipes are Android's back gesture.** Every swipe this tool
-  builds keeps 48 px clear of all four edges. If you call `adb shell input
-  swipe` by hand, do the same.
-- **`adb shell input text` is ASCII only** and the device shell eats `#`, `(`,
-  `)`, `&`, `$` and backticks. `qa type` single-quotes the argument and turns
-  spaces into `%s`; non-ASCII is refused with a pointer to Driver `enter_text`.
-  Newlines and tabs are refused too — use `key enter` / `key tab`.
-- **`adb shell logcat -T "MM-DD HH:MM:SS.mmm"` fails**: the device shell splits
-  the space. `qa logcat` uses host-side `adb logcat` instead.
-- **`uiautomator dump` fails while an animation runs.** `dump` retries three
-  times, 300 ms apart, and then says which of the two causes it is: a leftover
-  `uiautomator` process (`run \`qa doctor --fix\``) or the animation. Never run
-  two dumps at once: the second crashes with `UiAutomationService … already
-  registered!`, which then sits in logcat looking like an app crash. `qa errors`
-  scopes its logcat read to the app's own pid for exactly that reason.
-- **`pgrep -f uiautomator` always matches itself.** `adb shell pgrep -f
-  uiautomator` finds the very shell running it, so it reports a leftover on a
-  perfectly clean device. Every probe here uses `pgrep -f '[u]iautomator'`,
-  which matches the real process and not this command line.
-- **`E/FirebearStorageCryptoHelper`** in `errors` is Firebase with no signed-in
-  user, not an app fault — two lines, not one (`Exception encountered while
-  decrypting bytes:` and `decryption failed`). `errors` hides both and says so:
-  `no errors in … (2 known-noise line(s) hidden; --all to show)`.
-- **`adb logcat -T` compares against the *device* clock, which lags the host.**
-  A stamp taken on the host at launch is in the guest's future, so the lines
-  the launch is about to print are filtered out and the wait reports that the
-  app said nothing. Every recorded stamp is backdated 15 s
-  (`logcatStampMargin`), and the `[qa]` marker wait scopes to the app's pid
-  (`--pid=`) instead, which is immune to clock skew and to a previous launch's
-  lines.
-- **`qa dump`, `tap`, `wait`, `text`, `longpress` and `scroll-to` warn when the
-  screen is not ANTA's**: `warning: foreground is
-  com.google.android.apps.nexuslauncher, not com.alexzamfir.anta (crashed?
-  keyguard? a system dialog?)`. `tap` still taps — system dialogs have to stay
-  tappable.
-- **`qa type` warns when no keyboard is up**: `warning: no keyboard is up — the
-  text may go nowhere (tap a field first)`, from a `mInputShown` probe batched
-  into the same shell call as the typing. Observed on `emulator-5554` on
-  2026-09-14: the soft IME does not come up for ANTA's search field, the
-  warning fires and the text genuinely does not land (`show_ime_with_hard_keyboard`
-  made no difference). Use the Driver path — `flutter_driver_command` with
-  `enter_text` — when typing has to work.
-- **An `adb` call that never answers** now says so in one line: `adb did not
-  answer in 30s (…) — the emulator's adbd may be degraded (quick-boot snapshot
-  trap: the owner must cold-boot it; never do it from this tool). Run
-  \`qa doctor\`.`
+Shared:
+
+- **`key back` is `Navigator.maybePop` on the root navigator**, which is
+  what Android's back does short of leaving the app: a pushed route pops, a
+  sheet or dialog closes, and an in-page mode guarded by `PopScope` (ANTA's
+  search bar) is closed by its own handler. With nothing to handle it says
+  `nothing to pop` and leaves the app running — a real `popRoute` on the root
+  quits a desktop app.
+- **An app you started yourself (Xcode, the IDE, a tap on the icon) can still
+  be driven**: when no URI is recorded, the tool looks for the VM service the
+  app announced in the platform log (simulator: `log show`; Android: logcat +
+  `adb forward`) and records it — `qa: recovered the VM service URI from the
+  ios log`. macOS has no such log; `qa relaunch -d macos` instead.
+- **`doctor` warns about markers left pending** (`qa_seed.json pending in the
+  documents directory`): a non-QA build ignores them and the next QA launch
+  would silently apply a stale seed.
+- **The agent cannot see native UI.** A permission prompt, a share sheet or
+  the simulator's own dialogs are invisible to `dump`; `shot` (native on iOS)
+  shows them. Android's adb path sees them and warns `foreground is …, not
+  com.alexzamfir.anta`.
+- **A `wait` on an ambiguous label fails at once** (see Targets). Prefer
+  `id:` targets in step files.
+- **Off-screen nodes never win a label.** The agent's tree includes rows a
+  list has cached beyond the viewport (flagged `hidden`); a visible match is
+  preferred over a hidden duplicate, `wait`/`expect` treat a hidden node as
+  absent, and `tap` on one says `scroll-to it first`.
+- **A refused reset fails the launch.** `[qa] reset refused: ANTA_QA_DB is
+  "gym_notes"` means the build points at the owner database; `run`/`relaunch`
+  exit 3 on it (the outcome is typed, not matched on wording) instead of
+  reporting a reset that never happened.
+- **A non-driver app does not stall the verbs.** The driver extension is
+  looked for once per connection (15 s only right after a launch, when `main`
+  is still registering it); a plain build fails fast with "not the driver
+  build".
+- **`relaunch` has no DTD.** Hot reload and the Dart MCP's `dtd connect` need
+  the `flutter run` from `qa run` (or `qa attach`). `relaunch` records the VM
+  URI, which is all the agent and `qa dtd --vm` need.
+- **One `flutter run` at a time.** `run` on a second device kills the first
+  run's tool process (not its app). Per-device VM/DTD files keep the verbs
+  pointed at the right app; `relaunch` restores the agent on either side.
+- **Typing goes through `TestTextInput`,** so there is never a soft keyboard,
+  `type` refuses when no field is focused (exit 2: tap a field first), and
+  `key enter` sends the field's own input action (`search`, `done`,
+  `newline`…). `key done|search|newline` sends a specific action.
 - **A tap right after a dialog or sheet closes falls through** to whatever is
   underneath. Put a `wait` (or a second `dump`) between them.
-- **The in-app theme overrides `adb shell cmd uimode night`.** Switch light and
-  dark in ANTA's own settings, not on the device.
-- **TalkBack cannot be scripted.** The accessibility story is `uiautomator dump`
-  here, plus `simulatedAccessibilityTraversal` in widget tests.
-- **`wm size` must be reset.** `boot --phone` says so in its output; run
-  `unphone` before you finish.
-- **Under Git Bash set `MSYS_NO_PATHCONV=1`** for hand-written adb commands with
-  `/sdcard` or `/data` paths. The Dart tool passes arguments directly and is
-  unaffected. Both `tool/qa/qa.cmd` and `tool/qa/qa` work from Git Bash; the
-  `.cmd` is the PowerShell entry.
-- **A `.bat` invoked from a `.cmd` without `call` never comes back.** `dart` on
-  PATH here is `dart.bat`, so `qa.cmd` says `call dart compile exe …`; without
-  the `call`, control transfers and the wrapper ends before the verb ever runs,
-  silently and with exit code 0. For the same reason the self-rebuild resolves
-  a real `dart.exe` (the Flutter SDK's `bin/cache/dart-sdk/bin`) rather than the
-  shim: `Process.start` goes through `CreateProcess`, which cannot run a batch
-  file.
-- **PowerShell 5.1 eats the inner quotes of a native command's arguments.**
-  `& $q steps 'tap "Search all notes"'` arrives as three words and fails on the
-  wrong step. Use `--%` with `\"` escapes, `steps --file`, or Git Bash.
-- **`run` sometimes loses the VM service handshake** — `Error connecting to the
-  service protocol` — usually right after a force-stop, or when a previous run
-  was killed and left a `dart development-service` behind. `run` reaps those
-  orphans first and gives up on the handshake after 20 s instead of the full
-  4-minute timeout: just run it again. `qa kill-run` also reaps.
-- **Do not simplify the Windows launcher.** Three separate traps are wired into
-  `tool/qa/src/runner.dart` and each one was a silent failure: `flutter.bat`
-  writes nothing at all under `ProcessStartMode.detached`; a child that
-  inherits the calling shell's stdout keeps that shell from ever returning; and
-  `flutter run` quits the second stdin reports end-of-file, so the wrapper
-  feeds it from an idle pipe that never closes. Redirecting stdin to a file
-  breaks that pipe and the run dies again.
-- **`qa run` leaves the app running but the run can still end.** If `qa dtd`
-  stops working, check `tail build/qa/run.log` for `Lost connection to device`
-  and use `qa attach` to get a fresh DTD against the app that is still up.
+- **The in-app theme overrides the system theme.** Switch light and dark in
+  ANTA's own settings.
+
+iOS simulator:
+
+- **`log` is the unified log** (`xcrun simctl spawn <udid> log show`, ~1 s,
+  last 10 minutes, Flutter's own predicate). The app's `print`s do not go to
+  stdout on iOS, which is why `relaunch` reads `[qa]` lines from the agent;
+  the log fallback is scoped to the running pid (`processID == N`), so a
+  previous launch's lines are never mistaken for this one's.
+- **A reinstall moves the data container** to a new UUID directory (the
+  contents survive). The tool queries `get_app_container` fresh every
+  process; never cache that path in a script.
+- **`--cold`/`--phone` are Android flags**; pick a different simulator with
+  `--sim` instead. `boot` needs `--sim` (or `ANTA_QA_SIM`) when more than one
+  iPhone is installed and none is booted.
+
+macOS:
+
+- **`shot` is the agent's render** (no window id is needed); there is no
+  native capture without a window id, and `--via native` says so.
+- **The sandbox container appears on first launch**, so a brand-new machine
+  runs a plain `qa run -d macos` before any `--fresh`/`--seed`.
+- **`app.log` is the app's stdout**, captured only for launches this tool
+  made (`relaunch`/`launch`); a `qa run` launch logs into `run.log`.
+
+Android (unchanged from the Windows-era harness; still true):
+
+- **Right-edge swipes are Android's back gesture.** Every swipe this tool
+  builds keeps 48 px clear of all four edges.
+- **`adb shell input text` is ASCII only** and the device shell eats `#`, `(`,
+  `)`, `&`, `$` and backticks; `qa type` quotes and refuses non-ASCII. Use
+  `--via agent` for Unicode (needs the driver build from `qa run`).
+- **`uiautomator dump` fails while an animation runs**; `dump` retries three
+  times and names the cause. Never run two dumps at once.
+- **`pgrep -f uiautomator` always matches itself**; every probe uses
+  `pgrep -f '[u]iautomator'`.
+- **`E/FirebearStorageCryptoHelper`** in `errors` is Firebase with no signed-in
+  user; hidden as known noise.
+- **`adb logcat -T` compares against the device clock**, which lags the host;
+  stamps are backdated 15 s and marker waits scope to the app's pid.
+- **`qa type` on adb warns when no keyboard is up** — with the driver build
+  installed that is always, because the agent owns the text channel; use
+  `--via agent`.
+- **A `WARNING | Failed to …` line from the emulator is not fatal.** `boot`
+  ignores INFO/WARNING chatter (it used to abort on a routine `.ini` warning
+  on a fresh Mac) and, if it is re-run while an emulator it started is still
+  offline, resumes waiting instead of calling the guest wedged.
+- **A forwarded port answers before the app does.** After `relaunch`, adb
+  accepts the TCP connection on the forwarded VM-service port while nothing
+  listens behind it yet, so the WebSocket handshake fails with an
+  `HttpException`, not a refused socket. The client treats any I/O error as
+  "not answering yet" and retries; if a verb ever races it anyway, the next
+  one recovers the URI from logcat (`qa: recovered the VM service URI from
+  the android log`).
+- **Do not simplify the Windows launcher** in `tool/qa/src/runner.dart`:
+  `flutter.bat` writes nothing under `DETACHED_PROCESS`, an inherited stdout
+  keeps the caller's shell from returning, and `flutter run` quits when stdin
+  reports end-of-file — three separate traps, each a silent failure. On POSIX
+  none of them apply and the wrapper simply `exec`s the tool (checked on macOS
+  2026-09-16: a detached `flutter run` with stdin at `/dev/null` keeps
+  running), so the recorded pid is the tool's own.
+- **PowerShell 5.1 eats the inner quotes of a native command's arguments**;
+  use `--%` with `\"` or `steps --file`.
+
+## Secrets and credentials files
+
+- `android/app/google-services.json`, `ios/Runner/GoogleService-Info.plist`
+  and `lib/firebase_options.dart` are machine-local and gitignored. The
+  Android one must sit in **`android/app/`**: one level up Gradle does not
+  find it (`File google-services.json is missing`). `.gitignore` also ignores
+  these names anywhere in the tree (and the `google_services.json` spelling,
+  `key.properties`, keystores and service-account JSON), so a copy dropped in
+  the wrong folder cannot be staged by `git add -A`.
+- Never `cat` those files, paste their contents into a command, a doc, a
+  commit message or a step file, or attach them to anything. To check one,
+  print its structure with the values masked.
+- Screenshots, dumps and logs live under `build/qa/`, which is ignored. Do not
+  copy them into the repo or into `docs/`.
 
 ## Never
 
-- Never kill, wipe, cold-boot or restart the emulator out from under the owner.
-  `boot` refuses when a device is already attached.
-- Never `pm clear`, `uninstall`, or delete app data: the emulator holds the
-  owner's real notes in the **default** database.
-- Never edit the default database from a QA run — that is what `ANTA_QA` is for.
+- Never kill, wipe, cold-boot or restart an emulator or simulator out from
+  under the owner. `boot` refuses when a device is already attached; `xcrun
+  simctl erase`/`shutdown` are not verbs here and must not be run by hand
+  during a pass.
+- Never `pm clear`, `uninstall`, delete app data or a simulator data
+  container: the default database in each is the owner's.
+- Never edit the default database from a QA run — that is what `ANTA_QA` is
+  for. The `agent` doctor line turns FAIL when a non-QA build is being driven.

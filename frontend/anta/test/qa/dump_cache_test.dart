@@ -72,7 +72,7 @@ void main() {
     test('the cache lives under build/qa so a clean wipes it', () {
       writeDumpCache(paths, '<hierarchy rotation="0"></hierarchy>');
       expect(paths.lastDump, startsWith(paths.buildQa));
-      expect(paths.lastDump, endsWith('last_dump.xml'));
+      expect(paths.lastDump, endsWith('last_dump.txt'));
     });
   });
 }

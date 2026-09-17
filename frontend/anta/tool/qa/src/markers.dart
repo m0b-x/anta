@@ -1,13 +1,10 @@
 import 'dart:io';
 
 import 'adb.dart';
+import 'app_ids.dart';
 import 'errors.dart';
 
-/// Package id of the app under test.
-const String antaPackage = 'com.alexzamfir.anta';
-
-/// Main activity component, for `am start -n`.
-const String antaActivity = '$antaPackage/.MainActivity';
+export 'app_ids.dart' show antaActivity, antaPackage;
 
 /// App documents directory the Flutter app reads its QA markers from.
 const String antaDocsDir = '/data/user/0/$antaPackage/app_flutter';
@@ -77,3 +74,42 @@ Future<void> pushSeed(
     ),
   );
 }
+
+/// Drops the reset marker straight into a documents directory on the host
+/// filesystem — the iOS simulator's data container, or the macOS sandbox.
+Future<void> dropResetMarkerAt(String documentsDir, {bool mustExist = false}) async {
+  final dir = await _markerDirectory(documentsDir, mustExist: mustExist);
+  await File('${dir.path}${Platform.pathSeparator}$resetMarker').writeAsBytes(const []);
+}
+
+/// Copies a seed fixture into a documents directory on the host filesystem.
+Future<void> pushSeedTo(
+  String documentsDir,
+  String localPath, {
+  bool mustExist = false,
+}) async {
+  final file = File(localPath);
+  if (!file.existsSync()) {
+    throw UsageFailure('seed fixture not found: $localPath');
+  }
+  final dir = await _markerDirectory(documentsDir, mustExist: mustExist);
+  await file.copy('${dir.path}${Platform.pathSeparator}$seedMarker');
+}
+
+Future<Directory> _markerDirectory(String path, {required bool mustExist}) async {
+  final dir = Directory(path);
+  if (await dir.exists()) return dir;
+  if (mustExist || !await dir.parent.exists()) {
+    throw DeviceFailure(
+      'the app documents directory does not exist yet: $path — launch the app '
+      'once (`qa run`), then drop markers with `qa relaunch --fresh --seed …`',
+    );
+  }
+  return dir.create();
+}
+
+/// Which marker files are waiting in a documents directory on the host.
+List<String> pendingMarkersAt(String documentsDir) => [
+      for (final name in const [resetMarker, seedMarker])
+        if (File('$documentsDir${Platform.pathSeparator}$name').existsSync()) name,
+    ];

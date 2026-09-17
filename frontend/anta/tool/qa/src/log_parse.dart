@@ -115,6 +115,10 @@ class QaMarkerLines {
     if (line == null) return false;
     return line.contains('import failed') || line.contains('threw');
   }
+
+  /// Whether the reset line is the refusal `QaBootstrap` prints when the
+  /// database it was asked to wipe is the owner's.
+  bool get resetFailed => reset?.contains('refused') ?? false;
 }
 
 final RegExp _qaLine = RegExp(r'\[qa\]\s*(.*)$');
@@ -148,12 +152,22 @@ final RegExp _emulatorFatal = RegExp(
   r'is already in use|hypervisor|WHPX|HAXM|Failed to|Address already in use',
 );
 
+final RegExp _emulatorChatter = RegExp(r'^(?:INFO|WARNING|VERBOSE|DEBUG)\s*\|');
+
 /// The line that says a just-started emulator is not going to come up.
 ///
 /// Without it `boot` waits out its whole six minutes on a failure the
-/// emulator announced in its first second.
-String? emulatorFatalLine(String logText) =>
-    _firstMatching(logText, _emulatorFatal);
+/// emulator announced in its first second. Lines the emulator itself files
+/// as INFO or WARNING never count: `WARNING | Failed to process .ini file`
+/// is routine on a fresh machine and the guest boots fine behind it.
+String? emulatorFatalLine(String logText) {
+  for (final raw in logText.split('\n')) {
+    final line = raw.trim();
+    if (line.isEmpty || _emulatorChatter.hasMatch(line)) continue;
+    if (_emulatorFatal.hasMatch(line)) return line;
+  }
+  return null;
+}
 
 /// Log lines that look like errors but are not the app's fault.
 /// Firebase with no signed-in user logs two lines, not one — the "Exception
@@ -195,4 +209,69 @@ extension _Last<T> on Iterable<T> {
     }
     return found;
   }
+}
+
+final RegExp _appVmServiceLine = RegExp(
+  r'(?:Dart VM [Ss]ervice is listening on|VM Service is available at:?)\s*((?:http|ws)s?://\S+)',
+);
+
+/// The last VM service URI an app announced in a device log, for driving an
+/// app that was started outside this tool (an IDE run, a tap on the icon).
+String? vmServiceUriFromLog(String logText) {
+  String? found;
+  for (final match in _appVmServiceLine.allMatches(logText)) {
+    var uri = match.group(1)!.trim();
+    while (uri.isNotEmpty && (uri.endsWith('.') || uri.endsWith(','))) {
+      uri = uri.substring(0, uri.length - 1);
+    }
+    if (uri.isNotEmpty) found = uri;
+  }
+  return found;
+}
+
+final RegExp _hotReloadDone = RegExp(
+  r'Reloaded \d+ (?:of \d+ )?librar|Restarted application|Hot restart performed',
+);
+
+final RegExp _hotReloadFailed = RegExp(
+  r'Hot reload rejected|Hot reload was rejected|Try again after fixing|'
+  r'^\S+\.dart:\d+:\d+: Error: |Unable to hot reload|Compilation error|Hot restart failed',
+);
+
+/// What the run log appended after a hot reload or restart was requested:
+/// the line that says it finished, the line that says it failed, or null
+/// while it is still going.
+(bool ok, String line)? hotReloadOutcome(String appendedText) {
+  for (final raw in appendedText.split('\n')) {
+    final line = raw.trim();
+    if (line.isEmpty) continue;
+    if (_hotReloadFailed.hasMatch(line)) return (false, line);
+    if (_hotReloadDone.hasMatch(line)) return (true, line);
+  }
+  return null;
+}
+
+final List<(RegExp, String)> _secretPatterns = [
+  (RegExp(r'AIza[0-9A-Za-z_-]{20,}'), 'AIza…[redacted-api-key]'),
+  (RegExp(r'[0-9]{6,}-[0-9a-z]{16,}\.apps\.googleusercontent\.com'),
+      '[redacted-oauth-client].apps.googleusercontent.com'),
+  (RegExp(r'\b1:[0-9]{6,}:(android|ios|web):[0-9a-f]{8,}'), '[redacted-firebase-app-id]'),
+  (RegExp(r'ya29\.[0-9A-Za-z_-]{10,}'), '[redacted-oauth-token]'),
+  (RegExp(r'eyJ[0-9A-Za-z_-]{8,}\.[0-9A-Za-z_-]{8,}\.[0-9A-Za-z_-]{8,}'), '[redacted-jwt]'),
+  (RegExp(r'(bearer|authorization:?)\s+[0-9A-Za-z._~+/=-]{16,}', caseSensitive: false),
+      '[redacted-credential]'),
+  (RegExp(r'-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----'),
+      '[redacted-private-key]'),
+  (RegExp(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'), '[redacted-email]'),
+];
+
+/// Masks credentials and personal identifiers in text the tool is about to
+/// print. Everything this tool prints ends up in an agent's transcript, so a
+/// log line is the one place a key or an address could leave the machine.
+String redactSecrets(String text) {
+  var out = text;
+  for (final (pattern, replacement) in _secretPatterns) {
+    out = out.replaceAll(pattern, replacement);
+  }
+  return out;
 }

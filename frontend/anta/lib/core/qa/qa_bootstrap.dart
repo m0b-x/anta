@@ -9,9 +9,21 @@ import '../../services/backup_service.dart';
 import '../../services/settings_service.dart';
 import 'qa_mode.dart';
 
-/// Imports a full-backup JSON document and returns a one-line description of
-/// what happened, for the `[qa]` log.
-typedef QaSeedImporter = Future<String> Function(String json);
+/// Imports a full-backup JSON document and reports whether it succeeded and
+/// a one-line description of what happened, for the `[qa]` log.
+typedef QaSeedImporter = Future<(bool ok, String message)> Function(String json);
+
+/// One `[qa]` line, typed: what it was about, whether it went well, and the
+/// wording that was printed. The driver branches on [ok], never on the text.
+class QaLogEntry {
+  const QaLogEntry(this.kind, this.ok, this.message);
+
+  final String kind;
+  final bool ok;
+  final String message;
+
+  Map<String, Object?> toJson() => {'kind': kind, 'ok': ok, 'message': message};
+}
 
 /// Marker-file driven startup hooks for the automation build.
 ///
@@ -59,6 +71,20 @@ class QaBootstrap {
   /// False turns every hook into a no-op, which is what a non-QA build is.
   final bool enabled;
 
+  /// Every `[qa]` line this process has printed, in order, so the driver can
+  /// read them back over the VM service instead of scraping a device log.
+  static final List<String> log = <String>[];
+
+  /// The same lines, typed, so the driver can tell a failed seed from a
+  /// successful one without matching on wording.
+  static final List<QaLogEntry> entries = <QaLogEntry>[];
+
+  static void _say(String kind, bool ok, String message) {
+    log.add(message);
+    entries.add(QaLogEntry(kind, ok, message));
+    debugPrint('[qa] $message');
+  }
+
   /// `SharedPreferences.setPrefix` plus the reset marker.
   ///
   /// Runs before `configureDependencies()`, because the first thing the
@@ -95,9 +121,12 @@ class QaBootstrap {
         final backup = await BackupService.getInstance();
         final result = await backup.importFromJson(json);
         return result.success
-            ? 'imported ${result.foldersImported} folders, '
-                  '${result.notesImported} notes'
-            : 'import failed: ${result.error}';
+            ? (
+                true,
+                'imported ${result.foldersImported} folders, '
+                    '${result.notesImported} notes',
+              )
+            : (false, 'import failed: ${result.error}');
       },
       isOnboardingCompleted: () async =>
           (await SettingsService.getInstance()).isOnboardingCompleted(),
@@ -116,8 +145,10 @@ class QaBootstrap {
     if (!await marker.exists()) return false;
 
     if (databaseName == _ownerDatabaseName) {
-      debugPrint(
-        '[qa] reset refused: ANTA_QA_DB is "$_ownerDatabaseName", '
+      _say(
+        'reset',
+        false,
+        'reset refused: ANTA_QA_DB is "$_ownerDatabaseName", '
         'which is the owner database',
       );
       await _deleteQuietly(marker);
@@ -132,7 +163,7 @@ class QaBootstrap {
     }
 
     await _deleteQuietly(marker);
-    debugPrint('[qa] reset: cleared preferences and $databaseName.db');
+    _say('reset', true, 'reset: cleared preferences and $databaseName.db');
     return true;
   }
 
@@ -147,10 +178,10 @@ class QaBootstrap {
 
     try {
       final json = await marker.readAsString();
-      final outcome = await importSeed(json);
-      debugPrint('[qa] seed: $outcome');
+      final (ok, message) = await importSeed(json);
+      _say('seed', ok, 'seed: $message');
     } catch (e) {
-      debugPrint('[qa] seed: threw $e');
+      _say('seed', false, 'seed: threw $e');
     } finally {
       await _deleteQuietly(marker);
     }
@@ -164,7 +195,7 @@ class QaBootstrap {
     if (!enabled || !skipOnboarding) return false;
     if (await isOnboardingCompleted()) return false;
     await markOnboardingCompleted();
-    debugPrint('[qa] onboarding marked completed');
+    _say('onboarding', true, 'onboarding marked completed');
     return true;
   }
 
@@ -172,7 +203,7 @@ class QaBootstrap {
     try {
       if (await file.exists()) await file.delete();
     } catch (e) {
-      debugPrint('[qa] could not delete ${file.path}: $e');
+      _say('cleanup', false, 'could not delete ${file.path}: $e');
     }
   }
 

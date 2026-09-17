@@ -149,13 +149,21 @@ CheckResult checkAwake(DeviceProbe probe) {
 
 /// No `wm size` override is left in force from a `boot --phone`.
 CheckResult checkScreenOverride(DeviceProbe probe) {
-  if (!probe.screen.isOverridden) {
-    return CheckResult.ok('screen', probe.screen.toString());
+  final screen = probe.screen;
+  if (screen == null) {
+    return const CheckResult(
+      name: 'screen',
+      status: CheckStatus.warn,
+      detail: 'unknown (the device did not report it)',
+    );
+  }
+  if (!screen.isOverridden) {
+    return CheckResult.ok('screen', screen.toString());
   }
   return CheckResult(
     name: 'screen',
     status: CheckStatus.warn,
-    detail: probe.screen.toString(),
+    detail: screen.toString(),
     fix: 'run `qa unphone` to drop the override',
     fixVerb: DoctorFix.unphone,
   );
@@ -189,7 +197,8 @@ CheckResult checkAppInstalled({
   );
 }
 
-/// The app process is alive and on top.
+/// The app process is alive and on top — by the resumed activity on
+/// Android, by the app's own lifecycle state where the agent reported one.
 CheckResult checkAppRunning(DeviceProbe probe, String packageId) {
   if (probe.appPid == null) {
     return const CheckResult(
@@ -199,7 +208,22 @@ CheckResult checkAppRunning(DeviceProbe probe, String packageId) {
       fix: 'run `qa relaunch` (fast) or `qa run` (with DTD)',
     );
   }
+  final lifecycle = probe.lifecycle;
+  if (lifecycle != null) {
+    if (lifecycle != 'resumed') {
+      return CheckResult(
+        name: 'app running',
+        status: CheckStatus.warn,
+        detail: 'pid ${probe.appPid}, lifecycle $lifecycle',
+        fix: 'run `qa launch` to bring it back to the front',
+      );
+    }
+    return CheckResult.ok('app running', 'pid ${probe.appPid}, lifecycle resumed');
+  }
   final foreground = probe.foregroundPackage;
+  if (probe.resumedActivity == null && probe.awake != null && foreground == null) {
+    return CheckResult.ok('app running', 'pid ${probe.appPid}');
+  }
   if (foreground != packageId) {
     return CheckResult(
       name: 'app running',
@@ -345,5 +369,113 @@ CheckResult checkExeFreshness({
     status: CheckStatus.warn,
     detail: 'older than ${staleSource ?? 'the sources'}',
     fix: 'run `qa build-exe`',
+  );
+}
+
+/// Xcode's command line tools are present, which is what every simulator
+/// verb shells out to.
+CheckResult checkXcrun({required bool available}) => available
+    ? const CheckResult.ok('xcrun', '/usr/bin/xcrun present')
+    : const CheckResult(
+        name: 'xcrun',
+        status: CheckStatus.fail,
+        detail: '/usr/bin/xcrun missing',
+        fix: 'install the Xcode command line tools: `xcode-select --install`',
+      );
+
+/// The chosen simulator is booted.
+CheckResult checkSimulator({
+  required String name,
+  required String state,
+  required String runtime,
+}) {
+  if (state == 'Booted') {
+    return CheckResult.ok('simulator', '$name ($runtime) booted');
+  }
+  return CheckResult(
+    name: 'simulator',
+    status: CheckStatus.fail,
+    detail: '$name is $state',
+    fix: 'run `qa boot --sim "$name"`',
+  );
+}
+
+/// The app bundle exists where the platform keeps it.
+CheckResult checkAppBundle({
+  required String? path,
+  required String platform,
+  required String fix,
+}) {
+  if (path == null) {
+    return CheckResult(
+      name: 'app installed',
+      status: CheckStatus.fail,
+      detail: 'no bundle for the $platform',
+      fix: fix,
+    );
+  }
+  return CheckResult.ok('app installed', path);
+}
+
+/// The in-app agent answered over the VM service.
+CheckResult checkAgent({
+  required String? vmUri,
+  required String? failure,
+  required int? roundTripMs,
+  required String? summary,
+  required bool? qaMode,
+  bool? cloud,
+}) {
+  if (vmUri == null || vmUri.isEmpty) {
+    return const CheckResult(
+      name: 'agent',
+      status: CheckStatus.warn,
+      detail: 'no VM service URI recorded',
+      fix: 'run `qa run` or `qa relaunch` — every verb on this platform goes '
+          'through the agent',
+    );
+  }
+  if (failure != null) {
+    return CheckResult(
+      name: 'agent',
+      status: CheckStatus.fail,
+      detail: failure,
+      fix: 'run `qa relaunch` to start the driver build and record a fresh URI',
+    );
+  }
+  if (qaMode == false) {
+    return CheckResult(
+      name: 'agent',
+      status: CheckStatus.fail,
+      detail: 'answered, but the app is NOT a QA build: $summary',
+      fix: 'it is reading the owner database — restart with `qa run`',
+    );
+  }
+  if (cloud == true) {
+    return CheckResult(
+      name: 'agent',
+      status: CheckStatus.warn,
+      detail: 'answered, and this QA build can reach Firebase: $summary',
+      fix: 'it acts as whoever is signed in on this install — rebuild '
+          'without ANTA_QA_CLOUD unless sync itself is under test',
+    );
+  }
+  return CheckResult.ok(
+    'agent',
+    'answered in ${roundTripMs ?? 0} ms  ${summary ?? ''}'.trimRight(),
+  );
+}
+
+/// Marker files still waiting in the documents directory. Not a failure —
+/// the next QA launch consumes them — but a non-QA build ignores them, and
+/// a forgotten seed silently replaces the next run's data.
+CheckResult checkPendingMarkers(List<String> pending) {
+  if (pending.isEmpty) return const CheckResult.ok('markers', 'none pending');
+  return CheckResult(
+    name: 'markers',
+    status: CheckStatus.warn,
+    detail: '${pending.join(', ')} pending in the documents directory',
+    fix: 'the next QA launch applies them (a non-QA build ignores them); '
+        '`qa relaunch` now, or delete them if they are stale',
   );
 }

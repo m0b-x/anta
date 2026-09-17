@@ -272,6 +272,19 @@ E/AndroidRuntime( 1): FATAL EXCEPTION: main
       );
     });
 
+    test('a WARNING that happens to say "Failed to" is not fatal', () {
+      expect(
+        emulatorFatalLine(
+          'INFO         | Created extended window in 254.935ms\n'
+          'WARNING      | Failed to process .ini file '
+          '/Users/alex/.android/emu-update-last-check.ini for reading.\n'
+          "WARNING      | adb command 'adb -s emulator-5554 shell am "
+          "start-foreground-service' failed: 'adb: device offline'\n",
+        ),
+        isNull,
+      );
+    });
+
     test('a healthy boot log has no fatal line', () {
       expect(
         emulatorFatalLine(

@@ -51,3 +51,16 @@ app.*.map.json
 /lib/firebase_options.dart
 /firebase.json
 /.firebaserc
+# The same files wherever they land: a copy dropped one directory off (or
+# spelled with an underscore) is still a credentials file and must never be
+# staged.
+**/google-services.json
+**/google_services.json
+**/GoogleService-Info.plist
+**/GoogleService-Info*.plist
+# Signing material and service-account keys.
+**/key.properties
+*.jks
+*.keystore
+**/*service-account*.json
+**/*serviceAccount*.json

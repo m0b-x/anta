@@ -202,12 +202,62 @@ Future<String?> refreshQaExe({
   );
   if (aot) clearStaleExe(paths);
   if (!decision.rebuild) return null;
+  final lock = File(paths.rebuildLock);
+  if (!acquireRebuildLock(lock)) {
+    final skipped =
+        'qa: another qa is rebuilding the exe — running the current one';
+    stderr.writeln(skipped);
+    return skipped;
+  }
   final message =
       'qa: sources changed since qa.exe was built — rebuilding…';
   stderr.writeln(message);
-  await compileQaExe(paths: paths, runner: runner, output: paths.qaExeNew);
-  await swapInNewExe(paths);
+  try {
+    await compileQaExe(paths: paths, runner: runner, output: paths.qaExeNew);
+    await swapInNewExe(paths);
+  } finally {
+    releaseRebuildLock(lock);
+  }
   return message;
+}
+
+/// How long a rebuild lock is trusted before it is taken for a crash's
+/// leftover: a compile takes a few seconds, never minutes.
+const Duration rebuildLockTtl = Duration(minutes: 2);
+
+/// Takes the rebuild lock, so two `qa` processes started together do not
+/// both compile into `qa.new` and race on the swap. A stale lock is reclaimed.
+bool acquireRebuildLock(File lock, {DateTime? now}) {
+  lock.parent.createSync(recursive: true);
+  try {
+    lock.createSync(exclusive: true);
+    return true;
+  } on FileSystemException {
+    final DateTime modified;
+    try {
+      modified = lock.statSync().modified;
+    } on FileSystemException {
+      return false;
+    }
+    if ((now ?? DateTime.now()).difference(modified) < rebuildLockTtl) {
+      return false;
+    }
+    try {
+      lock.deleteSync();
+      lock.createSync(exclusive: true);
+      return true;
+    } on FileSystemException {
+      return false;
+    }
+  }
+}
+
+void releaseRebuildLock(File lock) {
+  try {
+    if (lock.existsSync()) lock.deleteSync();
+  } on FileSystemException {
+    return;
+  }
 }
 
 bool _isDartLauncher(String executable) {

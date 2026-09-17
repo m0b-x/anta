@@ -16,7 +16,7 @@ The app lives at `frontend/anta/`; all commands below run from there. The on-dis
 | --- | --- |
 | [COPILOT_CONTEXT.md](COPILOT_CONTEXT.md) | **Canonical context.** Product purpose, stack, architecture, per-subsystem invariants (markdown preview pipeline, chunking, lists, money ledger, colors, ghost text), persistence rules, import/export rules, re_editor fork notes. Read the relevant section before planning. Do not restate it back to the user — follow it. |
 | [.claude/skills/](.claude/skills/) | Task-scoped skills: `anta-context` (load first), then `markdown-engine`, `drift-migrations`, `calendar-events`, `l10n`, `verify` as the task demands. |
-| [.claude/skills/qa-emulator/](.claude/skills/qa-emulator/) | Driving the app on the Android emulator: `tool/qa/qa.dart` (boot, run in an isolated QA database, screenshot, dump the accessibility tree, tap/type by label), the Flutter Driver layer through the Dart MCP, and the device traps. Load for any device pass. See also [docs/qa-harness.md](docs/qa-harness.md). |
+| [.claude/skills/qa-emulator/](.claude/skills/qa-emulator/) | Driving the app on the iOS simulator, the macOS desktop build or the Android emulator: `tool/qa/qa` (boot, run in an isolated QA database, screenshot, dump the accessibility tree, tap/type by label through the in-app agent), the Flutter Driver layer through the Dart MCP, and the device traps. Load for any device pass. See also [docs/qa-harness.md](docs/qa-harness.md). |
 | [docs/](docs/) | Feature references and roadmaps written per subsystem (`money-ledger-feature.md`, `live-markdown-editor-roadmap.md`, `calendar-events-feature.md`, `fasting-schedule-roadmap.md`, `presence-tracking-roadmap.md`, `calendar-cloud-readiness-roadmap.md`, `description-scope-roadmap.md`, `tag-system-roadmap.md`, `vocabulary-autocomplete-feature.md`, `colour-labels-roadmap.md` + its `colour-labels-next-slices.md` checklist, `markdown-feature-ideas.md`, `re-editor-performance-2026-07.md`, `calendar-perf-followups-2026-09.md`, `cloud-sync-roadmap.md` + its `cloud-sync-phase-*.md` implementation docs). Status headers say what shipped vs. what is planned. |
 
 When a subsystem's behavior changes materially, update the matching `docs/` file and the relevant `COPILOT_CONTEXT.md` section in the same change — those files are the memory between sessions.
@@ -32,7 +32,7 @@ flutter gen-l10n                                        # after any lib/l10n/*.a
 dart run build_runner build --delete-conflicting-outputs # after Drift table/DAO/migration/annotation changes
 flutter run                                             # Android is the primary target
 flutter run -d windows                                  # quick desktop UI check (needs the VS "C++ ATL" component, below)
-dart run tool/qa/qa.dart <verb>                         # drive the emulator (see the qa-emulator skill)
+./tool/qa/qa <verb>                                     # drive a simulator, the desktop build or the emulator (see the qa-emulator skill; tool\qa\qa.cmd on Windows)
 ```
 
 `flutter run -d windows` / `flutter build windows` need the Visual Studio
@@ -64,7 +64,9 @@ Helper scripts (each wraps build_runner + gen-l10n + clean + build):
 .\full_clean.bat                # when builds misbehave
 ```
 
-Do not run `flutter analyze` on the whole workspace — platform shells add noise. `dart analyze lib` is the convention.
+Do not run `flutter analyze` on the whole workspace — platform shells add noise. `dart analyze lib` is the convention (add `tool test_driver` when the QA harness changed).
+
+The QA device harness (`./tool/qa/qa <verb>` on macOS/Linux, `tool\qa\qa.cmd` on Windows) drives the iOS simulator, the macOS desktop build and the Android emulator from the command line against an isolated QA database — load the `qa-emulator` skill for a device pass; never drive `adb` or `xcrun simctl` by hand.
 
 ## Architecture
 

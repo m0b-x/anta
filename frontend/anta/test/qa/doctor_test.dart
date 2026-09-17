@@ -23,6 +23,7 @@ DeviceProbe _probe({
     ]);
 
 void main() {
+  _newPlatformChecks();
   group('checkAdbServer', () {
     test('a missing binary fails and names the environment variables', () {
       final result = checkAdbServer(
@@ -391,6 +392,127 @@ void main() {
         'detail': '1080x2400',
         'fix': 'run `qa unphone`',
       });
+    });
+  });
+}
+
+void _newPlatformChecks() {
+  group('checkXcrun', () {
+    test('missing tools fail with the install command', () {
+      final result = checkXcrun(available: false);
+      expect(result.status, CheckStatus.fail);
+      expect(result.fix, contains('xcode-select --install'));
+      expect(checkXcrun(available: true).status, CheckStatus.ok);
+    });
+  });
+
+  group('checkSimulator', () {
+    test('a shut-down simulator names the boot command', () {
+      final result = checkSimulator(
+        name: 'iPhone 17 Pro',
+        state: 'Shutdown',
+        runtime: 'iOS 26.2',
+      );
+      expect(result.status, CheckStatus.fail);
+      expect(result.fix, contains('qa boot --sim "iPhone 17 Pro"'));
+      expect(
+        checkSimulator(name: 'x', state: 'Booted', runtime: 'iOS 26.2').status,
+        CheckStatus.ok,
+      );
+    });
+  });
+
+  group('checkAppBundle', () {
+    test('no bundle fails with the platform hint', () {
+      final result = checkAppBundle(
+        path: null,
+        platform: 'macOS desktop build',
+        fix: 'run `qa run -d macos`',
+      );
+      expect(result.status, CheckStatus.fail);
+      expect(result.detail, contains('macOS desktop build'));
+      expect(result.fix, 'run `qa run -d macos`');
+      expect(
+        checkAppBundle(path: '/x/ANTA.app', platform: 'p', fix: 'f').detail,
+        '/x/ANTA.app',
+      );
+    });
+  });
+
+  group('checkAppRunning with a lifecycle', () {
+    test('no process warns, a backgrounded app warns, resumed is ok', () {
+      expect(
+        checkAppRunning(const DeviceProbe(), 'com.alexzamfir.anta').status,
+        CheckStatus.warn,
+      );
+      final hidden = checkAppRunning(
+        const DeviceProbe(appPid: 12, lifecycle: 'hidden'),
+        'com.alexzamfir.anta',
+      );
+      expect(hidden.status, CheckStatus.warn);
+      expect(hidden.fix, contains('qa launch'));
+      final ok = checkAppRunning(
+        const DeviceProbe(appPid: 12, lifecycle: 'resumed'),
+        'com.alexzamfir.anta',
+      );
+      expect(ok.status, CheckStatus.ok);
+      expect(ok.detail, 'pid 12, lifecycle resumed');
+      final unknown = checkAppRunning(
+        const DeviceProbe(appPid: 12, awake: true),
+        'com.alexzamfir.anta',
+      );
+      expect(unknown.status, CheckStatus.ok);
+      expect(unknown.detail, 'pid 12');
+    });
+  });
+
+  group('checkAgent', () {
+    test('no URI warns and points at run/relaunch', () {
+      final result = checkAgent(
+        vmUri: null,
+        failure: null,
+        roundTripMs: null,
+        summary: null,
+        qaMode: null,
+      );
+      expect(result.status, CheckStatus.warn);
+      expect(result.fix, contains('qa relaunch'));
+    });
+
+    test('an unreachable agent fails with the connection error', () {
+      final result = checkAgent(
+        vmUri: 'http://127.0.0.1:1/',
+        failure: 'connection refused',
+        roundTripMs: null,
+        summary: null,
+        qaMode: null,
+      );
+      expect(result.status, CheckStatus.fail);
+      expect(result.detail, 'connection refused');
+    });
+
+    test('a non-QA build fails loudly because it reads the owner database', () {
+      final result = checkAgent(
+        vmUri: 'http://127.0.0.1:1/',
+        failure: null,
+        roundTripMs: 3,
+        summary: 'iOS qa=OFF',
+        qaMode: false,
+      );
+      expect(result.status, CheckStatus.fail);
+      expect(result.detail, contains('NOT a QA build'));
+    });
+
+    test('a healthy agent reports its round trip and summary', () {
+      final result = checkAgent(
+        vmUri: 'http://127.0.0.1:1/',
+        failure: null,
+        roundTripMs: 19,
+        summary: 'iOS 1320x2868',
+        qaMode: true,
+      );
+      expect(result.status, CheckStatus.ok);
+      expect(result.detail, 'answered in 19 ms  iOS 1320x2868');
     });
   });
 }

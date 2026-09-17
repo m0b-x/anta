@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'app_ids.dart';
 import 'paths.dart';
 import 'ui_tree.dart';
 
@@ -7,10 +8,11 @@ import 'ui_tree.dart';
 class CachedDump {
   const CachedDump({required this.xml, required this.capturedAt});
 
+  /// The raw capture: uiautomator XML on Android, the agent's JSON elsewhere.
   final String xml;
   final DateTime capturedAt;
 
-  UiTree get tree => UiTree.parse(xml);
+  UiTree get tree => parseDumpText(xml, appPackage: antaPackage);
 
   Duration ageFrom(DateTime now) => now.difference(capturedAt);
 }
@@ -29,11 +31,21 @@ String describeAge(Duration age) {
 void writeDumpCache(QaPaths paths, String xml) {
   paths.ensureBuildQa();
   File(paths.lastDump).writeAsStringSync(xml);
+  final legacy = File(paths.legacyLastDump);
+  if (legacy.existsSync()) {
+    try {
+      legacy.deleteSync();
+    } on FileSystemException {
+      return;
+    }
+  }
 }
 
 /// The last dump, or null when nothing has been dumped in this project yet.
+/// A cache left by the previous tool version (`last_dump.xml`) still counts.
 CachedDump? readDumpCache(QaPaths paths) {
-  final file = File(paths.lastDump);
+  var file = File(paths.lastDump);
+  if (!file.existsSync()) file = File(paths.legacyLastDump);
   if (!file.existsSync()) return null;
   final String xml;
   try {

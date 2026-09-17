@@ -139,12 +139,14 @@ class TargetResolver {
     return 'on screen ($package): ${labels.map((l) => '"$l"').join(' | ')}';
   }
 
-  ResolvedTarget _pick(List<TargetMatch> matches, String target, int? nth) {
-    if (matches.isEmpty) {
+  ResolvedTarget _pick(List<TargetMatch> all, String target, int? nth) {
+    if (all.isEmpty) {
       throw TargetFailure(
         'no node matches "$target". ${onScreenListing()}',
       );
     }
+    final visible = all.where((m) => !m.node.hidden).toList();
+    final matches = visible.isNotEmpty ? visible : all;
     if (nth != null) {
       if (nth < 0 || nth >= matches.length) {
         throw TargetFailure(

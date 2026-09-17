@@ -25,9 +25,17 @@ class QaPaths {
   String get runErr => _join(buildQa, ['run.err']);
   String get runPid => _join(buildQa, ['run.pid']);
   String get runStamp => _join(buildQa, ['run.started']);
-  String get dtdTxt => _join(buildQa, ['dtd.txt']);
-  String get vmTxt => _join(buildQa, ['vm.txt']);
-  String get lastDump => _join(buildQa, ['last_dump.xml']);
+  String dtdTxtFor(String deviceId) =>
+      _join(buildQa, ['dtd_${_safe(deviceId)}.txt']);
+  String vmTxtFor(String deviceId) =>
+      _join(buildQa, ['vm_${_safe(deviceId)}.txt']);
+  String get lastDump => _join(buildQa, ['last_dump.txt']);
+  String get legacyLastDump => _join(buildQa, ['last_dump.xml']);
+  String get runVmTxt => _join(buildQa, ['run.vm']);
+  String get appLog => _join(buildQa, ['app.log']);
+  String get appErr => _join(buildQa, ['app.err']);
+  String get appPid => _join(buildQa, ['app.pid']);
+  String get deviceTxt => _join(buildQa, ['device.txt']);
   String get emulatorLog => _join(buildQa, ['emulator.log']);
   String get emulatorErr => _join(buildQa, ['emulator.err']);
   String get emulatorPid => _join(buildQa, ['emulator.pid']);
@@ -39,7 +47,20 @@ class QaPaths {
   String get qaExe =>
       _join(buildQa, [Platform.isWindows ? 'qa.exe' : 'qa']);
   String get qaExeNew => '$qaExe.new';
+  String get rebuildLock => _join(buildQa, ['rebuild.lock']);
   String get qaExeOld => '$qaExe.old';
+
+  String documentsCache(String deviceId) =>
+      _join(buildQa, ['documents_${_safe(deviceId)}.txt']);
+
+  static String _safe(String id) => id.replaceAll(RegExp(r'[^A-Za-z0-9_.-]+'), '_');
+
+  String get macosAppInfo => _join(projectRoot, ['macos', 'Runner', 'Configs', 'AppInfo.xcconfig']);
+
+  String macosBundle(String productName) => _join(
+        projectRoot,
+        ['build', 'macos', 'Build', 'Products', 'Debug', '$productName.app'],
+      );
 
   Directory ensureBuildQa() => Directory(buildQa)..createSync(recursive: true);
 

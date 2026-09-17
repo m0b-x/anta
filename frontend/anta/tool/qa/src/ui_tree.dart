@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:xml/xml.dart';
 
+import 'agent_protocol.dart';
 import 'errors.dart';
 
 /// Integer rectangle in device pixels, as `uiautomator` reports bounds.
@@ -37,7 +40,12 @@ class UiRect {
   }
 }
 
-/// One flattened node of an `adb shell uiautomator dump` hierarchy.
+/// Where a tree came from, which decides how its package is read.
+enum UiTreeSource { uiautomator, agent }
+
+/// One flattened node of an accessibility tree — an `adb shell uiautomator
+/// dump` node on Android, a Flutter semantics node from the in-app agent
+/// elsewhere.
 class UiNode {
   const UiNode({
     required this.index,
@@ -58,6 +66,8 @@ class UiNode {
     required this.checkable,
     required this.selected,
     required this.scrollable,
+    this.hidden = false,
+    this.hint = '',
   });
 
   final int index;
@@ -79,6 +89,12 @@ class UiNode {
   final bool selected;
   final bool scrollable;
 
+  /// Off screen: scrolled out of a list, or flagged hidden by the app. Such a
+  /// node is real but cannot be tapped until `scroll-to` brings it in.
+  final bool hidden;
+
+  final String hint;
+
   /// The short class name, e.g. `Button` for `android.widget.Button`.
   String get shortClass {
     final dot = className.lastIndexOf('.');
@@ -99,7 +115,7 @@ class UiNode {
   bool get hasLabel =>
       contentDesc.isNotEmpty || text.isNotEmpty || resourceId.isNotEmpty;
 
-  bool get interesting => hasLabel || clickable || scrollable;
+  bool get interesting => !hidden && (hasLabel || clickable || scrollable);
 
   String get flags {
     final on = <String>[
@@ -110,6 +126,7 @@ class UiNode {
       if (checkable) checked ? 'checked' : 'unchecked',
       if (selected) 'selected',
       if (!enabled) 'disabled',
+      if (hidden) 'hidden',
     ];
     return on.join(',');
   }
@@ -120,6 +137,7 @@ class UiNode {
       shortClass,
       if (contentDesc.isNotEmpty) '"$contentDesc"',
       if (text.isNotEmpty) 'text="$text"',
+      if (hint.isNotEmpty) 'hint="$hint"',
       if (resourceId.isNotEmpty) 'id=$shortId',
       bounds.toString(),
       if (flags.isNotEmpty) flags,
@@ -134,6 +152,7 @@ class UiNode {
         'class': className,
         'text': text,
         'desc': contentDesc,
+        if (hint.isNotEmpty) 'hint': hint,
         'id': resourceId,
         'package': packageName,
         'bounds': [bounds.left, bounds.top, bounds.right, bounds.bottom],
@@ -145,14 +164,17 @@ class UiNode {
         'checked': checked,
         'selected': selected,
         'scrollable': scrollable,
+        'hidden': hidden,
       };
 }
 
 /// A parsed, flattened accessibility hierarchy.
 class UiTree {
-  const UiTree(this.nodes);
+  const UiTree(this.nodes, {this.source = UiTreeSource.uiautomator});
 
   final List<UiNode> nodes;
+
+  final UiTreeSource source;
 
   bool get isEmpty => nodes.isEmpty;
 
@@ -182,7 +204,7 @@ class UiTree {
   UiNode? scrollableAt(int x, int y) {
     UiNode? best;
     for (final node in nodes) {
-      if (!node.scrollable) continue;
+      if (!node.scrollable || node.hidden) continue;
       final b = node.bounds;
       if (x < b.left || x > b.right || y < b.top || y > b.bottom) continue;
       if (best == null ||
@@ -195,7 +217,7 @@ class UiTree {
 
   UiNode? get firstScrollable {
     for (final node in nodes) {
-      if (node.scrollable) return node;
+      if (node.scrollable && !node.hidden) return node;
     }
     return null;
   }
@@ -331,6 +353,90 @@ class UiTree {
     return UiTree(nodes);
   }
 
+  /// Parses the JSON the in-app agent's `dump` op returns.
+  ///
+  /// The shape mirrors what Android's accessibility bridge derives from the
+  /// same semantics nodes: the label (with the tooltip appended) is the
+  /// content description, the value is the text, and `Semantics.identifier`
+  /// is the resource id — so a target that works on the emulator works here.
+  static UiTree fromAgentJson(String json, {required String appPackage}) {
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(json);
+    } on FormatException catch (e) {
+      throw DeviceFailure('the agent dump is not JSON: ${e.message}');
+    }
+    if (decoded is! Map) throw DeviceFailure('the agent dump has no nodes');
+    return fromAgentMap(decoded, appPackage: appPackage);
+  }
+
+  /// The same, from a reply that is already decoded.
+  static UiTree fromAgentMap(Map<dynamic, dynamic> decoded, {required String appPackage}) {
+    if (decoded[AgentKeys.nodes] is! List) {
+      throw DeviceFailure('the agent dump has no nodes');
+    }
+    final nodes = <UiNode>[];
+    for (final entry in decoded[AgentKeys.nodes] as List) {
+      if (entry is! Map) continue;
+      final rect = entry[AgentNodeKeys.rect];
+      if (rect is! List || rect.length != 4) continue;
+      final bounds = UiRect(
+        (rect[0] as num).toInt(),
+        (rect[1] as num).toInt(),
+        (rect[2] as num).toInt(),
+        (rect[3] as num).toInt(),
+      );
+      final flags = ((entry[AgentNodeKeys.flags] as List?) ?? const [])
+          .map((f) => '$f')
+          .toSet();
+      final label = '${entry[AgentNodeKeys.label] ?? ''}';
+      final tooltip = '${entry[AgentNodeKeys.tooltip] ?? ''}';
+      final contentDesc = tooltip.isEmpty || tooltip == label
+          ? label
+          : (label.isEmpty ? tooltip : '$label\n$tooltip');
+      final clickable = flags.contains(AgentFlags.click);
+      final textField = flags.contains(AgentFlags.textField);
+      nodes.add(UiNode(
+        index: (entry[AgentNodeKeys.index] as num).toInt(),
+        parentIndex: (entry[AgentNodeKeys.parent] as num? ?? -1).toInt(),
+        depth: (entry[AgentNodeKeys.depth] as num? ?? 0).toInt(),
+        className: classForAgentFlags(flags),
+        text: '${entry[AgentNodeKeys.value] ?? ''}',
+        contentDesc: contentDesc,
+        resourceId: '${entry[AgentNodeKeys.identifier] ?? ''}',
+        packageName: appPackage,
+        bounds: bounds,
+        clickable: clickable,
+        longClickable: flags.contains(AgentFlags.long),
+        enabled: !flags.contains(AgentFlags.disabled),
+        focused: flags.contains(AgentFlags.focused),
+        focusable: clickable || textField,
+        checked: flags.contains(AgentFlags.checked),
+        checkable: flags.contains(AgentFlags.checkable),
+        selected: flags.contains(AgentFlags.selected),
+        scrollable: flags.contains(AgentFlags.scroll),
+        hidden: flags.contains(AgentFlags.hidden),
+        hint: '${entry[AgentNodeKeys.hint] ?? ''}',
+      ));
+    }
+    return UiTree(nodes, source: UiTreeSource.agent);
+  }
+
+  /// The pseudo class a semantics node shows as, chosen to read like the
+  /// Android dump so the two surfaces stay comparable.
+  static String classForAgentFlags(Set<String> flags) {
+    if (flags.contains(AgentFlags.textField)) return 'EditText';
+    if (flags.contains(AgentFlags.button)) return 'Button';
+    if (flags.contains(AgentFlags.toggle)) return 'Switch';
+    if (flags.contains(AgentFlags.checkable)) return 'CheckBox';
+    if (flags.contains(AgentFlags.slider)) return 'Slider';
+    if (flags.contains(AgentFlags.link)) return 'Link';
+    if (flags.contains(AgentFlags.image)) return 'Image';
+    if (flags.contains(AgentFlags.header)) return 'Header';
+    if (flags.contains(AgentFlags.scroll)) return 'Scroll';
+    return 'View';
+  }
+
   static int? _xmlStart(String raw) {
     final declaration = raw.indexOf('<?xml');
     if (declaration >= 0) return declaration;
@@ -347,4 +453,13 @@ class UiTree {
     if (value == null) return fallback;
     return value == 'true';
   }
+}
+
+/// Parses a cached or live dump in whichever format it was captured.
+UiTree parseDumpText(String text, {required String appPackage}) {
+  final trimmed = text.trimLeft();
+  if (trimmed.startsWith('{')) {
+    return UiTree.fromAgentJson(trimmed, appPackage: appPackage);
+  }
+  return UiTree.parse(text);
 }

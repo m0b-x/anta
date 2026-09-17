@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../tool/qa/src/adb.dart';
@@ -215,11 +217,12 @@ void main() {
       expect(size.widthDp, 427);
     });
 
-    test('typeText escapes before it reaches adb', () async {
+    test('typeTextChecked escapes before it reaches adb', () async {
       final fake = FakeProcessRunner();
       await AndroidDevice(Adb(executable: 'adb', runner: fake, serial: 'e'))
-          .typeText('bench press');
-      expect(fake.lines.single, "adb -s e shell input text 'bench%spress'");
+          .typeTextChecked('bench press');
+      expect(fake.lines.single, contains("input text 'bench%spress'"));
+      expect(fake.lines.single, contains('mInputShown'));
     });
 
     test('key resolves the alias before it reaches adb', () async {
@@ -233,7 +236,7 @@ void main() {
       final fake = FakeProcessRunner();
       final pid =
           await AndroidDevice(Adb(executable: 'adb', runner: fake, serial: 'e'))
-              .appPid('com.alexzamfir.anta');
+              .appPid();
       expect(pid, isNull);
     });
 
@@ -243,29 +246,8 @@ void main() {
           const RunOutcome(0, '8421 8500', ''));
       final pid =
           await AndroidDevice(Adb(executable: 'adb', runner: fake, serial: 'e'))
-              .appPid('com.alexzamfir.anta');
+              .appPid();
       expect(pid, 8421);
-    });
-  });
-
-  group('IosSimulator', () {
-    test('every verb reports Phase B rather than pretending', () {
-      final simulator = IosSimulator('booted');
-      expect(simulator.id, 'booted');
-      for (final call in <Future<Object?> Function()>[
-        simulator.screenSize,
-        () => simulator.tap(1, 1),
-        () => simulator.typeText('x'),
-        () => simulator.key('back'),
-        simulator.dumpUi,
-        simulator.screencapPng,
-      ]) {
-        expect(
-          call,
-          throwsA(isA<NotImplementedOnPlatform>().having((e) => e.message,
-              'message', contains('not implemented on this platform'))),
-        );
-      }
     });
   });
 
@@ -279,11 +261,14 @@ void main() {
     });
 
     test('falls back to PATH when no SDK root has it', () {
+      final separator = Platform.isWindows ? ';' : ':';
+      final bin = Platform.isWindows ? r'C:\bin' : '/opt/bin';
+      final other = Platform.isWindows ? r'C:\other' : '/opt/other';
       final tools = SdkTools(
-        environment: {'ANDROID_HOME': r'C:\sdk', 'PATH': r'C:\bin;C:\other'},
-        exists: (p) => p.startsWith(r'C:\bin'),
+        environment: {'ANDROID_HOME': '/sdk', 'PATH': '$bin$separator$other'},
+        exists: (p) => p.startsWith(bin),
       );
-      expect(tools.findAdb(), startsWith(r'C:\bin'));
+      expect(tools.findAdb(), startsWith(bin));
     });
 
     test('looks for the emulator next to platform-tools', () {

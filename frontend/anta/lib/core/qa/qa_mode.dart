@@ -22,6 +22,12 @@ abstract final class QaMode {
     defaultValue: true,
   );
 
+  /// Whether a QA build may reach Firebase at all. Off by default: the
+  /// signed-in identity belongs to the install, not to a database, so an
+  /// automation run would otherwise act as the owner against the production
+  /// project. `--dart-define=ANTA_QA_CLOUD=true` opts a run in on purpose.
+  static const bool allowCloud = bool.fromEnvironment('ANTA_QA_CLOUD');
+
   /// Namespace for the QA build's `SharedPreferences`. The plugin's default is
   /// `flutter.`, so a prefix of our own puts every QA key in a disjoint key
   /// space from the owner's — including `active_database`, which is the one
