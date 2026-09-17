@@ -17,7 +17,12 @@ in code; the owner's §9 rows 1–7 phone pass is owed. **Session 5 DONE
 2026-09-17** at the owner's request ahead of that phone pass — recurrence
 proven on the emulator (re-arm on Stop, skip, snooze survival, the Missed
 path), the Alerts hub and its drawer row are live; §9 rows 1–8 are owed
-together.
+together. **A whole-module review on 2026-09-17** (after Session 5, §8)
+found and fixed over a dozen defects, three of them verified on the emulator —
+the app reachable over a PIN keyguard, same-minute alarms disarming each
+other, and a ring in an idle foreground app never showing its page — and
+gave the emulator's first answer to the PIN-keyguard question (the alarm
+page does show over it; the app does not).
 Decisions A1–A14 (§1)
 were proposed on 2026-09-14 and **confirmed as proposed on 2026-09-15**
 (P1, P2, P5 in §8.1); A5 stands on the emulator spike alone because the
@@ -81,7 +86,7 @@ number of events, and swapping the platform backend touches one file.
 | --- | --- | --- | --- |
 | A1 | Vocabulary | Row **Alerts**; each alert is a **Reminder** or an **Alarm**. Code: `EventAlert`, `AlertMode { notify, ring }`. | "Alarm" is the owner's word and translates cleanly (de *Alarm*, ro *alarmă*); "Ring" is already `todayStyleRing` in the appearance vocabulary. |
 | A2 | Cardinality | Up to **5** per event, one card each in the editor. | Google Calendar's cap; a row per alert keeps `calendar_events` narrow. |
-| A3 | Remove after it rings | A flag on the **event** (`remove_after_alert`), off by default, on for quick alarms. Stop/Done on the first acknowledged alert soft-deletes the event through `CalendarEventService.deleteById` (cascade + tombstone) with a 5 s Undo. Cancelling such an alarm before it rings deletes the event too. | It is a statement about the event's purpose, not one alert's; a soft delete syncs and survives a mistake. |
+| A3 | Remove after it rings | A flag on the **event** (`remove_after_alert`), off by default, on for quick alarms. Stopping the **alarm** — on the alarm page or on the platform's own notification — soft-deletes the event through `CalendarEventService.deleteById` (cascade + tombstone) with an Undo (3 s, `CustomSnackbar`'s cap). *Amended 2026-09-17:* the reminder tier no longer acknowledges anything — as first written a tap on a "10 min before" reminder deleted the event and cancelled the alarm the switch was set for. Cancelling such an alarm before it rings deletes the event too. | It is a statement about the event's purpose, not one alert's; a soft delete syncs and survives a mistake. |
 | A4 | All-day events | Each alert carries `days_before` + `day_minute`; default **09:00 on the day**, changeable in Calendar settings. | The model has no anchor for all-day events; Apple and Google both default to 09:00. |
 | A5 | Ringing backend — **emulator spike confirms, phone pass owed** | `alarm` 5.13 for the Alarm tier; `flutter_local_notifications` 22.3 for the Reminder tier. Fallback, proven in the spike (§10.3 S7): an insistent alarm-stream notification from the reminder plugin (`AndroidScheduleMode.alarmClock`, `fullScreenIntent`, `additionalFlags [4]`), switchable in the gateway alone. | Purpose-built, actively maintained (13 releases in 2026), holds the foreground service Android 17 now demands for background audio, owns the audio, degrades under Total Silence to screen + vibration; the fallback needs no second plugin. Caveat (§10.1): `alarm` uses `setExactAndAllowWhileIdle`, the fallback `setAlarmClock`. |
 | A6 | Exact-alarm permission | Declare `USE_EXACT_ALARM` (no prompt). | Play policy allows it for "a calendar app that shows event notifications"; the `alarm` plugin's manifest declares it anyway. |
@@ -335,8 +340,12 @@ the active database name (`DatabaseManager.getActiveDatabaseName()`).
 
 ### 3.5 Remove after it rings (A3)
 
-Stop (alarm) or Done/tap (reminder) on an event with `removeAfterAlert`:
-`AlertRingController.acknowledge` → `CalendarEventService.deleteById`
+Stop on an **alarm** of an event with `removeAfterAlert` — from the alarm page
+(`AlertRingController.stop`) or from the platform notification
+(`AlertGateway.ringEnded` → `main.dart`); never a reminder's tap or Done
+(amended 2026-09-17, see A3) — → `AlertAcknowledgement.apply`, which re-reads
+the flag off the event rather than trusting the payload →
+`CalendarEventService.deleteById`
 (tombstone + cascades: absences, occurrences, skips, **alerts**,
 registrations) → `reconcileEvent` → snackbar "Removed · Undo" on the
 calendar page (Undo = `upsert` of the captured event, which resurrects the
@@ -426,9 +435,11 @@ registrations table is **never exported**.
 ### 4.3 `.ics`
 
 `IcsSerializer` emits one `VALARM` per enabled alert: `ACTION:DISPLAY`
-for notify, `ACTION:AUDIO` for ring, `TRIGGER:-PT{n}M` for timed offsets,
-`TRIGGER;VALUE=DATE-TIME` computed per the all-day rule for the first
-occurrence. Imports are out of scope (the app has no `.ics` import).
+for notify, `ACTION:AUDIO` for ring, `TRIGGER:-PT{n}M` for timed offsets, and
+for an all-day event a trigger **relative to the `DATE` `DTSTART`** — measured
+from 00:00 of the day, so `PT9H` / `-PT4H` / `-P6DT15H` — which follows every
+occurrence and stays floating (2026-09-17; it was an absolute UTC
+`VALUE=DATE-TIME` for the first occurrence only). Imports are out of scope (the app has no `.ics` import).
 
 ### 4.4 Settings
 
@@ -1199,6 +1210,76 @@ full run: `test/database/vocabulary_crdt_test.dart` "stamping an edit…"
 compared two HLCs minted in the same millisecond under load (passes alone,
 3/3). Owed: the owner's §9 rows 1–8.
 
+### Review after Session 5 (2026-09-17, Fable)
+
+A read of the whole module against §0–§7 and the two plugins' sources, with
+the three worst findings reproduced on the Mac's API 36 AVD before anything
+was changed and re-run after. 5,340 → 5,362 tests. Later sessions must know:
+
+- **The app was usable on a locked phone.** `android:showWhenLocked` on
+  `MainActivity` (§10.2) is not scoped to a ring. PIN set, ANTA in front,
+  sleep, wake: the Folders page drew over the keyguard with `deviceLocked=1`
+  and All notes opened. Both attributes are gone. Re-run with a PIN: waking
+  shows the lock screen; an alarm two minutes out **does** take over the PIN
+  keyguard (the `alarm` package's runtime flag — the emulator's answer to
+  §10.4's "single most important untested thing"), and Stop returns to the
+  lock screen. `MainActivity` gained `setShowWhenLocked` for the fallback
+  backend, which is **untested** — nothing runs on it.
+- **Two alarms in the same second disarmed each other.** `Alarm.set` stops
+  any other alarm due in the same second unless `allowSameSecondScheduling`
+  is true, and alerts are minute-granular. Two events at 07:00: `scheduled=2`,
+  then `scheduled=1` on every later pass, each stopping the other, one
+  AlarmManager entry while the hub listed two. Also bites two all-day events
+  on the 09:00 default and alarms of different databases. Now passed as true.
+- **A ring in an idle foreground app never showed the alarm page.**
+  `_scheduleNavigationDrain` used `addPostFrameCallback`, which requests no
+  frame; the page appeared at the next touch. Session 4's note attributing
+  this to Android's full-screen-intent rule was wrong — the heads-up is the
+  rule, the missing page was ours. `ensureVisualUpdate()` fixes it.
+- **A snooze outlived its event.** `deleteById` hard-deletes the snooze row
+  and reconcile never cancelled a `snooze` platform entry, so §2.6's "a
+  deleted event never rings" did not hold. Reconcile now cancels a snooze
+  whose event is gone or whose alert was removed — and only then.
+- **Snooze without a registry row left the phone ringing.** `_snooze`
+  returned before `stopRinging` while the page closed regardless: every
+  alarm of another database (A9). It now stops first and rebuilds the snooze
+  from the payload, under the payload's database and with no row here.
+  "Open event" is inert on another database's alarm.
+- **`AlertGateway.ringEnded`** reports the two endings the app did not ask
+  for: Stop on the platform notification (`Alarm.ringing` shrinking) and the
+  Silence-after timeout. `main.dart` settles both through
+  `AlertScheduler.settleEndedRing` — row, re-arm, A3 for a Stop, a Missed
+  notice for an unanswered ring — and the alarm page closes itself. Before,
+  such a row stayed `fired`, nothing re-armed and the page stayed up behind a
+  disabled back gesture.
+- **Missed is no longer posted for a ring Dart never saw, when it can be
+  told.** Phone in use, app not running: the ring is a heads-up stopped
+  natively and the row stays `pending`, so every such alarm came back as
+  "Missed" at the next launch. `AlertGateway.processStartedAt` is the
+  evidence: a process already alive at the fire instant was neither
+  force-stopped nor off, so the row is marked `fired`. **Still open:** when
+  that process has died in between the two cases remain indistinguishable
+  from Dart — the `alarm` package records no native stop. A full answer
+  needs native evidence (`ApplicationExitInfo` for force stops, boot time)
+  and is the owner's call.
+- **A3 belongs to the alarm** (amended in §1 and §3.5). The foreground Done
+  branch Session 4 described never ran: `showsUserInterface: false` routes an
+  action to the background isolate even with the app in front (§10.5 said
+  so). `OpenEventIntent.acknowledged` is gone, and `apply` re-reads the flag
+  off the event so "Keep the event" survives a Stop from the notification.
+- Smaller: `EventAlerts.defaultDayMinute` (published by `SettingsService`) is
+  the one fallback for a null `dayMinute` on every surface and in `.ics` —
+  they used to say 09:00 while the planner rang at the setting — and a timed
+  draft is seeded with the all-day default too; `.ics` all-day triggers are
+  relative (§4.3); `AndroidAlertGateway.initialize()` no longer memoizes a
+  failure; `EventAlertDao.replaceForEvent` skips a kept alert whose content
+  is unchanged, so an event save no longer re-stamps every alert's HLC.
+
+Not changed, noted: the Silence-after timer lives in Dart, so a ring with no
+Dart running has no timeout; a reminder-tier snooze taken in the background
+isolate has no registry row and is invisible to the hub and the detail
+sheet; `alert_notifications_asked` rides a whole-`.db` import.
+
 ### Session 6 — Quick alarm and templates (Phase 2b)
 
 Needs Session 5 committed and P2's A11. Device: the emulator. This
@@ -1373,7 +1454,11 @@ Runner-up: a **cold-start tap delivers the payload twice** — once through
   `SCHEDULE_EXACT_ALARM`, `USE_FULL_SCREEN_INTENT`, `VIBRATE`, `WAKE_LOCK`,
   `RECEIVE_BOOT_COMPLETED`; `showWhenLocked` + `turnScreenOn` on
   `MainActivity` (merged intact; `alarm` ≥ 5.0 no longer needs them, the
-  notification-plugin full-screen intent does).
+  notification-plugin full-screen intent does). **Removed 2026-09-17 and must
+  not come back:** as manifest attributes they hold for the activity's whole
+  life, and the review opened the notes over a PIN keyguard by waking the
+  phone with ANTA in front. The fallback sets them at runtime, for the length
+  of a ring, through `MainActivity`'s `setShowWhenLocked`.
 - `alarm` brings its **own** manifest: all of the above plus
   `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK`,
   `ACCESS_NOTIFICATION_POLICY`, **`READ_EXTERNAL_STORAGE`**, its

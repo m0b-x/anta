@@ -43,6 +43,23 @@ typedef AlertPermissions = ({
 /// was scheduled with.
 typedef PendingAlertEntry = ({int osId, AlertPayload payload});
 
+/// How a ring came to an end **without the app asking for it**.
+///
+/// The alarm page's Stop and Snooze go through the scheduler and are not
+/// reported here — these are the two endings nothing in the app initiated.
+enum AlertRingEndCause {
+  /// The user pressed Stop on the platform's own notification. An
+  /// acknowledgement like the alarm page's Stop, so A3 applies.
+  dismissed,
+
+  /// Nobody answered and the Silence-after setting ended the ring. Not an
+  /// acknowledgement — it is reported as Missed and removes nothing.
+  timedOut,
+}
+
+/// One ring that ended outside the app, with the payload it rang under.
+typedef AlertRingEnd = ({AlertPayload payload, AlertRingEndCause cause});
+
 /// The one seam between the app and the two alarm plugins.
 ///
 /// Everything above this — planner, scheduler, pages — is plugin-free, which
@@ -127,6 +144,22 @@ abstract class AlertGateway {
 
   /// Emits while an alarm is ringing, so the app can show the alarm page.
   Stream<AlertPayload> get ringing;
+
+  /// Emits when a ring ends by a route the app did not take — the platform
+  /// notification's own Stop, or the Silence-after timeout.
+  ///
+  /// Without it a ring stopped from the notification leaves its registration
+  /// `fired` forever: the next occurrence is never re-armed, A3 never runs and
+  /// an alarm page that is up keeps offering Stop for a ring that is over.
+  Stream<AlertRingEnd> get ringEnded => const Stream<AlertRingEnd>.empty();
+
+  /// When this process started, or null where the platform cannot say.
+  ///
+  /// Delivery evidence for the Missed path. An alarm can ring and be stopped
+  /// entirely natively, with no Dart running to mark its row; but a process
+  /// that was already alive at the fire instant was neither force-stopped nor
+  /// switched off, so the platform did deliver to it.
+  Future<DateTime?> processStartedAt() async => null;
 
   /// The alert the app was launched by, if any, for a cold-start tap. Read
   /// once at startup and queued rather than pushed: there is no navigator yet.

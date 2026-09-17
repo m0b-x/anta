@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:get_it/get_it.dart';
 
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/controllers/alert_ring_controller.dart';
@@ -9,6 +12,7 @@ import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/models/alert_payload.dart';
 import 'package:anta/models/event_alert.dart';
 import 'package:anta/pages/alarm_page.dart';
+import 'package:anta/services/alert_gateway.dart';
 
 /// The full-screen ring surface.
 ///
@@ -164,6 +168,12 @@ void main() {
     await pump(tester, other.payload, controller: other);
 
     expect(find.text(l10n.alarmFromDatabase('work')), findsOneWidget);
+    // Its event is not in the calendar "Open event" would land on; the chip
+    // is the way to it.
+    final open = tester.widget<TextButton>(
+      find.widgetWithText(TextButton, l10n.alarmOpenEvent),
+    );
+    expect(open.onPressed, isNull);
   });
 
   testWidgets('a test alarm titles itself and cannot open an event', (
@@ -180,6 +190,56 @@ void main() {
       find.widgetWithText(TextButton, l10n.alarmOpenEvent),
     );
     expect(open.onPressed, isNull);
+  });
+
+  testWidgets('a ring that ends elsewhere closes the page', (tester) async {
+    // Stop on the platform's own notification, or the Silence-after timeout.
+    // Back is disabled here, so a page left up would keep offering Stop for a
+    // ring that is over with no other way off it.
+    final gateway = _EndingGateway();
+    GetIt.I.registerSingleton<AlertGateway>(gateway);
+    addTearDown(() async {
+      await GetIt.I.unregister<AlertGateway>();
+      await gateway.ends.close();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: const [
+          AppLocalizations.delegate,
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => AlarmPage(payload: payload()),
+              ),
+            ),
+            child: const Text('ring'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('ring'));
+    await tester.pumpAndSettle();
+
+    // Someone else's ring ending is not this page's business.
+    gateway.ends.add((
+      payload: payload().copyWith(osId: 1),
+      cause: AlertRingEndCause.dismissed,
+    ));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlarmPage), findsOneWidget);
+
+    gateway.ends.add((payload: payload(), cause: AlertRingEndCause.timedOut));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlarmPage), findsNothing);
+    expect(find.text('ring'), findsOneWidget);
   });
 
   testWidgets('Stop closes the page', (tester) async {
@@ -213,6 +273,15 @@ void main() {
 
     expect(find.byType(AlarmPage), findsNothing);
   });
+}
+
+/// A gateway whose only behaviour is reporting that a ring ended elsewhere.
+class _EndingGateway extends NoOpAlertGateway {
+  final StreamController<AlertRingEnd> ends =
+      StreamController<AlertRingEnd>.broadcast();
+
+  @override
+  Stream<AlertRingEnd> get ringEnded => ends.stream;
 }
 
 /// A controller that already knows which database is open.

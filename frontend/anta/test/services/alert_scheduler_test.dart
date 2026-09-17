@@ -113,6 +113,15 @@ class FakeAlertGateway implements AlertGateway {
   Stream<AlertPayload> get ringing => const Stream<AlertPayload>.empty();
 
   @override
+  Stream<AlertRingEnd> get ringEnded => const Stream<AlertRingEnd>.empty();
+
+  /// When the "process" started; null is a platform that cannot say.
+  DateTime? startedAt;
+
+  @override
+  Future<DateTime?> processStartedAt() async => startedAt;
+
+  @override
   Future<AlertIntent?> launchIntent() async => null;
 
   @override
@@ -567,6 +576,35 @@ void main() {
       });
     }
 
+    test('a process alive at the fire instant proves the alarm rang',
+        () async {
+      // Phone in use, app not: Android shows the ring as a heads-up, the user
+      // stops it from there, and no Dart ever runs to mark the row. The
+      // process the alarm started is still the one the app opens in.
+      await seed(eventAlerts: [alertOf(mode: AlertMode.ring)]);
+      gateway.startedAt = DateTime(2026, 9, 20, 17, 59, 58);
+
+      final armed = await runLate(schedulerOf(), const Duration(minutes: 40));
+
+      expect((await rowOf(armed.osId)).state, AlertRegistrationState.fired.name);
+      expect(gateway.missed, isEmpty);
+    });
+
+    test('a process that started afterwards proves nothing', () async {
+      // A force stop or a phone that was off: whatever is running now was
+      // started by the user opening the app, after the instant had passed.
+      await seed(eventAlerts: [alertOf(mode: AlertMode.ring)]);
+      gateway.startedAt = DateTime(2026, 9, 20, 18, 39);
+
+      final armed = await runLate(schedulerOf(), const Duration(minutes: 40));
+
+      expect(
+        (await rowOf(armed.osId)).state,
+        AlertRegistrationState.cancelled.name,
+      );
+      expect(gateway.missed, hasLength(1));
+    });
+
     test('a ring the app has been told about is left ringing', () async {
       await seed(eventAlerts: [alertOf(mode: AlertMode.ring)]);
       final scheduler = schedulerOf();
@@ -713,6 +751,216 @@ void main() {
             .state,
         AlertRegistrationState.cancelled.name,
       );
+    });
+  });
+
+  group('a snooze that outlived what it postpones', () {
+    Future<AlertRegistrationRow> snoozeSeeded(AlertScheduler scheduler) async {
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      now = DateTime(2026, 9, 20, 18);
+      await scheduler.snooze((await registrations()).single.osId);
+      gateway.resetCalls();
+      return (await registrations()).firstWhere(
+        (row) => row.kind == AlertKind.snooze.name,
+      );
+    }
+
+    test('is cancelled once its event is deleted', () async {
+      // `deleteById` hard-deletes the event's registrations, the snooze row
+      // included, so the platform entry is the only trace left — and a
+      // deleted event never rings.
+      await seed();
+      final scheduler = schedulerOf();
+      final snoozed = await snoozeSeeded(scheduler);
+
+      await events.deleteById('e1');
+      await scheduler.reconcileEvent('e1', AlertReconcileReason.eventChanged);
+
+      expect(gateway.cancelled, contains(snoozed.osId));
+      expect(gateway.platform.containsKey(snoozed.osId), isFalse);
+    });
+
+    test('is cancelled once its alert is removed from the event', () async {
+      await seed();
+      final scheduler = schedulerOf();
+      final snoozed = await snoozeSeeded(scheduler);
+
+      await alerts.replaceForEvent('e1', const []);
+      await scheduler.reconcileEvent('e1', AlertReconcileReason.eventChanged);
+
+      expect(gateway.cancelled, contains(snoozed.osId));
+      expect(
+        (await registrations())
+            .firstWhere((row) => row.osId == snoozed.osId)
+            .state,
+        AlertRegistrationState.cancelled.name,
+      );
+    });
+
+    test('survives its alert being switched off', () async {
+      // The hub offers Cancel snooze for that; a switch flipped for next week
+      // must not swallow the ten minutes asked for now.
+      await seed();
+      final scheduler = schedulerOf();
+      final snoozed = await snoozeSeeded(scheduler);
+
+      await alerts.replaceForEvent('e1', [alertOf().copyWith(enabled: false)]);
+      await scheduler.reconcileEvent('e1', AlertReconcileReason.eventChanged);
+
+      expect(gateway.cancelled, isNot(contains(snoozed.osId)));
+      expect(gateway.platform.containsKey(snoozed.osId), isTrue);
+    });
+
+    test('a test ring is never an orphan', () async {
+      final scheduler = schedulerOf();
+      final osId = await scheduler.scheduleTestAlarm(
+        title: 'Test',
+        delay: const Duration(seconds: 10),
+      );
+      gateway.resetCalls();
+
+      await scheduler.reconcileAll(AlertReconcileReason.resumed);
+
+      expect(gateway.cancelled, isNot(contains(osId)));
+    });
+  });
+
+  group('snooze without a registration', () {
+    AlertPayload payloadOf({String database = 'work', int osId = 424242}) =>
+        AlertPayload(
+          database: database,
+          eventId: 'far-event',
+          alertId: 'far-alert',
+          dayUtcMs: DateTime.utc(2026, 9, 20).millisecondsSinceEpoch,
+          osId: osId,
+          mode: AlertMode.ring,
+          title: 'Standup',
+          timeLabel: '09:00',
+          categoryId: 'work',
+          snoozeMinutes: 5,
+        );
+
+    test('always silences the ring, whatever else it can do', () async {
+      // The alarm page closes after Snooze either way; returning before the
+      // stop left the phone ringing with no page to stop it from.
+      await schedulerOf().snooze(424242);
+
+      expect(gateway.stopped, [424242]);
+      expect(gateway.scheduled, isEmpty);
+    });
+
+    test('re-arms another database\'s alarm from its payload', () async {
+      now = DateTime(2026, 9, 20, 9);
+      final payload = payloadOf();
+
+      await schedulerOf().snooze(payload.osId, payload: payload);
+
+      expect(gateway.stopped, [payload.osId]);
+      expect(gateway.scheduled.single.kind, AlertKind.snooze);
+      expect(gateway.scheduled.single.fireAt, DateTime(2026, 9, 20, 9, 5));
+      final armed = gateway.platform.values.single;
+      // Still the other database's entry, so this database's reconcile keeps
+      // its hands off it — and no row here describes an event it lacks.
+      expect(armed.database, 'work');
+      expect(armed.snooze, isTrue);
+      expect(armed.title, 'Standup');
+      expect(await registrations(), isEmpty);
+    });
+
+    test('a reconcile leaves that snooze armed', () async {
+      now = DateTime(2026, 9, 20, 9);
+      final payload = payloadOf();
+      final scheduler = schedulerOf();
+      await scheduler.snooze(payload.osId, payload: payload);
+      gateway.resetCalls();
+
+      await scheduler.reconcileAll(AlertReconcileReason.resumed);
+
+      expect(gateway.cancelled, isEmpty);
+      expect(gateway.platform, hasLength(1));
+    });
+  });
+
+  group('a ring that ended outside the app', () {
+    Future<AlertPayload> ringing(AlertScheduler scheduler) async {
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final row = (await registrations()).single;
+      now = DateTime(2026, 9, 15, 18);
+      await scheduler.markFired(row.osId);
+      gateway.resetCalls();
+      return gateway.platform[row.osId]!;
+    }
+
+    Future<void> seedDaily() => seed(
+      event: eventOf(
+        startDate: DateTime.utc(2026, 9, 1),
+        rule: const DailyRecurrence(),
+      ),
+    );
+
+    test('Stop on the notification settles it like the alarm page\'s Stop',
+        () async {
+      await seedDaily();
+      final scheduler = schedulerOf(
+        horizon: const AlertHorizon(perAlert: 1, days: 30, total: 48),
+      );
+      final payload = await ringing(scheduler);
+
+      await scheduler.settleEndedRing(payload, answered: true);
+
+      final rows = await registrations();
+      expect(
+        rows.firstWhere((row) => row.osId == payload.osId).state,
+        AlertRegistrationState.stopped.name,
+      );
+      final pending = rows.where(
+        (row) => row.state == AlertRegistrationState.pending.name,
+      );
+      expect(
+        pending.single.day,
+        DateTime.utc(2026, 9, 16).millisecondsSinceEpoch,
+        reason: 'the next occurrence is re-armed',
+      );
+      expect(gateway.missed, isEmpty);
+    });
+
+    test('an unanswered ring is reported, and still re-arms', () async {
+      await seedDaily();
+      final scheduler = schedulerOf(
+        horizon: const AlertHorizon(perAlert: 1, days: 30, total: 48),
+      );
+      final payload = await ringing(scheduler);
+
+      await scheduler.settleEndedRing(payload, answered: false);
+
+      final rows = await registrations();
+      expect(
+        rows.firstWhere((row) => row.osId == payload.osId).state,
+        AlertRegistrationState.fired.name,
+      );
+      expect(gateway.missed.single.osId, payload.osId);
+      expect(
+        rows.where((row) => row.state == AlertRegistrationState.pending.name),
+        hasLength(1),
+      );
+    });
+
+    test('an answered ring takes its standing snooze with it', () async {
+      await seed();
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final original = (await registrations()).single;
+      now = DateTime(2026, 9, 20, 18);
+      final payload = gateway.platform[original.osId]!;
+      await scheduler.snooze(original.osId);
+      final snoozed = (await registrations()).firstWhere(
+        (row) => row.kind == AlertKind.snooze.name,
+      );
+      gateway.resetCalls();
+
+      await scheduler.settleEndedRing(payload, answered: true);
+
+      expect(gateway.cancelled, contains(snoozed.osId));
     });
   });
 

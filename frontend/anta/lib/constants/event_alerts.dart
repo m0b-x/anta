@@ -6,7 +6,9 @@ import '../models/event_alert.dart';
 /// The model has no anchor for an all-day event, so this is the anchor. It is
 /// a *fallback*, never written onto a row: an alert with `dayMinute == null`
 /// follows the Calendar-settings value, so changing that setting moves every
-/// alert that never chose a time.
+/// alert that never chose a time. Everything that *shows* such an alert reads
+/// [EventAlerts.defaultDayMinute], which is that setting; this constant is
+/// only what the setting itself starts at.
 const int kDefaultAlertDayMinute = 540;
 
 /// Ceiling on alerts per event. Google Calendar's cap, and the number the
@@ -49,6 +51,25 @@ abstract final class EventAlertKeys {
 abstract final class EventAlerts {
   static Map<String, List<EventAlert>> _byEvent = const {};
   static int _revision = 0;
+  static int _defaultDayMinute = kDefaultAlertDayMinute;
+
+  /// Minute of day an all-day alert with no `dayMinute` of its own fires at —
+  /// the Calendar-settings default, published by `SettingsService` whenever it
+  /// reads or writes the alert settings.
+  ///
+  /// The planner is handed the same number through its `defaults`, and that is
+  /// the point: the editor card, the detail row, the hub and the `.ics` export
+  /// used to fall back to 09:00 on their own, so after the setting was moved
+  /// an alert said 09:00 and rang at the new time.
+  static int get defaultDayMinute => _defaultDayMinute;
+
+  /// `null` is "no all-day default", which leaves the shipped 09:00 anchor.
+  static void configureDefaultDayMinute(int? minute) {
+    final next = minute ?? kDefaultAlertDayMinute;
+    if (next == _defaultDayMinute) return;
+    _defaultDayMinute = next;
+    _revision++;
+  }
 
   /// Bumped on every republish, so a page that renders badges can rebuild on
   /// it the way the calendar rebuilds on `EventSkips.revision`.

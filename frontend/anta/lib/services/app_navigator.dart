@@ -433,8 +433,9 @@ abstract final class AppNavigator {
 
   /// Opens the calendar on [day] with [eventId]'s detail sheet already up —
   /// where a tapped reminder lands (**A12**). A null [eventId] lands on the
-  /// day alone: the tap that acknowledged a "remove after it rings" event has
-  /// nothing left to open (**A3**).
+  /// day alone: the alarm page's Open event, when the Stop it implies has just
+  /// removed a "remove after it rings" event, has nothing left to open
+  /// (**A3**).
   ///
   /// A **root** push when the calendar is not open: the tap is delivered by the
   /// platform with no `BuildContext` of its own. Stamped with the plain

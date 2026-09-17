@@ -4,7 +4,14 @@
          allowed for a calendar app showing event notifications;
          SCHEDULE_EXACT_ALARM is moot while it holds but stays Play-Console
          visible. The rest are what the two alert plugins need to ring, to
-         wake the screen and to re-register after a reboot. -->
+         wake the screen and to re-register after a reboot.
+         MainActivity deliberately carries neither showWhenLocked nor
+         turnScreenOn: as manifest attributes they hold for the activity's
+         whole life, which puts every note and the ledger on top of a PIN
+         keyguard whenever the phone is woken with ANTA in front. The alarm
+         package raises both flags at runtime for the length of a ring and
+         drops them again; the notification fallback does the same through
+         MainActivity's setShowWhenLocked. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
@@ -29,9 +36,7 @@
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
-            android:windowSoftInputMode="adjustResize"
-            android:showWhenLocked="true"
-            android:turnScreenOn="true">
+            android:windowSoftInputMode="adjustResize">
             <!-- Specifies an Android theme to apply to this Activity as soon as
                  the Android process has started. This theme is visible to the user
                  while the Flutter UI initializes. After that, this theme continues

@@ -1655,8 +1655,15 @@ so in its subtitle ("removed after it rings"), composed in
 agenda stays findable by what it shows.
 
 **Remove after it rings (A3).** `CalendarEvent.removeAfterAlert` is the event's
-own promise to delete itself once *any* of its alerts is acknowledged — Stop on
-the alarm page, or a tap / foreground Done on a reminder. `AlertAcknowledgement.apply`
+own promise to delete itself once its **alarm** is stopped — Stop on the alarm
+page, or Stop on the platform's own alarm notification, which with the phone in
+use is the only Stop there is (`AlertGateway.ringEnded` → `main.dart`). **The
+reminder tier never removes** (2026-09-17 review): a tap on a "10 min before"
+reminder is someone looking at the event, and removing on it cancelled the very
+alarm the switch was set for; its Done runs in a background isolate with no
+database regardless of whether the app is in front. `apply` also re-reads the
+flag off the **event**, not the payload, so "Keep the event" holds even when
+the Stop that follows comes from the notification. `AlertAcknowledgement.apply`
 soft-deletes the event (cascading its alerts and registrations), publishes it on
 `AlertRemovalNotice`, and the calendar shows **"Event removed · Undo"**; Undo is
 an ordinary `CreateCalendarEvent` carrying the captured alerts, which resurrects
@@ -1697,6 +1704,35 @@ turn of the scheduler's serialized chain, which is how a Stop on the alarm
 page or a resume reconcile reaches a hub that is already open. With
 notifications denied an alarm still **plays** but posts nothing, so a dark
 screen stays dark — the banner says so (emulator pass, 2026-09-17).
+
+**Hard rules from the 2026-09-17 review** (each was a shipped defect; the
+record is in `docs/event-alerts-roadmap.md` §8, "Review after Session 5").
+`MainActivity` must **never** carry `android:showWhenLocked` /
+`turnScreenOn`: as manifest attributes they hold for the activity's whole life
+and put every note over a PIN keyguard whenever the phone is woken with ANTA in
+front. The `alarm` package raises both at runtime for the length of a ring; the
+notification fallback does the same through the `setShowWhenLocked` method on
+the `com.alexzamfir.anta/alerts` channel. `Alarm.set` needs
+`allowSameSecondScheduling: true` — its default *stops every other alarm due in
+the same second*, and alerts are minute-granular, so two events at 07:00
+disarmed each other on alternate reconciles. `addPostFrameCallback` does not
+request a frame: anything that must happen while the app may be idle (the
+alert navigation drain) pairs it with `ensureVisualUpdate()`. A snooze is the
+user's and never the plan's to cancel **unless what it postpones is gone** —
+its event deleted or its alert removed (`AlertScheduler._isOrphanedSnooze`; a
+disabled alert does not count). `AlertScheduler.snooze` stops the ring
+*first* and can rebuild the snooze from the payload alone, which is what makes
+another database's alarm snoozable. A ring that ends outside the app — the
+notification's Stop, the Silence-after timeout — arrives on
+`AlertGateway.ringEnded`; `main.dart` settles it (`settleEndedRing`: row,
+re-arm, a Missed notice for an unanswered one) and the alarm page closes
+itself. A past-due row in a process that was already alive at the fire instant
+(`AlertGateway.processStartedAt`) is marked `fired`, never reported Missed: it
+rang natively with no Dart up. An all-day alert with no `dayMinute` reads
+`EventAlerts.defaultDayMinute` everywhere it is shown or exported — the number
+the planner is handed — and `.ics` all-day alarms are **relative** triggers
+(`PT9H`, `-PT4H`) so they follow every occurrence. `EventAlertDao.
+replaceForEvent` writes nothing for a kept alert whose content is unchanged.
 
 **What never rings**, and the device-local registry that backs it, are in the
 roadmap's §2.6 and §2.3 — both are summarised in `COPILOT_CONTEXT.md`'s

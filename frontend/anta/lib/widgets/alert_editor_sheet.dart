@@ -136,11 +136,16 @@ class AlertEditorSheet extends StatefulWidget {
         dayMinute: allDayDefault?.dayMinute,
       );
     }
+    // Both offset sets are seeded, not just the one this event's shape reads:
+    // the alert survives a flip to all-day, and it should arrive there with
+    // the time the settings name rather than with nothing.
     return EventAlert(
       id: const Uuid().v4(),
       eventId: eventId,
       mode: timedDefault?.mode ?? AlertMode.notify,
       offsetMinutes: timedDefault?.offsetMinutes ?? 0,
+      daysBefore: allDayDefault?.daysBefore ?? 0,
+      dayMinute: allDayDefault?.dayMinute,
     );
   }
 
@@ -272,7 +277,7 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
   }
 
   Future<void> _pickDayMinute() async {
-    final current = _dayMinute ?? kDefaultAlertDayMinute;
+    final current = _dayMinute ?? EventAlerts.defaultDayMinute;
     final picked = await showTimePicker(
       context: context,
       initialTime: TimeOfDay(hour: current ~/ 60, minute: current % 60),
@@ -449,7 +454,8 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
                       title: Text(
                         EventTimeFormatter.formatRange(
                           EventTime(
-                            startMinute: _dayMinute ?? kDefaultAlertDayMinute,
+                            startMinute:
+                                _dayMinute ?? EventAlerts.defaultDayMinute,
                           ),
                           l10n,
                         ),

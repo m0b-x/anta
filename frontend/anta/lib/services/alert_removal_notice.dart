@@ -73,15 +73,15 @@ class AlertRemovalNotice extends ChangeNotifier {
   }
 }
 
-/// Applies A3 to one acknowledged alert: the event is soft-deleted, its alerts
-/// go with it, the platform is re-reconciled and the calendar is told so it can
-/// offer Undo.
+/// Applies A3 to one acknowledged **alarm**: the event is soft-deleted, its
+/// alerts go with it, the platform is re-reconciled and the calendar is told so
+/// it can offer Undo.
 ///
-/// Called from the alarm page's Stop and from the reminder tier's tap and Done
-/// — the three acknowledgements §3.5 names. Every one of them is a user action
-/// in the foreground; the background isolate that handles Done while the app is
-/// dead cannot reach a database at all, so an event removed that way waits for
-/// the next tap or the next ring.
+/// Called from the alarm page's Stop and from a Stop on the platform's own
+/// alarm notification. The reminder tier never gets here: its Done runs in a
+/// background isolate with no database, and its tap is someone opening the
+/// event — on an event with a "10 min before" reminder and an "at start"
+/// alarm, removing on that tap would cancel the alarm the switch exists for.
 ///
 /// The database check is the load-bearing half, and it is deliberately
 /// **positive**: an alarm from *work* can ring while *personal* is open, and
@@ -92,6 +92,7 @@ abstract final class AlertAcknowledgement {
   /// land on its day instead of on a detail sheet for something that is gone.
   static Future<bool> apply(AlertPayload payload) async {
     if (!payload.removeAfterAlert || payload.isTest) return false;
+    if (!payload.isAlarm) return false;
     try {
       final manager = await DatabaseManager.getInstance();
       if (manager.getActiveDatabaseName() != payload.database) return false;
@@ -103,6 +104,10 @@ abstract final class AlertAcknowledgement {
         break;
       }
       if (target == null) return false;
+      // The payload was written when the alarm was scheduled; the event is
+      // what is true now. "Keep the event" clears the flag on the event, and
+      // a Stop that arrives from the notification afterwards must honour it.
+      if (!target.removeAfterAlert) return false;
       // Captured **before** the delete: the cascade tombstones the alert rows,
       // and the facade is republished from what survives.
       final alerts = List<EventAlert>.of(EventAlerts.alertsFor(target.id));

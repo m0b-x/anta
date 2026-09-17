@@ -134,6 +134,25 @@ void main() {
       expect(row.offsetMinutes, 30);
     });
 
+    test('an untouched alert is not re-stamped', () async {
+      // The editor and the hub switch both hand over the whole set on every
+      // save. A fresh HLC on an alert nobody edited would beat a genuine edit
+      // made on another device once the two merge.
+      await service.replaceForEvent('e1', [alertOf('a1'), alertOf('a2')]);
+      final before = await rowFor('a1');
+
+      await service.replaceForEvent('e1', [
+        alertOf('a1'),
+        alertOf('a2', offsetMinutes: 30),
+      ]);
+
+      final kept = await rowFor('a1');
+      expect(kept.version, 1);
+      expect(kept.hlcTimestamp, before.hlcTimestamp);
+      expect(kept.updatedAt, before.updatedAt);
+      expect((await rowFor('a2')).version, 2);
+    });
+
     test('re-adding a removed id resurrects its row', () async {
       await service.replaceForEvent('e1', [alertOf('a1')]);
       await service.replaceForEvent('e1', const []);

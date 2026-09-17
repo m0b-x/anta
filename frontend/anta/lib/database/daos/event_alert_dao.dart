@@ -40,7 +40,14 @@ class EventAlertDao extends DatabaseAccessor<AppDatabase>
 
   /// Makes [entries] the complete set of alerts for [eventId], in one
   /// transaction: rows that are no longer in the list are **tombstoned**, rows
-  /// that are stay and are re-stamped, rows that are new are inserted.
+  /// that are stay — re-stamped only if something in them changed — and rows
+  /// that are new are inserted.
+  ///
+  /// A kept row whose content is **unchanged is not written at all**. The
+  /// editor and the hub's switch both hand over the whole set on every save,
+  /// so re-stamping regardless would bump the version and the HLC of every
+  /// alert whenever an event's title changed — and once two devices merge, a
+  /// fresh HLC on an alert nobody touched beats a real edit made elsewhere.
   ///
   /// One transaction rather than a delete-then-insert pair, because an alert's
   /// identity is what survives an edit: keeping the row means the registration
@@ -85,6 +92,7 @@ class EventAlertDao extends DatabaseAccessor<AppDatabase>
 
       for (final entry in entries) {
         final row = byId[entry.id.value];
+        if (row != null && _sameContent(row, entry, eventId)) continue;
         if (row == null) {
           await into(eventAlerts).insert(
             entry.copyWith(
@@ -118,6 +126,25 @@ class EventAlertDao extends DatabaseAccessor<AppDatabase>
         );
       }
     });
+  }
+
+  /// Whether [entry] would leave a live [row] saying exactly what it says now.
+  /// An absent companion field is one the write would not touch.
+  static bool _sameContent(
+    EventAlertRow row,
+    EventAlertsCompanion entry,
+    String eventId,
+  ) {
+    bool same<T>(Value<T> next, T current) =>
+        !next.present || next.value == current;
+    return !row.isDeleted &&
+        row.eventId == eventId &&
+        same(entry.mode, row.mode) &&
+        same(entry.offsetMinutes, row.offsetMinutes) &&
+        same(entry.daysBefore, row.daysBefore) &&
+        same(entry.dayMinute, row.dayMinute) &&
+        same(entry.sound, row.sound) &&
+        same(entry.enabled, row.enabled);
   }
 
   /// Cascade for a deleted event: since v27 deleting an event tombstones it,

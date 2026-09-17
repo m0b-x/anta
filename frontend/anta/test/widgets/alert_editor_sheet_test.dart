@@ -83,6 +83,23 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  test('a timed draft is seeded for an all-day flip too', () {
+    // Both offset sets ride every alert. One minted on a timed event used to
+    // carry no day time at all, so flipping the event to all-day left it on
+    // whatever the fallback happened to be rather than on the setting.
+    final draft = AlertEditorSheet.draft(
+      eventId: 'e1',
+      allDay: false,
+      timedDefault: (mode: AlertMode.ring, offsetMinutes: 15),
+      allDayDefault: (mode: AlertMode.notify, daysBefore: 1, dayMinute: 480),
+    );
+
+    expect(draft.mode, AlertMode.ring);
+    expect(draft.offsetMinutes, 15);
+    expect(draft.daysBefore, 1);
+    expect(draft.dayMinute, 480);
+  });
+
   testWidgets('a timed chip is what Save reports', (tester) async {
     final result = await openSheet(tester);
 

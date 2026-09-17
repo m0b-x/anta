@@ -5,6 +5,8 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
+import android.os.Process
+import android.os.SystemClock
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -20,6 +22,13 @@ private const val ALERTS_CHANNEL = "com.alexzamfir.anta/alerts"
  * useless for a status row — and battery optimisation has no Dart binding at
  * all. Both are read-only here; the only thing that leaves the app is the
  * settings page the user asked for.
+ *
+ * Also the two things a ring needs from the activity itself. `setShowWhenLocked`
+ * lifts the app over the keyguard **for the length of a ring and no longer** —
+ * the manifest attribute would hold for the activity's whole life and put the
+ * notes on top of a PIN. `processStartedAt` is the wall-clock start of this
+ * process, which is how the scheduler tells an alarm that rang while no Dart
+ * was running from one that never fired.
  */
 class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -34,6 +43,11 @@ class MainActivity : FlutterActivity() {
                         openAppSettings()
                         result.success(null)
                     }
+                    "setShowWhenLocked" -> {
+                        setShowWhenLockedCompat(call.arguments == true)
+                        result.success(null)
+                    }
+                    "processStartedAt" -> result.success(processStartedAt())
                     else -> result.notImplemented()
                 }
             }
@@ -48,6 +62,17 @@ class MainActivity : FlutterActivity() {
     private fun isIgnoringBatteryOptimizations(): Boolean {
         val manager = getSystemService(Context.POWER_SERVICE) as? PowerManager
         return manager?.isIgnoringBatteryOptimizations(packageName) ?: true
+    }
+
+    private fun setShowWhenLockedCompat(show: Boolean) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1) return
+        setShowWhenLocked(show)
+        setTurnScreenOn(show)
+    }
+
+    private fun processStartedAt(): Long {
+        val aliveFor = SystemClock.elapsedRealtime() - Process.getStartElapsedRealtime()
+        return System.currentTimeMillis() - aliveFor
     }
 
     private fun openAppSettings() {

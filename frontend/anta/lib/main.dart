@@ -235,6 +235,10 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   /// Live subscription to the gateway's ring stream, for as long as the app is.
   StreamSubscription<AlertPayload>? _ringing;
 
+  /// The rings that ended without the app asking: the notification's own Stop,
+  /// and the Silence-after timeout.
+  StreamSubscription<AlertRingEnd>? _ringEnded;
+
   @override
   void initState() {
     super.initState();
@@ -256,6 +260,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   void dispose() {
     _resumeReconcile?.cancel();
     unawaited(_ringing?.cancel());
+    unawaited(_ringEnded?.cancel());
     PendingNavigationQueue.instance.removeListener(_scheduleNavigationDrain);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -290,7 +295,26 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         OpenAlarmIntent(payload: payload),
       );
     });
+    _ringEnded = gateway.ringEnded.listen((end) {
+      unawaited(_settleEndedRing(end));
+    });
     unawaited(_drainLaunchIntent(gateway));
+  }
+
+  /// Does for a ring stopped from the platform's notification what the alarm
+  /// page's Stop does for one stopped there: settle the registration, re-arm
+  /// the event, and carry out A3. With the phone in use Android shows a ring
+  /// as a heads-up, so for many alarms this is the only Stop there is.
+  ///
+  /// An unanswered ring that timed out is settled too, but it acknowledged
+  /// nothing, so it removes nothing.
+  Future<void> _settleEndedRing(AlertRingEnd end) async {
+    final answered = end.cause == AlertRingEndCause.dismissed;
+    await AlertScheduler.settleEndedRingByPayload(
+      end.payload,
+      answered: answered,
+    );
+    if (answered) await AlertAcknowledgement.apply(end.payload);
   }
 
   Future<void> _drainLaunchIntent(AlertGateway gateway) async {
@@ -320,10 +344,16 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     }
   }
 
+  /// `addPostFrameCallback` only *registers* — it never asks for a frame. An
+  /// app sitting idle in the foreground is not producing any, so without the
+  /// explicit request a ring that arrives then queues its alarm page and the
+  /// page appears at the user's next touch, however long the phone has been
+  /// ringing by then.
   void _scheduleNavigationDrain() {
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => _drainPendingNavigation(),
     );
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   /// Routes the alert taps that arrived while there was nowhere to push them.
@@ -332,23 +362,16 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   /// has to wait for a navigator to exist; the queue is what holds it, and
   /// [_navigationReady] is what keeps it from landing under the restored
   /// location.
-  Future<void> _drainPendingNavigation() async {
+  void _drainPendingNavigation() {
     if (!_navigationReady) return;
     if (AppNavigator.navigatorKey.currentState == null) return;
     for (final intent in PendingNavigationQueue.instance.drain()) {
       switch (intent) {
-        case OpenEventIntent(:final acknowledged):
-          // A3, **awaited** before the navigation: the calendar this is about
-          // to open is where the "Removed · Undo" snackbar lands, and a tap
-          // that removed the event lands on its day with nothing open — a
-          // detail sheet over an event being deleted underneath it would
-          // offer Edit on a tombstone and hide the Undo behind its barrier.
-          final removed =
-              acknowledged && await AlertAcknowledgement.apply(intent.payload);
+        case OpenEventIntent():
           unawaited(
             AppNavigator.toCalendarOccurrence(
               day: intent.payload.dayUtc,
-              eventId: removed ? null : intent.payload.eventId,
+              eventId: intent.payload.eventId,
             ),
           );
         case OpenAlarmIntent():

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
 import '../constants/calendar_icons.dart';
+import '../constants/event_alerts.dart';
 import '../constants/fasting_calendar.dart';
 import '../constants/font_constants.dart';
 import '../constants/settings_keys.dart';
@@ -87,6 +88,7 @@ class SettingsService {
     _instance?._dropPendingWrites();
     _instance = null;
     FastingCalendar.resetConfiguration();
+    EventAlerts.configureDefaultDayMinute(null);
   }
 
   /// Decoders take the raw stored string so a value can be resolved either
@@ -1629,6 +1631,7 @@ class SettingsService {
           ? _alertDefaultNone
           : '${value.mode.name}:${value.daysBefore}:${value.dayMinute}',
     );
+    EventAlerts.configureDefaultDayMinute(value?.dayMinute);
   }
 
   /// Every event-alert option in one statement.
@@ -1637,9 +1640,18 @@ class SettingsService {
   /// reads the snooze and silence lengths — so it is read on a save path and
   /// on a ring path, never inside `build`.
   Future<AlertSettings> getAlertSettings() async {
-    return _decodeAlertSettings(
-      await _db.userSettingsDao.getValuesFor(_alertKeys),
+    return _publishAlertDefaults(
+      _decodeAlertSettings(await _db.userSettingsDao.getValuesFor(_alertKeys)),
     );
+  }
+
+  /// Hands the all-day default's minute to [EventAlerts], which is where every
+  /// synchronous describer of an alert reads it. Done on the read paths rather
+  /// than in the decoder because the decoder is pure — it also produces
+  /// [shippedAlertSettings], which must not move what is published.
+  static AlertSettings _publishAlertDefaults(AlertSettings settings) {
+    EventAlerts.configureDefaultDayMinute(settings.allDayDefault?.dayMinute);
+    return settings;
   }
 
   static CalendarAppearance _decodeCalendarAppearance(
@@ -1760,7 +1772,7 @@ class SettingsService {
         values[SettingsKeys.calendarFastingSchedule],
         values[SettingsKeys.calendarFastingWeekdays],
       ),
-      alerts: _decodeAlertSettings(values),
+      alerts: _publishAlertDefaults(_decodeAlertSettings(values)),
     );
   }
 

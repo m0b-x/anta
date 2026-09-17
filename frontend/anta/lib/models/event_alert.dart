@@ -57,7 +57,7 @@ class EventAlert extends Equatable {
   final int daysBefore;
 
   /// Minute of day an all-day alert fires at, or `null` for the settings
-  /// default ([kDefaultAlertDayMinute] out of the box).
+  /// default ([EventAlerts.defaultDayMinute]).
   final int? dayMinute;
 
   /// Alarm sound id, or `null` for the default. Alarm tier only.
@@ -155,7 +155,7 @@ class EventAlert extends Equatable {
   String describe(AppLocalizations l10n, CalendarEvent event) {
     if (event.allDay) {
       final label = EventTimeFormatter.formatRange(
-        EventTime(startMinute: dayMinute ?? kDefaultAlertDayMinute),
+        EventTime(startMinute: dayMinute ?? EventAlerts.defaultDayMinute),
         l10n,
       );
       if (daysBefore <= 0) return l10n.eventAlertAllDayOnDay(label);

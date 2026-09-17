@@ -236,6 +236,38 @@ void main() {
     });
   });
 
+  group('an alert with no time of its own', () {
+    tearDown(() => EventAlerts.configureDefaultDayMinute(null));
+
+    test('describes the settings default, which is what it rings at', () {
+      // The planner is handed this same number. Falling back to 09:00 here
+      // instead meant an alert read "09:00" and rang at the time the setting
+      // had been moved to.
+      EventAlerts.configureDefaultDayMinute(7 * 60 + 30);
+
+      expect(
+        alert(dayMinute: null).describe(l10n, eventOf()),
+        alert(dayMinute: 7 * 60 + 30).describe(l10n, eventOf()),
+      );
+    });
+
+    test('its own time still wins', () {
+      EventAlerts.configureDefaultDayMinute(7 * 60 + 30);
+
+      expect(
+        alert(dayMinute: 20 * 60).describe(l10n, eventOf()),
+        contains('20:00'),
+      );
+    });
+
+    test('"no all-day default" leaves the shipped anchor', () {
+      EventAlerts.configureDefaultDayMinute(6 * 60);
+      EventAlerts.configureDefaultDayMinute(null);
+
+      expect(EventAlerts.defaultDayMinute, kDefaultAlertDayMinute);
+    });
+  });
+
   group('an all-day flip', () {
     test('changes the reading and keeps both offset sets', () {
       final both = alert(offsetMinutes: 10, daysBefore: 1, dayMinute: 20 * 60);

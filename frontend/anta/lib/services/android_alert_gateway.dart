@@ -19,7 +19,6 @@ import '../models/alert_payload.dart';
 import '../utils/alert_os_id.dart';
 import '../utils/alert_planner.dart';
 import 'alert_gateway.dart';
-import 'alert_removal_notice.dart';
 import 'pending_navigation.dart';
 import 'settings_service.dart';
 
@@ -214,21 +213,33 @@ class AndroidAlertGateway extends AlertGateway {
   final StreamController<AlertPayload> _ringing =
       StreamController<AlertPayload>.broadcast();
 
-  /// Osids already emitted on [ringing] in this process. `Alarm.ringing` is a
-  /// `ValueStream` that replays, and the fallback path can deliver the same
-  /// full-screen entry through both the response callback and the launch
-  /// details — the queue dedupes too, but a stream that emits twice makes the
-  /// `fired` marking run twice as well.
-  final Set<int> _emittedRings = <int>{};
+  final StreamController<AlertRingEnd> _ringEnded =
+      StreamController<AlertRingEnd>.broadcast();
+
+  /// Rings in progress, by os id, with the payload each rang under.
+  ///
+  /// Doubles as the emit-once guard: `Alarm.ringing` is a `ValueStream` that
+  /// replays, and the fallback path can deliver the same full-screen entry
+  /// through both the response callback and the launch details — the queue
+  /// dedupes too, but a stream that emits twice makes the `fired` marking run
+  /// twice as well. The payload is kept because [ringEnded] has to hand it
+  /// back: by the time a ring is over the `alarm` package has unsaved it.
+  final Map<int, AlertPayload> _rings = <int, AlertPayload>{};
+
+  /// The subset of [_rings] the `alarm` package reported, which is the only
+  /// subset whose disappearance from `Alarm.ringing` means anything. A
+  /// fallback ring never appears in that set, so its absence says nothing.
+  final Set<int> _pluginRings = <int>{};
 
   StreamSubscription<AlarmSet>? _ringingSub;
 
   /// Stops a ring that nobody acknowledged, after the Silence-after setting.
   ///
   /// The `alarm` package has no timeout of its own — the fallback path gets
-  /// `timeoutAfter` from the platform — so the app holds the timer while it is
-  /// the process doing the ringing, which it always is: `alarm` relaunches the
-  /// app to ring.
+  /// `timeoutAfter` from the platform — so the app holds the timer whenever
+  /// Dart is up for the ring. That is not always: with the phone in use and
+  /// the app not running, the ring is a native heads-up and nothing here runs,
+  /// so that ring has no timeout — but it also has someone looking at it.
   final Map<int, Timer> _silenceTimers = <int, Timer>{};
 
   AlertIntent? _launchIntent;
@@ -269,8 +280,15 @@ class AndroidAlertGateway extends AlertGateway {
   /// plugins the moment it was built could not be registered before the
   /// database is open, and `Alarm.init()` drains the host's recorded events,
   /// which must not happen twice.
+  ///
+  /// A failure is **not** memoized. Every entry point awaits this, so a cached
+  /// rejection would turn one transient platform error at launch into a
+  /// binding that refuses to schedule for the life of the process.
   Future<void> initialize() {
-    return _initialization ??= _initialize();
+    return _initialization ??= _initialize().onError<Object>((error, stack) {
+      _initialization = null;
+      Error.throwWithStackTrace(error, stack);
+    });
   }
 
   Future<void> _initialize() async {
@@ -324,7 +342,7 @@ class AndroidAlertGateway extends AlertGateway {
   Future<String?> _readLanguageCode() async {
     try {
       final db = await AppDatabase.getInstance();
-      return db.userSettingsDao.getValue(SettingsKeys.locale);
+      return await db.userSettingsDao.getValue(SettingsKeys.locale);
     } catch (e) {
       debugPrint('[AndroidAlertGateway] locale read failed: $e');
       return null;
@@ -335,20 +353,66 @@ class AndroidAlertGateway extends AlertGateway {
 
   /// `Alarm.ringing` emits an **empty set on subscribe** (it is an rxdart
   /// `ValueStream`), so an unguarded listener would push an alarm page on
-  /// every single launch.
+  /// every single launch — an empty set simply has nothing to emit.
+  ///
+  /// The set **shrinking** is the other half. A ring this binding is tracking
+  /// that has left the set, and that [stopRinging] did not take out of
+  /// [_rings] first, was stopped from the package's own notification — the
+  /// only Stop there is when the phone is in use, since Android turns a
+  /// full-screen intent into a heads-up then.
   void _handleRinging(AlarmSet set) {
-    if (set.alarms.isEmpty) return;
+    final live = <int>{for (final alarm in set.alarms) alarm.id};
+    for (final osId in _pluginRings.toList()) {
+      if (live.contains(osId)) continue;
+      _endRing(osId, AlertRingEndCause.dismissed);
+    }
     for (final alarm in set.alarms) {
       final payload = AlertPayload.decode(alarm.payload);
       if (payload == null) continue;
+      _pluginRings.add(alarm.id);
       _emitRing(payload.copyWith(osId: alarm.id));
     }
   }
 
   void _emitRing(AlertPayload payload) {
-    if (!_emittedRings.add(payload.osId)) return;
-    unawaited(_armSilenceTimer(payload.osId));
+    if (!_trackRing(payload)) return;
     if (!_ringing.isClosed) _ringing.add(payload);
+  }
+
+  /// Starts tracking one ring. False when it is already tracked.
+  bool _trackRing(AlertPayload payload) {
+    if (_rings.containsKey(payload.osId)) return false;
+    _rings[payload.osId] = payload;
+    unawaited(_armSilenceTimer(payload.osId));
+    unawaited(_showOverKeyguard(true));
+    return true;
+  }
+
+  /// Settles a ring that ended outside the app and reports it.
+  void _endRing(int osId, AlertRingEndCause cause) {
+    _silenceTimers.remove(osId)?.cancel();
+    _pluginRings.remove(osId);
+    final payload = _rings.remove(osId);
+    if (_rings.isEmpty) unawaited(_showOverKeyguard(false));
+    if (payload == null || _ringEnded.isClosed) return;
+    _ringEnded.add((payload: payload, cause: cause));
+  }
+
+  /// Lifts the activity over the keyguard while a **fallback** ring is up.
+  ///
+  /// The `alarm` package does this for its own rings, natively, and drops the
+  /// flags when the ring ends. The notification fallback has nobody to do it:
+  /// its full-screen intent launches the activity, and without the flag the
+  /// alarm page sits behind the PIN. It is a runtime flag precisely so it can
+  /// be dropped again — as a manifest attribute it would hold forever and put
+  /// the whole app on the lock screen.
+  Future<void> _showOverKeyguard(bool show) async {
+    if (!kAlarmTierUsesNotifications) return;
+    try {
+      await _platform.invokeMethod<void>('setShowWhenLocked', show);
+    } catch (e) {
+      debugPrint('[AndroidAlertGateway] setShowWhenLocked($show) failed: $e');
+    }
   }
 
   Future<void> _armSilenceTimer(int osId) async {
@@ -361,10 +425,22 @@ class AndroidAlertGateway extends AlertGateway {
     } catch (_) {
       // The shipped default is a better answer than ringing forever.
     }
+    // Stopped while the setting was being read: arming now would leave a
+    // timer that fires `Alarm.stop` on whatever holds this id by then — and a
+    // snooze of a snooze is re-armed under the same one.
+    if (!_rings.containsKey(osId)) return;
     _silenceTimers[osId] = Timer(Duration(minutes: minutes), () {
-      _silenceTimers.remove(osId);
-      unawaited(stopRinging(osId));
+      unawaited(_silence(osId));
     });
+  }
+
+  /// Ends an unanswered ring. Reported as `timedOut` rather than folded into
+  /// [stopRinging], because nobody acknowledged anything.
+  Future<void> _silence(int osId) async {
+    final payload = _rings[osId];
+    await stopRinging(osId);
+    if (payload == null || _ringEnded.isClosed) return;
+    _ringEnded.add((payload: payload, cause: AlertRingEndCause.timedOut));
   }
 
   /// `AlarmDropped(cause: staleAtBoot)` on `Alarm.events` is deliberately not
@@ -392,19 +468,18 @@ class AndroidAlertGateway extends AlertGateway {
       _emitRing(payload);
       return;
     }
+    // Both actions are declared `showsUserInterface: false`, which routes them
+    // to [alertBackgroundActionHandler] whether or not the app is in front —
+    // so neither case is expected here. They are kept as the same two lines
+    // the background handler runs, in case a plugin release ever delivers one.
     switch (response.actionId) {
       case kAlertDoneActionId:
         unawaited(_plugin.cancel(id: payload.osId));
-        // Done in the foreground is an acknowledgement like any other, so A3
-        // applies. The background isolate's copy of this branch cannot do the
-        // same — it has no database — which is why an event removed that way
-        // waits for the next foreground acknowledgement instead.
-        unawaited(AlertAcknowledgement.apply(payload));
       case kAlertSnoozeActionId:
         unawaited(_snoozeFromBackground(_plugin, payload));
       default:
         PendingNavigationQueue.instance.enqueue(
-          OpenEventIntent(payload: payload, acknowledged: true),
+          OpenEventIntent(payload: payload),
         );
     }
   }
@@ -431,6 +506,13 @@ class AndroidAlertGateway extends AlertGateway {
           loopAudio: true,
           vibrate: true,
           androidFullScreenIntent: true,
+          // Defaults false, and false means `Alarm.set` **stops every other
+          // alarm due in the same second** before arming this one. Alerts are
+          // minute-granular wall-clock instants, so two events at 07:00 — or
+          // two all-day events on the 09:00 default, or an alarm belonging to
+          // another database — collide exactly, and each reconcile would
+          // silently disarm whichever of them it did not schedule last.
+          allowSameSecondScheduling: true,
           // Defaults true and posts a second, permanent notification warning
           // that killing the app stops alarms — noise the app says once, in
           // its own settings copy, instead.
@@ -709,7 +791,11 @@ class AndroidAlertGateway extends AlertGateway {
   Future<void> stopRinging(int osId) async {
     await initialize();
     _silenceTimers.remove(osId)?.cancel();
-    _emittedRings.remove(osId);
+    // Out of both maps **before** `Alarm.stop`, which is what tells
+    // [_handleRinging] this ending was the app's own and not a dismissal.
+    _pluginRings.remove(osId);
+    _rings.remove(osId);
+    if (_rings.isEmpty) unawaited(_showOverKeyguard(false));
     try {
       await Alarm.stop(osId);
     } catch (e) {
@@ -724,6 +810,20 @@ class AndroidAlertGateway extends AlertGateway {
 
   @override
   Stream<AlertPayload> get ringing => _ringing.stream;
+
+  @override
+  Stream<AlertRingEnd> get ringEnded => _ringEnded.stream;
+
+  @override
+  Future<DateTime?> processStartedAt() async {
+    try {
+      final ms = await _platform.invokeMethod<int>('processStartedAt');
+      return ms == null ? null : DateTime.fromMillisecondsSinceEpoch(ms);
+    } catch (e) {
+      debugPrint('[AndroidAlertGateway] processStartedAt failed: $e');
+      return null;
+    }
+  }
 
   @override
   Future<AlertIntent?> launchIntent() async {
@@ -741,11 +841,13 @@ class AndroidAlertGateway extends AlertGateway {
         _launchIntent = OpenEventIntent(payload: payload);
       } else if (payload.isAlarm) {
         await _plugin.cancel(id: payload.osId);
+        // Tracked like a warm ring, so the silence timer and the keyguard flag
+        // cover a fallback alarm that launched the app — but not emitted: the
+        // caller queues the intent it is handed.
+        _trackRing(payload);
         _launchIntent = OpenAlarmIntent(payload: payload);
       } else {
-        // A cold-start tap on a live reminder settles it, exactly as the warm
-        // one does.
-        _launchIntent = OpenEventIntent(payload: payload, acknowledged: true);
+        _launchIntent = OpenEventIntent(payload: payload);
       }
       return _launchIntent;
     } catch (e) {
@@ -755,7 +857,7 @@ class AndroidAlertGateway extends AlertGateway {
   }
 
   @override
-  Set<int> get ringingIds => Set<int>.unmodifiable(_emittedRings);
+  Set<int> get ringingIds => Set<int>.unmodifiable(_rings.keys);
 
   @override
   Future<void> dispose() async {
@@ -765,6 +867,7 @@ class AndroidAlertGateway extends AlertGateway {
     }
     _silenceTimers.clear();
     await _ringing.close();
+    await _ringEnded.close();
   }
 }
 

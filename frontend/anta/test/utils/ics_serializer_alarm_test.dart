@@ -10,9 +10,9 @@ import 'package:anta/utils/ics_serializer.dart';
 /// is never handed: alerts come from [EventAlerts], exactly as skips come from
 /// `EventSkips`, so the export path can stay "here is a list of events".
 ///
-/// The two shapes worth pinning are the two RFC 5545 allows: a **relative**
-/// trigger, which follows every occurrence of the `RRULE`, and an **absolute**
-/// one for an all-day event that has no start instant to be relative to.
+/// Both shapes are **relative** triggers, which is what follows every
+/// occurrence of the `RRULE`: minutes before the start for a timed event, and
+/// a signed duration from 00:00 of the day for an all-day one.
 void main() {
   CalendarEvent event({EventTime? time, String id = 'e1'}) => CalendarEvent(
     id: id,
@@ -105,93 +105,55 @@ void main() {
   });
 
   group('all-day events', () {
-    test('trigger absolutely, at the first occurrence', () {
+    // An all-day `DTSTART` is a `DATE`, and RFC 5545 measures a relative
+    // trigger on one from 00:00 of that day. Relative is the whole point: it
+    // follows every occurrence of the `RRULE` and stays in floating local
+    // time, where an absolute trigger has to be UTC and names one instant.
+    test('trigger relative to the start of the day', () {
       publish([alert(daysBefore: 0, dayMinute: 9 * 60)]);
 
       final ics = export(event());
 
-      // 2026-08-03 is the anchor and a Monday, so the first occurrence is the
-      // anchor itself; 09:00 local is written as UTC because RFC 5545 allows
-      // an absolute trigger in no other form.
-      final expected = DateTime(2026, 8, 3, 9).toUtc();
-      expect(ics, contains('TRIGGER;VALUE=DATE-TIME:'));
-      expect(
-        ics,
-        contains(
-          'TRIGGER;VALUE=DATE-TIME:'
-          '${expected.year}'
-          '${expected.month.toString().padLeft(2, '0')}'
-          '${expected.day.toString().padLeft(2, '0')}T'
-          '${expected.hour.toString().padLeft(2, '0')}'
-          '${expected.minute.toString().padLeft(2, '0')}00Z',
-        ),
-      );
-      expect(ics, isNot(contains('TRIGGER:-PT')));
+      expect(ics, contains('TRIGGER:PT9H'));
+      expect(ics, isNot(contains('VALUE=DATE-TIME')));
     });
 
-    test('daysBefore walks the anchor back', () {
+    test('daysBefore makes the trigger negative', () {
       publish([alert(daysBefore: 1, dayMinute: 20 * 60)]);
 
-      final ics = export(event());
-
-      final expected = DateTime(2026, 8, 2, 20).toUtc();
-      expect(
-        ics,
-        contains(
-          '${expected.year}'
-          '${expected.month.toString().padLeft(2, '0')}'
-          '${expected.day.toString().padLeft(2, '0')}T'
-          '${expected.hour.toString().padLeft(2, '0')}'
-          '${expected.minute.toString().padLeft(2, '0')}00Z',
-        ),
-      );
+      expect(export(event()), contains('TRIGGER:-PT4H'));
     });
 
-    // The absolute trigger is the same fire instant `AlertPlanner` computes,
-    // so it obeys the same rule: the minute goes in the **constructor's**
-    // minute slot, never added to local midnight as a `Duration`. Local
-    // midnight carries the pre-transition UTC offset, so absolute addition
-    // exports 08:00 for a 07:00 alert on the spring-forward day and 06:00 on
-    // the fall-back one. On a host with no transition on these dates the two
-    // forms agree and this is simply the ordinary case, which must also hold.
-    for (final day in [
-      DateTime.utc(2026, 3, 29),
-      DateTime.utc(2026, 10, 25),
-      DateTime.utc(2026, 3, 8),
-      DateTime.utc(2026, 11, 1),
-    ]) {
-      test('a 07:00 trigger stays 07:00 local on ${day.toIso8601String()}', () {
-        publish([alert(dayMinute: 7 * 60)]);
+    test('a week before spells days, hours and minutes', () {
+      publish([alert(daysBefore: 7, dayMinute: 8 * 60 + 30)]);
 
-        final ics = IcsSerializer.serialize(
-          events: [
-            CalendarEvent(
-              id: 'e1',
-              title: 'Leg day',
-              categoryId: 'gym',
-              startDate: day,
-              rule: const OneTimeRecurrence(),
-            ),
-          ],
-          now: DateTime.utc(2026, 1, 1),
-        );
+      // 7 days back, then 08:30 forward: 6 days 15 h 30 min before midnight.
+      expect(export(event()), contains('TRIGGER:-P6DT15H30M'));
+    });
 
-        final expected = DateTime(day.year, day.month, day.day, 7).toUtc();
-        expect(
-          ics,
-          contains(
-            'TRIGGER;VALUE=DATE-TIME:'
-            '${expected.year}'
-            '${expected.month.toString().padLeft(2, '0')}'
-            '${expected.day.toString().padLeft(2, '0')}T'
-            '${expected.hour.toString().padLeft(2, '0')}'
-            '${expected.minute.toString().padLeft(2, '0')}00Z',
-          ),
-        );
-      });
-    }
+    test('midnight on the day is a zero duration, not an empty one', () {
+      publish([alert(daysBefore: 0, dayMinute: 0)]);
 
-    test('a null day minute uses the shipped default', () {
+      expect(export(event()), contains('TRIGGER:PT0M'));
+    });
+
+    test('a whole number of days back has no time part', () {
+      publish([alert(daysBefore: 2, dayMinute: 0)]);
+
+      expect(export(event()), contains('TRIGGER:-P2D'));
+    });
+
+    test('a null day minute follows the settings default', () {
+      // The number the planner is handed, so an alert with no time of its own
+      // exports the instant it actually rings at.
+      EventAlerts.configureDefaultDayMinute(8 * 60);
+      addTearDown(() => EventAlerts.configureDefaultDayMinute(null));
+      publish([alert(dayMinute: null)]);
+
+      expect(export(event()), contains('TRIGGER:PT8H'));
+    });
+
+    test('with no setting published it is the shipped 09:00', () {
       publish([alert(dayMinute: null)]);
       final withDefault = export(event());
 

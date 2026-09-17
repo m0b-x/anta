@@ -70,10 +70,19 @@ class _AlarmPageState extends State<AlarmPage> {
   }
 
   void _onControllerChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    if (_controller.endedElsewhere) {
+      _close();
+      return;
+    }
+    setState(() {});
   }
 
+  bool _closed = false;
+
   void _close() {
+    if (_closed) return;
+    _closed = true;
     final navigator = Navigator.of(context);
     if (navigator.canPop()) navigator.pop();
   }
@@ -246,7 +255,12 @@ class _AlarmPageState extends State<AlarmPage> {
                 AutomationId(
                   identifier: SemanticsIds.alarmOpenEvent,
                   child: TextButton(
-                    onPressed: _controller.busy || payload.isTest
+                    // Another database's event is not in the calendar this
+                    // would open; the chip above is the way to it.
+                    onPressed:
+                        _controller.busy ||
+                            payload.isTest ||
+                            _controller.fromOtherDatabase
                         ? null
                         : _openEvent,
                     child: Text(l10n.alarmOpenEvent),

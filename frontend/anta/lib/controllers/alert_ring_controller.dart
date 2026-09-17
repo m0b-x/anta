@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
+import 'package:get_it/get_it.dart';
 
 import '../models/alert_payload.dart';
 import '../models/calendar_event.dart';
+import '../services/alert_gateway.dart';
 import '../services/alert_removal_notice.dart';
 import '../services/alert_scheduler.dart';
 import '../services/calendar_event_service.dart';
@@ -34,6 +38,10 @@ class AlertRingController extends ChangeNotifier {
 
   bool _stopped = false;
 
+  bool _endedElsewhere = false;
+
+  StreamSubscription<AlertRingEnd>? _ringEnded;
+
   /// The database the app is actually in, once it is known. Null until then,
   /// which is what keeps the A9 chip from flashing on every ring.
   String? get activeDatabase => _activeDatabase;
@@ -57,9 +65,16 @@ class AlertRingController extends ChangeNotifier {
   /// a double tap from stopping twice.
   bool get stopped => _stopped;
 
+  /// Whether this ring ended by a route the page did not take — Stop on the
+  /// platform's notification, or the Silence-after timeout. The page closes on
+  /// it: a screen still offering Stop for a ring that is over cannot be left
+  /// by the back gesture, and `main.dart` has already settled the ring.
+  bool get endedElsewhere => _endedElsewhere;
+
   /// Resolves the one thing the payload cannot carry: which database is open
   /// *now*. Called once from `initState`.
   Future<void> load() async {
+    _listenForRingEnd();
     try {
       final manager = await DatabaseManager.getInstance();
       _activeDatabase = manager.getActiveDatabaseName();
@@ -68,6 +83,22 @@ class AlertRingController extends ChangeNotifier {
       return;
     }
     notifyListeners();
+  }
+
+  void _listenForRingEnd() {
+    if (_ringEnded != null || !GetIt.I.isRegistered<AlertGateway>()) return;
+    _ringEnded = GetIt.I<AlertGateway>().ringEnded.listen((end) {
+      if (end.payload.osId != payload.osId || _stopped) return;
+      _stopped = true;
+      _endedElsewhere = true;
+      notifyListeners();
+    });
+  }
+
+  @override
+  void dispose() {
+    unawaited(_ringEnded?.cancel());
+    super.dispose();
   }
 
   /// Stops the ring and settles the registration.
@@ -103,7 +134,10 @@ class AlertRingController extends ChangeNotifier {
     _busy = true;
     notifyListeners();
     try {
-      await (await AlertScheduler.getInstance()).snooze(payload.osId);
+      await (await AlertScheduler.getInstance()).snooze(
+        payload.osId,
+        payload: payload,
+      );
     } catch (e) {
       debugPrint('[AlertRingController] snooze failed: $e');
     }

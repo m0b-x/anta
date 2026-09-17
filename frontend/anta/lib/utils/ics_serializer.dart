@@ -103,7 +103,7 @@ abstract final class IcsSerializer {
       lines.add(_dateListProperty('RDATE', rDates, time));
     }
 
-    lines.addAll(_alarms(event, first, time));
+    lines.addAll(_alarms(event, time));
 
     lines.add('END:VEVENT');
     return lines;
@@ -123,17 +123,15 @@ abstract final class IcsSerializer {
   /// treat both as ordinary alarms — which is the honest reading of what it
   /// can do.
   ///
-  /// A timed event's offset is a relative `TRIGGER:-PT{n}M`, which is what
-  /// makes it follow every occurrence of the `RRULE`. An all-day event has no
-  /// start instant to be relative to, so its trigger is absolute — computed
-  /// per the all-day rule (`daysBefore` back from the day, at `dayMinute` or
-  /// the 09:00 default) for the **first** occurrence only, and written as UTC
-  /// because RFC 5545 allows no other form for an absolute trigger.
-  static List<String> _alarms(
-    CalendarEvent event,
-    DateTime first,
-    EventTime? time,
-  ) {
+  /// Both shapes trigger **relative to `DTSTART`**, which is what makes an
+  /// alarm follow every occurrence of the `RRULE` and keeps it in the same
+  /// floating local time as the event. A timed event's offset is
+  /// `TRIGGER:-PT{n}M`. An all-day event's `DTSTART` is a `DATE`, and RFC 5545
+  /// measures a relative trigger on one from 00:00 of that day — so "on the
+  /// day at 09:00" is `PT9H` and "the day before at 20:00" is `-PT4H`. An
+  /// absolute `VALUE=DATE-TIME` trigger, which this used to emit, has to be UTC
+  /// and covers the first occurrence only.
+  static List<String> _alarms(CalendarEvent event, EventTime? time) {
     final alerts = EventAlerts.alertsFor(event.id);
     if (alerts.isEmpty) return const [];
     final lines = <String>[];
@@ -146,37 +144,32 @@ abstract final class IcsSerializer {
       if (time != null) {
         lines.add('TRIGGER:-PT${alert.offsetMinutes}M');
       } else {
-        final anchor = first.subtract(Duration(days: alert.daysBefore));
-        final minute = alert.dayMinute ?? kDefaultAlertDayMinute;
-        // The planner's own fire instant: the occurrence day rebuilt as a
-        // **local** midnight, plus the minute of day. RFC 5545 allows an
-        // absolute trigger in UTC only, so unlike `DTSTART` — which stays
-        // floating, because the app records no timezone — this one has to be
-        // converted. The two are consistent: both name the same instant on the
-        // machine that wrote the file.
-        //
-        // The minute goes in the constructor's minute slot rather than being
-        // added to local midnight: local midnight carries the *pre*-transition
-        // UTC offset, so adding absolute minutes across a DST boundary lands
-        // an hour off the wall clock the user set (07:00 becomes 08:00 on the
-        // spring-forward day and 06:00 on the fall-back one). The constructor
-        // keeps the wall clock and normalises a time inside a spring gap
-        // forward, which is what A14 promises — and what `AlertPlanner`
-        // does for the same instant.
-        final localFire = DateTime(
-          anchor.year,
-          anchor.month,
-          anchor.day,
-          0,
-          minute,
-        );
+        final minute = alert.dayMinute ?? EventAlerts.defaultDayMinute;
         lines.add(
-          'TRIGGER;VALUE=DATE-TIME:${_formatUtcStamp(localFire.toUtc())}',
+          'TRIGGER:${_duration(minute - alert.daysBefore * _minutesPerDay)}',
         );
       }
       lines.add('END:VALARM');
     }
     return lines;
+  }
+
+  static const int _minutesPerDay = Duration.minutesPerDay;
+
+  /// [minutes] as an RFC 5545 duration, signed — `PT9H`, `-PT4H`, `-P6DT15H`.
+  static String _duration(int minutes) {
+    if (minutes == 0) return 'PT0M';
+    final sign = minutes < 0 ? '-' : '';
+    final total = minutes.abs();
+    final days = total ~/ _minutesPerDay;
+    final hours = (total % _minutesPerDay) ~/ Duration.minutesPerHour;
+    final rest = total % Duration.minutesPerHour;
+    final date = days > 0 ? '${days}D' : '';
+    final time = [
+      if (hours > 0) '${hours}H',
+      if (rest > 0) '${rest}M',
+    ].join();
+    return '${sign}P$date${time.isEmpty ? '' : 'T$time'}';
   }
 
   /// First day on or after [anchor] the event's rule actually fires.
