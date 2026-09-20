@@ -211,9 +211,19 @@ class DatabaseMigrations {
   Future<void> runMigrations(Migrator m, int from, int to) async {
     for (final migration in _migrations) {
       if (from < migration.toVersion && to >= migration.toVersion) {
-        await migration.migrate(m, _db);
+        await _db.transaction(() async {
+          await migration.migrate(m, _db);
+          await _db.customStatement(
+            'PRAGMA user_version = ${migration.toVersion}',
+          );
+        });
       }
     }
+  }
+
+  Future<Set<String>> _columnsOf(String table) async {
+    final rows = await _db.customSelect('PRAGMA table_info($table)').get();
+    return {for (final row in rows) row.read<String>('name')};
   }
 
   Future<void> _migrateV1ToV2(Migrator m, GeneratedDatabase db) async {
@@ -221,7 +231,9 @@ class DatabaseMigrations {
   }
 
   Future<void> _migrateV2ToV3(Migrator m, GeneratedDatabase db) async {
-    await m.addColumn(_db.contentChunks, _db.contentChunks.isDeleted);
+    if (!(await _columnsOf('content_chunks')).contains('is_deleted')) {
+      await m.addColumn(_db.contentChunks, _db.contentChunks.isDeleted);
+    }
     await _db.customStatement(
       'CREATE INDEX IF NOT EXISTS idx_notes_created ON notes(created_at DESC) WHERE is_deleted = 0',
     );
@@ -229,11 +241,14 @@ class DatabaseMigrations {
   }
 
   Future<void> _migrateV3ToV4(Migrator m, GeneratedDatabase db) async {
-    await m.addColumn(_db.folders, _db.folders.position);
-    await m.addColumn(_db.notes, _db.notes.position);
-
-    await _initializeFolderPositions();
-    await _initializeNotePositions();
+    if (!(await _columnsOf('folders')).contains('position')) {
+      await m.addColumn(_db.folders, _db.folders.position);
+      await _initializeFolderPositions();
+    }
+    if (!(await _columnsOf('notes')).contains('position')) {
+      await m.addColumn(_db.notes, _db.notes.position);
+      await _initializeNotePositions();
+    }
     await _createPositionIndexes();
   }
 
@@ -268,8 +283,13 @@ class DatabaseMigrations {
 
   Future<void> _migrateV4ToV5(Migrator m, GeneratedDatabase db) async {
     // Add sort preference columns to folders table
-    await m.addColumn(_db.folders, _db.folders.noteSortOrder);
-    await m.addColumn(_db.folders, _db.folders.subfolderSortOrder);
+    final existing = await _columnsOf('folders');
+    if (!existing.contains('note_sort_order')) {
+      await m.addColumn(_db.folders, _db.folders.noteSortOrder);
+    }
+    if (!existing.contains('subfolder_sort_order')) {
+      await m.addColumn(_db.folders, _db.folders.subfolderSortOrder);
+    }
   }
 
   Future<void> _migrateV5ToV6(Migrator m, GeneratedDatabase db) async {
@@ -393,15 +413,22 @@ class DatabaseMigrations {
   }
 
   Future<void> _migrateV7ToV8(Migrator m, GeneratedDatabase db) async {
-    await _db.customStatement(
-      'ALTER TABLE counters ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0',
-    );
-    await _db.customStatement(
-      'ALTER TABLE counter_values ADD COLUMN position INTEGER NOT NULL DEFAULT 0',
-    );
-    await _db.customStatement(
-      'ALTER TABLE counter_values ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0',
-    );
+    if (!(await _columnsOf('counters')).contains('is_pinned')) {
+      await _db.customStatement(
+        'ALTER TABLE counters ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+    final valueColumns = await _columnsOf('counter_values');
+    if (!valueColumns.contains('position')) {
+      await _db.customStatement(
+        'ALTER TABLE counter_values ADD COLUMN position INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+    if (!valueColumns.contains('is_pinned')) {
+      await _db.customStatement(
+        'ALTER TABLE counter_values ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0',
+      );
+    }
   }
 
   /// v8→v9: Add expression indexes that back the per-parent name
@@ -419,7 +446,10 @@ class DatabaseMigrations {
   /// Uses raw `CREATE TABLE` statements that freeze the schema at the
   /// v10 shape (mirroring the v6 counters precedent). Any future column
   /// added to `CalendarEvents`/`PublicHolidaysTable` must ship its own
-  /// migration step rather than relying on the live Drift declaration.
+  /// migration step rather than relying on the live Drift declaration. The
+  /// index is frozen for the same reason: the live definition became partial
+  /// on `is_deleted` in v27, a column this table does not have yet, and v27
+  /// drops and recreates it in that shape.
   Future<void> _migrateV9ToV10(Migrator m, GeneratedDatabase db) async {
     await _db.customStatement(
       'CREATE TABLE IF NOT EXISTS calendar_events ('
@@ -442,7 +472,10 @@ class DatabaseMigrations {
       '  custom_label TEXT'
       ')',
     );
-    await DatabaseIndexes(_db).createCalendarIndexes();
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_calendar_events_start_date '
+      'ON calendar_events(start_date)',
+    );
   }
 
   /// v10→v11: Extend `calendar_events` with three nullable columns.
@@ -525,6 +558,7 @@ class DatabaseMigrations {
     // SQLite cannot change a primary key in place — rebuild the table.
     await _db.customStatement('PRAGMA foreign_keys = OFF');
     try {
+      await _db.customStatement('DROP TABLE IF EXISTS public_holidays_new');
       await _db.customStatement(
         'CREATE TABLE public_holidays_new ('
         '  date INTEGER NOT NULL, '
@@ -653,13 +687,21 @@ class DatabaseMigrations {
   /// v17→v18: Invert event priority semantics — 1 is now the highest.
   ///
   /// Every stored priority flips (`p -> 6 - p`) so an event the user marked
-  /// "Highest" stays highest under the new reading. Data-only migration:
-  /// drift runs it inside the upgrade transaction with the version bump, so
-  /// the self-inverse `6 - p` can never be applied twice. The persisted
-  /// agenda priority filter flips with it, and the superseded
+  /// "Highest" stays highest under the new reading. Data-only, and `6 - p` is
+  /// its own inverse, so running it twice silently undoes it. Drift does
+  /// **not** wrap an upgrade in a transaction and only stamps the version once
+  /// the whole chain has finished; what keeps this from running twice is
+  /// [runMigrations], which commits each step together with its own
+  /// `user_version`. The `retroactive` check covers databases that a build
+  /// older than that left half-upgraded: a later step failed there, the
+  /// version stayed put, and this step had already run. `retroactive` is what
+  /// the very next step adds, so finding it means the flip has been applied.
+  /// The persisted agenda priority filter flips with it, and the superseded
   /// single-threshold filter key is folded in and removed (old meaning
   /// "priority >= t on a 5-is-highest scale" becomes the set `{1..6-t}`).
   Future<void> _migrateV17ToV18(Migrator m, GeneratedDatabase db) async {
+    if ((await _columnsOf('calendar_events')).contains('retroactive')) return;
+
     await _db.customStatement(
       'UPDATE calendar_events SET priority = 6 - priority '
       'WHERE priority BETWEEN 1 AND 5',
@@ -1188,11 +1230,24 @@ class DatabaseMigrations {
   /// deliberately gets none.
   ///
   /// No `DROP INDEX` first, unlike v27: these are new names, not a
-  /// redefinition of an existing index. Fresh installs already have them
-  /// because `createAllIndexes` calls the same method, and
-  /// `CREATE INDEX IF NOT EXISTS` makes the step idempotent either way.
+  /// redefinition of an existing index, and `CREATE INDEX IF NOT EXISTS` makes
+  /// the step idempotent.
+  ///
+  /// Frozen at the v31 shape, **not** a call to
+  /// [DatabaseIndexes.createCalendarDeltaIndexes]. That helper follows the
+  /// live schema: v37 widened the absences index to `(event_id, day, status)`,
+  /// and `status` does not exist until the v37 step runs, so calling it from
+  /// here made every upgrade from v30 or older die with "no such column:
+  /// status". v37 drops this index and recreates it in the wide shape.
   Future<void> _migrateV30ToV31(Migrator m, GeneratedDatabase db) async {
-    await DatabaseIndexes(_db).createCalendarDeltaIndexes();
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_calendar_event_skips_active '
+      'ON calendar_event_skips(event_id, day) WHERE is_deleted = 0',
+    );
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_calendar_event_absences_active '
+      'ON calendar_event_absences(event_id, day) WHERE is_deleted = 0',
+    );
   }
 
   /// v31 → v32: adds `vocabularies` and `vocabulary_items`, the user-defined

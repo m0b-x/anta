@@ -23,6 +23,17 @@ the app reachable over a PIN keyguard, same-minute alarms disarming each
 other, and a ring in an idle foreground app never showing its page — and
 gave the emulator's first answer to the PIN-keyguard question (the alarm
 page does show over it; the app does not).
+**Permissions moved out on 2026-09-20**: what the operating system allows
+is no longer the alert gateway's business. `AlertGateway.permissions()`,
+`requestNotifications()`, `openFullScreenIntentSettings()` and the Android
+binding's battery pair are gone; the general permission system
+(`PermissionGateway` → `PermissionService` → `PermissionsBloc` →
+`PermissionsPage` + the launch dialog) answers them, and the "never at app
+start" rule of §6.1 was replaced at the owner's request by an
+explain-first launch dialog. The behaviour of record is the **Permissions**
+section of `COPILOT_CONTEXT.md`; §3.1, §5.6, §5.7, §6.1, §6.3 and the first
+§9 row below are amended to match, and the session prompts further down are
+left as the history they are.
 Decisions A1–A14 (§1)
 were proposed on 2026-09-14 and **confirmed as proposed on 2026-09-15**
 (P1, P2, P5 in §8.1); A5 stands on the emulator spike alone because the
@@ -242,7 +253,7 @@ allowed to be service-direct like `CalendarCategoriesPage`.
 | `EventAlertService` + `EventAlerts` facade | `lib/services/event_alert_service.dart`, `lib/constants/event_alerts.dart` | The `EventSkipService` shape verbatim (`getInstance` / `forTesting` / `_create` / `reset` clearing the facade / `exportData` / `importData` / `clearAllForImport` / `refreshAfterEventRemoval`). The facade is `abstract final class EventAlerts` with `alertsFor(eventId)` (unmodifiable, O(1)), `hasAlarm(eventId)`, `hasReminder(eventId)`, `revision`, `updateCache`, `resetCache`; read synchronously by the row badges. Registered with `DatabaseLifecycle`, **never GetIt** (`injection.dart:79-91`). |
 | `AlertPlanner` | `lib/utils/alert_planner.dart` | Pure. `plan({events, alertsByEvent, defaults, horizon, now}) → List<PlannedFire>`. The codebase's first clock seam: `now` is a parameter, the caller reads `DateTime.now()` once. |
 | `AlertScheduler` | `lib/services/alert_scheduler.dart` | `reconcileAll(reason)`, `reconcileEvent(id, reason)`, `stop(osId)`, `snooze(osId)`, `cancelSnooze`. Awaits `EventSkipService`, `PublicHolidayService`, `CalendarEventService`, `EventAlertService` before planning (an unconfigured facade is silent and wrong — see the calendar skill's "seven services" rule). Serialized on one chain like `CategoryService._serialize`, tail seeded `null`. Diffs against the registry, never cancels wholesale. |
-| `AlertGateway` | `lib/services/alert_gateway.dart` | Interface: `schedule(PlannedFire, payload)`, `cancel(osId)`, `pendingIds()`, `permissions()`, `requestNotifications()`, `openFullScreenIntentSettings()`, `stopRinging(osId)`, `ringing` stream, `launchIntent()`. Bindings: `AndroidAlertGateway` (Phase 1), `DarwinAlertGateway` (Phase 4), `NoOpAlertGateway` (desktop, web, tests). Registered in GetIt like `AuthService`/`NoOpAuthService` (`injection.dart:136-137`) behind `AlertAvailability.isSupported` (`sync_availability.dart` shape). |
+| `AlertGateway` | `lib/services/alert_gateway.dart` | Interface: `schedule(PlannedFire, payload)`, `cancel(osId)`, `pendingIds()`, `stopRinging(osId)`, `ringing` stream, `launchIntent()`. Permission questions left it on 2026-09-20 for `PermissionGateway` (`lib/services/permission_gateway.dart`). Bindings: `AndroidAlertGateway` (Phase 1), `DarwinAlertGateway` (Phase 4), `NoOpAlertGateway` (desktop, web, tests). Registered in GetIt like `AuthService`/`NoOpAuthService` (`injection.dart:136-137`) behind `AlertAvailability.isSupported` (`sync_availability.dart` shape). |
 | `AlertPayload` | `lib/models/alert_payload.dart` | Self-describing JSON: `db, eventId, alertId, dayUtcMs, osId, mode, title, timeLabel, colorValue, iconKey, categoryId, removeAfterAlert, snooze`. The alarm page draws from it alone. |
 | `PendingNavigationQueue` | `lib/services/pending_navigation.dart` | `enqueue(AlertIntent)`; drained by `_MyAppState` after the restore post-frame callback (`main.dart:266-270`) and immediately once `AppNavigator.navigatorKey.currentState` exists (`app_navigator.dart:50` force-unwraps, so a cold-start tap must wait). |
 | `AlarmPage` | `lib/pages/alarm_page.dart` | Full-bleed, the onboarding skeleton (`onboarding_page.dart:31-83`); pushed with `AppNavigator.rootPushInstant`, **not recorded** as a `NavDestination`. |
@@ -527,8 +538,11 @@ but note it in the widget test.
 Drawer row under CALENDAR after `calendarSettingsRow`
 (`app_drawer.dart:122-140`), `NavDestinationKind.alerts` appended to the
 enum (append-only, `nav_destination.dart:19-33`). `SettingsAppBar(title:
-alertsTitle)`; permission banners (notifications off, full-screen alarms
-off) each with a Turn on action through the gateway; rows grouped by day
+alertsTitle)`; permission banners (notifications off, alarms & reminders
+access off, full-screen alarms off — never battery, which is off for nearly
+everyone) each with an action dispatched to a page-scoped `PermissionsBloc`,
+so a prompt Android will no longer show falls through to the settings page
+instead of doing nothing; rows grouped by day
 (`AgendaListView.dayHeaderLabel`), leading time (tabular), title, subtitle
 glyph + describe, `Switch` bound to `enabled` (`ToggleEventAlert`), snoozed
 rows show the snoozed time with the original below. Tap = detail sheet;
@@ -539,12 +553,15 @@ registry revision drive rebuilds.
 ### 5.7 Calendar settings (`calendar_settings_page.dart`)
 
 A seventh section `_buildAlertsSection` (`alarm_rounded`,
-`calendarAlertsSection`): three permission rows (notifications, full-screen
-alarms, battery — each a status chip or a Turn on action), default for
-timed events, default for all-day events, alarm sound, Snooze slider,
-Silence after slider, and `Test alarm in 10 s` (`OutlinedButton.icon`,
-schedules a ring with a synthetic payload that the alarm page labels
-`alertsTestAlarm`). Reset-to-defaults covers the five keys.
+`calendarAlertsSection`): one **Permissions** row that opens the Permissions
+page and turns red while something essential is missing (the three
+per-permission rows it replaced on 2026-09-20 live on that page now),
+default for timed events, default for all-day events, alarm sound, Snooze
+slider, Silence after slider, and `Test alarm in 10 s`
+(`OutlinedButton.icon`, schedules a ring with a synthetic payload that the
+alarm page labels `alertsTestAlarm`; while an essential permission is
+missing it arms nothing and says why, with a Review action).
+Reset-to-defaults covers the five keys.
 
 ### 5.8 Quick alarm
 
@@ -581,15 +598,22 @@ small icon under `drawable*/`, the default alarm sound under `assets/` (the
 let Dart configure it. Names localized at creation, ids fixed forever
 (channel settings are immutable after creation).
 
-Permission flow follows `cloud-sync-connections-design.md:444-449`: never
-at app start. `POST_NOTIFICATIONS` is requested the first time an alert is
-saved; `USE_FULL_SCREEN_INTENT` is never a prompt (Android has none) — the
-editor hint, the hub banner and the settings row link to
-`requestFullScreenIntentPermission()`. Battery optimisation is a status
-row with a link to the app's settings page, never a request
+Permission flow (**amended 2026-09-20**, superseding the "never at app
+start" rule this section first carried from
+`cloud-sync-connections-design.md:444-449` — a silent denial on the owner's
+phone made every alert fail with nothing on screen to say why): a launch
+dialog explains what is missing and only its Continue spends a system ask,
+so the concern that rule guarded — a system prompt with no visible cause —
+still holds. `POST_NOTIFICATIONS` is also still requested the first time an
+alert is saved, behind its latch; `USE_FULL_SCREEN_INTENT` is never a
+prompt (Android has none) — the editor hint, the hub banner and the
+Permissions page link to `ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT` through
+`MainActivity`. Battery optimisation is a status row with a link to the
+app's settings page, never a request
 (`ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` is Play-policy-restricted).
 A denial degrades: alerts are still saved and still register; an alarm
-without full-screen shows as a persistent heads-up.
+without full-screen shows as a persistent heads-up. The whole mechanism is
+the **Permissions** section of `COPILOT_CONTEXT.md`.
 
 Facts that shaped this (2026-09-14): Android 17 = API 37 (2026-06-16)
 requires a non-`shortService` foreground service for any background
@@ -622,10 +646,10 @@ are not requested (A-not-critical, §0).
 ### 6.3 Desktop and web
 
 `AlertAvailability.isSupported = !kIsWeb && (Android || iOS)`; the
-`NoOpAlertGateway` reports `unsupported` permissions, schedules nothing,
-and every alert surface still edits and persists (they ring on the phone
-after sync). The l10n key `notSupportedOnPlatform` already exists for the
-settings rows.
+`NoOpAlertGateway` schedules nothing, and every alert surface still edits
+and persists (they ring on the phone after sync). Permissions are the
+`NoOpPermissionGateway`'s there: an empty catalogue, which the Permissions
+page renders as "Nothing to allow".
 
 ## 7. Tests
 
@@ -1355,9 +1379,14 @@ Needs Session 8 committed and a real iPhone.
 > extension, and a time-sensitive notification with a ≤30 s sound below
 > 26; the 64-pending window (A7 already fits); `AlertAvailability`
 > extended to iOS. Tests: the gateway behind the existing fakes, no
-> planner or scheduler changes. Device pass on the iPhone: lock screen,
-> Focus, the silent switch, and a reboot before the fire time; §9 rows 2,
-> 3 and 7.
+> planner or scheduler changes. Ship a `DarwinPermissionGateway` beside it
+> (added 2026-09-20; the **Permissions** section of `COPILOT_CONTEXT.md`
+> says how): notifications only, `notDetermined` is promptable, a `denied`
+> authorization is a `blocked` prompt that falls through to the app's
+> settings page — so the Permissions page and the launch dialog start
+> working on iOS with nothing above the gateway changing. Device pass on
+> the iPhone: lock screen, Focus, the silent switch, and a reboot before
+> the fire time; §9 rows 2, 3 and 7.
 
 ## 9. Verification checklist (owner's phone, after each phase)
 
@@ -1368,8 +1397,10 @@ audibility) was **waived on 2026-09-15** (P3). The rows below, run after
 Session 4, are therefore the first time a real phone sees a ring; note
 the vendor and OS version in §10 when they run.
 
-- [ ] Fresh install: no permission prompt at launch; the first saved alert
-      asks for notifications; denying leaves the alert saved.
+- [ ] Fresh install: after onboarding the launch dialog lists what is
+      missing; Not now asks nothing, Continue raises the notification prompt
+      and lands on the Permissions page if anything is left. Denying leaves
+      a later alert saved, with a snackbar saying it cannot ring.
 - [ ] One-time alarm, phone locked, silent switch on: rings, page shown,
       Stop stops, event remains.
 - [ ] Same with *Remove after it rings*: event gone from the day list, Undo

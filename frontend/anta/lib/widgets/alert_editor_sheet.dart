@@ -5,10 +5,11 @@ import 'package:uuid/uuid.dart';
 import '../constants/event_alerts.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
+import '../models/app_permission.dart';
 import '../models/calendar_event.dart';
 import '../models/event_alert.dart';
-import '../services/alert_gateway.dart';
 import '../services/event_time_formatter.dart';
+import '../services/permission_service.dart';
 import 'automation_id.dart';
 
 /// What the sheet reports back. `null` from [AlertEditorSheet.show] means the
@@ -216,21 +217,17 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
     _resolvePermissions();
   }
 
-  /// Asks the gateway once whether full-screen alarms are allowed, so the
-  /// alarm hint can say what will actually happen. Best-effort: a build with
-  /// no binding, or a platform that cannot answer, simply says nothing.
+  /// Asks once whether full-screen alarms are allowed, so the alarm hint can
+  /// say what will actually happen. Best-effort: a build with no permission
+  /// service, or a platform that cannot answer, simply says nothing.
   Future<void> _resolvePermissions() async {
-    AlertGateway? gateway;
-    try {
-      gateway = GetIt.I<AlertGateway>();
-    } catch (_) {
-      return;
-    }
-    final permissions = await gateway.permissions();
+    if (!GetIt.I.isRegistered<PermissionService>()) return;
+    final permissions = await GetIt.I<PermissionService>().refresh();
     if (!mounted) return;
     setState(() {
-      _fullScreenAllowed =
-          permissions.fullScreenIntent != AlertPermissionState.denied;
+      _fullScreenAllowed = !permissions.isMissing(
+        AppPermission.fullScreenIntent,
+      );
     });
   }
 

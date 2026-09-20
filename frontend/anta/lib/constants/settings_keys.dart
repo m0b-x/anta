@@ -553,6 +553,11 @@ class SettingsKeys {
   static const String alertNotificationsAsked = 'alert_notifications_asked';
   static const bool defaultAlertNotificationsAsked = false;
 
+  static const String permissionPromptAcknowledged =
+      'permission_prompt_acknowledged';
+  static const String permissionLaunchPrompt = 'permission_launch_prompt';
+  static const bool defaultPermissionLaunchPrompt = true;
+
   /// Maximum number of recently-used custom event colors to remember.
   ///
   /// Only the retired [recentEventColors] key is bounded by it; it caps how

@@ -30,6 +30,7 @@ import '../pages/note_bar_assignment_page.dart';
 import '../pages/note_money_currency_page.dart';
 import '../pages/optimized_folder_content_page.dart';
 import '../pages/optimized_note_editor_page.dart';
+import '../pages/permissions_page.dart';
 import '../pages/search_page.dart';
 import '../pages/shortcut_editor_page.dart';
 import '../pages/sync_settings_page.dart';
@@ -488,6 +489,22 @@ abstract final class AppNavigator {
     );
   }
 
+  static Future<SettingsResult?> toPermissions(
+    BuildContext context, {
+    bool fromDrawer = false,
+  }) {
+    final routes = _livePageRoutes(Navigator.of(context));
+    final top = routes.isEmpty ? null : routes.last.settings.arguments;
+    if (top is NavDestination && top.kind == NavDestinationKind.permissions) {
+      return Future<SettingsResult?>.value();
+    }
+    return push<SettingsResult>(
+      context,
+      PermissionsPage(popsToDrawer: fromDrawer),
+      destination: const NavDestination(NavDestinationKind.permissions),
+    );
+  }
+
   static Future<void> toCalendarCategories(BuildContext context) {
     return push(
       context,
@@ -739,6 +756,7 @@ abstract final class AppNavigator {
         mode: AllNotesMode.recent,
       ),
       NavDestinationKind.alerts => const AlertsPage(),
+      NavDestinationKind.permissions => const PermissionsPage(),
     };
   }
 }

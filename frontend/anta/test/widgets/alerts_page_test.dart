@@ -8,16 +8,17 @@ import 'package:anta/bloc/calendar/calendar_bloc.dart';
 import 'package:anta/constants/event_alerts.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/alert_hub_entry.dart';
-import 'package:anta/models/alert_payload.dart';
+import 'package:anta/models/app_permission.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/event_alert.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/pages/alerts_page.dart';
-import 'package:anta/services/alert_gateway.dart';
 import 'package:anta/services/alert_scheduler.dart';
 import 'package:anta/services/calendar_event_service.dart';
-import 'package:anta/services/pending_navigation.dart';
-import 'package:anta/utils/alert_planner.dart';
+import 'package:anta/services/permission_gateway.dart';
+import 'package:anta/services/permission_service.dart';
+
+import '../services/permission_support.dart';
 
 class _RecordingObserver extends BlocObserver {
   final List<Object?> events = [];
@@ -27,38 +28,6 @@ class _RecordingObserver extends BlocObserver {
     super.onEvent(bloc, event);
     events.add(event);
   }
-}
-
-class _PermissionGateway extends NoOpAlertGateway {
-  _PermissionGateway({required this.notifications, required this.fullScreen});
-
-  AlertPermissionState notifications;
-  AlertPermissionState fullScreen;
-  int notificationRequests = 0;
-  int fullScreenOpens = 0;
-
-  @override
-  Future<AlertPermissions> permissions() async => (
-    notifications: notifications,
-    fullScreenIntent: fullScreen,
-    exactAlarms: AlertPermissionState.granted,
-  );
-
-  @override
-  Future<bool> requestNotifications() async {
-    notificationRequests++;
-    notifications = AlertPermissionState.granted;
-    return true;
-  }
-
-  @override
-  Future<void> openFullScreenIntentSettings() async => fullScreenOpens++;
-
-  @override
-  Future<bool> schedule(PlannedFire fire, AlertPayload payload) async => true;
-
-  @override
-  Future<AlertIntent?> launchIntent() async => null;
 }
 
 /// The hub is a view: what it shows is what it was handed, and everything it
@@ -146,7 +115,7 @@ void main() {
   Future<void> pumpHub(
     WidgetTester tester,
     List<AlertHubEntry> Function() entries, {
-    AlertGateway? gateway,
+    PermissionService? permissions,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -157,7 +126,7 @@ void main() {
           value: bloc,
           child: AlertsPage.forTesting(
             loadEntries: () async => entries(),
-            gateway: gateway,
+            permissions: permissions,
           ),
         ),
       ),
@@ -295,32 +264,78 @@ void main() {
     expect(tester.widget<InkWell>(find.byType(InkWell)).onLongPress, isNull);
   });
 
-  testWidgets('a denied permission raises a banner, and Turn on asks', (
+  testWidgets('a denied permission raises a banner, and its action asks', (
     tester,
   ) async {
-    final gateway = _PermissionGateway(
-      notifications: AlertPermissionState.denied,
-      fullScreen: AlertPermissionState.denied,
+    final gateway = FakePermissionGateway(
+      statuses: {
+        AppPermission.notifications: PermissionStatus.denied,
+        AppPermission.fullScreenIntent: PermissionStatus.denied,
+        AppPermission.batteryOptimization: PermissionStatus.denied,
+      },
     );
-    await pumpHub(tester, () => [entryOf()], gateway: gateway);
+    await pumpHub(
+      tester,
+      () => [entryOf()],
+      permissions: permissionServiceOver(gateway),
+    );
 
     expect(find.textContaining('Notifications are off'), findsOneWidget);
     expect(find.textContaining('Full-screen alarms are off'), findsOneWidget);
-
-    await tester.tap(find.text('Turn on').first);
-    await tester.pumpAndSettle();
-
-    expect(gateway.notificationRequests, 1);
-    expect(find.textContaining('Notifications are off'), findsNothing);
-    expect(find.textContaining('Full-screen alarms are off'), findsOneWidget);
+    expect(find.textContaining('Battery'), findsNothing);
 
     await tester.tap(find.text('Turn on'));
     await tester.pumpAndSettle();
-    expect(gateway.fullScreenOpens, 1);
+
+    expect(gateway.prompts, [AppPermission.notifications]);
+    expect(find.textContaining('Notifications are off'), findsNothing);
+    expect(find.textContaining('Full-screen alarms are off'), findsOneWidget);
+
+    await tester.tap(find.text('Open settings'));
+    await tester.pumpAndSettle();
+    expect(gateway.settingsOpens, [AppPermission.fullScreenIntent]);
   });
 
-  testWidgets('unsupported permissions raise no banner', (tester) async {
-    await pumpHub(tester, () => [entryOf()], gateway: const NoOpAlertGateway());
+  testWidgets('a revoked exact-alarm permission raises its own banner', (
+    tester,
+  ) async {
+    final gateway = FakePermissionGateway(
+      statuses: {
+        ...allGranted,
+        AppPermission.exactAlarms: PermissionStatus.denied,
+      },
+    );
+    await pumpHub(
+      tester,
+      () => [entryOf()],
+      permissions: permissionServiceOver(gateway),
+    );
+
+    expect(
+      find.textContaining('Alarms & reminders access is off'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a platform with nothing to grant raises no banner', (
+    tester,
+  ) async {
+    await pumpHub(
+      tester,
+      () => [entryOf()],
+      permissions: PermissionService(
+        gateway: const NoOpPermissionGateway(),
+        store: MemoryPermissionPromptStore(),
+        deviceId: () async => 'device-a',
+      ),
+    );
+
+    expect(find.text('Turn on'), findsNothing);
+    expect(find.text('Open settings'), findsNothing);
+  });
+
+  testWidgets('no permission service at all raises no banner', (tester) async {
+    await pumpHub(tester, () => [entryOf()]);
 
     expect(find.text('Turn on'), findsNothing);
   });

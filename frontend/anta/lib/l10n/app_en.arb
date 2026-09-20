@@ -6432,5 +6432,139 @@
         "type": "String"
       }
     }
+  },
+  "permissionsTitle": "Permissions",
+  "@permissionsTitle": {
+    "description": "Title of the Permissions page, its drawer row and the calendar settings row that opens it"
+  },
+  "permissionsRowDesc": "What ANTA may do on this device",
+  "@permissionsRowDesc": {
+    "description": "Subtitle of the Permissions drawer row while nothing essential is missing"
+  },
+  "permissionsRowAttention": "{count, plural, =1{1 permission is off} other{{count} permissions are off}}",
+  "@permissionsRowAttention": {
+    "description": "How many essential permissions are missing: the Permissions drawer row subtitle and the body of the page's warning banner",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "permissionsCalendarRowDesc": "Notifications, exact timing, full-screen alarms, battery",
+  "@permissionsCalendarRowDesc": {
+    "description": "Description of the calendar settings row that opens the Permissions page"
+  },
+  "permissionsAllSet": "All set",
+  "@permissionsAllSet": {
+    "description": "Permissions summary when every permission is granted; also the snackbar after the launch dialog granted everything"
+  },
+  "permissionsAllSetBody": "ANTA has everything it needs on this device.",
+  "@permissionsAllSetBody": {
+    "description": "Body of the Permissions summary banner when every permission is granted"
+  },
+  "permissionsAttentionTitle": "Alarms and reminders can't work yet",
+  "@permissionsAttentionTitle": {
+    "description": "Title of the Permissions warning banner while an essential permission is missing"
+  },
+  "permissionsEssentialsOk": "Essentials are allowed",
+  "@permissionsEssentialsOk": {
+    "description": "Title of the Permissions summary banner when only recommended permissions are missing"
+  },
+  "permissionsRecommendedBody": "The recommended ones make alarms more reliable.",
+  "@permissionsRecommendedBody": {
+    "description": "Body of the Permissions summary banner when only recommended permissions are missing"
+  },
+  "permissionsEssentialSection": "Essential",
+  "@permissionsEssentialSection": {
+    "description": "Permissions page section: permissions a feature cannot work without"
+  },
+  "permissionsRecommendedSection": "Recommended",
+  "@permissionsRecommendedSection": {
+    "description": "Permissions page section, and the tag on an optional permission in the launch dialog"
+  },
+  "permissionsOptionsSection": "Options",
+  "@permissionsOptionsSection": {
+    "description": "Permissions page section holding the page's own options"
+  },
+  "permissionExactAlarms": "Alarms & reminders",
+  "@permissionExactAlarms": {
+    "description": "Permission row: whether the app may schedule alarms at an exact time. Use the name Android gives this page in the system settings"
+  },
+  "permissionExactAlarmsDesc": "Lets alerts fire at their exact time",
+  "@permissionExactAlarmsDesc": {
+    "description": "Description of the exact alarm permission row"
+  },
+  "permissionsLaunchCheck": "Check at launch",
+  "@permissionsLaunchCheck": {
+    "description": "Switch on the Permissions page: whether the launch dialog may appear"
+  },
+  "permissionsLaunchCheckDesc": "Ask once when something essential is off",
+  "@permissionsLaunchCheckDesc": {
+    "description": "Description of the launch check switch"
+  },
+  "permissionsSystemSettings": "System settings",
+  "@permissionsSystemSettings": {
+    "description": "Row on the Permissions page that opens the app's page in the operating system's settings"
+  },
+  "permissionsSystemSettingsDesc": "Open ANTA's page in the system settings",
+  "@permissionsSystemSettingsDesc": {
+    "description": "Description of the system settings row"
+  },
+  "permissionsNoneNeeded": "Nothing to allow",
+  "@permissionsNoneNeeded": {
+    "description": "Permissions page empty state title, on a platform where the app needs no permission"
+  },
+  "permissionsNoneNeededDesc": "ANTA needs no system permissions on this device. Alarms and reminders only ring on Android for now.",
+  "@permissionsNoneNeededDesc": {
+    "description": "Permissions page empty state body"
+  },
+  "permissionsPromptTitle": "ANTA needs your permission",
+  "@permissionsPromptTitle": {
+    "description": "Title of the dialog shown at launch while an essential permission is missing"
+  },
+  "permissionsPromptBody": "Without these, alarms and reminders stay silent.",
+  "@permissionsPromptBody": {
+    "description": "Lead line of the launch permission dialog, above the list of missing permissions"
+  },
+  "permissionsPromptContinue": "Continue",
+  "@permissionsPromptContinue": {
+    "description": "Primary action of the launch permission dialog: run the system prompts"
+  },
+  "permissionsPromptNotNow": "Not now",
+  "@permissionsPromptNotNow": {
+    "description": "Dismiss action of the launch permission dialog"
+  },
+  "permissionsSettingsUnavailable": "Couldn't open the system settings",
+  "@permissionsSettingsUnavailable": {
+    "description": "Snackbar when the system settings page for a permission could not be opened"
+  },
+  "permissionsAlertBlocked": "This can't ring until a permission is turned on",
+  "@permissionsAlertBlocked": {
+    "description": "Snackbar after saving an alert or pressing Test alarm while an essential permission is missing"
+  },
+  "permissionsReview": "Review",
+  "@permissionsReview": {
+    "description": "Snackbar action that opens the Permissions page"
+  },
+  "alertsExactAlarmsOffBanner": "Alarms & reminders access is off. Alerts can't be set for their exact time.",
+  "@alertsExactAlarmsOffBanner": {
+    "description": "Alerts hub banner while the exact alarm permission is missing"
+  },
+  "permissionsUnknownTitle": "Couldn't check permissions",
+  "@permissionsUnknownTitle": {
+    "description": "Title of the Permissions summary banner when the system could not be asked"
+  },
+  "permissionsUnknownBody": "Open the system settings to see them.",
+  "@permissionsUnknownBody": {
+    "description": "Body of the Permissions summary banner when the system could not be asked"
+  },
+  "permissionsPromptRecommended": "Recommended · {description}",
+  "@permissionsPromptRecommended": {
+    "description": "A recommended permission's line in the launch permission dialog: the tag, then that permission's own description",
+    "placeholders": {
+      "description": {
+        "type": "String"
+      }
+    }
   }
 }

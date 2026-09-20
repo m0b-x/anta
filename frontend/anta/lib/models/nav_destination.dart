@@ -31,7 +31,8 @@ enum NavDestinationKind {
   counterManagement,
   allNotes,
   recentNotes,
-  alerts;
+  alerts,
+  permissions;
 
   /// Whether popping this page should raise the drawer beneath it.
   ///

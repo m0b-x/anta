@@ -57,19 +57,9 @@ void main() {
     expect(await gateway.pendingIds(), isEmpty);
   });
 
-  test('every permission reads as unsupported, and none is requested', () async {
-    final permissions = await gateway.permissions();
-
-    expect(permissions.notifications, AlertPermissionState.unsupported);
-    expect(permissions.fullScreenIntent, AlertPermissionState.unsupported);
-    expect(permissions.exactAlarms, AlertPermissionState.unsupported);
-    expect(await gateway.requestNotifications(), isFalse);
-  });
-
   test('the remaining calls are silent, not missing', () async {
     await gateway.cancel(1);
     await gateway.showMissed(payload);
-    await gateway.openFullScreenIntentSettings();
     await gateway.stopRinging(1);
     await gateway.dispose();
 

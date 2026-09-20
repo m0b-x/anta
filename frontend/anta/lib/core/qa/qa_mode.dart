@@ -28,6 +28,10 @@ abstract final class QaMode {
   /// project. `--dart-define=ANTA_QA_CLOUD=true` opts a run in on purpose.
   static const bool allowCloud = bool.fromEnvironment('ANTA_QA_CLOUD');
 
+  static const bool permissionPrompt = bool.fromEnvironment(
+    'ANTA_QA_PERMISSION_PROMPT',
+  );
+
   /// Namespace for the QA build's `SharedPreferences`. The plugin's default is
   /// `flutter.`, so a prefix of our own puts every QA key in a disjoint key
   /// space from the owner's — including `active_database`, which is the one

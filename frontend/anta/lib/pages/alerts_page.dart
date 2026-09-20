@@ -5,18 +5,21 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get_it/get_it.dart';
 
 import '../bloc/calendar/calendar_bloc.dart';
+import '../bloc/permissions/permissions_bloc.dart';
 import '../constants/app_spacing.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/event_alerts.dart';
 import '../l10n/app_localizations.dart';
 import '../models/alert_hub_entry.dart';
+import '../models/app_permission.dart';
 import '../models/event_alert.dart';
-import '../services/alert_gateway.dart';
 import '../services/alert_scheduler.dart';
 import '../services/app_navigator.dart';
+import '../services/permission_service.dart';
 import '../utils/custom_snackbar.dart';
 import '../widgets/agenda_list_view.dart';
 import '../widgets/app_dialogs.dart';
+import '../widgets/permission_tile.dart';
 import '../widgets/unified_app_bars.dart';
 
 /// Reads what the hub lists. A seam so a widget test can hand rows over
@@ -36,33 +39,33 @@ typedef AlertHubLoader = Future<List<AlertHubEntry>> Function();
 /// read are configured: the body is only built under `CalendarPageLoaded`.
 /// Re-reads ride two signals — a bloc emit (an alert or an event changed) and
 /// `AlertScheduler.registryRevision` (the reconcile that change provoked has
-/// landed) — and permission state is asked again on every resume, because the
-/// banners' own actions return before the user has toggled anything.
+/// landed). The banners ride a page-scoped `PermissionsBloc`, which mirrors
+/// the `PermissionService` snapshot — re-read by the service on every resume,
+/// because a banner's own action returns before the user has toggled anything.
 class AlertsPage extends StatefulWidget {
   final AlertHubLoader? _loadEntries;
-  final AlertGateway? _gateway;
+  final PermissionService? _permissions;
 
-  const AlertsPage({super.key}) : _loadEntries = null, _gateway = null;
+  const AlertsPage({super.key}) : _loadEntries = null, _permissions = null;
 
   @visibleForTesting
   const AlertsPage.forTesting({
     super.key,
     required AlertHubLoader loadEntries,
-    AlertGateway? gateway,
+    PermissionService? permissions,
   }) : _loadEntries = loadEntries,
-       _gateway = gateway;
+       _permissions = permissions;
 
   @override
   State<AlertsPage> createState() => _AlertsPageState();
 }
 
-class _AlertsPageState extends State<AlertsPage> with WidgetsBindingObserver {
+class _AlertsPageState extends State<AlertsPage> {
   List<AlertHubEntry> _entries = const [];
   bool _isLoading = true;
   int _loadGeneration = 0;
 
-  AlertGateway? _gateway;
-  AlertPermissions? _permissions;
+  PermissionsBloc? _permissionsBloc;
 
   /// Switch positions the user has set and the store has not echoed yet,
   /// keyed by alert id. Dropped wholesale by the next load, which by then
@@ -72,23 +75,28 @@ class _AlertsPageState extends State<AlertsPage> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     AlertScheduler.registryRevision.addListener(_reload);
     _reload();
-    unawaited(_refreshPermissions());
+    final permissions = _permissionService();
+    if (permissions != null) {
+      _permissionsBloc = PermissionsBloc(service: permissions)
+        ..add(const PermissionsStarted())
+        ..add(const PermissionsRefreshRequested());
+    }
+  }
+
+  PermissionService? _permissionService() {
+    final injected = widget._permissions;
+    if (injected != null) return injected;
+    if (!GetIt.I.isRegistered<PermissionService>()) return null;
+    return GetIt.I<PermissionService>();
   }
 
   @override
   void dispose() {
     AlertScheduler.registryRevision.removeListener(_reload);
-    WidgetsBinding.instance.removeObserver(this);
+    unawaited(_permissionsBloc?.close());
     super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed) return;
-    unawaited(_refreshPermissions());
   }
 
   void _reload() => unawaited(_load());
@@ -102,19 +110,6 @@ class _AlertsPageState extends State<AlertsPage> with WidgetsBindingObserver {
       _entries = entries;
       _isLoading = false;
       _pendingEnabled.clear();
-    });
-  }
-
-  Future<void> _refreshPermissions() async {
-    var gateway = widget._gateway;
-    if (gateway == null && GetIt.I.isRegistered<AlertGateway>()) {
-      gateway = GetIt.I<AlertGateway>();
-    }
-    final permissions = await gateway?.permissions();
-    if (!mounted) return;
-    setState(() {
-      _gateway = gateway;
-      _permissions = permissions;
     });
   }
 
@@ -184,15 +179,31 @@ class _AlertsPageState extends State<AlertsPage> with WidgetsBindingObserver {
             if (state is! CalendarPageLoaded || _isLoading) {
               return const Center(child: CircularProgressIndicator());
             }
-            return _buildBody(context, l10n);
+            final permissionsBloc = _permissionsBloc;
+            if (permissionsBloc == null) {
+              return _buildBody(context, l10n, const []);
+            }
+            return BlocBuilder<PermissionsBloc, PermissionsState>(
+              bloc: permissionsBloc,
+              buildWhen: (previous, current) =>
+                  previous.snapshotOrNull != current.snapshotOrNull,
+              builder: (context, permissions) => _buildBody(
+                context,
+                l10n,
+                _buildBanners(l10n, permissions.snapshotOrNull),
+              ),
+            );
           },
         ),
       ),
     );
   }
 
-  Widget _buildBody(BuildContext context, AppLocalizations l10n) {
-    final banners = _buildBanners(l10n);
+  Widget _buildBody(
+    BuildContext context,
+    AppLocalizations l10n,
+    List<Widget> banners,
+  ) {
     if (_entries.isEmpty) {
       return Column(
         children: [
@@ -260,31 +271,45 @@ class _AlertsPageState extends State<AlertsPage> with WidgetsBindingObserver {
     );
   }
 
-  List<Widget> _buildBanners(AppLocalizations l10n) {
-    final permissions = _permissions;
-    if (permissions == null) return const [];
-    return [
-      if (permissions.notifications == AlertPermissionState.denied)
+  ({IconData icon, String message})? _bannerFor(
+    AppLocalizations l10n,
+    AppPermission permission,
+  ) => switch (permission) {
+    AppPermission.notifications => (
+      icon: Icons.notifications_off_rounded,
+      message: l10n.alertsNotificationsOffBanner,
+    ),
+    AppPermission.exactAlarms => (
+      icon: Icons.alarm_off_rounded,
+      message: l10n.alertsExactAlarmsOffBanner,
+    ),
+    AppPermission.fullScreenIntent => (
+      icon: Icons.fullscreen_exit_rounded,
+      message: l10n.alertsFullScreenOffBanner,
+    ),
+    AppPermission.batteryOptimization => null,
+  };
+
+  List<Widget> _buildBanners(
+    AppLocalizations l10n,
+    PermissionSnapshot? snapshot,
+  ) {
+    if (snapshot == null) return const [];
+    final banners = <Widget>[];
+    for (final entry in snapshot.missing) {
+      final banner = _bannerFor(l10n, entry.permission);
+      if (banner == null) continue;
+      banners.add(
         _PermissionBanner(
-          icon: Icons.notifications_off_rounded,
-          message: l10n.alertsNotificationsOffBanner,
-          actionLabel: l10n.alertsTurnOn,
-          onAction: () async {
-            await _gateway?.requestNotifications();
-            await _refreshPermissions();
-          },
+          icon: banner.icon,
+          message: banner.message,
+          actionLabel: PermissionPresentation.actionOf(l10n, entry),
+          onAction: () =>
+              _permissionsBloc?.add(PermissionRequested(entry.permission)),
         ),
-      if (permissions.fullScreenIntent == AlertPermissionState.denied)
-        _PermissionBanner(
-          icon: Icons.fullscreen_exit_rounded,
-          message: l10n.alertsFullScreenOffBanner,
-          actionLabel: l10n.alertsTurnOn,
-          onAction: () async {
-            await _gateway?.openFullScreenIntentSettings();
-            await _refreshPermissions();
-          },
-        ),
-    ];
+      );
+    }
+    return banners;
   }
 }
 

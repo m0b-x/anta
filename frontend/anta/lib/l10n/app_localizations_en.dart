@@ -5124,4 +5124,119 @@ class AppLocalizationsEn extends AppLocalizations {
   String alertsCancelAlarmConfirm(String title) {
     return '\"$title\" is removed after it rings, so cancelling the alarm removes the event.';
   }
+
+  @override
+  String get permissionsTitle => 'Permissions';
+
+  @override
+  String get permissionsRowDesc => 'What ANTA may do on this device';
+
+  @override
+  String permissionsRowAttention(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count permissions are off',
+      one: '1 permission is off',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get permissionsCalendarRowDesc =>
+      'Notifications, exact timing, full-screen alarms, battery';
+
+  @override
+  String get permissionsAllSet => 'All set';
+
+  @override
+  String get permissionsAllSetBody =>
+      'ANTA has everything it needs on this device.';
+
+  @override
+  String get permissionsAttentionTitle =>
+      'Alarms and reminders can\'t work yet';
+
+  @override
+  String get permissionsEssentialsOk => 'Essentials are allowed';
+
+  @override
+  String get permissionsRecommendedBody =>
+      'The recommended ones make alarms more reliable.';
+
+  @override
+  String get permissionsEssentialSection => 'Essential';
+
+  @override
+  String get permissionsRecommendedSection => 'Recommended';
+
+  @override
+  String get permissionsOptionsSection => 'Options';
+
+  @override
+  String get permissionExactAlarms => 'Alarms & reminders';
+
+  @override
+  String get permissionExactAlarmsDesc =>
+      'Lets alerts fire at their exact time';
+
+  @override
+  String get permissionsLaunchCheck => 'Check at launch';
+
+  @override
+  String get permissionsLaunchCheckDesc =>
+      'Ask once when something essential is off';
+
+  @override
+  String get permissionsSystemSettings => 'System settings';
+
+  @override
+  String get permissionsSystemSettingsDesc =>
+      'Open ANTA\'s page in the system settings';
+
+  @override
+  String get permissionsNoneNeeded => 'Nothing to allow';
+
+  @override
+  String get permissionsNoneNeededDesc =>
+      'ANTA needs no system permissions on this device. Alarms and reminders only ring on Android for now.';
+
+  @override
+  String get permissionsPromptTitle => 'ANTA needs your permission';
+
+  @override
+  String get permissionsPromptBody =>
+      'Without these, alarms and reminders stay silent.';
+
+  @override
+  String get permissionsPromptContinue => 'Continue';
+
+  @override
+  String get permissionsPromptNotNow => 'Not now';
+
+  @override
+  String get permissionsSettingsUnavailable =>
+      'Couldn\'t open the system settings';
+
+  @override
+  String get permissionsAlertBlocked =>
+      'This can\'t ring until a permission is turned on';
+
+  @override
+  String get permissionsReview => 'Review';
+
+  @override
+  String get alertsExactAlarmsOffBanner =>
+      'Alarms & reminders access is off. Alerts can\'t be set for their exact time.';
+
+  @override
+  String get permissionsUnknownTitle => 'Couldn\'t check permissions';
+
+  @override
+  String get permissionsUnknownBody => 'Open the system settings to see them.';
+
+  @override
+  String permissionsPromptRecommended(String description) {
+    return 'Recommended · $description';
+  }
 }

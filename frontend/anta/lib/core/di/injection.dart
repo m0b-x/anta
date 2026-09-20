@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:get_it/get_it.dart';
 import '../../database/database.dart';
 import '../../repositories/note_repository.dart';
@@ -21,9 +22,12 @@ import '../../services/recent_destinations_service.dart';
 import '../../services/folder_name_index.dart';
 import '../../services/alert_gateway.dart';
 import '../../services/android_alert_gateway.dart';
+import '../../services/android_permission_gateway.dart';
 import '../../services/auth_service.dart';
 import '../../services/firebase_auth_service.dart';
 import '../../services/pairing_gateway.dart';
+import '../../services/permission_gateway.dart';
+import '../../services/permission_service.dart';
 import '../../services/sync_availability.dart';
 import '../../bloc/optimized_folder/optimized_folder_bloc.dart';
 import '../../bloc/optimized_note/optimized_note_bloc.dart';
@@ -32,6 +36,7 @@ import '../../bloc/markdown_bar/markdown_bar_bloc.dart';
 import '../../bloc/counter/counter_bloc.dart';
 import '../../bloc/calendar/calendar_bloc.dart';
 import '../../bloc/pairing/pairing_bloc.dart';
+import '../../bloc/permissions/permissions_bloc.dart';
 import '../../bloc/sync/sync_bloc.dart';
 
 final getIt = GetIt.instance;
@@ -178,6 +183,29 @@ Future<void> _registerServices() async {
       dispose: (gateway) => gateway.dispose(),
     );
   }
+
+  final PermissionGateway permissionGateway = !kIsWeb && Platform.isAndroid
+      ? AndroidPermissionGateway(
+          notificationChannelIds: const [
+            kAlertReminderChannelId,
+            kAlertAlarmChannelId,
+            kAlarmPluginChannelId,
+          ],
+        )
+      : const NoOpPermissionGateway();
+  getIt.registerSingleton<PermissionGateway>(permissionGateway);
+
+  final permissionService = PermissionService(
+    gateway: permissionGateway,
+    store: const SettingsPermissionPromptStore(),
+    deviceId: () async => (await AppDatabase.getInstance()).deviceId,
+    lifecycle: PermissionService.appLifecycle(),
+  );
+  getIt.registerSingleton<PermissionService>(
+    permissionService,
+    dispose: (service) => service.dispose(),
+  );
+  unawaited(permissionService.refresh());
 }
 
 void _registerBlocs() {
@@ -219,6 +247,10 @@ void _registerBlocs() {
       authService: getIt<AuthService>(),
       gateway: getIt<PairingGateway>(),
     ),
+  );
+
+  getIt.registerFactory<PermissionsBloc>(
+    () => PermissionsBloc(service: getIt<PermissionService>()),
   );
 }
 

@@ -137,9 +137,11 @@ class DatabaseIndexes {
     );
   }
 
-  /// Indexes for the calendar feature. Public because the v10 and v27
-  /// migrations call this directly so existing installs get the index without
-  /// re-running the full `createAllIndexes` path.
+  /// Indexes for the calendar feature. Public because the v27 migration calls
+  /// this directly so existing installs get the index without re-running the
+  /// full `createAllIndexes` path. v10 does **not**: it creates the index in
+  /// its own frozen v10 shape, because this definition names `is_deleted`, a
+  /// column `calendar_events` only gains in v27.
   ///
   /// Partial since v27: `CalendarEventDao.getAll` is the single read path and
   /// it filters tombstones, so the index only has to cover live rows.
@@ -148,9 +150,9 @@ class DatabaseIndexes {
   /// migration drops the full index by name first so upgraders and fresh
   /// installs cannot end up on different definitions.
   ///
-  /// Scoped to `calendar_events` on purpose: v10 calls this while that is the
-  /// only calendar table in existence, so anything touching the delta tables
-  /// belongs in [createCalendarDeltaIndexes] instead.
+  /// Scoped to `calendar_events` on purpose: v27 calls this before
+  /// `calendar_event_skips` exists (v30), so anything touching the delta
+  /// tables belongs in [createCalendarDeltaIndexes] instead.
   Future<void> createCalendarIndexes() async {
     await _db.customStatement(
       'CREATE INDEX IF NOT EXISTS idx_calendar_events_start_date '
@@ -178,7 +180,12 @@ class DatabaseIndexes {
   /// back to a scan. A literal matches syntactically on every version.
   ///
   /// Separate from [createCalendarIndexes] because that one runs inside the
-  /// v10 migration, where neither of these tables exists yet (v26 and v30).
+  /// v27 migration, where `calendar_event_skips` does not exist yet (v30).
+  ///
+  /// Called by `createAllIndexes` and by the v37 step only. v31, which first
+  /// introduced these indexes, creates them in its own frozen two-column shape:
+  /// this definition follows the live schema, and a step older than the column
+  /// it names cannot run it.
   ///
   /// **`calendar_event_occurrences` deliberately has no counterpart here.**
   /// Its `_load` also reads `description` — up to 10,000 chars — so an index

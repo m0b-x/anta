@@ -328,6 +328,7 @@ handshake error aborts after a 20-second grace period.
 | Seed marker | `qa_seed.json` (full-backup JSON) — next QA launch imports it |
 | Marker delivery | Android: `adb push` + `run-as … cp` (debug builds only); iOS/macOS: a file write into the documents directory on the host |
 | `[qa]` lines | printed with `debugPrint` **and** kept in `QaBootstrap.log` (text) and `QaBootstrap.entries` (`{kind, ok, message}`), both returned by the agent's `info` |
+| Launch permission dialog | off: a QA build never raises it, so no flow starts under a dialog nobody scripted. `--dart-define=ANTA_QA_PERMISSION_PROMPT=true` opts in, to exercise the dialog itself |
 | Cloud | off: `SyncAvailability.resolve` answers false for a QA build, so Firebase is never initialized and auth/pairing are the no-op bindings. `--dart-define=ANTA_QA_CLOUD=true` opts in; the agent reports `cloud` either way |
 
 Both markers are consumed by the app. `tool/qa/fixtures/basic.json` is the

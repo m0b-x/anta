@@ -14,6 +14,7 @@ import '../services/app_navigator.dart';
 import '../services/auth_service.dart';
 import '../services/dev_options_service.dart';
 import '../services/drawer_host_registry.dart';
+import '../services/permission_service.dart';
 import '../utils/custom_snackbar.dart';
 import 'user_avatar.dart';
 
@@ -215,6 +216,7 @@ class _AppDrawerState extends State<AppDrawer> {
                     AppNavigator.toDatabaseSettings,
                   ),
                 ),
+                _buildPermissionsItem(context, l10n),
                 _buildMenuItem(
                   context: context,
                   icon: Icons.language_rounded,
@@ -454,11 +456,35 @@ class _AppDrawerState extends State<AppDrawer> {
     );
   }
 
+  Widget _buildPermissionsItem(BuildContext context, AppLocalizations l10n) {
+    Widget row(int missing) => _buildMenuItem(
+      context: context,
+      icon: Icons.verified_user_rounded,
+      title: l10n.permissionsTitle,
+      subtitle: missing > 0
+          ? l10n.permissionsRowAttention(missing)
+          : l10n.permissionsRowDesc,
+      subtitleColor: missing > 0 ? Theme.of(context).colorScheme.error : null,
+      identifier: SemanticsIds.drawerPermissions,
+      onTap: () => _openSettingsPage(
+        context,
+        (ctx) => AppNavigator.toPermissions(ctx, fromDrawer: true),
+      ),
+    );
+    if (!getIt.isRegistered<PermissionService>()) return row(0);
+    return ValueListenableBuilder(
+      valueListenable: getIt<PermissionService>().snapshot,
+      builder: (context, snapshot, _) =>
+          row(snapshot?.missingEssential.length ?? 0),
+    );
+  }
+
   Widget _buildMenuItem({
     required BuildContext context,
     required IconData icon,
     required String title,
     String? subtitle,
+    Color? subtitleColor,
     required VoidCallback onTap,
     String? identifier,
   }) {
@@ -467,6 +493,7 @@ class _AppDrawerState extends State<AppDrawer> {
       icon: icon,
       title: title,
       subtitle: subtitle,
+      subtitleColor: subtitleColor,
       onTap: onTap,
     );
     if (identifier == null) return row;
@@ -478,6 +505,7 @@ class _AppDrawerState extends State<AppDrawer> {
     required IconData icon,
     required String title,
     String? subtitle,
+    Color? subtitleColor,
     required VoidCallback onTap,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
@@ -500,7 +528,7 @@ class _AppDrawerState extends State<AppDrawer> {
               subtitle,
               style: TextStyle(
                 fontSize: 12,
-                color: colorScheme.onSurfaceVariant,
+                color: subtitleColor ?? colorScheme.onSurfaceVariant,
               ),
             )
           : null,

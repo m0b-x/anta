@@ -33,6 +33,7 @@ abstract final class SemanticsIds {
   static const String drawerSettings = 'drawer-settings';
   static const String drawerCalendar = 'drawer-calendar';
   static const String drawerAlerts = 'drawer-alerts';
+  static const String drawerPermissions = 'drawer-permissions';
 
   /// The two smart rows above the root browser's folders. Named for the
   /// drawer because that is the vocabulary the driver was written against;
@@ -73,4 +74,7 @@ abstract final class SemanticsIds {
   static const String eventAlertAdd = 'event-alert-add';
   static const String alertSheetSave = 'alert-sheet-save';
   static const String eventAlertRemoveAfter = 'event-alert-remove-after';
+
+  static const String permissionsPromptContinue = 'permissions-prompt-continue';
+  static const String permissionsPromptNotNow = 'permissions-prompt-not-now';
 }

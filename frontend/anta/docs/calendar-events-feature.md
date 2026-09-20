@@ -1671,12 +1671,16 @@ the tombstone by the DAO's existing rule. The alarm page's "Keep the event"
 clears the flag before Stop. The flag is cleared on save wherever it cannot take
 effect — a recurring event, or one with nothing that rings.
 
-**Permissions.** `POST_NOTIFICATIONS` is requested **once**, the first time an
-alert is saved, from the calendar page's save path — never at launch, never from
-a reconcile, and never twice (`SettingsKeys.alertNotificationsAsked` latches it,
-because Android refuses to show the dialog a second time). A denial leaves the
-alert saved and registered; the Calendar settings Alerts section is where the
-state is read live and fixed.
+**Permissions** (reworked 2026-09-20; the mechanism is the **Permissions**
+section of `COPILOT_CONTEXT.md`). What the operating system allows belongs to
+the general permission system, not to the alert gateway. A launch dialog
+explains what is missing and raises the system prompt only from its Continue;
+the calendar page's save path still asks for `POST_NOTIFICATIONS` **once**, the
+first time an alert is saved (`SettingsKeys.alertNotificationsAsked` latches
+it), never from a reconcile. A denial leaves the alert saved and registered,
+and every save made while something essential is missing says so in a snackbar
+with a Review action. The state is read live and fixed on the Permissions page
+(drawer → App); Calendar settings keeps one row that links there.
 
 **The Alerts hub** (`lib/pages/alerts_page.dart`, drawer row under CALENDAR,
 `NavDestinationKind.alerts`) is a **view over events' alerts, never a list of
@@ -1770,6 +1774,7 @@ Calendar v40 bullet.
 | Alert service / DAO      | [lib/services/event_alert_service.dart](../lib/services/event_alert_service.dart), [lib/database/daos/event_alert_dao.dart](../lib/database/daos/event_alert_dao.dart) |
 | Alert planner / scheduler | [lib/utils/alert_planner.dart](../lib/utils/alert_planner.dart), [lib/services/alert_scheduler.dart](../lib/services/alert_scheduler.dart) |
 | Alert platform seam      | [lib/services/alert_gateway.dart](../lib/services/alert_gateway.dart), [lib/services/android_alert_gateway.dart](../lib/services/android_alert_gateway.dart) |
+| Permissions              | [lib/services/permission_service.dart](../lib/services/permission_service.dart), [lib/services/permission_gateway.dart](../lib/services/permission_gateway.dart), [lib/services/android_permission_gateway.dart](../lib/services/android_permission_gateway.dart), [lib/pages/permissions_page.dart](../lib/pages/permissions_page.dart), [lib/widgets/permission_prompt_dialog.dart](../lib/widgets/permission_prompt_dialog.dart) |
 | Alert UI                 | [lib/widgets/alert_editor_sheet.dart](../lib/widgets/alert_editor_sheet.dart), [lib/widgets/event_alert_badge.dart](../lib/widgets/event_alert_badge.dart), [lib/pages/alarm_page.dart](../lib/pages/alarm_page.dart), [lib/pages/alerts_page.dart](../lib/pages/alerts_page.dart) |
 | Alert removal + Undo     | [lib/services/alert_removal_notice.dart](../lib/services/alert_removal_notice.dart), [lib/controllers/alert_ring_controller.dart](../lib/controllers/alert_ring_controller.dart) |
 | Category icons & colors  | [lib/constants/calendar_icons.dart](../lib/constants/calendar_icons.dart), [lib/constants/calendar_colors.dart](../lib/constants/calendar_colors.dart) |

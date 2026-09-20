@@ -45,6 +45,7 @@ const bool kAlarmTierUsesNotifications = false;
 /// per-channel settings.
 const String kAlertReminderChannelId = 'alerts_reminder';
 const String kAlertAlarmChannelId = 'alerts_alarm';
+const String kAlarmPluginChannelId = 'alarm_plugin_channel';
 
 /// The `res/drawable` name of the monochrome status-bar icon.
 const String kAlertSmallIcon = 'ic_alert';
@@ -697,91 +698,6 @@ class AndroidAlertGateway extends AlertGateway {
       );
     } catch (e) {
       debugPrint('[AndroidAlertGateway] showMissed failed: $e');
-    }
-  }
-
-  // ── Permissions ──────────────────────────────────────────────────────
-
-  @override
-  Future<AlertPermissions> permissions() async {
-    await initialize();
-    final android = _android;
-    return (
-      notifications: _stateOf(await android?.areNotificationsEnabled()),
-      fullScreenIntent: _stateOf(await _canUseFullScreenIntent()),
-      exactAlarms: _stateOf(await android?.canScheduleExactNotifications()),
-    );
-  }
-
-  static AlertPermissionState _stateOf(bool? granted) => switch (granted) {
-    true => AlertPermissionState.granted,
-    false => AlertPermissionState.denied,
-    null => AlertPermissionState.unsupported,
-  };
-
-  /// Whether the app may launch a full-screen intent.
-  ///
-  /// Asked over the app's own channel rather than the plugin's: the plugin's
-  /// `requestFullScreenIntentPermission()` **navigates to the system settings
-  /// page** when the answer is no, which is exactly what a status row must not
-  /// do. Below API 34 there is no such permission and the platform answers
-  /// true.
-  Future<bool?> _canUseFullScreenIntent() async {
-    try {
-      return await _platform.invokeMethod<bool>('canUseFullScreenIntent');
-    } catch (e) {
-      debugPrint('[AndroidAlertGateway] full-screen query failed: $e');
-      return null;
-    }
-  }
-
-  /// Whether the app is exempt from battery optimisation.
-  ///
-  /// A status only. `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` is
-  /// Play-policy restricted, so [openBatterySettings] links to the app's own
-  /// settings page and the user decides there.
-  Future<AlertPermissionState> batteryOptimization() async {
-    try {
-      return _stateOf(
-        await _platform.invokeMethod<bool>('isIgnoringBatteryOptimizations'),
-      );
-    } catch (e) {
-      debugPrint('[AndroidAlertGateway] battery query failed: $e');
-      return AlertPermissionState.unsupported;
-    }
-  }
-
-  /// Opens the app's own entry in the system settings, where the battery
-  /// restriction lives. Never a request.
-  Future<void> openBatterySettings() async {
-    try {
-      await _platform.invokeMethod<void>('openAppSettings');
-    } catch (e) {
-      debugPrint('[AndroidAlertGateway] openAppSettings failed: $e');
-    }
-  }
-
-  @override
-  Future<bool> requestNotifications() async {
-    await initialize();
-    try {
-      return await _android?.requestNotificationsPermission() ?? false;
-    } catch (e) {
-      debugPrint('[AndroidAlertGateway] notification request failed: $e');
-      return false;
-    }
-  }
-
-  @override
-  Future<void> openFullScreenIntentSettings() async {
-    await initialize();
-    try {
-      // Android has no prompt for this, and the plugin's "request" is the
-      // link: it opens `ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT` when the
-      // answer is no and returns straight away when it is already granted.
-      await _android?.requestFullScreenIntentPermission();
-    } catch (e) {
-      debugPrint('[AndroidAlertGateway] full-screen settings failed: $e');
     }
   }
 

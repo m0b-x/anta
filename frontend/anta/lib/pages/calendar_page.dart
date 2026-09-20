@@ -34,10 +34,10 @@ import '../models/calendar_selection_source.dart';
 import '../models/day_bar.dart';
 import '../models/day_cell_tint.dart';
 import '../models/day_rail_mark.dart';
+import '../models/app_permission.dart';
 import '../models/event_alert.dart';
 import '../models/recurrence_rule.dart';
 import '../repositories/note_repository.dart';
-import '../services/alert_gateway.dart';
 import '../services/alert_removal_notice.dart';
 import '../services/app_navigator.dart';
 import '../services/cell_tint_resolver.dart';
@@ -45,6 +45,7 @@ import '../services/day_bars_resolver.dart';
 import '../services/day_rail_resolver.dart';
 import '../services/note_money_ledger_service.dart';
 import '../services/note_storage_service.dart';
+import '../services/permission_service.dart';
 import '../services/public_holiday_service.dart';
 import '../services/settings_service.dart';
 import '../utils/calendar_week_start.dart';
@@ -1495,9 +1496,9 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
         // The event write lands first so a day override can never reference an
         // event the bloc has not seen yet.
         _dispatchOccurrenceResult(bloc, event.id, result);
-        // A user action, and the only one in the app that asks: the alert is
-        // already saved, so a refusal costs nothing but the ring.
-        unawaited(_requestNotificationsOnFirstAlert(alerts));
+        // A user action: the alert is already saved, so a refusal costs
+        // nothing but the ring.
+        unawaited(_checkAlertPermissions(context, alerts));
       case EventEditorDeleted(:final id):
         bloc.add(DeleteCalendarEvent(eventId: id));
       // Nothing was decided, so there is nothing to write.
@@ -1507,34 +1508,46 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     return result;
   }
 
-  /// Raises Android's notification prompt the **first** time an alert is
-  /// saved, and never anywhere else (§6.1).
+  /// Raises the system notification prompt the **first** time an alert is
+  /// saved (§6.1), and says so every time an alert is saved that cannot ring.
   ///
-  /// Three things make this the right moment and the only one: it follows a
-  /// user action, the alert is already persisted so a refusal costs nothing
-  /// but the ring, and the latch means a denial is never asked about again —
-  /// Android would refuse to show the dialog a second time anyway, so a
-  /// repeated ask is a tap that does nothing. Everything here is best-effort;
-  /// a build with no gateway simply never asks.
-  Future<void> _requestNotificationsOnFirstAlert(
+  /// The prompt is contextual and latched: it follows a user action, the alert
+  /// is already persisted so a refusal costs nothing but the ring, and a
+  /// denial is never asked about again from here — the launch dialog and the
+  /// Permissions page are where it can still be granted. The snackbar is not
+  /// latched, because an alert saved without an essential permission is an
+  /// alert that silently never fires. Everything here is best-effort; a build
+  /// with no permission service simply never asks.
+  Future<void> _checkAlertPermissions(
+    BuildContext context,
     List<EventAlert>? alerts,
   ) async {
     if (alerts == null || alerts.isEmpty) return;
     try {
+      if (!GetIt.I.isRegistered<PermissionService>()) return;
+      final permissions = GetIt.I<PermissionService>();
       final settings = await SettingsService.getInstance();
-      if (await settings.getAlertNotificationsAsked()) return;
-      final gateway = GetIt.I<AlertGateway>();
-      final permissions = await gateway.permissions();
-      // Nothing to ask for on a platform without the permission, and nothing
-      // to ask for when it is already held — but the latch still closes, so a
-      // later revocation is answered by the settings row rather than by a
-      // dialog in the middle of scheduling.
-      if (permissions.notifications == AlertPermissionState.denied) {
-        await gateway.requestNotifications();
+      var snapshot = await permissions.refresh();
+      if (!await settings.getAlertNotificationsAsked()) {
+        if (snapshot.isMissing(AppPermission.notifications)) {
+          snapshot = await permissions.promptFor(const [
+            AppPermission.notifications,
+          ]);
+        }
+        await settings.setAlertNotificationsAsked(true);
       }
-      await settings.setAlertNotificationsAsked(true);
+      if (!snapshot.needsAttention || !context.mounted) return;
+      final l10n = AppLocalizations.of(context)!;
+      CustomSnackbar.showWithAction(
+        context,
+        message: l10n.permissionsAlertBlocked,
+        actionLabel: l10n.permissionsReview,
+        onAction: () {
+          if (context.mounted) AppNavigator.toPermissions(context);
+        },
+      );
     } catch (e) {
-      debugPrint('[CalendarPage] notification prompt skipped: $e');
+      debugPrint('[CalendarPage] alert permission check skipped: $e');
     }
   }
 

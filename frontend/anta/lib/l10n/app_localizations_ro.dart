@@ -5217,4 +5217,122 @@ class AppLocalizationsRo extends AppLocalizations {
   String alertsCancelAlarmConfirm(String title) {
     return '„$title” este eliminat după ce sună, așa că anularea alarmei elimină evenimentul.';
   }
+
+  @override
+  String get permissionsTitle => 'Permisiuni';
+
+  @override
+  String get permissionsRowDesc => 'Ce are voie ANTA pe acest dispozitiv';
+
+  @override
+  String permissionsRowAttention(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de permisiuni sunt oprite',
+      few: '$count permisiuni sunt oprite',
+      one: '1 permisiune este oprită',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get permissionsCalendarRowDesc =>
+      'Notificări, oră exactă, alarme pe tot ecranul, baterie';
+
+  @override
+  String get permissionsAllSet => 'Totul este în regulă';
+
+  @override
+  String get permissionsAllSetBody =>
+      'ANTA are tot ce îi trebuie pe acest dispozitiv.';
+
+  @override
+  String get permissionsAttentionTitle =>
+      'Alarmele și notificările nu pot funcționa încă';
+
+  @override
+  String get permissionsEssentialsOk => 'Cele esențiale sunt permise';
+
+  @override
+  String get permissionsRecommendedBody =>
+      'Cele recomandate fac alarmele mai sigure.';
+
+  @override
+  String get permissionsEssentialSection => 'Esențiale';
+
+  @override
+  String get permissionsRecommendedSection => 'Recomandate';
+
+  @override
+  String get permissionsOptionsSection => 'Opțiuni';
+
+  @override
+  String get permissionExactAlarms => 'Alarme și mementouri';
+
+  @override
+  String get permissionExactAlarmsDesc =>
+      'Permite alertelor să pornească exact la timp';
+
+  @override
+  String get permissionsLaunchCheck => 'Verifică la pornire';
+
+  @override
+  String get permissionsLaunchCheckDesc =>
+      'Întreabă o dată când ceva esențial este oprit';
+
+  @override
+  String get permissionsSystemSettings => 'Setări de sistem';
+
+  @override
+  String get permissionsSystemSettingsDesc =>
+      'Deschide pagina ANTA din setările sistemului';
+
+  @override
+  String get permissionsNoneNeeded => 'Nimic de permis';
+
+  @override
+  String get permissionsNoneNeededDesc =>
+      'ANTA nu are nevoie de permisiuni de sistem pe acest dispozitiv. Alarmele și notificările sună deocamdată doar pe Android.';
+
+  @override
+  String get permissionsPromptTitle => 'ANTA are nevoie de permisiunea ta';
+
+  @override
+  String get permissionsPromptBody =>
+      'Fără ele, alarmele și notificările rămân mute.';
+
+  @override
+  String get permissionsPromptContinue => 'Continuă';
+
+  @override
+  String get permissionsPromptNotNow => 'Nu acum';
+
+  @override
+  String get permissionsSettingsUnavailable =>
+      'Setările sistemului nu au putut fi deschise';
+
+  @override
+  String get permissionsAlertBlocked =>
+      'Nu poate suna până când nu pornești o permisiune';
+
+  @override
+  String get permissionsReview => 'Verifică';
+
+  @override
+  String get alertsExactAlarmsOffBanner =>
+      'Accesul la Alarme și mementouri este oprit. Alertele nu pot fi setate la ora exactă.';
+
+  @override
+  String get permissionsUnknownTitle =>
+      'Permisiunile nu au putut fi verificate';
+
+  @override
+  String get permissionsUnknownBody =>
+      'Deschide setările sistemului ca să le vezi.';
+
+  @override
+  String permissionsPromptRecommended(String description) {
+    return 'Recomandat · $description';
+  }
 }

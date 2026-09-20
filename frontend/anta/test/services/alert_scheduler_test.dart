@@ -94,19 +94,6 @@ class FakeAlertGateway implements AlertGateway {
   Future<void> showMissed(AlertPayload payload) async => missed.add(payload);
 
   @override
-  Future<AlertPermissions> permissions() async => (
-    notifications: AlertPermissionState.granted,
-    fullScreenIntent: AlertPermissionState.granted,
-    exactAlarms: AlertPermissionState.granted,
-  );
-
-  @override
-  Future<bool> requestNotifications() async => true;
-
-  @override
-  Future<void> openFullScreenIntentSettings() async {}
-
-  @override
   Future<void> stopRinging(int osId) async => stopped.add(osId);
 
   @override

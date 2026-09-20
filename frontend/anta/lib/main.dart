@@ -21,6 +21,7 @@ import 'constants/app_spacing.dart';
 import 'constants/app_theme.dart';
 import 'core/di/injection.dart';
 import 'core/qa/qa_bootstrap.dart';
+import 'core/qa/qa_mode.dart';
 import 'models/alert_payload.dart';
 import 'pages/alarm_page.dart';
 import 'pages/optimized_folder_content_page.dart';
@@ -34,12 +35,16 @@ import 'services/import_export_service.dart';
 import 'services/label_appearance_service.dart';
 import 'services/navigation_history_service.dart';
 import 'services/pending_navigation.dart';
+import 'services/permission_service.dart';
 import 'services/settings_service.dart';
+import 'widgets/permission_prompt_dialog.dart';
 
 /// How much of an exception string the on-screen placeholder carries. Long
 /// enough to name the widget and the assertion, short enough that the box
 /// stays a caption rather than a wall of stack frames.
 const int _errorDetailLimit = 300;
+
+const Duration _launchIntentPatience = Duration(seconds: 5);
 
 /// Localizations for a surface that has no [BuildContext] to resolve them
 /// from. Falls back to English when the device locale is not one of ours, and
@@ -232,6 +237,10 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   /// drained until the replay has been queued.
   bool _navigationReady = false;
 
+  bool _permissionPromptChecked = false;
+  bool _alertNavigationSeen = false;
+  Future<void>? _launchIntentDrain;
+
   /// Live subscription to the gateway's ring stream, for as long as the app is.
   StreamSubscription<AlertPayload>? _ringing;
 
@@ -298,7 +307,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     _ringEnded = gateway.ringEnded.listen((end) {
       unawaited(_settleEndedRing(end));
     });
-    unawaited(_drainLaunchIntent(gateway));
+    _launchIntentDrain = _drainLaunchIntent(gateway);
   }
 
   /// Does for a ring stopped from the platform's notification what the alarm
@@ -365,7 +374,9 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   void _drainPendingNavigation() {
     if (!_navigationReady) return;
     if (AppNavigator.navigatorKey.currentState == null) return;
-    for (final intent in PendingNavigationQueue.instance.drain()) {
+    final intents = PendingNavigationQueue.instance.drain();
+    if (intents.isNotEmpty) _alertNavigationSeen = true;
+    for (final intent in intents) {
       switch (intent) {
         case OpenEventIntent():
           unawaited(
@@ -435,7 +446,11 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     if (completed && !_didRestoreLocation) {
       _didRestoreLocation = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        AppNavigator.restoreLastLocation();
+        unawaited(
+          AppNavigator.restoreLastLocation().whenComplete(
+            _promptForPermissions,
+          ),
+        );
         // Straight after the replay is queued, never before: an alert tap
         // opens on top of the remembered chain, not underneath it.
         _navigationReady = true;
@@ -451,6 +466,39 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   void _onOnboardingComplete() {
     setState(() => _showOnboarding = false);
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => unawaited(_promptForPermissions()),
+    );
+  }
+
+  Future<void> _promptForPermissions() async {
+    if (_permissionPromptChecked) return;
+    _permissionPromptChecked = true;
+    if (QaMode.enabled && !QaMode.permissionPrompt) return;
+    try {
+      await _launchIntentDrain?.timeout(
+        _launchIntentPatience,
+        onTimeout: () {},
+      );
+      if (!mounted) return;
+      await PermissionLaunchPrompt.maybeShow(
+        service: getIt<PermissionService>(),
+        context: () => AppNavigator.navigatorKey.currentContext,
+        isInterrupted: _isAlertInFront,
+      );
+    } catch (e) {
+      debugPrint('[main] permission prompt skipped: $e');
+    }
+  }
+
+  bool _isAlertInFront() {
+    if (_alertNavigationSeen) return true;
+    if (!PendingNavigationQueue.instance.isEmpty) return true;
+    try {
+      return getIt<AlertGateway>().ringingIds.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
   }
 
   @override

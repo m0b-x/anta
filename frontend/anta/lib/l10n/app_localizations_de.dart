@@ -5162,4 +5162,121 @@ class AppLocalizationsDe extends AppLocalizations {
   String alertsCancelAlarmConfirm(String title) {
     return '„$title“ wird nach dem Klingeln entfernt, daher entfernt das Abbrechen des Alarms den Termin.';
   }
+
+  @override
+  String get permissionsTitle => 'Berechtigungen';
+
+  @override
+  String get permissionsRowDesc => 'Was ANTA auf diesem Gerät darf';
+
+  @override
+  String permissionsRowAttention(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Berechtigungen sind aus',
+      one: '1 Berechtigung ist aus',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get permissionsCalendarRowDesc =>
+      'Benachrichtigungen, genaue Zeit, Vollbild-Alarme, Akku';
+
+  @override
+  String get permissionsAllSet => 'Alles bereit';
+
+  @override
+  String get permissionsAllSetBody =>
+      'ANTA hat auf diesem Gerät alles, was es braucht.';
+
+  @override
+  String get permissionsAttentionTitle =>
+      'Alarme und Mitteilungen funktionieren noch nicht';
+
+  @override
+  String get permissionsEssentialsOk => 'Alles Notwendige ist erlaubt';
+
+  @override
+  String get permissionsRecommendedBody =>
+      'Die empfohlenen machen Alarme zuverlässiger.';
+
+  @override
+  String get permissionsEssentialSection => 'Notwendig';
+
+  @override
+  String get permissionsRecommendedSection => 'Empfohlen';
+
+  @override
+  String get permissionsOptionsSection => 'Optionen';
+
+  @override
+  String get permissionExactAlarms => 'Wecker & Erinnerungen';
+
+  @override
+  String get permissionExactAlarmsDesc =>
+      'Lässt Erinnerungen genau zur eingestellten Zeit auslösen';
+
+  @override
+  String get permissionsLaunchCheck => 'Beim Start prüfen';
+
+  @override
+  String get permissionsLaunchCheckDesc =>
+      'Einmal nachfragen, wenn etwas Notwendiges aus ist';
+
+  @override
+  String get permissionsSystemSettings => 'Systemeinstellungen';
+
+  @override
+  String get permissionsSystemSettingsDesc =>
+      'ANTA in den Systemeinstellungen öffnen';
+
+  @override
+  String get permissionsNoneNeeded => 'Nichts zu erlauben';
+
+  @override
+  String get permissionsNoneNeededDesc =>
+      'ANTA braucht auf diesem Gerät keine Systemberechtigungen. Alarme und Mitteilungen klingeln vorerst nur auf Android.';
+
+  @override
+  String get permissionsPromptTitle => 'ANTA braucht deine Erlaubnis';
+
+  @override
+  String get permissionsPromptBody =>
+      'Ohne sie bleiben Alarme und Mitteilungen stumm.';
+
+  @override
+  String get permissionsPromptContinue => 'Weiter';
+
+  @override
+  String get permissionsPromptNotNow => 'Nicht jetzt';
+
+  @override
+  String get permissionsSettingsUnavailable =>
+      'Die Systemeinstellungen ließen sich nicht öffnen';
+
+  @override
+  String get permissionsAlertBlocked =>
+      'Das kann erst klingeln, wenn eine Berechtigung an ist';
+
+  @override
+  String get permissionsReview => 'Prüfen';
+
+  @override
+  String get alertsExactAlarmsOffBanner =>
+      'Der Zugriff auf Wecker & Erinnerungen ist aus. Erinnerungen lassen sich nicht auf die genaue Zeit stellen.';
+
+  @override
+  String get permissionsUnknownTitle =>
+      'Berechtigungen ließen sich nicht prüfen';
+
+  @override
+  String get permissionsUnknownBody =>
+      'Öffne die Systemeinstellungen, um sie zu sehen.';
+
+  @override
+  String permissionsPromptRecommended(String description) {
+    return 'Empfohlen · $description';
+  }
 }

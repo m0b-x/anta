@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get_it/get_it.dart';
@@ -22,12 +20,11 @@ import '../widgets/alert_editor_sheet.dart';
 import '../widgets/fasting_schedule_sheet.dart';
 import '../widgets/fasting_style_sheet.dart';
 import '../constants/semantics_ids.dart';
-import '../services/alert_gateway.dart';
 import '../services/alert_scheduler.dart';
-import '../services/android_alert_gateway.dart';
 import '../services/app_navigator.dart';
 import '../services/calendar_event_service.dart';
 import '../services/calendar_palette_service.dart';
+import '../services/permission_service.dart';
 import '../services/public_holiday_service.dart';
 import '../services/recurrence_formatter.dart';
 import '../services/settings_service.dart';
@@ -50,8 +47,7 @@ class CalendarSettingsPage extends StatefulWidget {
   State<CalendarSettingsPage> createState() => _CalendarSettingsPageState();
 }
 
-class _CalendarSettingsPageState extends State<CalendarSettingsPage>
-    with WidgetsBindingObserver {
+class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
   // Persisted fold state is keyed on these, so they are frozen strings, not
   // titles and not positions — renaming or reordering a section must not
   // reopen a card the user folded shut.
@@ -79,9 +75,6 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage>
   int _eventCount = 0;
   int _descriptionLimit = SettingsKeys.defaultEventDescriptionLimit;
 
-  AlertGateway? _alertGateway;
-  AlertPermissions? _alertPermissions;
-  AlertPermissionState _batteryOptimization = AlertPermissionState.unsupported;
   int _snoozeMinutes = SettingsKeys.defaultAlertSnoozeMinutes;
   int _silenceAfterMinutes = SettingsKeys.defaultAlertSilenceAfterMinutes;
 
@@ -99,25 +92,13 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage>
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     _loadSettings();
   }
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
     _searchController.dispose();
     super.dispose();
-  }
-
-  /// The two permission links leave the app for Android's own settings, and
-  /// their "Open settings" call returns the moment the intent is launched —
-  /// long before the user has toggled anything — so the rows are re-read when
-  /// the app comes back, not when the call returns.
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed || _isLoading) return;
-    unawaited(_refreshAlertPermissions());
   }
 
   Future<void> _loadSettings() async {
@@ -162,36 +143,12 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage>
       _fastingSchedule = fastingSchedule;
       _isLoading = false;
     });
-    // After the first frame, never before it: three of these are platform
-    // round trips, and a permission the user changed in Android's own
-    // settings has to be re-read on every visit rather than cached.
-    unawaited(_refreshAlertPermissions());
   }
 
-  /// Asks the gateway what the operating system currently allows.
-  ///
-  /// Never stored: each of these can change between two frames, in a settings
-  /// page this one does not own, and a cached answer would offer to fix
-  /// something already fixed.
-  Future<void> _refreshAlertPermissions() async {
-    AlertGateway? gateway;
-    try {
-      gateway = GetIt.I<AlertGateway>();
-    } catch (_) {
-      // A build with no binding renders the rows as unsupported, which is
-      // exactly what they are there.
-    }
-    final permissions = await gateway?.permissions();
-    final battery = gateway is AndroidAlertGateway
-        ? await gateway.batteryOptimization()
-        : AlertPermissionState.unsupported;
-    if (!mounted) return;
-    setState(() {
-      _alertGateway = gateway;
-      _alertPermissions = permissions;
-      _batteryOptimization = battery;
-    });
-  }
+  PermissionService? get _permissionService =>
+      GetIt.I.isRegistered<PermissionService>()
+      ? GetIt.I<PermissionService>()
+      : null;
 
   /// Optimistic like every other row on this page: the fold is a view
   /// preference, so a failed write costs nothing worth blocking the tap for.
@@ -754,18 +711,15 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage>
     );
   }
 
-  /// §5.7. Three permission rows, two lengths and a test ring.
+  /// §5.7. The permissions link, two defaults, two lengths and a test ring.
   ///
-  /// The permission rows read **live** from the gateway and are never stored:
-  /// every one of them can be revoked in Android's own settings between two
-  /// frames. Only notifications have a prompt — the other two are links,
-  /// because Android offers no dialog for a full-screen intent and battery
-  /// exemption may not be requested at all under Play policy.
+  /// What the operating system allows lives on the Permissions page; the row
+  /// here only says whether anything essential is missing, read **live** off
+  /// the `PermissionService` snapshot and never stored.
   SettingsSectionData _buildAlertsSection(
     ColorScheme colorScheme,
     AppLocalizations l10n,
   ) {
-    final permissions = _alertPermissions;
     final captionStyle = TextStyle(
       fontSize: 12,
       color: colorScheme.onSurfaceVariant,
@@ -776,58 +730,16 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage>
       title: l10n.calendarAlertsSection,
       entries: [
         SettingsEntry(
-          title: l10n.alertsNotifications,
-          description: l10n.alertsNotificationsDesc,
-          builder: (context, title, description) => _permissionTile(
-            colorScheme: colorScheme,
-            l10n: l10n,
-            icon: Icons.notifications_active_outlined,
-            title: title,
-            description: description,
-            state: permissions?.notifications,
-            actionLabel: l10n.alertsTurnOn,
-            onAction: () async {
-              await _alertGateway?.requestNotifications();
-              await _refreshAlertPermissions();
-            },
-          ),
-        ),
-        SettingsEntry(
-          title: l10n.alertsFullScreenAlarms,
-          description: l10n.alertsFullScreenAlarmsDesc,
-          builder: (context, title, description) => _permissionTile(
-            colorScheme: colorScheme,
-            l10n: l10n,
-            icon: Icons.fullscreen_rounded,
-            title: title,
-            description: description,
-            state: permissions?.fullScreenIntent,
-            actionLabel: l10n.alertsOpenSettings,
-            onAction: () async {
-              await _alertGateway?.openFullScreenIntentSettings();
-              await _refreshAlertPermissions();
-            },
-          ),
-        ),
-        SettingsEntry(
-          title: l10n.alertsBattery,
-          description: l10n.alertsBatteryDesc,
-          builder: (context, title, description) => _permissionTile(
-            colorScheme: colorScheme,
-            l10n: l10n,
-            icon: Icons.battery_saver_rounded,
-            title: title,
-            description: description,
-            state: _batteryOptimization,
-            actionLabel: l10n.alertsOpenSettings,
-            // A link, never a request: asking for the exemption outright is
-            // Play-policy restricted, so the user grants it themselves.
-            onAction: () async {
-              final gateway = _alertGateway;
-              if (gateway is! AndroidAlertGateway) return;
-              await gateway.openBatterySettings();
-            },
-          ),
+          title: l10n.permissionsTitle,
+          description: l10n.permissionsCalendarRowDesc,
+          keywords: [
+            l10n.alertsNotifications,
+            l10n.permissionExactAlarms,
+            l10n.alertsFullScreenAlarms,
+            l10n.alertsBattery,
+          ],
+          builder: (context, title, description) =>
+              _permissionsTile(colorScheme, title, description),
         ),
         SettingsEntry(
           title: l10n.alertsDefaultTimed,
@@ -938,50 +850,33 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage>
     );
   }
 
-  /// One permission row: a status chip when the platform can answer, an action
-  /// when it can answer "no", and the app-wide "not supported" copy on a
-  /// platform that has no such permission at all.
-  Widget _permissionTile({
-    required ColorScheme colorScheme,
-    required AppLocalizations l10n,
-    required IconData icon,
-    required Widget title,
-    required Widget? description,
-    required AlertPermissionState? state,
-    required String actionLabel,
-    required Future<void> Function() onAction,
-  }) {
-    final Widget trailing;
-    switch (state) {
-      case AlertPermissionState.granted:
-        trailing = Chip(
-          label: Text(l10n.alertsPermissionOn),
-          visualDensity: VisualDensity.compact,
-        );
-      case AlertPermissionState.denied:
-        trailing = TextButton(
-          onPressed: () async {
-            _onHapticFeedback();
-            await onAction();
-          },
-          child: Text(actionLabel),
-        );
-      case AlertPermissionState.unsupported:
-        trailing = Text(
-          l10n.notSupportedOnPlatform,
-          style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
-        );
-      case null:
-        // Not answered yet — the platform round trip is still in flight, and
-        // "not supported" for the frames until it lands would be a lie on
-        // exactly the platform that supports it.
-        trailing = const SizedBox.shrink();
-    }
-    return ListTile(
-      leading: Icon(icon, color: colorScheme.primary),
+  Widget _permissionsTile(
+    ColorScheme colorScheme,
+    Widget title,
+    Widget? description,
+  ) {
+    Widget tile(bool attention) => ListTile(
+      leading: Icon(
+        Icons.verified_user_outlined,
+        color: attention ? colorScheme.error : colorScheme.primary,
+      ),
       title: title,
       subtitle: description,
-      trailing: trailing,
+      trailing: Icon(
+        attention ? Icons.error_outline_rounded : Icons.chevron_right_rounded,
+        color: attention ? colorScheme.error : colorScheme.onSurfaceVariant,
+      ),
+      onTap: () {
+        _onHapticFeedback();
+        AppNavigator.toPermissions(context);
+      },
+    );
+    final service = _permissionService;
+    if (service == null) return tile(false);
+    return ValueListenableBuilder(
+      valueListenable: service.snapshot,
+      builder: (context, snapshot, _) =>
+          tile(snapshot?.needsAttention ?? false),
     );
   }
 
@@ -1081,6 +976,19 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage>
   Future<void> _scheduleTestAlarm() async {
     final l10n = AppLocalizations.of(context)!;
     _onHapticFeedback();
+    final permissions = await _permissionService?.refresh();
+    if (!mounted) return;
+    if (permissions?.needsAttention ?? false) {
+      CustomSnackbar.showWithAction(
+        context,
+        message: l10n.permissionsAlertBlocked,
+        actionLabel: l10n.permissionsReview,
+        onAction: () {
+          if (context.mounted) AppNavigator.toPermissions(context);
+        },
+      );
+      return;
+    }
     int? osId;
     try {
       final scheduler = await AlertScheduler.getInstance();

@@ -51,8 +51,9 @@ flutter test --tags benchmark --run-skipped             # seeded-volume DB timin
 ```
 
 `test/database/` guards SQLite behaviour deterministically — query plans (index
-usage), statement counts (no query-in-a-loop) and create-vs-migrate schema
-parity. It runs against `NativeDatabase.memory()`, needs no setup, and asserts
+usage), statement counts (no query-in-a-loop), create-vs-migrate schema
+parity, and the whole upgrade chain from the oldest schema
+(`upgrade_chain_test.dart`). It runs against `NativeDatabase.memory()`, needs no setup, and asserts
 no wall-clock times; see the `drift-migrations` skill for why.
 
 Helper scripts (each wraps build_runner + gen-l10n + clean + build):

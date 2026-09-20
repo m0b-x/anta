@@ -20,25 +20,6 @@ abstract final class AlertAvailability {
       !kIsWeb && (Platform.isAndroid || Platform.isIOS);
 }
 
-/// Whether one permission is held, refused, or not a thing on this platform.
-enum AlertPermissionState {
-  granted,
-  denied,
-
-  /// The platform has no such permission, or this binding cannot answer.
-  /// Renders as "Not supported on this platform" rather than as a problem.
-  unsupported,
-}
-
-/// The live permission picture, asked of the gateway rather than stored:
-/// every one of these can change in the system settings between two frames,
-/// and a cached answer would offer to fix something already fixed.
-typedef AlertPermissions = ({
-  AlertPermissionState notifications,
-  AlertPermissionState fullScreenIntent,
-  AlertPermissionState exactAlarms,
-});
-
 /// One platform entry as the OS still holds it — the id plus the payload it
 /// was scheduled with.
 typedef PendingAlertEntry = ({int osId, AlertPayload payload});
@@ -128,16 +109,6 @@ abstract class AlertGateway {
   /// database — and so a background isolate could post it.
   Future<void> showMissed(AlertPayload payload);
 
-  Future<AlertPermissions> permissions();
-
-  /// Runs the runtime notification prompt. **Only ever called from a user
-  /// action** — never at app start, never from reconcile.
-  Future<bool> requestNotifications();
-
-  /// Opens the system page where full-screen alarms are allowed. Android has
-  /// no prompt for it, so this is a link, not a request.
-  Future<void> openFullScreenIntentSettings();
-
   /// Stops an alarm that is ringing right now, without touching its
   /// registration — the scheduler records the state change.
   Future<void> stopRinging(int osId);
@@ -171,10 +142,10 @@ abstract class AlertGateway {
 /// Bound where alerts cannot reach an operating system — desktop, web, every
 /// widget test, and every platform in Session 2.
 ///
-/// Reports unsupported permissions, schedules nothing and holds nothing. The
-/// scheduler still plans, still diffs and still writes the registry against
-/// it, which is exactly what makes the whole pipeline testable without a
-/// single channel stub.
+/// Schedules nothing and holds nothing. The scheduler still plans, still diffs
+/// and still writes the registry against it, which is exactly what makes the
+/// whole pipeline testable without a single channel stub. What the operating
+/// system allows is not asked here at all: that is `PermissionGateway`.
 class NoOpAlertGateway extends AlertGateway {
   const NoOpAlertGateway();
 
@@ -195,19 +166,6 @@ class NoOpAlertGateway extends AlertGateway {
 
   @override
   Future<void> showMissed(AlertPayload payload) async {}
-
-  @override
-  Future<AlertPermissions> permissions() async => (
-    notifications: AlertPermissionState.unsupported,
-    fullScreenIntent: AlertPermissionState.unsupported,
-    exactAlarms: AlertPermissionState.unsupported,
-  );
-
-  @override
-  Future<bool> requestNotifications() async => false;
-
-  @override
-  Future<void> openFullScreenIntentSettings() async {}
 
   @override
   Future<void> stopRinging(int osId) async {}

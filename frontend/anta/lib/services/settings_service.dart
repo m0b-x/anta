@@ -1611,6 +1611,21 @@ class SettingsService {
   Future<void> setAlertNotificationsAsked(bool value) =>
       _setBool(SettingsKeys.alertNotificationsAsked, value);
 
+  Future<String?> getPermissionPromptAcknowledged() =>
+      _db.userSettingsDao.getValue(SettingsKeys.permissionPromptAcknowledged);
+
+  Future<void> setPermissionPromptAcknowledged(String value) => _db
+      .userSettingsDao
+      .setValue(SettingsKeys.permissionPromptAcknowledged, value);
+
+  Future<bool> getPermissionLaunchPrompt() => _getBool(
+    SettingsKeys.permissionLaunchPrompt,
+    SettingsKeys.defaultPermissionLaunchPrompt,
+  );
+
+  Future<void> setPermissionLaunchPrompt(bool value) =>
+      _setBool(SettingsKeys.permissionLaunchPrompt, value);
+
   /// The alert a new **timed** event is seeded with, or `null` for "none".
   /// Encoded as `mode:offsetMinutes`, the spelling
   /// [_decodeTimedAlertDefault] reads back.
