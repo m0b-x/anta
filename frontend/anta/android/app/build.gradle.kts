@@ -12,9 +12,12 @@ plugins {
 
 val keystoreProperties = Properties()
 val keystorePropertiesFile = rootProject.file("key.properties")
-if (keystorePropertiesFile.exists()) {
+val hasReleaseKeystore = keystorePropertiesFile.exists()
+if (hasReleaseKeystore) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
+val allowDebugSigning =
+    findProperty("antaAllowDebugSigning")?.toString()?.toBoolean() ?: false
 
 android {
     namespace = "com.alexzamfir.anta"
@@ -37,7 +40,7 @@ android {
         versionName = flutter.versionName
     }
 
-    if (keystorePropertiesFile.exists()) {
+    if (hasReleaseKeystore) {
         signingConfigs {
             create("release") {
                 keyAlias = keystoreProperties["keyAlias"] as String
@@ -50,10 +53,27 @@ android {
 
     buildTypes {
         release {
-            signingConfig = if (keystorePropertiesFile.exists())
+            signingConfig = if (hasReleaseKeystore)
                 signingConfigs.getByName("release")
             else
                 signingConfigs.getByName("debug")
+        }
+    }
+}
+
+tasks.configureEach {
+    if (name == "preReleaseBuild" && !hasReleaseKeystore && !allowDebugSigning) {
+        doFirst {
+            throw GradleException(
+                "Release build refused: android/key.properties is missing, so this APK " +
+                    "would be signed with the debug key and could not install over the " +
+                    "release-signed app (uninstalling it would wipe its data). Copy " +
+                    "android/key.properties and android/app/release-keystore.jks from the " +
+                    "machine that has them, or pass -PantaAllowDebugSigning=true " +
+                    "(`flutter build apk -PantaAllowDebugSigning=true`, or " +
+                    "`release build --allow-debug-signing`) for a throwaway " +
+                    "debug-signed build."
+            )
         }
     }
 }

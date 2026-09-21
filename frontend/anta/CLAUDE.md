@@ -56,14 +56,25 @@ parity, and the whole upgrade chain from the oldest schema
 (`upgrade_chain_test.dart`). It runs against `NativeDatabase.memory()`, needs no setup, and asserts
 no wall-clock times; see the `drift-migrations` skill for why.
 
-Helper scripts (each wraps build_runner + gen-l10n + clean + build):
+Release pipeline — one Dart tool with the same verbs on every OS
+(`tool\release\release.cmd` on Windows, `./tool/release/release` on macOS/Linux):
 
 ```powershell
-.\generate_drift.bat            # or `generate_drift.bat watch`
-.\build_release.bat arm64       # release APK -> build\app\outputs\flutter-apk\
-.\install_to_device.bat arm64   # build + adb install
-.\full_clean.bat                # when builds misbehave
+tool\release\release.cmd build --arm64   # build_runner + gen-l10n + obfuscated release APK -> build\app\outputs\flutter-apk\
+tool\release\release.cmd install         # same, built for the attached phone's ABI, then adb install (-d <serial> if several)
+tool\release\release.cmd doctor          # signing keystore, Firebase config, adb + device, stale Gradle daemons
+tool\release\release.cmd gen [--watch]   # build_runner (+ gen-l10n)
+tool\release\release.cmd clean           # flutter clean + .dart_tool + pub get; `build --clean` for a one-off cold build
 ```
+
+Builds are incremental by default (warm Gradle daemon; add `--clean` for a cold
+one). A release build is **refused** when `android/key.properties` and
+`android/app/release-keystore.jks` are missing — both are gitignored, so copy
+them from the machine that has them, at the same relative paths. A
+debug-signed APK cannot install over the release-signed app, and the guard
+lives in Gradle's `preReleaseBuild` too, so a bare `flutter build apk --release`
+is refused as well (`--allow-debug-signing` / `-PantaAllowDebugSigning=true`
+for a throwaway build).
 
 Do not run `flutter analyze` on the whole workspace — platform shells add noise. `dart analyze lib` is the convention (add `tool test_driver` when the QA harness changed).
 

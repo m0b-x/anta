@@ -11,7 +11,7 @@ All commands run from the app root (`frontend/anta`) in PowerShell. Run **only w
 
 | If the change touched... | Run first |
 | --- | --- |
-| Drift tables / DAOs / migrations / DB annotations | `dart run build_runner build --delete-conflicting-outputs` (or `.\generate_drift.bat`) |
+| Drift tables / DAOs / migrations / DB annotations | `dart run build_runner build --delete-conflicting-outputs` (or `tool\release\release.cmd gen`) |
 | ARB files (`lib/l10n/*.arb`) | `flutter gen-l10n` — then check `untranslated.txt` for missing de/ro keys |
 
 ## 2. Static analysis (always)
@@ -45,13 +45,18 @@ Launches on the connected device/emulator (Android is the primary target; Window
 
 **For a device pass, load the `qa-emulator` skill instead of driving adb or `xcrun simctl` by hand.** It covers booting a simulator or emulator, running against an isolated QA database (`./tool/qa/qa run --fresh --seed …`, `-d macos` for the desktop build), screenshots, tapping and typing by label through the in-app agent, the Dart MCP / Flutter Driver layer, and the trap list.
 
-Release / device helpers:
+Release pipeline (`./tool/release/release` on macOS):
 
 ```powershell
-.\build_release.bat arm64      # release APK
-.\install_to_device.bat arm64  # build + install to connected device
-.\full_clean.bat               # nuke build artifacts when builds misbehave
+tool\release\release.cmd build --arm64   # release APK (incremental; --clean for a cold build)
+tool\release\release.cmd install         # build for the attached phone's ABI + adb install
+tool\release\release.cmd doctor          # keystore, Firebase config, adb, stale Gradle daemons
+tool\release\release.cmd clean           # nuke build artifacts when builds misbehave
 ```
+
+Release builds are refused without the gitignored `android/key.properties` +
+`android/app/release-keystore.jks` — a debug-signed APK cannot install over
+the release-signed app on the phone.
 
 ## What to check per feature area
 

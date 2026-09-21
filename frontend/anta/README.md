@@ -25,16 +25,19 @@ flutter test                    # run the test suite
 
 Re-run `dart run build_runner build --delete-conflicting-outputs` after changing Drift tables, DAOs, migrations, or database annotations, and `flutter gen-l10n` after editing any `lib/l10n/*.arb` file (then check `untranslated.txt` for missing German/Romanian keys).
 
-## Helper scripts
+## Release pipeline
 
-`.bat` for Windows, `.sh` for Unix shells. The release/install scripts run code generation, localization, and `flutter clean` before building.
+One Dart tool, `tool/release/`, with the same verbs on every OS: `tool\release\release.cmd <verb>` on Windows, `./tool/release/release <verb>` on macOS/Linux. Builds are incremental by default; add `--clean` for a cold one.
 
-| Script | Purpose |
+| Verb | Purpose |
 | --- | --- |
-| `generate_drift.bat` | Run build_runner once, or `generate_drift.bat watch` to watch |
-| `build_release.bat [arm64]` | Obfuscated release APK → `build\app\outputs\flutter-apk\` |
-| `install_to_device.bat [arm64]` | Build a release APK and `adb install` it |
-| `full_clean.bat` | Nuke `build/`, `.dart_tool/`, and re-run `pub get` |
+| `build [--arm64] [--clean]` | build_runner + gen-l10n, then the obfuscated release APK → `build/app/outputs/flutter-apk/` |
+| `install [-d <serial>]` | The same, built for the attached phone's ABI, then `adb install` (a phone beats a running emulator) |
+| `doctor [--fix]` | Signing keystore, Firebase config, adb + device, Gradle daemons of other versions (`--fix` stops them) |
+| `gen [--watch]` | build_runner once (plus gen-l10n), or keep watching |
+| `clean` | `flutter clean`, drop `.dart_tool/`, `pub get` — after freeing the Windows file locks that make a clean fail |
+
+A release build is refused when `android/key.properties` and `android/app/release-keystore.jks` are missing: both are gitignored, so copy them from the machine that has them, keeping the paths. A debug-signed APK cannot install over the release-signed app (and uninstalling it wipes its data); Gradle's `preReleaseBuild` enforces the same rule for a bare `flutter build apk --release`.
 
 ## Project layout
 

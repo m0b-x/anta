@@ -357,13 +357,20 @@ dart run build_runner build --delete-conflicting-outputs
 flutter run
 ```
 
-Release/device helper scripts exist:
+The release pipeline is one Dart tool with the same verbs on every OS
+(`tool\release\release.cmd` on Windows, `./tool/release/release` on macOS):
 
 ```powershell
-.\build_release.bat arm64
-.\install_to_device.bat arm64
-.\generate_drift.bat
+tool\release\release.cmd build --arm64   # build_runner + gen-l10n + obfuscated release APK
+tool\release\release.cmd install         # built for the attached phone's ABI, then adb install
+tool\release\release.cmd doctor          # keystore, Firebase config, adb, stale Gradle daemons
+tool\release\release.cmd gen [--watch]   # build_runner (+ gen-l10n)
+tool\release\release.cmd clean           # flutter clean + .dart_tool + pub get
 ```
+
+Release builds are refused without `android/key.properties` +
+`android/app/release-keystore.jks` (gitignored; copy both from the machine
+that has them): a debug-signed APK cannot install over the release-signed app.
 
 Run only the commands relevant to the change. For UI-only Dart changes, `dart analyze lib` is usually the minimum validation. For l10n changes, run `flutter gen-l10n`. For Drift changes, run build_runner before analysis.
 

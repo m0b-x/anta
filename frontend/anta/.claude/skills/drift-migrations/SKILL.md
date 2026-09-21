@@ -13,7 +13,7 @@ description: Workflow for Drift SQLite schema changes, migrations, the DatabaseL
   dart run build_runner build --delete-conflicting-outputs
   dart analyze lib
   ```
-  (`.\generate_drift.bat` wraps the build_runner call.)
+  (`tool\release\release.cmd gen` wraps the build_runner call, plus gen-l10n.)
 - Preserve CRDT metadata on folder/note/chunk tables (`hlcTimestamp`, `deviceId`, `version`, `isDeleted`, `deletedAt`) and soft-delete semantics. Reorders are transactional and preserve user positions.
 - Keep FTS/app-level search indexes in sync on create/update/delete/move.
 - Prefer avoiding a migration when the data can ride an existing JSON payload (precedent: recurrence `interval` inside `rule_payload`) or be derived/rebuilt from note content (precedent: planned `TagIndex`).
