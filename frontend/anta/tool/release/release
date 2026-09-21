@@ -1,0 +1,7 @@
+#!/bin/sh
+# Entry point for POSIX shells, Git Bash included. `dart run` is enough here:
+# the tool runs once per build, so JIT start-up is noise next to the build.
+set -e
+root=$(cd "$(dirname "$0")/../.." && pwd)
+cd "$root"
+exec dart run tool/release/release.dart "$@"

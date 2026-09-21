@@ -291,12 +291,13 @@ dart run build_runner build --delete-conflicting-outputs
 flutter run
 ```
 
-Helper scripts:
+Release pipeline (`./tool/release/release` on macOS):
 
 ```powershell
-.\build_release.bat arm64
-.\install_to_device.bat arm64
-.\generate_drift.bat
+tool\release\release.cmd build --arm64
+tool\release\release.cmd install
+tool\release\release.cmd doctor
+tool\release\release.cmd gen
 ```
 
 Typical mapping:

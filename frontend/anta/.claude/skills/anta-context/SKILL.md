@@ -63,7 +63,7 @@ Run only what the change requires:
 | Code covered by `test/` (e.g. money syntax) | `flutter test` (single file: `flutter test <path>`; single case: `--plain-name "<substring>"`) |
 | Manual run | `flutter run` |
 
-Helper scripts: `.\build_release.bat arm64`, `.\install_to_device.bat arm64`, `.\generate_drift.bat`.
+Release pipeline: `tool\release\release.cmd build --arm64`, `... install`, `... doctor`, `... gen`, `... clean` (`./tool/release/release` on macOS). Release builds are refused without the gitignored `android/key.properties` + `android/app/release-keystore.jks`.
 
 ## 6. When to ask vs act
 
