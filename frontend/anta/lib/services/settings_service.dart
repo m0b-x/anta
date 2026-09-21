@@ -9,6 +9,7 @@ import '../constants/event_alerts.dart';
 import '../constants/fasting_calendar.dart';
 import '../constants/font_constants.dart';
 import '../constants/settings_keys.dart';
+import '../models/alert_sound.dart';
 import '../models/editor_settings.dart';
 import '../models/event_alert.dart';
 import '../models/fasting_appearance.dart';
@@ -1535,8 +1536,10 @@ class SettingsService {
   }
 
   /// `mode:offsetMinutes`, or `none` for "seed a new timed event with no
-  /// alert". Anything unparseable falls back to the shipped default rather
-  /// than to `none`: a corrupt row should not silently stop reminding.
+  /// alert". Anything unparseable falls back to the shipped default, which is
+  /// `none` too: a row this build cannot read must not start attaching alerts
+  /// nobody asked for. Only the *seed* is at stake — an event's own alerts
+  /// live in their table and are untouched by this setting.
   static TimedAlertDefault? _decodeTimedAlertDefault(String? raw) {
     final value = raw ?? SettingsKeys.defaultAlertDefaultTimed;
     if (value == _alertDefaultNone) return null;
@@ -1567,6 +1570,20 @@ class SettingsService {
 
   /// The stored value that means "a new event gets no alert".
   static const String _alertDefaultNone = 'none';
+
+  /// Which sound an alarm plays when its alert names none of its own —
+  /// `''` for the bundled one, `AlertSound.systemDefaultValue`, or a URI the
+  /// phone's picker returned.
+  ///
+  /// Normalised through the codec on write as well as on read, so a value this
+  /// build cannot make sense of is stored as the bundled sound rather than kept
+  /// around to decode to it on every read.
+  Future<void> setAlertSound(String? value) async {
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.alertSound,
+      AlertSound.decode(value).stored ?? SettingsKeys.defaultAlertSound,
+    );
+  }
 
   /// How long Snooze postpones an alert, clamped on write as well as on read
   /// so a hand-edited row can never hand the platform a snooze of zero.

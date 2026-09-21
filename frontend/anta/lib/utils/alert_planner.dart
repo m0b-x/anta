@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 
 import '../constants/alert_constants.dart';
 import '../constants/event_alerts.dart';
+import '../models/alert_sound.dart';
 import '../models/calendar_event.dart';
 import '../models/event_alert.dart';
 
@@ -26,16 +27,25 @@ class PlannedFire extends Equatable {
 
   final AlertKind kind;
 
+  /// The sound this fire will be armed with, already resolved against the
+  /// `alert_sound` setting — so the gateway is handed a decision rather than
+  /// two values and a rule, and never reads a setting of its own.
+  ///
+  /// Defaults to the bundled sound: a fire nobody named a sound for is a fire
+  /// that rings the one sound every install has.
+  final AlertSound sound;
+
   const PlannedFire({
     required this.event,
     required this.alert,
     required this.day,
     required this.fireAt,
     this.kind = AlertKind.scheduled,
+    this.sound = const AlertSoundBundled(),
   });
 
   @override
-  List<Object?> get props => [event.id, alert.id, day, fireAt, kind];
+  List<Object?> get props => [event.id, alert.id, day, fireAt, kind, sound];
 }
 
 /// Turns events and their alerts into the bounded list of instants the OS
@@ -106,6 +116,14 @@ abstract final class AlertPlanner {
               alert: enabled[i],
               day: day,
               fireAt: fireAt,
+              // Resolved here rather than in the gateway: `defaults` is
+              // already the one place the alert-level and app-level answers
+              // meet, and a fire that carries its own sound is a fire the
+              // scheduler can diff without reading a setting a second time.
+              sound: AlertSound.resolve(
+                alert: enabled[i].sound,
+                setting: defaults.sound,
+              ),
             ),
           );
           taken[i]++;

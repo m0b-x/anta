@@ -6374,6 +6374,42 @@
   "@alertsDefaultNone": {
     "description": "Value of a default row that seeds no alert at all"
   },
+  "alertsSound": "Alarm sound",
+  "@alertsSound": {
+    "description": "Settings row and sound chooser title for which sound an alarm plays"
+  },
+  "alertsSoundDesc": "What an alarm plays when its alert names no sound",
+  "@alertsSoundDesc": {
+    "description": "Description of the alarm sound settings row"
+  },
+  "alertSoundUseAppSetting": "Use the app setting",
+  "@alertSoundUseAppSetting": {
+    "description": "Sound choice on one alert: follow the Calendar settings sound"
+  },
+  "alertSoundBundled": "ANTA sound",
+  "@alertSoundBundled": {
+    "description": "Sound choice: the alarm sound shipped inside the app"
+  },
+  "alertSoundPhoneDefault": "Phone's default alarm",
+  "@alertSoundPhoneDefault": {
+    "description": "Sound choice: whatever alarm sound the phone is set to"
+  },
+  "alertSoundChooseFromPhone": "Choose from phone",
+  "@alertSoundChooseFromPhone": {
+    "description": "Sound choice that opens the phone's own sound picker"
+  },
+  "alertSoundFromPhone": "Sound from phone",
+  "@alertSoundFromPhone": {
+    "description": "Neutral name for a picked phone sound before its own title is known"
+  },
+  "alertSoundUnavailable": "Not on this phone — plays the ANTA sound",
+  "@alertSoundUnavailable": {
+    "description": "Shown for a picked sound this device cannot resolve, e.g. after a restore from another phone"
+  },
+  "alertSoundPickerUnavailable": "This phone has no sound picker",
+  "@alertSoundPickerUnavailable": {
+    "description": "Snackbar shown when the system ringtone picker cannot be opened at all"
+  },
   "alertsTitle": "Alerts",
   "@alertsTitle": {
     "description": "Title of the Alerts hub page and of its drawer row"

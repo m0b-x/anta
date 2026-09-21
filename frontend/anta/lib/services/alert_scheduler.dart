@@ -13,6 +13,7 @@ import '../database/database.dart';
 import '../database/database_lifecycle.dart';
 import '../models/alert_hub_entry.dart';
 import '../models/alert_payload.dart';
+import '../models/alert_sound.dart';
 import '../models/calendar_event.dart';
 import '../models/event_alert.dart';
 import '../models/recurrence_rule.dart';
@@ -43,6 +44,32 @@ enum AlertReconcileReason {
 /// test can watch the call without standing up a database.
 typedef AlertReconciler =
     Future<void> Function(String eventId, AlertReconcileReason reason);
+
+/// Everything one registration was armed **under**, as one comparable token.
+///
+/// The registry stores an instant, not a payload, so the diff's fast path can
+/// only see a fire that *moved*. Everything else about an armed entry — which
+/// backend holds it, how loud it will be, which sound it will play — used to be
+/// invisible to it, which is why a changed sound or a volume slider dragged
+/// past the floor left every standing alarm arming the old way until something
+/// unrelated happened to re-schedule it.
+///
+/// [context] is the platform's half, read once per pass through
+/// [AlertGateway.refreshArmContext]; the sound is the fire's own half, and it
+/// is appended **only when there is one to name** — the bundled sound is the
+/// absence of a choice, so the common case keeps the bare backend name the
+/// column has always held and an upgrade re-arms nothing. A reminder never
+/// carries a sound at all: the tier plays through a notification channel whose
+/// sound Android froze at creation.
+String alertArmSignature({
+  required String context,
+  required PlannedFire fire,
+}) {
+  if (fire.alert.mode != AlertMode.ring) return context;
+  final sound = fire.sound.stored;
+  if (sound == null || sound.isEmpty) return context;
+  return '$context#$sound';
+}
 
 /// Keeps what the operating system holds in step with what the plan says it
 /// should hold.
@@ -233,6 +260,22 @@ class AlertScheduler {
   /// Re-derives the whole horizon and makes the platform match it.
   Future<void> reconcileAll(AlertReconcileReason reason) =>
       _serialize(() => _reconcile(reason));
+
+  /// [reconcileAll] for a settings row that holds no scheduler, swallowing
+  /// every failure — the [reconcileEventById] rule, gateway check and all.
+  ///
+  /// What an alert *option* needs after it is written: nothing about any event
+  /// changed, so nothing dispatches, but the arm signature of every standing
+  /// alarm may have. The pass re-arms exactly the entries whose signature moved
+  /// and leaves the rest on their fast path.
+  static Future<void> reconcileAllQuietly(AlertReconcileReason reason) async {
+    if (_instance == null && !_hasGateway) return;
+    try {
+      await (await getInstance()).reconcileAll(reason);
+    } catch (e) {
+      debugPrint('[AlertScheduler] reconcileAll(${reason.name}) failed: $e');
+    }
+  }
 
   /// The same pass, provoked by one event.
   ///
@@ -589,7 +632,11 @@ class AlertScheduler {
         day: day,
         fireAt: fireAt,
         kind: AlertKind.snooze,
+        // A test ring proves what a real one will do, so it proves the sound
+        // too: the alert carries none, so this is the settings value.
+        sound: AlertSound.resolve(alert: alert.sound, setting: settings.sound),
       );
+      final armContext = await _gateway.refreshArmContext();
       final osId = resolveAlertOsId(
         seed: alertOsIdSeed(
           database: _databaseName,
@@ -610,7 +657,7 @@ class AlertScheduler {
           fireAt: Value(fireAt.millisecondsSinceEpoch),
           kind: Value(AlertKind.snooze.name),
           state: Value(AlertRegistrationState.pending.name),
-          backend: Value(_gateway.backendName),
+          backend: Value(alertArmSignature(context: armContext, fire: fire)),
           createdAt: Value(now),
           updatedAt: Value(now),
         ),
@@ -685,6 +732,12 @@ class AlertScheduler {
 
     await _dao.sweep(now: now, retention: kAlertRegistrationRetention);
 
+    // Once per pass, before anything is armed: the binding reads the phone's
+    // volume here and every `schedule` below arms with exactly what it found,
+    // so the token recorded in the registry cannot describe a different ring
+    // from the one the platform is holding.
+    final armContext = await _gateway.refreshArmContext();
+
     final events = eventService.events;
     final eventsById = {for (final event in events) event.id: event};
     final alertsByEvent = <String, List<EventAlert>>{};
@@ -737,19 +790,25 @@ class AlertScheduler {
       final osId = entry.key;
       final fire = entry.value.fire;
       final existing = entry.value.existing;
-      // The registry stores the instant and the backend, not the payload — so
-      // a rename, a recolour, a new icon or a flipped "remove after it rings"
-      // changes what the OS should be holding without changing anything the
-      // fast path can see. A pass provoked by one event therefore re-schedules
-      // that event's entries unconditionally, under the ids they already have;
-      // every other event keeps the fast path, which is what makes an unrelated
-      // edit — and every `reconcileAll` — cost nothing.
+      // The registry stores the instant and the arm signature, not the payload
+      // — so a rename, a recolour, a new icon or a flipped "remove after it
+      // rings" changes what the OS should be holding without changing anything
+      // the fast path can see. A pass provoked by one event therefore
+      // re-schedules that event's entries unconditionally, under the ids they
+      // already have; every other event keeps the fast path, which is what
+      // makes an unrelated edit — and every `reconcileAll` — cost nothing.
+      //
+      // The signature is the other half of the same idea, and the half that
+      // reaches changes no event provoked: a sound moved in Calendar settings,
+      // or the phone's alarm volume crossing the floor while the app was away,
+      // both land here on the very next pass.
       final refresh = eventId != null && fire.event.id == eventId;
+      final signature = alertArmSignature(context: armContext, fire: fire);
       if (!refresh &&
           existing != null &&
           existing.osId == osId &&
           existing.fireAt == fire.fireAt.millisecondsSinceEpoch &&
-          existing.backend == _gateway.backendName) {
+          existing.backend == signature) {
         continue;
       }
       final payload = _payloadFor(fire, osId, settings.snoozeMinutes);
@@ -763,7 +822,7 @@ class AlertScheduler {
           fireAt: Value(fire.fireAt.millisecondsSinceEpoch),
           kind: Value(fire.kind.name),
           state: Value(AlertRegistrationState.pending.name),
-          backend: Value(_gateway.backendName),
+          backend: Value(signature),
           createdAt: Value(existing?.createdAt ?? now),
           updatedAt: Value(now),
         ),
@@ -1037,6 +1096,10 @@ class AlertScheduler {
 
     var snoozeMinutes =
         payload?.snoozeMinutes ?? SettingsKeys.defaultAlertSnoozeMinutes;
+    // A snooze is the same alert again ten minutes later, so it rings the same
+    // sound. Another database's alarm keeps the shipped default: its
+    // `alert_sound` lives in a file that is not open.
+    var soundSetting = SettingsKeys.defaultAlertSound;
     CalendarEvent? event;
     EventAlert? alert;
     final eventId = row?.eventId ?? payload!.eventId;
@@ -1049,9 +1112,10 @@ class AlertScheduler {
       try {
         await EventAlertService.getInstance();
         final eventService = await CalendarEventService.getInstance();
-        snoozeMinutes = (await (await SettingsService.getInstance())
-                .getAlertSettings())
-            .snoozeMinutes;
+        final alertSettings = await (await SettingsService.getInstance())
+            .getAlertSettings();
+        snoozeMinutes = alertSettings.snoozeMinutes;
+        soundSetting = alertSettings.sound;
         for (final candidate in eventService.events) {
           if (candidate.id != eventId) continue;
           event = candidate;
@@ -1101,7 +1165,9 @@ class AlertScheduler {
       day: day,
       fireAt: now.add(Duration(minutes: snoozeMinutes)),
       kind: AlertKind.snooze,
+      sound: AlertSound.resolve(alert: alert.sound, setting: soundSetting),
     );
+    final armContext = await _gateway.refreshArmContext();
     // Probed against the live registry for the same reason the plan is: the
     // seed is deterministic, so re-snoozing the same alert on the same day
     // lands on its own row, and a collision with someone else's id does not
@@ -1145,7 +1211,7 @@ class AlertScheduler {
         fireAt: Value(fire.fireAt.millisecondsSinceEpoch),
         kind: Value(AlertKind.snooze.name),
         state: Value(AlertRegistrationState.pending.name),
-        backend: Value(_gateway.backendName),
+        backend: Value(alertArmSignature(context: armContext, fire: fire)),
         createdAt: Value(now),
         updatedAt: Value(now),
       ),

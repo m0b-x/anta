@@ -247,12 +247,9 @@ void main() {
     test('the defaults are what a fresh install reads', () async {
       final alerts = await settings.getAlertSettings();
 
-      expect(alerts.timedDefault, (mode: AlertMode.notify, offsetMinutes: 10));
-      expect(alerts.allDayDefault, (
-        mode: AlertMode.notify,
-        daysBefore: 0,
-        dayMinute: 540,
-      ));
+      // Alerts are opt-in: a fresh install seeds a new event with nothing.
+      expect(alerts.timedDefault, isNull);
+      expect(alerts.allDayDefault, isNull);
       expect(alerts.sound, '');
       expect(alerts.snoozeMinutes, 10);
       expect(alerts.silenceAfterMinutes, 10);
@@ -289,10 +286,10 @@ void main() {
       expect(alerts.allDayDefault, isNull);
     });
 
-    test('a corrupt value falls back to the shipped default, not to none', () async {
-      // The direction matters: a row this build cannot parse must not silently
-      // stop reminding, which is the one failure the user would notice only by
-      // missing something.
+    test('a corrupt value falls back to the shipped default', () async {
+      // The shipped default is "none", and the direction matters: a row this
+      // build cannot parse must not start attaching alerts nobody asked for.
+      // Only the seed is at stake — an event's own alerts are untouched.
       await db.userSettingsDao.setValue(
         SettingsKeys.alertDefaultTimed,
         'notify',
@@ -304,12 +301,8 @@ void main() {
 
       final alerts = await settings.getAlertSettings();
 
-      expect(alerts.timedDefault, (mode: AlertMode.notify, offsetMinutes: 10));
-      expect(alerts.allDayDefault, (
-        mode: AlertMode.notify,
-        daysBefore: 0,
-        dayMinute: 540,
-      ));
+      expect(alerts.timedDefault, isNull);
+      expect(alerts.allDayDefault, isNull);
     });
 
     test('an unknown mode decodes to the quieter tier', () async {

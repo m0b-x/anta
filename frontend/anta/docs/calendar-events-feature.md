@@ -1631,6 +1631,31 @@ chose a time. `EventAlert.describe(l10n, event)` is **the** formatter for
 sheet's chips, the detail row, the badge tooltip and the notification body all
 read it, and a second switch anywhere would be a second answer.
 
+**Which sound an alarm plays (2026-09-21).** `EventAlert.sound` and the
+`alert_sound` setting hold one of four things, and `AlertSound`
+(`lib/models/alert_sound.dart`) is the **one** place that knows how to read
+them: `null` on an alert = follow the setting; `''` = the bundled ANTA sound
+(on an alert, *regardless* of the setting — the column is nullable, so "defer"
+and "the ANTA sound" are two answers and no fourth literal was needed);
+`system:default` = the phone's **current** default alarm sound, stored as the
+literal rather than as the default URI so it keeps following the Clock app;
+and a `content://` URI picked out of the phone. The `AlertSoundSheet` chooser
+is shared by the Sound row in `AlertEditorSheet` (alarm tier only — the
+reminder tier's channel sound was frozen by Android at creation) and by the
+Alarm sound row in Calendar settings, and it hides the phone's two options
+where `AlertGateway.supportsSystemSounds` is false. A picked sound is copied
+natively into `filesDir/alert_sounds/<sha-1 of the URI>` because a
+`content://` URI can never reach `MediaPlayer.setDataSource(String)`; a value
+this device cannot resolve — every URI after a restore from another phone —
+**degrades to the bundled sound**, never to silence and never to an
+exception, and the row says so rather than showing a URI. **Ring volume**
+follows the phone's own alarm slider (the ring is armed with no volume at
+all, which is how `alarm` says "leave the stream alone"); only a slider below
+`kAlertRingFloorVolume` is overridden. Both the sound and that volume bucket
+ride the **arm signature** recorded in `alert_registrations.backend`, which is
+what makes the diff re-arm a standing alarm whose instant never moved — see
+`docs/event-alerts-roadmap.md` §5.2 and "Ring volume".
+
 **Where it is edited.** The *Alerts* rows sit inside the editor's Time zone
 (`event_editor_sheet.dart`): one `_PickerTile` per alert, an "Add alert" chip
 that disappears at the cap, and — only while the event is one-time and carries
@@ -1641,8 +1666,10 @@ editor reports its complete alert set on `EventEditorSaved.alerts` and
 `CalendarBloc` persists it through `EventAlertService.replaceForEvent` — after
 the event upsert, before the reconcile, because the reconcile plans from the
 rows. A new event is seeded from `alert_default_timed` / `alert_default_all_day`
-(Calendar settings → Alerts; `none` means "seed nothing"), and an existing one
-from the synchronous `EventAlerts` facade.
+(Calendar settings → Alerts; `none` means "seed nothing", and **`none` is what
+both ship as since 2026-09-21** — an alert is opt-in, so a new event has none
+until the user adds one or names a default), and an existing one from the
+synchronous `EventAlerts` facade.
 
 **Where it shows.** A 14 dp badge beside the title on day-panel and agenda rows
 (`EventAlertBadges`) — `alarm_rounded` in `primary`, `notifications_active_rounded`

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/event_alerts.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/event_alert.dart';
@@ -35,6 +36,7 @@ void main() {
     EventAlert initial = alert,
     bool allDay = false,
     bool canRemove = true,
+    bool showSound = true,
     bool showRemoveAfter = false,
     bool removeAfterAlert = false,
   }) async {
@@ -53,6 +55,7 @@ void main() {
                   alert: initial,
                   event: eventOf(allDay: allDay),
                   canRemove: canRemove,
+                  showSound: showSound,
                   showRemoveAfter: showRemoveAfter,
                   removeAfterAlert: removeAfterAlert,
                 );
@@ -98,6 +101,17 @@ void main() {
     expect(draft.offsetMinutes, 15);
     expect(draft.daysBefore, 1);
     expect(draft.dayMinute, 480);
+  });
+
+  test('a draft with no settings default still opens on a useful offset', () {
+    // The app ships with no default, so this is the draft "Add alert" opens
+    // on for most people: ten minutes before, not "at start".
+    final draft = AlertEditorSheet.draft(eventId: 'e1', allDay: false);
+
+    expect(draft.mode, AlertMode.notify);
+    expect(draft.offsetMinutes, kDraftAlertOffsetMinutes);
+    expect(draft.daysBefore, 0);
+    expect(draft.dayMinute, isNull);
   });
 
   testWidgets('a timed chip is what Save reports', (tester) async {
@@ -220,6 +234,55 @@ void main() {
 
     expect(find.text('Minutes'), findsOneWidget);
     expect(find.text('7 min before'), findsOneWidget);
+  });
+
+  testWidgets('the Sound row belongs to the alarm tier alone', (tester) async {
+    // A reminder plays through a notification channel whose sound Android
+    // froze when the channel was created, so a control there would be a
+    // promise nothing keeps.
+    await openSheet(tester);
+    expect(find.text('Alarm sound'), findsNothing);
+
+    await tester.tap(find.text('Alarm'));
+    await tester.pumpAndSettle();
+    expect(find.text('Alarm sound'), findsOneWidget);
+    // With nothing chosen the row defers, and says so rather than naming a
+    // sound the app setting might not be on.
+    expect(find.text('Use the app setting'), findsOneWidget);
+  });
+
+  testWidgets('the sound rides Save untouched, tier flip included', (
+    tester,
+  ) async {
+    // Both offset sets survive a tier flip; so does the sound, for the same
+    // reason — the row hides, the value does not disappear.
+    final result = await openSheet(
+      tester,
+      initial: alert.copyWith(mode: AlertMode.ring, sound: 'system:default'),
+    );
+
+    expect(find.text("Phone's default alarm"), findsOneWidget);
+    await tester.tap(find.text('Reminder'));
+    await tester.pumpAndSettle();
+    await save(tester);
+
+    final saved = result.value as AlertEditorSaved;
+    expect(saved.alert.mode, AlertMode.notify);
+    expect(saved.alert.sound, 'system:default');
+  });
+
+  testWidgets('the settings defaults are offered no sound at all', (
+    tester,
+  ) async {
+    // `alert_default_timed` encodes a tier and an offset and nothing else, so
+    // a sound picked here would be discarded on Save.
+    await openSheet(
+      tester,
+      initial: alert.copyWith(mode: AlertMode.ring),
+      showSound: false,
+    );
+
+    expect(find.text('Alarm sound'), findsNothing);
   });
 
   testWidgets('closing the sheet decides nothing', (tester) async {

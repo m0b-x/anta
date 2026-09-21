@@ -5084,6 +5084,35 @@ class AppLocalizationsEn extends AppLocalizations {
   String get alertsDefaultNone => 'No alert';
 
   @override
+  String get alertsSound => 'Alarm sound';
+
+  @override
+  String get alertsSoundDesc =>
+      'What an alarm plays when its alert names no sound';
+
+  @override
+  String get alertSoundUseAppSetting => 'Use the app setting';
+
+  @override
+  String get alertSoundBundled => 'ANTA sound';
+
+  @override
+  String get alertSoundPhoneDefault => 'Phone\'s default alarm';
+
+  @override
+  String get alertSoundChooseFromPhone => 'Choose from phone';
+
+  @override
+  String get alertSoundFromPhone => 'Sound from phone';
+
+  @override
+  String get alertSoundUnavailable =>
+      'Not on this phone — plays the ANTA sound';
+
+  @override
+  String get alertSoundPickerUnavailable => 'This phone has no sound picker';
+
+  @override
   String get alertsTitle => 'Alerts';
 
   @override

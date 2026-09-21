@@ -24,8 +24,9 @@ import '../database/support/db_test_support.dart';
 /// The editor is a **draft** surface for alerts exactly as it is for skips:
 /// nothing is written, the set rides the result, and the page dispatches it.
 ///
-/// What the UI cannot show you, and what this pins: a new event is seeded from
-/// the settings default and an existing one from the facade; the remove switch
+/// What the UI cannot show you, and what this pins: a new event carries no
+/// alert unless the settings name a default to seed it from, and an existing
+/// one reads the facade; the remove switch
 /// is offered only where it can take effect — a one-time event with something
 /// that rings — and is cleared on save wherever it cannot.
 void main() {
@@ -141,9 +142,25 @@ void main() {
     return results.single as EventEditorSaved;
   }
 
+  // Alerts are opt-in: as the app ships, a new event carries none.
+  testWidgets('a new event starts with no alert as shipped', (tester) async {
+    final results = await open(tester);
+
+    expect(find.text('On the day, 09:00'), findsNothing);
+    await typeTitle(tester);
+    final saved = await saveAnd(tester, results);
+    expect(saved.alerts, isEmpty);
+  });
+
   // A brand-new event starts **all day** (`initialEvent == null` means no
   // time), so the seed it gets is the all-day default, not the timed one.
   testWidgets('a new event is seeded from the all-day default', (tester) async {
+    await (await SettingsService.getInstance()).setAlertDefaultAllDay((
+      mode: AlertMode.notify,
+      daysBefore: 0,
+      dayMinute: 9 * 60,
+    ));
+
     final results = await open(tester);
 
     expect(find.text('On the day, 09:00'), findsOneWidget);

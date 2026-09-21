@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:anta/constants/alert_constants.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/alert_payload.dart';
+import 'package:anta/models/alert_sound.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/event_alert.dart';
 import 'package:anta/models/recurrence_rule.dart';
@@ -38,6 +39,29 @@ class FakeAlertGateway implements AlertGateway {
 
   @override
   String get backendName => 'fake';
+
+  /// What this "platform" says a ring will be armed **under** — the token a
+  /// real binding reads the phone's alarm volume into. Moving it between two
+  /// passes is how a volume slider dragged across the floor is modelled.
+  String armContext = 'fake';
+
+  /// Asked once per pass, never once per fire.
+  int armContextReads = 0;
+
+  @override
+  Future<String> refreshArmContext() async {
+    armContextReads++;
+    return armContext;
+  }
+
+  @override
+  bool get supportsSystemSounds => false;
+
+  @override
+  Future<PickedAlertSound?> pickSystemSound(String? current) async => null;
+
+  @override
+  Future<String?> soundTitle(String value) async => null;
 
   /// What the "platform" currently holds, keyed by os id.
   final Map<int, AlertPayload> platform = {};
@@ -257,6 +281,81 @@ void main() {
       expect(gateway.scheduled, isEmpty);
       expect(gateway.cancelled, isEmpty);
       expect(await registrations(), hasLength(1));
+    });
+
+    test('the platform is asked once per pass what a ring is armed under', () async {
+      // Two alerts, one pass: the alarm stream is one number for the whole
+      // phone, and asking for it per fire would put a channel round trip on
+      // the diff's inner loop.
+      await seed(
+        eventAlerts: [
+          alertOf(id: 'a1'),
+          alertOf(id: 'a2', offsetMinutes: 30),
+        ],
+      );
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+      expect(gateway.scheduled, hasLength(2));
+      expect(gateway.armContextReads, 1);
+    });
+
+    test('a moved arm context re-arms standing alarms', () async {
+      // The phone's alarm volume crossing the floor while the app was away.
+      // Nothing about the event changed and nothing dispatches, so this is the
+      // only thing that can reach an alarm already armed the old way.
+      await seed();
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final before = (await registrations()).single.osId;
+      gateway.resetCalls();
+
+      gateway.armContext = 'fake@floor';
+      await scheduler.reconcileAll(AlertReconcileReason.resumed);
+
+      expect(gateway.scheduled, hasLength(1));
+      final row = (await registrations()).single;
+      expect(row.osId, before, reason: 're-armed in place, not re-issued');
+      expect(row.backend, 'fake@floor');
+
+      // And settles again: the third pass has nothing left to do.
+      gateway.resetCalls();
+      await scheduler.reconcileAll(AlertReconcileReason.resumed);
+      expect(gateway.scheduled, isEmpty);
+    });
+
+    test('a changed alarm sound re-arms without anything dispatching', () async {
+      await seed();
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      gateway.resetCalls();
+
+      // What the Calendar settings row writes. The event is untouched, so the
+      // fast path is all that stands between the user's choice and an alarm
+      // that still rings the old sound.
+      await (await SettingsService.getInstance())
+          .setAlertSound('system:default');
+      await scheduler.reconcileAll(AlertReconcileReason.eventChanged);
+
+      expect(gateway.scheduled, hasLength(1));
+      expect(gateway.scheduled.single.sound, isA<AlertSoundSystemDefault>());
+      expect((await registrations()).single.backend, 'fake#system:default');
+    });
+
+    test('a reminder is not re-armed by a sound it cannot play', () async {
+      // The reminder tier plays through a notification channel whose sound
+      // Android froze at creation, so the setting can never change what one
+      // does — and re-arming it would be work for nothing.
+      await seed(eventAlerts: [alertOf(mode: AlertMode.notify)]);
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      gateway.resetCalls();
+
+      await (await SettingsService.getInstance())
+          .setAlertSound('system:default');
+      await scheduler.reconcileAll(AlertReconcileReason.resumed);
+
+      expect(gateway.scheduled, isEmpty);
+      expect((await registrations()).single.backend, 'fake');
     });
 
     test('the os id survives a scheduler rebuilt from scratch', () async {

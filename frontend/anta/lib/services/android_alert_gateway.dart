@@ -16,6 +16,7 @@ import '../constants/settings_keys.dart';
 import '../database/database.dart';
 import '../l10n/app_localizations.dart';
 import '../models/alert_payload.dart';
+import '../models/alert_sound.dart';
 import '../utils/alert_os_id.dart';
 import '../utils/alert_planner.dart';
 import 'alert_gateway.dart';
@@ -53,6 +54,38 @@ const String kAlertSmallIcon = 'ic_alert';
 /// The bundled alarm sound. The `alarm` package plays Flutter assets rather
 /// than `res/raw`, which is why it is declared under `flutter: assets:`.
 const String kDefaultAlarmAsset = 'assets/alerts/default_alarm.wav';
+
+/// The error code `MainActivity` answers `pickAlarmSound` with when the device
+/// has no ringtone picker activity at all (`ActivityNotFoundException`).
+///
+/// A literal on both sides of a platform channel, like the two action ids.
+const String kAlertSoundNoPickerCode = 'no_picker';
+
+/// The `assetAudioPath` one already-resolved sound is armed under.
+///
+/// Pure, and the whole of the sound decision the platform ever sees — which is
+/// why it is a function rather than three branches inside a `try`. Three
+/// answers, and the third is the one that matters:
+///
+/// - [AlertSoundSystemDefault] arms with **null**, because that is how the
+///   `alarm` package says "play the device's default alarm sound"; storing the
+///   default's URI instead would freeze today's choice and stop following the
+///   Clock app.
+/// - [AlertSoundUri] arms with the local file the URI was copied into. A
+///   `content://` URI cannot be handed to the plugin at all — it ends up in
+///   `MediaPlayer.setDataSource(String)`, which wants a path — so the copy is
+///   not an optimisation, it is the only way this value can ring.
+/// - **Everything else, and every failed copy, arms the bundled asset.** That
+///   is the cross-device degrade rule: a sound another phone picked is a media
+///   id this phone's provider never heard of, and the answer to that is the one
+///   sound every install has, never silence.
+String? alarmAssetPathFor(AlertSound sound, {String? resolvedPath}) {
+  return switch (sound) {
+    AlertSoundSystemDefault() => null,
+    AlertSoundUri() => resolvedPath ?? kDefaultAlarmAsset,
+    _ => kDefaultAlarmAsset,
+  };
+}
 
 /// Action ids carried on a reminder notification. Matched in the background
 /// isolate, so they are plain literals on both sides of a process boundary.
@@ -256,6 +289,16 @@ class AndroidAlertGateway extends AlertGateway {
   /// once in a phone's life.
   String? _languageCode;
 
+  /// How loud the next ring this binding arms will be, re-read once per pass by
+  /// [refreshArmContext].
+  ///
+  /// A field rather than a read per fire: the alarm stream is one number for
+  /// the whole phone, and asking the platform 48 times per reconcile for it
+  /// would put a channel round trip on the diff's inner loop. It starts at
+  /// [AlertRingVolume.follow] so a `schedule` that somehow arrives before a
+  /// pass leaves the user's volume alone — the safe half of the choice.
+  AlertRingVolume _ringVolume = AlertRingVolume.follow;
+
   static const MethodChannel _platform = MethodChannel(
     'com.alexzamfir.anta/alerts',
   );
@@ -266,6 +309,9 @@ class AndroidAlertGateway extends AlertGateway {
 
   @override
   bool get tracksPending => true;
+
+  @override
+  bool get supportsSystemSounds => true;
 
   AppLocalizations get _l10n => alertGatewayStrings(_languageCode);
 
@@ -485,6 +531,82 @@ class AndroidAlertGateway extends AlertGateway {
     }
   }
 
+  // ── Sounds ───────────────────────────────────────────────────────────
+
+  @override
+  Future<PickedAlertSound?> pickSystemSound(String? current) async {
+    try {
+      final picked = await _platform.invokeMapMethod<String, Object?>(
+        'pickAlarmSound',
+        current,
+      );
+      // Null is a cancelled picker, which is a decision the user made and not
+      // a failure — the sheet simply stays where it was.
+      if (picked == null) return null;
+      final value = picked['value'];
+      if (value is! String || value.isEmpty) return null;
+      final title = picked['title'];
+      return (value: value, title: title is String ? title : null);
+    } on PlatformException catch (e) {
+      if (e.code == kAlertSoundNoPickerCode) {
+        throw const AlertSoundPickerUnavailable();
+      }
+      debugPrint('[AndroidAlertGateway] pickAlarmSound refused: ${e.code}');
+      return null;
+    } catch (e) {
+      debugPrint('[AndroidAlertGateway] pickAlarmSound failed: $e');
+      return null;
+    }
+  }
+
+  @override
+  Future<String?> soundTitle(String value) async {
+    try {
+      return await _platform.invokeMethod<String>('alarmSoundTitle', value);
+    } catch (e) {
+      debugPrint('[AndroidAlertGateway] alarmSoundTitle failed: $e');
+      return null;
+    }
+  }
+
+  /// The local file a picked sound has been copied into, or null when this
+  /// device cannot open it — a URI from another phone, a revoked permission, a
+  /// provider that is simply gone.
+  ///
+  /// The copy happens natively and off the main thread; asking twice for the
+  /// same URI is cheap, because the second call finds the file already there.
+  Future<String?> _resolvePickedSound(String uri) async {
+    try {
+      return await _platform.invokeMethod<String>('resolveAlarmSound', uri);
+    } catch (e) {
+      debugPrint('[AndroidAlertGateway] resolveAlarmSound failed: $e');
+      return null;
+    }
+  }
+
+  /// The phone's alarm-stream level as a 0..1 fraction, or null when it could
+  /// not be read.
+  Future<double?> _alarmStreamVolume() async {
+    try {
+      return await _platform.invokeMethod<double>('alarmStreamVolume');
+    } catch (e) {
+      debugPrint('[AndroidAlertGateway] alarmStreamVolume failed: $e');
+      return null;
+    }
+  }
+
+  @override
+  Future<String> refreshArmContext() async {
+    _ringVolume = alertRingVolumeFor(await _alarmStreamVolume());
+    // `follow` is spelled as the bare backend name on purpose: it is the
+    // everyday answer, so the registry keeps the token it has always held and
+    // an upgrade — or a phone whose volume never went near the floor — re-arms
+    // nothing at all.
+    return _ringVolume == AlertRingVolume.follow
+        ? backendName
+        : '$backendName@${_ringVolume.name}';
+  }
+
   // ── Scheduling ───────────────────────────────────────────────────────
 
   @override
@@ -498,12 +620,21 @@ class AndroidAlertGateway extends AlertGateway {
 
   Future<bool> _scheduleAlarm(PlannedFire fire, AlertPayload payload) async {
     final l10n = _l10n;
+    // Resolved before `Alarm.set` and never allowed to stop it: a sound that
+    // could not be copied is a ring with the bundled sound, not a missing ring.
+    final sound = fire.sound;
+    final assetAudioPath = alarmAssetPathFor(
+      sound,
+      resolvedPath: sound is AlertSoundUri
+          ? await _resolvePickedSound(sound.uri)
+          : null,
+    );
     try {
       return await Alarm.set(
         alarmSettings: AlarmSettings(
           id: payload.osId,
           dateTime: fire.fireAt,
-          assetAudioPath: fire.alert.sound ?? kDefaultAlarmAsset,
+          assetAudioPath: assetAudioPath,
           loopAudio: true,
           vibrate: true,
           androidFullScreenIntent: true,
@@ -525,9 +656,19 @@ class AndroidAlertGateway extends AlertGateway {
           // idea of "still worth ringing" and the plugin's cannot drift.
           androidStaleAfter: kLateFireGrace,
           payload: payload.encode(),
+          // **Null volume follows the phone.** `AlarmService` only calls its
+          // `VolumeService.setVolume` when a volume is named, so a null one
+          // never touches `AudioManager` and the ring plays at whatever the
+          // alarm stream is set to — the user's own slider, which an alarm app
+          // has no business overriding. The floor is the one exception
+          // ([AlertRingVolume]), for a slider left near zero. The fade is
+          // applied to the plugin's own `MediaPlayer`, not to the stream, so it
+          // survives either answer.
           volumeSettings: VolumeSettings.fade(
             fadeDuration: kAlertRingFade,
-            volume: kAlertRingVolume,
+            volume: _ringVolume == AlertRingVolume.floor
+                ? kAlertRingFloorVolume
+                : null,
           ),
           notificationSettings: NotificationSettings(
             title: payload.isTest ? l10n.alertsTestAlarm : payload.title,
