@@ -112,14 +112,54 @@ const int kAlertOsIdMask = 0x7fffffff;
 /// termination guard rather than a capacity.
 const int kAlertOsIdMaxProbes = 64;
 
-/// The alarm-stream level a ring is played at, 0..1, **overriding** whatever
-/// the phone's alarm volume was set to for the duration of the ring (the
-/// `alarm` package restores it afterwards). Enforced so a slider left at zero
-/// cannot silence an alarm; short of the ceiling so it is loud, not painful.
-const double kAlertRingVolume = 0.8;
+/// The lowest alarm-stream level a ring may start from, 0..1.
+///
+/// **A floor, not a level (2026-09-21).** A ring used to be armed at a flat
+/// 0.8, which overrode the phone's own alarm slider for the duration of every
+/// ring — an alarm app deciding it knows better than the user's volume key.
+/// Alarms now *follow* the stream (the `alarm` package leaves it alone when it
+/// is handed no volume at all), and this is the single case that still takes
+/// it over: a slider left at or near zero would otherwise be an alarm that
+/// silently does not wake anyone.
+const double kAlertRingFloorVolume = 0.3;
 
-/// How long a ring takes to reach [kAlertRingVolume]. A fade rather than a
-/// jump, because the first second of an alarm is heard at arm's length.
+/// How loud one ring will be armed — the only two answers, and the only thing
+/// about the phone's volume the registry remembers.
+///
+/// A **bucket**, never the raw fraction: the decision is made when the alarm is
+/// armed, which may be days before it rings, so it has to be re-taken whenever
+/// the app reconciles. Recording the fraction would re-arm the whole horizon on
+/// every nudge of the volume key; recording which side of [kAlertRingFloorVolume]
+/// it fell on re-arms only when that actually changes what the phone will do.
+enum AlertRingVolume {
+  /// Hand the plugin no volume: the ring plays at whatever the alarm stream is
+  /// set to when it fires, and nothing is restored afterwards because nothing
+  /// was changed.
+  follow,
+
+  /// Arm at [kAlertRingFloorVolume]. The `alarm` package raises the stream for
+  /// the length of the ring and puts it back after.
+  floor,
+}
+
+/// Which of the two [AlertRingVolume] answers a measured alarm-stream level
+/// earns. **Pure**, and the one definition of "too quiet to wake anyone".
+///
+/// [fraction] is the stream's current level over its maximum, or `null` when
+/// the platform could not be asked — which follows the phone, because refusing
+/// to arm an alarm over a volume query is far worse than arming a quiet one.
+AlertRingVolume alertRingVolumeFor(double? fraction) {
+  if (fraction == null) return AlertRingVolume.follow;
+  return fraction < kAlertRingFloorVolume
+      ? AlertRingVolume.floor
+      : AlertRingVolume.follow;
+}
+
+/// How long a ring takes to fade up to full. Applied by the `alarm` package to
+/// its own media player, **not** to the stream, so it is independent of
+/// [AlertRingVolume] and still works when the level is the phone's own. A fade
+/// rather than a jump, because the first second of an alarm is heard at arm's
+/// length.
 const Duration kAlertRingFade = Duration(seconds: 3);
 
 /// Keeps "Missed" notice ids out of the registration id space.

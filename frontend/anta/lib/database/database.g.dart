@@ -11505,7 +11505,14 @@ class AlertRegistrationRow extends DataClass
   /// `pending` | `fired` | `stopped` | `cancelled`.
   final String state;
 
-  /// Which gateway backend holds it — `alarm` | `notification`.
+  /// The **arm signature** this entry was scheduled under — the gateway
+  /// backend that holds it (`alarm` | `notification`) plus whatever else about
+  /// the ring the instant does not describe: the phone's volume bucket, and the
+  /// alarm's effective sound when it has one. Written and compared as one
+  /// opaque token by `alertArmSignature`, which is what re-arms an entry whose
+  /// fire instant never moved. Free-form on purpose — this table is
+  /// device-local and rebuilt by any reconcile, so an older row's shorter
+  /// spelling simply re-arms once.
   final String backend;
   final DateTime createdAt;
   final DateTime updatedAt;

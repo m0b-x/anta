@@ -17,6 +17,7 @@ import 'package:anta/models/event_alert.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/widgets/agenda_day_list_sheet.dart';
 import 'package:anta/widgets/alert_editor_sheet.dart';
+import 'package:anta/widgets/alert_sound_sheet.dart';
 import 'package:anta/widgets/calendar_date_picker_sheet.dart';
 import 'package:anta/widgets/category_editor_sheet.dart';
 import 'package:anta/widgets/color_palette_sheet.dart';
@@ -434,6 +435,20 @@ void main() {
 
     // The footer's Remove button is the last thing in the scroll view, and it
     // is exactly what a nav bar eats.
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+  });
+
+  testWidgets('the alarm sound sheet clears the navigation bar', (
+    tester,
+  ) async {
+    // Short enough that it never scrolls, which is exactly the shape that
+    // forgets the clearance: the last radio row sits on the bottom edge.
+    sizeSurfaceWithNavBar(tester);
+    await openFrom(
+      tester,
+      (context) => AlertSoundSheet.show(context, value: '', allowInherit: true),
+    );
+
     expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
   });
 

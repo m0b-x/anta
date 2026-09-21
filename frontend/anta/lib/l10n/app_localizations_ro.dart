@@ -5177,6 +5177,36 @@ class AppLocalizationsRo extends AppLocalizations {
   String get alertsDefaultNone => 'Fără alertă';
 
   @override
+  String get alertsSound => 'Sunet alarmă';
+
+  @override
+  String get alertsSoundDesc =>
+      'Ce sună o alarmă când alerta nu indică niciun sunet';
+
+  @override
+  String get alertSoundUseAppSetting => 'Folosește setarea aplicației';
+
+  @override
+  String get alertSoundBundled => 'Sunet ANTA';
+
+  @override
+  String get alertSoundPhoneDefault => 'Alarma implicită a telefonului';
+
+  @override
+  String get alertSoundChooseFromPhone => 'Alege din telefon';
+
+  @override
+  String get alertSoundFromPhone => 'Sunet din telefon';
+
+  @override
+  String get alertSoundUnavailable =>
+      'Indisponibil pe acest telefon – sună sunetul ANTA';
+
+  @override
+  String get alertSoundPickerUnavailable =>
+      'Acest telefon nu are selector de sunete';
+
+  @override
   String get alertsTitle => 'Alerte';
 
   @override

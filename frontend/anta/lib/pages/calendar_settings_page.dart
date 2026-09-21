@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get_it/get_it.dart';
@@ -10,6 +12,7 @@ import '../constants/public_holidays.dart';
 import '../constants/settings_keys.dart';
 import '../l10n/app_localizations.dart';
 import '../constants/calendar_icons.dart';
+import '../models/alert_sound.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../models/event_alert.dart';
@@ -17,9 +20,11 @@ import '../models/fasting_appearance.dart';
 import '../models/fasting_schedule.dart';
 import '../models/recurrence_rule.dart';
 import '../widgets/alert_editor_sheet.dart';
+import '../widgets/alert_sound_sheet.dart';
 import '../widgets/fasting_schedule_sheet.dart';
 import '../widgets/fasting_style_sheet.dart';
 import '../constants/semantics_ids.dart';
+import '../services/alert_gateway.dart';
 import '../services/alert_scheduler.dart';
 import '../services/app_navigator.dart';
 import '../services/calendar_event_service.dart';
@@ -84,6 +89,15 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
   TimedAlertDefault? _timedAlertDefault;
   AllDayAlertDefault? _allDayAlertDefault;
 
+  /// Which sound an alarm plays when its own alert names none. `''` is the
+  /// bundled one — the setting has no "unset", unlike an alert.
+  String _alertSound = SettingsKeys.defaultAlertSound;
+
+  /// The phone's name for [_alertSound] when it is a picked one, resolved off
+  /// the first frame so the row never waits on a platform round trip.
+  String? _alertSoundTitle;
+  bool _alertSoundTitleResolved = false;
+
   Set<FastingTradition> _fastingTraditions = const {};
   FastingAppearance _fastingAppearance = const FastingAppearance();
   bool _fastingGreatFasts = true;
@@ -137,12 +151,55 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
       _silenceAfterMinutes = alerts.silenceAfterMinutes;
       _timedAlertDefault = alerts.timedDefault;
       _allDayAlertDefault = alerts.allDayDefault;
+      _alertSound = alerts.sound;
       _fastingTraditions = fastingTraditions;
       _fastingAppearance = fastingAppearance;
       _fastingGreatFasts = fastingGreatFasts;
       _fastingSchedule = fastingSchedule;
       _isLoading = false;
     });
+    unawaited(_resolveAlertSoundTitle());
+  }
+
+  /// Asks the phone what it calls the stored sound, once per load. Best-effort
+  /// and unawaited: a build with no gateway simply never answers and the row
+  /// keeps its neutral name.
+  Future<void> _resolveAlertSoundTitle() async {
+    if (AlertSound.decode(_alertSound) is! AlertSoundUri) return;
+    if (!GetIt.I.isRegistered<AlertGateway>()) return;
+    final title = await GetIt.I<AlertGateway>().soundTitle(_alertSound);
+    if (!mounted) return;
+    setState(() {
+      _alertSoundTitle = title;
+      _alertSoundTitleResolved = true;
+    });
+  }
+
+  /// Writes the app-wide alarm sound and makes the phone catch up.
+  ///
+  /// The reconcile is the point: nothing about any event changed, so no bloc
+  /// dispatches and nothing else would ever re-arm the alarms already standing
+  /// on the old sound. The pass re-arms exactly the registrations whose arm
+  /// signature moved and leaves every other one on its fast path.
+  Future<void> _editAlertSound() async {
+    _onHapticFeedback();
+    final l10n = AppLocalizations.of(context)!;
+    final result = await AlertSoundSheet.show(context, value: _alertSound);
+    if (result == null || !mounted) return;
+    switch (result) {
+      case AlertSoundPickerMissing():
+        CustomSnackbar.showError(context, l10n.alertSoundPickerUnavailable);
+      case AlertSoundPicked(:final value, :final title):
+        setState(() {
+          _alertSound = value ?? SettingsKeys.defaultAlertSound;
+          _alertSoundTitle = title;
+          _alertSoundTitleResolved = title != null;
+        });
+        await _settings?.setAlertSound(_alertSound);
+        await AlertScheduler.reconcileAllQuietly(
+          AlertReconcileReason.eventChanged,
+        );
+    }
   }
 
   PermissionService? get _permissionService =>
@@ -770,6 +827,30 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
           ),
         ),
         SettingsEntry(
+          title: l10n.alertsSound,
+          description: l10n.alertsSoundDesc,
+          keywords: [
+            l10n.alertSoundBundled,
+            l10n.alertSoundPhoneDefault,
+            l10n.eventAlertModeRing,
+          ],
+          builder: (context, title, description) => ListTile(
+            leading: Icon(Icons.music_note_rounded, color: colorScheme.primary),
+            title: title,
+            subtitle: description,
+            trailing: Text(
+              AlertSoundSheet.labelFor(
+                l10n,
+                _alertSound,
+                title: _alertSoundTitle,
+                titleResolved: _alertSoundTitleResolved,
+              ),
+              style: TextStyle(color: colorScheme.onSurfaceVariant),
+            ),
+            onTap: _editAlertSound,
+          ),
+        ),
+        SettingsEntry(
           title: l10n.alertsSnoozeLength,
           description: l10n.alertsSnoozeLengthDesc(_snoozeMinutes),
           builder: (context, title, description) => SliderSettingRow(
@@ -940,6 +1021,9 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
           _defaultAlert(allDay: allDay) ??
           AlertEditorSheet.draft(eventId: '', allDay: allDay),
       event: sample,
+      // A default encodes a tier and an offset, nothing else — and the Alarm
+      // sound row below this one is where the sound actually lives.
+      showSound: false,
     );
     if (result == null || !mounted) return;
     switch (result) {
@@ -1059,12 +1143,13 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     await _settings?.setAlertSilenceAfterMinutes(
       SettingsKeys.defaultAlertSilenceAfterMinutes,
     );
-    // The two defaults go back to what the app ships with, not to "none":
-    // reset restores the stock behaviour, and the stock behaviour is that a
-    // new timed event reminds you ten minutes before.
+    // The two defaults go back to what the app ships with, read through the
+    // decoder rather than spelled here — and the stock behaviour is that a
+    // new event carries no alert until the user adds one.
     final shipped = SettingsService.shippedAlertSettings;
     await _settings?.setAlertDefaultTimed(shipped.timedDefault);
     await _settings?.setAlertDefaultAllDay(shipped.allDayDefault);
+    await _settings?.setAlertSound(shipped.sound);
     // The page resets to how it ships, and it ships open — leaving a section
     // folded after a reset hides rows the user just asked to see restored.
     await _settings?.setCalendarSettingsCollapsedSections(const {});
@@ -1096,8 +1181,14 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
       _silenceAfterMinutes = SettingsKeys.defaultAlertSilenceAfterMinutes;
       _timedAlertDefault = shipped.timedDefault;
       _allDayAlertDefault = shipped.allDayDefault;
+      _alertSound = shipped.sound;
+      _alertSoundTitle = null;
+      _alertSoundTitleResolved = false;
       _collapsedSections = const {};
     });
+    // A reset can move the sound off a picked one, so the standing alarms owe
+    // the same catch-up an ordinary edit gets.
+    await AlertScheduler.reconcileAllQuietly(AlertReconcileReason.eventChanged);
 
     if (!mounted) return;
     CustomSnackbar.showSuccess(

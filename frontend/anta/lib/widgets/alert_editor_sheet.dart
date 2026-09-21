@@ -5,11 +5,15 @@ import 'package:uuid/uuid.dart';
 import '../constants/event_alerts.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
+import '../models/alert_sound.dart';
 import '../models/app_permission.dart';
 import '../models/calendar_event.dart';
 import '../models/event_alert.dart';
+import '../services/alert_gateway.dart';
 import '../services/event_time_formatter.dart';
 import '../services/permission_service.dart';
+import '../utils/custom_snackbar.dart';
+import 'alert_sound_sheet.dart';
 import 'automation_id.dart';
 
 /// What the sheet reports back. `null` from [AlertEditorSheet.show] means the
@@ -75,6 +79,14 @@ class AlertEditorSheet extends StatefulWidget {
   /// true everywhere an alert actually exists on an event.
   final bool canRemove;
 
+  /// Whether the Sound row is offered at all.
+  ///
+  /// False for the Calendar-settings defaults: `alert_default_timed` encodes a
+  /// tier and an offset and nothing else, so a sound chosen there would be
+  /// discarded on save — and the Alarm sound row two lines below it on the same
+  /// page is the control that actually means something.
+  final bool showSound;
+
   /// Whether the **event-level** remove-after-it-rings switch is offered here.
   /// Only for a one-time event, and only while the alert is an alarm — the
   /// same rule the event editor's own copy of the switch follows.
@@ -87,6 +99,7 @@ class AlertEditorSheet extends StatefulWidget {
     required this.alert,
     required this.event,
     this.canRemove = true,
+    this.showSound = true,
     this.showRemoveAfter = false,
     this.removeAfterAlert = false,
   });
@@ -96,6 +109,7 @@ class AlertEditorSheet extends StatefulWidget {
     required EventAlert alert,
     required CalendarEvent event,
     bool canRemove = true,
+    bool showSound = true,
     bool showRemoveAfter = false,
     bool removeAfterAlert = false,
   }) {
@@ -109,6 +123,7 @@ class AlertEditorSheet extends StatefulWidget {
           alert: alert,
           event: event,
           canRemove: canRemove,
+          showSound: showSound,
           showRemoveAfter: showRemoveAfter,
           removeAfterAlert: removeAfterAlert,
         ),
@@ -144,7 +159,7 @@ class AlertEditorSheet extends StatefulWidget {
       id: const Uuid().v4(),
       eventId: eventId,
       mode: timedDefault?.mode ?? AlertMode.notify,
-      offsetMinutes: timedDefault?.offsetMinutes ?? 0,
+      offsetMinutes: timedDefault?.offsetMinutes ?? kDraftAlertOffsetMinutes,
       daysBefore: allDayDefault?.daysBefore ?? 0,
       dayMinute: allDayDefault?.dayMinute,
     );
@@ -186,6 +201,16 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
   late int? _dayMinute;
   late bool _removeAfter;
 
+  /// The alert's own sound, `null` for "follow the app setting". Kept across a
+  /// flip to the reminder tier exactly as both offset sets are: the row hides,
+  /// the value survives, and switching back restores the reading it had.
+  late String? _sound;
+
+  /// The phone's name for [_sound] when it is a picked one, and whether the
+  /// phone has answered. Fetched off the first frame, never during it.
+  String? _soundTitle;
+  bool _soundTitleResolved = false;
+
   /// Whether the free-form row is open. Sticky once opened, so a value that
   /// happens to land on a preset does not fold the row away mid-edit.
   late bool _customOpen;
@@ -207,6 +232,7 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
     _offsetMinutes = alert.offsetMinutes;
     _daysBefore = alert.daysBefore;
     _dayMinute = alert.dayMinute;
+    _sound = alert.sound;
     _removeAfter = widget.removeAfterAlert;
     _customOpen = _allDay
         ? !_allDayPresets.contains(_daysBefore)
@@ -215,7 +241,52 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
     _customUnit = _allDay ? _OffsetUnit.days : unit;
     _customValue = _customValueFor(_customUnit);
     _resolvePermissions();
+    _resolveSoundTitle();
   }
+
+  /// Asks the phone what it calls the picked sound this alert holds, once.
+  ///
+  /// Best-effort and deliberately not awaited by anything: the row renders its
+  /// neutral name on the first frame and swaps in the phone's own when it
+  /// arrives, so a slow platform costs a word, never a layout.
+  Future<void> _resolveSoundTitle() async {
+    final value = _sound;
+    if (value == null || AlertSound.decode(value) is! AlertSoundUri) return;
+    if (!GetIt.I.isRegistered<AlertGateway>()) return;
+    final title = await GetIt.I<AlertGateway>().soundTitle(value);
+    if (!mounted) return;
+    setState(() {
+      _soundTitle = title;
+      _soundTitleResolved = true;
+    });
+  }
+
+  /// Opens the shared chooser. The picker-missing case is reported by the sheet
+  /// rather than shown inside it, so the snackbar is raised here — after the
+  /// modal route is gone and the `Scaffold` that hosts it is on top again.
+  Future<void> _pickSound() async {
+    final result = await AlertSoundSheet.show(
+      context,
+      value: _sound,
+      allowInherit: true,
+    );
+    if (result == null || !mounted) return;
+    switch (result) {
+      case AlertSoundPickerMissing():
+        CustomSnackbar.showError(context, _l10nOf.alertSoundPickerUnavailable);
+      case AlertSoundPicked(:final value, :final title):
+        setState(() {
+          _sound = value;
+          _soundTitle = title;
+          // A freshly picked sound the picker did not name is still a sound
+          // this device has; only a stored one it cannot resolve is
+          // "unavailable", so the answered flag follows the title.
+          _soundTitleResolved = title != null;
+        });
+    }
+  }
+
+  AppLocalizations get _l10nOf => AppLocalizations.of(context)!;
 
   /// Asks once whether full-screen alarms are allowed, so the alarm hint can
   /// say what will actually happen. Best-effort: a build with no permission
@@ -293,6 +364,8 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
     daysBefore: _daysBefore,
     dayMinute: _dayMinute,
     clearDayMinute: _dayMinute == null,
+    sound: _sound,
+    clearSound: _sound == null,
   );
 
   void _save() {
@@ -460,6 +533,32 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
                       subtitle: Text(l10n.eventAlertTimeOfDay),
                       trailing: const Icon(Icons.chevron_right_rounded),
                       onTap: _pickDayMinute,
+                    ),
+                  ),
+                ],
+                // Alarm tier only: the reminder tier plays through a
+                // notification channel whose sound Android froze at creation,
+                // so offering a choice there would be a control that does
+                // nothing.
+                if (isAlarm && widget.showSound) ...[
+                  const SizedBox(height: 16),
+                  Card(
+                    margin: EdgeInsets.zero,
+                    child: ListTile(
+                      leading: const CircleAvatar(
+                        child: Icon(Icons.music_note_rounded),
+                      ),
+                      title: Text(l10n.alertsSound),
+                      subtitle: Text(
+                        AlertSoundSheet.labelFor(
+                          l10n,
+                          _sound,
+                          title: _soundTitle,
+                          titleResolved: _soundTitleResolved,
+                        ),
+                      ),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: _pickSound,
                     ),
                   ),
                 ],

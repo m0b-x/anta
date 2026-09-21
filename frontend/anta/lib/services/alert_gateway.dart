@@ -41,6 +41,26 @@ enum AlertRingEndCause {
 /// One ring that ended outside the app, with the payload it rang under.
 typedef AlertRingEnd = ({AlertPayload payload, AlertRingEndCause cause});
 
+/// One sound as the platform's own picker reported it — the value to store,
+/// plus the name to show while it is stored.
+///
+/// The title rides along so the row that opened the picker can say what was
+/// chosen without a second round trip; it is never persisted, because a phone's
+/// name for a sound is the phone's to change.
+typedef PickedAlertSound = ({String value, String? title});
+
+/// The device has no ringtone picker at all.
+///
+/// Distinguished from a cancelled pick — which is simply `null` — because the
+/// two mean opposite things to the user: one is a choice, the other is a
+/// capability the phone does not have, and only the second is worth a message.
+class AlertSoundPickerUnavailable implements Exception {
+  const AlertSoundPickerUnavailable();
+
+  @override
+  String toString() => 'AlertSoundPickerUnavailable';
+}
+
 /// The one seam between the app and the two alarm plugins.
 ///
 /// Everything above this — planner, scheduler, pages — is plugin-free, which
@@ -78,6 +98,46 @@ abstract class AlertGateway {
   /// flight either — without this a resume reconcile two seconds into the
   /// ring would find an entry nobody planned and silence it.
   Set<int> get ringingIds => const {};
+
+  /// Whether this platform can offer the phone's **own** alarm sounds — its
+  /// current default, and a picker over the ones it has.
+  ///
+  /// False everywhere but Android today, and it is what hides those two
+  /// choices rather than offering a button that cannot do anything. A stored
+  /// value that names one of them is still honoured as far as it can be: it
+  /// simply degrades to the bundled sound here.
+  bool get supportsSystemSounds => false;
+
+  /// Opens the platform's own sound picker, seeded with [current], and answers
+  /// what came back — `null` when the user cancelled.
+  ///
+  /// Throws [AlertSoundPickerUnavailable] when the device has no picker at all.
+  /// Every other failure answers `null`: a picker that could not be opened for
+  /// some transient reason is, from where the user is standing, a pick that did
+  /// not happen.
+  Future<PickedAlertSound?> pickSystemSound(String? current) async => null;
+
+  /// The phone's own name for a stored sound value, or `null` when this device
+  /// cannot resolve it — which is the answer a URI from another phone gets, and
+  /// what the editor turns into "not available here".
+  Future<String?> soundTitle(String value) async => null;
+
+  /// Re-reads everything a ring will be armed **under** that the platform owns
+  /// rather than the plan — today the phone's alarm volume — and returns a
+  /// short token describing it.
+  ///
+  /// Called once at the top of every pass that schedules, **before** any
+  /// [schedule], and the answer is what that whole pass arms with: a binding
+  /// may cache what it read here so the platform is asked once rather than once
+  /// per fire, and so the token recorded in the registry cannot describe
+  /// something other than what was actually armed.
+  ///
+  /// The scheduler stores it per registration and compares it on the next pass,
+  /// which is how an alarm whose instant never moved is still re-armed when the
+  /// phone's volume crosses the floor. It must therefore be **stable** — equal
+  /// inputs, equal token — and **coarse**: a token that changed with every
+  /// nudge of the volume key would re-arm the horizon every time.
+  Future<String> refreshArmContext() async => backendName;
 
   /// Hands one planned fire to the platform. Returns false when the platform
   /// refused it (a revoked exact-alarm permission, a plugin exception); the

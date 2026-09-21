@@ -8704,6 +8704,60 @@ abstract class AppLocalizations {
   /// **'No alert'**
   String get alertsDefaultNone;
 
+  /// Settings row and sound chooser title for which sound an alarm plays
+  ///
+  /// In en, this message translates to:
+  /// **'Alarm sound'**
+  String get alertsSound;
+
+  /// Description of the alarm sound settings row
+  ///
+  /// In en, this message translates to:
+  /// **'What an alarm plays when its alert names no sound'**
+  String get alertsSoundDesc;
+
+  /// Sound choice on one alert: follow the Calendar settings sound
+  ///
+  /// In en, this message translates to:
+  /// **'Use the app setting'**
+  String get alertSoundUseAppSetting;
+
+  /// Sound choice: the alarm sound shipped inside the app
+  ///
+  /// In en, this message translates to:
+  /// **'ANTA sound'**
+  String get alertSoundBundled;
+
+  /// Sound choice: whatever alarm sound the phone is set to
+  ///
+  /// In en, this message translates to:
+  /// **'Phone\'s default alarm'**
+  String get alertSoundPhoneDefault;
+
+  /// Sound choice that opens the phone's own sound picker
+  ///
+  /// In en, this message translates to:
+  /// **'Choose from phone'**
+  String get alertSoundChooseFromPhone;
+
+  /// Neutral name for a picked phone sound before its own title is known
+  ///
+  /// In en, this message translates to:
+  /// **'Sound from phone'**
+  String get alertSoundFromPhone;
+
+  /// Shown for a picked sound this device cannot resolve, e.g. after a restore from another phone
+  ///
+  /// In en, this message translates to:
+  /// **'Not on this phone — plays the ANTA sound'**
+  String get alertSoundUnavailable;
+
+  /// Snackbar shown when the system ringtone picker cannot be opened at all
+  ///
+  /// In en, this message translates to:
+  /// **'This phone has no sound picker'**
+  String get alertSoundPickerUnavailable;
+
   /// Title of the Alerts hub page and of its drawer row
   ///
   /// In en, this message translates to:

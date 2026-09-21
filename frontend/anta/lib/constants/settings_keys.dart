@@ -512,17 +512,27 @@ class SettingsKeys {
   /// What a new **timed** event's first alert is seeded with, encoded as
   /// `mode:offsetMinutes` — or the literal `none` for "no default", which
   /// starts new events with no alerts at all.
+  ///
+  /// Ships as `none` (2026-09-21): an alert is something the user goes out of
+  /// their way to add, never something an event arrives with. Seeding one is
+  /// the opt-in, made here in Calendar settings.
   static const String alertDefaultTimed = 'alert_default_timed';
-  static const String defaultAlertDefaultTimed = 'notify:10';
+  static const String defaultAlertDefaultTimed = 'none';
 
   /// The same for an **all-day** event, encoded as
-  /// `mode:daysBefore:minuteOfDay`. The default is a notification at 09:00 on
-  /// the day itself — where Apple and Google both land, and the only sensible
-  /// anchor for a day that has no time of its own.
+  /// `mode:daysBefore:minuteOfDay`. Ships as `none` for the same reason; an
+  /// all-day alert that never chose a time still anchors on
+  /// `kDefaultAlertDayMinute`.
   static const String alertDefaultAllDay = 'alert_default_all_day';
-  static const String defaultAlertDefaultAllDay = 'notify:0:540';
+  static const String defaultAlertDefaultAllDay = 'none';
 
-  /// Default alarm sound id. Empty means the built-in sound.
+  /// Which sound an alarm plays when its own alert names none.
+  ///
+  /// Read only through `AlertSound` (`lib/models/alert_sound.dart`), which is
+  /// the one place the four spellings live: `''` is the bundled ANTA sound,
+  /// `system:default` is the phone's *current* default alarm, and anything else
+  /// is a `content://` URI picked out of the phone. A value this build or this
+  /// device cannot resolve decodes to the bundled sound — never to silence.
   static const String alertSound = 'alert_sound';
   static const String defaultAlertSound = '';
 

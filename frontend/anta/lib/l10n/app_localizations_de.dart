@@ -5122,6 +5122,36 @@ class AppLocalizationsDe extends AppLocalizations {
   String get alertsDefaultNone => 'Keine Erinnerung';
 
   @override
+  String get alertsSound => 'Weckton';
+
+  @override
+  String get alertsSoundDesc =>
+      'Was ein Alarm spielt, wenn die Erinnerung keinen Ton nennt';
+
+  @override
+  String get alertSoundUseAppSetting => 'App-Einstellung verwenden';
+
+  @override
+  String get alertSoundBundled => 'ANTA-Ton';
+
+  @override
+  String get alertSoundPhoneDefault => 'Standard-Weckton des Telefons';
+
+  @override
+  String get alertSoundChooseFromPhone => 'Vom Telefon wählen';
+
+  @override
+  String get alertSoundFromPhone => 'Ton vom Telefon';
+
+  @override
+  String get alertSoundUnavailable =>
+      'Nicht auf diesem Telefon – es spielt der ANTA-Ton';
+
+  @override
+  String get alertSoundPickerUnavailable =>
+      'Dieses Telefon hat keine Tonauswahl';
+
+  @override
   String get alertsTitle => 'Erinnerungen';
 
   @override

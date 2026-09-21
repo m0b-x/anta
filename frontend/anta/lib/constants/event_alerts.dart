@@ -11,6 +11,11 @@ import '../models/event_alert.dart';
 /// only what the setting itself starts at.
 const int kDefaultAlertDayMinute = 540;
 
+/// Minutes before the start a hand-added **timed** alert opens on when the
+/// Calendar settings name no default — which is how the app ships. Only ever
+/// a draft's starting chip: nothing is seeded onto an event from it.
+const int kDraftAlertOffsetMinutes = 10;
+
 /// Ceiling on alerts per event. Google Calendar's cap, and the number the
 /// editor stops offering "Add alert" at.
 const int kMaxAlertsPerEvent = 5;

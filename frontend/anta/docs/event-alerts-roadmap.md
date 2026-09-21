@@ -99,7 +99,9 @@ EventAlert(
   offsetMinutes: int,         // >= 0, timed events: minutes before start
   daysBefore: int,            // >= 0, all-day events
   dayMinute: int?,            // all-day events: minute of day; null = settings default
-  sound: String?,             // null = default; alarm tier only
+  sound: String?,             // null = follow the app setting; '' = the ANTA
+                              // sound; 'system:default'; or a content:// URI.
+                              // Alarm tier only — see §5.2.
   enabled: bool,              // the hub switch; disabled = kept, never registered
 )
 ```
@@ -430,9 +432,19 @@ Through `SettingsService` + `SettingsKeys`, one bulk read
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `alert_default_timed` | `notify:10` | mode and offset for a new timed event's first alert; `none` = no default |
-| `alert_default_all_day` | `notify:0:540` | mode, days before, minute of day |
-| `alert_sound` | `''` | default alarm sound id |
+| `alert_default_timed` | `none` | `mode:offsetMinutes` for a new timed event's first alert; `none` = no default |
+| `alert_default_all_day` | `none` | `mode:daysBefore:minuteOfDay`; `none` = no default |
+
+**Alerts are opt-in (owner decision, 2026-09-21).** Both defaults shipped as
+`notify:10` / `notify:0:540` through Session 5 and every new event arrived
+with a notification; they now ship as `none`, so an event carries an alert
+only when the user adds one, and seeding is the opt-in made on the settings
+page. An absent key reads as the shipped value, so installs that never
+touched the setting flip with the build; a stored choice is kept. A corrupt
+value also decodes to `none`. With no default, "Add alert" still opens on a
+useful draft — `kDraftAlertOffsetMinutes` (10 min before) for a timed event,
+on the day at `kDefaultAlertDayMinute` for an all-day one.
+| `alert_sound` | `''` | `''` = the bundled ANTA sound, `system:default` = the phone's own default alarm, or a `content://` URI picked from the phone (**delivered 2026-09-21**) |
 | `alert_snooze_minutes` | `10` | 5–30, step 5 |
 | `alert_silence_after_minutes` | `10` | 1–30 |
 
@@ -456,7 +468,8 @@ one `_PickerTile` per alert (`CircleAvatar` alarm/bell glyph, title =
 `eventAlertAdd` (hidden at 5), the hint `eventAlertHint`, and — only while
 the event is one-time and has an alarm — a `Card > SwitchListTile`
 `eventAlertRemoveAfter` / `eventAlertRemoveAfterHint`. A new event is
-seeded from `alert_default_timed` / `alert_default_all_day`. The sheet's
+seeded from `alert_default_timed` / `alert_default_all_day` — which ship as
+`none`, so as shipped it starts with no alert (§4). The sheet's
 result record gains `alerts` and `removeAfterAlert`. Save stays gated only
 by `_canSave`.
 
@@ -468,11 +481,64 @@ changes per mode and warns when full-screen alarms are off), When (timed:
 `ChoiceChip`s At start / 5 / 10 / 15 / 30 min / 1 h / 1 day / Custom… →
 an `_IntervalStepper`-shaped minutes + unit row; all-day: On the day /
 The day before / A week before + a time-of-day `_PickerTile` through
-`showTimePicker`), Sound (alarm only, `_PickerTile` → a sound picker sheet
-that plays a 2 s preview through the gateway), and the remove switch
+`showTimePicker`), Sound (alarm only — see below), and the remove switch
 (one-time only). Footer `Remove alert` (`FilledButton.icon` in
 `errorContainer`). Pads by `max(viewInsets, viewPadding)` and joins
 `sheet_bottom_clearance_test.dart`.
+
+**The Sound row (delivered 2026-09-21).** A `Card > ListTile` below the
+timing section, shown **only while the alert is in the ring tier** — the
+reminder tier plays through a notification channel whose sound Android froze
+at creation, so a control there would do nothing. It opens
+`AlertSoundSheet` (`lib/widgets/alert_sound_sheet.dart`), the **one** chooser
+the Calendar-settings row opens too, in two variants: the editor's offers
+*Use the app setting* and the settings one does not, because the settings row
+*is* the app setting.
+
+Four stored values, and one pure type that knows them —
+`AlertSound` (`lib/models/alert_sound.dart`), table-tested:
+
+| stored | on an alert | in `alert_sound` |
+| --- | --- | --- |
+| `null` | follow the app setting | *(impossible — the setting is never null)* |
+| `''` | the bundled ANTA sound, whatever the setting says | the bundled ANTA sound |
+| `system:default` | the phone's **current** default alarm sound | same |
+| `content://…` | a sound picked from the phone | same |
+
+`null` and `''` are two different answers, which is the whole reason no
+fourth literal was invented: the column is nullable, so "defer" and "the ANTA
+sound" are already distinguishable. `system:default` is stored as the literal
+rather than as the default URI so the value keeps following the Clock app
+instead of freezing the sound it named on the day it was chosen.
+
+**Why a picked sound is copied.** The `alarm` package puts
+`assetAudioPath` into `MediaPlayer.setDataSource(String)`, which takes a
+Flutter asset (`assets/…`) or an absolute path (`/…`) and nothing else — a
+`content://` URI can never reach it. `MainActivity.resolveAlarmSound` copies
+the stream into `filesDir/alert_sounds/<sha-1 of the URI>` once (temp name,
+then rename, so a killed process never leaves a half file that later
+"resolves"), off the main thread, and answers the absolute path.
+`AlertSoundSystemDefault` arms with **null**, which is how the package says
+"the device's default alarm sound".
+
+**The cross-device degrade rule.** The value syncs and rides backups, so a
+URI regularly lands on a phone whose provider never heard of that media id.
+Every such value — an unresolvable URI, a copy that failed, a literal a newer
+build wrote — decodes and arms as the **bundled** sound. Never silence, never
+an exception, and never a refusal to arm: `alarmAssetPathFor` is a pure
+function over exactly that, tested in `android_alert_gateway_test.dart`. The
+UI says the same thing: a stored URI this device cannot resolve reads "Not on
+this phone — plays the ANTA sound", never a raw URI.
+
+Three Kotlin methods on the existing `com.alexzamfir.anta/alerts` channel,
+all failure-tolerant: `pickAlarmSound` (the system `ACTION_RINGTONE_PICKER`
+for `TYPE_ALARM`, its own Default row mapped to the literal, Silent hidden,
+one pending `MethodChannel.Result` and a `picker_busy` error for a second
+call, `no_picker` when the device has no picker activity at all),
+`alarmSoundTitle` and `resolveAlarmSound`. `AlertGateway` gained
+`supportsSystemSounds` / `pickSystemSound` / `soundTitle`, so the phone's two
+options are simply **hidden** on the no-op binding rather than offered and
+failing.
 
 ### 5.3 Detail sheet (`event_detail_sheet.dart`)
 
@@ -527,6 +593,14 @@ Silence after slider, and `Test alarm in 10 s` (`OutlinedButton.icon`,
 schedules a ring with a synthetic payload that the alarm page labels
 `alertsTestAlarm`). Reset-to-defaults covers the five keys.
 
+The **Alarm sound** row sits between the two defaults and the Snooze slider
+(delivered 2026-09-21): the same `AlertSoundSheet` as §5.2 minus *Use the app
+setting*, its trailing text the resolved name, and — uniquely among the rows
+here — writing it **also reconciles**
+(`AlertScheduler.reconcileAllQuietly(eventChanged)`). Nothing about any event
+changed, so nothing dispatches, and the arm signature below is the only thing
+that can reach the alarms already standing on the old sound.
+
 ### 5.8 Quick alarm
 
 `EventTemplatePickerSheet` (`event_template_picker_sheet.dart:60-113`)
@@ -561,6 +635,20 @@ small icon under `drawable*/`, the default alarm sound under `assets/` (the
 `alarm` creates its own `alarm_plugin_channel` at importance 4 and does not
 let Dart configure it. Names localized at creation, ids fixed forever
 (channel settings are immutable after creation).
+
+**`ic_alert` must be listed in `res/raw/keep.xml` (found on the owner's
+phone, 2026-09-21).** The icon is named only from Dart (`kAlertSmallIcon`), a
+reference the release resource shrinker cannot see, so a release APK shipped
+without it — `aapt2 dump resources` on the 14:15 build had no `ic_alert`
+entry at all. `FlutterLocalNotificationsPlugin.initialize` then throws
+`invalid_icon`, which is the first platform call in
+`AndroidAlertGateway._initialize`: no channel is created, `Alarm.init()` never
+runs, nothing is scheduled, and **both tiers are silent** with no error on
+screen. Debug builds do not shrink, so every emulator pass was green. Any
+future resource named from Dart (a second icon, a `res/raw` sound) needs a
+`tools:keep` entry too; `test/android/release_resources_test.dart` guards this
+one. No ProGuard rules are needed — from v19 the plugin's Gson rules ship
+with Gson itself.
 
 Permission flow follows `cloud-sync-connections-design.md:444-449`: never
 at app start. `POST_NOTIFICATIONS` is requested the first time an alert is
@@ -658,7 +746,8 @@ Phase 2 = Sessions 5–6, Phase 3 = Session 7, Phase 4 = Sessions 8–9.
 | P2 | Confirm the surface decisions: A1 (vocabulary), A8 (one snooze length), A12 (where a tap opens) before Session 3; A11 (quick alarms in `other` with the alarm icon) before Session 6. | owner | Sessions 3, 6 | **confirmed 2026-09-15**, all four as proposed |
 | P3 | Phone pass of the spike (§10.4 recipe: release-signed build of `spike/event-alerts-ring`, `adb install -r`, never uninstall): PIN keyguard, overnight Doze, reboot before the fire time, Force stop, DND access, audibility, the `restricted` bucket; vendor and OS version recorded in §10. Its output is the A5 verdict — `alarm` for the Alarm tier, or the notification-plugin fallback if `setExactAndAllowWhileIdle` defers overnight. | owner | Session 3 | **waived 2026-09-15** by the owner: A5 stands on the emulator verdict alone (`alarm` for the Alarm tier), the §11 Doze and OEM risks stay open, and the gateway's one-file fallback switch is the mitigation. The first real-phone evidence is the §9 checklist after Session 4; a PIN-keyguard failure there reopens A5 |
 | P4 | A15 — the Windows build with the notification plugin. | owner | Session 3 | **done 2026-09-14**; the CLAUDE.md / `verify` note lands with the dependencies in Session 3 |
-| P5 | Planner scope: this split builds the **full horizon planner** in Session 2 rather than the one-time-only cut the 2026-09-14 Phase 1 prompt asked for. The walk is `occursOnUtcDay` either way, so one-time-only saves no code and would leave Session 5 rewriting tested code; what is deferred to Session 5 is proving recurrence on a device, not planning it. | owner | Session 2 | **confirmed 2026-09-15**: full horizon |
+| P5 | Planner scope: this split builds the **full horizon planner** in Session 2 rather than the one-t
+ime-only cut the 2026-09-14 Phase 1 prompt asked for. The walk is `occursOnUtcDay` either way, so one-time-only saves no code and would leave Session 5 rewriting tested code; what is deferred to Session 5 is proving recurrence on a device, not planning it. | owner | Session 2 | **confirmed 2026-09-15**: full horizon |
 
 Housekeeping, not gates: the spike's debug APK is still on the emulator
 (the first `qa run` from `main` reinstalls the stock build); if the
@@ -976,9 +1065,51 @@ are re-read on app resume because the two "Open settings" links return
 before the user has toggled anything; and `kAlertRingVolume` (0.8) is
 documented as what it is — an override of the phone's alarm volume for the
 duration of the ring — which is a product choice the owner may want to
-revisit in Session 7. Owed: the owner's phone pass (§9 and the PIN
+revisit in Session 7. **Revisited and reversed, 2026-09-21** — see "Ring
+volume" below. Owed: the owner's phone pass (§9 and the PIN
 keyguard), and the §5.7 rows this session deliberately left out — the two
 defaults and the sound row.
+
+### Ring volume — follow the phone (2026-09-21)
+
+`kAlertRingVolume` is **gone**. A ring is armed with `volume: null`, and
+`AlarmService.kt` only calls its `VolumeService.setVolume` when a volume is
+named (`if (alarmSettings.volumeSettings.volume != null)`), so a null one
+never touches `AudioManager` at all: the ring plays at whatever the alarm
+stream is set to and nothing is restored afterwards, because nothing was
+changed. The 3 s fade is unaffected — `AudioService.startFadeIn` ramps the
+plugin's own `MediaPlayer`, not the stream.
+
+One exception, `kAlertRingFloorVolume` (0.3): a slider left at or near zero
+would be an alarm that silently fails. `MainActivity.alarmStreamVolume`
+reports `getStreamVolume(STREAM_ALARM) / getStreamMaxVolume(…)`, the pure
+`alertRingVolumeFor(fraction)` buckets it into `AlertRingVolume.follow` /
+`.floor` (null → follow: never block arming on a volume query), and only
+`floor` names a volume.
+
+**It is an arm-time decision and therefore goes stale by design** — the ring
+may be days away, and it rings natively with no Dart running, so a ring-time
+floor is impossible without forking the package. What closes the gap is the
+**arm signature**, which is also what carries the sound:
+
+`alert_registrations.backend` now holds `alertArmSignature(context, fire)`
+rather than the bare backend name — no schema change, and the column was
+already device-local, hard-deleted and never exported. `context` is the
+platform's half, read **once per pass** through
+`AlertGateway.refreshArmContext()` (`alarm` while following, `alarm@floor`
+while floored; the binding caches what it read so the token cannot describe a
+different ring from the one it armed); the fire's own half is its effective
+sound, appended as `#<value>` and **only when there is one to name** — a
+reminder never carries one, and the bundled sound is the absence of a choice,
+so the everyday token is the bare backend name the column has always held and
+an upgrade re-arms nothing.
+
+The diff's fast path compares that token alongside the instant, so a sound
+moved in Calendar settings and a volume slider dragged across the floor both
+re-arm exactly the affected registrations — **in place, under the ids they
+already have** — on the very next pass, which for the volume is the resume
+reconcile that already runs. Only the bucket is recorded, never the fraction,
+or every nudge of the volume key would re-arm the whole horizon.
 
 ### Session 4 — Editor, detail and rows (Phase 1d)
 
@@ -1074,10 +1205,21 @@ closes Phase 2.
 
 Needs Session 6 committed. Device: the emulator.
 
+**The sound half of this session shipped early, on 2026-09-21**, together
+with the ring-volume reversal — both out of order, on the Session 5 tree,
+because the owner asked for them while the phone pass was outstanding. What
+landed is in §5.2 ("The Sound row"), §5.7 and "Ring volume" above, and it is
+**not** what the prompt below sketches: the chooser has no in-app preview
+player (the system picker previews every sound it offers while the user
+scrolls it, so a second one would be two audio sessions fighting), and the
+sound is a stored value with four meanings rather than an id. What is left of
+this session is the presence prompt, `DevOptions.fireNextAlertInTenSeconds`
+and the two QA verbs.
+
 > Implement Session 7 of `docs/event-alerts-roadmap.md` on the committed
-> Session 6 tree. Scope: the Sound row in `AlertEditorSheet` and the
-> `alert_sound` settings row backed by a sound picker sheet that plays a
-> 2 s preview through the gateway; volume fade-in and a vibration pattern
+> Session 6 tree. Scope: ~~the Sound row in `AlertEditorSheet` and the
+> `alert_sound` settings row~~ (**delivered 2026-09-21**);
+> ~~volume fade-in~~ (**delivered 2026-09-21**) and a vibration pattern
 > through the gateway, only what the A5 backend supports; the presence
 > prompt on the alarm page for `tracksPresence` events (A13: an opt-in per
 > event, an "I was there" tonal button that dispatches
@@ -1086,7 +1228,7 @@ Needs Session 6 committed. Device: the emulator.
 > pending registrations from `dumpsys alarm` and the plugin's pending
 > list; `--cancel` clears the QA database's entries by payload) and
 > `qa fire` (schedules the next pending registration 10 s ahead through a
-> `--define`-gated seam); ARB keys ×3. Tests: the sound picker and the
+> `--define`-gated seam); ARB keys ×3. Tests: ~~the sound picker~~ and the
 > presence button in the widget suites, the seam under a fake gateway.
 > Update `docs/qa-harness.md`, the qa-emulator skill and `CLAUDE.md`'s
 > commands for the two verbs. Device pass: `qa fire` rings within 15 s of
@@ -1257,8 +1399,12 @@ Runner-up: a **cold-start tap delivers the payload twice** — once through
 Reminder tier**, subject to the owner's phone pass. The `alarm` package was
 the only path that produced a full-screen ring with its own looping audio
 and a working Stop in every state tested (foreground, screen-off, killed),
-owns the audio (fade, enforced volume, loop, per-alert sound without a
-channel per sound), degrades under Total Silence to screen + vibration
+owns the audio (fade, an **optional** volume — the app arms `null` and
+follows the phone's alarm slider since 2026-09-21, naming a level only under
+`kAlertRingFloorVolume` — loop, and a per-alert sound without a
+channel per sound, which is exactly what the notification tier cannot have
+because Android freezes a channel's sound at creation), degrades under Total
+Silence to screen + vibration
 rather than to nothing, and is desktop-clean. The notification plugin's
 insistent path is a **proven fallback** (S7) and is the stronger
 *scheduling* tier (`setAlarmClock`); if the phone shows `alarm`'s

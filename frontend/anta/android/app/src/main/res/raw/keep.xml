@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Resources the release shrinker must not drop. `ic_alert` is the status-bar
+     icon of every event alert, and it is named only from Dart
+     (`kAlertSmallIcon`), a reference R8 cannot see: without this entry a
+     release build ships without it and every notification and alarm fails
+     silently, while a debug build (no shrinking) works. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_alert" />
