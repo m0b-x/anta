@@ -1488,6 +1488,7 @@ class SettingsService {
     SettingsKeys.alertSound,
     SettingsKeys.alertSnoozeMinutes,
     SettingsKeys.alertSilenceAfterMinutes,
+    SettingsKeys.alertNoticeLeadMinutes,
   ];
 
   static const List<String> _calendarPageKeys = [
@@ -1531,6 +1532,13 @@ class SettingsService {
       ).clamp(
         SettingsKeys.minAlertSilenceAfterMinutes,
         SettingsKeys.maxAlertSilenceAfterMinutes,
+      ),
+      noticeLeadMinutes: _decodeInt(
+        values[SettingsKeys.alertNoticeLeadMinutes],
+        SettingsKeys.defaultAlertNoticeLeadMinutes,
+      ).clamp(
+        SettingsKeys.minAlertNoticeLeadMinutes,
+        SettingsKeys.maxAlertNoticeLeadMinutes,
       ),
     );
   }
@@ -1604,6 +1612,18 @@ class SettingsService {
       value.clamp(
         SettingsKeys.minAlertSilenceAfterMinutes,
         SettingsKeys.maxAlertSilenceAfterMinutes,
+      ),
+    );
+  }
+
+  /// How far ahead of an alarm its upcoming notice is posted; `0` is off.
+  /// Clamped on write as on read, like the two sliders beside it.
+  Future<void> setAlertNoticeLeadMinutes(int value) async {
+    await _setInt(
+      SettingsKeys.alertNoticeLeadMinutes,
+      value.clamp(
+        SettingsKeys.minAlertNoticeLeadMinutes,
+        SettingsKeys.maxAlertNoticeLeadMinutes,
       ),
     );
   }

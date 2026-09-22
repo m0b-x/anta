@@ -554,6 +554,16 @@ class SettingsKeys {
   static const int maxAlertSnoozeMinutes = 25;
   static const int alertSnoozeMinutesStep = 5;
 
+  /// How far ahead of an alarm its quiet "Alarm at {time}" notice is posted
+  /// (OS-3, **B6**), in minutes. `0` turns the notice off. A change re-arms
+  /// every standing alarm through the arm signature, so it reaches alarms
+  /// already armed as well as the ones planned next.
+  static const String alertNoticeLeadMinutes = 'alert_notice_lead_minutes';
+  static const int defaultAlertNoticeLeadMinutes = 120;
+  static const int minAlertNoticeLeadMinutes = 0;
+  static const int maxAlertNoticeLeadMinutes = 1440;
+  static const int alertNoticeLeadMinutesStep = 30;
+
   /// How long an unacknowledged alarm keeps ringing before it gives up, in
   /// minutes.
   static const String alertSilenceAfterMinutes = 'alert_silence_after_minutes';

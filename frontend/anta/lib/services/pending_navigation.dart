@@ -51,6 +51,21 @@ final class OpenAlarmIntent extends AlertEntryIntent {
   const OpenAlarmIntent({required super.payload});
 }
 
+/// Skip on an upcoming-alarm notice (OS-3, **B6**): the next fire of this
+/// alarm is not wanted — a recurring event's occurrence is cancelled, a
+/// one-time event's alert switched off — and the calendar says so with an
+/// Undo.
+///
+/// A foreground intent by design: the background isolate never writes the
+/// database, so Skip opens the app and the calendar page applies it. Keyed
+/// apart from the notice's Open, which shares the os id.
+final class SkipNextFireIntent extends AlertEntryIntent {
+  const SkipNextFireIntent({required super.payload});
+
+  @override
+  Object get dedupeKey => 'skip:$osId';
+}
+
 /// The phone's own "next alarm" surface was tapped — the lock-screen line or
 /// Quick Settings, which launch the show intent every alarm-clock entry
 /// carries (`AlarmService.ACTION_SHOW`, Patch 1 of the `alarm` fork): show the

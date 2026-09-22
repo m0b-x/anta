@@ -253,6 +253,7 @@ void main() {
       expect(alerts.sound, '');
       expect(alerts.snoozeMinutes, 10);
       expect(alerts.silenceAfterMinutes, 10);
+      expect(alerts.noticeLeadMinutes, 120);
     });
 
     test('the calendar page bundle decodes the same values', () async {

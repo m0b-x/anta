@@ -45,6 +45,21 @@ void main() {
     expect(queue.isEmpty, isTrue);
   });
 
+  test('a Skip dedupes with itself and never with the same notice\'s Open', () {
+    // Both come off one notice with one os id: Skip keys apart so a cold
+    // start's double delivery still collapses, while an Open of the same
+    // alarm is a different request.
+    queue.enqueue(SkipNextFireIntent(payload: payloadOf(1)));
+    queue.enqueue(SkipNextFireIntent(payload: payloadOf(1)));
+    queue.enqueue(OpenEventIntent(payload: payloadOf(1)));
+
+    final drained = queue.drain();
+    expect(drained, hasLength(2));
+    expect(drained.first, isA<SkipNextFireIntent>());
+    expect(drained.first.dedupeKey, 'skip:1');
+    expect(drained.last, isA<OpenEventIntent>());
+  });
+
   test('the hub intent never dedupes against an alarm intent', () {
     // A hub tap keys on a string of its own, so no os id — however it
     // hashes — can swallow it, and it can swallow no ring.

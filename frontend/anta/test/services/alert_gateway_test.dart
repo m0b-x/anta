@@ -53,6 +53,10 @@ void main() {
 
   test('a schedule is accepted and holds nothing', () async {
     expect(await gateway.schedule(fire, payload), isTrue);
+    expect(
+      await gateway.schedule(fire, payload, noticeAt: DateTime(2026, 9, 20, 16)),
+      isTrue,
+    );
     expect(await gateway.pendingEntries(), isEmpty);
     expect(await gateway.pendingIds(), isEmpty);
   });

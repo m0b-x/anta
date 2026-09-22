@@ -5010,6 +5010,42 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
+  String get alertsNoticeLead => 'Anunț înainte de alarmă';
+
+  @override
+  String alertsNoticeLeadDesc(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Un anunț discret cu $count de minute înainte de alarmă, cu Sari și Deschide',
+      few:
+          'Un anunț discret cu $count minute înainte de alarmă, cu Sari și Deschide',
+      one: 'Un anunț discret cu 1 minut înainte de alarmă, cu Sari și Deschide',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get alertsNoticeLeadOff => 'Oprit – fără anunț înainte de alarmă';
+
+  @override
+  String alertsUpcomingTitle(String time) {
+    return 'Alarmă la $time';
+  }
+
+  @override
+  String get alertsSkipAction => 'Sari';
+
+  @override
+  String get alertsOpenAction => 'Deschide';
+
+  @override
+  String alertsSkippedSnack(String title) {
+    return 'Ai sărit peste $title';
+  }
+
+  @override
   String get alertsForceStopNote =>
       'Oprirea forțată a ANTA dezactivează toate alarmele până când redeschizi aplicația.';
 

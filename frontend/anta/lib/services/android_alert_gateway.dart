@@ -91,6 +91,12 @@ String? alarmAssetPathFor(AlertSound sound) =>
 const String kAlertSnoozeActionId = 'alert_snooze';
 const String kAlertDoneActionId = 'alert_done';
 
+/// Action ids on an upcoming-alarm notice (OS-3). Both are foreground
+/// actions — the background isolate never writes the database — so they
+/// arrive in [AndroidAlertGateway._handleResponse] with the app up.
+const String kAlertSkipActionId = 'alert_skip';
+const String kAlertOpenActionId = 'alert_open';
+
 /// `Notification.FLAG_INSISTENT` — what makes the fallback alarm loop its
 /// sound until it is dismissed.
 ///
@@ -525,7 +531,10 @@ class AndroidAlertGateway extends AlertGateway {
   }
 
   void _emitRing(AlertPayload payload) {
-    if (!_trackRing(payload)) return;
+    if (!_trackRing(payload)) {
+      debugPrint('[AndroidAlertGateway] ring ${payload.osId} already tracked');
+      return;
+    }
     if (!_ringing.isClosed) _ringing.add(payload);
   }
 
@@ -603,6 +612,18 @@ class AndroidAlertGateway extends AlertGateway {
   void _handleResponse(NotificationResponse response) {
     final payload = AlertPayload.decode(response.payload);
     if (payload == null) return;
+    // An upcoming notice carries its alarm's payload; the id says which of the
+    // two was tapped, and the action says what for. Skip is the one intent
+    // that changes the plan, so it goes to the calendar page rather than to a
+    // detail sheet; Open and a tap on the body open the event.
+    if (isNoticeNotification(response.id, payload)) {
+      PendingNavigationQueue.instance.enqueue(
+        response.actionId == kAlertSkipActionId
+            ? SkipNextFireIntent(payload: payload)
+            : OpenEventIntent(payload: payload),
+      );
+      return;
+    }
     // A "Missed" notice carries the payload of the alarm it reports on, so
     // without this a tap on it would open the ring page for a session that
     // ended hours ago and mark a cancelled row `fired`. It opens the event.
@@ -698,12 +719,94 @@ class AndroidAlertGateway extends AlertGateway {
   // ── Scheduling ───────────────────────────────────────────────────────
 
   @override
-  Future<bool> schedule(PlannedFire fire, AlertPayload payload) async {
+  Future<bool> schedule(
+    PlannedFire fire,
+    AlertPayload payload, {
+    DateTime? noticeAt,
+  }) async {
     await initialize();
-    if (payload.isAlarm && !kAlarmTierUsesNotifications) {
-      return _scheduleAlarm(fire, payload);
+    final armed = payload.isAlarm && !kAlarmTierUsesNotifications
+        ? await _scheduleAlarm(fire, payload)
+        : await _scheduleNotification(fire, payload);
+    if (!armed) return false;
+    await _armNotice(payload, noticeAt, fire.fireAt);
+    return true;
+  }
+
+  /// Arms the upcoming notice beside its alarm, or takes a standing one down
+  /// when the pass no longer wants one — the lead turned off, the instant
+  /// already behind now. A failure costs the notice alone: the alarm is
+  /// armed by then, and a notice is not a registration, so nothing records it
+  /// and nothing retries it before the next pass.
+  Future<void> _armNotice(
+    AlertPayload payload,
+    DateTime? noticeAt,
+    DateTime fireAt,
+  ) async {
+    final id = noticeNotificationId(payload.osId);
+    try {
+      if (noticeAt == null) {
+        await _plugin.cancel(id: id);
+        return;
+      }
+      final l10n = _l10n;
+      await _plugin.zonedSchedule(
+        id: id,
+        title: l10n.alertsUpcomingTitle(payload.timeLabel),
+        body: payload.title,
+        scheduledDate: tz.TZDateTime.from(noticeAt, tz.local),
+        payload: payload.copyWith(notice: true).encode(),
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        notificationDetails: NotificationDetails(
+          android: _noticeDetails(
+            l10n,
+            timeoutAfterMillis: noticeTimeoutMillis(
+              noticeAt: noticeAt,
+              fireAt: fireAt,
+            ),
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('[AndroidAlertGateway] notice for ${payload.osId} failed: $e');
     }
-    return _scheduleNotification(fire, payload);
+  }
+
+  /// The notice is quiet by construction: the reminder channel's own
+  /// importance is frozen, so silence is asked of the notification itself.
+  /// It also dies at the alarm's instant (`timeoutAfter`): a ring stopped or
+  /// snoozed natively with no Dart running cancels nothing on this side, and
+  /// a notice that outlived its alarm would offer to skip an occurrence that
+  /// already happened.
+  AndroidNotificationDetails _noticeDetails(
+    AppLocalizations l10n, {
+    required int timeoutAfterMillis,
+  }) {
+    return AndroidNotificationDetails(
+      kAlertReminderChannelId,
+      l10n.alertsReminderChannel,
+      channelDescription: l10n.alertsReminderChannelDesc,
+      importance: Importance.low,
+      priority: Priority.low,
+      silent: true,
+      timeoutAfter: timeoutAfterMillis,
+      category: AndroidNotificationCategory.reminder,
+      icon: kAlertSmallIcon,
+      actions: <AndroidNotificationAction>[
+        AndroidNotificationAction(
+          kAlertSkipActionId,
+          l10n.alertsSkipAction,
+          showsUserInterface: true,
+          cancelNotification: true,
+        ),
+        AndroidNotificationAction(
+          kAlertOpenActionId,
+          l10n.alertsOpenAction,
+          showsUserInterface: true,
+          cancelNotification: true,
+        ),
+      ],
+    );
   }
 
   Future<bool> _scheduleAlarm(PlannedFire fire, AlertPayload payload) async {
@@ -868,7 +971,17 @@ class AndroidAlertGateway extends AlertGateway {
     } catch (e) {
       debugPrint('[AndroidAlertGateway] cancel($osId) failed: $e');
     }
+    await _cancelNotice(osId);
     _silenceTimers.remove(osId)?.cancel();
+  }
+
+  /// Every path that takes an alarm off the platform takes its notice too.
+  Future<void> _cancelNotice(int osId) async {
+    try {
+      await _plugin.cancel(id: noticeNotificationId(osId));
+    } catch (e) {
+      debugPrint('[AndroidAlertGateway] notice cancel($osId) failed: $e');
+    }
   }
 
   @override
@@ -888,6 +1001,9 @@ class AndroidAlertGateway extends AlertGateway {
       for (final request in await _plugin.pendingNotificationRequests()) {
         final payload = AlertPayload.decode(request.payload);
         if (payload == null) continue;
+        // A notice is the alarm's shadow, not an entry the plan made: listed
+        // here it would be cancelled as a stray by the OS-truth pass.
+        if (payload.notice) continue;
         entries[request.id] = payload.copyWith(osId: request.id);
       }
     } catch (e) {
@@ -948,6 +1064,7 @@ class AndroidAlertGateway extends AlertGateway {
     } catch (e) {
       debugPrint('[AndroidAlertGateway] stopRinging cancel($osId) failed: $e');
     }
+    await _cancelNotice(osId);
   }
 
   @override
@@ -990,9 +1107,15 @@ class AndroidAlertGateway extends AlertGateway {
   Future<AlertIntent?> _notificationLaunchIntent() async {
     final details = await _plugin.getNotificationAppLaunchDetails();
     if (details?.didNotificationLaunchApp != true) return null;
-    final payload = AlertPayload.decode(details?.notificationResponse?.payload);
+    final response = details?.notificationResponse;
+    final payload = AlertPayload.decode(response?.payload);
     if (payload == null) return null;
-    if (isMissedNotification(details?.notificationResponse?.id, payload)) {
+    if (isNoticeNotification(response?.id, payload)) {
+      return response?.actionId == kAlertSkipActionId
+          ? SkipNextFireIntent(payload: payload)
+          : OpenEventIntent(payload: payload);
+    }
+    if (isMissedNotification(response?.id, payload)) {
       return OpenEventIntent(payload: payload);
     }
     if (payload.isAlarm) {
@@ -1058,3 +1181,24 @@ int missedNotificationId(int osId) =>
 /// reads as the registration, which is the only kind that could exist.
 bool isMissedNotification(int? notificationId, AlertPayload payload) =>
     notificationId != null && notificationId == missedNotificationId(payload.osId);
+
+/// The id an upcoming-alarm notice is posted under (OS-3), derived from the
+/// alarm it announces: cancelled with it, never landing on it or on its
+/// Missed notice.
+int noticeNotificationId(int osId) => (osId ^ kAlertNoticeIdSalt) & kAlertOsIdMask;
+
+/// How long an upcoming notice may stay in the shade once posted: until the
+/// alarm it announces is due. Pure, so the rule is pinned rather than
+/// trusted — a notice that outlives its alarm is one whose Skip cancels an
+/// occurrence that already happened.
+int noticeTimeoutMillis({required DateTime noticeAt, required DateTime fireAt}) =>
+    fireAt.difference(noticeAt).inMilliseconds;
+
+/// Whether a notification response came from the upcoming notice posted for
+/// [payload]'s alarm rather than from the alarm itself. The id decides, like
+/// [isMissedNotification]; the payload's own `notice` flag is the fallback a
+/// response with no id would need, and both say the same thing.
+bool isNoticeNotification(int? notificationId, AlertPayload payload) =>
+    notificationId == null
+        ? payload.notice
+        : notificationId == noticeNotificationId(payload.osId);

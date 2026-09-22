@@ -4919,6 +4919,40 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get alertsNoticeLead => 'Upcoming alarm notice';
+
+  @override
+  String alertsNoticeLeadDesc(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'A quiet notice $count minutes before an alarm, with Skip and Open',
+      one: 'A quiet notice 1 minute before an alarm, with Skip and Open',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get alertsNoticeLeadOff => 'Off — no notice before an alarm';
+
+  @override
+  String alertsUpcomingTitle(String time) {
+    return 'Alarm at $time';
+  }
+
+  @override
+  String get alertsSkipAction => 'Skip';
+
+  @override
+  String get alertsOpenAction => 'Open';
+
+  @override
+  String alertsSkippedSnack(String title) {
+    return 'Skipped $title';
+  }
+
+  @override
   String get alertsForceStopNote =>
       'Force stopping ANTA disarms every alarm until you open it again.';
 

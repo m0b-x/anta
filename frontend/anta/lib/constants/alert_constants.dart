@@ -184,6 +184,14 @@ const int kAlertMissedIdSalt = 0x4d495353;
 /// something unrelated happened to move the fire. A reminder token stays bare.
 const String kAlertArmClockToken = '~clock';
 
+/// Keeps upcoming-alarm notice ids out of the registration and Missed id
+/// spaces (OS-3, **B6**).
+///
+/// A notice is the alarm's shadow, never a registration: derived from the
+/// alarm's own id so it is cancelled with it, and salted apart from both the
+/// live entry and its Missed notice so it can never replace either.
+const int kAlertNoticeIdSalt = 0x4e4f5443;
+
 /// How far ahead the Calendar settings page's `Test alarm` is armed.
 ///
 /// Long enough to lock the phone and watch what a real ring does to a locked

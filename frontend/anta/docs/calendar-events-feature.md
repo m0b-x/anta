@@ -1722,6 +1722,39 @@ cancels a standing snooze of the same alert. The snooze length rides the
 arm signature (`~<minutes>` after `~clock`), so a changed setting re-arms
 every standing alarm in place on the next pass and never a reminder.
 
+**Upcoming-alarm notice (OS-3, 2026-09-22, B6).** Google Clock's "Upcoming
+alarm · Dismiss", for ANTA: a quiet notification titled "Alarm at {time}"
+with the event's title as its body, posted `fireAt − lead` ahead of every
+**planned, alarm-tier** fire — never for a snooze, a test ring or a
+reminder, and never when the instant is already behind now — with two
+foreground actions, **Skip** and **Open**. The lead is
+`alert_notice_lead_minutes` (Calendar settings → Alerts, under the Snooze
+slider; default 120, 0–1440 in steps of 30, `0` reads "Off"), and it rides
+the arm signature as `~n<lead>` after the snooze token, so a change — off
+included — re-arms every standing alarm and thereby moves or removes its
+notice. **The notice is the alarm's shadow, never a registration**: no DAO
+row, an id derived from the alarm's (`noticeNotificationId`, salted apart
+from both the live entry and its Missed notice), a payload that is the
+alarm's own plus `notice: true`, armed by `AndroidAlertGateway.schedule`
+right after the alarm itself (the scheduler decides the instant through the
+pure `noticeInstantFor` and hands it over as `noticeAt`; null takes a
+standing notice down), cancelled by `cancel(osId)` and `stopRinging(osId)`,
+and **filtered out of `pendingEntries()`** so the OS-truth pass never sees
+an id it did not plan. It is posted on `alerts_reminder` with `silent: true`
+— a channel's importance is frozen, so quiet is asked of the notification.
+A tap on the body or on **Open** is the ordinary `OpenEventIntent`; **Skip**
+is a `SkipNextFireIntent` (keyed `skip:<osId>`, so a cold start's double
+delivery still collapses while the same notice's Open stays distinct) that
+never runs in the background isolate: it opens the app, `main.dart` publishes
+it on `AlertSkipNotice` and opens the calendar on the occurrence's day, and
+`CalendarPage` — once its state is loaded — resolves it through
+`AlertSkipAction` into exactly one bloc event: `SetOccurrenceSkipped` for a
+recurring event (the handler's own reconcile takes the alarm off the
+platform) or the hub's `ToggleEventAlert` off for a one-time one, with a
+"Skipped {title} · Undo" snackbar whose Undo is the exact inverse
+(`ClearOccurrenceSkipped` / the toggle back on). A request older than five
+minutes is dropped rather than applied to the *next* occurrence.
+
 **Where it is edited.** The *Alerts* rows sit inside the editor's Time zone
 (`event_editor_sheet.dart`): one `_PickerTile` per alert, an "Add alert" chip
 that disappears at the cap, and — only while the event is one-time and carries

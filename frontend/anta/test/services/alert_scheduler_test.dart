@@ -85,17 +85,28 @@ class FakeAlertGateway implements AlertGateway {
     cancelled.clear();
     stopped.clear();
     missed.clear();
+    notices.clear();
   }
 
   /// Arms an entry the app did not put there — an imported `.db` file's
   /// registrations, or another database's alarms.
   void seedPlatform(AlertPayload payload) => platform[payload.osId] = payload;
 
+  /// The upcoming notice asked for beside each armed entry, by os id: the
+  /// instant, or null when the scheduler asked for none (which a real
+  /// binding answers by taking a standing notice down).
+  final Map<int, DateTime?> notices = {};
+
   @override
-  Future<bool> schedule(PlannedFire fire, AlertPayload payload) async {
+  Future<bool> schedule(
+    PlannedFire fire,
+    AlertPayload payload, {
+    DateTime? noticeAt,
+  }) async {
     if (!accepts) return false;
     scheduled.add(fire);
     platform[payload.osId] = payload;
+    notices[payload.osId] = noticeAt;
     return true;
   }
 
@@ -284,7 +295,7 @@ void main() {
       // The sound is named for every alarm-tier fire, the phone's default
       // included, and the fork's arming shape closes it — see
       // `alertArmSignature`.
-      expect(rows.single.backend, 'fake#system:default~clock~10');
+      expect(rows.single.backend, 'fake#system:default~clock~10~n120');
       expect(
         rows.single.day,
         DateTime.utc(2026, 9, 20).millisecondsSinceEpoch,
@@ -337,7 +348,7 @@ void main() {
       expect(gateway.scheduled, hasLength(1));
       final row = (await registrations()).single;
       expect(row.osId, before, reason: 're-armed in place, not re-issued');
-      expect(row.backend, 'fake@floor#system:default~clock~10');
+      expect(row.backend, 'fake@floor#system:default~clock~10~n120');
 
       // And settles again: the third pass has nothing left to do.
       gateway.resetCalls();
@@ -369,7 +380,7 @@ void main() {
       expect(gateway.scheduled, hasLength(1));
       final rearmed = (await registrations()).single;
       expect(rearmed.osId, before.osId, reason: 're-armed in place');
-      expect(rearmed.backend, 'fake#system:default~clock~10');
+      expect(rearmed.backend, 'fake#system:default~clock~10~n120');
 
       // Once: the next pass finds the fork's own token and does nothing.
       gateway.resetCalls();
@@ -398,7 +409,7 @@ void main() {
       );
       expect(
         (await registrations()).single.backend,
-        'fake#content://media/7~clock~10',
+        'fake#content://media/7~clock~10~n120',
       );
     });
 
@@ -945,6 +956,127 @@ void main() {
     });
   });
 
+  group('upcoming notice (OS-3)', () {
+    test('a notice is asked for a planned alarm-tier fire, lead ahead', () async {
+      await seed(
+        eventAlerts: [
+          alertOf(id: 'a1'),
+          alertOf(id: 'r1', mode: AlertMode.notify),
+        ],
+      );
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+      final rows = await registrations();
+      final alarm = rows.singleWhere((row) => row.alertId == 'a1');
+      final reminder = rows.singleWhere((row) => row.alertId == 'r1');
+      // The shipped lead is two hours: 18:00 → 16:00 on the occurrence day.
+      expect(gateway.notices[alarm.osId], DateTime(2026, 9, 20, 16));
+      // A reminder announces nothing: the notice is about an *alarm*.
+      expect(gateway.notices[reminder.osId], isNull);
+      expect(alarm.backend, 'fake#system:default~clock~10~n120');
+      expect(reminder.backend, 'fake');
+    });
+
+    test('no notice for a snooze or a test ring, ever', () async {
+      await seed();
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final armed = (await registrations()).single;
+      gateway.resetCalls();
+
+      await scheduler.snooze(armed.osId);
+      final snoozed = (await registrations()).singleWhere(
+        (row) => row.kind == AlertKind.snooze.name,
+      );
+      expect(gateway.notices, containsPair(snoozed.osId, isNull));
+
+      gateway.resetCalls();
+      final testId = await scheduler.scheduleTestAlarm(
+        title: 'Test',
+        delay: const Duration(seconds: 10),
+      );
+      expect(gateway.notices, containsPair(testId, isNull));
+    });
+
+    test('a lead of zero asks for none and still moves the signature', () async {
+      await seed();
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      gateway.resetCalls();
+
+      await (await SettingsService.getInstance()).setAlertNoticeLeadMinutes(0);
+      await scheduler.reconcileAll(AlertReconcileReason.eventChanged);
+
+      // Re-armed in place with no notice: the binding takes a standing one
+      // down on exactly this call, which is how turning the setting off
+      // clears the notices of alarms already armed.
+      expect(gateway.scheduled, hasLength(1));
+      final row = (await registrations()).single;
+      expect(gateway.notices, containsPair(row.osId, isNull));
+      expect(row.backend, 'fake#system:default~clock~10~n0');
+    });
+
+    test('a lead already behind now asks for none', () async {
+      // now is 2026-09-15 12:00; the fire is 09-20 18:00, lead 1440 → 09-19
+      // 18:00, still ahead. Move the clock past it and the notice goes.
+      await seed();
+      await (await SettingsService.getInstance()).setAlertNoticeLeadMinutes(
+        1440,
+      );
+      now = DateTime(2026, 9, 19, 18, 30);
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+      final row = (await registrations()).single;
+      expect(gateway.notices, containsPair(row.osId, isNull));
+    });
+
+    test('noticeInstantFor is the one rule', () {
+      final fire = PlannedFire(
+        event: eventOf(),
+        alert: alertOf(),
+        day: DateTime.utc(2026, 9, 20),
+        fireAt: DateTime(2026, 9, 20, 18),
+      );
+      final at = DateTime(2026, 9, 20, 12);
+      expect(
+        noticeInstantFor(fire: fire, leadMinutes: 120, now: at),
+        DateTime(2026, 9, 20, 16),
+      );
+      expect(noticeInstantFor(fire: fire, leadMinutes: 0, now: at), isNull);
+      expect(
+        noticeInstantFor(fire: fire, leadMinutes: 120, now: DateTime(2026, 9, 20, 16)),
+        isNull,
+      );
+      expect(
+        noticeInstantFor(
+          fire: PlannedFire(
+            event: eventOf(),
+            alert: alertOf(),
+            day: DateTime.utc(2026, 9, 20),
+            fireAt: DateTime(2026, 9, 20, 18),
+            kind: AlertKind.snooze,
+          ),
+          leadMinutes: 120,
+          now: at,
+        ),
+        isNull,
+      );
+      expect(
+        noticeInstantFor(
+          fire: PlannedFire(
+            event: eventOf(),
+            alert: alertOf(mode: AlertMode.notify),
+            day: DateTime.utc(2026, 9, 20),
+            fireAt: DateTime(2026, 9, 20, 18),
+          ),
+          leadMinutes: 120,
+          now: at,
+        ),
+        isNull,
+      );
+    });
+  });
+
   group('native snooze (OS-2)', () {
     AlertMove moveOf(int osId, {DateTime? at, DateTime? recorded}) => (
       osId: osId,
@@ -1132,7 +1264,7 @@ void main() {
       final rows = await registrations();
       expect(
         rows.singleWhere((row) => row.alertId == 'a1').backend,
-        'fake#system:default~clock~15',
+        'fake#system:default~clock~15~n120',
       );
       expect(rows.singleWhere((row) => row.alertId == 'r1').backend, 'fake');
     });

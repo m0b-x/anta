@@ -6162,6 +6162,52 @@
       }
     }
   },
+  "alertsNoticeLead": "Upcoming alarm notice",
+  "@alertsNoticeLead": {
+    "description": "Title of the slider that sets how far ahead of an alarm its quiet notice is posted"
+  },
+  "alertsNoticeLeadDesc": "{count, plural, =1{A quiet notice 1 minute before an alarm, with Skip and Open} other{A quiet notice {count} minutes before an alarm, with Skip and Open}}",
+  "@alertsNoticeLeadDesc": {
+    "description": "Caption under the upcoming-alarm notice slider",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "120"
+      }
+    }
+  },
+  "alertsNoticeLeadOff": "Off — no notice before an alarm",
+  "@alertsNoticeLeadOff": {
+    "description": "Caption under the upcoming-alarm notice slider when it is at zero"
+  },
+  "alertsUpcomingTitle": "Alarm at {time}",
+  "@alertsUpcomingTitle": {
+    "description": "Title of the quiet notice posted ahead of an alarm; the body is the event title",
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "07:00"
+      }
+    }
+  },
+  "alertsSkipAction": "Skip",
+  "@alertsSkipAction": {
+    "description": "Upcoming-alarm notice action: skip this one fire of the alarm"
+  },
+  "alertsOpenAction": "Open",
+  "@alertsOpenAction": {
+    "description": "Upcoming-alarm notice action: open the event"
+  },
+  "alertsSkippedSnack": "Skipped {title}",
+  "@alertsSkippedSnack": {
+    "description": "Snackbar after a notice's Skip was applied; carries Undo",
+    "placeholders": {
+      "title": {
+        "type": "String",
+        "example": "Leg day"
+      }
+    }
+  },
   "alertsForceStopNote": "Force stopping ANTA disarms every alarm until you open it again.",
   "@alertsForceStopNote": {
     "description": "Note under the alert settings explaining that a force stop cancels pending alarms"

@@ -27,6 +27,7 @@ abstract final class AlertPayloadKeys {
   static const String removeAfterAlert = 'removeAfterAlert';
   static const String snooze = 'snooze';
   static const String snoozeMinutes = 'snoozeMin';
+  static const String notice = 'notice';
 }
 
 /// Everything a ring needs to draw itself, carried by the platform entry.
@@ -87,6 +88,12 @@ class AlertPayload extends Equatable {
   /// and no facade, and re-schedules from this map alone.
   final int snoozeMinutes;
 
+  /// Whether this entry is the alarm's upcoming notice (OS-3) rather than the
+  /// alarm itself. The notice carries its alarm's payload — that is what lets
+  /// Skip and Open name the right occurrence — so this is the one field that
+  /// tells the two apart when the notification id is not to hand.
+  final bool notice;
+
   const AlertPayload({
     required this.database,
     required this.eventId,
@@ -102,6 +109,7 @@ class AlertPayload extends Equatable {
     this.removeAfterAlert = false,
     this.snooze = false,
     this.snoozeMinutes = SettingsKeys.defaultAlertSnoozeMinutes,
+    this.notice = false,
   });
 
   /// The event id a **test alarm** carries (§5.7's `Test alarm in 10 s`).
@@ -130,6 +138,7 @@ class AlertPayload extends Equatable {
     bool? snooze,
     bool? removeAfterAlert,
     int? snoozeMinutes,
+    bool? notice,
   }) {
     return AlertPayload(
       database: database,
@@ -146,6 +155,7 @@ class AlertPayload extends Equatable {
       removeAfterAlert: removeAfterAlert ?? this.removeAfterAlert,
       snooze: snooze ?? this.snooze,
       snoozeMinutes: snoozeMinutes ?? this.snoozeMinutes,
+      notice: notice ?? this.notice,
     );
   }
 
@@ -164,6 +174,7 @@ class AlertPayload extends Equatable {
     AlertPayloadKeys.removeAfterAlert: removeAfterAlert,
     AlertPayloadKeys.snooze: snooze,
     AlertPayloadKeys.snoozeMinutes: snoozeMinutes,
+    AlertPayloadKeys.notice: notice,
   };
 
   /// Decodes one payload, or `null` when the map carries no usable identity.
@@ -214,6 +225,7 @@ class AlertPayload extends Equatable {
               SettingsKeys.maxAlertSnoozeMinutes,
             )
           : SettingsKeys.defaultAlertSnoozeMinutes,
+      notice: map[AlertPayloadKeys.notice] == true,
     );
   }
 
@@ -250,5 +262,6 @@ class AlertPayload extends Equatable {
     removeAfterAlert,
     snooze,
     snoozeMinutes,
+    notice,
   ];
 }

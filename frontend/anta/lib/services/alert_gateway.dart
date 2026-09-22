@@ -158,7 +158,17 @@ abstract class AlertGateway {
   /// refused it (a revoked exact-alarm permission, a plugin exception); the
   /// scheduler records nothing for a refusal, so the next reconcile tries
   /// again.
-  Future<bool> schedule(PlannedFire fire, AlertPayload payload);
+  ///
+  /// [noticeAt] is when the fire's upcoming notice is posted (OS-3), already
+  /// decided by the scheduler's `noticeInstantFor`; null means none, and a
+  /// binding then takes down any notice it still holds for this id — the
+  /// lead turned off reaches standing alarms through the arm signature and
+  /// lands here. The notice is the alarm's shadow, never a registration.
+  Future<bool> schedule(
+    PlannedFire fire,
+    AlertPayload payload, {
+    DateTime? noticeAt,
+  });
 
   /// Cancels one entry by the id it was scheduled under. Cancelling an id the
   /// platform does not hold is a no-op, never an error — a process death
@@ -255,7 +265,11 @@ class NoOpAlertGateway extends AlertGateway {
   bool get tracksPending => false;
 
   @override
-  Future<bool> schedule(PlannedFire fire, AlertPayload payload) async => true;
+  Future<bool> schedule(
+    PlannedFire fire,
+    AlertPayload payload, {
+    DateTime? noticeAt,
+  }) async => true;
 
   @override
   Future<void> cancel(int osId) async {}
