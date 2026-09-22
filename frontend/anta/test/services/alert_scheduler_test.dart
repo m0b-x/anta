@@ -143,6 +143,27 @@ class FakeAlertGateway implements AlertGateway {
   @override
   Stream<void> get showAlarms => const Stream<void>.empty();
 
+  /// Session chips posted (OS-5), by os id, and how many were taken down.
+  final List<int> chips = [];
+  int chipsCleared = 0;
+
+  @override
+  Future<bool> showSessionChip(
+    AlertPayload payload, {
+    required DateTime startedAt,
+    DateTime? endsAt,
+    int? progress,
+    bool refresh = false,
+  }) async {
+    chips.add(payload.osId);
+    return true;
+  }
+
+  @override
+  Future<void> clearSessionChip() async {
+    chipsCleared++;
+  }
+
   /// Deferrals the "plugin" made on its own since the last [takeMoves].
   final List<AlertMove> moves = [];
 

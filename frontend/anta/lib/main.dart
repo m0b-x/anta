@@ -23,14 +23,17 @@ import 'core/di/injection.dart';
 import 'core/qa/qa_bootstrap.dart';
 import 'core/qa/qa_mode.dart';
 import 'models/alert_payload.dart';
+import 'models/calendar_event.dart';
 import 'pages/alarm_page.dart';
 import 'pages/optimized_folder_content_page.dart';
 import 'pages/onboarding_page.dart';
+import 'repositories/note_repository.dart';
 import 'services/alert_gateway.dart';
 import 'services/alert_removal_notice.dart';
 import 'services/alert_scheduler.dart';
 import 'services/alert_skip_notice.dart';
 import 'services/app_navigator.dart';
+import 'services/calendar_event_service.dart';
 import 'services/counter_service.dart';
 import 'services/database_manager.dart';
 import 'services/import_export_service.dart';
@@ -38,6 +41,7 @@ import 'services/label_appearance_service.dart';
 import 'services/navigation_history_service.dart';
 import 'services/pending_navigation.dart';
 import 'services/permission_service.dart';
+import 'services/session_chip.dart';
 import 'services/settings_service.dart';
 import 'widgets/permission_prompt_dialog.dart';
 
@@ -307,6 +311,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       // window and the next launch reports a "Missed" for a ring the user
       // heard and stopped.
       unawaited(AlertScheduler.markFiredById(payload.osId));
+      // A new ring ends the session the last one opened (OS-5).
+      unawaited(SessionChip.instance.clear());
       PendingNavigationQueue.instance.enqueue(
         OpenAlarmIntent(payload: payload),
       );
@@ -427,8 +433,44 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           unawaited(AppNavigator.toAlertsFromPlatform());
         case SkipNextFireIntent():
           unawaited(_applySkip(intent.payload));
+        case OpenSessionIntent():
+          unawaited(_openSession(intent.payload));
       }
     }
+  }
+
+  /// "Open note" on the session chip (OS-5): the event's linked note when it
+  /// has one and the note is not in the trash, else the event on its day.
+  /// The event is looked up in the database that is open — a chip from
+  /// another database lands on the day alone, like a Skip does.
+  Future<void> _openSession(AlertPayload payload) async {
+    LinkedSessionNote? note;
+    var eventFound = false;
+    try {
+      final service = await CalendarEventService.getInstance();
+      CalendarEvent? event;
+      for (final candidate in service.events) {
+        if (candidate.id != payload.eventId) continue;
+        event = candidate;
+        break;
+      }
+      eventFound = event != null;
+      note = await linkedSessionNote(event, getIt<NoteRepository>());
+    } catch (e) {
+      debugPrint('[main] session note lookup failed: $e');
+    }
+    if (note != null) {
+      await AppNavigator.toNoteFromPlatform(
+        folderId: note.folderId,
+        noteId: note.noteId,
+        metadata: note.metadata,
+      );
+      return;
+    }
+    await AppNavigator.toCalendarOccurrence(
+      day: payload.dayUtc,
+      eventId: eventFound ? payload.eventId : null,
+    );
   }
 
   /// Publishes a notice's Skip for the calendar page and opens the calendar

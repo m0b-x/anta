@@ -4987,6 +4987,17 @@ class AppLocalizationsDe extends AppLocalizations {
   String get alertsOpenAction => 'Öffnen';
 
   @override
+  String get alertsSessionInProgress => 'Einheit läuft';
+
+  @override
+  String alertsSessionUntil(String time) {
+    return 'Bis $time';
+  }
+
+  @override
+  String get alertsSessionOpenNote => 'Notiz öffnen';
+
+  @override
   String alertsSkippedSnack(String title) {
     return '$title übersprungen';
   }

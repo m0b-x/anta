@@ -245,6 +245,26 @@ abstract class AlertGateway {
   /// [launchIntent] instead. Empty wherever nothing arms alarm clocks.
   Stream<void> get showAlarms => const Stream<void>.empty();
 
+  /// Posts — or, with [refresh], re-posts — the session chip (**B8**, OS-5):
+  /// the one ongoing notification saying the session an acknowledged alarm
+  /// belongs to is under way, counting from [startedAt] and, when [endsAt] is
+  /// known, with [progress] percent of it behind. Answers whether the chip
+  /// stands on the shade afterwards: a refresh of a chip the user has taken
+  /// down with *Done* is refused rather than re-posted, and that refusal is
+  /// how the Dart side learns of a Done that ran with no Dart at all.
+  /// `SessionChip` decides when and once; a binding only draws it. False,
+  /// wherever nothing can be pinned to the shade.
+  Future<bool> showSessionChip(
+    AlertPayload payload, {
+    required DateTime startedAt,
+    DateTime? endsAt,
+    int? progress,
+    bool refresh = false,
+  }) async => false;
+
+  /// Takes the session chip down, whether or not this process posted it.
+  Future<void> clearSessionChip() async {}
+
   Future<void> dispose();
 }
 

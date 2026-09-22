@@ -7,6 +7,7 @@ import '../models/event_alert.dart';
 import 'alert_scheduler.dart';
 import 'calendar_event_service.dart';
 import 'database_manager.dart';
+import 'session_chip.dart';
 
 /// An event deleted because one of its alerts was acknowledged (**A3**), held
 /// with everything needed to put it back.
@@ -75,7 +76,10 @@ class AlertRemovalNotice extends ChangeNotifier {
 
 /// Applies A3 to one acknowledged **alarm**: the event is soft-deleted, its
 /// alerts go with it, the platform is re-reconciled and the calendar is told so
-/// it can offer Undo.
+/// it can offer Undo. First, though, the session chip (**B8**, OS-5) — for
+/// every acknowledged alarm, removed or not, and before the removal, while
+/// the event can still say when its session ends; `SessionChip` posts it
+/// once per ring however many routes acknowledge the same one.
 ///
 /// Called from the alarm page's Stop and from a Stop on the platform's own
 /// alarm notification. The reminder tier never gets here: its Done runs in a
@@ -91,8 +95,9 @@ abstract final class AlertAcknowledgement {
   /// Returns whether the event was removed, so a caller about to open it can
   /// land on its day instead of on a detail sheet for something that is gone.
   static Future<bool> apply(AlertPayload payload) async {
-    if (!payload.removeAfterAlert || payload.isTest) return false;
-    if (!payload.isAlarm) return false;
+    if (payload.isTest || !payload.isAlarm) return false;
+    await SessionChip.instance.show(payload);
+    if (!payload.removeAfterAlert) return false;
     try {
       final manager = await DatabaseManager.getInstance();
       if (manager.getActiveDatabaseName() != payload.database) return false;

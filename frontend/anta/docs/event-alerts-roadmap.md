@@ -52,7 +52,12 @@ registry by the next reconcile, a snooze seen with Dart up told from a Stop.
 Skip (a foreground intent the calendar applies with Undo) and Open.
 **OS-4 DONE 2026-09-22**: the `missed` state, the hub's Recent section over
 the settled registrations, and notifications carrying the event's colour,
-icon and description excerpt.
+icon and description excerpt. **OS-5 DONE 2026-09-23 (chip only)**: the session chip — one ongoing
+notification per acknowledged alarm, promoted with a progress bar on
+Android 16 where the user allows it, a chronometer otherwise, with *Open
+note* and *Done* — through a native `SessionChip` behind
+`AlertGateway.showSessionChip`; the quick-settings tile and the shortcut
+stay blocked on Session 6's quick-alarm sheet.
 
 ## 0. What an alert is, and is not
 
@@ -321,6 +326,8 @@ the active database name (`DatabaseManager.getActiveDatabaseName()`).
   `missed`, the hub gains a *Recent* section over the settled rows, and the
   notifications carry the event's colour, icon and description excerpt —
   §12 "Alarm log and richer content".
+  **OS-5 (2026-09-23):** an acknowledged ring posts the session chip (B8) —
+  §12 "Session chip"; the tile and shortcut (B9) wait for Session 6.
 - **Fallback alarm (notification plugin):** `alarmClock` mode,
   `fullScreenIntent: true`, `category: alarm`, `audioAttributesUsage:
   alarm`, `additionalFlags: Int32List.fromList([4])`, `ongoing: true`,

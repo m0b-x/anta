@@ -65,6 +65,16 @@ void main() {
     await gateway.cancel(1);
     await gateway.showMissed(payload);
     await gateway.stopRinging(1);
+    // Nothing stands on a shade that does not exist, and the coordinator
+    // reads that as "nothing to keep alive".
+    expect(
+      await gateway.showSessionChip(
+        payload,
+        startedAt: DateTime(2026, 9, 20, 18),
+      ),
+      isFalse,
+    );
+    await gateway.clearSessionChip();
     await gateway.dispose();
 
     expect(await gateway.ringing.toList(), isEmpty);

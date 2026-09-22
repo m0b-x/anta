@@ -4948,6 +4948,17 @@ class AppLocalizationsEn extends AppLocalizations {
   String get alertsOpenAction => 'Open';
 
   @override
+  String get alertsSessionInProgress => 'Session in progress';
+
+  @override
+  String alertsSessionUntil(String time) {
+    return 'Until $time';
+  }
+
+  @override
+  String get alertsSessionOpenNote => 'Open note';
+
+  @override
   String alertsSkippedSnack(String title) {
     return 'Skipped $title';
   }

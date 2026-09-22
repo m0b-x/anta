@@ -8458,6 +8458,24 @@ abstract class AppLocalizations {
   /// **'Open'**
   String get alertsOpenAction;
 
+  /// Session chip body when the event has no end time; the chip's clock counts the elapsed time
+  ///
+  /// In en, this message translates to:
+  /// **'Session in progress'**
+  String get alertsSessionInProgress;
+
+  /// Session chip body when the event has an end time
+  ///
+  /// In en, this message translates to:
+  /// **'Until {time}'**
+  String alertsSessionUntil(String time);
+
+  /// Session chip action: open the event's linked note, or the event
+  ///
+  /// In en, this message translates to:
+  /// **'Open note'**
+  String get alertsSessionOpenNote;
+
   /// Snackbar after a notice's Skip was applied; carries Undo
   ///
   /// In en, this message translates to:
