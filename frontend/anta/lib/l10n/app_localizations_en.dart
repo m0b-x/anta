@@ -4953,6 +4953,27 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get alertsRecent => 'Recent';
+
+  @override
+  String get alertsHistoryRemoved => 'Removed event';
+
+  @override
+  String get alertsOutcomeRang => 'Rang';
+
+  @override
+  String get alertsOutcomeStopped => 'Stopped';
+
+  @override
+  String get alertsOutcomeSnoozed => 'Snoozed';
+
+  @override
+  String get alertsOutcomeMissed => 'Missed';
+
+  @override
+  String get alertsOutcomeDelivered => 'Delivered';
+
+  @override
   String get alertsForceStopNote =>
       'Force stopping ANTA disarms every alarm until you open it again.';
 

@@ -50,3 +50,57 @@ class AlertHubEntry extends Equatable {
     snoozeOsId,
   ];
 }
+
+/// What became of one settled registration (OS-4, **B7**).
+enum AlertOutcome {
+  /// It rang and ended without the app hearing a Stop — natively, with no
+  /// Dart up, or while the app was alive at the instant.
+  rang,
+
+  /// Stopped from the alarm page or the platform's own notification.
+  stopped,
+
+  /// Deferred — a snooze registration that has since settled.
+  snoozed,
+
+  /// Reported as Missed: nobody answered, or it was found late.
+  missed,
+
+  /// A reminder the platform delivered — a notification does not ring, and
+  /// its row is settled by the delivery-evidence band like an alarm's.
+  delivered,
+}
+
+/// One row of the hub's *Recent* section: a registration that has settled in
+/// the last week, and what happened to it.
+///
+/// [event] and [alert] are null once removed — the row is kept, titled by the
+/// hub's own fallback, because the registration is the phone's record of a
+/// ring whether or not the event outlived it.
+class AlertHistoryEntry extends Equatable {
+  final CalendarEvent? event;
+  final EventAlert? alert;
+
+  /// Occurrence day, date-only UTC.
+  final DateTime day;
+
+  /// Local instant it was armed for.
+  final DateTime fireAt;
+
+  /// When the registration settled — the order the section lists in.
+  final DateTime settledAt;
+
+  final AlertOutcome outcome;
+
+  const AlertHistoryEntry({
+    required this.event,
+    required this.alert,
+    required this.day,
+    required this.fireAt,
+    required this.settledAt,
+    required this.outcome,
+  });
+
+  @override
+  List<Object?> get props => [event, alert, day, fireAt, settledAt, outcome];
+}

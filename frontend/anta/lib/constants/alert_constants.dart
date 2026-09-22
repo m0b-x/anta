@@ -58,12 +58,17 @@ enum AlertKind {
 ///
 /// Only [pending] is ever handed back to the diff; everything else is history
 /// kept for [kAlertRegistrationRetention] so a late-fire pass and the hub can
-/// say what happened. An unknown value decodes to [cancelled], the state that
-/// makes the scheduler re-plan rather than trust a row it cannot read.
+/// say what happened. [missed] (OS-4) is written where the Missed notice is
+/// posted — the late-fire pass, and a ring that timed out unanswered — so the
+/// hub's *Recent* section can answer "did it ring?" from the phone's own
+/// record. An unknown value decodes to [cancelled], the state that makes the
+/// scheduler re-plan rather than trust a row it cannot read, which is also
+/// what an older build reading a newer registry does with [missed].
 enum AlertRegistrationState {
   pending,
   fired,
   stopped,
+  missed,
   cancelled;
 
   static AlertRegistrationState fromName(String? raw) {

@@ -56,6 +56,27 @@ void main() {
       expect(decoded.snoozeMinutes, 15);
     });
 
+    test('the excerpt rides the wire and an older payload reads as none', () {
+      // OS-4: the reminder's expandable body and the Missed notice's are
+      // drawn from the payload alone, so the excerpt has to survive a
+      // reboot with the rest — and a payload from before it must not fail.
+      final rich = AlertPayload(
+        database: payload.database,
+        eventId: payload.eventId,
+        alertId: payload.alertId,
+        dayUtcMs: payload.dayUtcMs,
+        osId: payload.osId,
+        mode: payload.mode,
+        title: payload.title,
+        timeLabel: payload.timeLabel,
+        categoryId: payload.categoryId,
+        excerpt: 'Squat and bench',
+      );
+      expect(AlertPayload.decode(rich.encode())!.excerpt, 'Squat and bench');
+      expect(AlertPayload.decode(payload.encode())!.excerpt, '');
+      expect(rich.copyWith(osId: 9).excerpt, 'Squat and bench');
+    });
+
     test('a payload written by an older build still decodes', () {
       // No `snoozeMin` key — what every entry armed before this session
       // carries. It has to read as the shipped default rather than as a

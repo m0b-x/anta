@@ -7,6 +7,7 @@ import 'package:get_it/get_it.dart';
 import '../constants/alert_constants.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/event_alerts.dart';
+import '../constants/occurrence_descriptions.dart';
 import '../constants/settings_keys.dart';
 import '../database/daos/alert_registration_dao.dart';
 import '../database/database.dart';
@@ -17,12 +18,15 @@ import '../models/alert_sound.dart';
 import '../models/calendar_event.dart';
 import '../models/event_alert.dart';
 import '../models/recurrence_rule.dart';
+import '../utils/alert_excerpt.dart';
 import '../utils/alert_os_id.dart';
 import '../utils/alert_planner.dart';
 import 'alert_gateway.dart';
 import 'calendar_event_service.dart';
+import 'category_service.dart';
 import 'database_manager.dart';
 import 'event_alert_service.dart';
+import 'event_occurrence_service.dart';
 import 'event_skip_service.dart';
 import 'event_time_formatter.dart';
 import 'public_holiday_service.dart';
@@ -392,7 +396,7 @@ class AlertScheduler {
           payload.osId,
           answered
               ? AlertRegistrationState.stopped.name
-              : AlertRegistrationState.fired.name,
+              : AlertRegistrationState.missed.name,
         );
       }
       if (!answered && !payload.isTest) await _gateway.showMissed(payload);
@@ -611,6 +615,89 @@ class AlertScheduler {
     }
   }
 
+  /// The hub's *Recent* section (OS-4, **B7**): every registration that
+  /// settled inside [kAlertRegistrationRetention], newest first, with what
+  /// became of it — `rang`, `stopped`, `snoozed` or `missed`. Cancelled rows
+  /// are left out (the plan changing is not history), and so is the settings
+  /// page's test ring.
+  ///
+  /// One query and no per-row lookups: events and alerts are resolved from
+  /// the two in-memory facades, and a row whose event is gone is kept with
+  /// nothing attached — the registration is the phone's own record of a ring,
+  /// whether or not the event outlived it. A read outside the chain, for
+  /// [nextFiresForEvent]'s reason.
+  Future<List<AlertHistoryEntry>> recentEntries() async {
+    await _resolveQuietly(EventAlertService.getInstance(), 'alerts');
+    await _resolveQuietly(CategoryService.getInstance(), 'categories');
+    final now = _clock();
+    final CalendarEventService eventService;
+    try {
+      eventService = await CalendarEventService.getInstance();
+    } catch (e) {
+      debugPrint('[AlertScheduler] recent setup failed: $e');
+      return const [];
+    }
+    final eventsById = {for (final event in eventService.events) event.id: event};
+    final rows = await _dao.recent(
+      since: now.subtract(kAlertRegistrationRetention),
+    );
+    final entries = <AlertHistoryEntry>[];
+    for (final row in rows) {
+      if (row.eventId == AlertPayload.testEventId) continue;
+      // A `fired` row inside the grace window is a ring in progress — the
+      // ring handler marked it a moment ago — not history yet.
+      if (AlertRegistrationState.fromName(row.state) ==
+              AlertRegistrationState.fired &&
+          now.difference(DateTime.fromMillisecondsSinceEpoch(row.fireAt)) <
+              kLateFireGrace) {
+        continue;
+      }
+      final event = eventsById[row.eventId];
+      final alert = event == null ? null : _alertOf(row.eventId, row.alertId);
+      entries.add(
+        AlertHistoryEntry(
+          event: event,
+          alert: alert,
+          day: DateTime.fromMillisecondsSinceEpoch(row.day, isUtc: true),
+          fireAt: DateTime.fromMillisecondsSinceEpoch(row.fireAt),
+          settledAt: row.updatedAt,
+          outcome: _outcomeOf(row, alert),
+        ),
+      );
+    }
+    return entries;
+  }
+
+  /// What a settled row says happened. A `missed` verdict wins over the
+  /// row's kind — a snooze nobody answered was missed, and saying so is the
+  /// point of the section; otherwise a snooze row reads as snoozed, a
+  /// `stopped` row as stopped, and a `fired` one as rang — or, for a
+  /// reminder, as delivered: a notification does not ring, and the
+  /// delivery-evidence band marks its row `fired` all the same.
+  static AlertOutcome _outcomeOf(AlertRegistrationRow row, EventAlert? alert) {
+    final state = AlertRegistrationState.fromName(row.state);
+    if (state == AlertRegistrationState.missed) return AlertOutcome.missed;
+    if (AlertKind.fromName(row.kind) == AlertKind.snooze) {
+      return AlertOutcome.snoozed;
+    }
+    if (state == AlertRegistrationState.stopped) return AlertOutcome.stopped;
+    return alert?.mode == AlertMode.notify
+        ? AlertOutcome.delivered
+        : AlertOutcome.rang;
+  }
+
+  /// [recentEntries] for a page that holds no scheduler, swallowing every
+  /// failure into an empty list.
+  static Future<List<AlertHistoryEntry>> recentEntriesOrEmpty() async {
+    if (_instance == null && !_hasGateway) return const [];
+    try {
+      return await (await getInstance()).recentEntries();
+    } catch (e) {
+      debugPrint('[AlertScheduler] recent entries failed: $e');
+      return const [];
+    }
+  }
+
   /// [cancelSnooze] for the same page, swallowing every failure.
   static Future<void> cancelSnoozeById(int osId) async {
     if (_instance == null && !_hasGateway) return;
@@ -757,6 +844,12 @@ class AlertScheduler {
     await _resolveQuietly(EventSkipService.getInstance(), 'skips');
     await _resolveQuietly(PublicHolidayService.getInstance(), 'holidays');
     await _resolveQuietly(EventAlertService.getInstance(), 'alerts');
+    // The two the payload draws from (OS-4): a day's description comes
+    // through `OccurrenceDescriptions`, and the colour and icon a
+    // notification carries resolve through `CalendarCategories` — both
+    // silent when unconfigured, which on the launch path they would be.
+    await _resolveQuietly(EventOccurrenceService.getInstance(), 'occurrences');
+    await _resolveQuietly(CategoryService.getInstance(), 'categories');
 
     final CalendarEventService eventService;
     final AlertSettings settings;
@@ -949,9 +1042,9 @@ class AlertScheduler {
       if (desired.containsKey(entry.osId)) continue;
       if (!handled.add(entry.osId)) continue;
       await _gateway.cancel(entry.osId);
-      // A row just settled as delivered keeps that verdict; the backend's
-      // leftover listing of it is cleared all the same.
-      if (!settled.delivered.contains(entry.osId)) {
+      // A row this pass already settled — delivered, or missed — keeps that
+      // verdict; the backend's leftover listing of it is cleared all the same.
+      if (!settled.verdicts.contains(entry.osId)) {
         await _dao.markState(
           entry.osId,
           AlertRegistrationState.cancelled.name,
@@ -1034,9 +1127,10 @@ class AlertScheduler {
   ///   never reported. Session 3's ring handler is what marks it `fired` or
   ///   `stopped`; a reconcile that touched it would cancel a ring in progress
   ///   and post "Missed" over the noise it was still making.
-  /// - **past by more** — over. Marked `cancelled`, and reported once, quietly,
-  ///   while it is still inside [kMissedAlertWindow] **and** the alert is in
-  ///   the ring tier. A reminder that was simply not tapped is not a missed
+  /// - **past by more** — over. Reported once, quietly, while it is still
+  ///   inside [kMissedAlertWindow] **and** the alert is in the ring tier, and
+  ///   the row is then marked `missed` (OS-4) so the hub's Recent section
+  ///   can say so; every other row of the band is marked `cancelled`. A reminder that was simply not tapped is not a missed
   ///   appointment, and reporting every one of them would turn each launch
   ///   into a pile of notifications; an alert that no longer exists has nothing
   ///   to say either. Past [kMissedAlertWindow] the platform entry is cancelled
@@ -1068,6 +1162,7 @@ class AlertScheduler {
       List<AlertRegistrationRow> live,
       List<AlertRegistrationRow> inFlight,
       Set<int> delivered,
+      Set<int> verdicts,
     })
   >
   _settlePastFires(
@@ -1079,6 +1174,7 @@ class AlertScheduler {
     final live = <AlertRegistrationRow>[];
     final inFlight = <AlertRegistrationRow>[];
     final delivered = <int>{};
+    final verdicts = <int>{};
     DateTime? processStartedAt;
     for (final row in rows) {
       final fireAt = DateTime.fromMillisecondsSinceEpoch(row.fireAt);
@@ -1100,22 +1196,32 @@ class AlertScheduler {
       if (!processStartedAt.isAfter(fireAt)) {
         await _dao.markState(row.osId, AlertRegistrationState.fired.name);
         delivered.add(row.osId);
+        verdicts.add(row.osId);
         continue;
       }
-      await _dao.markState(row.osId, AlertRegistrationState.cancelled.name);
       if (lateness >= kMissedAlertWindow) {
+        await _dao.markState(row.osId, AlertRegistrationState.cancelled.name);
         await _gateway.cancel(row.osId);
         continue;
       }
       final event = eventsById[row.eventId];
-      if (event == null) continue;
-      final alert = _alertOf(row.eventId, row.alertId);
-      if (alert == null || alert.mode != AlertMode.ring) continue;
+      final alert = event == null ? null : _alertOf(row.eventId, row.alertId);
+      if (event == null || alert == null || alert.mode != AlertMode.ring) {
+        await _dao.markState(row.osId, AlertRegistrationState.cancelled.name);
+        continue;
+      }
+      await _dao.markState(row.osId, AlertRegistrationState.missed.name);
+      verdicts.add(row.osId);
       await _gateway.showMissed(
         _payloadForRow(row, event, fireAt: fireAt, snoozeMinutes: snoozeMinutes),
       );
     }
-    return (live: live, inFlight: inFlight, delivered: delivered);
+    return (
+      live: live,
+      inFlight: inFlight,
+      delivered: delivered,
+      verdicts: verdicts,
+    );
   }
 
   /// Stands in for "the platform cannot say when this process started": later
@@ -1239,6 +1345,8 @@ class AlertScheduler {
     if (!foreign) {
       try {
         await EventAlertService.getInstance();
+        await _resolveQuietly(EventOccurrenceService.getInstance(), 'occurrences');
+        await _resolveQuietly(CategoryService.getInstance(), 'categories');
         final eventService = await CalendarEventService.getInstance();
         final alertSettings = await (await SettingsService.getInstance())
             .getAlertSettings();
@@ -1377,6 +1485,9 @@ class AlertScheduler {
       removeAfterAlert: fire.event.removeAfterAlert,
       snooze: fire.kind == AlertKind.snooze,
       snoozeMinutes: snoozeMinutes,
+      excerpt: alertExcerptFor(
+        OccurrenceDescriptions.descriptionFor(fire.event, fire.day),
+      ),
     );
   }
 
@@ -1402,6 +1513,12 @@ class AlertScheduler {
       removeAfterAlert: event.removeAfterAlert,
       snooze: AlertKind.fromName(row.kind) == AlertKind.snooze,
       snoozeMinutes: snoozeMinutes,
+      excerpt: alertExcerptFor(
+        OccurrenceDescriptions.descriptionFor(
+          event,
+          DateTime.fromMillisecondsSinceEpoch(row.day, isUtc: true),
+        ),
+      ),
     );
   }
 

@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:alarm/alarm.dart';
 import 'package:alarm/utils/alarm_exception.dart';
 import 'package:alarm/utils/alarm_set.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -12,6 +14,8 @@ import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../constants/alert_constants.dart';
+import '../constants/calendar_categories.dart';
+import '../constants/calendar_icons.dart';
 import '../constants/settings_keys.dart';
 import '../database/database.dart';
 import '../l10n/app_localizations.dart';
@@ -176,7 +180,20 @@ Future<void> _snoozeFromBackground(
   }
 }
 
-AndroidNotificationDetails _reminderDetails(AppLocalizations l10n) {
+/// What a reminder or a Missed notice is drawn with beyond its text (OS-4):
+/// the event's colour, its icon as the large icon, and the description's
+/// first line as the expandable body. Composed once per schedule on the UI
+/// isolate; the background isolate's re-post carries none of it.
+typedef AlertDecor = ({
+  Color color,
+  ByteArrayAndroidBitmap? largeIcon,
+  String excerpt,
+});
+
+AndroidNotificationDetails _reminderDetails(
+  AppLocalizations l10n, {
+  AlertDecor? decor,
+}) {
   return AndroidNotificationDetails(
     kAlertReminderChannelId,
     l10n.alertsReminderChannel,
@@ -185,6 +202,11 @@ AndroidNotificationDetails _reminderDetails(AppLocalizations l10n) {
     priority: Priority.high,
     category: AndroidNotificationCategory.reminder,
     icon: kAlertSmallIcon,
+    color: decor?.color,
+    largeIcon: decor?.largeIcon,
+    styleInformation: decor == null || decor.excerpt.isEmpty
+        ? null
+        : BigTextStyleInformation(decor.excerpt),
     actions: <AndroidNotificationAction>[
       // `showsUserInterface: false` is what routes both to the background
       // isolate, even while the app is in front (§10.5).
@@ -272,6 +294,13 @@ class AndroidAlertGateway extends AlertGateway {
   /// twice as well. The payload is kept because [ringEnded] has to hand it
   /// back: by the time a ring is over the `alarm` package has unsaved it.
   final Map<int, AlertPayload> _rings = <int, AlertPayload>{};
+
+  /// Large icons already rendered, by icon and colour — a reconcile arms up
+  /// to 48 entries and most share a category, so the same glyph is painted
+  /// once per pass rather than once per fire. Bounded, cleared wholesale.
+  final Map<String, Uint8List> _iconBitmaps = <String, Uint8List>{};
+
+  static const int _iconBitmapCacheSize = 32;
 
   /// The subset of [_rings] the `alarm` package reported, which is the only
   /// subset whose disappearance from `Alarm.ringing` means anything. A
@@ -655,6 +684,90 @@ class AndroidAlertGateway extends AlertGateway {
     }
   }
 
+  // ── Richer content (OS-4) ────────────────────────────────────────────
+
+  /// The event's resolved colour: its own override, else its category's —
+  /// both carried by the payload, so no database is read.
+  static Color _tintOf(AlertPayload payload) => Color(
+    payload.colorValue ??
+        CalendarCategories.resolve(payload.categoryId).colorValue,
+  );
+
+  static IconData _iconOf(AlertPayload payload) =>
+      CalendarIcons.forKey(payload.iconKey) ??
+      CalendarIcons.forKey(CalendarCategories.resolve(payload.categoryId).iconKey) ??
+      Icons.alarm_rounded;
+
+  /// Everything a reminder or a Missed notice is drawn with, composed once
+  /// per schedule from the payload alone.
+  Future<AlertDecor> _decorFor(AlertPayload payload) async {
+    final color = _tintOf(payload);
+    final bytes = await _iconBitmap(_iconOf(payload), color);
+    return (
+      color: color,
+      largeIcon: bytes == null ? null : ByteArrayAndroidBitmap(bytes),
+      excerpt: payload.excerpt,
+    );
+  }
+
+  static const Duration _rasterPatience = Duration(seconds: 2);
+
+  static Future<ByteData?> _rasterize(ui.Picture picture, int size) async {
+    final image = await picture.toImage(size, size);
+    try {
+      return await image.toByteData(format: ui.ImageByteFormat.png);
+    } finally {
+      image.dispose();
+    }
+  }
+
+  /// Paints [icon] on a tinted disc and answers it as PNG bytes, memoized by
+  /// icon and colour. Null when the engine cannot rasterize — a notification
+  /// without a large icon, never a notification not posted.
+  Future<Uint8List?> _iconBitmap(IconData icon, Color color) async {
+    final key =
+        '${icon.codePoint}|${icon.fontFamily}|${icon.fontPackage}|${color.toARGB32()}';
+    final cached = _iconBitmaps[key];
+    if (cached != null) return cached;
+    try {
+      const size = 64.0;
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
+      canvas.drawCircle(
+        const Offset(size / 2, size / 2),
+        size / 2,
+        Paint()..color = color.withValues(alpha: 0.18),
+      );
+      final painter = TextPainter(textDirection: TextDirection.ltr)
+        ..text = TextSpan(
+          text: String.fromCharCode(icon.codePoint),
+          style: TextStyle(
+            fontSize: 38,
+            fontFamily: icon.fontFamily,
+            package: icon.fontPackage,
+            color: color,
+          ),
+        )
+        ..layout();
+      painter.paint(
+        canvas,
+        Offset((size - painter.width) / 2, (size - painter.height) / 2),
+      );
+      // Bounded: this runs inside the scheduler's serialized chain, and a
+      // snapshot that never completes would park every later turn behind it.
+      final data = await _rasterize(recorder.endRecording(), size.toInt())
+          .timeout(_rasterPatience, onTimeout: () => null);
+      if (data == null) return null;
+      final bytes = data.buffer.asUint8List();
+      if (_iconBitmaps.length >= _iconBitmapCacheSize) _iconBitmaps.clear();
+      _iconBitmaps[key] = bytes;
+      return bytes;
+    } catch (e) {
+      debugPrint('[AndroidAlertGateway] icon bitmap failed: $e');
+      return null;
+    }
+  }
+
   // ── Sounds ───────────────────────────────────────────────────────────
 
   @override
@@ -863,6 +976,7 @@ class AndroidAlertGateway extends AlertGateway {
             stopButton: l10n.alarmStop,
             androidSnoozeButton: l10n.alarmSnoozeMinutes(payload.snoozeMinutes),
             icon: kAlertSmallIcon,
+            iconColor: _tintOf(payload),
           ),
         ),
       );
@@ -887,6 +1001,7 @@ class AndroidAlertGateway extends AlertGateway {
       final silenceAfter = alarmTier
           ? await _silenceAfterMillis()
           : null;
+      final decor = await _decorFor(payload);
       await _plugin.zonedSchedule(
         id: payload.osId,
         title: payload.isTest ? l10n.alertsTestAlarm : payload.title,
@@ -901,8 +1016,8 @@ class AndroidAlertGateway extends AlertGateway {
             : AndroidScheduleMode.exactAllowWhileIdle,
         notificationDetails: NotificationDetails(
           android: alarmTier
-              ? _alarmFallbackDetails(l10n, silenceAfter!)
-              : _reminderDetails(l10n),
+              ? _alarmFallbackDetails(l10n, silenceAfter!, decor: decor)
+              : _reminderDetails(l10n, decor: decor),
         ),
       );
       return true;
@@ -914,14 +1029,20 @@ class AndroidAlertGateway extends AlertGateway {
 
   AndroidNotificationDetails _alarmFallbackDetails(
     AppLocalizations l10n,
-    int timeoutAfterMillis,
-  ) {
+    int timeoutAfterMillis, {
+    AlertDecor? decor,
+  }) {
     return AndroidNotificationDetails(
       kAlertAlarmChannelId,
       l10n.alertsAlarmChannel,
       channelDescription: l10n.alertsAlarmChannelDesc,
       importance: Importance.max,
       priority: Priority.max,
+      color: decor?.color,
+      largeIcon: decor?.largeIcon,
+      styleInformation: decor == null || decor.excerpt.isEmpty
+          ? null
+          : BigTextStyleInformation(decor.excerpt),
       category: AndroidNotificationCategory.alarm,
       audioAttributesUsage: AudioAttributesUsage.alarm,
       fullScreenIntent: true,
@@ -1020,6 +1141,7 @@ class AndroidAlertGateway extends AlertGateway {
     await initialize();
     final l10n = _l10n;
     try {
+      final decor = await _decorFor(payload);
       await _plugin.show(
         // Its own id space, so a Missed notice never replaces or is replaced
         // by a live registration that happens to share an os id.
@@ -1035,6 +1157,11 @@ class AndroidAlertGateway extends AlertGateway {
             importance: Importance.low,
             priority: Priority.low,
             icon: kAlertSmallIcon,
+            color: decor.color,
+            largeIcon: decor.largeIcon,
+            styleInformation: decor.excerpt.isEmpty
+                ? null
+                : BigTextStyleInformation(decor.excerpt),
           ),
         ),
       );

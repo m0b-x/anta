@@ -115,6 +115,7 @@ void main() {
   Future<void> pumpHub(
     WidgetTester tester,
     List<AlertHubEntry> Function() entries, {
+    AlertHistoryLoader? loadRecent,
     PermissionService? permissions,
   }) async {
     await tester.pumpWidget(
@@ -126,6 +127,7 @@ void main() {
           value: bloc,
           child: AlertsPage.forTesting(
             loadEntries: () async => entries(),
+            loadRecent: loadRecent,
             permissions: permissions,
           ),
         ),
@@ -133,6 +135,75 @@ void main() {
     );
     await tester.pumpAndSettle();
   }
+
+  testWidgets('the Recent section renders one row per outcome (OS-4)', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(800, 1800);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final yesterday = DateTime.now().subtract(const Duration(days: 1));
+    AlertHistoryEntry historyOf(AlertOutcome outcome, int hour, {bool removed = false}) =>
+        AlertHistoryEntry(
+          event: removed ? null : eventOf(),
+          alert: removed ? null : alarm,
+          day: DateTime.utc(yesterday.year, yesterday.month, yesterday.day),
+          fireAt: DateTime(yesterday.year, yesterday.month, yesterday.day, hour),
+          settledAt: DateTime(yesterday.year, yesterday.month, yesterday.day, hour, 1),
+          outcome: outcome,
+        );
+    await pumpHub(
+      tester,
+      () => [entryOf()],
+      loadRecent: () async => [
+        historyOf(AlertOutcome.rang, 7),
+        historyOf(AlertOutcome.stopped, 8),
+        historyOf(AlertOutcome.snoozed, 9),
+        historyOf(AlertOutcome.missed, 10, removed: true),
+        historyOf(AlertOutcome.delivered, 11),
+      ],
+    );
+
+    expect(find.text('Recent'), findsOneWidget);
+    expect(find.textContaining('Delivered'), findsOneWidget);
+    expect(find.byIcon(Icons.alarm_on_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.check_circle_outline_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.snooze_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.alarm_off_rounded), findsOneWidget);
+    expect(find.textContaining('Rang'), findsOneWidget);
+    expect(find.textContaining('Stopped'), findsOneWidget);
+    expect(find.textContaining('Snoozed'), findsOneWidget);
+    expect(find.textContaining('Missed'), findsOneWidget);
+    // A row whose event is gone keeps its place under the fallback title.
+    expect(find.text('Removed event'), findsOneWidget);
+    // The live rows are untouched: one switch, for the one live entry.
+    expect(find.byType(Switch), findsOneWidget);
+  });
+
+  testWidgets('history alone still shows the section, not the empty state', (
+    tester,
+  ) async {
+    final yesterday = DateTime.now().subtract(const Duration(days: 1));
+    await pumpHub(
+      tester,
+      () => const [],
+      loadRecent: () async => [
+        AlertHistoryEntry(
+          event: eventOf(),
+          alert: alarm,
+          day: DateTime.utc(yesterday.year, yesterday.month, yesterday.day),
+          fireAt: DateTime(yesterday.year, yesterday.month, yesterday.day, 7),
+          settledAt: DateTime(yesterday.year, yesterday.month, yesterday.day, 7, 1),
+          outcome: AlertOutcome.stopped,
+        ),
+      ],
+    );
+
+    expect(find.text('Recent'), findsOneWidget);
+    expect(find.text('No upcoming alerts'), findsOneWidget);
+    expect(find.byType(Switch), findsNothing);
+  });
 
   testWidgets('no alerts shows the empty state', (tester) async {
     await pumpHub(tester, () => const []);
