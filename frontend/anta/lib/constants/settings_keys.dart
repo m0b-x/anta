@@ -531,9 +531,10 @@ class SettingsKeys {
   /// Read only through `AlertSound` (`lib/models/alert_sound.dart`), which is
   /// the one place the spellings live: `''` and `system:default` are both the
   /// phone's *current* default alarm (the app ships no sound of its own), and
-  /// anything else is a `content://` URI picked out of the phone. A value this
-  /// build or this device cannot resolve decodes to the phone's default —
-  /// never to silence.
+  /// anything else is a `content://` URI picked out of the phone, armed
+  /// verbatim since the `alarm` fork plays a URI directly. A value this build
+  /// cannot read decodes to the phone's default, and one this device cannot
+  /// open rings it — never silence.
   static const String alertSound = 'alert_sound';
   static const String defaultAlertSound = '';
 

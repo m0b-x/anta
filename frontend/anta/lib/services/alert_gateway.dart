@@ -193,7 +193,19 @@ abstract class AlertGateway {
 
   /// The alert the app was launched by, if any, for a cold-start tap. Read
   /// once at startup and queued rather than pushed: there is no navigator yet.
+  ///
+  /// Also answers the phone's own "next alarm" surface: an alarm-clock entry's
+  /// show intent (Patch 1 of the `alarm` fork) launching the app cold reads as
+  /// an [OpenAlertsHubIntent], asked for **after** the notification launch
+  /// details so a tap on a notification always wins.
   Future<AlertIntent?> launchIntent();
+
+  /// Emits when the phone's "next alarm" surface — the lock-screen line,
+  /// Quick Settings — opens an app that is already running, through the show
+  /// intent every alarm-clock entry carries. The listener queues an
+  /// [OpenAlertsHubIntent]; a cold launch by the same intent is reported by
+  /// [launchIntent] instead. Empty wherever nothing arms alarm clocks.
+  Stream<void> get showAlarms => const Stream<void>.empty();
 
   Future<void> dispose();
 }

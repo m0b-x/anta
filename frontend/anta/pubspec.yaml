@@ -81,7 +81,8 @@ dependencies:
   cloud_firestore: ^6.8.0
   google_sign_in: ^7.2.0
   # Event alerts (Android/iOS only — gated by AlertAvailability)
-  alarm: ^5.13.0
+  alarm:
+    path: packages/alarm
   flutter_local_notifications: ^22.3.1
   timezone: ^0.11.1
   flutter_timezone: ^5.1.0

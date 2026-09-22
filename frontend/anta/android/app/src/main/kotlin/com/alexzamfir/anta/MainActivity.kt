@@ -10,19 +10,16 @@ import android.media.AudioManager
 import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
+import android.os.Bundle
 import android.os.PowerManager
 import android.os.Process
 import android.os.SystemClock
 import android.provider.Settings
+import com.gdelataillade.alarm.alarm.AlarmService
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
-import java.io.FileOutputStream
-import java.security.MessageDigest
-import java.util.concurrent.Executors
 
 private const val ALERTS_CHANNEL = "com.alexzamfir.anta/alerts"
 private const val PERMISSIONS_CHANNEL = "com.alexzamfir.anta/permissions"
@@ -44,8 +41,13 @@ private const val ERROR_PICKER_BUSY = "picker_busy"
 
 private const val PICK_ALARM_SOUND_REQUEST = 0x5A17
 
-/** Where a picked sound is copied to, under `filesDir`. */
-private const val ALARM_SOUND_DIR = "alert_sounds"
+/**
+ * Where builds before OS-1 (2026-09-22) copied a picked sound to, under
+ * `filesDir`. Nothing reads it any more — the `alarm` fork plays a `content://`
+ * URI directly — so it is deleted once on the next launch and the name survives
+ * only for that.
+ */
+private const val LEGACY_ALARM_SOUND_DIR = "alert_sounds"
 
 /**
  * The two app-owned channels.
@@ -72,19 +74,26 @@ private const val ALARM_SOUND_DIR = "alert_sounds"
  * alarm that rang while no Dart was running from one that never fired.
  * `alarmStreamVolume` reports the user's own alarm level so the app can follow
  * it instead of overriding it, and only take it over when it is so low that an
- * alarm would not wake anyone.
+ * alarm would not wake anyone. `consumeShowAlarmsRequest` answers whether this
+ * activity was started by the show intent an alarm-clock entry carries
+ * ([AlarmService.ACTION_SHOW], the `alarm` fork's Patch 1 — what the lock
+ * screen's alarm line and Quick Settings launch): true once, then false. A warm
+ * activity receives the same intent through [onNewIntent] and pushes
+ * `showAlarms` to Dart instead, since nothing on the Dart side is asking then.
  *
- * The three **sound** methods exist because the `alarm` package plays a Flutter
- * asset or a file path and nothing else. `pickAlarmSound` runs the system
- * ringtone picker (alarm type, its own "Default" entry mapped to
- * [ALARM_SOUND_SYSTEM_DEFAULT] so the stored value keeps following the Clock
- * app rather than freezing today's choice), `alarmSoundTitle` names a stored
- * value for the UI, and `resolveAlarmSound` copies a `content://` sound into
- * `filesDir` — a content URI can never reach `MediaPlayer.setDataSource(String)`,
- * so the copy is the only way such a sound rings at all. Everything here is
- * failure-tolerant by design: a sound that cannot be resolved answers null and
- * the app rings the phone's default alarm, because an alarm that does not sound
- * is far worse than an alarm that sounds wrong.
+ * The two **sound** methods exist because the platform's ringtone picker and
+ * titles have no Dart binding. `pickAlarmSound` runs the system picker (alarm
+ * type, its own "Default" entry mapped to [ALARM_SOUND_SYSTEM_DEFAULT] so the
+ * stored value keeps following the Clock app rather than freezing today's
+ * choice) and `alarmSoundTitle` names a stored value for the UI. A picked
+ * `content://` URI is handed to the `alarm` fork as it is — its `AudioService`
+ * opens a URI through `MediaPlayer.setDataSource(Context, Uri)` and falls back
+ * to the phone's default alarm when the device cannot open it, so the copy
+ * into `filesDir` that older builds made is gone and its directory is deleted
+ * once ([LEGACY_ALARM_SOUND_DIR]). Everything here is failure-tolerant by
+ * design: a sound that cannot be resolved answers null and the app rings the
+ * phone's default alarm, because an alarm that does not sound is far worse
+ * than an alarm that sounds wrong.
  */
 class MainActivity : FlutterActivity() {
     /**
@@ -96,31 +105,79 @@ class MainActivity : FlutterActivity() {
      */
     private var pendingSoundPicker: MethodChannel.Result? = null
 
-    /** Copies run here; the answer is posted back to the main thread. */
-    private val soundExecutor = Executors.newSingleThreadExecutor()
+    /** The alerts channel, kept so the activity can push to Dart unprompted. */
+    private var alertsChannel: MethodChannel? = null
 
-    private val mainHandler = Handler(Looper.getMainLooper())
+    /**
+     * Whether an [AlarmService.ACTION_SHOW] intent has reached this activity
+     * and not been consumed yet. Set from both [onCreate] and [onNewIntent];
+     * read and cleared by `consumeShowAlarmsRequest`.
+     */
+    private var showAlarmsRequested = false
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        recordShowAlarmsRequest(intent)
+    }
+
+    /**
+     * The warm half. The flag is recorded first so a push that finds no Dart
+     * handler yet — the engine attached, the gateway not — is still answered by
+     * the next `consumeShowAlarmsRequest`; a push Dart acknowledged clears it,
+     * or a hot restart's fresh `launchIntent()` would open the hub a second
+     * time.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (!recordShowAlarmsRequest(intent)) return
+        alertsChannel?.invokeMethod(
+            "showAlarms",
+            null,
+            object : MethodChannel.Result {
+                override fun success(result: Any?) {
+                    showAlarmsRequested = false
+                }
+
+                override fun error(code: String, message: String?, details: Any?) {}
+
+                override fun notImplemented() {}
+            }
+        )
+    }
+
+    private fun recordShowAlarmsRequest(intent: Intent?): Boolean {
+        if (intent?.action != AlarmService.ACTION_SHOW) return false
+        showAlarmsRequested = true
+        return true
+    }
+
+    private fun consumeShowAlarmsRequest(): Boolean {
+        val requested = showAlarmsRequested
+        showAlarmsRequested = false
+        return requested
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         val messenger = flutterEngine.dartExecutor.binaryMessenger
-        MethodChannel(messenger, ALERTS_CHANNEL)
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "setShowWhenLocked" -> {
-                        setShowWhenLockedCompat(call.arguments == true)
-                        result.success(null)
-                    }
-                    "processStartedAt" -> result.success(processStartedAt())
-                    "alarmStreamVolume" -> result.success(alarmStreamVolume())
-                    "pickAlarmSound" -> pickAlarmSound(call.arguments as? String, result)
-                    "alarmSoundTitle" ->
-                        result.success(alarmSoundTitle(call.arguments as? String))
-                    "resolveAlarmSound" ->
-                        resolveAlarmSound(call.arguments as? String, result)
-                    else -> result.notImplemented()
+        val alerts = MethodChannel(messenger, ALERTS_CHANNEL)
+        alertsChannel = alerts
+        alerts.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "setShowWhenLocked" -> {
+                    setShowWhenLockedCompat(call.arguments == true)
+                    result.success(null)
                 }
+                "processStartedAt" -> result.success(processStartedAt())
+                "alarmStreamVolume" -> result.success(alarmStreamVolume())
+                "pickAlarmSound" -> pickAlarmSound(call.arguments as? String, result)
+                "alarmSoundTitle" ->
+                    result.success(alarmSoundTitle(call.arguments as? String))
+                "consumeShowAlarmsRequest" -> result.success(consumeShowAlarmsRequest())
+                else -> result.notImplemented()
             }
+        }
+        deleteLegacyAlarmSoundCopies()
         MethodChannel(messenger, PERMISSIONS_CHANNEL)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -319,58 +376,14 @@ class MainActivity : FlutterActivity() {
     }
 
     /**
-     * Copies a picked sound into `filesDir` once and answers its absolute path.
-     *
-     * Off the main thread because it reads a stream through a content provider,
-     * and back on it because a `MethodChannel.Result` may only be answered
-     * there. Null on every failure, including a URI this device cannot open —
-     * the sound of another phone, which the app then rings the default alarm
-     * instead of.
+     * Removes the sound copies builds before OS-1 kept under
+     * [LEGACY_ALARM_SOUND_DIR]. Idempotent, off the main thread, and silent
+     * about a directory that is already gone.
      */
-    private fun resolveAlarmSound(value: String?, result: MethodChannel.Result) {
-        val uri = storedUri(value)
-        if (uri == null) {
-            result.success(null)
-            return
-        }
-        soundExecutor.execute {
-            val path = try {
-                copyAlarmSound(uri)
-            } catch (e: Exception) {
-                null
-            }
-            mainHandler.post { result.success(path) }
-        }
-    }
-
-    private fun copyAlarmSound(uri: Uri): String? {
-        val dir = File(filesDir, ALARM_SOUND_DIR)
-        if (!dir.isDirectory && !dir.mkdirs()) return null
-        val name = sha1(uri.toString())
-        val target = File(dir, name)
-        if (target.isFile && target.length() > 0L) return target.absolutePath
-        // A half-written file that a killed process left behind would otherwise
-        // "resolve" forever and ring a fraction of a second of noise.
-        if (target.exists() && !target.delete()) return null
-        val temp = File(dir, "$name.part")
-        val copied = contentResolver.openInputStream(uri)?.use { input ->
-            FileOutputStream(temp).use { output -> input.copyTo(output) }
-            true
-        } ?: false
-        if (!copied || temp.length() == 0L) {
-            temp.delete()
-            return null
-        }
-        if (!temp.renameTo(target)) {
-            temp.delete()
-            return null
-        }
-        return target.absolutePath
-    }
-
-    private fun sha1(value: String): String {
-        val digest = MessageDigest.getInstance("SHA-1").digest(value.toByteArray(Charsets.UTF_8))
-        return digest.joinToString("") { "%02x".format(it) }
+    private fun deleteLegacyAlarmSoundCopies() {
+        val dir = File(filesDir, LEGACY_ALARM_SOUND_DIR)
+        if (!dir.exists()) return
+        Thread { runCatching { dir.deleteRecursively() } }.start()
     }
 
     private fun packageUri(): Uri = Uri.fromParts("package", packageName, null)

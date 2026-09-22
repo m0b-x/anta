@@ -196,29 +196,29 @@ void main() {
       );
     });
 
-    test('a picked sound arms with the file it was copied into', () {
-      // A `content://` URI can never be handed to the plugin — it ends in
-      // `MediaPlayer.setDataSource(String)`, which wants a path.
+    test('a picked sound arms verbatim', () {
+      // The fork's `AudioService` (Patch 2 of `packages/alarm/`) opens a
+      // `content://` URI through `MediaPlayer.setDataSource(Context, Uri)`,
+      // so the URI goes to the platform as it is — nothing is copied into
+      // the app's files first, and no caller resolves a path any more.
+      expect(
+        alarmAssetPathFor(const AlertSoundUri('content://media/7')),
+        'content://media/7',
+      );
       expect(
         alarmAssetPathFor(
-          const AlertSoundUri('content://media/7'),
-          resolvedPath: '/data/user/0/com.alexzamfir.anta/files/alert_sounds/ab',
+          const AlertSoundUri('content://settings/system/alarm_alert'),
         ),
-        '/data/user/0/com.alexzamfir.anta/files/alert_sounds/ab',
+        'content://settings/system/alarm_alert',
       );
     });
 
-    test("a sound this device cannot resolve rings the phone's default", () {
-      // The cross-device degrade rule: a URI restored from another phone names
-      // a media id this phone's provider never heard of. The answer is the one
-      // sound every phone has — never silence, and never a refusal to arm. The
-      // app ships no sound of its own, so there is nothing else to fall to.
-      expect(
-        alarmAssetPathFor(const AlertSoundUri('content://media/7')),
-        isNull,
-      );
-      // Inherit should never reach here — the planner resolves it — but if it
-      // ever did, the phone's default is the only honest answer.
+    test("inherit never reaches the platform; it arms the phone's default", () {
+      // The planner resolves an alert's `null` sound against the setting
+      // before a fire exists, so this cannot arrive here — but if it ever did,
+      // the phone's default is the only honest answer. The cross-device
+      // degrade rule for a URI this phone cannot open lives in the fork's
+      // `AudioService` now, at ring time, and lands on the same default.
       expect(alarmAssetPathFor(const AlertSoundInherit()), isNull);
     });
 
@@ -236,6 +236,22 @@ void main() {
       expect(alertRingVolumeFor(1), AlertRingVolume.follow);
     });
 
+    test('the arm signature ends in the fork token for the alarm tier only', () {
+      // OS-1: the token is what re-arms, once, every alarm-tier row a
+      // pre-fork build left standing — armed the old way and, for a picked
+      // sound, pointed at a copied file this build deletes. A reminder's
+      // token must not move: nothing about how one is armed changed.
+      expect(kAlertArmClockToken, '~clock');
+      expect(
+        alertArmSignature(context: 'alarm', fire: fireWith()),
+        endsWith(kAlertArmClockToken),
+      );
+      expect(
+        alertArmSignature(context: 'alarm', fire: fireWith(mode: AlertMode.notify)),
+        'alarm',
+      );
+    });
+
     test('the arm signature names the sound of every alarm-tier fire', () {
       // The phone's default is named too, and that is the point (2026-09-22):
       // the builds that shipped a sound of their own recorded the bare backend
@@ -244,7 +260,7 @@ void main() {
       // at a file the new build no longer carries.
       expect(
         alertArmSignature(context: 'alarm', fire: fireWith()),
-        'alarm#system:default',
+        'alarm#system:default~clock',
       );
       // A reminder plays through a channel whose sound Android froze at
       // creation, so a sound can never change what one does.
@@ -265,7 +281,7 @@ void main() {
           context: 'alarm',
           fire: fireWith(sound: const AlertSoundUri('content://media/7')),
         ),
-        'alarm#content://media/7',
+        'alarm#content://media/7~clock',
       );
       expect(
         alertArmSignature(
@@ -292,8 +308,15 @@ void main() {
   test('the channel ids are frozen', () {
     // Android freezes a channel's importance, sound and DND behaviour at
     // creation: a changed id is the only way to change any of them, and it
-    // orphans the user's own per-channel settings. These two are a contract.
+    // orphans the user's own per-channel settings. These are a contract.
     expect(kAlertReminderChannelId, 'alerts_reminder');
-    expect(kAlertAlarmChannelId, 'alerts_alarm');
+    // The fallback tier's channel is on its second id (OS-1): the first was
+    // created with no sound, so a flipped A5 switch would have rung the
+    // phone's default *notification* sound. The old id is what initialize
+    // deletes; the two must never be the same string.
+    expect(kAlertAlarmChannelId, 'alerts_alarm_v2');
+    expect(kAlertLegacyAlarmChannelId, 'alerts_alarm');
+    expect(kAlertAlarmChannelId, isNot(kAlertLegacyAlarmChannelId));
+    expect(kAlertAlarmChannelSoundUri, 'content://settings/system/alarm_alert');
   });
 }

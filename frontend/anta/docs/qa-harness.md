@@ -345,6 +345,19 @@ reads `SemanticsData.identifier` off the merged node, which is exactly what
 Android exposes as the resource id and iOS as `accessibilityIdentifier` — so
 `id:` targets are the ones to use in step files.
 
+## Alarm-clock evidence (2026-09-22)
+
+Event-alerts session OS-1 made the Alarm tier an `AlarmManager.setAlarmClock`
+entry, and the check for it is the platform's own record rather than a verb:
+`adb shell dumpsys alarm` filtered to `com.alexzamfir.anta` must print an
+`Alarm clock:` block (trigger time, a `showIntent` into ANTA) and list the
+entry under `Next wake from idle:`; `adb shell settings get system
+next_alarm_formatted` names the soonest one on ROMs that still keep the
+legacy key. Both are read-only host-side queries and the one sanctioned
+exception to driving adb by hand; the qa-emulator skill has the exact lines
+and what a passing entry looks like. A `qa alerts` verb that folds them in
+belongs to the parent roadmap's Session 7.
+
 ## Phase C — on-device suites (not shipped)
 
 `flutter_driver` and `integration_test` are both dev dependencies, the driver

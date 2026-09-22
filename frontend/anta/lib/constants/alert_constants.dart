@@ -170,6 +170,20 @@ const Duration kAlertRingFade = Duration(seconds: 3);
 /// cancelling it.
 const int kAlertMissedIdSalt = 0x4d495353;
 
+/// The token an alarm-tier arm signature ends with since the `alarm` fork
+/// (OS-1, 2026-09-22), naming the shape the fork gives an entry: armed with
+/// `setAlarmClock`, a picked sound handed over as its raw URI.
+///
+/// It differs from every token a pre-fork build recorded, and that is its
+/// whole job: the first pass after the upgrade re-arms every standing
+/// alarm-tier row under its existing os id. Those rows were armed with
+/// `setExactAndAllowWhileIdle` and, for a picked sound, with a file under
+/// `files/alert_sounds` that this build deletes — and the plugin's own
+/// `Alarm.init()` re-sets each stored entry exactly as it was, stale path
+/// included, so without a re-arm the diff's fast path would keep both until
+/// something unrelated happened to move the fire. A reminder token stays bare.
+const String kAlertArmClockToken = '~clock';
+
 /// How far ahead the Calendar settings page's `Test alarm` is armed.
 ///
 /// Long enough to lock the phone and watch what a real ring does to a locked
