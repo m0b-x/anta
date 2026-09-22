@@ -28,6 +28,7 @@ abstract final class AlertPayloadKeys {
   static const String snooze = 'snooze';
   static const String snoozeMinutes = 'snoozeMin';
   static const String notice = 'notice';
+  static const String excerpt = 'excerpt';
 }
 
 /// Everything a ring needs to draw itself, carried by the platform entry.
@@ -88,6 +89,13 @@ class AlertPayload extends Equatable {
   /// and no facade, and re-schedules from this map alone.
   final int snoozeMinutes;
 
+  /// The first line of the event's description, stripped of markdown and
+  /// capped (OS-4) — the body a reminder and a Missed notice expand to.
+  /// Stamped at schedule time on the UI isolate like [timeLabel], so nothing
+  /// that posts from a payload has to open a database to draw it. Empty when
+  /// the event has no description.
+  final String excerpt;
+
   /// Whether this entry is the alarm's upcoming notice (OS-3) rather than the
   /// alarm itself. The notice carries its alarm's payload — that is what lets
   /// Skip and Open name the right occurrence — so this is the one field that
@@ -110,6 +118,7 @@ class AlertPayload extends Equatable {
     this.snooze = false,
     this.snoozeMinutes = SettingsKeys.defaultAlertSnoozeMinutes,
     this.notice = false,
+    this.excerpt = '',
   });
 
   /// The event id a **test alarm** carries (§5.7's `Test alarm in 10 s`).
@@ -156,6 +165,7 @@ class AlertPayload extends Equatable {
       snooze: snooze ?? this.snooze,
       snoozeMinutes: snoozeMinutes ?? this.snoozeMinutes,
       notice: notice ?? this.notice,
+      excerpt: excerpt,
     );
   }
 
@@ -175,6 +185,7 @@ class AlertPayload extends Equatable {
     AlertPayloadKeys.snooze: snooze,
     AlertPayloadKeys.snoozeMinutes: snoozeMinutes,
     AlertPayloadKeys.notice: notice,
+    if (excerpt.isNotEmpty) AlertPayloadKeys.excerpt: excerpt,
   };
 
   /// Decodes one payload, or `null` when the map carries no usable identity.
@@ -226,6 +237,9 @@ class AlertPayload extends Equatable {
             )
           : SettingsKeys.defaultAlertSnoozeMinutes,
       notice: map[AlertPayloadKeys.notice] == true,
+      excerpt: map[AlertPayloadKeys.excerpt] is String
+          ? map[AlertPayloadKeys.excerpt] as String
+          : '',
     );
   }
 
@@ -263,5 +277,6 @@ class AlertPayload extends Equatable {
     snooze,
     snoozeMinutes,
     notice,
+    excerpt,
   ];
 }

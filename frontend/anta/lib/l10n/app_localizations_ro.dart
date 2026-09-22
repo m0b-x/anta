@@ -5046,6 +5046,27 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
+  String get alertsRecent => 'Recente';
+
+  @override
+  String get alertsHistoryRemoved => 'Eveniment eliminat';
+
+  @override
+  String get alertsOutcomeRang => 'A sunat';
+
+  @override
+  String get alertsOutcomeStopped => 'Oprită';
+
+  @override
+  String get alertsOutcomeSnoozed => 'Amânată';
+
+  @override
+  String get alertsOutcomeMissed => 'Ratată';
+
+  @override
+  String get alertsOutcomeDelivered => 'Livrată';
+
+  @override
   String get alertsForceStopNote =>
       'Oprirea forțată a ANTA dezactivează toate alarmele până când redeschizi aplicația.';
 

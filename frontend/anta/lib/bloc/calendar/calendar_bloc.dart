@@ -837,6 +837,9 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   /// Bumping `occurrenceRevision` is what makes the emit survive: the state is
   /// `Equatable`, so an otherwise-identical copy would be dropped, and the
   /// agenda's identity-based row memo would keep serving stale text.
+  ///
+  /// A day's description is also what its reminder and Missed notice expand
+  /// to (OS-4), so the edit re-arms the event's entries like a rename does.
   Future<void> _onSetOccurrenceDescription(
     SetOccurrenceDescription event,
     Emitter<CalendarPageState> emit,
@@ -850,6 +853,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       debugPrint('[CalendarBloc] Occurrence write error: $e');
       return;
     }
+    unawaited(_reconcileAlerts(event.eventId, AlertReconcileReason.eventChanged));
     emit(current.copyWith(occurrenceRevision: current.occurrenceRevision + 1));
   }
 
@@ -868,6 +872,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       debugPrint('[CalendarBloc] Occurrence clear error: $e');
       return;
     }
+    unawaited(_reconcileAlerts(event.eventId, AlertReconcileReason.eventChanged));
     emit(current.copyWith(occurrenceRevision: current.occurrenceRevision + 1));
   }
 

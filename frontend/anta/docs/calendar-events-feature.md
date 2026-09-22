@@ -1755,6 +1755,53 @@ platform) or the hub's `ToggleEventAlert` off for a one-time one, with a
 (`ClearOccurrenceSkipped` / the toggle back on). A request older than five
 minutes is dropped rather than applied to the *next* occurrence.
 
+**Alarm log and richer content (OS-4, 2026-09-22, B7).** "Did it ring?" is
+answered from the phone's own record: `alert_registrations` keeps settled
+rows for a week already, and `AlertRegistrationState.missed` names the one
+verdict it lacked — written where the Missed notice is posted, in the
+late-fire pass (the 30 min–24 h band, alarm tier, event still present) and
+by `settleEndedRing` for a ring that timed out unanswered; every other row of
+that band stays `cancelled`, `fromName` still decodes an unknown value to
+`cancelled`, and the OS-truth loop skips its `cancelled` overwrite for any
+row the same pass already settled (`verdicts`). The hub's **Recent** section
+lists `AlertScheduler.recentEntries()` — one query
+(`AlertRegistrationDao.recent`, `state NOT IN ('pending','cancelled')` over
+the retention window, newest `updated_at` first, guarded by
+`query_count_test`), events and alerts resolved from the two in-memory
+facades, the test ring left out, a row whose event is gone kept under the
+`alertsHistoryRemoved` title — as `AlertHistoryEntry` rows with one outcome
+each: `missed` wins whatever the kind, then a `kind = snooze` row reads
+`snoozed`, `stopped` reads stopped, and `fired` reads rang for a ring alert
+or **delivered** for a reminder (a notification does not ring; the
+delivery-evidence band marks its row `fired` all the same). A `fired` row
+younger than `kLateFireGrace` is a ring in progress — the ring handler marked
+it a moment ago — and is not history yet, so a hub opened mid-ring does not
+list the ringing alarm under Recent. The live rows and their switch are
+byte-for-byte what they were; Recent is additive, re-read on the same
+`registryRevision`, and rendered under a header after them (the empty state
+shows above it when there is history but nothing armed).
+**Richer content:** `AlertPayload.excerpt` — the first non-empty line of
+**the day's own description** (`OccurrenceDescriptions.descriptionFor(event,
+day)`, so a per-day row wins over the template, which is why the scheduler
+resolves `EventOccurrenceService` and `CategoryService` beside skips,
+holidays and alerts before it composes anything) as plain text, ≤ 120
+chars, from `alertExcerptFor` (`lib/utils/alert_excerpt.dart`, a projection
+over the line-shape, list, money, callout and inline grammar modules, never
+a second scanner: fences, table rows and rules are skipped, quote and
+callout markers stripped) — is stamped in `_payloadFor` on the UI isolate
+like `timeLabel`. Because the excerpt is armed, a day's description edit
+(`SetOccurrenceDescription` / `ClearOccurrenceDescription`) now reconciles
+its event like a rename does — it is no longer a rendering-only event. The
+alarm notification takes the event's resolved colour as `iconColor`, and a
+reminder, the fallback alarm and a Missed notice take it as `color`, the
+category or event icon as a large icon (64 px, painted once per schedule
+into a `ByteArrayAndroidBitmap`, memoized per icon and colour so a pass
+paints each glyph once, never on a frame, and abandoned after two seconds
+so a snapshot that never completes cannot park the scheduler's chain) and
+`BigTextStyleInformation(excerpt)` when the excerpt is non-empty. The
+background isolate's re-post of a snoozed reminder carries none of this —
+it cannot rasterize, and it never did.
+
 **Where it is edited.** The *Alerts* rows sit inside the editor's Time zone
 (`event_editor_sheet.dart`): one `_PickerTile` per alert, an "Add alert" chip
 that disappears at the cap, and — only while the event is one-time and carries

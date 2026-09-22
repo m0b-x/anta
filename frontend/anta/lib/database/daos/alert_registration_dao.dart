@@ -64,9 +64,9 @@ class AlertRegistrationDao extends DatabaseAccessor<AppDatabase>
     )..where((r) => r.eventId.equals(eventId))).get();
   }
 
-  /// Moves one registration to a new lifecycle state — `fired`, `stopped` or
-  /// `cancelled`. A row the platform no longer knows about is simply absent,
-  /// so a miss is a no-op rather than an error.
+  /// Moves one registration to a new lifecycle state — `fired`, `stopped`,
+  /// `missed` or `cancelled`. A row the platform no longer knows about is
+  /// simply absent, so a miss is a no-op rather than an error.
   Future<void> markState(int osId, String state) {
     return (update(alertRegistrations)..where((r) => r.osId.equals(osId)))
         .write(
@@ -75,6 +75,23 @@ class AlertRegistrationDao extends DatabaseAccessor<AppDatabase>
             updatedAt: Value(DateTime.now()),
           ),
         );
+  }
+
+  /// The settled rows of the last window, newest first — the Alerts hub's
+  /// *Recent* section (OS-4), in one statement: `pending` is what the phone
+  /// will do, `cancelled` is the plan changing rather than history, and both
+  /// are left out.
+  Future<List<AlertRegistrationRow>> recent({required DateTime since}) {
+    return (select(alertRegistrations)
+          ..where(
+            (r) =>
+                const CustomExpression<bool>(
+                  "state NOT IN ('pending', 'cancelled')",
+                ) &
+                r.updatedAt.isBiggerOrEqualValue(since),
+          )
+          ..orderBy([(r) => OrderingTerm.desc(r.updatedAt)]))
+        .get();
   }
 
   /// Drops settled registrations older than [retention], in one statement.

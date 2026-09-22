@@ -26,6 +26,9 @@ import '../widgets/unified_app_bars.dart';
 /// without a database, a scheduler or a gateway.
 typedef AlertHubLoader = Future<List<AlertHubEntry>> Function();
 
+/// Reads the hub's *Recent* section (OS-4), the same seam.
+typedef AlertHistoryLoader = Future<List<AlertHistoryEntry>> Function();
+
 /// The Alerts hub (§5.6): every alert the phone is about to act on, by day.
 ///
 /// **A view over events' alerts, never a list of its own** — there is no
@@ -44,16 +47,22 @@ typedef AlertHubLoader = Future<List<AlertHubEntry>> Function();
 /// because a banner's own action returns before the user has toggled anything.
 class AlertsPage extends StatefulWidget {
   final AlertHubLoader? _loadEntries;
+  final AlertHistoryLoader? _loadRecent;
   final PermissionService? _permissions;
 
-  const AlertsPage({super.key}) : _loadEntries = null, _permissions = null;
+  const AlertsPage({super.key})
+    : _loadEntries = null,
+      _loadRecent = null,
+      _permissions = null;
 
   @visibleForTesting
   const AlertsPage.forTesting({
     super.key,
     required AlertHubLoader loadEntries,
+    AlertHistoryLoader? loadRecent,
     PermissionService? permissions,
   }) : _loadEntries = loadEntries,
+       _loadRecent = loadRecent,
        _permissions = permissions;
 
   @override
@@ -62,6 +71,10 @@ class AlertsPage extends StatefulWidget {
 
 class _AlertsPageState extends State<AlertsPage> {
   List<AlertHubEntry> _entries = const [];
+
+  /// The *Recent* section (OS-4): what the phone did in the last week,
+  /// newest first, read beside the live rows on every reload.
+  List<AlertHistoryEntry> _recent = const [];
   bool _isLoading = true;
   int _loadGeneration = 0;
 
@@ -104,14 +117,23 @@ class _AlertsPageState extends State<AlertsPage> {
   Future<void> _load() async {
     final generation = ++_loadGeneration;
     final loader = widget._loadEntries ?? AlertScheduler.hubEntriesOrEmpty;
-    final entries = await loader();
+    final history = widget._loadRecent ?? _defaultRecent;
+    final results = await Future.wait([loader(), history()]);
     if (!mounted || generation != _loadGeneration) return;
     setState(() {
-      _entries = entries;
+      _entries = results[0] as List<AlertHubEntry>;
+      _recent = results[1] as List<AlertHistoryEntry>;
       _isLoading = false;
       _pendingEnabled.clear();
     });
   }
+
+  /// A test that hands over live rows without a history loader gets an empty
+  /// section rather than a scheduler lookup.
+  Future<List<AlertHistoryEntry>> _defaultRecent() =>
+      widget._loadEntries == null
+          ? AlertScheduler.recentEntriesOrEmpty()
+          : Future.value(const []);
 
   void _toggle(AlertHubEntry entry, bool enabled) {
     setState(() => _pendingEnabled[entry.alert.id] = enabled);
@@ -204,7 +226,7 @@ class _AlertsPageState extends State<AlertsPage> {
     AppLocalizations l10n,
     List<Widget> banners,
   ) {
-    if (_entries.isEmpty) {
+    if (_entries.isEmpty && _recent.isEmpty) {
       return Column(
         children: [
           ...banners,
@@ -222,6 +244,11 @@ class _AlertsPageState extends State<AlertsPage> {
     final today = DateTime.utc(now.year, now.month, now.day);
     final theme = Theme.of(context);
     final children = <Widget>[...banners];
+    if (_entries.isEmpty) {
+      children.add(
+        _EmptyState(title: l10n.alertsEmpty, body: l10n.alertsEmptyDesc),
+      );
+    }
     DateTime? currentDay;
     for (final entry in _entries) {
       final fireDay = DateTime.utc(
@@ -264,6 +291,44 @@ class _AlertsPageState extends State<AlertsPage> {
           onCancelSnooze: () => _cancelSnooze(entry),
         ),
       );
+    }
+    if (_recent.isNotEmpty) {
+      children.add(
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.lg,
+            AppSpacing.xl,
+            AppSpacing.lg,
+            AppSpacing.xs,
+          ),
+          child: Text(
+            l10n.alertsRecent,
+            style: theme.textTheme.titleSmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+      );
+      for (final entry in _recent) {
+        children.add(
+          _AlertHistoryRow(
+            key: ValueKey(
+              'recent|${entry.fireAt.millisecondsSinceEpoch}|'
+              '${entry.alert?.id ?? ''}|${entry.settledAt.millisecondsSinceEpoch}',
+            ),
+            entry: entry,
+            today: today,
+            onTap: entry.event == null
+                ? null
+                : () => unawaited(
+                    AppNavigator.toCalendarOccurrence(
+                      day: entry.day,
+                      eventId: entry.event!.id,
+                    ),
+                  ),
+          ),
+        );
+      }
     }
     return ListView(
       padding: const EdgeInsets.only(bottom: AppSpacing.xxl),
@@ -457,6 +522,162 @@ class _AlertHubRow extends StatelessWidget {
                   label: l10n.alertsToggleLabel(entry.event.title),
                   child: Switch(value: enabled, onChanged: onToggle),
                 ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One row of the *Recent* section: the day and time it was armed for, the
+/// outcome's glyph, the event's title (or the removed fallback) and what the
+/// alert was.
+class _AlertHistoryRow extends StatelessWidget {
+  final AlertHistoryEntry entry;
+  final DateTime today;
+  final VoidCallback? onTap;
+
+  static const double _timeWidth = 64;
+  static const double _glyphSize = 14;
+
+  const _AlertHistoryRow({
+    super.key,
+    required this.entry,
+    required this.today,
+    required this.onTap,
+  });
+
+  static IconData iconFor(AlertOutcome outcome) => switch (outcome) {
+    AlertOutcome.rang => Icons.alarm_on_rounded,
+    AlertOutcome.stopped => Icons.check_circle_outline_rounded,
+    AlertOutcome.snoozed => Icons.snooze_rounded,
+    AlertOutcome.missed => Icons.alarm_off_rounded,
+    AlertOutcome.delivered => Icons.notifications_active_rounded,
+  };
+
+  static String labelFor(AppLocalizations l10n, AlertOutcome outcome) =>
+      switch (outcome) {
+        AlertOutcome.rang => l10n.alertsOutcomeRang,
+        AlertOutcome.stopped => l10n.alertsOutcomeStopped,
+        AlertOutcome.snoozed => l10n.alertsOutcomeSnoozed,
+        AlertOutcome.missed => l10n.alertsOutcomeMissed,
+        AlertOutcome.delivered => l10n.alertsOutcomeDelivered,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final event = entry.event;
+    final alert = entry.alert;
+    final fireDay = DateTime.utc(
+      entry.fireAt.year,
+      entry.fireAt.month,
+      entry.fireAt.day,
+    );
+    final missed = entry.outcome == AlertOutcome.missed;
+    final tint = event == null
+        ? colorScheme.onSurfaceVariant
+        : CalendarCategories.resolve(event.categoryId).color;
+    final describe = event == null || alert == null
+        ? null
+        : alert.describe(l10n, event);
+    final subtitle = describe == null
+        ? labelFor(l10n, entry.outcome)
+        : '${labelFor(l10n, entry.outcome)} · $describe';
+
+    return Card(
+      margin: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.xxs,
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.md,
+            AppSpacing.sm,
+            AppSpacing.md,
+            AppSpacing.sm,
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: _timeWidth,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      MaterialLocalizations.of(context).formatTimeOfDay(
+                        TimeOfDay.fromDateTime(entry.fireAt),
+                      ),
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                        color: colorScheme.onSurface,
+                      ),
+                    ),
+                    Text(
+                      AgendaListView.dayHeaderLabel(l10n, fireDay, today),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                event == null
+                    ? Icons.event_busy_rounded
+                    : CalendarCategories.iconFor(event),
+                size: 20,
+                color: tint,
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      event?.title ?? l10n.alertsHistoryRemoved,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        color: colorScheme.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.xxs),
+                    Row(
+                      children: [
+                        Icon(
+                          iconFor(entry.outcome),
+                          size: _glyphSize,
+                          color: missed
+                              ? colorScheme.error
+                              : colorScheme.onSurfaceVariant,
+                        ),
+                        const SizedBox(width: AppSpacing.xs),
+                        Flexible(
+                          child: Text(
+                            subtitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: missed
+                                  ? colorScheme.error
+                                  : colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         ),

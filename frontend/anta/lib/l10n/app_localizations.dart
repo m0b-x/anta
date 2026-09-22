@@ -8464,6 +8464,48 @@ abstract class AppLocalizations {
   /// **'Skipped {title}'**
   String alertsSkippedSnack(String title);
 
+  /// Alerts hub section header over the alarms that rang, were stopped, snoozed or missed in the last week
+  ///
+  /// In en, this message translates to:
+  /// **'Recent'**
+  String get alertsRecent;
+
+  /// Title of a Recent row whose event no longer exists
+  ///
+  /// In en, this message translates to:
+  /// **'Removed event'**
+  String get alertsHistoryRemoved;
+
+  /// Recent row outcome: the alarm rang and ended on its own
+  ///
+  /// In en, this message translates to:
+  /// **'Rang'**
+  String get alertsOutcomeRang;
+
+  /// Recent row outcome: the alarm was stopped
+  ///
+  /// In en, this message translates to:
+  /// **'Stopped'**
+  String get alertsOutcomeStopped;
+
+  /// Recent row outcome: the alert was snoozed
+  ///
+  /// In en, this message translates to:
+  /// **'Snoozed'**
+  String get alertsOutcomeSnoozed;
+
+  /// Recent row outcome: the alarm was missed
+  ///
+  /// In en, this message translates to:
+  /// **'Missed'**
+  String get alertsOutcomeMissed;
+
+  /// Recent row outcome: the reminder notification was delivered
+  ///
+  /// In en, this message translates to:
+  /// **'Delivered'**
+  String get alertsOutcomeDelivered;
+
   /// Note under the alert settings explaining that a force stop cancels pending alarms
   ///
   /// In en, this message translates to:

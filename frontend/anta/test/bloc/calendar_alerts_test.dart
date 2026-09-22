@@ -315,8 +315,8 @@ void main() {
     await dispatch(CreateCalendarEvent(event: eventOf()));
     calls.clear();
 
-    // A day tap, a month page and a description edit are all rendering: the
-    // plan is untouched, so the platform must not be asked to do anything.
+    // A day tap and a month page are rendering: the plan is untouched, so
+    // the platform must not be asked to do anything.
     await dispatch(
       SelectCalendarDay(
         day: DateTime.utc(2026, 9, 21),
@@ -324,6 +324,25 @@ void main() {
         source: CalendarSelectionSource.grid,
       ),
     );
+
+    expect(calls, isEmpty);
+  });
+
+  test("a day's description edit reconciles its event once (OS-4)", () async {
+    // Until OS-4 a description edit was rendering too. It is not any more:
+    // the day's description is what its reminder and Missed notice expand
+    // to, so the edit re-arms the event's entries like a rename does — and
+    // so does resetting the day back to the template.
+    await dispatch(const LoadCalendarEvents());
+    await dispatch(
+      CreateCalendarEvent(
+        event: eventOf(rule: const DailyRecurrence()).copyWith(
+          perOccurrenceDescriptions: true,
+        ),
+      ),
+    );
+    calls.clear();
+
     await dispatch(
       SetOccurrenceDescription(
         eventId: 'e1',
@@ -331,8 +350,14 @@ void main() {
         description: 'squats',
       ),
     );
+    expect(calls, hasLength(1));
+    expect(calls.single.eventId, 'e1');
+    expect(calls.single.reason, AlertReconcileReason.eventChanged);
 
-    expect(calls, isEmpty);
+    await dispatch(
+      ClearOccurrenceDescription(eventId: 'e1', day: DateTime.utc(2026, 9, 20)),
+    );
+    expect(calls, hasLength(2));
   });
 
   const alert = EventAlert(id: 'a1', eventId: 'e1', offsetMinutes: 10);

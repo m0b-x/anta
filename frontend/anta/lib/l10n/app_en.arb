@@ -6208,6 +6208,34 @@
       }
     }
   },
+  "alertsRecent": "Recent",
+  "@alertsRecent": {
+    "description": "Alerts hub section header over the alarms that rang, were stopped, snoozed or missed in the last week"
+  },
+  "alertsHistoryRemoved": "Removed event",
+  "@alertsHistoryRemoved": {
+    "description": "Title of a Recent row whose event no longer exists"
+  },
+  "alertsOutcomeRang": "Rang",
+  "@alertsOutcomeRang": {
+    "description": "Recent row outcome: the alarm rang and ended on its own"
+  },
+  "alertsOutcomeStopped": "Stopped",
+  "@alertsOutcomeStopped": {
+    "description": "Recent row outcome: the alarm was stopped"
+  },
+  "alertsOutcomeSnoozed": "Snoozed",
+  "@alertsOutcomeSnoozed": {
+    "description": "Recent row outcome: the alert was snoozed"
+  },
+  "alertsOutcomeMissed": "Missed",
+  "@alertsOutcomeMissed": {
+    "description": "Recent row outcome: the alarm was missed"
+  },
+  "alertsOutcomeDelivered": "Delivered",
+  "@alertsOutcomeDelivered": {
+    "description": "Recent row outcome: the reminder notification was delivered"
+  },
   "alertsForceStopNote": "Force stopping ANTA disarms every alarm until you open it again.",
   "@alertsForceStopNote": {
     "description": "Note under the alert settings explaining that a force stop cancels pending alarms"

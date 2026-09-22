@@ -4992,6 +4992,27 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String get alertsRecent => 'Zuletzt';
+
+  @override
+  String get alertsHistoryRemoved => 'Entfernter Termin';
+
+  @override
+  String get alertsOutcomeRang => 'Hat geklingelt';
+
+  @override
+  String get alertsOutcomeStopped => 'Gestoppt';
+
+  @override
+  String get alertsOutcomeSnoozed => 'Geschlummert';
+
+  @override
+  String get alertsOutcomeMissed => 'Verpasst';
+
+  @override
+  String get alertsOutcomeDelivered => 'Zugestellt';
+
+  @override
   String get alertsForceStopNote =>
       'Ein erzwungenes Beenden von ANTA deaktiviert alle Alarme, bis du die App wieder öffnest.';
 

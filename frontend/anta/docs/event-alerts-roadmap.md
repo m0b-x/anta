@@ -50,6 +50,9 @@ native snooze on the plugin's own notification, the move written into the
 registry by the next reconcile, a snooze seen with Dart up told from a Stop.
 **OS-3 DONE 2026-09-22**: the upcoming-alarm notice at `fireAt − lead` with
 Skip (a foreground intent the calendar applies with Undo) and Open.
+**OS-4 DONE 2026-09-22**: the `missed` state, the hub's Recent section over
+the settled registrations, and notifications carrying the event's colour,
+icon and description excerpt.
 
 ## 0. What an alert is, and is not
 
@@ -314,6 +317,10 @@ the active database name (`DatabaseManager.getActiveDatabaseName()`).
   fire at `fireAt − lead` (`alert_notice_lead_minutes`, default 2 h, 0 = off),
   never a registration and hidden from the OS-truth pass; its Skip opens the
   app and cancels the next fire with an Undo — §12 "Upcoming-alarm notice".
+  **OS-4 (2026-09-22):** the row a Missed notice is posted for reads
+  `missed`, the hub gains a *Recent* section over the settled rows, and the
+  notifications carry the event's colour, icon and description excerpt —
+  §12 "Alarm log and richer content".
 - **Fallback alarm (notification plugin):** `alarmClock` mode,
   `fullScreenIntent: true`, `category: alarm`, `audioAttributesUsage:
   alarm`, `additionalFlags: Int32List.fromList([4])`, `ongoing: true`,

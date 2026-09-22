@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/constants/alert_constants.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/models/alert_hub_entry.dart';
 import 'package:anta/models/alert_payload.dart';
 import 'package:anta/models/alert_sound.dart';
 import 'package:anta/models/calendar_event.dart';
@@ -16,7 +17,9 @@ import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/alert_gateway.dart';
 import 'package:anta/services/alert_scheduler.dart';
 import 'package:anta/services/calendar_event_service.dart';
+import 'package:anta/services/category_service.dart';
 import 'package:anta/services/event_alert_service.dart';
+import 'package:anta/services/event_occurrence_service.dart';
 import 'package:anta/services/event_skip_service.dart';
 import 'package:anta/services/pending_navigation.dart';
 import 'package:anta/services/public_holiday_service.dart';
@@ -204,6 +207,8 @@ void main() {
     CalendarEventService.reset();
     EventAlertService.reset();
     EventSkipService.reset();
+    EventOccurrenceService.reset();
+    CategoryService.reset();
     SettingsService.reset();
   }
 
@@ -215,6 +220,8 @@ void main() {
     events = await CalendarEventService.forTesting(db);
     alerts = await EventAlertService.forTesting(db);
     await EventSkipService.forTesting(db);
+    await EventOccurrenceService.forTesting(db);
+    await CategoryService.forTesting(db);
     now = DateTime(2026, 9, 15, 12);
   });
 
@@ -706,8 +713,15 @@ void main() {
 
         final armed = await runLate(scheduler, const Duration(minutes: 31));
 
-        expect((await rowOf(armed.osId)).state,
-            AlertRegistrationState.cancelled.name);
+        // OS-4: the row a Missed notice is posted for reads `missed`, so the
+        // hub's Recent section can say so; a reminder is not reported and
+        // stays `cancelled`.
+        expect(
+          (await rowOf(armed.osId)).state,
+          mode == AlertMode.ring
+              ? AlertRegistrationState.missed.name
+              : AlertRegistrationState.cancelled.name,
+        );
         expect(gateway.cancelled, contains(armed.osId));
         if (mode == AlertMode.ring) {
           expect(gateway.missed, hasLength(1));
@@ -802,7 +816,7 @@ void main() {
 
       expect(
         (await rowOf(armed.osId)).state,
-        AlertRegistrationState.cancelled.name,
+        AlertRegistrationState.missed.name,
       );
       expect(gateway.missed, hasLength(1));
     });
@@ -953,6 +967,192 @@ void main() {
             .state,
         AlertRegistrationState.cancelled.name,
       );
+    });
+  });
+
+  group('alarm log (OS-4)', () {
+    test('a timed-out ring is settled as missed', () async {
+      await seed();
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final armed = (await registrations()).single;
+      now = DateTime.fromMillisecondsSinceEpoch(
+        armed.fireAt,
+      ).add(const Duration(minutes: 10, seconds: 1));
+      await scheduler.markFired(armed.osId);
+
+      await scheduler.settleEndedRing(
+        gateway.platform[armed.osId]!,
+        answered: false,
+      );
+
+      expect(
+        (await registrations()).singleWhere((row) => row.osId == armed.osId).state,
+        AlertRegistrationState.missed.name,
+      );
+      expect(gateway.missed, hasLength(1));
+    });
+
+    test('recentEntries lists what settled, newest first, cancelled left out',
+        () async {
+      await seed(
+        event: eventOf(
+          rule: const DailyRecurrence(),
+          startDate: DateTime.utc(2026, 9, 14),
+        ),
+      );
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final rows = await registrations();
+      expect(rows, hasLength(2));
+      final first = rows.reduce((a, b) => a.fireAt < b.fireAt ? a : b);
+      final second = rows.firstWhere((row) => row.osId != first.osId);
+
+      // Stopped from the page at its ring.
+      now = DateTime.fromMillisecondsSinceEpoch(first.fireAt).add(const Duration(seconds: 1));
+      await scheduler.markFired(first.osId);
+      await scheduler.stop(first.osId);
+      // Then a snooze, settled by its own ring being stopped.
+      final after = await registrations();
+      final next = after.firstWhere((row) => row.osId == second.osId);
+      now = DateTime.fromMillisecondsSinceEpoch(next.fireAt).add(const Duration(seconds: 1));
+      await scheduler.markFired(next.osId);
+      await scheduler.snooze(next.osId);
+      final snoozeRow = (await registrations()).singleWhere(
+        (row) => row.kind == AlertKind.snooze.name,
+      );
+      now = now.add(const Duration(minutes: 10, seconds: 1));
+      await scheduler.markFired(snoozeRow.osId);
+      await scheduler.stop(snoozeRow.osId);
+      // And one cancelled outright, which is the plan changing, not history.
+      final pendingNow = (await registrations()).where(
+        (row) => row.state == AlertRegistrationState.pending.name,
+      );
+      await scheduler.cancelSnooze(pendingNow.first.osId);
+
+      final recent = await scheduler.recentEntries();
+
+      expect(recent.map((entry) => entry.outcome), [
+        AlertOutcome.snoozed,
+        AlertOutcome.stopped,
+      ]);
+      expect(
+        recent.map((entry) => entry.settledAt).toList(),
+        recent.map((entry) => entry.settledAt).toList()
+          ..sort((a, b) => b.compareTo(a)),
+        reason: 'newest first',
+      );
+      expect(recent.every((entry) => entry.event?.id == 'e1'), isTrue);
+      expect(recent.every((entry) => entry.alert?.id == 'a1'), isTrue);
+    });
+
+    test('recentEntries keeps a row whose event is gone', () async {
+      // The shape a tombstone written by another device leaves behind: a
+      // settled registration naming an event this database no longer has.
+      // An in-app delete hard-deletes the rows with the event, so the row is
+      // written straight into the registry here.
+      await db.alertRegistrationDao.put(
+        AlertRegistrationsCompanion(
+          osId: const Value(4242),
+          alertId: const Value('a-gone'),
+          eventId: const Value('e-gone'),
+          day: Value(DateTime.utc(2026, 9, 14).millisecondsSinceEpoch),
+          fireAt: Value(DateTime(2026, 9, 14, 18).millisecondsSinceEpoch),
+          kind: Value(AlertKind.scheduled.name),
+          state: Value(AlertRegistrationState.missed.name),
+          backend: const Value('fake'),
+          createdAt: Value(now),
+          updatedAt: Value(now),
+        ),
+      );
+
+      final recent = await schedulerOf().recentEntries();
+
+      expect(recent, hasLength(1));
+      expect(recent.single.event, isNull);
+      expect(recent.single.alert, isNull);
+      expect(recent.single.outcome, AlertOutcome.missed);
+    });
+
+    test('a delivered reminder reads delivered, and a ring in progress is not history', () async {
+      await seed(
+        eventAlerts: [
+          alertOf(id: 'a1'),
+          alertOf(id: 'r1', mode: AlertMode.notify),
+        ],
+      );
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final rows = await registrations();
+      final alarm = rows.singleWhere((row) => row.alertId == 'a1');
+      // The ring handler just marked the alarm: in flight, not settled.
+      now = DateTime.fromMillisecondsSinceEpoch(alarm.fireAt).add(const Duration(seconds: 5));
+      gateway.ringingNow.add(alarm.osId);
+      await scheduler.markFired(alarm.osId);
+      expect(await scheduler.recentEntries(), isEmpty);
+
+      // The process dies mid-ring and the phone ends the ring on its own:
+      // nothing settles the row, and the platform no longer holds the entry.
+      gateway.ringingNow.clear();
+      gateway.platform.remove(alarm.osId);
+
+      // The delivery-evidence band settles the reminder as `fired` — which
+      // for a notification means delivered, not rang — and the alarm's own
+      // `fired` row, past the grace, reads as the ring it was.
+      gateway.startedAt = DateTime(2026, 9, 15);
+      now = DateTime.fromMillisecondsSinceEpoch(alarm.fireAt).add(const Duration(minutes: 31));
+      await scheduler.reconcileAll(AlertReconcileReason.resumed);
+
+      final recent = await scheduler.recentEntries();
+      expect(
+        recent.map((entry) => (entry.alert?.id, entry.outcome)),
+        containsAll([('r1', AlertOutcome.delivered), ('a1', AlertOutcome.rang)]),
+      );
+    });
+
+    test("the excerpt follows the day's own description", () async {
+      await seed(
+        event: eventOf(
+          startDate: DateTime.utc(2026, 9, 1),
+          rule: const DailyRecurrence(),
+        ).copyWith(
+          description: '# Squat and bench\n- [ ] warm up first',
+          perOccurrenceDescriptions: true,
+        ),
+      );
+      await (await EventOccurrenceService.getInstance()).setDescription(
+        'e1',
+        DateTime.utc(2026, 9, 15),
+        'Deadlift day\n- [ ] belt on',
+      );
+      await schedulerOf(
+        horizon: const AlertHorizon(perAlert: 2, days: 30, total: 48),
+      ).reconcileAll(AlertReconcileReason.launch);
+
+      final byDay = {
+        for (final payload in gateway.platform.values)
+          payload.dayUtcMs: payload.excerpt,
+      };
+      expect(
+        byDay[DateTime.utc(2026, 9, 15).millisecondsSinceEpoch],
+        'Deadlift day',
+      );
+      expect(
+        byDay[DateTime.utc(2026, 9, 16).millisecondsSinceEpoch],
+        'Squat and bench',
+      );
+    });
+
+    test('a test ring is never history', () async {
+      final scheduler = schedulerOf();
+      final osId = await scheduler.scheduleTestAlarm(
+        title: 'Test',
+        delay: const Duration(seconds: 10),
+      );
+      await scheduler.markFired(osId!);
+      await scheduler.stop(osId);
+
+      expect(await scheduler.recentEntries(), isEmpty);
     });
   });
 
@@ -1452,7 +1652,7 @@ void main() {
       final rows = await registrations();
       expect(
         rows.firstWhere((row) => row.osId == payload.osId).state,
-        AlertRegistrationState.fired.name,
+        AlertRegistrationState.missed.name,
       );
       expect(gateway.missed.single.osId, payload.osId);
       expect(

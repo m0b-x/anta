@@ -1099,6 +1099,32 @@ void main() {
       );
     });
 
+    test('the Recent section is one read whatever settled', () async {
+      final dao = db.alertRegistrationDao;
+      for (var i = 0; i < 6; i++) {
+        await dao.put(
+          AlertRegistrationsCompanion(
+            osId: Value(1000 + i),
+            alertId: const Value('a1'),
+            eventId: const Value('e1'),
+            day: Value(DateTime.utc(2026, 9, 20).millisecondsSinceEpoch),
+            fireAt: Value(DateTime(2026, 9, 20, 18).millisecondsSinceEpoch),
+            kind: const Value('scheduled'),
+            state: Value(['fired', 'stopped', 'missed', 'cancelled', 'pending', 'fired'][i]),
+            backend: const Value('fake'),
+            createdAt: Value(DateTime(2026, 9, 20)),
+            updatedAt: Value(DateTime(2026, 9, 20, 18, i)),
+          ),
+        );
+      }
+      counter.reset();
+
+      final rows = await dao.recent(since: DateTime(2026, 9, 14));
+
+      expect(rows.map((row) => row.osId), [1005, 1002, 1001, 1000]);
+      expect(counter.count, 1, reason: 'Issued:\n${counter.statements.join('\n')}');
+    });
+
     test('the tombstone cascade is one statement for any number of alerts', () async {
       await seedAlerts(1);
       counter.reset();
