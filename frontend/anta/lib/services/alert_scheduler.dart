@@ -64,16 +64,22 @@ typedef AlertReconciler =
 /// exists. A reminder never carries a sound at all: the tier plays through a
 /// notification channel whose sound Android froze at creation.
 ///
-/// [kAlertArmClockToken] closes it (OS-1): the fork arms an alarm-tier entry
+/// [kAlertArmClockToken] follows (OS-1): the fork arms an alarm-tier entry
 /// differently from every build before it, and the token is what makes the
 /// first pass after the upgrade re-arm the rows those builds left standing.
+/// The snooze length closes it (OS-2): the plugin's own notification offers
+/// a Snooze of exactly [snoozeMinutes], armed into the entry, so a changed
+/// setting has to reach every standing alarm the same way a changed sound
+/// does. It is the scheduler's once-per-pass settings value, never a read of
+/// the gateway's own.
 String alertArmSignature({
   required String context,
   required PlannedFire fire,
+  required int snoozeMinutes,
 }) {
   if (fire.alert.mode != AlertMode.ring) return context;
   final sound = fire.sound.stored ?? AlertSound.systemDefaultValue;
-  return '$context#$sound$kAlertArmClockToken';
+  return '$context#$sound$kAlertArmClockToken~$snoozeMinutes';
 }
 
 /// Keeps what the operating system holds in step with what the plan says it
@@ -662,7 +668,13 @@ class AlertScheduler {
           fireAt: Value(fireAt.millisecondsSinceEpoch),
           kind: Value(AlertKind.snooze.name),
           state: Value(AlertRegistrationState.pending.name),
-          backend: Value(alertArmSignature(context: armContext, fire: fire)),
+          backend: Value(
+            alertArmSignature(
+              context: armContext,
+              fire: fire,
+              snoozeMinutes: settings.snoozeMinutes,
+            ),
+          ),
           createdAt: Value(now),
           updatedAt: Value(now),
         ),
@@ -737,6 +749,22 @@ class AlertScheduler {
 
     await _dao.sweep(now: now, retention: kAlertRegistrationRetention);
 
+    // Deferrals the plugin made on its own, written down before anything
+    // below reads the registry — inside this turn of the chain, never
+    // through `_serialize`, which would wait on the turn that is waiting on
+    // it. A move for a row this registry does not hold (another database's
+    // alarm) is acknowledged and dropped.
+    for (final move in await _gateway.takeMoves()) {
+      try {
+        await _applyMove(move, now);
+      } catch (e) {
+        // Unacknowledged, so the plugin redelivers it at the next launch —
+        // the recovery for a write that failed mid-switch or on a full disk.
+        // The rest of the pass, and the moves after this one, still run.
+        debugPrint('[AlertScheduler] move for ${move.osId} failed: $e');
+      }
+    }
+
     // Once per pass, before anything is armed: the binding reads the phone's
     // volume here and every `schedule` below arms with exactly what it found,
     // so the token recorded in the registry cannot describe a different ring
@@ -808,7 +836,11 @@ class AlertScheduler {
       // or the phone's alarm volume crossing the floor while the app was away,
       // both land here on the very next pass.
       final refresh = eventId != null && fire.event.id == eventId;
-      final signature = alertArmSignature(context: armContext, fire: fire);
+      final signature = alertArmSignature(
+        context: armContext,
+        fire: fire,
+        snoozeMinutes: settings.snoozeMinutes,
+      );
       if (!refresh &&
           existing != null &&
           existing.osId == osId &&
@@ -902,6 +934,56 @@ class AlertScheduler {
       'backend=${_gateway.backendName} planned=${plan.length} '
       'scheduled=$scheduled cancelled=$cancelled',
     );
+  }
+
+  /// Rewrites the row a native Snooze moved: same os id, the new instant,
+  /// `kind = snooze`, `pending` — and then acknowledges, whatever happened.
+  ///
+  /// A row is rewritten only while it is `pending` (a heads-up ring nobody
+  /// in Dart saw) or `fired` (the ring handler marked it, then the user chose
+  /// the notification's Snooze), only for the alarm tier, and only towards an
+  /// instant still ahead; a move already applied — same instant, already a
+  /// pending snooze — writes nothing, which is what makes the at-least-once
+  /// stream harmless. Everything else is a stale replay or another
+  /// database's alarm, and is acknowledged so the plugin stops redelivering
+  /// it.
+  Future<void> _applyMove(AlertMove move, DateTime now) async {
+    final row = await _dao.byOsId(move.osId);
+    if (row != null && _isMovable(row) && move.nextRingAt.isAfter(now)) {
+      final instant = move.nextRingAt.millisecondsSinceEpoch;
+      final applied =
+          AlertKind.fromName(row.kind) == AlertKind.snooze &&
+          row.fireAt == instant &&
+          AlertRegistrationState.fromName(row.state) ==
+              AlertRegistrationState.pending;
+      if (!applied) {
+        await _dao.put(
+          AlertRegistrationsCompanion(
+            osId: Value(row.osId),
+            alertId: Value(row.alertId),
+            eventId: Value(row.eventId),
+            day: Value(row.day),
+            fireAt: Value(instant),
+            kind: Value(AlertKind.snooze.name),
+            state: Value(AlertRegistrationState.pending.name),
+            backend: Value(row.backend),
+            createdAt: Value(row.createdAt),
+            updatedAt: Value(now),
+          ),
+        );
+      }
+    }
+    await _gateway.acknowledgeMove(move);
+  }
+
+  static bool _isMovable(AlertRegistrationRow row) {
+    final state = AlertRegistrationState.fromName(row.state);
+    if (state != AlertRegistrationState.pending &&
+        state != AlertRegistrationState.fired) {
+      return false;
+    }
+    final alert = _alertOf(row.eventId, row.alertId);
+    return alert == null || alert.mode == AlertMode.ring;
   }
 
   /// Sorts the pending registry into the three things a past instant can mean
@@ -1224,7 +1306,13 @@ class AlertScheduler {
         fireAt: Value(fire.fireAt.millisecondsSinceEpoch),
         kind: Value(AlertKind.snooze.name),
         state: Value(AlertRegistrationState.pending.name),
-        backend: Value(alertArmSignature(context: armContext, fire: fire)),
+        backend: Value(
+          alertArmSignature(
+            context: armContext,
+            fire: fire,
+            snoozeMinutes: snoozeMinutes,
+          ),
+        ),
         createdAt: Value(now),
         updatedAt: Value(now),
       ),

@@ -1680,6 +1680,48 @@ must never become the phone's next alarm. The fallback tier's channel is
 `alerts_alarm_v2`, created with the phone's default alarm sound on the alarm
 stream; the soundless `alerts_alarm` is deleted at initialize.
 
+**Native snooze (OS-2, 2026-09-22).** Every alarm-tier entry is armed with
+`androidSnoozeDuration` (the Snooze-length setting, read once per pass by
+the scheduler and carried in the payload) and a Snooze button labelled by
+the alarm page's own `alarmSnoozeMinutes` plural, so a heads-up ring — the
+phone in use, ANTA not in front — can be deferred from the plugin's own
+notification with no Dart running. The plugin re-arms the same id at the
+new instant and records an `AlarmMoved(cause: snooze)`; the gateway
+subscribes to `Alarm.events` **before** `Alarm.init(acknowledgeEventsAutomatically:
+false)`, keeps every snooze move keyed by `(id, recordedAt)` (the stream is
+at-least-once) and acknowledges every other event on arrival, and
+`AlertScheduler._reconcile` drains them through `AlertGateway.takeMoves()`
+**first, inside the serialized chain**: the row is rewritten under the same
+os id as `kind = snooze`, `pending`, `fireAt = nextRingAt`, then the move is
+acknowledged so the plugin's durable marker can go. A move is applied only
+to a `pending` or `fired` alarm-tier row towards an instant still ahead; one
+already applied writes nothing; an unknown id — another database's alarm —
+is acknowledged and dropped. While Dart is up, the ring's disappearance
+from `Alarm.ringing` is told apart from a Stop by `Alarm.scheduled` still
+holding the id — sound because both plugin subjects deliver asynchronously
+and set their `value` at `add`, so both are current before either listener
+runs (the fork's `alarm_snooze_test.dart` pins it; a sync subject would
+turn every native Snooze into a dismissal) — reaches `main.dart` as
+`AlertRingEndCause.snoozed`, closes an open alarm page, settles nothing and
+removes nothing, and provokes the reconcile that writes the move down. **Two
+asymmetries to know (OS-2 review):** the snooze length is capped one step
+under `kLateFireGrace` (`maxAlertSnoozeMinutes` 25), because a native snooze
+taken with no Dart running leaves the registry row at the original instant
+and the snoozed ring is what launches the app — at that launch the row is
+exactly the snooze length late, and at the grace it would be reported missed
+and cancelled as a stray while it rings; and a natively snoozed platform
+entry still carries its original payload (`snooze: false`), so it is
+protected by its registry row alone — an event import that hard-deletes
+registrations between the snooze and its ring loses it at the next
+reconcile, where an in-app snooze (`snooze: true`) would survive. Re-arming
+it under the same id from `_applyMove` would cancel and re-arm the plugin's
+entry and report a spurious stop, so this stays documented, not fixed. The existing rules then do the rest: a
+`kind = snooze` row is never the plan's to cancel, the hub shows it with
+*Cancel snooze* and the original instant, and the alarm page's Stop still
+cancels a standing snooze of the same alert. The snooze length rides the
+arm signature (`~<minutes>` after `~clock`), so a changed setting re-arms
+every standing alarm in place on the next pass and never a reminder.
+
 **Where it is edited.** The *Alerts* rows sit inside the editor's Time zone
 (`event_editor_sheet.dart`): one `_PickerTile` per alert, an "Add alert" chip
 that disappears at the cap, and — only while the event is one-time and carries

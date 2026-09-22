@@ -5,10 +5,22 @@ class HybridLogicalClock {
 
   HybridLogicalClock({required this.nodeId, int initialCounter = 0})
     : _logicalCounter = initialCounter,
-      _lastPhysicalTime = DateTime.now();
+      _lastPhysicalTime = _wallMillis();
+
+  /// The wall clock at the precision a timestamp carries.
+  ///
+  /// `DateTime.now()` resolves to microseconds while [HlcTimestamp.wallTime]
+  /// is milliseconds, so comparing the two at full precision let two stamps
+  /// inside one millisecond — a later microsecond, the same millisecond —
+  /// reset the counter and come out equal. Every comparison here is made on
+  /// the truncated instant, which is what keeps a node's stamps strictly
+  /// increasing.
+  static DateTime _wallMillis() => DateTime.fromMillisecondsSinceEpoch(
+    DateTime.now().millisecondsSinceEpoch,
+  );
 
   HlcTimestamp now() {
-    final physicalTime = DateTime.now();
+    final physicalTime = _wallMillis();
 
     if (physicalTime.isAfter(_lastPhysicalTime)) {
       _lastPhysicalTime = physicalTime;
@@ -25,7 +37,7 @@ class HybridLogicalClock {
   }
 
   HlcTimestamp receive(HlcTimestamp remote) {
-    final physicalTime = DateTime.now();
+    final physicalTime = _wallMillis();
     final remotePhysical = DateTime.fromMillisecondsSinceEpoch(remote.wallTime);
 
     if (physicalTime.isAfter(_lastPhysicalTime) &&

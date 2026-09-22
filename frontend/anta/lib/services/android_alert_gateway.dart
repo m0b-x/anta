@@ -274,6 +274,17 @@ class AndroidAlertGateway extends AlertGateway {
 
   StreamSubscription<AlarmSet>? _ringingSub;
 
+  /// The plugin's own changes to its alarms, subscribed **before**
+  /// `Alarm.init()` so the drain of markers recorded while no Dart was
+  /// running is delivered here too.
+  StreamSubscription<AlarmEvent>? _eventsSub;
+
+  /// Snooze moves not yet handed to the scheduler, keyed by
+  /// `(id, recordedAt)` because the stream is at-least-once. Nothing is
+  /// applied from here: [takeMoves] hands them to the reconcile, which writes
+  /// the row and then acknowledges.
+  final Map<(int, int), AlertMove> _moves = <(int, int), AlertMove>{};
+
   /// Stops a ring that nobody acknowledged, after the Silence-after setting.
   ///
   /// The `alarm` package has no timeout of its own — the fallback path gets
@@ -386,11 +397,63 @@ class AndroidAlertGateway extends AlertGateway {
       ),
     );
 
-    await Alarm.init();
+    // Before `init`, which drains the host's markers onto this stream; a
+    // retried initialize re-subscribes and is replayed the buffer, which the
+    // `(id, recordedAt)` key absorbs. The manual acknowledgement boundary
+    // means a marker outlives a process death until the registry row exists.
+    await _eventsSub?.cancel();
+    _eventsSub = Alarm.events.listen(_handleAlarmEvent);
+    await Alarm.init(acknowledgeEventsAutomatically: false);
 
     await _ringingSub?.cancel();
     _ringingSub = Alarm.ringing.listen(_handleRinging);
   }
+
+  /// Keeps a snooze move for the scheduler and acknowledges everything else
+  /// at once — a drop of any cause, a move the platform forced — because an
+  /// event never acknowledged is redelivered on every launch until its
+  /// marker expires, and the registry's own late-fire path already covers
+  /// what a drop means.
+  void _handleAlarmEvent(AlarmEvent event) {
+    if (event is AlarmMoved && event.cause == AlarmEventCause.snooze) {
+      _moves.putIfAbsent(
+        (event.id, event.recordedAt.millisecondsSinceEpoch),
+        () => (
+          osId: event.id,
+          nextRingAt: event.nextRingAt,
+          recordedAt: event.recordedAt,
+        ),
+      );
+      return;
+    }
+    unawaited(_acknowledge(event));
+  }
+
+  Future<void> _acknowledge(AlarmEvent event) async {
+    try {
+      await Alarm.acknowledgeEvent(event);
+    } catch (e) {
+      debugPrint('[AndroidAlertGateway] acknowledgeEvent(${event.id}) failed: $e');
+    }
+  }
+
+  @override
+  Future<List<AlertMove>> takeMoves() async {
+    await initialize();
+    final taken = List<AlertMove>.unmodifiable(_moves.values);
+    _moves.clear();
+    return taken;
+  }
+
+  @override
+  Future<void> acknowledgeMove(AlertMove move) => _acknowledge(
+    AlarmMoved(
+      id: move.osId,
+      cause: AlarmEventCause.snooze,
+      recordedAt: move.recordedAt,
+      nextRingAt: move.nextRingAt,
+    ),
+  );
 
   /// The activity's pushes, on the same channel the binding calls out on.
   ///
@@ -431,14 +494,27 @@ class AndroidAlertGateway extends AlertGateway {
   ///
   /// The set **shrinking** is the other half. A ring this binding is tracking
   /// that has left the set, and that [stopRinging] did not take out of
-  /// [_rings] first, was stopped from the package's own notification — the
-  /// only Stop there is when the phone is in use, since Android turns a
-  /// full-screen intent into a heads-up then.
+  /// [_rings] first, ended from the package's own notification — the only
+  /// controls there are when the phone is in use, since Android turns a
+  /// full-screen intent into a heads-up then. Which control tells itself: a
+  /// Snooze leaves the alarm in `Alarm.scheduled` at its new instant and a
+  /// Stop removes it from both. The plugin's `_applyMove` publishes the
+  /// ringing set first in source order, but both subjects deliver
+  /// asynchronously and a `BehaviorSubject` sets its `value` at `add`, so by
+  /// the time this listener runs `Alarm.scheduled.value` already holds the
+  /// moved alarm — the fork's `alarm_snooze_test.dart` pins that, because a
+  /// sync subject or a reordered `_applyMove` would turn every native Snooze
+  /// into a dismissal here.
   void _handleRinging(AlarmSet set) {
     final live = <int>{for (final alarm in set.alarms) alarm.id};
     for (final osId in _pluginRings.toList()) {
       if (live.contains(osId)) continue;
-      _endRing(osId, AlertRingEndCause.dismissed);
+      _endRing(
+        osId,
+        Alarm.scheduled.value.containsId(osId)
+            ? AlertRingEndCause.snoozed
+            : AlertRingEndCause.dismissed,
+      );
     }
     for (final alarm in set.alarms) {
       final payload = AlertPayload.decode(alarm.payload);
@@ -674,10 +750,15 @@ class AndroidAlertGateway extends AlertGateway {
                 ? kAlertRingFloorVolume
                 : null,
           ),
+          // The snooze length the pass already read (`payload.snoozeMinutes`
+          // is the scheduler's once-per-pass settings value), so the plugin
+          // can defer the ring from its own notification with no Dart up.
+          androidSnoozeDuration: Duration(minutes: payload.snoozeMinutes),
           notificationSettings: NotificationSettings(
             title: payload.isTest ? l10n.alertsTestAlarm : payload.title,
             body: payload.timeLabel,
             stopButton: l10n.alarmStop,
+            androidSnoozeButton: l10n.alarmSnoozeMinutes(payload.snoozeMinutes),
             icon: kAlertSmallIcon,
           ),
         ),
@@ -947,6 +1028,7 @@ class AndroidAlertGateway extends AlertGateway {
   Future<void> dispose() async {
     _platform.setMethodCallHandler(null);
     await _ringingSub?.cancel();
+    await _eventsSub?.cancel();
     for (final timer in _silenceTimers.values) {
       timer.cancel();
     }

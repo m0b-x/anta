@@ -543,7 +543,15 @@ class SettingsKeys {
   static const String alertSnoozeMinutes = 'alert_snooze_minutes';
   static const int defaultAlertSnoozeMinutes = 10;
   static const int minAlertSnoozeMinutes = 5;
-  static const int maxAlertSnoozeMinutes = 30;
+
+  /// One step under `kLateFireGrace` (30 min), and that is not a taste
+  /// (OS-2 review, 2026-09-22): a native snooze taken with no Dart running
+  /// moves the plugin's entry while the registry row keeps the original
+  /// instant, and the snoozed ring is what launches the app — so at that
+  /// launch the row is exactly the snooze length late. Under the grace it is
+  /// *in flight* and the ring handler settles it; at the grace it would be
+  /// reported as missed and cancelled as a stray while it rings.
+  static const int maxAlertSnoozeMinutes = 25;
   static const int alertSnoozeMinutesStep = 5;
 
   /// How long an unacknowledged alarm keeps ringing before it gives up, in

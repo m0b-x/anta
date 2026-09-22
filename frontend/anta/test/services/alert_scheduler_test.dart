@@ -129,6 +129,22 @@ class FakeAlertGateway implements AlertGateway {
   @override
   Stream<void> get showAlarms => const Stream<void>.empty();
 
+  /// Deferrals the "plugin" made on its own since the last [takeMoves].
+  final List<AlertMove> moves = [];
+
+  /// Every move the scheduler told the platform it had written down.
+  final List<AlertMove> acknowledged = [];
+
+  @override
+  Future<List<AlertMove>> takeMoves() async {
+    final taken = List<AlertMove>.of(moves);
+    moves.clear();
+    return taken;
+  }
+
+  @override
+  Future<void> acknowledgeMove(AlertMove move) async => acknowledged.add(move);
+
   /// When the "process" started; null is a platform that cannot say.
   DateTime? startedAt;
 
@@ -268,7 +284,7 @@ void main() {
       // The sound is named for every alarm-tier fire, the phone's default
       // included, and the fork's arming shape closes it — see
       // `alertArmSignature`.
-      expect(rows.single.backend, 'fake#system:default~clock');
+      expect(rows.single.backend, 'fake#system:default~clock~10');
       expect(
         rows.single.day,
         DateTime.utc(2026, 9, 20).millisecondsSinceEpoch,
@@ -321,7 +337,7 @@ void main() {
       expect(gateway.scheduled, hasLength(1));
       final row = (await registrations()).single;
       expect(row.osId, before, reason: 're-armed in place, not re-issued');
-      expect(row.backend, 'fake@floor#system:default~clock');
+      expect(row.backend, 'fake@floor#system:default~clock~10');
 
       // And settles again: the third pass has nothing left to do.
       gateway.resetCalls();
@@ -353,7 +369,7 @@ void main() {
       expect(gateway.scheduled, hasLength(1));
       final rearmed = (await registrations()).single;
       expect(rearmed.osId, before.osId, reason: 're-armed in place');
-      expect(rearmed.backend, 'fake#system:default~clock');
+      expect(rearmed.backend, 'fake#system:default~clock~10');
 
       // Once: the next pass finds the fork's own token and does nothing.
       gateway.resetCalls();
@@ -382,7 +398,7 @@ void main() {
       );
       expect(
         (await registrations()).single.backend,
-        'fake#content://media/7~clock',
+        'fake#content://media/7~clock~10',
       );
     });
 
@@ -926,6 +942,199 @@ void main() {
             .state,
         AlertRegistrationState.cancelled.name,
       );
+    });
+  });
+
+  group('native snooze (OS-2)', () {
+    AlertMove moveOf(int osId, {DateTime? at, DateTime? recorded}) => (
+      osId: osId,
+      nextRingAt: at ?? now.add(const Duration(minutes: 5)),
+      recordedAt: recorded ?? now,
+    );
+
+    /// The moment a ring is heard: one second past the row's instant, with
+    /// the ring handler's `fired` mark in place. A native Snooze can only
+    /// follow a ring, and a ring only follows its instant — a move applied
+    /// with the instant still ahead is a state the platform cannot produce.
+    Future<void> ring(AlertScheduler scheduler, AlertRegistrationRow row) async {
+      now = DateTime.fromMillisecondsSinceEpoch(
+        row.fireAt,
+      ).add(const Duration(seconds: 1));
+      await scheduler.markFired(row.osId);
+    }
+
+    test('a move turns the armed row into a pending snooze, same os id', () async {
+      await seed();
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final armed = (await registrations()).single;
+      // The ring handler marked it; then the user chose the notification's
+      // Snooze, which the plugin recorded as a move.
+      await ring(scheduler, armed);
+      final move = moveOf(armed.osId);
+      gateway.moves.add(move);
+      gateway.resetCalls();
+
+      await scheduler.reconcileAll(AlertReconcileReason.ringHandled);
+
+      final row = (await registrations()).single;
+      expect(row.osId, armed.osId);
+      expect(row.kind, AlertKind.snooze.name);
+      expect(row.state, AlertRegistrationState.pending.name);
+      expect(row.fireAt, move.nextRingAt.millisecondsSinceEpoch);
+      expect(row.alertId, armed.alertId);
+      expect(row.day, armed.day);
+      expect(gateway.acknowledged, [move]);
+      // The platform holds that entry already (the plugin moved it, not us),
+      // so nothing is scheduled or cancelled for it.
+      expect(gateway.scheduled, isEmpty);
+      expect(gateway.cancelled, isEmpty);
+    });
+
+    test('a duplicate (osId, recordedAt) is applied once', () async {
+      await seed();
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final armed = (await registrations()).single;
+      await ring(scheduler, armed);
+      final move = moveOf(armed.osId);
+      gateway.moves.add(move);
+      await scheduler.reconcileAll(AlertReconcileReason.ringHandled);
+      final first = (await registrations()).single;
+
+      // The stream is at-least-once: the same move again, a minute later.
+      now = now.add(const Duration(minutes: 1));
+      gateway.moves.add(move);
+      await scheduler.reconcileAll(AlertReconcileReason.resumed);
+
+      final second = (await registrations()).single;
+      expect(second.updatedAt, first.updatedAt, reason: 'no second write');
+      expect(second.fireAt, first.fireAt);
+      // Acknowledged both times: a marker never acknowledged is redelivered
+      // on every launch until it expires.
+      expect(gateway.acknowledged, hasLength(2));
+    });
+
+    test('a move for an unknown os id is acknowledged and writes nothing', () async {
+      await seed();
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final before = await registrations();
+      final stranger = moveOf(424242);
+      gateway.moves.add(stranger);
+
+      await scheduler.reconcileAll(AlertReconcileReason.resumed);
+
+      expect(await registrations(), before);
+      expect(gateway.acknowledged, [stranger]);
+    });
+
+    test('an unrelated reconcile leaves the moved snooze alone', () async {
+      await seed();
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final armed = (await registrations()).single;
+      await ring(scheduler, armed);
+      gateway.moves.add(moveOf(armed.osId));
+      await scheduler.reconcileAll(AlertReconcileReason.ringHandled);
+      gateway.resetCalls();
+
+      await scheduler.reconcileAll(AlertReconcileReason.resumed);
+      await scheduler.reconcileEvent('e1', AlertReconcileReason.eventChanged);
+
+      expect(gateway.cancelled, isEmpty);
+      expect(gateway.scheduled, isEmpty);
+      final row = (await registrations()).single;
+      expect(row.kind, AlertKind.snooze.name);
+      expect(row.state, AlertRegistrationState.pending.name);
+    });
+
+    test("the moved alarm's ring settles it and re-plans the event", () async {
+      await seed(
+        event: eventOf(
+          rule: const WeeklyRecurrence(weekdays: {1, 3, 5}),
+          startDate: DateTime.utc(2026, 9, 14),
+        ),
+      );
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final first = (await registrations()).reduce(
+        (a, b) => a.fireAt < b.fireAt ? a : b,
+      );
+      await ring(scheduler, first);
+      gateway.moves.add(moveOf(first.osId));
+      await scheduler.reconcileAll(AlertReconcileReason.ringHandled);
+      gateway.resetCalls();
+
+      // The snoozed ring comes, and is stopped from the page.
+      now = now.add(const Duration(minutes: 5, seconds: 1));
+      await scheduler.markFired(first.osId);
+      await scheduler.stop(first.osId);
+
+      final rows = await registrations();
+      final settled = rows.singleWhere((row) => row.osId == first.osId);
+      expect(settled.state, AlertRegistrationState.stopped.name);
+      expect(gateway.stopped, [first.osId]);
+      // Re-planned: two occurrences pending again, the stopped day not among
+      // them.
+      final pending = rows.where(
+        (row) => row.state == AlertRegistrationState.pending.name,
+      );
+      expect(pending, hasLength(2));
+      expect(pending.map((row) => row.day), isNot(contains(first.day)));
+    });
+
+    test('a reminder registration is untouched by all of the above', () async {
+      await seed(
+        eventAlerts: [
+          alertOf(id: 'a1'),
+          alertOf(id: 'r1', mode: AlertMode.notify),
+        ],
+      );
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final rows = await registrations();
+      final alarm = rows.singleWhere((row) => row.alertId == 'a1');
+      final reminder = rows.singleWhere((row) => row.alertId == 'r1');
+      await ring(scheduler, alarm);
+      gateway.moves.add(moveOf(alarm.osId));
+      // A stray move naming the reminder's id: the tier cannot snooze
+      // natively, so it is acknowledged and ignored.
+      gateway.moves.add(moveOf(reminder.osId));
+
+      await scheduler.reconcileAll(AlertReconcileReason.ringHandled);
+
+      final after = await registrations();
+      expect(after.singleWhere((row) => row.alertId == 'r1'), reminder);
+      expect(
+        after.singleWhere((row) => row.alertId == 'a1').kind,
+        AlertKind.snooze.name,
+      );
+      expect(gateway.acknowledged, hasLength(2));
+    });
+
+    test('the arm signature moves with the snooze setting, alarm tier only', () async {
+      await seed(
+        eventAlerts: [
+          alertOf(id: 'a1'),
+          alertOf(id: 'r1', mode: AlertMode.notify, offsetMinutes: 30),
+        ],
+      );
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      gateway.resetCalls();
+
+      await (await SettingsService.getInstance()).setAlertSnoozeMinutes(15);
+      await scheduler.reconcileAll(AlertReconcileReason.eventChanged);
+
+      expect(gateway.scheduled, hasLength(1));
+      expect(gateway.scheduled.single.alert.id, 'a1');
+      final rows = await registrations();
+      expect(
+        rows.singleWhere((row) => row.alertId == 'a1').backend,
+        'fake#system:default~clock~15',
+      );
+      expect(rows.singleWhere((row) => row.alertId == 'r1').backend, 'fake');
     });
   });
 

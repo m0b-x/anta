@@ -36,10 +36,26 @@ enum AlertRingEndCause {
   /// Nobody answered and the Silence-after setting ended the ring. Not an
   /// acknowledgement — it is reported as Missed and removes nothing.
   timedOut,
+
+  /// The user pressed Snooze on the platform's own notification (OS-2). The
+  /// alarm is still owed: the plugin re-armed it and recorded an [AlertMove],
+  /// which the next reconcile writes down — so this ends the ring without
+  /// settling, removing or reporting anything.
+  snoozed,
 }
 
 /// One ring that ended outside the app, with the payload it rang under.
 typedef AlertRingEnd = ({AlertPayload payload, AlertRingEndCause cause});
+
+/// One deferral the platform made on its own — Snooze pressed on the plugin's
+/// notification with no Dart running, or with Dart running but not asked.
+///
+/// [recordedAt] is what makes it identifiable: the plugin's event stream is
+/// at-least-once, so the same move can arrive twice and `(osId, recordedAt)`
+/// is the key that says so. The registry rewrites the row under the same os
+/// id — same alert, same day, new instant, `kind = snooze` — and then
+/// acknowledges the move so the plugin can drop its durable marker.
+typedef AlertMove = ({int osId, DateTime nextRingAt, DateTime recordedAt});
 
 /// One sound as the platform's own picker reported it — the value to store,
 /// plus the name to show while it is stored.
@@ -175,8 +191,20 @@ abstract class AlertGateway {
   /// Emits while an alarm is ringing, so the app can show the alarm page.
   Stream<AlertPayload> get ringing;
 
+  /// The deferrals the platform recorded since the last call, and clears
+  /// them. Applied by the scheduler inside its serialized chain, never here:
+  /// a binding awaits only its own initialization, so a reconcile that calls
+  /// this from inside the chain cannot wait on itself. Empty wherever no
+  /// plugin can snooze on its own.
+  Future<List<AlertMove>> takeMoves() async => const [];
+
+  /// Tells the platform the app has durably written [move] down, so its
+  /// marker can go. Called after the registry write, never before it, and
+  /// safe to repeat.
+  Future<void> acknowledgeMove(AlertMove move) async {}
+
   /// Emits when a ring ends by a route the app did not take — the platform
-  /// notification's own Stop, or the Silence-after timeout.
+  /// notification's own Stop, the Silence-after timeout, or a native Snooze.
   ///
   /// Without it a ring stopped from the notification leaves its registration
   /// `fired` forever: the next occurrence is never re-armed, A3 never runs and

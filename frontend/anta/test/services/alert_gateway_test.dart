@@ -64,7 +64,15 @@ void main() {
     await gateway.dispose();
 
     expect(await gateway.ringing.toList(), isEmpty);
+    expect(await gateway.showAlarms.toList(), isEmpty);
     expect(await gateway.launchIntent(), isNull);
+    // Nothing can snooze on its own where nothing rings.
+    expect(await gateway.takeMoves(), isEmpty);
+    await gateway.acknowledgeMove((
+      osId: 1,
+      nextRingAt: DateTime(2026, 9, 20, 18, 10),
+      recordedAt: DateTime(2026, 9, 20, 18),
+    ));
   });
 
   test('pendingIds is derived from pendingEntries on the interface', () async {
