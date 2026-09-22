@@ -27,6 +27,40 @@ void main() {
   test('an intent takes its id from the payload', () {
     expect(OpenEventIntent(payload: payloadOf(17)).osId, 17);
     expect(OpenAlarmIntent(payload: payloadOf(18)).osId, 18);
+    expect(OpenEventIntent(payload: payloadOf(17)).dedupeKey, 17);
+  });
+
+  test('the hub intent dedupes against a second hub intent', () {
+    // The lock-screen line and Quick Settings both launch the same show
+    // intent, and a cold start can hand it over twice — the activity's own
+    // record and the warm push — within the same drain.
+    queue.enqueue(const OpenAlertsHubIntent());
+    queue.enqueue(const OpenAlertsHubIntent());
+
+    expect(queue.length, 1);
+    expect(queue.drain().single, isA<OpenAlertsHubIntent>());
+
+    // And across a drain, like a payload intent's double delivery.
+    queue.enqueue(const OpenAlertsHubIntent());
+    expect(queue.isEmpty, isTrue);
+  });
+
+  test('the hub intent never dedupes against an alarm intent', () {
+    // A hub tap keys on a string of its own, so no os id — however it
+    // hashes — can swallow it, and it can swallow no ring.
+    queue.enqueue(OpenAlarmIntent(payload: payloadOf(1)));
+    queue.enqueue(const OpenAlertsHubIntent());
+    queue.enqueue(OpenEventIntent(payload: payloadOf(2)));
+
+    expect(queue.drain().map((intent) => intent.dedupeKey), [
+      1,
+      OpenAlertsHubIntent.key,
+      2,
+    ]);
+
+    // Drained together, and still the ring of an id is not the hub's echo.
+    queue.enqueue(OpenAlarmIntent(payload: payloadOf(3)));
+    expect(queue.length, 1);
   });
 
   test('queues in arrival order', () {
@@ -34,7 +68,7 @@ void main() {
     queue.enqueue(OpenAlarmIntent(payload: payloadOf(2)));
     queue.enqueue(OpenEventIntent(payload: payloadOf(3)));
 
-    expect(queue.drain().map((intent) => intent.osId), [1, 2, 3]);
+    expect(queue.drain().map((intent) => intent.dedupeKey), [1, 2, 3]);
     expect(queue.isEmpty, isTrue);
   });
 
@@ -65,7 +99,7 @@ void main() {
 
     // Two drains later the first id is a new tap again, not an echo.
     queue.enqueue(OpenEventIntent(payload: payloadOf(1)));
-    expect(queue.drain().single.osId, 1);
+    expect(queue.drain().single.dedupeKey, 1);
   });
 
   test('the dedupe memory expires, so a later ring of the same id lands', () {
@@ -78,7 +112,7 @@ void main() {
     queue.clock = () => now;
 
     queue.enqueue(OpenAlarmIntent(payload: payloadOf(1)));
-    expect(queue.drain().single.osId, 1);
+    expect(queue.drain().single.dedupeKey, 1);
 
     // Still inside the window: this is the notification plugin's cold-start
     // double delivery, which arrives milliseconds apart.
@@ -89,7 +123,7 @@ void main() {
     // Past it: a new ring, whatever id it carries.
     now = now.add(PendingNavigationQueue.doubleDeliveryWindow);
     queue.enqueue(OpenAlarmIntent(payload: payloadOf(1)));
-    expect(queue.drain().single.osId, 1);
+    expect(queue.drain().single.dedupeKey, 1);
   });
 
   test('notifies only when something was actually added', () {

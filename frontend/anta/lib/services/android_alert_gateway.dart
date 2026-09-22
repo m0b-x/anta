@@ -44,9 +44,23 @@ const bool kAlarmTierUsesNotifications = false;
 /// importance, sound and DND behaviour at creation, so a new id is the only
 /// way to change any of them — and a changed id orphans the user's own
 /// per-channel settings.
+///
+/// The fallback tier's channel is on its second id for exactly that reason
+/// (OS-1, 2026-09-22): `alerts_alarm` was created without a sound, so a flipped
+/// [kAlarmTierUsesNotifications] would have rung the phone's default
+/// *notification* sound. [kAlertAlarmChannelId] names the replacement, created
+/// with the phone's default alarm sound on the alarm stream, and the old id is
+/// deleted at initialize so the two never coexist in the phone's settings.
 const String kAlertReminderChannelId = 'alerts_reminder';
-const String kAlertAlarmChannelId = 'alerts_alarm';
+const String kAlertAlarmChannelId = 'alerts_alarm_v2';
+const String kAlertLegacyAlarmChannelId = 'alerts_alarm';
 const String kAlarmPluginChannelId = 'alarm_plugin_channel';
+
+/// The sound [kAlertAlarmChannelId] was created with: the phone's **current**
+/// default alarm, by the settings URI that keeps following the Clock app
+/// rather than the sound it resolved to on the day the channel was made.
+const String kAlertAlarmChannelSoundUri =
+    'content://settings/system/alarm_alert';
 
 /// The `res/drawable` name of the monochrome status-bar icon.
 const String kAlertSmallIcon = 'ic_alert';
@@ -61,14 +75,16 @@ const String kAlertSoundNoPickerCode = 'no_picker';
 ///
 /// Pure, and the whole of the sound decision the platform ever sees. **Null is
 /// the phone's own default alarm sound** — the `alarm` package resolves it
-/// through `RingtoneManager` at ring time, so it keeps following the Clock app
-/// — and it is also the answer for every sound this device cannot play. A
-/// picked sound is armed with the local file its URI was copied into, because
-/// a `content://` URI cannot reach `MediaPlayer.setDataSource(String)`; a copy
-/// that failed (a URI from another phone, a provider that is gone) rings the
-/// phone's default rather than nothing. The app ships no sound of its own.
-String? alarmAssetPathFor(AlertSound sound, {String? resolvedPath}) =>
-    sound is AlertSoundUri ? resolvedPath : null;
+/// through `RingtoneManager` at ring time, so it keeps following the Clock app.
+/// A picked sound is armed with its `content://` URI **verbatim**: the fork's
+/// `AudioService` (Patch 2 of `packages/alarm/`) hands a URI to
+/// `MediaPlayer.setDataSource(Context, Uri)`, so nothing is copied into the
+/// app's files first, and a URI this device cannot open — a sound picked on
+/// another phone, a provider that is gone — falls back to the phone's default
+/// *inside the plugin, at ring time*, rather than to nothing. The app ships no
+/// sound of its own.
+String? alarmAssetPathFor(AlertSound sound) =>
+    sound is AlertSoundUri ? sound.uri : null;
 
 /// Action ids carried on a reminder notification. Matched in the background
 /// isolate, so they are plain literals on both sides of a process boundary.
@@ -222,7 +238,12 @@ AppLocalizations alertGatewayStrings([String? languageCode]) {
 /// registration to Android, so every suite keeps the `NoOpAlertGateway` and
 /// no plugin channel is ever stubbed.
 class AndroidAlertGateway extends AlertGateway {
-  AndroidAlertGateway();
+  /// The activity's own pushes are answered from construction on: nothing
+  /// here reaches the platform, and a warm show intent arriving before
+  /// [initialize] has finished must not land on a channel with no handler.
+  AndroidAlertGateway() {
+    _platform.setMethodCallHandler(_handlePlatformCall);
+  }
 
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
@@ -232,6 +253,9 @@ class AndroidAlertGateway extends AlertGateway {
 
   final StreamController<AlertRingEnd> _ringEnded =
       StreamController<AlertRingEnd>.broadcast();
+
+  /// The warm half of the alarm-clock show intent — see [showAlarms].
+  final StreamController<void> _showAlarms = StreamController<void>.broadcast();
 
   /// Rings in progress, by os id, with the payload each rang under.
   ///
@@ -348,12 +372,16 @@ class AndroidAlertGateway extends AlertGateway {
         importance: Importance.high,
       ),
     );
+    await _android?.deleteNotificationChannel(
+      channelId: kAlertLegacyAlarmChannelId,
+    );
     await _android?.createNotificationChannel(
       AndroidNotificationChannel(
         kAlertAlarmChannelId,
         l10n.alertsAlarmChannel,
         description: l10n.alertsAlarmChannelDesc,
         importance: Importance.max,
+        sound: const UriAndroidNotificationSound(kAlertAlarmChannelSoundUri),
         audioAttributesUsage: AudioAttributesUsage.alarm,
       ),
     );
@@ -362,6 +390,22 @@ class AndroidAlertGateway extends AlertGateway {
 
     await _ringingSub?.cancel();
     _ringingSub = Alarm.ringing.listen(_handleRinging);
+  }
+
+  /// The activity's pushes, on the same channel the binding calls out on.
+  ///
+  /// `showAlarms` is the warm half of the alarm-clock show intent: the
+  /// activity was already up when the lock-screen line was tapped, received
+  /// the intent through `onNewIntent`, and says so here; the cold half is
+  /// asked for by [launchIntent]. Anything else is not this binding's.
+  Future<Object?> _handlePlatformCall(MethodCall call) async {
+    switch (call.method) {
+      case 'showAlarms':
+        if (!_showAlarms.isClosed) _showAlarms.add(null);
+        return null;
+      default:
+        throw MissingPluginException('${call.method} is not handled here');
+    }
   }
 
   /// The app's language setting, or null for "follow the device".
@@ -552,21 +596,6 @@ class AndroidAlertGateway extends AlertGateway {
     }
   }
 
-  /// The local file a picked sound has been copied into, or null when this
-  /// device cannot open it — a URI from another phone, a revoked permission, a
-  /// provider that is simply gone.
-  ///
-  /// The copy happens natively and off the main thread; asking twice for the
-  /// same URI is cheap, because the second call finds the file already there.
-  Future<String?> _resolvePickedSound(String uri) async {
-    try {
-      return await _platform.invokeMethod<String>('resolveAlarmSound', uri);
-    } catch (e) {
-      debugPrint('[AndroidAlertGateway] resolveAlarmSound failed: $e');
-      return null;
-    }
-  }
-
   /// The phone's alarm-stream level as a 0..1 fraction, or null when it could
   /// not be read.
   Future<double?> _alarmStreamVolume() async {
@@ -603,16 +632,7 @@ class AndroidAlertGateway extends AlertGateway {
 
   Future<bool> _scheduleAlarm(PlannedFire fire, AlertPayload payload) async {
     final l10n = _l10n;
-    // Resolved before `Alarm.set` and never allowed to stop it: a sound that
-    // could not be copied is a ring with the phone's default, not a missing
-    // ring.
-    final sound = fire.sound;
-    final assetAudioPath = alarmAssetPathFor(
-      sound,
-      resolvedPath: sound is AlertSoundUri
-          ? await _resolvePickedSound(sound.uri)
-          : null,
-    );
+    final assetAudioPath = alarmAssetPathFor(fire.sound);
     try {
       return await Alarm.set(
         alarmSettings: AlarmSettings(
@@ -872,36 +892,60 @@ class AndroidAlertGateway extends AlertGateway {
     if (_launchIntentRead) return _launchIntent;
     _launchIntentRead = true;
     try {
-      final details = await _plugin.getNotificationAppLaunchDetails();
-      if (details?.didNotificationLaunchApp != true) return null;
-      final payload = AlertPayload.decode(
-        details?.notificationResponse?.payload,
-      );
-      if (payload == null) return null;
-      if (isMissedNotification(details?.notificationResponse?.id, payload)) {
-        _launchIntent = OpenEventIntent(payload: payload);
-      } else if (payload.isAlarm) {
-        await _plugin.cancel(id: payload.osId);
-        // Tracked like a warm ring, so the silence timer and the keyguard flag
-        // cover a fallback alarm that launched the app — but not emitted: the
-        // caller queues the intent it is handed.
-        _trackRing(payload);
-        _launchIntent = OpenAlarmIntent(payload: payload);
-      } else {
-        _launchIntent = OpenEventIntent(payload: payload);
-      }
-      return _launchIntent;
+      _launchIntent = await _notificationLaunchIntent();
     } catch (e) {
       debugPrint('[AndroidAlertGateway] launchIntent failed: $e');
-      return null;
+    }
+    // Asked second, so a notification that launched the app always wins over
+    // the phone's "next alarm" line — and asked at all only once, because
+    // the activity answers true a single time.
+    if (_launchIntent == null && await _consumeShowAlarmsRequest()) {
+      _launchIntent = const OpenAlertsHubIntent();
+    }
+    return _launchIntent;
+  }
+
+  /// The intent a notification launched the app with, or null when none did.
+  Future<AlertIntent?> _notificationLaunchIntent() async {
+    final details = await _plugin.getNotificationAppLaunchDetails();
+    if (details?.didNotificationLaunchApp != true) return null;
+    final payload = AlertPayload.decode(details?.notificationResponse?.payload);
+    if (payload == null) return null;
+    if (isMissedNotification(details?.notificationResponse?.id, payload)) {
+      return OpenEventIntent(payload: payload);
+    }
+    if (payload.isAlarm) {
+      await _plugin.cancel(id: payload.osId);
+      // Tracked like a warm ring, so the silence timer and the keyguard flag
+      // cover a fallback alarm that launched the app — but not emitted: the
+      // caller queues the intent it is handed.
+      _trackRing(payload);
+      return OpenAlarmIntent(payload: payload);
+    }
+    return OpenEventIntent(payload: payload);
+  }
+
+  /// Whether the activity was started by an alarm-clock show intent it has
+  /// not yet reported — true once, then false, on the activity's side.
+  Future<bool> _consumeShowAlarmsRequest() async {
+    try {
+      return await _platform.invokeMethod<bool>('consumeShowAlarmsRequest') ??
+          false;
+    } catch (e) {
+      debugPrint('[AndroidAlertGateway] consumeShowAlarmsRequest failed: $e');
+      return false;
     }
   }
+
+  @override
+  Stream<void> get showAlarms => _showAlarms.stream;
 
   @override
   Set<int> get ringingIds => Set<int>.unmodifiable(_rings.keys);
 
   @override
   Future<void> dispose() async {
+    _platform.setMethodCallHandler(null);
     await _ringingSub?.cancel();
     for (final timer in _silenceTimers.values) {
       timer.cancel();
@@ -909,6 +953,7 @@ class AndroidAlertGateway extends AlertGateway {
     _silenceTimers.clear();
     await _ringing.close();
     await _ringEnded.close();
+    await _showAlarms.close();
   }
 }
 

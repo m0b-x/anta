@@ -501,6 +501,37 @@ Android (unchanged from the Windows-era harness; still true):
 - **PowerShell 5.1 eats the inner quotes of a native command's arguments**;
   use `--%` with `\"` or `steps --file`.
 
+## Alarm-clock evidence (event alerts, Android)
+
+The Alarm tier is armed with `AlarmManager.setAlarmClock` (the `alarm` fork,
+event-alerts session OS-1, 2026-09-22), and the platform's own record is the
+evidence — there is no `qa alerts` verb yet (the parent roadmap's Session 7).
+Three **read-only** shell queries, run from the host, are the accepted
+exception to "never drive adb by hand": they neither touch the app nor its
+data.
+
+```bash
+adb shell dumpsys alarm | grep -A9 "RTC_WAKEUP #.*com.alexzamfir.anta"
+adb shell settings get system next_alarm_formatted   # legacy key; may be empty on some ROMs
+adb shell run-as com.alexzamfir.anta ls files        # debug builds only
+```
+
+What a passing entry looks like (emulator, API 36.1, 2026-09-22): the ANTA
+entry prints an `Alarm clock:` block (`triggerTime=…` and
+`showIntent=PendingIntent{… com.alexzamfir.anta startActivity}`), a
+`flags=` mask that includes `0x2` (`WAKE_FROM_IDLE`), an `idle-options`
+bundle with `temporaryAppAllowlistReasonCode=301`
+(`REASON_ALARM_MANAGER_ALARM_CLOCK`), and it is listed under `Next wake from
+idle:`. The `0x8` bit (`ALLOW_WHILE_IDLE_UNRESTRICTED`) the owner's-phone
+checklist mentions is **not** in the mask on API 36 — the exemption rides the
+idle options instead — so read the block, not one bit. A reminder entry
+(`ScheduledNotificationReceiver`) prints no such block. The status bar's
+alarm icon reads `"Alarm set for <time>."` in a native dump, and the
+Quick Settings header row with the same text opens the Alerts hub. Locking
+the emulator needs a keyguard: `locksettings get-disabled` prints `true` on
+a stock AVD, `locksettings set-disabled false` gives it the swipe lock
+screen for the check, and `set-disabled true` puts it back.
+
 ## Secrets and credentials files
 
 - `android/app/google-services.json`, `ios/Runner/GoogleService-Info.plist`

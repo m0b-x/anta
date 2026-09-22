@@ -1649,16 +1649,36 @@ Sound row in `AlertEditorSheet` (alarm tier only — the reminder tier's channel
 sound was frozen by Android at creation) and by the Alarm sound row in
 Calendar settings; it always offers the phone's default and hides *Choose
 from phone* where `AlertGateway.supportsSoundPicker` is false. A picked sound
-is copied natively into `filesDir/alert_sounds/<sha-1 of the URI>` because
-the `alarm` plugin hands `assetAudioPath` to
-`MediaPlayer.setDataSource(String)`, which a `content://` URI can never
-reach. **Ring volume**
+is armed with its `content://` URI **verbatim** (OS-1, 2026-09-22): the local
+`alarm` fork's `AudioService` opens a URI through
+`MediaPlayer.setDataSource(Context, Uri)` and falls back to the phone's
+default alarm when the device cannot open it, so nothing is copied into
+`filesDir` any more and the `alert_sounds` directory older builds kept is
+deleted once. **Ring volume**
 follows the phone's own alarm slider (the ring is armed with no volume at
 all, which is how `alarm` says "leave the stream alone"); only a slider below
 `kAlertRingFloorVolume` is overridden. Both the sound and that volume bucket
 ride the **arm signature** recorded in `alert_registrations.backend`, which is
 what makes the diff re-arm a standing alarm whose instant never moved — see
 `docs/event-alerts-roadmap.md` §5.2 and "Ring volume".
+
+**How the phone treats an alarm (OS-1, 2026-09-22).** The Alarm tier is
+armed by the local fork `packages/alarm/` (base `alarm` 5.13.2; the
+`re_editor` rule — owned, upstream watched, cherry-picks recorded in
+`docs/event-alerts-os-integration-roadmap.md`), whose `AlarmScheduler`
+arms every exact alarm with `AlarmManager.setAlarmClock`. That is what makes
+the phone treat it as an alarm: exempt from Doze and the standby buckets by
+the platform's own definition, shown as the device's next alarm (status-bar
+icon, lock-screen line, Quick Settings, `getNextAlarmClock()`), and openable
+— the entry's show intent carries `com.gdelataillade.alarm.action.SHOW`,
+`MainActivity` records it from `onCreate` and `onNewIntent`, and the app
+lands on the **Alerts hub** (`OpenAlertsHubIntent`, the payload-less
+`AlertIntent` that dedupes on a constant key; `AppNavigator.toAlertsFromPlatform`
+collapses onto a live hub rather than stacking two). The Reminder tier
+stays on `flutter_local_notifications`' `exactAllowWhileIdle` — a reminder
+must never become the phone's next alarm. The fallback tier's channel is
+`alerts_alarm_v2`, created with the phone's default alarm sound on the alarm
+stream; the soundless `alerts_alarm` is deleted at initialize.
 
 **Where it is edited.** The *Alerts* rows sit inside the editor's Time zone
 (`event_editor_sheet.dart`): one `_PickerTile` per alert, an "Add alert" chip

@@ -34,6 +34,19 @@ share the notification plugin), `qa-harness.md` (the verbs Phase 3 extends).
 
 ---
 
+**Follow-up roadmap (2026-09-22):**
+[event-alerts-os-integration-roadmap.md](event-alerts-os-integration-roadmap.md)
+— the phone treating an ANTA alarm as an alarm (`setAlarmClock` through a
+fork of the `alarm` plugin, which also ends the `content://` copy of §5.2),
+native snooze, an upcoming-alarm notice, an alarm log, the Android 16
+session chip and AlarmKit for Session 9. Nothing there reopens A1–A15.
+**OS-1 DONE 2026-09-22**: the Alarm tier is armed by the local fork
+`packages/alarm/` with `AlarmManager.setAlarmClock` (Doze-exempt, the
+phone's next alarm, a show intent opening the Alerts hub), the `content://`
+copy of §5.2 is gone, and the fallback channel is `alerts_alarm_v2` with a
+real alarm sound; the §11 deep-Doze row is closed on the emulator and the
+overnight phone check moved to that roadmap's §9.
+
 ## 0. What an alert is, and is not
 
 An **alert** is a property of an event: *when* the phone should speak up,
@@ -75,7 +88,7 @@ number of events, and swapping the platform backend touches one file.
 | A2 | Cardinality | Up to **5** per event, one card each in the editor. | Google Calendar's cap; a row per alert keeps `calendar_events` narrow. |
 | A3 | Remove after it rings | A flag on the **event** (`remove_after_alert`), off by default, on for quick alarms. Stop/Done on the first acknowledged alert soft-deletes the event through `CalendarEventService.deleteById` (cascade + tombstone) with a 5 s Undo. Cancelling such an alarm before it rings deletes the event too. | It is a statement about the event's purpose, not one alert's; a soft delete syncs and survives a mistake. |
 | A4 | All-day events | Each alert carries `days_before` + `day_minute`; default **09:00 on the day**, changeable in Calendar settings. | The model has no anchor for all-day events; Apple and Google both default to 09:00. |
-| A5 | Ringing backend — **emulator spike confirms, phone pass owed** | `alarm` 5.13 for the Alarm tier; `flutter_local_notifications` 22.3 for the Reminder tier. Fallback, proven in the spike (§10.3 S7): an insistent alarm-stream notification from the reminder plugin (`AndroidScheduleMode.alarmClock`, `fullScreenIntent`, `additionalFlags [4]`), switchable in the gateway alone. | Purpose-built, actively maintained (13 releases in 2026), holds the foreground service Android 17 now demands for background audio, owns the audio, degrades under Total Silence to screen + vibration; the fallback needs no second plugin. Caveat (§10.1): `alarm` uses `setExactAndAllowWhileIdle`, the fallback `setAlarmClock`. |
+| A5 | Ringing backend — **emulator spike confirms, phone pass owed** | `alarm` 5.13 for the Alarm tier; `flutter_local_notifications` 22.3 for the Reminder tier. Fallback, proven in the spike (§10.3 S7): an insistent alarm-stream notification from the reminder plugin (`AndroidScheduleMode.alarmClock`, `fullScreenIntent`, `additionalFlags [4]`), switchable in the gateway alone. | Purpose-built, actively maintained (13 releases in 2026), holds the foreground service Android 17 now demands for background audio, owns the audio, degrades under Total Silence to screen + vibration; the fallback needs no second plugin. Caveat (§10.1): `alarm` used `setExactAndAllowWhileIdle`, the fallback `setAlarmClock` — **resolved by the OS-1 fork (2026-09-22)**: the Alarm tier arms with `setAlarmClock` too. |
 | A6 | Exact-alarm permission | Declare `USE_EXACT_ALARM` (no prompt). | Play policy allows it for "a calendar app that shows event notifications"; the `alarm` plugin's manifest declares it anyway. |
 | A7 | Horizon | Next **2** occurrences per alert, **30** days, **48** registrations total, soonest first. | Survives a week without opening the app; stays under iOS's 64 pending and far under Samsung's 500. |
 | A8 | Snooze | One button, length from settings, default **10 min**; a snooze is its own registration (`kind = snooze`). | Google Clock's default; per-ring choices add taps to a screen used half asleep. |
@@ -277,11 +290,23 @@ the active database name (`DatabaseManager.getActiveDatabaseName()`).
   `androidFullScreenIntent`, `androidStaleAfter: 30 min` (A10),
   `notificationSettings.stopButton`, the JSON payload. `Alarm.ringing` →
   `AlarmPage`. `Alarm.set()` **throws** `AlarmException` since 5.9.0 while
-  still typed `Future<bool>`; the gateway catches and reports.
+  still typed `Future<bool>`; the gateway catches and reports. **Since OS-1
+  (2026-09-22) the plugin is the local fork `packages/alarm/`** (base
+  5.13.2), whose `AlarmScheduler.setExactAlarm` arms with
+  `AlarmManager.setAlarmClock`: exempt from Doze and the standby buckets by
+  the platform's own definition, shown as the device's next alarm
+  (status-bar icon, lock-screen line, Quick Settings,
+  `getNextAlarmClock()`), and carrying a show intent
+  (`com.gdelataillade.alarm.action.SHOW`) that `MainActivity` turns into an
+  `OpenAlertsHubIntent` — the Alerts hub, cold or warm. The inexact fallback
+  for a revoked exact-alarm permission is upstream's, unchanged. The
+  Reminder tier never touches this plugin.
 - **Fallback alarm (notification plugin):** `alarmClock` mode,
   `fullScreenIntent: true`, `category: alarm`, `audioAttributesUsage:
   alarm`, `additionalFlags: Int32List.fromList([4])`, `ongoing: true`,
-  `timeoutAfter: silenceAfter`; a `max`-importance `alerts_alarm` channel.
+  `timeoutAfter: silenceAfter`; a `max`-importance `alerts_alarm_v2` channel
+  (created with the phone's default alarm sound on the alarm stream since
+  OS-1; the soundless `alerts_alarm` is deleted at initialize).
   No stale cut-off is possible (the system posts it), so A10's "Missed"
   path is done by reconcile on the next launch.
 - **Late fire (A10; rule corrected 2026-09-15 at the Session 2 review,
@@ -523,15 +548,20 @@ literal on write), and the *ANTA sound* row left the chooser. The `alarm`
 plugin's iOS half has its own `default.m4a` for a null path, so Session 9
 needs no asset either.
 
-**Why a picked sound is copied.** The `alarm` package puts
-`assetAudioPath` into `MediaPlayer.setDataSource(String)`, which takes a
-Flutter asset (`assets/…`) or an absolute path (`/…`) and nothing else — a
-`content://` URI can never reach it. `MainActivity.resolveAlarmSound` copies
-the stream into `filesDir/alert_sounds/<sha-1 of the URI>` once (temp name,
-then rename, so a killed process never leaves a half file that later
-"resolves"), off the main thread, and answers the absolute path.
-`AlertSoundSystemDefault` arms with **null**, which is how the package says
-"the device's default alarm sound".
+**Why a picked sound is no longer copied (OS-1, 2026-09-22).** Upstream
+`alarm` puts `assetAudioPath` into `MediaPlayer.setDataSource(String)`, which
+takes a Flutter asset or an absolute path and nothing else, so until OS-1
+`MainActivity.resolveAlarmSound` copied a `content://` stream into
+`filesDir/alert_sounds/<sha-1>` and armed the path. The fork's
+`AudioService.playAudio` (Patch 2 of `packages/alarm/`) hands a `content://`,
+`android.resource://` or `file://` value to
+`MediaPlayer.setDataSource(Context, Uri)` before the asset and path branches,
+so `alarmAssetPathFor(AlertSoundUri)` is the raw URI, the copy, its channel
+method and its directory are gone (the directory is deleted once on the next
+launch), and a URI the device cannot open falls back to the phone's default
+alarm **inside the plugin, at ring time** — the same never-silence rule the
+copy used to enforce at arm time. `AlertSoundSystemDefault` still arms with
+**null**, which is how the package says "the device's default alarm sound".
 
 **The cross-device degrade rule.** The value syncs and rides backups, so a
 URI regularly lands on a phone whose provider never heard of that media id.
@@ -633,7 +663,8 @@ the remove switch (on). Save → `CreateCalendarEvent` on the selected day
 
 ### 6.1 Android (Phase 1)
 
-Dependencies: `alarm ^5.13.0`, `flutter_local_notifications ^22.3.1`,
+Dependencies: `alarm` as the local fork `packages/alarm/` (base 5.13.2,
+OS-1 2026-09-22; `alarm ^5.13.0` before that), `flutter_local_notifications ^22.3.1`,
 `timezone ^0.11.1`, `flutter_timezone ^5.1.0` (its `getLocalTimezone()`
 returns a `TimezoneInfo`; use `.identifier`). The exact build steps that
 worked are §10.2: desugaring in `build.gradle.kts`, the notification
@@ -645,7 +676,10 @@ A15 prerequisite for the Windows build. Resources: a monochrome `ic_alert`
 small icon under `drawable*/`; no sound asset — the alarm tier rings the
 phone's own sounds (the bundled WAV was dropped 2026-09-22, §5.2). Channels:
 `alerts_reminder`
-(high) and, for the fallback path only, `alerts_alarm` (max, `USAGE_ALARM`);
+(high) and, for the fallback path only, `alerts_alarm_v2` (max, `USAGE_ALARM`,
+created with `content://settings/system/alarm_alert` as its sound — the
+first id, `alerts_alarm`, had no sound and would have rung the phone's
+*notification* default; it is deleted at initialize since OS-1);
 `alarm` creates its own `alarm_plugin_channel` at importance 4 and does not
 let Dart configure it. Names localized at creation, ids fixed forever
 (channel settings are immutable after creation).
@@ -698,7 +732,11 @@ approval), a rolling window under the 64-pending cap (A7 already fits),
 extension, weekly-by-weekday native recurrence — the planner keeps
 materialising per occurrence, so the mapping is one `fixed` alarm per
 `PlannedFire`), a runtime version check, and below 26 a time-sensitive
-notification with a ≤30 s sound. Background-audio ringing on older iOS is
+notification with a ≤30 s sound. **Superseded as direction by
+`event-alerts-os-integration-roadmap.md` §7 (2026-09-22):** AlarmKit lives
+in Swift behind `DarwinAlertGateway`, not in the `alarm` fork, and every API
+name is to be verified against the current reference before Session 9's
+prompt is written. Background-audio ringing on older iOS is
 a Guideline 2.5.4 rejection risk and is **not** attempted. Critical alerts
 are not requested (A-not-critical, §0).
 
@@ -1488,11 +1526,14 @@ would wipe data), run S2–S7 and S9–S10 by hand, then reinstall `main`.
   Dart does.
 - **Force stop disarms everything** (§10.1, both backends, by Android
   design). Recovery is the next launch; there is no background path.
-- **Deep Doze is unmeasured.** The `alarm` package's
-  `setExactAndAllowWhileIdle` is rate-limited in deep idle; two alerts
-  inside nine minutes (a reminder at 06:50 and an alarm at 07:00) may see
-  the second deferred. The fallback path's `setAlarmClock` is not. Only
-  the phone pass can tell; the gateway keeps the switch cheap.
+- **Deep Doze — closed by OS-1 (2026-09-22).** Upstream `alarm` armed with
+  `setExactAndAllowWhileIdle`, which deep idle rate-limits; the fork arms
+  the Alarm tier with `setAlarmClock`, which the platform exempts from Doze
+  and the standby buckets by definition (the emulator's `dumpsys alarm`
+  prints the alarm-clock block and lists the entry as the next wake from
+  idle). The Reminder tier keeps `exactAllowWhileIdle` and may still be
+  deferred in deep idle — a reminder is not an alarm. The overnight and
+  `restricted`-bucket checks on the owner's phone are §9 of the OS roadmap.
 - **Cold-start navigation.** `_navigator` force-unwraps
   (`app_navigator.dart:50`); the queue must never push before the first
   frame, and the alarm page must not be restored as a last location.

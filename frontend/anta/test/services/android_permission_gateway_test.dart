@@ -3,6 +3,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/models/app_permission.dart';
+import 'package:anta/services/android_alert_gateway.dart';
 import 'package:anta/services/android_permission_gateway.dart';
 
 const _pluginChannel = MethodChannel(
@@ -23,7 +24,10 @@ void main() {
   late Map<String, Object?> openAnswers;
 
   AndroidPermissionGateway gateway() => AndroidPermissionGateway(
-    notificationChannelIds: const ['alerts_reminder', 'alerts_alarm'],
+    notificationChannelIds: const [
+      kAlertReminderChannelId,
+      kAlertAlarmChannelId,
+    ],
     notifications: AndroidFlutterLocalNotificationsPlugin(),
   );
 
@@ -72,7 +76,7 @@ void main() {
 
       expect(appCalls.single.method, 'status');
       expect(appCalls.single.arguments, {
-        'channels': ['alerts_reminder', 'alerts_alarm'],
+        'channels': [kAlertReminderChannelId, kAlertAlarmChannelId],
       });
     });
 

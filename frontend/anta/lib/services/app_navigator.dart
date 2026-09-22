@@ -489,6 +489,36 @@ abstract final class AppNavigator {
     );
   }
 
+  /// The Alerts hub, opened by the platform with no `BuildContext` of its own:
+  /// the lock screen's alarm line and Quick Settings launch the show intent
+  /// every alarm-clock entry carries (`AlarmService.ACTION_SHOW`, Patch 1 of
+  /// the `alarm` fork), and the answer to "you have an alarm" is the list that
+  /// holds every armed one (**B2**).
+  ///
+  /// Collapses onto a live hub route the way [toCalendarOccurrence] collapses
+  /// onto a live calendar, so a second tap on the line never stacks two hubs;
+  /// otherwise a root push under the same `alerts` stamp [toAlerts] uses, so
+  /// the hub reached this way restores like the hub reached from the drawer.
+  static Future<void> toAlertsFromPlatform() {
+    final navigator = navigatorKey.currentState;
+    if (navigator != null) {
+      final routes = _livePageRoutes(navigator);
+      final index = routes.lastIndexWhere((route) {
+        final destination = route.settings.arguments;
+        return destination is NavDestination &&
+            destination.kind == NavDestinationKind.alerts;
+      });
+      if (index >= 0) {
+        _collapseOnto(navigator, routes, index);
+        return Future<void>.value();
+      }
+    }
+    return rootPush<void>(
+      const AlertsPage(),
+      destination: const NavDestination(NavDestinationKind.alerts),
+    );
+  }
+
   static Future<SettingsResult?> toPermissions(
     BuildContext context, {
     bool fromDrawer = false,

@@ -126,6 +126,9 @@ class FakeAlertGateway implements AlertGateway {
   @override
   Stream<AlertRingEnd> get ringEnded => const Stream<AlertRingEnd>.empty();
 
+  @override
+  Stream<void> get showAlarms => const Stream<void>.empty();
+
   /// When the "process" started; null is a platform that cannot say.
   DateTime? startedAt;
 
@@ -263,8 +266,9 @@ void main() {
       expect(rows.single.state, AlertRegistrationState.pending.name);
       expect(rows.single.kind, AlertKind.scheduled.name);
       // The sound is named for every alarm-tier fire, the phone's default
-      // included — see `alertArmSignature`.
-      expect(rows.single.backend, 'fake#system:default');
+      // included, and the fork's arming shape closes it — see
+      // `alertArmSignature`.
+      expect(rows.single.backend, 'fake#system:default~clock');
       expect(
         rows.single.day,
         DateTime.utc(2026, 9, 20).millisecondsSinceEpoch,
@@ -317,12 +321,45 @@ void main() {
       expect(gateway.scheduled, hasLength(1));
       final row = (await registrations()).single;
       expect(row.osId, before, reason: 're-armed in place, not re-issued');
-      expect(row.backend, 'fake@floor#system:default');
+      expect(row.backend, 'fake@floor#system:default~clock');
 
       // And settles again: the third pass has nothing left to do.
       gateway.resetCalls();
       await scheduler.reconcileAll(AlertReconcileReason.resumed);
       expect(gateway.scheduled, isEmpty);
+    });
+
+    test('a row armed before the fork is re-armed once, in place', () async {
+      // What a pre-OS-1 build recorded for this fire: the same context and
+      // sound, no `~clock`. Its platform entry was armed with
+      // `setExactAndAllowWhileIdle` and, for a picked sound, with a copied
+      // file this build deletes — and the plugin's own init re-sets it just
+      // as it was. Only the signature can reach it.
+      await seed();
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final before = (await registrations()).single;
+      await (db.update(db.alertRegistrations)
+            ..where((row) => row.osId.equals(before.osId)))
+          .write(
+            const AlertRegistrationsCompanion(
+              backend: Value('fake#system:default'),
+            ),
+          );
+      gateway.resetCalls();
+
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+
+      expect(gateway.scheduled, hasLength(1));
+      final rearmed = (await registrations()).single;
+      expect(rearmed.osId, before.osId, reason: 're-armed in place');
+      expect(rearmed.backend, 'fake#system:default~clock');
+
+      // Once: the next pass finds the fork's own token and does nothing.
+      gateway.resetCalls();
+      await scheduler.reconcileAll(AlertReconcileReason.resumed);
+      expect(gateway.scheduled, isEmpty);
+      expect(gateway.cancelled, isEmpty);
     });
 
     test('a changed alarm sound re-arms without anything dispatching', () async {
@@ -345,7 +382,7 @@ void main() {
       );
       expect(
         (await registrations()).single.backend,
-        'fake#content://media/7',
+        'fake#content://media/7~clock',
       );
     });
 

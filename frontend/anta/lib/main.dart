@@ -248,6 +248,10 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   /// and the Silence-after timeout.
   StreamSubscription<AlertRingEnd>? _ringEnded;
 
+  /// The phone's "next alarm" line opening a warm app (the alarm-clock show
+  /// intent); a cold launch by the same intent arrives as the launch intent.
+  StreamSubscription<void>? _showAlarms;
+
   @override
   void initState() {
     super.initState();
@@ -270,6 +274,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     _resumeReconcile?.cancel();
     unawaited(_ringing?.cancel());
     unawaited(_ringEnded?.cancel());
+    unawaited(_showAlarms?.cancel());
     PendingNavigationQueue.instance.removeListener(_scheduleNavigationDrain);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -306,6 +311,9 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     });
     _ringEnded = gateway.ringEnded.listen((end) {
       unawaited(_settleEndedRing(end));
+    });
+    _showAlarms = gateway.showAlarms.listen((_) {
+      PendingNavigationQueue.instance.enqueue(const OpenAlertsHubIntent());
     });
     _launchIntentDrain = _drainLaunchIntent(gateway);
   }
@@ -393,6 +401,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
               AlarmPage(payload: intent.payload),
             ),
           );
+        case OpenAlertsHubIntent():
+          unawaited(AppNavigator.toAlertsFromPlatform());
       }
     }
   }

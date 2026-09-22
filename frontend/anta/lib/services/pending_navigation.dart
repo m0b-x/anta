@@ -7,15 +7,29 @@ import '../models/alert_payload.dart';
 /// Sealed so a new destination has to be handled everywhere it is switched on,
 /// rather than silently falling through to "open the calendar".
 sealed class AlertIntent {
+  const AlertIntent();
+
+  /// What [PendingNavigationQueue] dedupes on. A cold-start tap is delivered
+  /// twice by the notification plugin — once through the response callback
+  /// and once through the launch details — within a few milliseconds, and an
+  /// intent that carries a payload keys on its os id so the two halves cannot
+  /// disagree; an intent about no entry at all keys on a constant of its own.
+  Object get dedupeKey;
+}
+
+/// An intent about one platform entry, carrying the payload it rang or was
+/// tapped under.
+sealed class AlertEntryIntent extends AlertIntent {
   final AlertPayload payload;
 
-  const AlertIntent({required this.payload});
+  const AlertEntryIntent({required this.payload});
 
-  /// The platform entry the tap came from. Also the dedupe key: a cold-start
-  /// tap is delivered twice by the notification plugin — once through the
-  /// response callback and once through the launch details — within a few
-  /// milliseconds. Read off the payload so the two cannot disagree.
+  /// The platform entry the tap came from. Read off the payload so the two
+  /// halves of a double delivery cannot disagree.
   int get osId => payload.osId;
+
+  @override
+  Object get dedupeKey => osId;
 }
 
 /// A reminder or a "Missed" notice was tapped: show the event on its own day,
@@ -25,17 +39,36 @@ sealed class AlertIntent {
 /// the **alarm** being stopped; someone tapping a "10 min before" reminder is
 /// looking at the event, and deleting it under them would also cancel the very
 /// alarm the switch was set for.
-final class OpenEventIntent extends AlertIntent {
+final class OpenEventIntent extends AlertEntryIntent {
   const OpenEventIntent({required super.payload});
 }
 
 /// An alarm is ringing (or was tapped): show the alarm page.
 ///
-/// Defined now and routed to nothing — the page itself is Session 3. The
-/// alarm page is deliberately **not** a `NavDestination`: a restored last
+/// The alarm page is deliberately **not** a `NavDestination`: a restored last
 /// location must never reopen a ring that is long over.
-final class OpenAlarmIntent extends AlertIntent {
+final class OpenAlarmIntent extends AlertEntryIntent {
   const OpenAlarmIntent({required super.payload});
+}
+
+/// The phone's own "next alarm" surface was tapped — the lock-screen line or
+/// Quick Settings, which launch the show intent every alarm-clock entry
+/// carries (`AlarmService.ACTION_SHOW`, Patch 1 of the `alarm` fork): show the
+/// Alerts hub (**B2**).
+///
+/// Payload-less, because the phone is saying "you have an alarm" rather than
+/// naming one; the answer is the list that holds every armed alarm and offers
+/// the switch and *Cancel snooze*. It dedupes against another hub intent and
+/// against nothing else.
+final class OpenAlertsHubIntent extends AlertIntent {
+  const OpenAlertsHubIntent();
+
+  /// The one key every hub intent shares. A string, so it can never collide
+  /// with an os id.
+  static const String key = 'alerts-hub';
+
+  @override
+  Object get dedupeKey => key;
 }
 
 /// Holds alert taps that arrive before there is a `Navigator` to push onto.
@@ -60,14 +93,14 @@ class PendingNavigationQueue extends ChangeNotifier {
 
   final List<AlertIntent> _queued = [];
 
-  /// Ids currently queued. Cleared into [_lastDrained] on every drain.
-  final Set<int> _queuedIds = {};
+  /// Dedupe keys currently queued. Cleared into [_lastDrained] on every drain.
+  final Set<Object> _queuedKeys = {};
 
-  /// Ids handed out by the previous drain, kept so the second half of a
+  /// Keys handed out by the previous drain, kept so the second half of a
   /// double delivery is still recognised when the first half has already been
   /// drained. Only the last batch is remembered — a genuinely new ring of the
   /// same alert must not be swallowed forever.
-  Set<int> _lastDrained = const {};
+  Set<Object> _lastDrained = const {};
 
   /// When [_lastDrained] was filled. Paired with [doubleDeliveryWindow]
   /// because "the last batch" alone is not a short enough memory: the os id of
@@ -94,21 +127,21 @@ class PendingNavigationQueue extends ChangeNotifier {
 
   int get length => _queued.length;
 
-  /// Queues [intent] unless its [AlertIntent.osId] is already queued or was
-  /// handed out by the previous drain. Notifies listeners only when something
-  /// was actually added.
+  /// Queues [intent] unless its [AlertIntent.dedupeKey] is already queued or
+  /// was handed out by the previous drain. Notifies listeners only when
+  /// something was actually added.
   void enqueue(AlertIntent intent) {
-    final osId = intent.osId;
-    if (_isEcho(osId)) return;
-    if (!_queuedIds.add(osId)) return;
+    final key = intent.dedupeKey;
+    if (_isEcho(key)) return;
+    if (!_queuedKeys.add(key)) return;
     _queued.add(intent);
     notifyListeners();
   }
 
-  /// Whether [osId] is the second half of a delivery already handed over, as
+  /// Whether [key] is the second half of a delivery already handed over, as
   /// opposed to a genuinely new ring that happens to share an id.
-  bool _isEcho(int osId) {
-    if (!_lastDrained.contains(osId)) return false;
+  bool _isEcho(Object key) {
+    if (!_lastDrained.contains(key)) return false;
     final at = _lastDrainedAt;
     if (at == null) return false;
     return clock().difference(at) < doubleDeliveryWindow;
@@ -119,9 +152,9 @@ class PendingNavigationQueue extends ChangeNotifier {
     if (_queued.isEmpty) return const [];
     final drained = List<AlertIntent>.unmodifiable(_queued);
     _queued.clear();
-    _lastDrained = Set<int>.unmodifiable(_queuedIds);
+    _lastDrained = Set<Object>.unmodifiable(_queuedKeys);
     _lastDrainedAt = clock();
-    _queuedIds.clear();
+    _queuedKeys.clear();
     return drained;
   }
 
@@ -131,7 +164,7 @@ class PendingNavigationQueue extends ChangeNotifier {
   @visibleForTesting
   void clearForTesting() {
     _queued.clear();
-    _queuedIds.clear();
+    _queuedKeys.clear();
     _lastDrained = const {};
     _lastDrainedAt = null;
     clock = DateTime.now;

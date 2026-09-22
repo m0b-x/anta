@@ -63,13 +63,17 @@ typedef AlertReconciler =
 /// every standing alarm — none may stay pointed at an asset that no longer
 /// exists. A reminder never carries a sound at all: the tier plays through a
 /// notification channel whose sound Android froze at creation.
+///
+/// [kAlertArmClockToken] closes it (OS-1): the fork arms an alarm-tier entry
+/// differently from every build before it, and the token is what makes the
+/// first pass after the upgrade re-arm the rows those builds left standing.
 String alertArmSignature({
   required String context,
   required PlannedFire fire,
 }) {
   if (fire.alert.mode != AlertMode.ring) return context;
   final sound = fire.sound.stored ?? AlertSound.systemDefaultValue;
-  return '$context#$sound';
+  return '$context#$sound$kAlertArmClockToken';
 }
 
 /// Keeps what the operating system holds in step with what the plan says it
