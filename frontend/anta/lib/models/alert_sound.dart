@@ -9,21 +9,22 @@ import 'package:equatable/equatable.dart';
 ///
 /// - **nothing chosen** — `null`, which only an alert can hold, and which means
 ///   *follow the `alert_sound` setting*. The setting itself is never null; its
-///   own "nothing chosen" is the empty string.
-/// - **the bundled ANTA sound** — the empty string. An alert may store it too,
-///   and that is the whole reason no fourth literal was invented: `sound` is a
-///   nullable column, so `null` ("follow the setting") and `''` ("the ANTA
-///   sound, whatever the setting says") are already two different values.
-/// - **the literal [systemDefaultValue]** — the phone's *current* default alarm
-///   sound. Armed by handing the plugin no path at all, so it keeps following
-///   whatever the Clock app is set to rather than freezing today's choice.
+///   own "nothing chosen" is the empty string, which reads as the phone's
+///   default.
+/// - **the phone's default alarm sound** — the literal [systemDefaultValue],
+///   and the empty string. The phone's *current* default, whatever the Clock
+///   app is set to at ring time: it is armed by handing the plugin no path at
+///   all rather than the default's URI, so it keeps following that setting
+///   instead of freezing the day's choice. The app ships no sound of its own
+///   (2026-09-22) — the phone already has alarm sounds, and bundling one only
+///   added to the install size.
 /// - **a URI** (`content://…`) the user picked out of the phone's own sounds.
 ///
 /// The value rides backups and syncs to other devices, where a URI can mean
 /// nothing at all — the media id it names belongs to one phone's provider.
 /// Decoding therefore **never throws and never yields silence**: anything this
-/// build or this device cannot read is [AlertSoundBundled], the one sound every
-/// install has.
+/// build or this device cannot read is [AlertSoundSystemDefault], the one
+/// sound every phone has.
 sealed class AlertSound extends Equatable {
   const AlertSound();
 
@@ -47,22 +48,25 @@ sealed class AlertSound extends Equatable {
   bool get needsDevice => this is AlertSoundUri;
 
   /// Reads one stored value. Total: every input maps to a sound, and an input
-  /// this build cannot make sense of maps to the bundled one.
+  /// this build cannot make sense of maps to the phone's default.
   static AlertSound decode(String? raw) {
     if (raw == null) return const AlertSoundInherit();
-    if (raw.isEmpty) return const AlertSoundBundled();
-    if (raw == systemDefaultValue) return const AlertSoundSystemDefault();
+    if (raw.isEmpty || raw == systemDefaultValue) {
+      return const AlertSoundSystemDefault();
+    }
     final uri = Uri.tryParse(raw);
-    if (uri == null || !uri.hasScheme) return const AlertSoundBundled();
-    if (uri.scheme == _reservedScheme) return const AlertSoundBundled();
+    if (uri == null || !uri.hasScheme) return const AlertSoundSystemDefault();
+    if (uri.scheme == _reservedScheme) return const AlertSoundSystemDefault();
     // A bare scheme names nothing; the platform would fail to open it anyway,
     // and failing here costs one round trip less.
-    if (raw.length <= uri.scheme.length + 1) return const AlertSoundBundled();
+    if (raw.length <= uri.scheme.length + 1) {
+      return const AlertSoundSystemDefault();
+    }
     return AlertSoundUri(raw);
   }
 
   /// The sound one alert will actually be armed with: its own choice if it made
-  /// one, else the app setting's, else the bundled sound.
+  /// one, else the app setting's, else the phone's default.
   ///
   /// Never returns [AlertSoundInherit] — "follow the setting" is a thing an
   /// alert stores, never a thing the platform can be handed.
@@ -70,7 +74,9 @@ sealed class AlertSound extends Equatable {
     final chosen = decode(alert);
     if (chosen is! AlertSoundInherit) return chosen;
     final fallback = decode(setting);
-    return fallback is AlertSoundInherit ? const AlertSoundBundled() : fallback;
+    return fallback is AlertSoundInherit
+        ? const AlertSoundSystemDefault()
+        : fallback;
   }
 
   @override
@@ -86,16 +92,8 @@ final class AlertSoundInherit extends AlertSound {
   String? get stored => null;
 }
 
-/// The sound shipped inside the app (`kDefaultAlarmAsset`), and the answer to
-/// every value this build or this device cannot resolve.
-final class AlertSoundBundled extends AlertSound {
-  const AlertSoundBundled();
-
-  @override
-  String get stored => '';
-}
-
-/// The phone's current default alarm sound, whatever it is at ring time.
+/// The phone's current default alarm sound, whatever it is at ring time — and
+/// the answer to every value this build or this device cannot resolve.
 final class AlertSoundSystemDefault extends AlertSound {
   const AlertSoundSystemDefault();
 
@@ -108,7 +106,7 @@ final class AlertSoundSystemDefault extends AlertSound {
 /// Meaningless on any other device, which is what the degrade rule in
 /// [AlertSound.decode]'s doc is about: the value still round-trips through a
 /// backup and through sync untouched, and the device that cannot open it rings
-/// the bundled sound instead of nothing.
+/// its own default alarm instead of nothing.
 final class AlertSoundUri extends AlertSound {
   final String uri;
 

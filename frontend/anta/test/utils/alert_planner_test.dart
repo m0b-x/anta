@@ -441,6 +441,125 @@ void main() {
     });
   });
 
+  group('work budget', () {
+    // Counted, not timed — the register of `calendar_occurs_on_budget_test`.
+    // Every `occursOnUtcDay` is one (event, day) probe, and the planner runs on
+    // every launch, resume and edit, so what it does with events that can no
+    // longer ring is worth pinning exactly.
+    setUp(() => CalendarEvent.debugOccursOnCalls = 0);
+
+    test('events that can no longer occur cost no occurrence check at all', () {
+      // A year of one-time sessions already held, a weekly whose end date has
+      // passed, a daily that ended — all still carrying an enabled alert, which
+      // is what every finished event looks like in a real database.
+      final events = <CalendarEvent>[
+        for (var i = 0; i < 40; i++)
+          eventOf(
+            id: 'past$i',
+            startDate: DateTime.utc(2026, 9, 14).subtract(Duration(days: i)),
+          ),
+        eventOf(
+          id: 'ended-weekly',
+          startDate: DateTime.utc(2026, 1, 5),
+          rule: const WeeklyRecurrence(weekdays: {1, 3, 5}),
+          endDate: DateTime.utc(2026, 9, 10),
+        ),
+        eventOf(
+          id: 'ended-daily',
+          startDate: DateTime.utc(2026, 1, 1),
+          rule: const DailyRecurrence(),
+          endDate: DateTime.utc(2026, 9, 1),
+        ),
+      ];
+      final plan = planOf(
+        events: events,
+        alerts: {
+          for (final event in events)
+            event.id: [alertOf('a-${event.id}', eventId: event.id)],
+        },
+        now: DateTime(2026, 9, 15, 12),
+      );
+
+      expect(plan, isEmpty);
+      expect(CalendarEvent.debugOccursOnCalls, 0);
+    });
+
+    test('a rule that names its days is asked about those days only', () {
+      // Mondays only, from Tuesday the 15th: the rule names four Mondays in
+      // the window and the planner stops after the two it needs, so two
+      // probes — not thirty.
+      final event = eventOf(
+        startDate: DateTime.utc(2026, 9, 7),
+        rule: const WeeklyRecurrence(weekdays: {1}),
+      );
+      final plan = planOf(
+        events: [event],
+        alerts: {
+          'e1': [alertOf('a1')],
+        },
+        now: DateTime(2026, 9, 15, 12),
+      );
+
+      expect(
+        plan.map((fire) => fire.day),
+        [DateTime.utc(2026, 9, 21), DateTime.utc(2026, 9, 28)],
+      );
+      expect(CalendarEvent.debugOccursOnCalls, 2);
+    });
+
+    test('named days are taken soonest first whatever order they came in', () {
+      // A rule's candidate days come back in no particular order — the agenda
+      // buckets them — but `perAlert` means the *first* two occurrences, so
+      // the planner has to sort before it counts.
+      final event = eventOf(
+        startDate: DateTime.utc(2026, 9, 1),
+        rule: SpecificDatesRecurrence(
+          dates: {
+            DateTime.utc(2026, 10, 5),
+            DateTime.utc(2026, 9, 20),
+            DateTime.utc(2026, 9, 25),
+          },
+        ),
+      );
+      final plan = planOf(
+        events: [event],
+        alerts: {
+          'e1': [alertOf('a1')],
+        },
+        now: DateTime(2026, 9, 15, 12),
+      );
+
+      expect(
+        plan.map((fire) => fire.day),
+        [DateTime.utc(2026, 9, 20), DateTime.utc(2026, 9, 25)],
+      );
+      expect(CalendarEvent.debugOccursOnCalls, 2);
+    });
+
+    test('a rule that cannot name its days is walked until the cap', () {
+      // Daily cannot prune itself, so the walk is day by day: today's fire is
+      // already behind `now`, tomorrow and the day after fill the cap, and the
+      // walk stops there rather than running to the end of the window.
+      final event = eventOf(
+        startDate: DateTime.utc(2026, 9, 1),
+        rule: const DailyRecurrence(),
+      );
+      final plan = planOf(
+        events: [event],
+        alerts: {
+          'e1': [alertOf('a1')],
+        },
+        now: DateTime(2026, 9, 15, 12),
+      );
+
+      expect(
+        plan.map((fire) => fire.day),
+        [DateTime.utc(2026, 9, 16), DateTime.utc(2026, 9, 17)],
+      );
+      expect(CalendarEvent.debugOccursOnCalls, 3);
+    });
+  });
+
   test('a disabled alert is kept but never planned', () {
     final event = eventOf(startDate: DateTime.utc(2026, 9, 20));
     final plan = planOf(

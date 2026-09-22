@@ -5132,9 +5132,6 @@ class AppLocalizationsDe extends AppLocalizations {
   String get alertSoundUseAppSetting => 'App-Einstellung verwenden';
 
   @override
-  String get alertSoundBundled => 'ANTA-Ton';
-
-  @override
   String get alertSoundPhoneDefault => 'Standard-Weckton des Telefons';
 
   @override
@@ -5145,7 +5142,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get alertSoundUnavailable =>
-      'Nicht auf diesem Telefon – es spielt der ANTA-Ton';
+      'Nicht auf diesem Telefon – es spielt der Standard-Weckton';
 
   @override
   String get alertSoundPickerUnavailable =>

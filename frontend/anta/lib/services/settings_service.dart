@@ -1572,12 +1572,12 @@ class SettingsService {
   static const String _alertDefaultNone = 'none';
 
   /// Which sound an alarm plays when its alert names none of its own —
-  /// `''` for the bundled one, `AlertSound.systemDefaultValue`, or a URI the
-  /// phone's picker returned.
+  /// `AlertSound.systemDefaultValue` for the phone's own default alarm, or a
+  /// URI the phone's picker returned.
   ///
   /// Normalised through the codec on write as well as on read, so a value this
-  /// build cannot make sense of is stored as the bundled sound rather than kept
-  /// around to decode to it on every read.
+  /// build cannot make sense of is stored as the phone's default rather than
+  /// kept around to decode to it on every read.
   Future<void> setAlertSound(String? value) async {
     await _db.userSettingsDao.setValue(
       SettingsKeys.alertSound,

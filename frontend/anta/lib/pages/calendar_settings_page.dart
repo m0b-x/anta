@@ -89,8 +89,8 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
   TimedAlertDefault? _timedAlertDefault;
   AllDayAlertDefault? _allDayAlertDefault;
 
-  /// Which sound an alarm plays when its own alert names none. `''` is the
-  /// bundled one — the setting has no "unset", unlike an alert.
+  /// Which sound an alarm plays when its own alert names none. `''` reads as
+  /// the phone's default alarm — the setting has no "unset", unlike an alert.
   String _alertSound = SettingsKeys.defaultAlertSound;
 
   /// The phone's name for [_alertSound] when it is a picked one, resolved off
@@ -829,11 +829,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
         SettingsEntry(
           title: l10n.alertsSound,
           description: l10n.alertsSoundDesc,
-          keywords: [
-            l10n.alertSoundBundled,
-            l10n.alertSoundPhoneDefault,
-            l10n.eventAlertModeRing,
-          ],
+          keywords: [l10n.alertSoundPhoneDefault, l10n.eventAlertModeRing],
           builder: (context, title, description) => ListTile(
             leading: Icon(Icons.music_note_rounded, color: colorScheme.primary),
             title: title,

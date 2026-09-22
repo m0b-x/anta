@@ -5187,9 +5187,6 @@ class AppLocalizationsRo extends AppLocalizations {
   String get alertSoundUseAppSetting => 'Folosește setarea aplicației';
 
   @override
-  String get alertSoundBundled => 'Sunet ANTA';
-
-  @override
   String get alertSoundPhoneDefault => 'Alarma implicită a telefonului';
 
   @override
@@ -5200,7 +5197,7 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get alertSoundUnavailable =>
-      'Indisponibil pe acest telefon – sună sunetul ANTA';
+      'Indisponibil pe acest telefon – sună alarma implicită a telefonului';
 
   @override
   String get alertSoundPickerUnavailable =>

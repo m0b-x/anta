@@ -99,9 +99,9 @@ EventAlert(
   offsetMinutes: int,         // >= 0, timed events: minutes before start
   daysBefore: int,            // >= 0, all-day events
   dayMinute: int?,            // all-day events: minute of day; null = settings default
-  sound: String?,             // null = follow the app setting; '' = the ANTA
-                              // sound; 'system:default'; or a content:// URI.
-                              // Alarm tier only — see §5.2.
+  sound: String?,             // null = follow the app setting; '' or
+                              // 'system:default' = the phone's default alarm;
+                              // or a content:// URI. Alarm tier only — §5.2.
   enabled: bool,              // the hub switch; disabled = kept, never registered
 )
 ```
@@ -229,7 +229,7 @@ allowed to be service-direct like `CalendarCategoriesPage`.
 | `EventAlertDao` | `lib/database/daos/event_alert_dao.dart` | All SQL. Stamps HLC/device/version like `calendar_event_dao.dart:8-11`; soft delete; `replaceForEvent(eventId, alerts)` in one transaction (tombstone missing, upsert present); `tombstoneForEvent`; `getAllActive()` one read with the `is_deleted = 0` literal. |
 | `AlertRegistrationDao` | `lib/database/daos/alert_registration_dao.dart` | Hard writes; `pending()`, `markState`, `sweep()`. |
 | `EventAlertService` + `EventAlerts` facade | `lib/services/event_alert_service.dart`, `lib/constants/event_alerts.dart` | The `EventSkipService` shape verbatim (`getInstance` / `forTesting` / `_create` / `reset` clearing the facade / `exportData` / `importData` / `clearAllForImport` / `refreshAfterEventRemoval`). The facade is `abstract final class EventAlerts` with `alertsFor(eventId)` (unmodifiable, O(1)), `hasAlarm(eventId)`, `hasReminder(eventId)`, `revision`, `updateCache`, `resetCache`; read synchronously by the row badges. Registered with `DatabaseLifecycle`, **never GetIt** (`injection.dart:79-91`). |
-| `AlertPlanner` | `lib/utils/alert_planner.dart` | Pure. `plan({events, alertsByEvent, defaults, horizon, now}) → List<PlannedFire>`. The codebase's first clock seam: `now` is a parameter, the caller reads `DateTime.now()` once. |
+| `AlertPlanner` | `lib/utils/alert_planner.dart` | Pure. Walks only the days a rule can name (`RecurrenceRule.candidateDaysIn`, 2026-09-22) and skips an event whose end date is behind today, so the past costs no `occursOnUtcDay` at all (`alert_planner_test.dart`, "work budget"). `plan({events, alertsByEvent, defaults, horizon, now}) → List<PlannedFire>`. The codebase's first clock seam: `now` is a parameter, the caller reads `DateTime.now()` once. |
 | `AlertScheduler` | `lib/services/alert_scheduler.dart` | `reconcileAll(reason)`, `reconcileEvent(id, reason)`, `stop(osId)`, `snooze(osId)`, `cancelSnooze`. Awaits `EventSkipService`, `PublicHolidayService`, `CalendarEventService`, `EventAlertService` before planning (an unconfigured facade is silent and wrong — see the calendar skill's "seven services" rule). Serialized on one chain like `CategoryService._serialize`, tail seeded `null`. Diffs against the registry, never cancels wholesale. |
 | `AlertGateway` | `lib/services/alert_gateway.dart` | Interface: `schedule(PlannedFire, payload)`, `cancel(osId)`, `pendingIds()`, `permissions()`, `requestNotifications()`, `openFullScreenIntentSettings()`, `stopRinging(osId)`, `ringing` stream, `launchIntent()`. Bindings: `AndroidAlertGateway` (Phase 1), `DarwinAlertGateway` (Phase 4), `NoOpAlertGateway` (desktop, web, tests). Registered in GetIt like `AuthService`/`NoOpAuthService` (`injection.dart:136-137`) behind `AlertAvailability.isSupported` (`sync_availability.dart` shape). |
 | `AlertPayload` | `lib/models/alert_payload.dart` | Self-describing JSON: `db, eventId, alertId, dayUtcMs, osId, mode, title, timeLabel, colorValue, iconKey, categoryId, removeAfterAlert, snooze`. The alarm page draws from it alone. |
@@ -311,7 +311,13 @@ the active database name (`DatabaseManager.getActiveDatabaseName()`).
   delivered by the OS with no callback to the app, so a gone, past-due
   reminder row is indistinguishable from a delivered one and reporting it
   would turn every un-tapped reminder into a "Missed". **Stale** (over
-  24 h): `cancelled`, quiet. Then the horizon is re-planned. A user
+  24 h): `cancelled`, quiet — **and its platform entry cancelled too
+  (2026-09-22)**: the notification plugin re-arms every reminder it held when
+  the phone boots and the OS fires a past one immediately, so a reminder for
+  a session more than a day gone can be sitting in the shade, no longer
+  *pending* and therefore invisible to the OS-truth pass; `AlertGateway.cancel`
+  is what takes it down. Under a day it is left alone, like every other
+  delivered reminder. Then the horizon is re-planned. A user
   **Force stop** cancels every pending alarm on both backends (§10.1); the
   next launch's reconcile is the only recovery, so the settings section
   says so in one line.
@@ -444,7 +450,7 @@ touched the setting flip with the build; a stored choice is kept. A corrupt
 value also decodes to `none`. With no default, "Add alert" still opens on a
 useful draft — `kDraftAlertOffsetMinutes` (10 min before) for a timed event,
 on the day at `kDefaultAlertDayMinute` for an all-day one.
-| `alert_sound` | `''` | `''` = the bundled ANTA sound, `system:default` = the phone's own default alarm, or a `content://` URI picked from the phone (**delivered 2026-09-21**) |
+| `alert_sound` | `''` | `''` and `system:default` are both the phone's own default alarm — the app ships no sound of its own since **2026-09-22** — or a `content://` URI picked from the phone (**delivered 2026-09-21**) |
 | `alert_snooze_minutes` | `10` | 5–30, step 5 |
 | `alert_silence_after_minutes` | `10` | 1–30 |
 
@@ -495,21 +501,27 @@ the Calendar-settings row opens too, in two variants: the editor's offers
 *Use the app setting* and the settings one does not, because the settings row
 *is* the app setting.
 
-Four stored values, and one pure type that knows them —
+Three stored values, and one pure type that knows them —
 `AlertSound` (`lib/models/alert_sound.dart`), table-tested:
 
 | stored | on an alert | in `alert_sound` |
 | --- | --- | --- |
 | `null` | follow the app setting | *(impossible — the setting is never null)* |
-| `''` | the bundled ANTA sound, whatever the setting says | the bundled ANTA sound |
-| `system:default` | the phone's **current** default alarm sound | same |
+| `system:default` (or `''`) | the phone's **current** default alarm sound, whatever the setting says | same — and the shipped value |
 | `content://…` | a sound picked from the phone | same |
 
-`null` and `''` are two different answers, which is the whole reason no
-fourth literal was invented: the column is nullable, so "defer" and "the ANTA
-sound" are already distinguishable. `system:default` is stored as the literal
-rather than as the default URI so the value keeps following the Clock app
-instead of freezing the sound it named on the day it was chosen.
+`null` and `system:default` are two different answers: the column is
+nullable, so "defer" and "the phone's default" are distinguishable without a
+further literal. `system:default` is stored as the literal rather than as the
+default URI so the value keeps following the Clock app instead of freezing
+the sound it named on the day it was chosen. **The app ships no sound of its
+own (2026-09-22).** Until then `''` meant a 176 KB WAV bundled under
+`assets/`, which was the shipped default; the phone already has alarm sounds
+and that asset only added to the install size, so it was dropped, `''` now
+reads as the phone's default (a legacy spelling the codec normalises to the
+literal on write), and the *ANTA sound* row left the chooser. The `alarm`
+plugin's iOS half has its own `default.m4a` for a null path, so Session 9
+needs no asset either.
 
 **Why a picked sound is copied.** The `alarm` package puts
 `assetAudioPath` into `MediaPlayer.setDataSource(String)`, which takes a
@@ -524,11 +536,12 @@ then rename, so a killed process never leaves a half file that later
 **The cross-device degrade rule.** The value syncs and rides backups, so a
 URI regularly lands on a phone whose provider never heard of that media id.
 Every such value — an unresolvable URI, a copy that failed, a literal a newer
-build wrote — decodes and arms as the **bundled** sound. Never silence, never
-an exception, and never a refusal to arm: `alarmAssetPathFor` is a pure
-function over exactly that, tested in `android_alert_gateway_test.dart`. The
-UI says the same thing: a stored URI this device cannot resolve reads "Not on
-this phone — plays the ANTA sound", never a raw URI.
+build wrote — decodes and arms as the **phone's default** alarm. Never
+silence, never an exception, and never a refusal to arm: `alarmAssetPathFor`
+is a pure function over exactly that, tested in
+`android_alert_gateway_test.dart`. The UI says the same thing: a stored URI
+this device cannot resolve reads "Not on this phone — plays the phone's
+default alarm", never a raw URI.
 
 Three Kotlin methods on the existing `com.alexzamfir.anta/alerts` channel,
 all failure-tolerant: `pickAlarmSound` (the system `ACTION_RINGTONE_PICKER`
@@ -536,9 +549,9 @@ for `TYPE_ALARM`, its own Default row mapped to the literal, Silent hidden,
 one pending `MethodChannel.Result` and a `picker_busy` error for a second
 call, `no_picker` when the device has no picker activity at all),
 `alarmSoundTitle` and `resolveAlarmSound`. `AlertGateway` gained
-`supportsSystemSounds` / `pickSystemSound` / `soundTitle`, so the phone's two
-options are simply **hidden** on the no-op binding rather than offered and
-failing.
+`supportsSoundPicker` / `pickSystemSound` / `soundTitle`, so *Choose from
+phone* is simply **hidden** on the no-op binding rather than offered and
+failing; the phone's default needs no picker and is offered everywhere.
 
 ### 5.3 Detail sheet (`event_detail_sheet.dart`)
 
@@ -629,8 +642,9 @@ permission list, `showWhenLocked` + `turnScreenOn` on `MainActivity`,
 `tools:node="remove"` on the `READ_EXTERNAL_STORAGE` that `alarm`'s own
 manifest merges in, the regenerated desktop registrants committed, and the
 A15 prerequisite for the Windows build. Resources: a monochrome `ic_alert`
-small icon under `drawable*/`, the default alarm sound under `assets/` (the
-`alarm` plugin plays assets, not `res/raw`). Channels: `alerts_reminder`
+small icon under `drawable*/`; no sound asset — the alarm tier rings the
+phone's own sounds (the bundled WAV was dropped 2026-09-22, §5.2). Channels:
+`alerts_reminder`
 (high) and, for the fallback path only, `alerts_alarm` (max, `USAGE_ALARM`);
 `alarm` creates its own `alarm_plugin_channel` at importance 4 and does not
 let Dart configure it. Names localized at creation, ids fixed forever
@@ -1099,10 +1113,12 @@ platform's half, read **once per pass** through
 `AlertGateway.refreshArmContext()` (`alarm` while following, `alarm@floor`
 while floored; the binding caches what it read so the token cannot describe a
 different ring from the one it armed); the fire's own half is its effective
-sound, appended as `#<value>` and **only when there is one to name** — a
-reminder never carries one, and the bundled sound is the absence of a choice,
-so the everyday token is the bare backend name the column has always held and
-an upgrade re-arms nothing.
+sound, appended as `#<value>` for **every alarm-tier fire** (a reminder never
+carries one). Until 2026-09-22 the app's own bundled sound was "the absence
+of a choice" and left the bare backend name; dropping that asset made the
+phone's default the everyday answer, and naming it (`#system:default`) is
+precisely what re-armed every alarm the older builds had left standing on
+the asset — once, on the first pass after the upgrade.
 
 The diff's fast path compares that token alongside the instant, so a sound
 moved in Calendar settings and a volume slider dragged across the floor both
