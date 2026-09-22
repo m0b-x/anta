@@ -31,8 +31,8 @@ class PlannedFire extends Equatable {
   /// `alert_sound` setting — so the gateway is handed a decision rather than
   /// two values and a rule, and never reads a setting of its own.
   ///
-  /// Defaults to the bundled sound: a fire nobody named a sound for is a fire
-  /// that rings the one sound every install has.
+  /// Defaults to the phone's own default alarm: a fire nobody named a sound
+  /// for is a fire that rings the one sound every phone has.
   final AlertSound sound;
 
   const PlannedFire({
@@ -41,7 +41,7 @@ class PlannedFire extends Equatable {
     required this.day,
     required this.fireAt,
     this.kind = AlertKind.scheduled,
-    this.sound = const AlertSoundBundled(),
+    this.sound = const AlertSoundSystemDefault(),
   });
 
   @override
@@ -64,11 +64,13 @@ class PlannedFire extends Equatable {
 abstract final class AlertPlanner {
   /// The bounded, merged, soonest-first plan.
   ///
-  /// Walks each alerted event day by day from `today` (date-only UTC of [now])
-  /// for at most [AlertHorizon.days] days, collecting up to
-  /// [AlertHorizon.perAlert] occurrence days per **enabled** alert whose fire
-  /// instant is still ahead of [now], then merges every candidate by instant
-  /// and truncates to [AlertHorizon.total].
+  /// Walks each alerted event from `today` (date-only UTC of [now]) over at
+  /// most [AlertHorizon.days] days — only the days its rule can name, where it
+  /// can name them ([_daysToWalk]) — collecting up to [AlertHorizon.perAlert]
+  /// occurrence days per **enabled** alert whose fire instant is still ahead
+  /// of [now], then merges every candidate by instant and truncates to
+  /// [AlertHorizon.total]. An event that can no longer occur at all — its end
+  /// date behind `today` — is not walked.
   ///
   /// Rules that read `PublicHolidays` (workdays, holidays-only) are re-walked
   /// on every call, which is what makes a holiday-profile change reach the OS
@@ -82,6 +84,7 @@ abstract final class AlertPlanner {
   }) {
     if (events.isEmpty || alertsByEvent.isEmpty) return const [];
     final today = DateTime.utc(now.year, now.month, now.day);
+    final last = today.add(Duration(days: horizon.days - 1));
     final candidates = <PlannedFire>[];
 
     for (final event in events) {
@@ -92,14 +95,14 @@ abstract final class AlertPlanner {
           if (alert.enabled) alert,
       ];
       if (enabled.isEmpty) continue;
+      final end = event.endDateUtc;
+      if (end != null && end.isBefore(today)) continue;
 
       final taken = List<int>.filled(enabled.length, 0);
       var remaining = enabled.length * horizon.perAlert;
 
-      for (var offset = 0; offset < horizon.days && remaining > 0; offset++) {
-        // UTC arithmetic: a date-only UTC day plus whole days has no DST to
-        // trip over, which is the reason occurrence days are UTC at all.
-        final day = today.add(Duration(days: offset));
+      for (final day in _daysToWalk(event, today, last, horizon.days)) {
+        if (remaining <= 0) break;
         if (!event.occursOnUtcDay(day)) continue;
         for (var i = 0; i < enabled.length; i++) {
           if (taken[i] >= horizon.perAlert) continue;
@@ -149,6 +152,38 @@ abstract final class AlertPlanner {
 
     if (candidates.length <= horizon.total) return candidates;
     return candidates.sublist(0, horizon.total);
+  }
+
+  /// The occurrence days worth asking [event] about, soonest first, between
+  /// [today] and [last] inclusive ([days] of them).
+  ///
+  /// A rule that can name its own candidate days (`candidateDaysIn`) is asked
+  /// only about those, so a one-time event that already happened, or a
+  /// monthly one, costs one look instead of thirty; a rule that cannot (daily,
+  /// most weekly) is walked day by day. The superset contract holds either
+  /// way: every day still goes through [CalendarEvent.occursOnUtcDay], which
+  /// owns the skips and the end date. UTC arithmetic throughout: a date-only
+  /// UTC day plus whole days has no DST to trip over, which is the reason
+  /// occurrence days are UTC at all.
+  static Iterable<DateTime> _daysToWalk(
+    CalendarEvent event,
+    DateTime today,
+    DateTime last,
+    int days,
+  ) {
+    final named = event.rule.candidateDaysIn(
+      today,
+      last,
+      event.startDateUtc,
+      retroactive: event.retroactive,
+    );
+    if (named == null) {
+      return Iterable<DateTime>.generate(
+        days,
+        (offset) => today.add(Duration(days: offset)),
+      );
+    }
+    return named.toList()..sort();
   }
 
   /// The instant one [alert] fires for [event]'s occurrence on [day].

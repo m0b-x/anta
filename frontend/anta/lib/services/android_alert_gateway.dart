@@ -51,10 +51,6 @@ const String kAlarmPluginChannelId = 'alarm_plugin_channel';
 /// The `res/drawable` name of the monochrome status-bar icon.
 const String kAlertSmallIcon = 'ic_alert';
 
-/// The bundled alarm sound. The `alarm` package plays Flutter assets rather
-/// than `res/raw`, which is why it is declared under `flutter: assets:`.
-const String kDefaultAlarmAsset = 'assets/alerts/default_alarm.wav';
-
 /// The error code `MainActivity` answers `pickAlarmSound` with when the device
 /// has no ringtone picker activity at all (`ActivityNotFoundException`).
 ///
@@ -63,29 +59,16 @@ const String kAlertSoundNoPickerCode = 'no_picker';
 
 /// The `assetAudioPath` one already-resolved sound is armed under.
 ///
-/// Pure, and the whole of the sound decision the platform ever sees — which is
-/// why it is a function rather than three branches inside a `try`. Three
-/// answers, and the third is the one that matters:
-///
-/// - [AlertSoundSystemDefault] arms with **null**, because that is how the
-///   `alarm` package says "play the device's default alarm sound"; storing the
-///   default's URI instead would freeze today's choice and stop following the
-///   Clock app.
-/// - [AlertSoundUri] arms with the local file the URI was copied into. A
-///   `content://` URI cannot be handed to the plugin at all — it ends up in
-///   `MediaPlayer.setDataSource(String)`, which wants a path — so the copy is
-///   not an optimisation, it is the only way this value can ring.
-/// - **Everything else, and every failed copy, arms the bundled asset.** That
-///   is the cross-device degrade rule: a sound another phone picked is a media
-///   id this phone's provider never heard of, and the answer to that is the one
-///   sound every install has, never silence.
-String? alarmAssetPathFor(AlertSound sound, {String? resolvedPath}) {
-  return switch (sound) {
-    AlertSoundSystemDefault() => null,
-    AlertSoundUri() => resolvedPath ?? kDefaultAlarmAsset,
-    _ => kDefaultAlarmAsset,
-  };
-}
+/// Pure, and the whole of the sound decision the platform ever sees. **Null is
+/// the phone's own default alarm sound** — the `alarm` package resolves it
+/// through `RingtoneManager` at ring time, so it keeps following the Clock app
+/// — and it is also the answer for every sound this device cannot play. A
+/// picked sound is armed with the local file its URI was copied into, because
+/// a `content://` URI cannot reach `MediaPlayer.setDataSource(String)`; a copy
+/// that failed (a URI from another phone, a provider that is gone) rings the
+/// phone's default rather than nothing. The app ships no sound of its own.
+String? alarmAssetPathFor(AlertSound sound, {String? resolvedPath}) =>
+    sound is AlertSoundUri ? resolvedPath : null;
 
 /// Action ids carried on a reminder notification. Matched in the background
 /// isolate, so they are plain literals on both sides of a process boundary.
@@ -311,7 +294,7 @@ class AndroidAlertGateway extends AlertGateway {
   bool get tracksPending => true;
 
   @override
-  bool get supportsSystemSounds => true;
+  bool get supportsSoundPicker => true;
 
   AppLocalizations get _l10n => alertGatewayStrings(_languageCode);
 
@@ -621,7 +604,8 @@ class AndroidAlertGateway extends AlertGateway {
   Future<bool> _scheduleAlarm(PlannedFire fire, AlertPayload payload) async {
     final l10n = _l10n;
     // Resolved before `Alarm.set` and never allowed to stop it: a sound that
-    // could not be copied is a ring with the bundled sound, not a missing ring.
+    // could not be copied is a ring with the phone's default, not a missing
+    // ring.
     final sound = fire.sound;
     final assetAudioPath = alarmAssetPathFor(
       sound,

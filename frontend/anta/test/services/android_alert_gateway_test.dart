@@ -168,7 +168,7 @@ void main() {
   group('arming', () {
     PlannedFire fireWith({
       AlertMode mode = AlertMode.ring,
-      AlertSound sound = const AlertSoundBundled(),
+      AlertSound sound = const AlertSoundSystemDefault(),
     }) {
       return PlannedFire(
         event: CalendarEvent(
@@ -208,18 +208,18 @@ void main() {
       );
     });
 
-    test('a sound this device cannot resolve rings the bundled one', () {
+    test("a sound this device cannot resolve rings the phone's default", () {
       // The cross-device degrade rule: a URI restored from another phone names
       // a media id this phone's provider never heard of. The answer is the one
-      // sound every install has — never silence, and never a refusal to arm.
+      // sound every phone has — never silence, and never a refusal to arm. The
+      // app ships no sound of its own, so there is nothing else to fall to.
       expect(
         alarmAssetPathFor(const AlertSoundUri('content://media/7')),
-        kDefaultAlarmAsset,
+        isNull,
       );
-      expect(alarmAssetPathFor(const AlertSoundBundled()), kDefaultAlarmAsset);
       // Inherit should never reach here — the planner resolves it — but if it
-      // ever did, the bundled sound is the only honest answer.
-      expect(alarmAssetPathFor(const AlertSoundInherit()), kDefaultAlarmAsset);
+      // ever did, the phone's default is the only honest answer.
+      expect(alarmAssetPathFor(const AlertSoundInherit()), isNull);
     });
 
     test('the volume bucket follows the phone except near zero', () {
@@ -236,13 +236,15 @@ void main() {
       expect(alertRingVolumeFor(1), AlertRingVolume.follow);
     });
 
-    test('the arm signature names only what changes a ring', () {
-      // The everyday case is the bare context, which is the backend name the
-      // `backend` column has always held — so an upgrade, and every phone whose
-      // volume stays clear of the floor, re-arms nothing.
+    test('the arm signature names the sound of every alarm-tier fire', () {
+      // The phone's default is named too, and that is the point (2026-09-22):
+      // the builds that shipped a sound of their own recorded the bare backend
+      // name for it, so this token differing from theirs is what re-armed
+      // every standing alarm once the asset was gone — none may stay pointed
+      // at a file the new build no longer carries.
       expect(
         alertArmSignature(context: 'alarm', fire: fireWith()),
-        'alarm',
+        'alarm#system:default',
       );
       // A reminder plays through a channel whose sound Android froze at
       // creation, so a sound can never change what one does.
@@ -261,9 +263,9 @@ void main() {
       expect(
         alertArmSignature(
           context: 'alarm',
-          fire: fireWith(sound: const AlertSoundSystemDefault()),
+          fire: fireWith(sound: const AlertSoundUri('content://media/7')),
         ),
-        isNot('alarm'),
+        'alarm#content://media/7',
       );
       expect(
         alertArmSignature(

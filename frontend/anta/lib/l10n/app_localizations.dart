@@ -8722,12 +8722,6 @@ abstract class AppLocalizations {
   /// **'Use the app setting'**
   String get alertSoundUseAppSetting;
 
-  /// Sound choice: the alarm sound shipped inside the app
-  ///
-  /// In en, this message translates to:
-  /// **'ANTA sound'**
-  String get alertSoundBundled;
-
   /// Sound choice: whatever alarm sound the phone is set to
   ///
   /// In en, this message translates to:
@@ -8749,7 +8743,7 @@ abstract class AppLocalizations {
   /// Shown for a picked sound this device cannot resolve, e.g. after a restore from another phone
   ///
   /// In en, this message translates to:
-  /// **'Not on this phone — plays the ANTA sound'**
+  /// **'Not on this phone — plays the phone\'s default alarm'**
   String get alertSoundUnavailable;
 
   /// Snackbar shown when the system ringtone picker cannot be opened at all

@@ -6386,10 +6386,6 @@
   "@alertSoundUseAppSetting": {
     "description": "Sound choice on one alert: follow the Calendar settings sound"
   },
-  "alertSoundBundled": "ANTA sound",
-  "@alertSoundBundled": {
-    "description": "Sound choice: the alarm sound shipped inside the app"
-  },
   "alertSoundPhoneDefault": "Phone's default alarm",
   "@alertSoundPhoneDefault": {
     "description": "Sound choice: whatever alarm sound the phone is set to"
@@ -6402,7 +6398,7 @@
   "@alertSoundFromPhone": {
     "description": "Neutral name for a picked phone sound before its own title is known"
   },
-  "alertSoundUnavailable": "Not on this phone — plays the ANTA sound",
+  "alertSoundUnavailable": "Not on this phone — plays the phone's default alarm",
   "@alertSoundUnavailable": {
     "description": "Shown for a picked sound this device cannot resolve, e.g. after a restore from another phone"
   },

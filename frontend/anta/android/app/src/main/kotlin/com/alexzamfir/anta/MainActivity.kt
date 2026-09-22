@@ -83,8 +83,8 @@ private const val ALARM_SOUND_DIR = "alert_sounds"
  * `filesDir` — a content URI can never reach `MediaPlayer.setDataSource(String)`,
  * so the copy is the only way such a sound rings at all. Everything here is
  * failure-tolerant by design: a sound that cannot be resolved answers null and
- * the app rings its own bundled one, because an alarm that does not sound is
- * far worse than an alarm that sounds wrong.
+ * the app rings the phone's default alarm, because an alarm that does not sound
+ * is far worse than an alarm that sounds wrong.
  */
 class MainActivity : FlutterActivity() {
     /**
@@ -306,7 +306,7 @@ class MainActivity : FlutterActivity() {
 
     /**
      * The URI a stored value names, or null when it names none — "nothing
-     * chosen" and the bundled sound are both the app's own business.
+     * chosen" is the app's own business.
      */
     private fun storedUri(value: String?): Uri? {
         if (value.isNullOrEmpty()) return null
@@ -324,7 +324,8 @@ class MainActivity : FlutterActivity() {
      * Off the main thread because it reads a stream through a content provider,
      * and back on it because a `MethodChannel.Result` may only be answered
      * there. Null on every failure, including a URI this device cannot open —
-     * the sound of another phone, which the app then rings its own instead of.
+     * the sound of another phone, which the app then rings the default alarm
+     * instead of.
      */
     private fun resolveAlarmSound(value: String?, result: MethodChannel.Result) {
         val uri = storedUri(value)

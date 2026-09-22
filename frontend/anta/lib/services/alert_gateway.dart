@@ -99,14 +99,13 @@ abstract class AlertGateway {
   /// ring would find an entry nobody planned and silence it.
   Set<int> get ringingIds => const {};
 
-  /// Whether this platform can offer the phone's **own** alarm sounds — its
-  /// current default, and a picker over the ones it has.
+  /// Whether this platform has a picker over the phone's **own** alarm sounds.
   ///
-  /// False everywhere but Android today, and it is what hides those two
-  /// choices rather than offering a button that cannot do anything. A stored
-  /// value that names one of them is still honoured as far as it can be: it
-  /// simply degrades to the bundled sound here.
-  bool get supportsSystemSounds => false;
+  /// False everywhere but Android today, which hides "Choose from phone"
+  /// rather than offering a button that cannot do anything. The phone's
+  /// default alarm needs no picker and is offered everywhere; a stored URI is
+  /// still honoured as far as it can be, and degrades to that default here.
+  bool get supportsSoundPicker => false;
 
   /// Opens the platform's own sound picker, seeded with [current], and answers
   /// what came back — `null` when the user cancelled.

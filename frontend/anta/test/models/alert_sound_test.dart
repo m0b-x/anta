@@ -8,17 +8,17 @@ import 'package:anta/models/alert_sound.dart';
 /// Two properties carry the whole design and are what these tests are for.
 /// **Total**: there is no input that throws and none that produces silence, so
 /// a URI written by another phone — which is every picked sound after a
-/// restore — degrades to the one sound that is always there. And **the null /
-/// empty distinction is real**: `null` is an alert deferring to the app
-/// setting, `''` is an alert insisting on the bundled sound, and collapsing the
-/// two would make "ANTA sound" unrepresentable on an alert whose setting says
+/// restore — degrades to the phone's own default alarm, the one sound that is
+/// always there. And **the null / non-null distinction is real**: `null` is an
+/// alert deferring to the app setting, while `''` and `system:default` are an
+/// alert insisting on the phone's default, and collapsing them would make
+/// "the phone's default" unrepresentable on an alert whose setting says
 /// something else.
 void main() {
   group('decode', () {
-    test('the four values it is allowed to store round-trip', () {
+    test('the values it is allowed to store round-trip', () {
       const cases = <String?, Type>{
         null: AlertSoundInherit,
-        '': AlertSoundBundled,
         'system:default': AlertSoundSystemDefault,
         'content://media/external/audio/media/42': AlertSoundUri,
         'content://settings/system/alarm_alert': AlertSoundUri,
@@ -40,7 +40,17 @@ void main() {
       }
     });
 
-    test('everything unreadable is the bundled sound, never an exception', () {
+    test('the empty string is the phone default, spelled the long way back', () {
+      // `''` is what the setting ships with and what older builds wrote for
+      // the sound the app used to bundle. Both read as the phone's default,
+      // and writing that back normalises it to the literal.
+      final decoded = AlertSound.decode('');
+
+      expect(decoded, isA<AlertSoundSystemDefault>());
+      expect(decoded.stored, AlertSound.systemDefaultValue);
+    });
+
+    test('everything unreadable is the phone default, never an exception', () {
       const garbage = <String>[
         'nonsense',
         ' ',
@@ -58,8 +68,8 @@ void main() {
       for (final raw in garbage) {
         expect(
           AlertSound.decode(raw),
-          isA<AlertSoundBundled>(),
-          reason: '"$raw" should degrade to the app default',
+          isA<AlertSoundSystemDefault>(),
+          reason: '"$raw" should degrade to the phone default',
         );
       }
     });
@@ -82,24 +92,20 @@ void main() {
   });
 
   group('resolve', () {
-    test('the alert wins, then the setting, then the bundled sound', () {
+    test('the alert wins, then the setting, then the phone default', () {
       // The alert chose: the setting is not consulted at all.
       expect(
         AlertSound.resolve(alert: 'system:default', setting: 'content://a/1'),
         isA<AlertSoundSystemDefault>(),
       );
       expect(
-        AlertSound.resolve(alert: '', setting: 'system:default'),
-        isA<AlertSoundBundled>(),
+        AlertSound.resolve(alert: '', setting: 'content://a/1'),
+        isA<AlertSoundSystemDefault>(),
         reason:
-            '"" on an alert is "the ANTA sound whatever the setting says" — '
-            'the whole reason the column is nullable',
+            '"" on an alert is "the phone default whatever the setting says" '
+            '— the whole reason the column is nullable',
       );
       // The alert deferred: the setting answers.
-      expect(
-        AlertSound.resolve(alert: null, setting: 'system:default'),
-        isA<AlertSoundSystemDefault>(),
-      );
       expect(
         AlertSound.resolve(alert: null, setting: 'content://media/9'),
         const AlertSoundUri('content://media/9'),
@@ -107,7 +113,7 @@ void main() {
       // Neither said anything.
       expect(
         AlertSound.resolve(alert: null, setting: ''),
-        isA<AlertSoundBundled>(),
+        isA<AlertSoundSystemDefault>(),
       );
     });
 
@@ -122,7 +128,7 @@ void main() {
       }
       expect(
         AlertSound.resolve(alert: 'garbage', setting: 'garbage'),
-        isA<AlertSoundBundled>(),
+        isA<AlertSoundSystemDefault>(),
       );
     });
   });

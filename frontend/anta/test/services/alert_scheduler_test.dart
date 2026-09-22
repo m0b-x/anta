@@ -55,7 +55,7 @@ class FakeAlertGateway implements AlertGateway {
   }
 
   @override
-  bool get supportsSystemSounds => false;
+  bool get supportsSoundPicker => false;
 
   @override
   Future<PickedAlertSound?> pickSystemSound(String? current) async => null;
@@ -262,7 +262,9 @@ void main() {
       expect(rows.single.alertId, 'a1');
       expect(rows.single.state, AlertRegistrationState.pending.name);
       expect(rows.single.kind, AlertKind.scheduled.name);
-      expect(rows.single.backend, 'fake');
+      // The sound is named for every alarm-tier fire, the phone's default
+      // included — see `alertArmSignature`.
+      expect(rows.single.backend, 'fake#system:default');
       expect(
         rows.single.day,
         DateTime.utc(2026, 9, 20).millisecondsSinceEpoch,
@@ -315,7 +317,7 @@ void main() {
       expect(gateway.scheduled, hasLength(1));
       final row = (await registrations()).single;
       expect(row.osId, before, reason: 're-armed in place, not re-issued');
-      expect(row.backend, 'fake@floor');
+      expect(row.backend, 'fake@floor#system:default');
 
       // And settles again: the third pass has nothing left to do.
       gateway.resetCalls();
@@ -333,12 +335,18 @@ void main() {
       // fast path is all that stands between the user's choice and an alarm
       // that still rings the old sound.
       await (await SettingsService.getInstance())
-          .setAlertSound('system:default');
+          .setAlertSound('content://media/7');
       await scheduler.reconcileAll(AlertReconcileReason.eventChanged);
 
       expect(gateway.scheduled, hasLength(1));
-      expect(gateway.scheduled.single.sound, isA<AlertSoundSystemDefault>());
-      expect((await registrations()).single.backend, 'fake#system:default');
+      expect(
+        gateway.scheduled.single.sound,
+        const AlertSoundUri('content://media/7'),
+      );
+      expect(
+        (await registrations()).single.backend,
+        'fake#content://media/7',
+      );
     });
 
     test('a reminder is not re-armed by a sound it cannot play', () async {
@@ -661,6 +669,50 @@ void main() {
         expect(gateway.missed, isEmpty);
       });
     }
+
+    test('a reminder delivered more than a day ago is cleared from the shade',
+        () async {
+      // The notification plugin re-arms every reminder it held when the phone
+      // boots and the OS fires a past one on the spot, so this row's
+      // notification is up — and delivered, so no longer *pending*: the
+      // OS-truth pass cannot see it, and only the settle can take it down.
+      await seed(eventAlerts: [alertOf(mode: AlertMode.notify)]);
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final armed = (await registrations()).single;
+      gateway.platform.remove(armed.osId);
+      gateway.resetCalls();
+
+      now = DateTime(2026, 9, 20, 0, fireAt).add(const Duration(hours: 25));
+      await scheduler.reconcileAll(AlertReconcileReason.resumed);
+
+      expect(gateway.cancelled, [armed.osId]);
+      expect(
+        (await rowOf(armed.osId)).state,
+        AlertRegistrationState.cancelled.name,
+      );
+    });
+
+    test('a reminder delivered this morning stays in the shade', () async {
+      // Under a day late it may still be wanted — the session it announced can
+      // be under way — and a reminder is never reported, so nothing touches
+      // it.
+      await seed(eventAlerts: [alertOf(mode: AlertMode.notify)]);
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final armed = (await registrations()).single;
+      gateway.platform.remove(armed.osId);
+      gateway.resetCalls();
+
+      now = DateTime(2026, 9, 20, 0, fireAt).add(const Duration(minutes: 31));
+      await scheduler.reconcileAll(AlertReconcileReason.resumed);
+
+      expect(gateway.cancelled, isEmpty);
+      expect(
+        (await rowOf(armed.osId)).state,
+        AlertRegistrationState.cancelled.name,
+      );
+    });
 
     test('a process alive at the fire instant proves the alarm rang',
         () async {

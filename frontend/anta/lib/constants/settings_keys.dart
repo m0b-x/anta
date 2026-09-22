@@ -529,10 +529,11 @@ class SettingsKeys {
   /// Which sound an alarm plays when its own alert names none.
   ///
   /// Read only through `AlertSound` (`lib/models/alert_sound.dart`), which is
-  /// the one place the four spellings live: `''` is the bundled ANTA sound,
-  /// `system:default` is the phone's *current* default alarm, and anything else
-  /// is a `content://` URI picked out of the phone. A value this build or this
-  /// device cannot resolve decodes to the bundled sound — never to silence.
+  /// the one place the spellings live: `''` and `system:default` are both the
+  /// phone's *current* default alarm (the app ships no sound of its own), and
+  /// anything else is a `content://` URI picked out of the phone. A value this
+  /// build or this device cannot resolve decodes to the phone's default —
+  /// never to silence.
   static const String alertSound = 'alert_sound';
   static const String defaultAlertSound = '';
 

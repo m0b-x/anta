@@ -41,10 +41,10 @@ class AlertSoundPickerMissing extends AlertSoundResult {
 /// stored value.
 ///
 /// Radio-style, and everything it offers is a value [AlertSound] can encode.
-/// The phone's own two options are hidden outright where the platform cannot
-/// serve them ([AlertGateway.supportsSystemSounds]) rather than offered and
-/// then failing; a value that *names* one is still shown as chosen, because it
-/// is what the row says even on a device that cannot resolve it.
+/// The phone's picker is hidden outright where the platform has none
+/// ([AlertGateway.supportsSoundPicker]) rather than offered and then failing;
+/// a value that *names* a picked sound is still shown as chosen, because it is
+/// what the row says even on a device that cannot resolve it.
 ///
 /// **No preview player.** The system picker previews every sound it offers
 /// while the user scrolls it, so a second one here would be a second audio
@@ -91,7 +91,6 @@ class AlertSoundSheet extends StatefulWidget {
   }) {
     return switch (AlertSound.decode(value)) {
       AlertSoundInherit() => l10n.alertSoundUseAppSetting,
-      AlertSoundBundled() => l10n.alertSoundBundled,
       AlertSoundSystemDefault() => title ?? l10n.alertSoundPhoneDefault,
       AlertSoundUri() =>
         title ??
@@ -129,7 +128,7 @@ class _AlertSoundSheetState extends State<AlertSoundSheet> {
   AlertGateway? get _gateway =>
       GetIt.I.isRegistered<AlertGateway>() ? GetIt.I<AlertGateway>() : null;
 
-  bool get _supportsSystemSounds => _gateway?.supportsSystemSounds ?? false;
+  bool get _supportsSoundPicker => _gateway?.supportsSoundPicker ?? false;
 
   /// Asks the phone what it calls the stored sound, once, without blocking the
   /// first frame. Best-effort: a build with no gateway simply never answers,
@@ -206,18 +205,12 @@ class _AlertSoundSheetState extends State<AlertSoundSheet> {
               onTap: () => _choose(null),
             ),
           _SoundOptionTile(
-            icon: Icons.album_outlined,
-            label: l10n.alertSoundBundled,
-            selected: current is AlertSoundBundled,
-            onTap: () => _choose(''),
+            icon: Icons.phone_android_rounded,
+            label: l10n.alertSoundPhoneDefault,
+            selected: current is AlertSoundSystemDefault,
+            onTap: () => _choose(AlertSound.systemDefaultValue),
           ),
-          if (_supportsSystemSounds) ...[
-            _SoundOptionTile(
-              icon: Icons.phone_android_rounded,
-              label: l10n.alertSoundPhoneDefault,
-              selected: current is AlertSoundSystemDefault,
-              onTap: () => _choose(AlertSound.systemDefaultValue),
-            ),
+          if (_supportsSoundPicker)
             _SoundOptionTile(
               icon: Icons.library_music_outlined,
               label: l10n.alertSoundChooseFromPhone,
@@ -235,7 +228,6 @@ class _AlertSoundSheetState extends State<AlertSoundSheet> {
               selected: current is AlertSoundUri,
               onTap: _picking ? null : _pickFromPhone,
             ),
-          ],
         ],
       ),
     );

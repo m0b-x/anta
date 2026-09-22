@@ -56,19 +56,19 @@ void main() {
     return result;
   }
 
-  testWidgets('the phone options are hidden where nothing can serve them', (
+  testWidgets('the picker is hidden where nothing can serve it', (
     tester,
   ) async {
     // No gateway at all — desktop, and every widget suite. Offering a button
-    // that opens nothing is worse than not offering it.
+    // that opens nothing is worse than not offering it; the phone's default
+    // needs no picker and is always there.
     await openSheet(tester);
 
-    expect(find.text('ANTA sound'), findsOneWidget);
-    expect(find.text("Phone's default alarm"), findsNothing);
+    expect(find.text("Phone's default alarm"), findsOneWidget);
     expect(find.text('Choose from phone'), findsNothing);
   });
 
-  testWidgets('a gateway that supports them shows both', (tester) async {
+  testWidgets('a gateway with a picker offers it', (tester) async {
     GetIt.I.registerSingleton<AlertGateway>(const _PhoneSoundGateway());
     await openSheet(tester);
 
@@ -94,17 +94,18 @@ void main() {
     expect(find.text('Use the app setting'), findsOneWidget);
   });
 
-  testWidgets('picking the ANTA sound reports the empty string', (
+  testWidgets("picking the phone's default reports the literal", (
     tester,
   ) async {
-    // `''`, not null: on an alert that is "the ANTA sound whatever the setting
-    // says", which is a different answer from deferring to it.
+    // `system:default`, not null: on an alert that is "the phone's default
+    // whatever the setting says", which is a different answer from deferring
+    // to it.
     final result = await openSheet(tester, allowInherit: true);
-    await tester.tap(find.text('ANTA sound'));
+    await tester.tap(find.text("Phone's default alarm"));
     await tester.pumpAndSettle();
 
     expect(result.value, isA<AlertSoundPicked>());
-    expect((result.value! as AlertSoundPicked).value, '');
+    expect((result.value! as AlertSoundPicked).value, 'system:default');
   });
 
   testWidgets('picking "Use the app setting" reports null', (tester) async {
@@ -128,7 +129,10 @@ void main() {
     GetIt.I.registerSingleton<AlertGateway>(const _PhoneSoundGateway());
     await openSheet(tester, value: 'content://media/does-not-exist');
 
-    expect(find.text('Not on this phone — plays the ANTA sound'), findsOneWidget);
+    expect(
+      find.text("Not on this phone — plays the phone's default alarm"),
+      findsOneWidget,
+    );
     expect(find.textContaining('content://'), findsNothing);
   });
 
@@ -187,7 +191,7 @@ void main() {
     );
 
     expect(AlertSoundSheet.labelFor(l10n, null), 'Use the app setting');
-    expect(AlertSoundSheet.labelFor(l10n, ''), 'ANTA sound');
+    expect(AlertSoundSheet.labelFor(l10n, ''), "Phone's default alarm");
     expect(
       AlertSoundSheet.labelFor(l10n, 'system:default'),
       "Phone's default alarm",
@@ -199,7 +203,7 @@ void main() {
     );
     expect(
       AlertSoundSheet.labelFor(l10n, 'content://media/7', titleResolved: true),
-      'Not on this phone — plays the ANTA sound',
+      "Not on this phone — plays the phone's default alarm",
     );
     expect(
       AlertSoundSheet.labelFor(
@@ -210,8 +214,8 @@ void main() {
       ),
       'Oxygen',
     );
-    // Garbage is the bundled sound everywhere, including in the label.
-    expect(AlertSoundSheet.labelFor(l10n, 'nonsense'), 'ANTA sound');
+    // Garbage is the phone's default everywhere, including in the label.
+    expect(AlertSoundSheet.labelFor(l10n, 'nonsense'), "Phone's default alarm");
   });
 }
 
@@ -228,7 +232,7 @@ class _PhoneSoundGateway extends NoOpAlertGateway {
   const _PhoneSoundGateway({this.title});
 
   @override
-  bool get supportsSystemSounds => true;
+  bool get supportsSoundPicker => true;
 
   @override
   Future<String?> soundTitle(String value) async => title;

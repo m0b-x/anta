@@ -56,18 +56,19 @@ typedef AlertReconciler =
 ///
 /// [context] is the platform's half, read once per pass through
 /// [AlertGateway.refreshArmContext]; the sound is the fire's own half, and it
-/// is appended **only when there is one to name** — the bundled sound is the
-/// absence of a choice, so the common case keeps the bare backend name the
-/// column has always held and an upgrade re-arms nothing. A reminder never
-/// carries a sound at all: the tier plays through a notification channel whose
-/// sound Android froze at creation.
+/// is appended for **every** alarm-tier fire, the phone's default included.
+/// Naming the default is deliberate (2026-09-22): the builds that still shipped
+/// a sound of their own recorded the bare backend name for it, so this token
+/// differing from theirs is what made the first pass after the upgrade re-arm
+/// every standing alarm — none may stay pointed at an asset that no longer
+/// exists. A reminder never carries a sound at all: the tier plays through a
+/// notification channel whose sound Android froze at creation.
 String alertArmSignature({
   required String context,
   required PlannedFire fire,
 }) {
   if (fire.alert.mode != AlertMode.ring) return context;
-  final sound = fire.sound.stored;
-  if (sound == null || sound.isEmpty) return context;
+  final sound = fire.sound.stored ?? AlertSound.systemDefaultValue;
   return '$context#$sound';
 }
 
@@ -920,7 +921,12 @@ class AlertScheduler {
   ///   the ring tier. A reminder that was simply not tapped is not a missed
   ///   appointment, and reporting every one of them would turn each launch
   ///   into a pile of notifications; an alert that no longer exists has nothing
-  ///   to say either.
+  ///   to say either. Past [kMissedAlertWindow] the platform entry is cancelled
+  ///   as well: the notification plugin re-arms every reminder it held when
+  ///   the phone boots and the OS fires a past one on the spot, so a reminder
+  ///   for a session more than a day gone can be sitting in the shade — and a
+  ///   delivered notification is no longer *pending*, so the OS-truth pass
+  ///   below would never reach it.
   ///
   /// **One piece of delivery evidence overrides the third band.** A row past
   /// the grace window in a process that was *already running at the fire
@@ -979,7 +985,10 @@ class AlertScheduler {
         continue;
       }
       await _dao.markState(row.osId, AlertRegistrationState.cancelled.name);
-      if (lateness >= kMissedAlertWindow) continue;
+      if (lateness >= kMissedAlertWindow) {
+        await _gateway.cancel(row.osId);
+        continue;
+      }
       final event = eventsById[row.eventId];
       if (event == null) continue;
       final alert = _alertOf(row.eventId, row.alertId);

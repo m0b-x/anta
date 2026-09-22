@@ -1631,24 +1631,28 @@ chose a time. `EventAlert.describe(l10n, event)` is **the** formatter for
 sheet's chips, the detail row, the badge tooltip and the notification body all
 read it, and a second switch anywhere would be a second answer.
 
-**Which sound an alarm plays (2026-09-21).** `EventAlert.sound` and the
-`alert_sound` setting hold one of four things, and `AlertSound`
-(`lib/models/alert_sound.dart`) is the **one** place that knows how to read
-them: `null` on an alert = follow the setting; `''` = the bundled ANTA sound
-(on an alert, *regardless* of the setting — the column is nullable, so "defer"
-and "the ANTA sound" are two answers and no fourth literal was needed);
-`system:default` = the phone's **current** default alarm sound, stored as the
-literal rather than as the default URI so it keeps following the Clock app;
-and a `content://` URI picked out of the phone. The `AlertSoundSheet` chooser
-is shared by the Sound row in `AlertEditorSheet` (alarm tier only — the
-reminder tier's channel sound was frozen by Android at creation) and by the
-Alarm sound row in Calendar settings, and it hides the phone's two options
-where `AlertGateway.supportsSystemSounds` is false. A picked sound is copied
-natively into `filesDir/alert_sounds/<sha-1 of the URI>` because a
-`content://` URI can never reach `MediaPlayer.setDataSource(String)`; a value
-this device cannot resolve — every URI after a restore from another phone —
-**degrades to the bundled sound**, never to silence and never to an
-exception, and the row says so rather than showing a URI. **Ring volume**
+**Which sound an alarm plays (2026-09-21, reworked 2026-09-22).**
+`EventAlert.sound` and the `alert_sound` setting hold one of three things, and
+`AlertSound` (`lib/models/alert_sound.dart`) is the **one** place that knows
+how to read them: `null` on an alert = follow the setting; `system:default`
+(and `''`, the setting's shipped "nothing chosen") = the phone's **current**
+default alarm sound, stored as the literal rather than as the default URI so it
+keeps following the Clock app — on an alert *regardless* of the setting, the
+column being nullable; and a `content://` URI picked out of the phone. **The
+app ships no sound of its own**: the bundled WAV was dropped on 2026-09-22
+(it only added to the install size, and the phone already has alarm sounds),
+so the phone's default is both the shipped setting and where decoding lands
+for anything a build or a device cannot read — every URI after a restore from
+another phone — never silence and never an exception, and the row says so
+rather than showing a URI. The `AlertSoundSheet` chooser is shared by the
+Sound row in `AlertEditorSheet` (alarm tier only — the reminder tier's channel
+sound was frozen by Android at creation) and by the Alarm sound row in
+Calendar settings; it always offers the phone's default and hides *Choose
+from phone* where `AlertGateway.supportsSoundPicker` is false. A picked sound
+is copied natively into `filesDir/alert_sounds/<sha-1 of the URI>` because
+the `alarm` plugin hands `assetAudioPath` to
+`MediaPlayer.setDataSource(String)`, which a `content://` URI can never
+reach. **Ring volume**
 follows the phone's own alarm slider (the ring is armed with no volume at
 all, which is how `alarm` says "leave the stream alone"); only a slider below
 `kAlertRingFloorVolume` is overridden. Both the sound and that volume bucket
@@ -1759,7 +1763,11 @@ notification's Stop, the Silence-after timeout — arrives on
 re-arm, a Missed notice for an unanswered one) and the alarm page closes
 itself. A past-due row in a process that was already alive at the fire instant
 (`AlertGateway.processStartedAt`) is marked `fired`, never reported Missed: it
-rang natively with no Dart up. An all-day alert with no `dayMinute` reads
+rang natively with no Dart up. A reminder row more than a day past its instant
+also has its platform entry cancelled (2026-09-22): the notification plugin
+re-fires at boot whatever came due while the phone was off, and a delivered
+notification is not *pending*, so nothing else would clear it from the shade.
+An all-day alert with no `dayMinute` reads
 `EventAlerts.defaultDayMinute` everywhere it is shown or exported — the number
 the planner is handed — and `.ics` all-day alarms are **relative** triggers
 (`PT9H`, `-PT4H`) so they follow every occurrence. `EventAlertDao.
@@ -1767,7 +1775,11 @@ replaceForEvent` writes nothing for a kept alert whose content is unchanged.
 
 **What never rings**, and the device-local registry that backs it, are in the
 roadmap's §2.6 and §2.3 — both are summarised in `COPILOT_CONTEXT.md`'s
-Calendar v40 bullet.
+Calendar v40 bullet. The past also costs nothing to plan (2026-09-22): the
+planner walks only the days a rule can name (`RecurrenceRule.candidateDaysIn`,
+the agenda's own pruning) and skips an event whose end date is behind today,
+so a database full of finished sessions with alerts on them adds no
+`occursOnUtcDay` work to a reconcile.
 
 ---
 
