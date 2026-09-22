@@ -45,7 +45,9 @@ session chip and AlarmKit for Session 9. Nothing there reopens A1–A15.
 phone's next alarm, a show intent opening the Alerts hub), the `content://`
 copy of §5.2 is gone, and the fallback channel is `alerts_alarm_v2` with a
 real alarm sound; the §11 deep-Doze row is closed on the emulator and the
-overnight phone check moved to that roadmap's §9.
+overnight phone check moved to that roadmap's §9. **OS-2 DONE 2026-09-22**:
+native snooze on the plugin's own notification, the move written into the
+registry by the next reconcile, a snooze seen with Dart up told from a Stop.
 
 ## 0. What an alert is, and is not
 
@@ -300,7 +302,12 @@ the active database name (`DatabaseManager.getActiveDatabaseName()`).
   (`com.gdelataillade.alarm.action.SHOW`) that `MainActivity` turns into an
   `OpenAlertsHubIntent` — the Alerts hub, cold or warm. The inexact fallback
   for a revoked exact-alarm permission is upstream's, unchanged. The
-  Reminder tier never touches this plugin.
+  Reminder tier never touches this plugin. **OS-2 (2026-09-22):** the entry
+  also carries `androidSnoozeDuration` and a Snooze button, so the plugin's
+  own notification defers a ring with no Dart running; the move reaches the
+  registry through `Alarm.events` → `AlertGateway.takeMoves()` at the top of
+  the next reconcile (`kind = snooze`, same os id), acknowledged after the
+  write — see `calendar-events-feature.md` §12 "Native snooze".
 - **Fallback alarm (notification plugin):** `alarmClock` mode,
   `fullScreenIntent: true`, `category: alarm`, `audioAttributesUsage:
   alarm`, `additionalFlags: Int32List.fromList([4])`, `ongoing: true`,

@@ -64,3 +64,8 @@ app.*.map.json
 *.keystore
 **/*service-account*.json
 **/*serviceAccount*.json
+
+# The alarm fork's own test run (cd packages/alarm && flutter test) writes these; the package never shipped them.
+packages/alarm/build/
+packages/alarm/pubspec.lock
+packages/alarm/example/pubspec.lock

@@ -203,6 +203,39 @@ void main() {
     });
   });
 
+  group('ANTA fork: what a ringing listener can read', () {
+    test('when a snooze empties the ringing set, scheduled already holds it',
+        () async {
+      // The application tells a native Snooze from a Stop by reading
+      // `Alarm.scheduled.value` at the moment its `ringing` listener sees the
+      // alarm leave the set. `_applyMove` republishes `ringing` before
+      // `scheduled` in source order, so this holds only because both
+      // subjects deliver asynchronously and set their value at `add`. A sync
+      // subject, or a reordered `_applyMove`, turns every native Snooze into
+      // a dismissal on the application's side.
+      final ringingAt = DateTime.now().subtract(const Duration(minutes: 1));
+      final nextRingAt = DateTime.now().add(const Duration(minutes: 9));
+      final alarm = buildAlarm(42, ringingAt);
+      await AlarmStorage.saveAlarm(alarm);
+      Alarm.alarmRang(alarm);
+      await pump();
+      expect(Alarm.ringing.value.containsId(42), isTrue);
+
+      final scheduledWhenRingingEmptied = <bool>[];
+      final sub = Alarm.ringing.listen((set) {
+        if (!set.containsId(42)) {
+          scheduledWhenRingingEmptied.add(Alarm.scheduled.value.containsId(42));
+        }
+      });
+      addTearDown(sub.cancel);
+
+      await hostReportsSnooze(42, nextRingAt);
+      await pump();
+
+      expect(scheduledWhenRingingEmptied, [true]);
+    });
+  });
+
   group('the documented replacement for Alarm.snoozed', () {
     // README and the example app now tell applications to filter Alarm.events
     // themselves rather than use the deprecated view. If the two ever stopped

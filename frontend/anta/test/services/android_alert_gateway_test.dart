@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/alert_constants.dart';
+import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/models/alert_payload.dart';
 import 'package:anta/models/alert_sound.dart';
 import 'package:anta/models/calendar_event.dart';
@@ -243,12 +244,54 @@ void main() {
       // token must not move: nothing about how one is armed changed.
       expect(kAlertArmClockToken, '~clock');
       expect(
-        alertArmSignature(context: 'alarm', fire: fireWith()),
-        endsWith(kAlertArmClockToken),
+        alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10),
+        contains(kAlertArmClockToken),
       );
       expect(
-        alertArmSignature(context: 'alarm', fire: fireWith(mode: AlertMode.notify)),
+        alertArmSignature(context: 'alarm', fire: fireWith(mode: AlertMode.notify), snoozeMinutes: 10),
         'alarm',
+      );
+    });
+
+    test('the snooze length stays under the in-flight grace', () {
+      // OS-2 review: a native snooze taken with no Dart running moves the
+      // plugin's entry while the registry row keeps the original instant,
+      // and the snoozed ring is what launches the app — so at that launch
+      // the row is exactly the snooze length late. Under `kLateFireGrace` it
+      // is in flight and the ring handler settles it; at the grace it would
+      // be reported missed and cancelled as a stray while it rings.
+      expect(
+        SettingsKeys.maxAlertSnoozeMinutes,
+        lessThan(kLateFireGrace.inMinutes),
+      );
+    });
+
+    test('the arm signature carries the snooze length for the alarm tier', () {
+      // OS-2: the plugin's own notification offers a Snooze of exactly this
+      // length, armed into the entry, so a changed setting has to reach every
+      // standing alarm the way a changed sound does — and a reminder, which
+      // snoozes from the payload alone, must not be re-armed for it.
+      expect(
+        alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10),
+        'alarm#system:default~clock~10',
+      );
+      expect(
+        alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 5),
+        isNot(
+          alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10),
+        ),
+      );
+      expect(
+        alertArmSignature(
+          context: 'alarm',
+          fire: fireWith(mode: AlertMode.notify),
+          snoozeMinutes: 5,
+        ),
+        alertArmSignature(
+          context: 'alarm',
+          fire: fireWith(mode: AlertMode.notify),
+          snoozeMinutes: 10,
+        ),
       );
     });
 
@@ -259,8 +302,8 @@ void main() {
       // every standing alarm once the asset was gone — none may stay pointed
       // at a file the new build no longer carries.
       expect(
-        alertArmSignature(context: 'alarm', fire: fireWith()),
-        'alarm#system:default~clock',
+        alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10),
+        'alarm#system:default~clock~10',
       );
       // A reminder plays through a channel whose sound Android froze at
       // creation, so a sound can never change what one does.
@@ -271,6 +314,7 @@ void main() {
             mode: AlertMode.notify,
             sound: const AlertSoundUri('content://media/7'),
           ),
+          snoozeMinutes: 10,
         ),
         'alarm',
       );
@@ -280,15 +324,17 @@ void main() {
         alertArmSignature(
           context: 'alarm',
           fire: fireWith(sound: const AlertSoundUri('content://media/7')),
+          snoozeMinutes: 10,
         ),
-        'alarm#content://media/7~clock',
+        'alarm#content://media/7~clock~10',
       );
       expect(
         alertArmSignature(
           context: 'alarm@floor',
           fire: fireWith(),
+          snoozeMinutes: 10,
         ),
-        isNot(alertArmSignature(context: 'alarm', fire: fireWith())),
+        isNot(alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10)),
       );
       // Stable: equal inputs, equal token, or the diff cancels and re-arms the
       // same set on every pass.
@@ -296,10 +342,12 @@ void main() {
         alertArmSignature(
           context: 'alarm',
           fire: fireWith(sound: const AlertSoundUri('content://media/7')),
+          snoozeMinutes: 10,
         ),
         alertArmSignature(
           context: 'alarm',
           fire: fireWith(sound: const AlertSoundUri('content://media/7')),
+          snoozeMinutes: 10,
         ),
       );
     });

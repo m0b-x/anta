@@ -326,6 +326,17 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   /// An unanswered ring that timed out is settled too, but it acknowledged
   /// nothing, so it removes nothing.
   Future<void> _settleEndedRing(AlertRingEnd end) async {
+    // A native Snooze settles nothing: the plugin re-armed the alarm and
+    // recorded the move, and the reconcile is what writes it into the
+    // registry — provoked here so the hub shows the snooze now rather than
+    // at the next launch.
+    if (end.cause == AlertRingEndCause.snoozed) {
+      await AlertScheduler.reconcileEventById(
+        end.payload.eventId,
+        AlertReconcileReason.ringHandled,
+      );
+      return;
+    }
     final answered = end.cause == AlertRingEndCause.dismissed;
     await AlertScheduler.settleEndedRingByPayload(
       end.payload,
@@ -394,6 +405,12 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             ),
           );
         case OpenAlarmIntent():
+          // A ring that ended before there was a frame to drain into — snoozed
+          // or stopped from the plugin's notification while the app sat in
+          // the background — has no page to show: one pushed now would offer
+          // Stop for a ring that is over, and that Stop would cancel the
+          // snooze the user just asked for (OS-2).
+          if (!_isRinging(intent.osId)) continue;
           // Instant, and deliberately unstamped: a restored last location must
           // never reopen a ring that is long over.
           unawaited(
@@ -404,6 +421,17 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         case OpenAlertsHubIntent():
           unawaited(AppNavigator.toAlertsFromPlatform());
       }
+    }
+  }
+
+  /// Whether the gateway still counts [osId] as ringing. A binding that
+  /// cannot say answers yes: showing a page for a ring that is over is the
+  /// smaller mistake next to swallowing one that is not.
+  bool _isRinging(int osId) {
+    try {
+      return getIt<AlertGateway>().ringingIds.contains(osId);
+    } catch (_) {
+      return true;
     }
   }
 
