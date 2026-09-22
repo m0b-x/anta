@@ -29,8 +29,10 @@ import 'pages/onboarding_page.dart';
 import 'services/alert_gateway.dart';
 import 'services/alert_removal_notice.dart';
 import 'services/alert_scheduler.dart';
+import 'services/alert_skip_notice.dart';
 import 'services/app_navigator.dart';
 import 'services/counter_service.dart';
+import 'services/database_manager.dart';
 import 'services/import_export_service.dart';
 import 'services/label_appearance_service.dart';
 import 'services/navigation_history_service.dart';
@@ -410,7 +412,10 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           // the background — has no page to show: one pushed now would offer
           // Stop for a ring that is over, and that Stop would cancel the
           // snooze the user just asked for (OS-2).
-          if (!_isRinging(intent.osId)) continue;
+          if (!_isRinging(intent.osId)) {
+            debugPrint('[main] no page for ${intent.osId}: ring already over');
+            continue;
+          }
           // Instant, and deliberately unstamped: a restored last location must
           // never reopen a ring that is long over.
           unawaited(
@@ -420,8 +425,31 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           );
         case OpenAlertsHubIntent():
           unawaited(AppNavigator.toAlertsFromPlatform());
+        case SkipNextFireIntent():
+          unawaited(_applySkip(intent.payload));
       }
     }
+  }
+
+  /// Publishes a notice's Skip for the calendar page and opens the calendar
+  /// on the occurrence's day — the publish first, so the page that mounts,
+  /// or is already up, finds it waiting. The notice only holds a request for
+  /// the active database; a foreign one still lands on its day, with
+  /// nothing applied.
+  Future<void> _applySkip(AlertPayload payload) async {
+    try {
+      final manager = await DatabaseManager.getInstance();
+      AlertSkipNotice.instance.publish(
+        payload,
+        activeDatabase: manager.getActiveDatabaseName(),
+      );
+    } catch (e) {
+      debugPrint('[main] skip not applied: $e');
+    }
+    await AppNavigator.toCalendarOccurrence(
+      day: payload.dayUtc,
+      eventId: null,
+    );
   }
 
   /// Whether the gateway still counts [osId] as ringing. A binding that

@@ -48,6 +48,8 @@ real alarm sound; the §11 deep-Doze row is closed on the emulator and the
 overnight phone check moved to that roadmap's §9. **OS-2 DONE 2026-09-22**:
 native snooze on the plugin's own notification, the move written into the
 registry by the next reconcile, a snooze seen with Dart up told from a Stop.
+**OS-3 DONE 2026-09-22**: the upcoming-alarm notice at `fireAt − lead` with
+Skip (a foreground intent the calendar applies with Undo) and Open.
 
 ## 0. What an alert is, and is not
 
@@ -307,7 +309,11 @@ the active database name (`DatabaseManager.getActiveDatabaseName()`).
   own notification defers a ring with no Dart running; the move reaches the
   registry through `Alarm.events` → `AlertGateway.takeMoves()` at the top of
   the next reconcile (`kind = snooze`, same os id), acknowledged after the
-  write — see `calendar-events-feature.md` §12 "Native snooze".
+  write — see `calendar-events-feature.md` §12 "Native snooze". **OS-3
+  (2026-09-22):** an upcoming notice is armed beside every planned alarm-tier
+  fire at `fireAt − lead` (`alert_notice_lead_minutes`, default 2 h, 0 = off),
+  never a registration and hidden from the OS-truth pass; its Skip opens the
+  app and cancels the next fire with an Undo — §12 "Upcoming-alarm notice".
 - **Fallback alarm (notification plugin):** `alarmClock` mode,
   `fullScreenIntent: true`, `category: alarm`, `audioAttributesUsage:
   alarm`, `additionalFlags: Int32List.fromList([4])`, `ongoing: true`,

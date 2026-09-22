@@ -8422,6 +8422,48 @@ abstract class AppLocalizations {
   /// **'{count, plural, =1{An unanswered alarm stops after 1 minute} other{An unanswered alarm stops after {count} minutes}}'**
   String alertsSilenceAfterDesc(int count);
 
+  /// Title of the slider that sets how far ahead of an alarm its quiet notice is posted
+  ///
+  /// In en, this message translates to:
+  /// **'Upcoming alarm notice'**
+  String get alertsNoticeLead;
+
+  /// Caption under the upcoming-alarm notice slider
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{A quiet notice 1 minute before an alarm, with Skip and Open} other{A quiet notice {count} minutes before an alarm, with Skip and Open}}'**
+  String alertsNoticeLeadDesc(int count);
+
+  /// Caption under the upcoming-alarm notice slider when it is at zero
+  ///
+  /// In en, this message translates to:
+  /// **'Off — no notice before an alarm'**
+  String get alertsNoticeLeadOff;
+
+  /// Title of the quiet notice posted ahead of an alarm; the body is the event title
+  ///
+  /// In en, this message translates to:
+  /// **'Alarm at {time}'**
+  String alertsUpcomingTitle(String time);
+
+  /// Upcoming-alarm notice action: skip this one fire of the alarm
+  ///
+  /// In en, this message translates to:
+  /// **'Skip'**
+  String get alertsSkipAction;
+
+  /// Upcoming-alarm notice action: open the event
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get alertsOpenAction;
+
+  /// Snackbar after a notice's Skip was applied; carries Undo
+  ///
+  /// In en, this message translates to:
+  /// **'Skipped {title}'**
+  String alertsSkippedSnack(String title);
+
   /// Note under the alert settings explaining that a force stop cancels pending alarms
   ///
   /// In en, this message translates to:

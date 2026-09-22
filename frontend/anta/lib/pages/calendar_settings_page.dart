@@ -82,6 +82,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
 
   int _snoozeMinutes = SettingsKeys.defaultAlertSnoozeMinutes;
   int _silenceAfterMinutes = SettingsKeys.defaultAlertSilenceAfterMinutes;
+  int _noticeLeadMinutes = SettingsKeys.defaultAlertNoticeLeadMinutes;
 
   /// What a new event's first alert is seeded with, per shape. `null` is a
   /// value of its own — "no default" — and is what the rows render as
@@ -149,6 +150,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
       _descriptionLimit = descriptionLimit;
       _snoozeMinutes = alerts.snoozeMinutes;
       _silenceAfterMinutes = alerts.silenceAfterMinutes;
+      _noticeLeadMinutes = alerts.noticeLeadMinutes;
       _timedAlertDefault = alerts.timedDefault;
       _allDayAlertDefault = alerts.allDayDefault;
       _alertSound = alerts.sound;
@@ -865,6 +867,43 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
               _onHapticFeedback();
               setState(() => _snoozeMinutes = value);
               await _settings?.setAlertSnoozeMinutes(value);
+              // Armed into every alarm-tier entry as the plugin's own Snooze
+              // (OS-2), so standing alarms owe the same catch-up a changed
+              // sound gets.
+              await AlertScheduler.reconcileAllQuietly(
+                AlertReconcileReason.eventChanged,
+              );
+            },
+          ),
+        ),
+        SettingsEntry(
+          title: l10n.alertsNoticeLead,
+          description: _noticeLeadMinutes == 0
+              ? l10n.alertsNoticeLeadOff
+              : l10n.alertsNoticeLeadDesc(_noticeLeadMinutes),
+          builder: (context, title, description) => SliderSettingRow(
+            title: title,
+            description: description,
+            value: _noticeLeadMinutes,
+            min: SettingsKeys.minAlertNoticeLeadMinutes,
+            max: SettingsKeys.maxAlertNoticeLeadMinutes,
+            divisions:
+                (SettingsKeys.maxAlertNoticeLeadMinutes -
+                    SettingsKeys.minAlertNoticeLeadMinutes) ~/
+                SettingsKeys.alertNoticeLeadMinutesStep,
+            captionStyle: captionStyle,
+            draftCaption: (draft) => draft == 0
+                ? l10n.alertsNoticeLeadOff
+                : l10n.alertsNoticeLeadDesc(draft),
+            onCommit: (value) async {
+              _onHapticFeedback();
+              setState(() => _noticeLeadMinutes = value);
+              await _settings?.setAlertNoticeLeadMinutes(value);
+              // The lead rides the arm signature, so this is what moves — or
+              // removes — the notice of every alarm already standing.
+              await AlertScheduler.reconcileAllQuietly(
+                AlertReconcileReason.eventChanged,
+              );
             },
           ),
         ),
@@ -1139,6 +1178,9 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     await _settings?.setAlertSilenceAfterMinutes(
       SettingsKeys.defaultAlertSilenceAfterMinutes,
     );
+    await _settings?.setAlertNoticeLeadMinutes(
+      SettingsKeys.defaultAlertNoticeLeadMinutes,
+    );
     // The two defaults go back to what the app ships with, read through the
     // decoder rather than spelled here — and the stock behaviour is that a
     // new event carries no alert until the user adds one.
@@ -1175,6 +1217,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
       _descriptionLimit = SettingsKeys.defaultEventDescriptionLimit;
       _snoozeMinutes = SettingsKeys.defaultAlertSnoozeMinutes;
       _silenceAfterMinutes = SettingsKeys.defaultAlertSilenceAfterMinutes;
+      _noticeLeadMinutes = SettingsKeys.defaultAlertNoticeLeadMinutes;
       _timedAlertDefault = shipped.timedDefault;
       _allDayAlertDefault = shipped.allDayDefault;
       _alertSound = shipped.sound;

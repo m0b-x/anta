@@ -210,4 +210,5 @@ typedef AlertSettings = ({
   String sound,
   int snoozeMinutes,
   int silenceAfterMinutes,
+  int noticeLeadMinutes,
 });

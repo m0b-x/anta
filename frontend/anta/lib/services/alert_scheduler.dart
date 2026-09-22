@@ -67,19 +67,40 @@ typedef AlertReconciler =
 /// [kAlertArmClockToken] follows (OS-1): the fork arms an alarm-tier entry
 /// differently from every build before it, and the token is what makes the
 /// first pass after the upgrade re-arm the rows those builds left standing.
-/// The snooze length closes it (OS-2): the plugin's own notification offers
-/// a Snooze of exactly [snoozeMinutes], armed into the entry, so a changed
+/// The snooze length follows (OS-2): the plugin's own notification offers a
+/// Snooze of exactly [snoozeMinutes], armed into the entry, so a changed
 /// setting has to reach every standing alarm the same way a changed sound
-/// does. It is the scheduler's once-per-pass settings value, never a read of
-/// the gateway's own.
+/// does. The notice lead closes it (OS-3, `~n`): the upcoming notice is armed
+/// beside the alarm at `fireAt − lead`, and a changed lead — off included —
+/// has to re-arm the alarm so its notice moves or goes. Both are the
+/// scheduler's once-per-pass settings values, never a read of the gateway's
+/// own.
 String alertArmSignature({
   required String context,
   required PlannedFire fire,
   required int snoozeMinutes,
+  required int noticeLeadMinutes,
 }) {
   if (fire.alert.mode != AlertMode.ring) return context;
   final sound = fire.sound.stored ?? AlertSound.systemDefaultValue;
-  return '$context#$sound$kAlertArmClockToken~$snoozeMinutes';
+  return '$context#$sound$kAlertArmClockToken~$snoozeMinutes~n$noticeLeadMinutes';
+}
+
+/// When the upcoming notice for [fire] is posted (OS-3, **B6**), or null for
+/// none: a lead of zero (the setting off), a snooze or a test ring (`kind`
+/// is `snooze`), a reminder (the notice announces an *alarm*), or an instant
+/// already behind [now]. Pure, and the one place the rule lives — the
+/// gateway is handed the instant, never the setting.
+DateTime? noticeInstantFor({
+  required PlannedFire fire,
+  required int leadMinutes,
+  required DateTime now,
+}) {
+  if (leadMinutes <= 0) return null;
+  if (fire.kind != AlertKind.scheduled) return null;
+  if (fire.alert.mode != AlertMode.ring) return null;
+  final at = fire.fireAt.subtract(Duration(minutes: leadMinutes));
+  return at.isAfter(now) ? at : null;
 }
 
 /// Keeps what the operating system holds in step with what the plan says it
@@ -673,6 +694,7 @@ class AlertScheduler {
               context: armContext,
               fire: fire,
               snoozeMinutes: settings.snoozeMinutes,
+              noticeLeadMinutes: settings.noticeLeadMinutes,
             ),
           ),
           createdAt: Value(now),
@@ -840,6 +862,7 @@ class AlertScheduler {
         context: armContext,
         fire: fire,
         snoozeMinutes: settings.snoozeMinutes,
+        noticeLeadMinutes: settings.noticeLeadMinutes,
       );
       if (!refresh &&
           existing != null &&
@@ -849,7 +872,16 @@ class AlertScheduler {
         continue;
       }
       final payload = _payloadFor(fire, osId, settings.snoozeMinutes);
-      if (!await _gateway.schedule(fire, payload)) continue;
+      final armed = await _gateway.schedule(
+        fire,
+        payload,
+        noticeAt: noticeInstantFor(
+          fire: fire,
+          leadMinutes: settings.noticeLeadMinutes,
+          now: now,
+        ),
+      );
+      if (!armed) continue;
       await _dao.put(
         AlertRegistrationsCompanion(
           osId: Value(osId),
@@ -1191,6 +1223,7 @@ class AlertScheduler {
 
     var snoozeMinutes =
         payload?.snoozeMinutes ?? SettingsKeys.defaultAlertSnoozeMinutes;
+    var noticeLeadMinutes = SettingsKeys.defaultAlertNoticeLeadMinutes;
     // A snooze is the same alert again ten minutes later, so it rings the same
     // sound. Another database's alarm keeps the shipped default: its
     // `alert_sound` lives in a file that is not open.
@@ -1210,6 +1243,7 @@ class AlertScheduler {
         final alertSettings = await (await SettingsService.getInstance())
             .getAlertSettings();
         snoozeMinutes = alertSettings.snoozeMinutes;
+        noticeLeadMinutes = alertSettings.noticeLeadMinutes;
         soundSetting = alertSettings.sound;
         for (final candidate in eventService.events) {
           if (candidate.id != eventId) continue;
@@ -1311,6 +1345,7 @@ class AlertScheduler {
             context: armContext,
             fire: fire,
             snoozeMinutes: snoozeMinutes,
+            noticeLeadMinutes: noticeLeadMinutes,
           ),
         ),
         createdAt: Value(now),

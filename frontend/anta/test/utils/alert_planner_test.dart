@@ -26,6 +26,7 @@ void main() {
     sound: '',
     snoozeMinutes: 10,
     silenceAfterMinutes: 10,
+    noticeLeadMinutes: 120,
   );
 
   const horizon = AlertHorizon(perAlert: 2, days: 30, total: 48);
@@ -217,6 +218,7 @@ void main() {
           sound: '',
           snoozeMinutes: 10,
           silenceAfterMinutes: 10,
+          noticeLeadMinutes: 120,
         ),
         horizon: horizon,
         now: DateTime(2026, 9, 15, 12),

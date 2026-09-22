@@ -4,7 +4,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:anta/bloc/calendar/alert_skip_action.dart';
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
+import 'package:anta/constants/event_skips.dart';
+import 'package:anta/models/alert_payload.dart';
 import 'package:anta/constants/event_alerts.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/calendar_event.dart';
@@ -105,6 +108,124 @@ void main() {
     rule: rule,
     time: const EventTime(startMinute: 18 * 60),
   );
+
+  group("an upcoming notice's Skip (OS-3)", () {
+    tearDown(EventAlerts.resetCache);
+
+    AlertPayload payloadFor(CalendarEvent event, DateTime day) => AlertPayload(
+      database: 'gym_notes',
+      eventId: event.id,
+      alertId: 'a1',
+      dayUtcMs: day.millisecondsSinceEpoch,
+      osId: 7,
+      mode: AlertMode.ring,
+      title: event.title,
+      timeLabel: '18:00',
+      categoryId: 'gym',
+    );
+
+    test('cancels one occurrence of a recurring event, and Undo restores it',
+        () async {
+      await dispatch(const LoadCalendarEvents());
+      final event = eventOf(rule: const DailyRecurrence());
+      await dispatch(CreateCalendarEvent(event: event));
+      calls.clear();
+      final day = DateTime.utc(2026, 9, 22);
+      final action = AlertSkipAction.resolve(
+        event: event,
+        payload: payloadFor(event, day),
+        today: DateTime.utc(2026, 9, 22),
+      )!;
+      expect(action.apply, isA<SetOccurrenceSkipped>());
+
+      await dispatch(action.apply);
+
+      expect(EventSkips.isSkipped(event.id, day), isTrue);
+      expect(EventSkips.isSkipped(event.id, DateTime.utc(2026, 9, 23)), isFalse);
+      // Exactly one reconcile, for this event: that is what takes the
+      // alarm off the platform.
+      expect(calls, hasLength(1));
+      expect(calls.single.eventId, event.id);
+      expect(writes, isEmpty);
+
+      await dispatch(action.undo);
+      expect(EventSkips.isSkipped(event.id, day), isFalse);
+      expect(calls, hasLength(2));
+    });
+
+    test('switches a one-time event\'s alert off, and Undo switches it on',
+        () async {
+      await dispatch(const LoadCalendarEvents());
+      final event = eventOf();
+      final alert = EventAlert(id: 'a1', eventId: event.id, mode: AlertMode.ring);
+      await dispatch(CreateCalendarEvent(event: event, alerts: [alert]));
+      EventAlerts.updateCache(byEvent: {event.id: [alert]});
+      calls.clear();
+      writes.clear();
+      final action = AlertSkipAction.resolve(
+        event: event,
+        payload: payloadFor(event, DateTime.utc(2026, 9, 20)),
+        today: DateTime.utc(2026, 9, 19),
+      )!;
+      expect(action.apply, isA<ToggleEventAlert>());
+
+      await dispatch(action.apply);
+
+      expect(writes, hasLength(1));
+      expect(writes.single.alerts.single.enabled, isFalse);
+      expect(calls, hasLength(1));
+      // A one-time event cannot be skipped — a cancelled occurrence of one
+      // would be a deletion — so nothing reached the skip table.
+      expect(EventSkips.isSkipped(event.id, DateTime.utc(2026, 9, 20)), isFalse);
+
+      EventAlerts.updateCache(
+        byEvent: {event.id: [alert.copyWith(enabled: false)]},
+      );
+      await dispatch(action.undo);
+      expect(writes, hasLength(2));
+      expect(writes.last.alerts.single.enabled, isTrue);
+    });
+
+    test('resolves to nothing for a day already gone', () {
+      // A notice that outlived its alarm (review): its Skip must not cancel
+      // an occurrence that already happened.
+      final event = eventOf(rule: const DailyRecurrence());
+      expect(
+        AlertSkipAction.resolve(
+          event: event,
+          payload: payloadFor(event, DateTime.utc(2026, 9, 21)),
+          today: DateTime.utc(2026, 9, 22),
+        ),
+        isNull,
+      );
+    });
+
+    test("resolves to nothing when a one-time event's alert is gone or off",
+        () {
+      final event = eventOf();
+      final alert = EventAlert(id: 'a1', eventId: event.id, mode: AlertMode.ring);
+      final payload = payloadFor(event, DateTime.utc(2026, 9, 20));
+      final today = DateTime.utc(2026, 9, 19);
+
+      EventAlerts.updateCache(byEvent: const {});
+      expect(
+        AlertSkipAction.resolve(event: event, payload: payload, today: today),
+        isNull,
+      );
+      EventAlerts.updateCache(
+        byEvent: {event.id: [alert.copyWith(enabled: false)]},
+      );
+      expect(
+        AlertSkipAction.resolve(event: event, payload: payload, today: today),
+        isNull,
+      );
+      EventAlerts.updateCache(byEvent: {event.id: [alert]});
+      expect(
+        AlertSkipAction.resolve(event: event, payload: payload, today: today),
+        isNotNull,
+      );
+    });
+  });
 
   test('creating an event reconciles it once', () async {
     await dispatch(const LoadCalendarEvents());

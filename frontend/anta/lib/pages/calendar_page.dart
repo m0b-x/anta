@@ -38,7 +38,9 @@ import '../models/app_permission.dart';
 import '../models/event_alert.dart';
 import '../models/recurrence_rule.dart';
 import '../repositories/note_repository.dart';
+import '../bloc/calendar/alert_skip_action.dart';
 import '../services/alert_removal_notice.dart';
+import '../services/alert_skip_notice.dart';
 import '../services/app_navigator.dart';
 import '../services/cell_tint_resolver.dart';
 import '../services/day_bars_resolver.dart';
@@ -450,6 +452,51 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
         _serveRemovalNotice();
       });
     }
+    // B6's Skip (OS-3), the same pair again — and, unlike the removal, it
+    // needs the event list, so a request that arrives before the bloc has
+    // loaded is left waiting for the listener below.
+    AlertSkipNotice.instance.addListener(_serveSkipNotice);
+    if (AlertSkipNotice.instance.hasPending) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _serveSkipNotice();
+      });
+    }
+  }
+
+  /// Serves — and clears — an upcoming notice's Skip (OS-3, **B6**): one
+  /// bloc event that cancels the next fire, and a snackbar whose Undo is its
+  /// exact inverse. Which event is `AlertSkipAction`'s decision; the request
+  /// is taken only once the state can name the event, so an early call
+  /// leaves it pending for the loaded-state listener.
+  void _serveSkipNotice() {
+    if (!mounted) return;
+    final bloc = context.read<CalendarBloc>();
+    final state = bloc.state;
+    if (state is! CalendarPageLoaded) return;
+    final payload = AlertSkipNotice.instance.take();
+    if (payload == null) return;
+    CalendarEvent? target;
+    for (final event in state.allEvents) {
+      if (event.id != payload.eventId) continue;
+      target = event;
+      break;
+    }
+    if (target == null) return;
+    final now = DateTime.now();
+    final action = AlertSkipAction.resolve(
+      event: target,
+      payload: payload,
+      today: DateTime.utc(now.year, now.month, now.day),
+    );
+    if (action == null) return;
+    bloc.add(action.apply);
+    final l10n = AppLocalizations.of(context)!;
+    CustomSnackbar.showWithAction(
+      context,
+      message: l10n.alertsSkippedSnack(target.title),
+      actionLabel: l10n.undo,
+      onAction: () => bloc.add(action.undo),
+    );
   }
 
   /// Serves — and clears — the event an acknowledged alert deleted (**A3**).
@@ -584,6 +631,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
       _serveOccurrenceRequest,
     );
     AlertRemovalNotice.instance.removeListener(_serveRemovalNotice);
+    AlertSkipNotice.instance.removeListener(_serveSkipNotice);
     _keyboardInset.removeListener(_handleKeyboardInset);
     _keyboardInset.dispose();
     _gridCollapsed.dispose();
@@ -1303,6 +1351,13 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
           listenWhen: (previous, current) =>
               !_initialTargetDone && current is CalendarPageLoaded,
           listener: (context, state) => _applyInitialTarget(state),
+        ),
+        BlocListener<CalendarBloc, CalendarPageState>(
+          // A Skip that arrived before the event list did (OS-3).
+          listenWhen: (previous, current) =>
+              current is CalendarPageLoaded &&
+              AlertSkipNotice.instance.hasPending,
+          listener: (context, state) => _serveSkipNotice(),
         ),
         BlocListener<CalendarBloc, CalendarPageState>(
           // A new target day is the one moment the label is the whole point

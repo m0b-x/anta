@@ -4957,6 +4957,41 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String get alertsNoticeLead => 'Hinweis vor dem Alarm';
+
+  @override
+  String alertsNoticeLeadDesc(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Ein leiser Hinweis $count Minuten vor einem Alarm, mit Überspringen und Öffnen',
+      one:
+          'Ein leiser Hinweis 1 Minute vor einem Alarm, mit Überspringen und Öffnen',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get alertsNoticeLeadOff => 'Aus – kein Hinweis vor einem Alarm';
+
+  @override
+  String alertsUpcomingTitle(String time) {
+    return 'Alarm um $time';
+  }
+
+  @override
+  String get alertsSkipAction => 'Überspringen';
+
+  @override
+  String get alertsOpenAction => 'Öffnen';
+
+  @override
+  String alertsSkippedSnack(String title) {
+    return '$title übersprungen';
+  }
+
+  @override
   String get alertsForceStopNote =>
       'Ein erzwungenes Beenden von ANTA deaktiviert alle Alarme, bis du die App wieder öffnest.';
 
