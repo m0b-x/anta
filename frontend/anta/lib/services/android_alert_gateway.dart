@@ -24,6 +24,7 @@ import '../models/alert_sound.dart';
 import '../utils/alert_os_id.dart';
 import '../utils/alert_planner.dart';
 import 'alert_gateway.dart';
+import 'event_time_formatter.dart';
 import 'pending_navigation.dart';
 import 'settings_service.dart';
 
@@ -500,6 +501,10 @@ class AndroidAlertGateway extends AlertGateway {
     switch (call.method) {
       case 'showAlarms':
         if (!_showAlarms.isClosed) _showAlarms.add(null);
+        return null;
+      case 'openSession':
+        final intent = OpenSessionIntent.fromPlatform(call.arguments);
+        if (intent != null) PendingNavigationQueue.instance.enqueue(intent);
         return null;
       default:
         throw MissingPluginException('${call.method} is not handled here');
@@ -1222,12 +1227,27 @@ class AndroidAlertGateway extends AlertGateway {
       debugPrint('[AndroidAlertGateway] launchIntent failed: $e');
     }
     // Asked second, so a notification that launched the app always wins over
-    // the phone's "next alarm" line — and asked at all only once, because
-    // the activity answers true a single time.
+    // the session chip's Open note and the phone's "next alarm" line — and
+    // asked at all only once, because the activity answers each a single
+    // time.
+    _launchIntent ??= await _consumeSessionOpenRequest();
     if (_launchIntent == null && await _consumeShowAlarmsRequest()) {
       _launchIntent = const OpenAlertsHubIntent();
     }
     return _launchIntent;
+  }
+
+  /// The payload the session chip's *Open note* started the activity with,
+  /// once, or null.
+  Future<OpenSessionIntent?> _consumeSessionOpenRequest() async {
+    try {
+      return OpenSessionIntent.fromPlatform(
+        await _platform.invokeMethod<String>('consumeSessionOpenRequest'),
+      );
+    } catch (e) {
+      debugPrint('[AndroidAlertGateway] consumeSessionOpenRequest failed: $e');
+      return null;
+    }
   }
 
   /// The intent a notification launched the app with, or null when none did.
@@ -1270,6 +1290,59 @@ class AndroidAlertGateway extends AlertGateway {
 
   @override
   Stream<void> get showAlarms => _showAlarms.stream;
+
+  // ── Session chip (OS-5) ──────────────────────────────────────────────
+
+  /// Drawn natively by `SessionChip.kt`: promoted with a progress bar where
+  /// Android 16 allows it, a plain ongoing chronometer notification
+  /// everywhere else, on the reminder channel and silent either way. Every
+  /// string crosses here, localized; the platform only draws them.
+  @override
+  Future<bool> showSessionChip(
+    AlertPayload payload, {
+    required DateTime startedAt,
+    DateTime? endsAt,
+    int? progress,
+    bool refresh = false,
+  }) async {
+    await initialize();
+    final l10n = _l10n;
+    try {
+      final standing = await _platform
+          .invokeMethod<bool>('showSessionChip', <String, Object?>{
+        'payload': payload.encode(),
+        'refresh': refresh,
+        'channelId': kAlertReminderChannelId,
+        'title': payload.title,
+        'text': endsAt == null
+            ? l10n.alertsSessionInProgress
+            : l10n.alertsSessionUntil(
+                EventTimeFormatter.formatMinuteOfDay(
+                  endsAt.hour * 60 + endsAt.minute,
+                ),
+              ),
+        'openLabel': l10n.alertsSessionOpenNote,
+        'doneLabel': l10n.alertsDoneAction,
+        'startedAtMs': startedAt.millisecondsSinceEpoch,
+        'endsAtMs': endsAt?.millisecondsSinceEpoch,
+        'progress': progress,
+        'color': _tintOf(payload).toARGB32(),
+      });
+      return standing ?? false;
+    } catch (e) {
+      debugPrint('[AndroidAlertGateway] session chip failed: $e');
+      return false;
+    }
+  }
+
+  @override
+  Future<void> clearSessionChip() async {
+    try {
+      await _platform.invokeMethod<void>('clearSessionChip');
+    } catch (e) {
+      debugPrint('[AndroidAlertGateway] session chip clear failed: $e');
+    }
+  }
 
   @override
   Set<int> get ringingIds => Set<int>.unmodifiable(_rings.keys);

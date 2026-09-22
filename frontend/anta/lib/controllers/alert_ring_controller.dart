@@ -10,6 +10,7 @@ import '../services/alert_removal_notice.dart';
 import '../services/alert_scheduler.dart';
 import '../services/calendar_event_service.dart';
 import '../services/database_manager.dart';
+import '../services/session_chip.dart';
 
 /// Everything the alarm page does, with no widgets in it.
 ///
@@ -109,7 +110,9 @@ class AlertRingController extends ChangeNotifier {
   /// the same day** is cancelled — `stop` deliberately does not, because it is
   /// about one platform entry while this is about the user's intent: an alert
   /// snoozed at 07:00 and stopped at its 07:10 ring must not ring a third time
-  /// at 07:20 for a session already acknowledged. Last, A3's removal.
+  /// at 07:20 for a session already acknowledged. Then the session chip
+  /// (OS-5), while the event is still there to say when the session ends.
+  /// Last, A3's removal.
   Future<void> stop() async {
     if (_busy || _stopped) return;
     _busy = true;
@@ -121,6 +124,7 @@ class AlertRingController extends ChangeNotifier {
     } catch (e) {
       debugPrint('[AlertRingController] stop failed: $e');
     }
+    await SessionChip.instance.show(payload);
     if (willRemoveEvent) await _removeEvent();
     _stopped = true;
     _busy = false;

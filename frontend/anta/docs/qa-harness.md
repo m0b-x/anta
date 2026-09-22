@@ -358,6 +358,17 @@ exception to driving adb by hand; the qa-emulator skill has the exact lines
 and what a passing entry looks like. A `qa alerts` verb that folds them in
 belongs to the parent roadmap's Session 7.
 
+### Shade actions (2026-09-23)
+
+A notification's buttons belong to SystemUI's `NotificationShade` window,
+and the native `tap "<label>"` only searches the foreground app's window —
+so shade actions are tapped by `#N` from a `dump --all` taken with the shade
+open, or by raw pixels from the bounds a dump printed; one swipe opens the
+shade, a second expands Quick Settings over the rows; and uiautomator can
+omit the shade window from a dump while a `shot` shows it open. The record in
+`dumpsys notification --noredact` (`id=`, `flags=`, the `extras` block) is the
+evidence to quote, not the tree.
+
 ## Phase C — on-device suites (not shipped)
 
 `flutter_driver` and `integration_test` are both dev dependencies, the driver

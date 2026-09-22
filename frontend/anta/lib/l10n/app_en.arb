@@ -6198,6 +6198,24 @@
   "@alertsOpenAction": {
     "description": "Upcoming-alarm notice action: open the event"
   },
+  "alertsSessionInProgress": "Session in progress",
+  "@alertsSessionInProgress": {
+    "description": "Session chip body when the event has no end time; the chip's clock counts the elapsed time"
+  },
+  "alertsSessionUntil": "Until {time}",
+  "@alertsSessionUntil": {
+    "description": "Session chip body when the event has an end time",
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "19:30"
+      }
+    }
+  },
+  "alertsSessionOpenNote": "Open note",
+  "@alertsSessionOpenNote": {
+    "description": "Session chip action: open the event's linked note, or the event"
+  },
   "alertsSkippedSnack": "Skipped {title}",
   "@alertsSkippedSnack": {
     "description": "Snackbar after a notice's Skip was applied; carries Undo",

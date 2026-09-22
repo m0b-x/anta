@@ -9,7 +9,9 @@ import 'package:anta/models/event_alert.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/alert_removal_notice.dart';
 import 'package:anta/services/calendar_event_service.dart';
+import 'package:anta/services/alert_gateway.dart';
 import 'package:anta/services/event_alert_service.dart';
+import 'package:anta/services/session_chip.dart';
 
 import '../database/support/db_test_support.dart';
 
@@ -142,5 +144,46 @@ void main() {
       expect(removed, isFalse);
       expect(events.events.single.id, 'e1');
     });
+
+    test('an acknowledged alarm asks for its chip before A3 runs; a reminder never',
+        () async {
+      final gateway = _ChipGateway();
+      SessionChip.instance.configureForTesting(
+        gateway: () => gateway,
+        activeDatabase: () async => 'gym_notes',
+        findEvent: (id) async {
+          for (final candidate in events.events) {
+            if (candidate.id == id) return candidate;
+          }
+          return null;
+        },
+        clock: () => DateTime(2026, 9, 20, 7),
+      );
+      addTearDown(SessionChip.instance.resetForTesting);
+
+      expect(await AlertAcknowledgement.apply(payloadOf()), isTrue);
+      // Composed while the event was still there: its os id, its title.
+      expect(gateway.chips.single.eventId, 'e1');
+      expect(events.events, isEmpty);
+
+      await AlertAcknowledgement.apply(payloadOf(mode: AlertMode.notify));
+      expect(gateway.chips, hasLength(1));
+    });
   });
+}
+
+class _ChipGateway extends NoOpAlertGateway {
+  final List<AlertPayload> chips = [];
+
+  @override
+  Future<bool> showSessionChip(
+    AlertPayload payload, {
+    required DateTime startedAt,
+    DateTime? endsAt,
+    int? progress,
+    bool refresh = false,
+  }) async {
+    chips.add(payload);
+    return true;
+  }
 }

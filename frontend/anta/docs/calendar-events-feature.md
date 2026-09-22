@@ -1802,6 +1802,55 @@ so a snapshot that never completes cannot park the scheduler's chain) and
 background isolate's re-post of a snoozed reminder carries none of this —
 it cannot rasterize, and it never did.
 
+**Session chip (OS-5, 2026-09-23, B8).** Stopping an alarm says a session has
+begun, and the phone can keep that on the shade: `SessionChip`
+(`lib/services/session_chip.dart`, a process-global like `AlertRemovalNotice`)
+posts one ongoing notification through `AlertGateway.showSessionChip` when a
+ring-tier alarm is acknowledged — from the alarm page's Stop and from the
+top of `AlertAcknowledgement.apply`, which every other acknowledgement route
+runs through — and once per ring however many routes fire for the same
+one: the dedupe on the os id is claimed before the first await, because a
+Stop on the platform's notification and the ring-end settle `main.dart`
+runs for it are concurrent (the page's own Stop reaches `apply` afterwards,
+sequentially, for an event set to be removed). Never for a reminder, a test
+alarm or another database's alarm (the same positive database check as
+A3). The chip counts from the acknowledgement (`setUsesChronometer`), says
+*Until 19:30* when the event has a duration (`sessionEndFor`, the
+constructor form of the day plus the end minute, so the day the clocks
+change does not shift it) and *Session in progress* otherwise, and carries
+*Open note* — the event's linked note when it has one and is not in the
+trash (`linkedSessionNote`, through `getNotesByIds`, the one lookup that
+leaves tombstones out, with the metadata the editor seeds its title from),
+else the event on its day (`OpenSessionIntent`, drained like every other
+platform intent; `AppNavigator.toNoteFromPlatform` collapses onto a live
+editor of the same note the way the calendar collapses onto itself, else
+root-pushes under the note's own restore stamp) — and *Done*, a broadcast to
+`SessionChipReceiver` that takes the chip down with no Dart involved. Its
+notification id is negative (`-0x53455353`), which no masked os, notice or
+Missed id can ever equal. On
+Android 16 the notification asks to be promoted
+(`NotificationCompat.Builder.setRequestPromotedOngoing`, AndroidX Core
+1.17 — the platform `Notification.Builder` in the installed API 36 jar has no
+such method, which is why the chip is built with the compat classes) with a
+`NotificationCompat.ProgressStyle` bar — elapsed over the event's duration,
+refreshed every minute by Dart while the app is up (`showSessionChip`
+answers whether the chip still stands, and the native side refuses a
+refresh of a chip *Done* already took down, which is how Dart learns of a
+Done that ran with no Dart and stops re-posting over it), indeterminate
+when the end is unknown — but only when
+`NotificationManagerCompat.canPostPromotedNotifications()` says the user
+allows it — which needs the manifest's
+`android.permission.POST_PROMOTED_NOTIFICATIONS` ("Show live updates", a
+`normal|appop` permission granted at install and switchable per app);
+below 16, when the user has switched it off, and on a build without the
+declaration, the same notification stands as a plain ongoing chronometer on
+`alerts_reminder`, silent. It comes down on
+Done, at the event's end (a Dart timer while the app is up; otherwise
+`SessionChip.clearIfStale` at the next launch, from the end instant the
+activity keeps in its own preferences — no database, no Dart), and on the
+next ring. The tile and the shortcut (B9) are **not** shipped: they launch
+the quick-alarm sheet of the parent's Session 6, which does not exist yet.
+
 **Where it is edited.** The *Alerts* rows sit inside the editor's Time zone
 (`event_editor_sheet.dart`): one `_PickerTile` per alert, an "Add alert" chip
 that disappears at the cap, and — only while the event is one-time and carries

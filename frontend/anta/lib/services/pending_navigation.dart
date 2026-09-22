@@ -66,6 +66,29 @@ final class SkipNextFireIntent extends AlertEntryIntent {
   Object get dedupeKey => 'skip:$osId';
 }
 
+/// *Open note* on the session chip (OS-5, **B8**): the session an alarm was
+/// stopped for is under way and the user wants what they wrote for it — the
+/// event's linked note when it has one, else the event on its day.
+///
+/// Keyed apart from the alarm's other intents, which share the os id: a chip
+/// tapped while the ring's own page is still queued is a second destination,
+/// not a duplicate of the first.
+final class OpenSessionIntent extends AlertEntryIntent {
+  const OpenSessionIntent({required super.payload});
+
+  @override
+  Object get dedupeKey => 'session:$osId';
+
+  /// Decodes what the activity hands over — the payload JSON the chip was
+  /// posted with — and refuses anything else, so a malformed extra opens
+  /// nothing rather than something.
+  static OpenSessionIntent? fromPlatform(Object? arguments) {
+    if (arguments is! String) return null;
+    final payload = AlertPayload.decode(arguments);
+    return payload == null ? null : OpenSessionIntent(payload: payload);
+  }
+}
+
 /// The phone's own "next alarm" surface was tapped — the lock-screen line or
 /// Quick Settings, which launch the show intent every alarm-clock entry
 /// carries (`AlarmService.ACTION_SHOW`, Patch 1 of the `alarm` fork): show the

@@ -501,6 +501,17 @@ Android (unchanged from the Windows-era harness; still true):
 - **PowerShell 5.1 eats the inner quotes of a native command's arguments**;
   use `--%` with `\"` or `steps --file`.
 
+**Notification-shade actions (Android, 2026-09-23).** `tap "<label>"` on the
+native path resolves inside the **foreground app's** window, so a button on
+a notification (Stop, Skip, Open note, Done) never matches by label. Open
+the shade with **one** `swipe down --from 540,8 --dist 1400` (a second swipe
+expands Quick Settings over the rows), then either `dump --all` and `tap
+"#N"` from that dump, or tap raw pixels from the bounds a dump printed
+earlier — uiautomator sometimes leaves the `NotificationShade` window out of
+a dump entirely while a native `shot` shows it open. Verify the outcome in
+`dumpsys notification --noredact` (a record's `id=`, `flags=`, `extras`)
+rather than in the tree.
+
 ## Alarm-clock evidence (event alerts, Android)
 
 The Alarm tier is armed with `AlarmManager.setAlarmClock` (the `alarm` fork,

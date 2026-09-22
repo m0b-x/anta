@@ -19,6 +19,11 @@
     <uses-permission android:name="android.permission.VIBRATE"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <!-- The session chip (OS-5) as an Android 16 live update: a normal|appop
+         permission ("Show live updates"), granted at install and switchable
+         by the user, without which canPostPromotedNotifications() is false
+         and the chip stands as a plain ongoing notification. -->
+    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS"/>
     <!-- The `alarm` package's own manifest merges this in for a feature the
          app does not use; the app reads no shared storage. -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
@@ -50,6 +55,9 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- Done on the session chip (OS-5): takes the chip down without
+             bringing the app to the front. -->
+        <receiver android:exported="false" android:name=".SessionChipReceiver" />
         <!-- flutter_local_notifications. Without ActionBroadcastReceiver the
              Snooze and Done actions do nothing at all. -->
         <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver" />

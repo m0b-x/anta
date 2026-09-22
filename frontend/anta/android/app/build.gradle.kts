@@ -84,6 +84,10 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    // The session chip (OS-5) is built natively with NotificationCompat:
+    // 1.17 is the first release carrying setRequestPromotedOngoing and
+    // ProgressStyle, the Android 16 promoted-notification surface.
+    implementation("androidx.core:core:1.17.0")
 }
 
 kotlin {

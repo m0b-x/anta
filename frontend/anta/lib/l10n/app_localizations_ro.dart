@@ -5041,6 +5041,17 @@ class AppLocalizationsRo extends AppLocalizations {
   String get alertsOpenAction => 'Deschide';
 
   @override
+  String get alertsSessionInProgress => 'Sesiune în curs';
+
+  @override
+  String alertsSessionUntil(String time) {
+    return 'Până la $time';
+  }
+
+  @override
+  String get alertsSessionOpenNote => 'Deschide notița';
+
+  @override
   String alertsSkippedSnack(String title) {
     return 'Ai sărit peste $title';
   }

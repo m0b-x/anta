@@ -178,6 +178,24 @@ void main() {
     expect(queue.length, 1);
   });
 
+  test("a session intent dedupes against itself, not the alarm's other intents",
+      () {
+    queue.enqueue(OpenSessionIntent(payload: payloadOf(17)));
+    queue.enqueue(OpenSessionIntent(payload: payloadOf(17)));
+    queue.enqueue(OpenEventIntent(payload: payloadOf(17)));
+
+    expect(queue.length, 2);
+    expect(OpenSessionIntent(payload: payloadOf(17)).dedupeKey, 'session:17');
+  });
+
+  test("a session intent decodes the chip's payload and refuses anything else",
+      () {
+    expect(OpenSessionIntent.fromPlatform(payloadOf(21).encode())?.osId, 21);
+    expect(OpenSessionIntent.fromPlatform(null), isNull);
+    expect(OpenSessionIntent.fromPlatform(42), isNull);
+    expect(OpenSessionIntent.fromPlatform('not json'), isNull);
+  });
+
   test('the app-wide instance is a singleton', () {
     expect(
       identical(PendingNavigationQueue.instance, PendingNavigationQueue.instance),

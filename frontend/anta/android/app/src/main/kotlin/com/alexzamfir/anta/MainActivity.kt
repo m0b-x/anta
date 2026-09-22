@@ -80,6 +80,10 @@ private const val LEGACY_ALARM_SOUND_DIR = "alert_sounds"
  * screen's alarm line and Quick Settings launch): true once, then false. A warm
  * activity receives the same intent through [onNewIntent] and pushes
  * `showAlarms` to Dart instead, since nothing on the Dart side is asking then.
+ * `showSessionChip` and `clearSessionChip` draw and take down the session
+ * chip ([SessionChip], OS-5), and `consumeSessionOpenRequest` answers the
+ * chip's *Open note* the way the show intent is answered — the payload it
+ * carried once, then null — with a warm activity pushing `openSession`.
  *
  * The two **sound** methods exist because the platform's ringtone picker and
  * titles have no Dart binding. `pickAlarmSound` runs the system picker (alarm
@@ -115,9 +119,18 @@ class MainActivity : FlutterActivity() {
      */
     private var showAlarmsRequested = false
 
+    /**
+     * The payload the session chip's *Open note* started this activity with,
+     * until Dart has consumed it — [showAlarmsRequested] with a value, since
+     * the chip names the alarm whose note to open.
+     */
+    private var pendingSessionOpen: String? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        SessionChip.clearIfStale(this)
         recordShowAlarmsRequest(intent)
+        recordSessionOpenRequest(intent)
     }
 
     /**
@@ -129,6 +142,22 @@ class MainActivity : FlutterActivity() {
      */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        if (recordSessionOpenRequest(intent)) {
+            alertsChannel?.invokeMethod(
+                "openSession",
+                pendingSessionOpen,
+                object : MethodChannel.Result {
+                    override fun success(result: Any?) {
+                        pendingSessionOpen = null
+                    }
+
+                    override fun error(code: String, message: String?, details: Any?) {}
+
+                    override fun notImplemented() {}
+                }
+            )
+            return
+        }
         if (!recordShowAlarmsRequest(intent)) return
         alertsChannel?.invokeMethod(
             "showAlarms",
@@ -157,6 +186,18 @@ class MainActivity : FlutterActivity() {
         return requested
     }
 
+    private fun recordSessionOpenRequest(intent: Intent?): Boolean {
+        if (intent?.action != SessionChip.ACTION_OPEN) return false
+        pendingSessionOpen = intent.getStringExtra(SessionChip.EXTRA_PAYLOAD) ?: return false
+        return true
+    }
+
+    private fun consumeSessionOpenRequest(): String? {
+        val payload = pendingSessionOpen
+        pendingSessionOpen = null
+        return payload
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         val messenger = flutterEngine.dartExecutor.binaryMessenger
@@ -174,6 +215,13 @@ class MainActivity : FlutterActivity() {
                 "alarmSoundTitle" ->
                     result.success(alarmSoundTitle(call.arguments as? String))
                 "consumeShowAlarmsRequest" -> result.success(consumeShowAlarmsRequest())
+                "consumeSessionOpenRequest" -> result.success(consumeSessionOpenRequest())
+                "showSessionChip" ->
+                    result.success(SessionChip.show(this, call.arguments as? Map<*, *> ?: emptyMap<Any, Any>()))
+                "clearSessionChip" -> {
+                    SessionChip.clear(this)
+                    result.success(null)
+                }
                 else -> result.notImplemented()
             }
         }

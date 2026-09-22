@@ -519,6 +519,42 @@ abstract final class AppNavigator {
     );
   }
 
+  /// A note opened by the platform with no `BuildContext` of its own — *Open
+  /// note* on the session chip (**B8**, OS-5). Collapses onto a live editor
+  /// of the same note the way [toCalendarOccurrence] collapses onto a live
+  /// calendar — a cold start whose remembered location is that very note
+  /// would otherwise stack two editors of it — and otherwise root-pushes
+  /// under the same stamp [toNoteEditor] uses, so the restore stack records
+  /// it like any other note; [metadata] seeds the editor's title bar.
+  static Future<void> toNoteFromPlatform({
+    required String folderId,
+    required String noteId,
+    NoteMetadata? metadata,
+  }) {
+    final navigator = navigatorKey.currentState;
+    if (navigator != null) {
+      final routes = _livePageRoutes(navigator);
+      final index = routes.lastIndexWhere((route) {
+        final destination = route.settings.arguments;
+        return destination is NavDestination &&
+            destination.kind == NavDestinationKind.note &&
+            destination.noteId == noteId;
+      });
+      if (index >= 0) {
+        _collapseOnto(navigator, routes, index);
+        return Future<void>.value();
+      }
+    }
+    return rootPush<void>(
+      OptimizedNoteEditorPage(
+        folderId: folderId,
+        noteId: noteId,
+        metadata: metadata,
+      ),
+      destination: NavDestination.note(noteId: noteId, folderId: folderId),
+    );
+  }
+
   static Future<SettingsResult?> toPermissions(
     BuildContext context, {
     bool fromDrawer = false,
