@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The launcher shortcut (event alerts OS-5, B9): long-press the app icon,
+     "Quick alarm". The same action the Quick Settings tile launches; the
+     launcher starts MainActivity with it, and the activity reports it to
+     Dart like the alarm-clock show intent. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="quick_alarm"
+        android:enabled="true"
+        android:icon="@drawable/ic_alert"
+        android:shortcutShortLabel="@string/quick_alarm_shortcut_short"
+        android:shortcutLongLabel="@string/quick_alarm_shortcut_long">
+        <intent
+            android:action="com.alexzamfir.anta.QUICK_ALARM"
+            android:targetPackage="com.alexzamfir.anta"
+            android:targetClass="com.alexzamfir.anta.MainActivity" />
+    </shortcut>
+</shortcuts>

@@ -512,6 +512,18 @@ a dump entirely while a native `shot` shows it open. Verify the outcome in
 `dumpsys notification --noredact` (a record's `id=`, `flags=`, `extras`)
 rather than in the tree.
 
+**Quick Settings tile (Android, 2026-09-23).** A tile the app declares is
+not in the panel until the user adds it. `adb shell cmd statusbar add-tile
+com.alexzamfir.anta/.QuickAlarmTileService` adds it from the host — a
+device-UI setting, not app data, and the second sanctioned by-hand call
+beside the read-only alarm queries — after which two `swipe down` open the
+full panel and a native `look --all` names the tile by its label
+(`"Quick alarm"`); tap it by pixels and switch to `--via agent` to see the
+sheet it opened. A launcher shortcut is checked from the app drawer (`key
+home` on the native path, `swipe up`, `longpress` the app icon, the
+bubble's long label is the target) and, read-only, in `adb shell dumpsys
+shortcut` under the package.
+
 ## Alarm-clock evidence (event alerts, Android)
 
 The Alarm tier is armed with `AlarmManager.setAlarmClock` (the `alarm` fork,

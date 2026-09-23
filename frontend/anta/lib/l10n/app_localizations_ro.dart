@@ -3184,6 +3184,39 @@ class AppLocalizationsRo extends AppLocalizations {
   String get templateBlankEvent => 'Eveniment gol';
 
   @override
+  String get quickAlarmRow => 'Alarmă…';
+
+  @override
+  String get quickAlarmTitle => 'Alarmă rapidă';
+
+  @override
+  String get quickAlarmName => 'Alarmă';
+
+  @override
+  String get quickAlarmPickTime => 'Schimbă ora';
+
+  @override
+  String get quickAlarmIn20Min => 'În 20 min';
+
+  @override
+  String get quickAlarmIn1Hour => 'Într-o oră';
+
+  @override
+  String quickAlarmTonight(String time) {
+    return 'Diseară $time';
+  }
+
+  @override
+  String quickAlarmSet(String title, String time) {
+    return '$title setată pentru $time';
+  }
+
+  @override
+  String quickAlarmSetOn(String title, String time, String day) {
+    return '$title setată pentru $time, $day';
+  }
+
+  @override
   String eventCreatedFromTemplate(String title) {
     return 'Adăugat: $title';
   }

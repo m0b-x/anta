@@ -15,6 +15,13 @@ sealed class AlertIntent {
   /// intent that carries a payload keys on its os id so the two halves cannot
   /// disagree; an intent about no entry at all keys on a constant of its own.
   Object get dedupeKey;
+
+  /// Whether a repeat of [dedupeKey] inside
+  /// [PendingNavigationQueue.doubleDeliveryWindow] of the last drain is the
+  /// second half of a double delivery rather than a new request. True for
+  /// everything the platform can hand over twice; false for a foreground
+  /// gesture the user may well repeat at once.
+  bool get collapsesAfterDrain => true;
 }
 
 /// An intent about one platform entry, carrying the payload it rang or was
@@ -109,6 +116,29 @@ final class OpenAlertsHubIntent extends AlertIntent {
   Object get dedupeKey => key;
 }
 
+/// The Quick Settings tile or the launcher shortcut was tapped (OS-5, **B9**):
+/// open the quick-alarm sheet, on today.
+///
+/// Payload-less like [OpenAlertsHubIntent], and for the same reason — the
+/// phone is asking for a new alarm, not naming one. It dedupes against another
+/// quick-alarm intent (the activity's own record and the warm push of one
+/// tap) and against nothing else.
+final class QuickAlarmIntent extends AlertIntent {
+  const QuickAlarmIntent();
+
+  static const String key = 'quick-alarm';
+
+  @override
+  Object get dedupeKey => key;
+
+  /// A tile tapped again five seconds after the sheet it opened was
+  /// dismissed is a second request, not an echo: one tap is delivered once
+  /// (the activity's record for a cold start, the push for a warm one), and
+  /// a batch already collapses the two if they ever met.
+  @override
+  bool get collapsesAfterDrain => false;
+}
+
 /// Holds alert taps that arrive before there is a `Navigator` to push onto.
 ///
 /// A cold-start tap is delivered while `main()` is still running: the app has
@@ -170,7 +200,7 @@ class PendingNavigationQueue extends ChangeNotifier {
   /// something was actually added.
   void enqueue(AlertIntent intent) {
     final key = intent.dedupeKey;
-    if (_isEcho(key)) return;
+    if (intent.collapsesAfterDrain && _isEcho(key)) return;
     if (!_queuedKeys.add(key)) return;
     _queued.add(intent);
     notifyListeners();

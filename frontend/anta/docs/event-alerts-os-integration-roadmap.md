@@ -1,8 +1,11 @@
 # Event Alerts — OS Integration Roadmap (2026-09-22)
 
-**Status: OS-1 to OS-4 DONE 2026-09-22, OS-5 DONE 2026-09-23 for the
-session chip (emulator API 36.1; the owner's phone pass of §9 is owed) with
-the tile and shortcut BLOCKED on the parent's Session 6. OS-6 PROPOSED.** Follow-up to
+**Status: OS-1 to OS-4 DONE 2026-09-22, OS-5 DONE 2026-09-23 in full —
+the session chip in the morning, the tile and shortcut the same afternoon
+once the parent's Session 6 shipped the quick-alarm sheet (emulator API
+36.1; the owner's phone pass of §9 is still owed, no phone was attached).
+OS-6 PROPOSED. The upstream PR for the fork's two patches is prepared as
+`tool/upstream/alarm_pr.sh` and needs a logged-in `gh`.** Follow-up to
 [event-alerts-roadmap.md](event-alerts-roadmap.md) (Sessions 1–5 shipped
 there; 6–9 still open, and OS-5's tile depends on Session 6). This file does not reopen any A-decision of the
 parent; it adds B-decisions on top of the shipped tree and orders the work by
@@ -234,8 +237,32 @@ warm-push / consume-once pair the show intent uses.
 deprecated from API 34 — on the launcher intent with action
 `com.alexzamfir.anta.QUICK_ALARM`) and a static `shortcuts.xml` entry with
 the same action. `MainActivity` reports it like the SHOW action; the app
-opens the quick-alarm sheet. **Blocked until the parent's Session 6 ships
-the sheet.**
+opens the quick-alarm sheet.
+
+**Shipped (OS-5 second half, 2026-09-23).** As above: `QuickAlarmTileService`
+(`onStartListening` keeps the tile `STATE_ACTIVE` — an action tile, which
+the manifest's `TOGGLEABLE_TILE=false` meta-data says for accessibility so
+no ROM draws it dimmed; `onClick` goes through `unlockAndRun` on a locked
+phone, since the sheet writes an event; the `PendingIntent` overload of
+`startActivityAndCollapse` from API 34, the `Intent` one below),
+`res/xml/shortcuts.xml` (static, `ic_alert`, the same action, referenced
+from the activity's `android.app.shortcuts` meta-data), and the tile
+service in the manifest under `BIND_QUICK_SETTINGS_TILE`. The tile's and
+the shortcut's labels are **Android string resources**
+(`res/values/strings.xml` + `values-de` + `values-ro`), not ARB keys — the
+system draws them with no Dart running, so `AppLocalizations` cannot reach
+them; the roadmap's "ARB keys ×3 for the tile label and the shortcut" was
+wrong on that point. `MainActivity` records the action from `onCreate` and
+`onNewIntent` (`consumeQuickAlarmRequest`, true once; a warm `quickAlarm`
+push whose acknowledgement clears the flag), the gateway answers
+`QuickAlarmIntent` (payload-less, keyed `quick-alarm`) from either, and
+`main.dart`'s drain calls `AppNavigator.toCalendarQuickAlarm()`: the
+calendar collapsed onto when live, root-pushed under the `calendar` stamp
+otherwise, and a `QuickAlarmRequest` (`lib/services/quick_alarm_request.dart`,
+the `AlertSkipNotice` shape, five-minute freshness) published **after** the
+navigation, which `CalendarPage` serves on **today** — the tile is "an
+alarm, now", whatever day the calendar showed — once its state is loaded,
+through the same sheet guard the FAB's long press uses.
 
 **Latent gap fixed on the way (found 2026-09-22).** `alerts_alarm`, the
 fallback tier's channel, was created without a sound, so a flipped A5 switch
@@ -964,6 +991,35 @@ Device (emulator-5554, the rebuilt driver build with the fixes):
 - Not re-run on device: *Open note* on a trashed note (the fix is the calendar's own `getNotesByIds` rule, pinned by the repository test), the editor's title from `metadata` (the same editor path the calendar and the restore use), the collapse onto a live editor (no cold-start-into-the-same-note fixture in the QA harness), the clocks-change end (no such day on the emulator's clock), the negative id (visible in the record above).
 - Emulator restored: `locksettings set-disabled true` (the keyguard enabled for OS-1's lock-screen check).
 
+#### Tile and shortcut report — 2026-09-23, Claude Fable 5.1 (the half blocked in the morning, unblocked by the parent's Session 6 quick alarm shipped the same afternoon)
+
+Shipped:
+- (3) `QuickAlarmTileService` — **as specified, with two additions**: `onStartListening` keeps the tile `STATE_ACTIVE` (an action tile, not a toggle; the manifest's `TOGGLEABLE_TILE=false` meta-data says so for accessibility) and `onClick` goes through `unlockAndRun` when the phone is locked, because the sheet writes an event. `startActivityAndCollapse(PendingIntent)` from API 34 (`FLAG_UPDATE_CURRENT | FLAG_IMMUTABLE`, request code `0x5E57`), the deprecated `Intent` overload below it; the intent is `MainActivity` with `ACTION_QUICK_ALARM` (`com.alexzamfir.anta.QUICK_ALARM`) and `NEW_TASK | SINGLE_TOP`, built once in the companion for both entries. `res/xml/shortcuts.xml`: one static shortcut (`quick_alarm`, `ic_alert`, the same action targeting `MainActivity`), referenced from the activity's `android.app.shortcuts` meta-data. Manifest: the service under `BIND_QUICK_SETTINGS_TILE` with the `QS_TILE` filter. **Deviation:** the labels are **Android string resources** — `res/values/strings.xml`, `values-de`, `values-ro` (`quick_alarm_tile`, `quick_alarm_shortcut_short`, `quick_alarm_shortcut_long`) — not ARB keys: the system draws them with no Dart running, so `AppLocalizations` cannot own them; the roadmap's "ARB keys ×3 for the tile label and the shortcut" was wrong on that point (the chip's actions, the other half of that sentence, were already ARB in the morning). `MainActivity`: `recordQuickAlarmRequest` from `onCreate` and `onNewIntent`, `consumeQuickAlarmRequest` (true once) on the alerts channel, a warm `quickAlarm` push whose `success` clears the flag — the show intent's shape line for line.
+- `QuickAlarmIntent` (`pending_navigation.dart`): payload-less, keyed `quick-alarm`, dedupes against itself only. `AndroidAlertGateway`: the `quickAlarm` platform call enqueues it; `launchIntent()` asks `consumeQuickAlarmRequest` last, after the notification details, the session open and the show request. `main.dart`'s drain: `case QuickAlarmIntent(): AppNavigator.toCalendarQuickAlarm()`.
+- **Deviation in mechanism:** the drain does not open the sheet itself. `AppNavigator.toCalendarQuickAlarm()` collapses onto a live calendar route or root-pushes `CalendarPage` under the `calendar` stamp, then publishes a `QuickAlarmRequest` (`lib/services/quick_alarm_request.dart`, the `AlertSkipNotice` shape: one pending request, five-minute freshness, `take()` once) — published **after** the navigation so a live page's listener runs once the collapse is under way and a pushed page finds it waiting at mount — and `CalendarPage` serves it on **today** (`_serveQuickAlarmRequest`, the listener + post-frame pair, plus a `BlocListener` for a request that arrived before `CalendarPageLoaded`, since the create needs the loaded state) through the same `SheetGuard` the FAB's long press uses. The sheet lives on the page because the page owns the guard, the bloc dispatch and the Undo snackbar; a sheet pushed from the drain would have to re-create all three.
+
+Not shipped: nothing in this half's scope.
+
+Tests: `test/services/pending_navigation_test.dart` "a quick-alarm intent dedupes against itself and nothing else" (two intents and a hub intent → two drained; an echo after the drain swallowed); `test/services/quick_alarm_request_test.dart` (3): "hands a fresh request over once", "a second tap before the first is served is the same tap", "a request nobody served within the freshness window is dropped"; `test/widgets/calendar_quick_alarm_test.dart` (4) — the "widget test that the drain opens the sheet", on the page rather than on `main.dart` (whose switch case is one line and has no harness): "a request waiting at mount opens the sheet on today", "a request arriving while the page is up opens the sheet too", "a stale request opens nothing", "Save makes one event with one alert, and Undo deletes it" (the tap on the fake clock, the database write polled under `runAsync` — a tap inside `runAsync` registers the route and snackbar animations' continuations in the real zone, which then run against a torn-down tree). The `launchIntent()` order is not unit-tested: the binding is never constructed on a test host (the file's own rule).
+
+Gates: the parent's Session 6 report lists them — one tree, one run: `flutter test` `+5648 ~7: All tests passed!`, `dart analyze lib test` 2 known warnings, `dart analyze packages/alarm/lib` clean, the fork's 50 Kotlin tests green, `untranslated.txt` `{}`.
+
+Device: emulator-5554 (API 36.1), the same `qa run --fresh` build as the Session 6 pass (`build/app/tmp/kotlin-classes/debug/com/alexzamfir/anta/QuickAlarmTileService.class`, `QuickAlarmTileService$Companion.class`).
+- The tile appears in Quick Settings and opens the sheet — **pass**: the tile was added from the host with `adb shell cmd statusbar add-tile com.alexzamfir.anta/.QuickAlarmTileService` (the harness has no verb; a device-UI setting, no app data — recorded in the `qa-emulator` skill as the second sanctioned by-hand call); two `swipe down` and a native `look --all` listed `#26 View "Quick alarm" [42,526][276,715]` at the top-left of the panel, drawn active, beside the ROM's own `"Alarm, Wed 11:33 AM"` row (`build/qa/shots/20260923_111321_os5_01_quick_settings.png`); a native tap at 159,620 logged `ActivityTaskManager: START u0 {act=com.alexzamfir.anta.QUICK_ALARM flg=0x30000000 xflg=0x4 cmp=com.alexzamfir.anta/.MainActivity} with LAUNCH_SINGLE_TOP from uid 10224 … (BAL_ALLOW_NON_APP_VISIBLE_WINDOW [realCaller])` at 11:13:36 — the warm `onNewIntent` → `quickAlarm` push — and the agent found `Button "Save" id=quick-alarm-save`, `"Quick alarm"`, `"Today"` (`…_111341_os5_02_sheet_from_tile.png`). The Quick Settings *editor* itself was not opened (the tile reached the panel through `add-tile`); the service is declared and bound, which is what the editor lists.
+- The shortcut — **pass**: `dumpsys shortcut` lists under `Package: com.alexzamfir.anta` a `ShortcutInfo {id=quick_alarm, flags=0x1a4 [ImManIc-rStr] … activity=ComponentInfo{com.alexzamfir.anta/com.alexzamfir.anta.MainActivity}` (a manifest shortcut with an icon); `key home` (native), `swipe up` for the app drawer (`…_111409_os5_03_app_drawer.png`, `TextView "ANTA" id=icon`), `longpress "#20"` → the bubble `TextView "Set a quick alarm" id=bubble_text` (`…_111502_os5_04_icon_longpress.png`), tap → `START u0 {act=com.alexzamfir.anta.QUICK_ALARM flg=0x1000c000 cmp=com.alexzamfir.anta/.MainActivity bnds=[89,594][656,731]} with LAUNCH_SINGLE_TOP … (BAL_ALLOW_VISIBLE_WINDOW [realCaller])` at 11:15:14 → the sheet (`…_111520_os5_05_sheet_from_shortcut.png`, `"Quick alarm"`, `"Today"`).
+- Both halves of the activity's report — **pass**, one each: the shortcut's launch flags `0x1000c000` are `NEW_TASK | CLEAR_TASK | TASK_ON_HOME`, so the launcher finished the standing activity and recreated it — `ActivityTaskManager: Displayed com.alexzamfir.anta/.MainActivity for user 0: +1s867ms` at 11:15:16 and a fresh engine's `[AlertScheduler] reconcile(launch) backend=alarm planned=1 scheduled=0 cancelled=0` at 11:15:17 — which is the **cold** half (`onCreate` → `recordQuickAlarmRequest`, `launchIntent()` → `consumeQuickAlarmRequest`), while the tile's `0x30000000` (`NEW_TASK | SINGLE_TOP`) reached the standing activity through `onNewIntent` — the **warm** push. (`LAUNCH_SINGLE_TOP` in both lines is the manifest's launch mode, not the delivery.) The report first read the shortcut as warm; the review caught it.
+- `qa errors` after the pass: one entry, the month-pager precision assert (`RenderSliverFixedExtentBoxAdaptor.computeMaxScrollOffset() … itemExtent 411.42857142857144 … difference 1.08e-10`) at 11:15:16 when the shortcut brought the calendar back — the OS-3 record's debug-only framework assert on this emulator's 411.43 dp width, not compiled into a release build; nothing else.
+
+Open (for the reviewer first): the tile's `STATE_ACTIVE` (a permanently highlighted tile on some ROMs); `unlockAndRun` versus letting the sheet open over the keyguard; the request served on today rather than the calendar's selected day; a request that arrives while another sheet holds the guard is consumed and opens nothing (parity with the occurrence request, and the tile is a foreground tap the user sees answer nothing); the string resources as the one non-ARB copy; `launchIntent()` asking the activity three times on a cold start.
+
+#### Fix report — 2026-09-23 (the same review; findings 3 and 4 are this half's)
+
+- **Finding 3 (should fix) — fixed.** The cold-half line above read the shortcut's launch as warm; its flags `0x1000c000` are `NEW_TASK | CLEAR_TASK | TASK_ON_HOME`, the activity was recreated (`Displayed … MainActivity … +1s867ms`) and a fresh engine ran `reconcile(launch)` at 11:15:17 — so the shortcut proved the cold `consumeQuickAlarmRequest` → `launchIntent()` half and the tile the warm `quickAlarm` push. The bullet now says so and names the lines.
+- **Finding 4 (should fix, low) — fixed.** `QuickAlarmIntent.collapsesAfterDrain` is false (`AlertIntent` gains the getter, true by default), so `PendingNavigationQueue`'s five-second echo window — there for the notification plugin's 8 ms double delivery — no longer swallows a tile tapped again right after its sheet was dismissed. Test in `pending_navigation_test.dart`.
+- Findings 1 and 2 are the parent's (the sheet's base day; §3.4) — fixed there.
+
+Verify: the parent's Session 6 fix report — one tree, one run: `flutter test` `+5649 ~7: All tests passed!`, `dart analyze lib test` 2 known warnings, the fork untouched. Device: not re-run for this half; the tile and the shortcut do not pass through the changed lines except the queue's echo rule, which is pinned by its test.
+
 ### OS-6 — iOS through AlarmKit
 
 Written when the parent's Session 8 is done and the Mac can build the
@@ -972,6 +1028,19 @@ verifying every AlarmKit API name against the current reference and
 recording the iOS version tested.
 
 ### 8.7 The single-run prompt (OS-1 to OS-5)
+
+#### Run report — 2026-09-23 (second run), Claude Fable 5.1: the parent's Session 6 quick alarm, OS-5's tile and shortcut, the upstream PR, the §9 phone pass
+
+The owner's brief for this run: run the §9 phone pass, open the upstream PR for the fork's two patches, ship the parent's Session 6 quick-alarm sheet, then the tile and shortcut half of OS-5, and push. What happened, in the brief's order:
+
+| Item | Status | Where |
+| --- | --- | --- |
+| §9 phone pass | **not run — no phone.** `adb devices` listed nothing on this Mac all run (the iOS simulator and the API 36.1 AVD are the only devices); nothing in §9 was claimed. The emulator-only questions stay open: the lock-screen line's tap, the overnight ring, the reboot case, an OEM's rendering of the promoted chip, a page-snoozed alarm's second ring. | §9 below, the line dated 2026-09-23 |
+| Upstream PR | **prepared, not opened.** This run has no GitHub identity of its own and `gh` is not logged in here. `tool/upstream/alarm_pr.sh` clones `gdelataillade/alarm` at `v5.13.2` (which is still upstream `main`'s head, `d95d7a8`), rebuilds the two patches from `packages/alarm/`'s own files as two commits plus a changelog commit (131 insertions over five files, `--dry-run` verified 2026-09-23), pushes to a fork under the `gh` account and opens the PR with the body it carries. One command once `gh auth login` has run. | `tool/upstream/alarm_pr.sh`, `CLAUDE.md` commands, §11 |
+| Session 6 quick alarm | **shipped** (the sheet half; template alerts stay open) — `flutter test` 5615 → 5648 with OS-5's half; emulator pass: FAB long-press → Alarm… → In 20 min → the event on today, one alarm-clock entry, the hub row; the ring's Stop/Undo row is in the Session report. | parent roadmap, Session 6 report |
+| OS-5 tile and shortcut | **shipped** — the tile added and tapped on the emulator, the launcher shortcut long-pressed and tapped, both landing on the sheet with the `QUICK_ALARM` launch record. | OS-5, "Tile and shortcut report" |
+| Review / fix / verify | **done** — one fresh Fable subagent reviewed both halves on the working tree (Prompt B adapted): verdict *ship*, four should-fix findings (the sheet's base day on a hand-picked time, a stale §3.4 sentence, the shortcut's cold-vs-warm wording, the echo window swallowing a repeated tile tap), all fixed with tests; `flutter test` 5615 → 5649 over the run. | the Session 6 and OS-5 fix reports |
+| Push | **pushed** — this run is one commit on top of the first run's five, `git push origin main`, done at the end of the run. | — |
 
 #### Run report — 2026-09-22/23, Claude Fable 5.1 (one run of this prompt, OS-1 to OS-5)
 
@@ -1084,6 +1153,20 @@ reference).
 
 ## 9. Verification checklist (owner's phone, after OS-1)
 
+**2026-09-23: not run.** The second run (§8.7) was asked to run this pass and
+could not: no phone was attached to the Mac (`adb devices` empty; only the
+iOS simulator and the API 36.1 AVD). Every row below is still owed, and so
+are the emulator's open questions from the first run — the lock-screen
+line's tap, an overnight ring, the reboot case, the OEM's rendering of the
+promoted session chip, and a page-snoozed alarm's second ring (seen page-less
+twice in OS-3's first process, never since; the two diagnostics added then
+will name it if it recurs: `[AndroidAlertGateway] ring <id> already tracked`,
+`[main] no page for <id>: ring already over` — and a third from this run,
+`[main] ring <id> queued while <lifecycle>, navigator ready: <bool>`, for the
+one cause the other two cannot see: a ring queued while the app was paused
+produces no frame to push the page in, which is what a heads-up ring on an
+unlocked phone with another app in front looks like).
+
 Copy the parent's §9 rows and add:
 
 - [ ] `adb shell dumpsys alarm > alarm.txt`: every ANTA alarm-tier entry
@@ -1114,6 +1197,10 @@ Copy the parent's §9 rows and add:
       build, `adb shell run-as com.alexzamfir.anta ls files` on the
       emulator; on the release-signed phone build the deleted code path is
       the evidence.)
+- [ ] The Quick Settings tile (OS-5): in the editor under the app's name,
+      opens the quick-alarm sheet from the panel, and from the lock screen
+      asks to unlock first; the launcher shortcut on the OEM's launcher does
+      the same.
 - [ ] Vendor and OS version recorded here.
 
 ## 10. Docs to update when a session ships
@@ -1131,7 +1218,7 @@ Copy the parent's §9 rows and add:
 
 | Risk | Mitigation |
 | --- | --- |
-| A second forked plugin to carry | The patch is two Kotlin functions and never touches generated bindings; the upstream PR is opened in the same session, and a merge lets the fork go. |
+| A second forked plugin to carry | The patch is two Kotlin functions and never touches generated bindings; the upstream PR is prepared as `tool/upstream/alarm_pr.sh` (three commits over `v5.13.2`, the body included; `--dry-run` shows the diff) and needs only a logged-in `gh` to open, and a merge lets the fork go. |
 | `setAlarmClock` on Android 12–13 without the exact-alarm permission | Same fallback as today (inexact); the permission page already explains and links it. |
 | OEM surfaces showing ANTA in their own alarm lists (Samsung Clock, some launchers) | Expected and correct — it *is* the phone's next alarm. The show intent makes the tap land somewhere sensible. |
 | Forty-eight alarm-clock entries | Only the soonest is ever shown; the count is unchanged from today and far under the 500 limit. |

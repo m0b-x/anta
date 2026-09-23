@@ -84,6 +84,9 @@ private const val LEGACY_ALARM_SOUND_DIR = "alert_sounds"
  * chip ([SessionChip], OS-5), and `consumeSessionOpenRequest` answers the
  * chip's *Open note* the way the show intent is answered — the payload it
  * carried once, then null — with a warm activity pushing `openSession`.
+ * `consumeQuickAlarmRequest` is the same pair for the Quick Settings tile and
+ * the launcher shortcut ([QuickAlarmTileService.ACTION_QUICK_ALARM], OS-5):
+ * true once for a cold start, `quickAlarm` pushed for a warm one.
  *
  * The two **sound** methods exist because the platform's ringtone picker and
  * titles have no Dart binding. `pickAlarmSound` runs the system picker (alarm
@@ -126,11 +129,19 @@ class MainActivity : FlutterActivity() {
      */
     private var pendingSessionOpen: String? = null
 
+    /**
+     * Whether the Quick Settings tile or the launcher shortcut started this
+     * activity and Dart has not been told — [showAlarmsRequested] for the
+     * quick-alarm sheet.
+     */
+    private var quickAlarmRequested = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         SessionChip.clearIfStale(this)
         recordShowAlarmsRequest(intent)
         recordSessionOpenRequest(intent)
+        recordQuickAlarmRequest(intent)
     }
 
     /**
@@ -142,6 +153,22 @@ class MainActivity : FlutterActivity() {
      */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        if (recordQuickAlarmRequest(intent)) {
+            alertsChannel?.invokeMethod(
+                "quickAlarm",
+                null,
+                object : MethodChannel.Result {
+                    override fun success(result: Any?) {
+                        quickAlarmRequested = false
+                    }
+
+                    override fun error(code: String, message: String?, details: Any?) {}
+
+                    override fun notImplemented() {}
+                }
+            )
+            return
+        }
         if (recordSessionOpenRequest(intent)) {
             alertsChannel?.invokeMethod(
                 "openSession",
@@ -198,6 +225,18 @@ class MainActivity : FlutterActivity() {
         return payload
     }
 
+    private fun recordQuickAlarmRequest(intent: Intent?): Boolean {
+        if (intent?.action != QuickAlarmTileService.ACTION_QUICK_ALARM) return false
+        quickAlarmRequested = true
+        return true
+    }
+
+    private fun consumeQuickAlarmRequest(): Boolean {
+        val requested = quickAlarmRequested
+        quickAlarmRequested = false
+        return requested
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         val messenger = flutterEngine.dartExecutor.binaryMessenger
@@ -216,6 +255,7 @@ class MainActivity : FlutterActivity() {
                     result.success(alarmSoundTitle(call.arguments as? String))
                 "consumeShowAlarmsRequest" -> result.success(consumeShowAlarmsRequest())
                 "consumeSessionOpenRequest" -> result.success(consumeSessionOpenRequest())
+                "consumeQuickAlarmRequest" -> result.success(consumeQuickAlarmRequest())
                 "showSessionChip" ->
                     result.success(SessionChip.show(this, call.arguments as? Map<*, *> ?: emptyMap<Any, Any>()))
                 "clearSessionChip" -> {

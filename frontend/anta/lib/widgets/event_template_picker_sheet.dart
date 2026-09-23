@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../constants/calendar_templates.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/event_template.dart';
 import '../utils/event_template_summary.dart';
+import 'automation_id.dart';
 
 /// What the template picker returned.
 sealed class EventTemplateChoice {
@@ -22,6 +24,12 @@ class EventTemplatePicked extends EventTemplateChoice {
 /// silently open a second one.
 class EventTemplateBlank extends EventTemplateChoice {
   const EventTemplateBlank();
+}
+
+/// The user chose the quick-alarm sheet (parent roadmap §5.8): an alarm on
+/// the pressed day with the fewest taps, rather than a template or the form.
+class EventTemplateQuickAlarm extends EventTemplateChoice {
+  const EventTemplateQuickAlarm();
 }
 
 /// Bottom-sheet selector for an event template, used by the calendar's
@@ -71,9 +79,28 @@ class EventTemplatePickerSheet extends StatelessWidget {
         Expanded(
           child: ListView.builder(
             padding: EdgeInsets.fromLTRB(8, 4, 8, 4 + bottomClearance),
-            itemCount: templates.length + 1,
+            // The two neutral rows sit below the templates, the alarm first:
+            // it is the row the sheet exists for when there are no templates
+            // at all, which is why the FAB long press always opens it.
+            itemCount: templates.length + 2,
             itemBuilder: (context, index) {
               if (index == templates.length) {
+                return AutomationId(
+                  identifier: SemanticsIds.quickAlarmRow,
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: theme.colorScheme.primaryContainer,
+                      foregroundColor: theme.colorScheme.onPrimaryContainer,
+                      child: const Icon(Icons.alarm_add_rounded),
+                    ),
+                    title: Text(l10n.quickAlarmRow),
+                    onTap: () => Navigator.of(
+                      context,
+                    ).pop(const EventTemplateQuickAlarm()),
+                  ),
+                );
+              }
+              if (index == templates.length + 1) {
                 return ListTile(
                   leading: CircleAvatar(
                     backgroundColor: theme.colorScheme.surfaceContainerHighest,

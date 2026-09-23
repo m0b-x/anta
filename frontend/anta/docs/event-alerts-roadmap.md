@@ -56,8 +56,11 @@ icon and description excerpt. **OS-5 DONE 2026-09-23 (chip only)**: the session 
 notification per acknowledged alarm, promoted with a progress bar on
 Android 16 where the user allows it, a chronometer otherwise, with *Open
 note* and *Done* — through a native `SessionChip` behind
-`AlertGateway.showSessionChip`; the quick-settings tile and the shortcut
-stay blocked on Session 6's quick-alarm sheet.
+`AlertGateway.showSessionChip`. **Session 6 DONE 2026-09-23 for the quick
+alarm** (§5.8: the picker's `Alarm…` row, always reachable, and
+`QuickAlarmSheet`; the template-alerts half with its v41 migration is still
+open) and **OS-5 completed the same day** with the Quick Settings tile and
+the launcher shortcut into that sheet.
 
 ## 0. What an alert is, and is not
 
@@ -327,7 +330,8 @@ the active database name (`DatabaseManager.getActiveDatabaseName()`).
   notifications carry the event's colour, icon and description excerpt —
   §12 "Alarm log and richer content".
   **OS-5 (2026-09-23):** an acknowledged ring posts the session chip (B8) —
-  §12 "Session chip"; the tile and shortcut (B9) wait for Session 6.
+  §12 "Session chip"; the tile and shortcut (B9) shipped the same day into
+  Session 6's `QuickAlarmSheet` — §12 "Tile and shortcut".
 - **Fallback alarm (notification plugin):** `alarmClock` mode,
   `fullScreenIntent: true`, `category: alarm`, `audioAttributesUsage:
   alarm`, `additionalFlags: Int32List.fromList([4])`, `ongoing: true`,
@@ -686,6 +690,22 @@ the remove switch (on). Save → `CreateCalendarEvent` on the selected day
 `removeAfterAlert: true`) with one alert (`offsetMinutes: 0`) → snackbar
 `quickAlarmSet` with Undo (the existing template-add pattern, `:1246-1256`).
 
+**Shipped (Session 6, 2026-09-23) — as above, with these decisions.** The
+arithmetic lives in `lib/utils/quick_alarm.dart`, pure and tested: the
+opening time is the next quarter hour strictly after now (23:50 opens on
+00:00 tomorrow), *In 20 min* / *In 1 hour* round **up** to the whole minute
+so the alarm is never less than the offset away, *Tonight* is disabled once
+21:00 has passed rather than quietly meaning tomorrow night, and a time
+already gone on the opened day rolls to today or tomorrow
+(`quickAlarmDayFor`, the clock-app rule) with the sheet's caption naming
+the day it will land on. A blank name saves as "Alarm"; a reminder never
+carries `removeAfterAlert`. The sheet reports a `QuickAlarmDraft` and the
+page mints the event and the alert (`buildQuickAlarmEvent`,
+`buildQuickAlarmAlert`), so the bloc test is on the builders. The snackbar
+names the time, and the day when it is not today (`quickAlarmSetOn`).
+The tile and shortcut of the OS roadmap reach the same sheet through a
+`QuickAlarmRequest` the page serves on today.
+
 ## 6. Platform
 
 ### 6.1 Android (Phase 1)
@@ -842,7 +862,7 @@ add dependencies from Git Bash (PowerShell 5.1 eats the caret, §10.2).
 | 3 | Android gateway and the ring — **DONE 2026-09-16** (emulator; owner's phone pass owed) | 1c | S2, P2, P3 | emulator + phone | Test alarm in 10 s rings on a locked screen, alarm page Stop / Snooze work, force-stop copy in place |
 | 4 | Editor, detail, rows | 1d | S3 | emulator, then §9 rows 1–7 on the phone | the Phase 1 acceptance: one-time alarm end to end, remove-after + Undo |
 | 5 | Recurrence proven, missed path, hub | 2a | S4 | emulator, §9 row 8 | Mon/Wed/Fri recipe passes, Alerts hub live |
-| 6 | Quick alarm and templates | 2b | S5, P2 (A11) | emulator | FAB long-press → Alarm… → rings; v41 template alerts |
+| 6 | Quick alarm and templates — **quick alarm DONE 2026-09-23**; template alerts (v41) open | 2b | S5, P2 (A11) | emulator | FAB long-press → Alarm… → rings; v41 template alerts |
 | 7 | Power and harness | 3 | S6 | emulator | sound picker, presence prompt, `qa alerts` / `qa fire` |
 | 8 | iOS runner builds | 4a | S7, the Mac | simulator | `flutter run` on a simulator reaches the browser |
 | 9 | `DarwinAlertGateway` | 4b | S8, an iPhone | iPhone | §6.2 acceptance |
@@ -1281,6 +1301,50 @@ closes Phase 2.
 > registration; set one 2 minutes ahead, lock, Stop, confirm the event is
 > gone from the day list and Undo restores it; create a template with an
 > alert and confirm an event made from it carries the alert.
+
+#### Session report — 2026-09-23, Claude Fable 5.1 (the quick-alarm half; run with OS-5's tile and shortcut)
+
+Shipped (§5.8, the half the owner asked for — the OS roadmap's tile needed it):
+- `EventTemplatePickerSheet`: the `Alarm…` row (`EventTemplateQuickAlarm`, `SemanticsIds.quickAlarmRow`, `alarm_add_rounded` on a primary-container avatar) above *Blank event*; `CalendarPage._quickAddFromTemplateBody` always opens the picker — the `CalendarTemplates.isEmpty` fall-through to the editor is gone, and so is the page's import of `calendar_templates.dart`.
+- `QuickAlarmSheet` (`lib/widgets/quick_alarm_sheet.dart`) — **as specified**, `showModalBottomSheet` at 0.7 with the alert editor's header (close | title | Save, `SemanticsIds.quickAlarmSave`), a `SingleChildScrollView` padded by the clearance rule: the big time as a `TextButton` (`displayLarge`, tabular figures, `quickAlarmPickTime` tooltip, `showTimePicker`), a caption naming the day it will land on (`AgendaListView.shortDayLabel`), the three `ChoiceChip`s, the name field (`TextField`, `eventTitle` label, seeded with `quickAlarmName` = "Alarm" in `didChangeDependencies`), the Type `SegmentedButton` with Alarm first and selected, the ring/notify hint, and the *Remove after it rings* card shown for the alarm tier only and cleared when the tier changes (the editor's rule). **Decisions the prompt left open:** the opening time is the next quarter hour *strictly after* now and rolls into tomorrow after 23:45; *In 20 min* / *In 1 hour* round **up** to the whole minute so the alarm is never less than the offset away; *Tonight 21:00* is disabled (`onSelected: null`) once 21:00 has passed rather than quietly meaning tomorrow night; a time already gone on the opened day rolls to today or tomorrow (`quickAlarmDayFor`, resolved at Save and in the caption); a blank name saves as "Alarm"; the chip label carries the time through `EventTimeFormatter.formatMinute`, so a 12-hour locale reads "Tonight 9:00 PM". The sheet takes a `now` seam for its tests.
+- `lib/utils/quick_alarm.dart`: `QuickAlarmDraft` (day, minute, name, mode, removeAfterAlert), `quickAlarmDefaultFor`, `quickAlarmAfter`, `quickAlarmTonightFor`, `quickAlarmDayFor`, `buildQuickAlarmEvent` (one-time, `kFallbackCategoryId`, `kQuickAlarmIconKey` = `alarm`, `EventTime(startMinute)`, `removeAfterAlert` only for the alarm tier) and `buildQuickAlarmAlert` (at start, the draft's tier, the default sound). Every moment is the `DateTime(y, m, d, 0, minute)` constructor form.
+- The page: `_quickAlarmBody` mints the two ids, dispatches `CreateCalendarEvent(event: …, alerts: [alert])` and shows `quickAlarmSet(title, time)` — `quickAlarmSetOn(title, time, day)` when the day is not today — with Undo → `DeleteCalendarEvent`, the template-add pattern; `_quickAlarm` is the guarded entry for a request that owns no sheet slot (the tile's, below).
+- ARB ×3 (`quickAlarmRow`, `quickAlarmTitle`, `quickAlarmName`, `quickAlarmPickTime`, `quickAlarmIn20Min`, `quickAlarmIn1Hour`, `quickAlarmTonight{time}`, `quickAlarmSet{title,time}`, `quickAlarmSetOn{title,time,day}`); `untranslated.txt` reads `{}`. Semantics ids `quickAlarmRow`, `quickAlarmTime`, `quickAlarmName`, `quickAlarmSave`, `quickAlarmRemoveAfter`.
+
+Not shipped: **the template-alerts half** — the v41 `alerts` JSON column on `calendar_event_templates`, the template editor's Alerts rows, seeding an event's alerts from its template, the backup round-trip and the v41 parity test. Not asked for in this run and untouched, so this session stays open on that half; the ledger row says so.
+
+Tests: `flutter test` 5615 → 5648 (+33). `test/utils/quick_alarm_test.dart` (10): "is the next quarter hour strictly after now", "rolls into tomorrow after 23:45", "\"in N\" rounds up to the whole minute, and crosses midnight", "tonight is 21:00 today, and nothing once that has passed", "is the opened day while its time is still ahead", "rolls a time already gone to today or tomorrow", "is a one-time event in the fallback category with the alarm icon", "carries one alert at start in the chosen tier", "a reminder never removes the event, whatever the switch said", "the switch off keeps the event". `test/widgets/quick_alarm_sheet_test.dart` (10): "opens on the next quarter hour, today, as an alarm", "the presets move the time — rounded up, and tonight at 21:00", "tonight is disabled once 21:00 has passed", "a preset that crosses midnight lands on tomorrow", "a day still ahead keeps the day it was opened for", "the reminder tier hides the switch and never removes", "the switch off is reported, and back on again", "a typed name is the title; an emptied one falls back", "the big time opens the picker, and cancel keeps the time", "close reports nothing". `test/widgets/event_template_picker_sheet_test.dart` (2): "offers the quick alarm above the blank event with no templates", "the blank row still opens the form". `test/bloc/calendar_alerts_test.dart`, group "a quick alarm (Session 6)" (2): "creates exactly one event with one alert, reconciled once" (one write of one at-start ring alert, one `eventChanged` reconcile, `['write', 'reconcile']`), "Undo is the delete, which reconciles the event once more". `test/widgets/sheet_bottom_clearance_test.dart` "the quick-alarm sheet clears the navigation bar". The tile's four page tests are listed under the OS roadmap's OS-5 report.
+
+Gates (from a clean state):
+- `flutter gen-l10n`: run after the three `.arb` edits; `untranslated.txt` reads `{}`.
+- `dart analyze lib test`: 2 issues, the known `label_appearance_service.dart` warnings.
+- `dart analyze packages/alarm/lib`: No issues found (the fork is untouched).
+- `flutter test`: `+5648 ~7: All tests passed!`
+- `cd android && ./gradlew :alarm:testDebugUnitTest --rerun`: 50 tests, 0 failures, 0 errors (`build/alarm/test-results/testDebugUnitTest/*.xml`).
+- `git status --short`: the files named above plus the OS-5 tile set; the four generated `app_localizations*.dart` by `gen-l10n`; no key, keystore or Firebase file (`google-services.json` and `GoogleService-Info.plist` show as ignored).
+
+Device: emulator-5554, AVD `Medium_Phone_API_36.1` (Android 16 / API 36.1, `google_apis_playstore` arm64), `qa -d emulator-5554 run --fresh` (no seed: zero templates is the case §5.8 is about), driven `--via agent`.
+- FAB long-press with no templates → Alarm… — **pass**: `longpress id:calendar-add-event` → the picker with `Button "Alarm…" id=quick-alarm-row` above "Blank event" (`build/qa/shots/20260923_111214_s6_01_picker.png`); tap → the sheet: `"11:33 AM / Change time" id=quick-alarm-time`, `"Today"`, `"In 20 min" click,selected` after the tap, `"In 1 hour"`, `"Tonight 9:00 PM"`, `EditText "Title" text="Alarm"`, `"Alarm" click,selected` / `"Reminder"`, `Switch "Remove after it rings …" click,checked` (`…_111215_s6_02_sheet.png`; the tap was at 11:12:15, so 11:33 is 11:12:15 + 20 min rounded up).
+- In 20 min → the event on today with the alarm icon and one registration — **pass**: Save → the day panel row `"Alarm / 11:33 · removed after it rings / At start"` under "Wednesday, September 23 · 1 entry" with the snackbar `"Alarm set for 11:33 AM"` + `UNDO` (`…_111247_s6_03_saved.png`); `dumpsys alarm` holds exactly one ANTA entry — `RTC_WAKEUP #18 … com.alexzamfir.anta / tag=*walarm*:…AlarmReceiver / origWhen=2026-09-23 11:33:00.000 … flags=0x3 / Alarm clock: triggerTime=2026-09-23 11:33:00.000 showIntent=PendingIntent{… com.alexzamfir.anta startActivity} / idle-options … temporaryAppAllowlistReasonCode=301`; `next_alarm_formatted` = `Wed 11:33 AM`; the Alerts hub lists `Today · 11:33 AM · Alarm` with its switch (`…_111623_s6_04_hub.png`).
+- Set one a few minutes ahead, Stop, the event gone from the day list, Undo restores it — **pass**, twice: the 11:33 quick alarm above rang on time (`11:33:00.365 AudioService: Using device default alarm sound: content://settings/system/alarm_alert`, `11:33:00.436 AlarmService: Alarm rang notification for 1064973210 was processed successfully by Flutter`), the alarm page showed (`Button "Stop" id=alarm-stop`, `build/qa/shots/20260923_113321_s6_05_ring.png`), Stop → `[AlertScheduler] reconcile(ringHandled, efce7f9f-…) backend=alarm planned=0 scheduled=0 cancelled=0` (11:33:19), and the calendar — opened afterwards, since the hub had been in front — showed `"No events for this day"` with the `"Event removed"` snackbar and its `UNDO` (`…_113353_s6_06_after_stop.png`); that snackbar was let expire, so the Undo was proven on a second quick alarm set **through the time picker** (the big time → *Switch to text input mode* → Hour `11`, Minute `39` → OK; `"Alarm set for 11:39 AM"`, `next_alarm_formatted` = `Wed 11:39 AM`, `…_113624_s6_10_second_saved.png`): rang at `11:39:00.113` (`…_113903_s6_11_ring2.png`), Stop at 11:39:03 → `reconcile(ringHandled, 2f4668d5-…)` → `"No events for this day"` + `"Event removed"` (`…_113904_s6_12_removed.png`) → UNDO tapped at once → `"1 entry"` and the row `"11:39 · removed after it rings / At start"` back on Wednesday, September 23 (`…_113904_s6_13_undone.png`), `reconcile(eventChanged, 2f4668d5-…) planned=0 scheduled=0 cancelled=0` (the fire is behind now, so nothing re-arms — correct), `dumpsys alarm` holding no ANTA entry, `qa errors`: `no errors in logcat`. Not locked: the emulator's keyguard was left disabled (the OS-1 lock check is a phone item). The `[main] ring … queued while …` diagnostic added in this run (§9 of the OS roadmap) was hot-reloaded into the running build before the rings but did not print — the subscribed closure kept the old body — so it is unexercised on device; the next build carries it.
+- Create a template with an alert and confirm an event made from it carries the alert — **not run**: template alerts are not shipped.
+
+Open (for the reviewer first): the picker is now always a step for a user with no templates (one more tap before the blank form than before — §5.8 asked for it); `quickAlarmDayFor` rolling a past time forward rather than refusing Save; the `now` seam on a widget; the tile's request served on today rather than the selected day; the reminder tier offered in a sheet named "Quick alarm".
+
+#### Fix report — 2026-09-23 (review by a fresh Fable subagent, Prompt B over this half and OS-5's tile half together; verdict was *ship*, four should-fix findings, all taken)
+
+- **Finding 1 (should fix) — fixed.** `QuickAlarmSheet` keeps the opened day as its base day (`_day = widget.day` in `initState`, and again in `_pickTime`). It used to adopt the opening moment's day, and then a preset's, so a hand-picked time still ahead tonight resolved on tomorrow (23:50 → *In 1 hour* → pick 23:58 → tomorrow 23:58, a day late, with no way inside the sheet to mean tonight). `quickAlarmDayFor` still rolls a time already gone, so 23:50 still opens on 00:00 tomorrow. Test: `quick_alarm_sheet_test.dart` "a time picked by hand is on the opened day, not the preset's" (23:50, *In 1 hour* → Tomorrow; then 11:58 PM through the picker's text input → Today, `startMinute` 1438).
+- **Finding 4 (should fix, low) — fixed.** `AlertIntent.collapsesAfterDrain` (true) is what `PendingNavigationQueue.enqueue` consults before treating a repeat inside the five-second window as an echo; `QuickAlarmIntent` answers false, so a tile tapped again right after its sheet was dismissed opens the sheet again rather than nothing. The hub intent keeps its echo rule. Test: the quick-alarm case in `pending_navigation_test.dart` now asserts the second tap is queued and pins both intents' answers.
+- **Finding 2 (should fix) — fixed.** §3.4's OS-5 sentence names the shipped tile and shortcut.
+- **Finding 3 (should fix) — fixed.** The OS-5 tile report's cold-half line was wrong, see there.
+
+Verify (from a clean state, after the fixes):
+- `flutter gen-l10n`: not re-run — no `.arb` changed by the fixes; `untranslated.txt` reads `{}`.
+- `dart analyze lib test`: 2 issues, the known `label_appearance_service.dart` warnings.
+- `dart analyze packages/alarm/lib`: No issues found (untouched).
+- `flutter test`: `+5649 ~7: All tests passed!` (5648 + the picked-time case).
+- `cd android && ./gradlew :alarm:testDebugUnitTest --rerun`: 50 tests, 0 failures, 0 errors (run once this session; the fork is untouched).
+- Device: the 11:39 ring above ran on the build before these fixes; neither fix touches the ring, the removal or the Undo path. The sheet fix changes only which day a hand-picked time lands on, pinned by its widget test; the queue fix is pure Dart, pinned by its test.
 
 ### Session 7 — Power and harness (Phase 3)
 

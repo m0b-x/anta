@@ -313,6 +313,15 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       unawaited(AlertScheduler.markFiredById(payload.osId));
       // A new ring ends the session the last one opened (OS-5).
       unawaited(SessionChip.instance.clear());
+      // The page needs a frame to be pushed in, and a paused app produces
+      // none until something resumes it: when a ring shows no page, this
+      // line says whether that was the reason (OS-3's page-less second
+      // ring, seen twice and never explained).
+      debugPrint(
+        '[main] ring ${payload.osId} queued while '
+        '${WidgetsBinding.instance.lifecycleState?.name ?? 'unknown'}, '
+        'navigator ready: $_navigationReady',
+      );
       PendingNavigationQueue.instance.enqueue(
         OpenAlarmIntent(payload: payload),
       );
@@ -435,6 +444,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           unawaited(_applySkip(intent.payload));
         case OpenSessionIntent():
           unawaited(_openSession(intent.payload));
+        case QuickAlarmIntent():
+          unawaited(AppNavigator.toCalendarQuickAlarm());
       }
     }
   }

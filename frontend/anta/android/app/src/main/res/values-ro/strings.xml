@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="quick_alarm_tile">Alarmă rapidă</string>
+    <string name="quick_alarm_shortcut_short">Alarmă rapidă</string>
+    <string name="quick_alarm_shortcut_long">Setează o alarmă rapidă</string>
+</resources>
