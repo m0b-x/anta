@@ -3858,6 +3858,54 @@
   "@templateBlankEvent": {
     "description": "Row in the template picker that opens the normal empty event editor"
   },
+  "quickAlarmRow": "Alarm…",
+  "@quickAlarmRow": {
+    "description": "Row in the template picker that opens the quick-alarm sheet"
+  },
+  "quickAlarmTitle": "Quick alarm",
+  "@quickAlarmTitle": {
+    "description": "Title of the quick-alarm sheet"
+  },
+  "quickAlarmName": "Alarm",
+  "@quickAlarmName": {
+    "description": "Default name of a quick alarm's event; also used when the name field is left empty"
+  },
+  "quickAlarmPickTime": "Change time",
+  "@quickAlarmPickTime": {
+    "description": "Tooltip on the quick-alarm sheet's big time, which opens the time picker"
+  },
+  "quickAlarmIn20Min": "In 20 min",
+  "@quickAlarmIn20Min": {
+    "description": "Preset chip on the quick-alarm sheet: twenty minutes from now"
+  },
+  "quickAlarmIn1Hour": "In 1 hour",
+  "@quickAlarmIn1Hour": {
+    "description": "Preset chip on the quick-alarm sheet: one hour from now"
+  },
+  "quickAlarmTonight": "Tonight {time}",
+  "@quickAlarmTonight": {
+    "description": "Preset chip on the quick-alarm sheet: today at the given evening time",
+    "placeholders": {
+      "time": { "type": "String", "example": "21:00" }
+    }
+  },
+  "quickAlarmSet": "{title} set for {time}",
+  "@quickAlarmSet": {
+    "description": "Snackbar after a quick alarm was created for today, with Undo",
+    "placeholders": {
+      "title": { "type": "String" },
+      "time": { "type": "String", "example": "07:00" }
+    }
+  },
+  "quickAlarmSetOn": "{title} set for {time}, {day}",
+  "@quickAlarmSetOn": {
+    "description": "Snackbar after a quick alarm was created for another day, naming it",
+    "placeholders": {
+      "title": { "type": "String" },
+      "time": { "type": "String", "example": "07:00" },
+      "day": { "type": "String", "example": "Tomorrow" }
+    }
+  },
   "eventCreatedFromTemplate": "Added: {title}",
   "@eventCreatedFromTemplate": {
     "description": "Snackbar after a template created an event on the long-pressed day",

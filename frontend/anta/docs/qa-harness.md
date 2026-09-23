@@ -369,6 +369,17 @@ omit the shade window from a dump while a `shot` shows it open. The record in
 `dumpsys notification --noredact` (`id=`, `flags=`, the `extras` block) is the
 evidence to quote, not the tree.
 
+### Quick Settings tile and launcher shortcut (2026-09-23)
+
+`adb shell cmd statusbar add-tile <package>/.<TileService>` puts a declared
+tile into the panel without the editor's drag (a device-UI setting, no app
+data touched — the second by-hand call the skill sanctions, beside the
+read-only alarm queries); `dumpsys shortcut` lists a package's manifest
+shortcuts. The rest is the native path: two swipes for the full panel, a
+`look --all`, a tap by pixels, then `--via agent` for the sheet the tap
+opened; the app drawer's long-press bubble carries the shortcut's long
+label.
+
 ## Phase C — on-device suites (not shipped)
 
 `flutter_driver` and `integration_test` are both dev dependencies, the driver

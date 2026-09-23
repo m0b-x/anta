@@ -1848,8 +1848,53 @@ declaration, the same notification stands as a plain ongoing chronometer on
 Done, at the event's end (a Dart timer while the app is up; otherwise
 `SessionChip.clearIfStale` at the next launch, from the end instant the
 activity keeps in its own preferences — no database, no Dart), and on the
-next ring. The tile and the shortcut (B9) are **not** shipped: they launch
-the quick-alarm sheet of the parent's Session 6, which does not exist yet.
+next ring.
+
+**Quick alarm (parent Session 6, 2026-09-23, §5.8 there).** The fewest taps
+between "I need an alarm" and one that is armed: a long press on the
+calendar's add button opens `EventTemplatePickerSheet` **whatever the
+template count** (it used to fall through to the editor with none saved),
+whose first neutral row, *Alarm…*, above *Blank event*, opens
+`QuickAlarmSheet` (`lib/widgets/quick_alarm_sheet.dart`) — a big time
+(tap → `showTimePicker`), a caption naming the day it will land on, three
+`ChoiceChip` presets (*In 20 min*, *In 1 hour*, *Tonight 21:00*), a name
+field defaulting to "Alarm", the Type segmented control with Alarm selected
+and the *Remove after it rings* switch on, hidden for a reminder. The sheet
+is a form over the pure `lib/utils/quick_alarm.dart` and reports a
+`QuickAlarmDraft`; the page mints the event and its alert
+(`buildQuickAlarmEvent`: one-time, `categoryId: 'other'`, `iconKey:
+'alarm'`, `EventTime(startMinute)`, `removeAfterAlert` for the alarm tier
+only; `buildQuickAlarmAlert`: at start, in the draft's tier, the default
+sound), dispatches `CreateCalendarEvent(event, alerts: [alert])` at once —
+the template-add pattern — and shows "Alarm set for 07:00" (with the day
+when it is not today) with an Undo that deletes the event. The arithmetic
+is what a clock app does and is table-tested: the opening time is the next
+quarter hour strictly after now, the *In N* presets round **up** to the
+whole minute, *Tonight* is disabled once 21:00 has passed, and a time
+already gone on the opened day rolls to today or tomorrow
+(`quickAlarmDayFor`). Every moment is built in the `DateTime(y, m, d, 0,
+minute)` constructor form, so midnight rolls over and the day the clocks
+change keeps wall-clock time. The template-alerts half of Session 6 (a v41
+`alerts` column on `calendar_event_templates`) is still open.
+
+**Tile and shortcut (OS-5, B9, 2026-09-23).** The same sheet from outside
+the app: `QuickAlarmTileService` (a Quick Settings tile — an action, kept
+`STATE_ACTIVE` so no ROM dims it, `unlockAndRun` on a locked phone,
+`startActivityAndCollapse(PendingIntent)` from API 34) and a static
+launcher shortcut (`res/xml/shortcuts.xml`, referenced from the activity's
+`android.app.shortcuts` meta-data) both start `MainActivity` with
+`com.alexzamfir.anta.QUICK_ALARM`, which it reports like the alarm-clock
+show intent (`consumeQuickAlarmRequest`, once, for a cold start; a
+`quickAlarm` push for a warm one) and the gateway turns into the
+payload-less `QuickAlarmIntent`. `main.dart`'s drain calls
+`AppNavigator.toCalendarQuickAlarm()`: the calendar collapsed onto when live
+or root-pushed under its stamp, then a `QuickAlarmRequest`
+(`lib/services/quick_alarm_request.dart`, the `AlertSkipNotice` shape,
+five-minute freshness) published for it, which `CalendarPage` serves on
+**today** once its state is loaded, through the sheet guard. The tile's and
+the shortcut's labels are Android string resources (`res/values*/strings.xml`
+in the three app locales): the system draws them with no Dart running, so
+they are the one set of user-visible strings `AppLocalizations` cannot own.
 
 **Where it is edited.** The *Alerts* rows sit inside the editor's Time zone
 (`event_editor_sheet.dart`): one `_PickerTile` per alert, an "Add alert" chip

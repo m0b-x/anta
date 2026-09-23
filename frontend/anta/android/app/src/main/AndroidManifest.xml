@@ -54,7 +54,29 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- The launcher's long-press shortcut to the quick-alarm sheet
+                 (OS-5): the same QUICK_ALARM action the tile launches. -->
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
+        <!-- The Quick Settings tile to the quick-alarm sheet (OS-5). An
+             action, not a toggle, which TOGGLEABLE_TILE says for
+             accessibility; the system draws its label with no Dart running,
+             so the label is an Android string resource. -->
+        <service
+            android:name=".QuickAlarmTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_alert"
+            android:label="@string/quick_alarm_tile"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.quicksettings.TOGGLEABLE_TILE"
+                android:value="false" />
+        </service>
         <!-- Done on the session chip (OS-5): takes the chip down without
              bringing the app to the front. -->
         <receiver android:exported="false" android:name=".SessionChipReceiver" />

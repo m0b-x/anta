@@ -196,6 +196,28 @@ void main() {
     expect(OpenSessionIntent.fromPlatform('not json'), isNull);
   });
 
+  test('a quick-alarm intent dedupes against itself and nothing else', () {
+    // The tile's cold start is recorded by the activity and, if the engine
+    // was already up, pushed as well — one tap, two deliveries. The hub's
+    // show intent shares nothing with it.
+    queue.enqueue(const QuickAlarmIntent());
+    queue.enqueue(const QuickAlarmIntent());
+    queue.enqueue(const OpenAlertsHubIntent());
+
+    final drained = queue.drain();
+    expect(drained, hasLength(2));
+    expect(drained.first, isA<QuickAlarmIntent>());
+    expect(drained.first.dedupeKey, QuickAlarmIntent.key);
+    expect(drained.last, isA<OpenAlertsHubIntent>());
+
+    // A second tap right after the sheet was dismissed is a new request,
+    // not the echo of the first: a foreground gesture has no double delivery.
+    queue.enqueue(const QuickAlarmIntent());
+    expect(queue.length, 1);
+    expect(const QuickAlarmIntent().collapsesAfterDrain, isFalse);
+    expect(const OpenAlertsHubIntent().collapsesAfterDrain, isTrue);
+  });
+
   test('the app-wide instance is a singleton', () {
     expect(
       identical(PendingNavigationQueue.instance, PendingNavigationQueue.instance),

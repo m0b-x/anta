@@ -17,7 +17,6 @@ import '../constants/app_spacing.dart';
 import '../constants/calendar_bounds.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_colors.dart';
-import '../constants/calendar_templates.dart';
 import '../constants/calendar_weekend.dart';
 import '../constants/event_presence.dart';
 import '../constants/event_skips.dart';
@@ -41,6 +40,8 @@ import '../repositories/note_repository.dart';
 import '../bloc/calendar/alert_skip_action.dart';
 import '../services/alert_removal_notice.dart';
 import '../services/alert_skip_notice.dart';
+import '../services/event_time_formatter.dart';
+import '../services/quick_alarm_request.dart';
 import '../services/app_navigator.dart';
 import '../services/cell_tint_resolver.dart';
 import '../services/day_bars_resolver.dart';
@@ -55,7 +56,9 @@ import '../utils/custom_snackbar.dart';
 import '../utils/event_agenda.dart';
 import '../utils/keyboard_inset_tracker.dart';
 import '../utils/markdown_color_syntax.dart';
+import '../utils/quick_alarm.dart';
 import '../utils/wiki_link_title.dart';
+import '../widgets/agenda_list_view.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/automation_id.dart';
 import '../widgets/calendar_add_fab.dart';
@@ -71,6 +74,7 @@ import '../widgets/event_description_sheet.dart';
 import '../widgets/event_detail_sheet.dart';
 import '../widgets/event_editor_sheet.dart';
 import '../widgets/event_template_picker_sheet.dart';
+import '../widgets/quick_alarm_sheet.dart';
 import '../widgets/keyboard_coupled_size.dart';
 import '../widgets/month_year_picker_sheet.dart';
 
@@ -461,6 +465,27 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
         _serveSkipNotice();
       });
     }
+    // B9's tile and shortcut (OS-5), the same pair once more: the sheet
+    // dispatches through the bloc, so it too waits for the loaded state.
+    QuickAlarmRequest.instance.addListener(_serveQuickAlarmRequest);
+    if (QuickAlarmRequest.instance.hasPending) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _serveQuickAlarmRequest();
+      });
+    }
+  }
+
+  /// Serves — and clears — a Quick Settings tile's or a launcher shortcut's
+  /// request for the quick-alarm sheet (OS-5, **B9**), on today: the tile is
+  /// "an alarm, now", whatever day the calendar happened to be showing. Taken
+  /// only once the state can carry a create, so an early call leaves it
+  /// pending for the loaded-state listener.
+  void _serveQuickAlarmRequest() {
+    if (!mounted) return;
+    if (context.read<CalendarBloc>().state is! CalendarPageLoaded) return;
+    if (!QuickAlarmRequest.instance.take()) return;
+    final now = DateTime.now();
+    unawaited(_quickAlarm(context, DateTime.utc(now.year, now.month, now.day)));
   }
 
   /// Serves — and clears — an upcoming notice's Skip (OS-3, **B6**): one
@@ -632,6 +657,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     );
     AlertRemovalNotice.instance.removeListener(_serveRemovalNotice);
     AlertSkipNotice.instance.removeListener(_serveSkipNotice);
+    QuickAlarmRequest.instance.removeListener(_serveQuickAlarmRequest);
     _keyboardInset.removeListener(_handleKeyboardInset);
     _keyboardInset.dispose();
     _gridCollapsed.dispose();
@@ -1360,6 +1386,13 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
           listener: (context, state) => _serveSkipNotice(),
         ),
         BlocListener<CalendarBloc, CalendarPageState>(
+          // A tile or shortcut tap that arrived before the load (OS-5).
+          listenWhen: (previous, current) =>
+              current is CalendarPageLoaded &&
+              QuickAlarmRequest.instance.hasPending,
+          listener: (context, state) => _serveQuickAlarmRequest(),
+        ),
+        BlocListener<CalendarBloc, CalendarPageState>(
           // A new target day is the one moment the label is the whole point
           // of the button, wherever the list happened to be — and a day
           // panel that keeps its scroll position across the change would
@@ -1442,16 +1475,15 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     DateTime day,
   ) async {
     final normalized = DateTime.utc(day.year, day.month, day.day);
-    if (CalendarTemplates.isEmpty) {
-      await _editorSheet(context, day: normalized);
-      return;
-    }
-
+    // Always the picker, templates or not: its quick-alarm row is the point
+    // of the long press for a user who never saved a template (§5.8).
     final choice = await EventTemplatePickerSheet.show(context);
     if (choice == null || !context.mounted) return;
     switch (choice) {
       case EventTemplateBlank():
         await _editorSheet(context, day: normalized);
+      case EventTemplateQuickAlarm():
+        await _quickAlarmBody(context, normalized);
       case EventTemplatePicked(:final template):
         final l10n = AppLocalizations.of(context)!;
         final bloc = context.read<CalendarBloc>();
@@ -1477,6 +1509,45 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
           onAction: () => bloc.add(DeleteCalendarEvent(eventId: event.id)),
         );
     }
+  }
+
+  /// The quick-alarm sheet from a gesture that owns no sheet slot yet — the
+  /// tile's request. The picker's row calls the body directly, inside its
+  /// own slot.
+  Future<void> _quickAlarm(BuildContext context, DateTime day) =>
+      _sheetGuard.run<void>(() => _quickAlarmBody(context, day));
+
+  /// The quick-alarm sheet on [day] and what its draft becomes: one one-time
+  /// event with one alert at start, created in the template-add pattern —
+  /// dispatched at once, undone by deleting the event.
+  Future<void> _quickAlarmBody(BuildContext context, DateTime day) async {
+    final draft = await QuickAlarmSheet.show(context, day: day);
+    if (draft == null || !context.mounted) return;
+    final l10n = AppLocalizations.of(context)!;
+    final bloc = context.read<CalendarBloc>();
+    final eventId = const Uuid().v4();
+    final event = buildQuickAlarmEvent(draft, id: eventId);
+    final alert = buildQuickAlarmAlert(
+      draft,
+      eventId: eventId,
+      id: const Uuid().v4(),
+    );
+    bloc.add(CreateCalendarEvent(event: event, alerts: [alert]));
+    final now = DateTime.now();
+    final today = DateTime.utc(now.year, now.month, now.day);
+    final time = EventTimeFormatter.formatMinute(draft.startMinute, context);
+    CustomSnackbar.showWithAction(
+      context,
+      message: draft.day == today
+          ? l10n.quickAlarmSet(event.title, time)
+          : l10n.quickAlarmSetOn(
+              event.title,
+              time,
+              AgendaListView.shortDayLabel(l10n, draft.day, today),
+            ),
+      actionLabel: l10n.undo,
+      onAction: () => bloc.add(DeleteCalendarEvent(eventId: eventId)),
+    );
   }
 
   /// First day at or after [from] that [event] occurs on, or `null` if it does

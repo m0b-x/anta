@@ -10,6 +10,7 @@ import '../repositories/note_repository.dart';
 import '../services/drawer_host_registry.dart';
 import '../services/folder_storage_service.dart';
 import '../services/navigation_history_service.dart';
+import '../services/quick_alarm_request.dart';
 import '../services/settings_service.dart';
 import '../pages/settings_page.dart';
 import '../pages/alerts_page.dart';
@@ -471,6 +472,37 @@ abstract final class AppNavigator {
       CalendarPage(initialDay: day, initialEventId: eventId),
       destination: const NavDestination(NavDestinationKind.calendar),
     );
+  }
+
+  /// The quick-alarm sheet, asked for by the platform with no `BuildContext`
+  /// of its own — the Quick Settings tile and the launcher shortcut (OS-5,
+  /// **B9**). The calendar page owns the sheet, its guard, the bloc and the
+  /// snackbar, so the request is published for it and the page is brought
+  /// up: collapsed onto when live, the way [toCalendarOccurrence] does, else
+  /// root-pushed under the same `calendar` stamp. Published **after** the
+  /// navigation, so a live page's listener runs once the collapse is under
+  /// way and a pushed page finds the request waiting at mount.
+  static Future<void> toCalendarQuickAlarm() {
+    final navigator = navigatorKey.currentState;
+    if (navigator != null) {
+      final routes = _livePageRoutes(navigator);
+      final index = routes.lastIndexWhere((route) {
+        final destination = route.settings.arguments;
+        return destination is NavDestination &&
+            destination.kind == NavDestinationKind.calendar;
+      });
+      if (index >= 0) {
+        _collapseOnto(navigator, routes, index);
+        QuickAlarmRequest.instance.publish();
+        return Future<void>.value();
+      }
+    }
+    final pushed = rootPush<void>(
+      const CalendarPage(),
+      destination: const NavDestination(NavDestinationKind.calendar),
+    );
+    QuickAlarmRequest.instance.publish();
+    return pushed;
   }
 
   static Future<void> toCalendarSettings(BuildContext context) {

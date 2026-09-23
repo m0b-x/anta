@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Labels the system draws with no Dart running — the Quick Settings tile
+     and the launcher shortcut (event alerts OS-5). They cannot come from
+     AppLocalizations, which is why they live here, in the three app
+     locales, and nowhere else. -->
+<resources>
+    <string name="quick_alarm_tile">Quick alarm</string>
+    <string name="quick_alarm_shortcut_short">Quick alarm</string>
+    <string name="quick_alarm_shortcut_long">Set a quick alarm</string>
+</resources>

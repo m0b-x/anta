@@ -30,6 +30,7 @@ import 'package:anta/widgets/event_detail_sheet.dart';
 import 'package:anta/widgets/event_editor_sheet.dart';
 import 'package:anta/widgets/event_template_editor_sheet.dart';
 import 'package:anta/widgets/modern_editor_wrapper.dart';
+import 'package:anta/widgets/quick_alarm_sheet.dart';
 
 import '../database/support/db_test_support.dart';
 
@@ -435,6 +436,20 @@ void main() {
 
     // The footer's Remove button is the last thing in the scroll view, and it
     // is exactly what a nav bar eats.
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+  });
+
+  testWidgets('the quick-alarm sheet clears the navigation bar', (
+    tester,
+  ) async {
+    sizeSurfaceWithNavBar(tester);
+    await openFrom(
+      tester,
+      (context) =>
+          QuickAlarmSheet.show(context, day: DateTime.utc(2026, 9, 23)),
+    );
+
+    // The remove-after card is the last thing in the scroll view.
     expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
   });
 

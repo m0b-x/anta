@@ -17,6 +17,7 @@ import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/alert_scheduler.dart';
 import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/event_skip_service.dart';
+import 'package:anta/utils/quick_alarm.dart';
 
 import '../database/support/db_test_support.dart';
 
@@ -108,6 +109,64 @@ void main() {
     rule: rule,
     time: const EventTime(startMinute: 18 * 60),
   );
+
+  group('a quick alarm (Session 6)', () {
+    test('creates exactly one event with one alert, reconciled once',
+        () async {
+      await dispatch(const LoadCalendarEvents());
+      calls.clear();
+      writes.clear();
+      order.clear();
+      final draft = QuickAlarmDraft(
+        day: DateTime.utc(2026, 9, 23),
+        startMinute: 7 * 60,
+        name: 'Alarm',
+      );
+      final event = buildQuickAlarmEvent(draft, id: 'q1');
+      final alert = buildQuickAlarmAlert(draft, eventId: 'q1', id: 'qa1');
+
+      await dispatch(CreateCalendarEvent(event: event, alerts: [alert]));
+
+      final service = await CalendarEventService.getInstance();
+      final stored = service.events.where((e) => e.id == 'q1').toList();
+      expect(stored, hasLength(1));
+      expect(stored.single.removeAfterAlert, isTrue);
+      expect(stored.single.iconKey, 'alarm');
+      expect(stored.single.time?.startMinute, 7 * 60);
+      expect(writes, hasLength(1));
+      expect(writes.single.eventId, 'q1');
+      expect(writes.single.alerts, hasLength(1));
+      expect(writes.single.alerts.single.mode, AlertMode.ring);
+      expect(writes.single.alerts.single.offsetMinutes, 0);
+      expect(calls, hasLength(1));
+      expect(calls.single.eventId, 'q1');
+      expect(calls.single.reason, AlertReconcileReason.eventChanged);
+      expect(order, ['write', 'reconcile']);
+    });
+
+    test('Undo is the delete, which reconciles the event once more', () async {
+      await dispatch(const LoadCalendarEvents());
+      final draft = QuickAlarmDraft(
+        day: DateTime.utc(2026, 9, 23),
+        startMinute: 7 * 60,
+        name: 'Alarm',
+      );
+      await dispatch(
+        CreateCalendarEvent(
+          event: buildQuickAlarmEvent(draft, id: 'q2'),
+          alerts: [buildQuickAlarmAlert(draft, eventId: 'q2', id: 'qa2')],
+        ),
+      );
+      calls.clear();
+
+      await dispatch(const DeleteCalendarEvent(eventId: 'q2'));
+
+      final service = await CalendarEventService.getInstance();
+      expect(service.events.where((e) => e.id == 'q2'), isEmpty);
+      expect(calls, hasLength(1));
+      expect(calls.single.eventId, 'q2');
+    });
+  });
 
   group("an upcoming notice's Skip (OS-3)", () {
     tearDown(EventAlerts.resetCache);

@@ -3149,6 +3149,39 @@ class AppLocalizationsDe extends AppLocalizations {
   String get templateBlankEvent => 'Leerer Termin';
 
   @override
+  String get quickAlarmRow => 'Alarm…';
+
+  @override
+  String get quickAlarmTitle => 'Schnellalarm';
+
+  @override
+  String get quickAlarmName => 'Alarm';
+
+  @override
+  String get quickAlarmPickTime => 'Uhrzeit ändern';
+
+  @override
+  String get quickAlarmIn20Min => 'In 20 Min.';
+
+  @override
+  String get quickAlarmIn1Hour => 'In 1 Stunde';
+
+  @override
+  String quickAlarmTonight(String time) {
+    return 'Heute Abend $time';
+  }
+
+  @override
+  String quickAlarmSet(String title, String time) {
+    return '$title gestellt für $time';
+  }
+
+  @override
+  String quickAlarmSetOn(String title, String time, String day) {
+    return '$title gestellt für $time, $day';
+  }
+
+  @override
   String eventCreatedFromTemplate(String title) {
     return 'Hinzugefügt: $title';
   }

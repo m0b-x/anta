@@ -35,6 +35,7 @@ dart run build_runner build --delete-conflicting-outputs # after Drift table/DAO
 flutter run                                             # Android is the primary target
 flutter run -d windows                                  # quick desktop UI check (needs the VS "C++ ATL" component, below)
 ./tool/qa/qa <verb>                                     # drive a simulator, the desktop build or the emulator (see the qa-emulator skill; tool\qa\qa.cmd on Windows)
+./tool/upstream/alarm_pr.sh [--dry-run]                 # open (or, dry, only build) the upstream PR for the alarm fork's two Kotlin patches; needs a logged-in gh
 ```
 
 `flutter run -d windows` / `flutter build windows` need the Visual Studio

@@ -75,6 +75,14 @@ abstract final class SemanticsIds {
   static const String alertSheetSave = 'alert-sheet-save';
   static const String eventAlertRemoveAfter = 'event-alert-remove-after';
 
+  /// The quick-alarm sheet (parent Session 6) and the picker row that opens
+  /// it: a device pass sets an alarm in whatever language the phone is in.
+  static const String quickAlarmRow = 'quick-alarm-row';
+  static const String quickAlarmTime = 'quick-alarm-time';
+  static const String quickAlarmName = 'quick-alarm-name';
+  static const String quickAlarmSave = 'quick-alarm-save';
+  static const String quickAlarmRemoveAfter = 'quick-alarm-remove-after';
+
   static const String permissionsPromptContinue = 'permissions-prompt-continue';
   static const String permissionsPromptNotNow = 'permissions-prompt-not-now';
 }

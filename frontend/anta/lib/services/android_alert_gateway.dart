@@ -506,6 +506,9 @@ class AndroidAlertGateway extends AlertGateway {
         final intent = OpenSessionIntent.fromPlatform(call.arguments);
         if (intent != null) PendingNavigationQueue.instance.enqueue(intent);
         return null;
+      case 'quickAlarm':
+        PendingNavigationQueue.instance.enqueue(const QuickAlarmIntent());
+        return null;
       default:
         throw MissingPluginException('${call.method} is not handled here');
     }
@@ -1234,6 +1237,9 @@ class AndroidAlertGateway extends AlertGateway {
     if (_launchIntent == null && await _consumeShowAlarmsRequest()) {
       _launchIntent = const OpenAlertsHubIntent();
     }
+    if (_launchIntent == null && await _consumeQuickAlarmRequest()) {
+      _launchIntent = const QuickAlarmIntent();
+    }
     return _launchIntent;
   }
 
@@ -1284,6 +1290,19 @@ class AndroidAlertGateway extends AlertGateway {
           false;
     } catch (e) {
       debugPrint('[AndroidAlertGateway] consumeShowAlarmsRequest failed: $e');
+      return false;
+    }
+  }
+
+  /// Whether the activity was started by the Quick Settings tile or the
+  /// launcher shortcut (`QUICK_ALARM`, OS-5) and has not reported it yet —
+  /// the show intent's answer, for the other cold start.
+  Future<bool> _consumeQuickAlarmRequest() async {
+    try {
+      return await _platform.invokeMethod<bool>('consumeQuickAlarmRequest') ??
+          false;
+    } catch (e) {
+      debugPrint('[AndroidAlertGateway] consumeQuickAlarmRequest failed: $e');
       return false;
     }
   }

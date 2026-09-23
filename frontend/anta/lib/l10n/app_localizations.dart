@@ -5362,6 +5362,60 @@ abstract class AppLocalizations {
   /// **'Blank event'**
   String get templateBlankEvent;
 
+  /// Row in the template picker that opens the quick-alarm sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Alarm…'**
+  String get quickAlarmRow;
+
+  /// Title of the quick-alarm sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Quick alarm'**
+  String get quickAlarmTitle;
+
+  /// Default name of a quick alarm's event; also used when the name field is left empty
+  ///
+  /// In en, this message translates to:
+  /// **'Alarm'**
+  String get quickAlarmName;
+
+  /// Tooltip on the quick-alarm sheet's big time, which opens the time picker
+  ///
+  /// In en, this message translates to:
+  /// **'Change time'**
+  String get quickAlarmPickTime;
+
+  /// Preset chip on the quick-alarm sheet: twenty minutes from now
+  ///
+  /// In en, this message translates to:
+  /// **'In 20 min'**
+  String get quickAlarmIn20Min;
+
+  /// Preset chip on the quick-alarm sheet: one hour from now
+  ///
+  /// In en, this message translates to:
+  /// **'In 1 hour'**
+  String get quickAlarmIn1Hour;
+
+  /// Preset chip on the quick-alarm sheet: today at the given evening time
+  ///
+  /// In en, this message translates to:
+  /// **'Tonight {time}'**
+  String quickAlarmTonight(String time);
+
+  /// Snackbar after a quick alarm was created for today, with Undo
+  ///
+  /// In en, this message translates to:
+  /// **'{title} set for {time}'**
+  String quickAlarmSet(String title, String time);
+
+  /// Snackbar after a quick alarm was created for another day, naming it
+  ///
+  /// In en, this message translates to:
+  /// **'{title} set for {time}, {day}'**
+  String quickAlarmSetOn(String title, String time, String day);
+
   /// Snackbar after a template created an event on the long-pressed day
   ///
   /// In en, this message translates to:
