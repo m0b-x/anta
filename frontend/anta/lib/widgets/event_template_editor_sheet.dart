@@ -8,10 +8,13 @@ import '../models/calendar_event.dart';
 import '../models/event_template.dart';
 import '../models/recurrence_rule.dart';
 import '../services/event_template_service.dart';
+import '../services/event_time_formatter.dart';
 import '../utils/custom_snackbar.dart';
 import 'category_picker_sheet.dart';
 import 'color_swatch_picker.dart';
 import 'icon_picker_sheet.dart';
+import 'time_pad_sheet.dart';
+import 'value_change_highlight.dart';
 
 /// Repeat shape a template can capture. `SpecificDatesRecurrence` is
 /// deliberately absent: a template carries no dates, so a set of explicit ones
@@ -210,15 +213,24 @@ class _EventTemplateEditorSheetState extends State<EventTemplateEditorSheet> {
   }
 
   Future<void> _pickTime({required bool start}) async {
+    final l10n = AppLocalizations.of(context)!;
     final base = start
         ? _startMinute
         : (_startMinute + (_durationMinutes ?? _defaultDurationMinutes));
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay(hour: (base ~/ 60) % 24, minute: base % 60),
+    final duration = _durationMinutes;
+    final picked = await TimePadSheet.pick(
+      context,
+      initialMinute: base,
+      title: start ? l10n.eventStartTime : l10n.eventEndTime,
+      periodAfter: start ? null : _startMinute,
+      caption: start
+          ? (duration == null
+                ? null
+                : TimePadCaptions.endsAfter(l10n, duration))
+          : TimePadCaptions.afterStart(l10n, _startMinute),
     );
     if (picked == null || !mounted) return;
-    final minutes = picked.hour * 60 + picked.minute;
+    final minutes = picked;
     setState(() {
       if (start) {
         _startMinute = minutes;
@@ -430,33 +442,50 @@ class _EventTemplateEditorSheetState extends State<EventTemplateEditorSheet> {
                     margin: EdgeInsets.zero,
                     child: Column(
                       children: [
-                        ListTile(
-                          leading: const Icon(Icons.schedule_rounded),
-                          title: Text(l10n.eventStartTime),
-                          subtitle: Text(_formatMinutes(context, _startMinute)),
-                          onTap: () => _pickTime(start: true),
-                        ),
-                        ListTile(
-                          leading: const Icon(Icons.timelapse_rounded),
-                          title: Text(l10n.eventEndTime),
-                          subtitle: Text(
-                            _durationMinutes == null
-                                ? l10n.eventEndTimeNone
-                                : _formatMinutes(
-                                    context,
-                                    (_startMinute + _durationMinutes!) %
-                                        EventTime.minutesPerDay,
-                                  ),
+                        ValueChangeHighlight(
+                          value: _startMinute,
+                          child: ListTile(
+                            leading: const Icon(Icons.schedule_rounded),
+                            title: Text(l10n.eventStartTime),
+                            subtitle: Text(
+                              _formatMinutes(context, _startMinute),
+                            ),
+                            onTap: () => _pickTime(start: true),
                           ),
-                          trailing: _durationMinutes == null
+                        ),
+                        ValueChangeHighlight(
+                          value: _durationMinutes == null
                               ? null
-                              : IconButton(
-                                  tooltip: l10n.eventEndTimeNone,
-                                  icon: const Icon(Icons.clear_rounded),
-                                  onPressed: () =>
-                                      setState(() => _durationMinutes = null),
-                                ),
-                          onTap: () => _pickTime(start: false),
+                              : (_startMinute + _durationMinutes!) %
+                                    EventTime.minutesPerDay,
+                          child: ListTile(
+                            leading: const Icon(Icons.timelapse_rounded),
+                            title: Text(l10n.eventEndTime),
+                            subtitle: Text(
+                              _durationMinutes == null
+                                  ? l10n.eventEndTimeNone
+                                  : [
+                                      _formatMinutes(
+                                        context,
+                                        (_startMinute + _durationMinutes!) %
+                                            EventTime.minutesPerDay,
+                                      ),
+                                      EventTimeFormatter.formatDuration(
+                                        _durationMinutes!,
+                                        l10n,
+                                      ),
+                                    ].join(' · '),
+                            ),
+                            trailing: _durationMinutes == null
+                                ? null
+                                : IconButton(
+                                    tooltip: l10n.eventEndTimeNone,
+                                    icon: const Icon(Icons.clear_rounded),
+                                    onPressed: () =>
+                                        setState(() => _durationMinutes = null),
+                                  ),
+                            onTap: () => _pickTime(start: false),
+                          ),
                         ),
                       ],
                     ),

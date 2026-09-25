@@ -9159,6 +9159,72 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Recommended · {description}'**
   String permissionsPromptRecommended(String description);
+
+  /// Confirm button of the time pad sheet that sets a start, end, alert or alarm time
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get timePadDone;
+
+  /// Screen-reader label of the time pad's :00 key, which sets the minutes to zero and finishes
+  ///
+  /// In en, this message translates to:
+  /// **'On the hour'**
+  String get timePadOnTheHour;
+
+  /// Screen-reader label of the time pad's :30 key, which sets the minutes to thirty and finishes
+  ///
+  /// In en, this message translates to:
+  /// **'Half past'**
+  String get timePadHalfPast;
+
+  /// Time pad prompt on a 12-hour clock once the minutes are typed; the placeholders are the platform's AM and PM abbreviations
+  ///
+  /// In en, this message translates to:
+  /// **'{am} or {pm}?'**
+  String timePadChoosePeriod(String am, String pm);
+
+  /// Time pad caption while typing a start time: where the event's end lands
+  ///
+  /// In en, this message translates to:
+  /// **'Ends {time}'**
+  String timePadEndsAt(String time);
+
+  /// Time pad caption while typing a start time whose end crosses midnight
+  ///
+  /// In en, this message translates to:
+  /// **'Ends {time} next day'**
+  String timePadEndsNextDayAt(String time);
+
+  /// Time pad caption while typing an end time: how long after the start it is
+  ///
+  /// In en, this message translates to:
+  /// **'{duration} after {time}'**
+  String timePadAfterStart(String duration, String time);
+
+  /// An event's length under one hour
+  ///
+  /// In en, this message translates to:
+  /// **'{minutes} min'**
+  String eventDurationMinutes(int minutes);
+
+  /// An event's length in whole hours
+  ///
+  /// In en, this message translates to:
+  /// **'{hours} h'**
+  String eventDurationHours(int hours);
+
+  /// An event's length in hours and minutes
+  ///
+  /// In en, this message translates to:
+  /// **'{hours} h {minutes} min'**
+  String eventDurationHoursMinutes(int hours, int minutes);
+
+  /// Title of the time pad opened from the quick-alarm sheet's big time
+  ///
+  /// In en, this message translates to:
+  /// **'Alarm time'**
+  String get quickAlarmTime;
 }
 
 class _AppLocalizationsDelegate

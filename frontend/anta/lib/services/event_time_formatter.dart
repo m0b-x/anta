@@ -37,12 +37,17 @@ abstract final class EventTimeFormatter {
   /// the user's 12h/24h device preference. Use from widget code.
   static String formatRangeOfContext(EventTime time, BuildContext context) {
     final mat = MaterialLocalizations.of(context);
-    final start = mat.formatTimeOfDay(_toTod(time.startMinute));
+    final use24h = MediaQuery.alwaysUse24HourFormatOf(context);
+    final start = mat.formatTimeOfDay(
+      _toTod(time.startMinute),
+      alwaysUse24HourFormat: use24h,
+    );
     final endMinute = time.endMinute;
     if (endMinute == null) return start;
     final wrapped = endMinute >= EventTime.minutesPerDay;
     final endLabel = mat.formatTimeOfDay(
       _toTod(endMinute % EventTime.minutesPerDay),
+      alwaysUse24HourFormat: use24h,
     );
     if (!wrapped) return '$start – $endLabel';
     final daysOver = endMinute ~/ EventTime.minutesPerDay;
@@ -61,9 +66,18 @@ abstract final class EventTimeFormatter {
 
   /// Formats a single minute-of-day using Material's locale-aware format.
   static String formatMinute(int minute, BuildContext context) {
-    return MaterialLocalizations.of(
-      context,
-    ).formatTimeOfDay(_toTod(minute % EventTime.minutesPerDay));
+    return MaterialLocalizations.of(context).formatTimeOfDay(
+      _toTod(minute % EventTime.minutesPerDay),
+      alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(context),
+    );
+  }
+
+  static String formatDuration(int minutes, AppLocalizations l10n) {
+    final hours = minutes ~/ 60;
+    final rest = minutes % 60;
+    if (hours == 0) return l10n.eventDurationMinutes(rest);
+    if (rest == 0) return l10n.eventDurationHours(hours);
+    return l10n.eventDurationHoursMinutes(hours, rest);
   }
 
   // ── internals ────────────────────────────────────────────────────────

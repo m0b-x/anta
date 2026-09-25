@@ -401,9 +401,10 @@ class _AlertHubRow extends StatelessWidget {
   });
 
   String _clock(BuildContext context, DateTime instant) {
-    return MaterialLocalizations.of(
-      context,
-    ).formatTimeOfDay(TimeOfDay.fromDateTime(instant));
+    return MaterialLocalizations.of(context).formatTimeOfDay(
+      TimeOfDay.fromDateTime(instant),
+      alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(context),
+    );
   }
 
   @override
@@ -613,6 +614,8 @@ class _AlertHistoryRow extends StatelessWidget {
                     Text(
                       MaterialLocalizations.of(context).formatTimeOfDay(
                         TimeOfDay.fromDateTime(entry.fireAt),
+                        alwaysUse24HourFormat:
+                            MediaQuery.alwaysUse24HourFormatOf(context),
                       ),
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontFeatures: const [FontFeature.tabularFigures()],

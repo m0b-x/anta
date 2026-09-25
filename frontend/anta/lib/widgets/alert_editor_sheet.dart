@@ -15,6 +15,8 @@ import '../services/permission_service.dart';
 import '../utils/custom_snackbar.dart';
 import 'alert_sound_sheet.dart';
 import 'automation_id.dart';
+import 'time_pad_sheet.dart';
+import 'value_change_highlight.dart';
 
 /// What the sheet reports back. `null` from [AlertEditorSheet.show] means the
 /// user closed it without deciding anything.
@@ -346,12 +348,13 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
 
   Future<void> _pickDayMinute() async {
     final current = _dayMinute ?? EventAlerts.defaultDayMinute;
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay(hour: current ~/ 60, minute: current % 60),
+    final picked = await TimePadSheet.pick(
+      context,
+      initialMinute: current,
+      title: AppLocalizations.of(context)!.eventAlertTimeOfDay,
     );
     if (picked == null || !mounted) return;
-    setState(() => _dayMinute = picked.hour * 60 + picked.minute);
+    setState(() => _dayMinute = picked);
   }
 
   /// The alert as the sheet currently describes it. Both offset sets ride
@@ -515,24 +518,27 @@ class _AlertEditorSheetState extends State<AlertEditorSheet> {
                 ],
                 if (_allDay) ...[
                   const SizedBox(height: 12),
-                  Card(
-                    margin: EdgeInsets.zero,
-                    child: ListTile(
-                      leading: const CircleAvatar(
-                        child: Icon(Icons.schedule_rounded),
-                      ),
-                      title: Text(
-                        EventTimeFormatter.formatRange(
-                          EventTime(
-                            startMinute:
-                                _dayMinute ?? EventAlerts.defaultDayMinute,
-                          ),
-                          l10n,
+                  ValueChangeHighlight(
+                    value: _dayMinute ?? EventAlerts.defaultDayMinute,
+                    child: Card(
+                      margin: EdgeInsets.zero,
+                      child: ListTile(
+                        leading: const CircleAvatar(
+                          child: Icon(Icons.schedule_rounded),
                         ),
+                        title: Text(
+                          EventTimeFormatter.formatRange(
+                            EventTime(
+                              startMinute:
+                                  _dayMinute ?? EventAlerts.defaultDayMinute,
+                            ),
+                            l10n,
+                          ),
+                        ),
+                        subtitle: Text(l10n.eventAlertTimeOfDay),
+                        trailing: const Icon(Icons.chevron_right_rounded),
+                        onTap: _pickDayMinute,
                       ),
-                      subtitle: Text(l10n.eventAlertTimeOfDay),
-                      trailing: const Icon(Icons.chevron_right_rounded),
-                      onTap: _pickDayMinute,
                     ),
                   ),
                 ],

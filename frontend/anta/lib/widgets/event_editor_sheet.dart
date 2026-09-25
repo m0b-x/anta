@@ -51,6 +51,8 @@ import 'markdown_bar.dart';
 import 'modern_editor_wrapper.dart';
 import 'note_picker_dialog.dart';
 import 'simple_markdown_preview.dart';
+import 'time_pad_sheet.dart';
+import 'value_change_highlight.dart';
 
 /// Result returned by [EventEditorSheet.show]. `null` means cancelled.
 sealed class EventEditorResult {
@@ -1191,16 +1193,19 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   }
 
   Future<void> _pickStartTime() async {
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay(
-        hour: _startMinute ~/ 60,
-        minute: _startMinute % 60,
-      ),
+    final l10n = AppLocalizations.of(context)!;
+    final duration = _durationMinutes;
+    final picked = await TimePadSheet.pick(
+      context,
+      initialMinute: _startMinute,
+      title: l10n.eventStartTime,
+      caption: duration == null
+          ? null
+          : TimePadCaptions.endsAfter(l10n, duration),
     );
     if (picked == null || !mounted) return;
     setState(() {
-      final newStart = picked.hour * 60 + picked.minute;
+      final newStart = picked;
       // Preserve the visible duration: if a duration is set, keep the
       // *length* (so "1 hour" stays "1 hour"). This is what every native
       // calendar app does when you drag the start time.
@@ -1216,12 +1221,16 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
         : _startMinute + _durationMinutes!;
     final initial = currentEnd ?? (_startMinute + _defaultDurationMinutes);
     final clamped = initial % EventTime.minutesPerDay;
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay(hour: clamped ~/ 60, minute: clamped % 60),
+    final l10n = AppLocalizations.of(context)!;
+    final picked = await TimePadSheet.pick(
+      context,
+      initialMinute: clamped,
+      title: l10n.eventEndTime,
+      periodAfter: _startMinute,
+      caption: TimePadCaptions.afterStart(l10n, _startMinute),
     );
     if (picked == null || !mounted) return;
-    final endMinute = picked.hour * 60 + picked.minute;
+    final endMinute = picked;
     setState(() {
       // If user picks an end ≤ start, treat it as next-day (cross-midnight).
       // This is the only sane interpretation when the picker has no day
@@ -2507,43 +2516,58 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                   ),
                   if (!_isAllDay) ...[
                     const SizedBox(height: 8),
-                    _PickerTile(
-                      leading: const CircleAvatar(
-                        child: Icon(Icons.play_arrow_rounded),
+                    ValueChangeHighlight(
+                      value: _startMinute,
+                      child: _PickerTile(
+                        leading: const CircleAvatar(
+                          child: Icon(Icons.play_arrow_rounded),
+                        ),
+                        title: EventTimeFormatter.formatMinute(
+                          _startMinute,
+                          context,
+                        ),
+                        subtitle: l10n.eventStartTime,
+                        onTap: _pickStartTime,
                       ),
-                      title: EventTimeFormatter.formatMinute(
-                        _startMinute,
-                        context,
-                      ),
-                      subtitle: l10n.eventStartTime,
-                      onTap: _pickStartTime,
                     ),
                     const SizedBox(height: 8),
-                    _PickerTile(
-                      leading: const CircleAvatar(
-                        child: Icon(Icons.stop_rounded),
+                    ValueChangeHighlight(
+                      value: _durationMinutes == null
+                          ? null
+                          : (_startMinute + _durationMinutes!) %
+                                EventTime.minutesPerDay,
+                      child: _PickerTile(
+                        leading: const CircleAvatar(
+                          child: Icon(Icons.stop_rounded),
+                        ),
+                        title: _durationMinutes == null
+                            ? l10n.eventEndTimeNone
+                            : EventTimeFormatter.formatMinute(
+                                (_startMinute + _durationMinutes!) %
+                                    EventTime.minutesPerDay,
+                                context,
+                              ),
+                        subtitle: _durationMinutes == null
+                            ? l10n.eventEndTimeHint
+                            : [
+                                _startMinute + _durationMinutes! >=
+                                        EventTime.minutesPerDay
+                                    ? l10n.eventCrossesMidnight
+                                    : l10n.eventEndTime,
+                                EventTimeFormatter.formatDuration(
+                                  _durationMinutes!,
+                                  l10n,
+                                ),
+                              ].join(' · '),
+                        trailing: _durationMinutes == null
+                            ? const Icon(Icons.chevron_right_rounded)
+                            : IconButton(
+                                tooltip: l10n.resetToDefault,
+                                icon: const Icon(Icons.close_rounded),
+                                onPressed: _clearEndTime,
+                              ),
+                        onTap: _pickEndTime,
                       ),
-                      title: _durationMinutes == null
-                          ? l10n.eventEndTimeNone
-                          : EventTimeFormatter.formatMinute(
-                              (_startMinute + _durationMinutes!) %
-                                  EventTime.minutesPerDay,
-                              context,
-                            ),
-                      subtitle: _durationMinutes == null
-                          ? l10n.eventEndTimeHint
-                          : (_startMinute + _durationMinutes! >=
-                                    EventTime.minutesPerDay
-                                ? l10n.eventCrossesMidnight
-                                : l10n.eventEndTime),
-                      trailing: _durationMinutes == null
-                          ? const Icon(Icons.chevron_right_rounded)
-                          : IconButton(
-                              tooltip: l10n.resetToDefault,
-                              icon: const Icon(Icons.close_rounded),
-                              onPressed: _clearEndTime,
-                            ),
-                      onTap: _pickEndTime,
                     ),
                   ],
                   _SectionLabel(text: l10n.eventAlerts),

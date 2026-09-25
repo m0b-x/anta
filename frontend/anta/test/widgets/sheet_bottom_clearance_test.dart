@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/bloc/markdown_bar/markdown_bar_bloc.dart';
 import 'package:anta/constants/calendar_bounds.dart';
+import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/agenda_day_list.dart';
@@ -31,6 +32,7 @@ import 'package:anta/widgets/event_editor_sheet.dart';
 import 'package:anta/widgets/event_template_editor_sheet.dart';
 import 'package:anta/widgets/modern_editor_wrapper.dart';
 import 'package:anta/widgets/quick_alarm_sheet.dart';
+import 'package:anta/widgets/time_pad_sheet.dart';
 
 import '../database/support/db_test_support.dart';
 
@@ -451,6 +453,27 @@ void main() {
 
     // The remove-after card is the last thing in the scroll view.
     expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+  });
+
+  testWidgets('the time pad clears the navigation bar', (tester) async {
+    sizeSurfaceWithNavBar(tester);
+    await openFrom(
+      tester,
+      (context) => TimePadSheet.pick(
+        context,
+        initialMinute: 9 * 60,
+        title: 'Start time',
+      ),
+    );
+
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+    expect(
+      tester
+          .getRect(find.bySemanticsIdentifier(SemanticsIds.timePadHalfPast))
+          .bottom,
+      lessThanOrEqualTo(surface.height - navBar),
+      reason: 'the bottom row of keys ran under the gesture bar',
+    );
   });
 
   testWidgets('the alarm sound sheet clears the navigation bar', (

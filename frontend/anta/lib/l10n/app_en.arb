@@ -6738,5 +6738,73 @@
         "type": "String"
       }
     }
+  },
+  "timePadDone": "Done",
+  "@timePadDone": {
+    "description": "Confirm button of the time pad sheet that sets a start, end, alert or alarm time"
+  },
+  "timePadOnTheHour": "On the hour",
+  "@timePadOnTheHour": {
+    "description": "Screen-reader label of the time pad's :00 key, which sets the minutes to zero and finishes"
+  },
+  "timePadHalfPast": "Half past",
+  "@timePadHalfPast": {
+    "description": "Screen-reader label of the time pad's :30 key, which sets the minutes to thirty and finishes"
+  },
+  "timePadChoosePeriod": "{am} or {pm}?",
+  "@timePadChoosePeriod": {
+    "description": "Time pad prompt on a 12-hour clock once the minutes are typed; the placeholders are the platform's AM and PM abbreviations",
+    "placeholders": {
+      "am": { "type": "String", "example": "AM" },
+      "pm": { "type": "String", "example": "PM" }
+    }
+  },
+  "timePadEndsAt": "Ends {time}",
+  "@timePadEndsAt": {
+    "description": "Time pad caption while typing a start time: where the event's end lands",
+    "placeholders": {
+      "time": { "type": "String", "example": "10:30" }
+    }
+  },
+  "timePadEndsNextDayAt": "Ends {time} next day",
+  "@timePadEndsNextDayAt": {
+    "description": "Time pad caption while typing a start time whose end crosses midnight",
+    "placeholders": {
+      "time": { "type": "String", "example": "00:30" }
+    }
+  },
+  "timePadAfterStart": "{duration} after {time}",
+  "@timePadAfterStart": {
+    "description": "Time pad caption while typing an end time: how long after the start it is",
+    "placeholders": {
+      "duration": { "type": "String", "example": "1 h 30 min" },
+      "time": { "type": "String", "example": "18:00" }
+    }
+  },
+  "eventDurationMinutes": "{minutes} min",
+  "@eventDurationMinutes": {
+    "description": "An event's length under one hour",
+    "placeholders": {
+      "minutes": { "type": "int" }
+    }
+  },
+  "eventDurationHours": "{hours} h",
+  "@eventDurationHours": {
+    "description": "An event's length in whole hours",
+    "placeholders": {
+      "hours": { "type": "int" }
+    }
+  },
+  "eventDurationHoursMinutes": "{hours} h {minutes} min",
+  "@eventDurationHoursMinutes": {
+    "description": "An event's length in hours and minutes",
+    "placeholders": {
+      "hours": { "type": "int" },
+      "minutes": { "type": "int" }
+    }
+  },
+  "quickAlarmTime": "Alarm time",
+  "@quickAlarmTime": {
+    "description": "Title of the time pad opened from the quick-alarm sheet's big time"
   }
 }
