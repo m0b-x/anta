@@ -7,6 +7,8 @@ import '../services/event_time_formatter.dart';
 import '../utils/quick_alarm.dart';
 import 'agenda_list_view.dart';
 import 'automation_id.dart';
+import 'time_pad_sheet.dart';
+import 'value_change_highlight.dart';
 
 enum _QuickAlarmPreset { in20Minutes, in1Hour, tonight }
 
@@ -106,9 +108,19 @@ class _QuickAlarmSheetState extends State<QuickAlarmSheet> {
   }
 
   Future<void> _pickTime() async {
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay(hour: _minute ~/ 60, minute: _minute % 60),
+    final l10n = AppLocalizations.of(context)!;
+    final now = widget.now();
+    final today = DateTime.utc(now.year, now.month, now.day);
+    final picked = await TimePadSheet.pick(
+      context,
+      initialMinute: _minute,
+      title: l10n.quickAlarmTime,
+      periodAfter: now.hour * 60 + now.minute,
+      caption: (minute, _) => AgendaListView.shortDayLabel(
+        l10n,
+        quickAlarmDayFor(day: widget.day, minute: minute, now: now),
+        today,
+      ),
     );
     if (picked == null || !mounted) return;
     setState(() {
@@ -116,7 +128,7 @@ class _QuickAlarmSheetState extends State<QuickAlarmSheet> {
       // On the opened day again: a preset may have moved the day to
       // tomorrow, and 23:58 picked at 23:50 must mean tonight.
       _day = widget.day;
-      _minute = picked.hour * 60 + picked.minute;
+      _minute = picked;
     });
   }
 
@@ -193,17 +205,23 @@ class _QuickAlarmSheetState extends State<QuickAlarmSheet> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Center(
-                  child: AutomationId(
-                    identifier: SemanticsIds.quickAlarmTime,
-                    child: Tooltip(
-                      message: l10n.quickAlarmPickTime,
-                      child: TextButton(
-                        onPressed: _pickTime,
-                        child: Text(
-                          EventTimeFormatter.formatMinute(_minute, context),
-                          style: theme.textTheme.displayLarge?.copyWith(
-                            fontFeatures: const [FontFeature.tabularFigures()],
-                            color: colorScheme.onSurface,
+                  child: ValueChangeHighlight(
+                    value: _minute,
+                    borderRadius: const BorderRadius.all(Radius.circular(28)),
+                    child: AutomationId(
+                      identifier: SemanticsIds.quickAlarmTime,
+                      child: Tooltip(
+                        message: l10n.quickAlarmPickTime,
+                        child: TextButton(
+                          onPressed: _pickTime,
+                          child: Text(
+                            EventTimeFormatter.formatMinute(_minute, context),
+                            style: theme.textTheme.displayLarge?.copyWith(
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
+                              color: colorScheme.onSurface,
+                            ),
                           ),
                         ),
                       ),

@@ -1856,7 +1856,7 @@ calendar's add button opens `EventTemplatePickerSheet` **whatever the
 template count** (it used to fall through to the editor with none saved),
 whose first neutral row, *Alarm…*, above *Blank event*, opens
 `QuickAlarmSheet` (`lib/widgets/quick_alarm_sheet.dart`) — a big time
-(tap → `showTimePicker`), a caption naming the day it will land on, three
+(tap → `TimePadSheet`), a caption naming the day it will land on, three
 `ChoiceChip` presets (*In 20 min*, *In 1 hour*, *Tonight 21:00*), a name
 field defaulting to "Alarm", the Type segmented control with Alarm selected
 and the *Remove after it rings* switch on, hidden for a reminder. The sheet
@@ -4863,3 +4863,76 @@ Guards: `test/widgets/calendar_add_fab_test.dart` tables the rule
 overscroll both ends, the finger lifting changing nothing, horizontal
 ignored), the long press, and the trace caption; the page-level reset on a
 day change is pinned in `test/widgets/calendar_page_jump_test.dart`.
+
+## Addendum (2026-09-24): times are typed on the time pad
+
+The owner found start/end entry "too finicky": they skipped the clock dial every time
+for the keyboard mode, and the keyboard mode fought back. Reading Flutter 3.47.4's
+`material/time_picker.dart` explained it — switching to keyboard mode focuses nothing
+(`_autofocusHour` stays null), both boxes open pre-filled and capped at two characters
+with the caret after the old value (the fields are multiline, so select-all-on-focus
+never applies on any platform), so **the first digit typed was silently dropped** in
+the hour box and again in the minutes box the hour jumped to; the keyboard's ✓ only
+hid the keyboard and OK was one more tap. Moving a start from 09:00 to 18:30 took
+twelve actions.
+
+**What replaced it.** `TimePadSheet.pick(context, initialMinute:, title:, caption:,
+periodAfter:)` (`lib/widgets/time_pad_sheet.dart`) → `Future<int?>` (minute of day,
+`null` on dismiss), an in-app keypad in a bottom sheet — no system keyboard, so nothing
+to focus, nothing arriving late, no layout jump — and **every `showTimePicker` is gone**:
+event start/end, template start/end, the alert editor's time of day and the quick
+alarm's big time. The dial went with it by decision (two input modes means choosing a
+mode every time). Every typing rule lives in the pure `TimePadEntry`
+(`lib/utils/time_pad_entry.dart`), table-tested; the sheet is a shell over it:
+
+- Dim digits are the current value; typing replaces them, never deletes first.
+- An hour that can only be one digit moves on at once (3–9 on a 24-hour clock, 2–9 on a
+  12-hour one); otherwise two digits. A digit that cannot extend the hour **starts the
+  minutes** (`1 3 0` = 1:30 on a 12-hour clock, `2 4 5` = 02:45 on a 24-hour one).
+- Keys that cannot lead to a valid time are **disabled**, so there is no error state and
+  no layout shift; a minute starts with 0–5.
+- The second minute digit, `:00` or `:30` **finishes and closes the sheet** — there is no
+  OK step. An hour the user did not retype keeps its value, so "move to the half hour" is
+  one key. Done finishes early (untyped parts keep their value; a lone minute digit `3`
+  reads as `:30`, the way `18:3_` reads).
+- On a 12-hour clock the entry does not auto-finish on a *guessed* period: once an hour
+  was typed, the minutes end in an "AM or PM?" prompt and the AM/PM key finishes it (Done
+  takes the outlined suggestion — nearest the opening value, or for `periodAfter` the
+  first time after it: the end after the start, an alarm after now).
+- Backspace steps back across the parts; tapping the hour or minutes box retypes just
+  that part; a hardware keyboard types digits, `:`/`.` to the minutes, Enter, Esc.
+- The 12/24-hour choice is the stock picker's: the locale's `timeOfDayFormat` under
+  `MediaQuery.alwaysUse24HourFormat`. The caption callback receives the pad's own
+  formatter so the sheet never mixes conventions.
+
+**Captions, and why there are no duration chips.** The start sheet says where the end
+lands (`TimePadCaptions.endsAfter`: "Ends 19:30 · 1 h 30 min", "… next day"), the end
+sheet says the length (`TimePadCaptions.afterStart`: "1 h 30 min after 18:00", plus
+"Ends next day" across midnight), the quick alarm says the day it lands on. Duration
+chips were prototyped and dropped: the owner uses "all sorts of durations", so a fixed
+set would be noise above the keypad; the length is shown live instead, and the event
+editor's End row subtitle now carries it ("End time · 1 h 45 min"; the template editor
+appends it to the end time). `EventTimeFormatter.formatDuration` is the one duration
+formatter (`eventDuration*` keys).
+
+**The read-back.** Because the sheet closes itself, the row it wrote to flashes
+(`ValueChangeHighlight`, a one-shot primary outline + tint on any change of its `value`,
+skipped under reduced motion) — on the event and template time rows, the alert time row
+and the quick alarm's big time. That exposed a formatter bug: `EventTimeFormatter.
+formatMinute` / `formatRangeOfContext` (and three direct `formatTimeOfDay` calls in the
+alerts hub and the detail sheet) documented honouring the device's 24-hour setting but
+never passed `alwaysUse24HourFormat`, so an English phone set to 24-hour typed 18:30 and
+read back "6:30 PM". They pass it now; de/ro and 12-hour devices are unchanged, and the
+agenda's fixed `HH:mm` (`formatRange`) is untouched.
+
+**Other invariants.** The pad reads the haptic setting through `SettingsService` (light
+impact per key when on), so widget tests that open it bind `SettingsService.forTesting`.
+Keys carry `SemanticsIds.timePadDigit(n)` / `time-pad-*` ids so a device pass can type in
+any language. The pad pads its scroll view by `max(viewInsets, viewPadding)` and is in
+`sheet_bottom_clearance_test.dart`. The event and template editors keep their
+end-before-start rule (an earlier end means the next day).
+
+Guards: `test/utils/time_pad_entry_test.dart` (every rule above, both clocks),
+`test/widgets/time_pad_sheet_test.dart` (auto-finish, `:30`, Done, disabled keys,
+backspace, the AM/PM finish, the live caption, hardware keys, cancel, both caption
+builders), `test/widgets/quick_alarm_sheet_test.dart` (the pad from the big time).

@@ -5364,4 +5364,51 @@ class AppLocalizationsEn extends AppLocalizations {
   String permissionsPromptRecommended(String description) {
     return 'Recommended · $description';
   }
+
+  @override
+  String get timePadDone => 'Done';
+
+  @override
+  String get timePadOnTheHour => 'On the hour';
+
+  @override
+  String get timePadHalfPast => 'Half past';
+
+  @override
+  String timePadChoosePeriod(String am, String pm) {
+    return '$am or $pm?';
+  }
+
+  @override
+  String timePadEndsAt(String time) {
+    return 'Ends $time';
+  }
+
+  @override
+  String timePadEndsNextDayAt(String time) {
+    return 'Ends $time next day';
+  }
+
+  @override
+  String timePadAfterStart(String duration, String time) {
+    return '$duration after $time';
+  }
+
+  @override
+  String eventDurationMinutes(int minutes) {
+    return '$minutes min';
+  }
+
+  @override
+  String eventDurationHours(int hours) {
+    return '$hours h';
+  }
+
+  @override
+  String eventDurationHoursMinutes(int hours, int minutes) {
+    return '$hours h $minutes min';
+  }
+
+  @override
+  String get quickAlarmTime => 'Alarm time';
 }

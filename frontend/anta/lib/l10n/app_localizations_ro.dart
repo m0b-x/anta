@@ -5463,4 +5463,51 @@ class AppLocalizationsRo extends AppLocalizations {
   String permissionsPromptRecommended(String description) {
     return 'Recomandat · $description';
   }
+
+  @override
+  String get timePadDone => 'Gata';
+
+  @override
+  String get timePadOnTheHour => 'Oră fixă';
+
+  @override
+  String get timePadHalfPast => 'Și jumătate';
+
+  @override
+  String timePadChoosePeriod(String am, String pm) {
+    return '$am sau $pm?';
+  }
+
+  @override
+  String timePadEndsAt(String time) {
+    return 'Se termină la $time';
+  }
+
+  @override
+  String timePadEndsNextDayAt(String time) {
+    return 'Se termină a doua zi la $time';
+  }
+
+  @override
+  String timePadAfterStart(String duration, String time) {
+    return '$duration după $time';
+  }
+
+  @override
+  String eventDurationMinutes(int minutes) {
+    return '$minutes min';
+  }
+
+  @override
+  String eventDurationHours(int hours) {
+    return '$hours h';
+  }
+
+  @override
+  String eventDurationHoursMinutes(int hours, int minutes) {
+    return '$hours h $minutes min';
+  }
+
+  @override
+  String get quickAlarmTime => 'Ora alarmei';
 }

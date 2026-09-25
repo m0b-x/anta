@@ -1607,5 +1607,16 @@
   "alertsExactAlarmsOffBanner": "Accesul la Alarme și mementouri este oprit. Alertele nu pot fi setate la ora exactă.",
   "permissionsUnknownTitle": "Permisiunile nu au putut fi verificate",
   "permissionsUnknownBody": "Deschide setările sistemului ca să le vezi.",
-  "permissionsPromptRecommended": "Recomandat · {description}"
+  "permissionsPromptRecommended": "Recomandat · {description}",
+  "timePadDone": "Gata",
+  "timePadOnTheHour": "Oră fixă",
+  "timePadHalfPast": "Și jumătate",
+  "timePadChoosePeriod": "{am} sau {pm}?",
+  "timePadEndsAt": "Se termină la {time}",
+  "timePadEndsNextDayAt": "Se termină a doua zi la {time}",
+  "timePadAfterStart": "{duration} după {time}",
+  "eventDurationMinutes": "{minutes} min",
+  "eventDurationHours": "{hours} h",
+  "eventDurationHoursMinutes": "{hours} h {minutes} min",
+  "quickAlarmTime": "Ora alarmei"
 }

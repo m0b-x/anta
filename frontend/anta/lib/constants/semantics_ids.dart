@@ -83,6 +83,17 @@ abstract final class SemanticsIds {
   static const String quickAlarmSave = 'quick-alarm-save';
   static const String quickAlarmRemoveAfter = 'quick-alarm-remove-after';
 
+  static const String timePadCancel = 'time-pad-cancel';
+  static const String timePadDone = 'time-pad-done';
+  static const String timePadHour = 'time-pad-hour';
+  static const String timePadMinute = 'time-pad-minute';
+  static const String timePadBackspace = 'time-pad-backspace';
+  static const String timePadOnTheHour = 'time-pad-on-the-hour';
+  static const String timePadHalfPast = 'time-pad-half-past';
+  static const String timePadAm = 'time-pad-am';
+  static const String timePadPm = 'time-pad-pm';
+  static String timePadDigit(int digit) => 'time-pad-digit-$digit';
+
   static const String permissionsPromptContinue = 'permissions-prompt-continue';
   static const String permissionsPromptNotNow = 'permissions-prompt-not-now';
 }

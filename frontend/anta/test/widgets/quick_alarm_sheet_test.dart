@@ -2,10 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/semantics_ids.dart';
+import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/event_alert.dart';
+import 'package:anta/services/settings_service.dart';
 import 'package:anta/utils/quick_alarm.dart';
 import 'package:anta/widgets/quick_alarm_sheet.dart';
+import 'package:anta/widgets/time_pad_sheet.dart';
+
+import '../database/support/db_test_support.dart';
 
 /// The sheet is a form over `quick_alarm.dart`'s arithmetic, so what is worth
 /// pinning is the round trip: what it opens on, what each preset does, and
@@ -15,6 +20,19 @@ void main() {
   /// presets all have something to round.
   final now = DateTime(2026, 9, 23, 10, 3, 40);
   final today = DateTime.utc(2026, 9, 23);
+
+  late AppDatabase db;
+
+  setUp(() async {
+    SettingsService.reset();
+    db = await openTestDatabase();
+    SettingsService.forTesting(db);
+  });
+
+  tearDown(() async {
+    SettingsService.reset();
+    await db.close();
+  });
 
   Future<_Result> openSheet(
     WidgetTester tester, {
@@ -145,13 +163,11 @@ void main() {
 
     await tester.tap(byId(SemanticsIds.quickAlarmTime));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Switch to text input mode'));
-    await tester.pumpAndSettle();
-    final fields = find.byType(TextFormField);
-    await tester.enterText(fields.at(0), '11');
-    await tester.enterText(fields.at(1), '58');
-    await tester.tap(find.text('PM'));
-    await tester.tap(find.text('OK'));
+    for (final digit in [1, 1, 5, 8]) {
+      await tester.tap(byId(SemanticsIds.timePadDigit(digit)));
+      await tester.pump();
+    }
+    await tester.tap(byId(SemanticsIds.timePadPm));
     await tester.pumpAndSettle();
 
     expect(find.text('Today'), findsOneWidget);
@@ -221,18 +237,19 @@ void main() {
     expect(result.value?.name, 'Alarm');
   });
 
-  testWidgets('the big time opens the picker, and cancel keeps the time', (
+  testWidgets('the big time opens the time pad, and cancel keeps the time', (
     tester,
   ) async {
     final result = await openSheet(tester);
 
     await tester.tap(byId(SemanticsIds.quickAlarmTime));
     await tester.pumpAndSettle();
-    expect(find.byType(TimePickerDialog), findsOneWidget);
+    expect(find.byType(TimePadSheet), findsOneWidget);
+    expect(find.text('Today'), findsWidgets);
 
-    await tester.tap(find.text('Cancel'));
+    await tester.tap(byId(SemanticsIds.timePadCancel));
     await tester.pumpAndSettle();
-    expect(find.byType(TimePickerDialog), findsNothing);
+    expect(find.byType(TimePadSheet), findsNothing);
     await save(tester);
 
     expect(result.value?.startMinute, 10 * 60 + 15);

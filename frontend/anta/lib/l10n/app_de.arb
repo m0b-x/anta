@@ -2771,5 +2771,16 @@
   "alertsExactAlarmsOffBanner": "Der Zugriff auf Wecker & Erinnerungen ist aus. Erinnerungen lassen sich nicht auf die genaue Zeit stellen.",
   "permissionsUnknownTitle": "Berechtigungen ließen sich nicht prüfen",
   "permissionsUnknownBody": "Öffne die Systemeinstellungen, um sie zu sehen.",
-  "permissionsPromptRecommended": "Empfohlen · {description}"
+  "permissionsPromptRecommended": "Empfohlen · {description}",
+  "timePadDone": "Fertig",
+  "timePadOnTheHour": "Zur vollen Stunde",
+  "timePadHalfPast": "Zur halben Stunde",
+  "timePadChoosePeriod": "{am} oder {pm}?",
+  "timePadEndsAt": "Endet um {time}",
+  "timePadEndsNextDayAt": "Endet am nächsten Tag um {time}",
+  "timePadAfterStart": "{duration} nach {time}",
+  "eventDurationMinutes": "{minutes} Min.",
+  "eventDurationHours": "{hours} Std.",
+  "eventDurationHoursMinutes": "{hours} Std. {minutes} Min.",
+  "quickAlarmTime": "Weckzeit"
 }

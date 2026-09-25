@@ -286,9 +286,10 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
     // The clock half goes through `MaterialLocalizations`, not a bare `intl`
     // skeleton: this is widget code, so it can honour the device's 12h/24h
     // preference — the rule `EventTimeFormatter.formatRangeOfContext` follows.
-    final time = MaterialLocalizations.of(
-      context,
-    ).formatTimeOfDay(TimeOfDay.fromDateTime(next));
+    final time = MaterialLocalizations.of(context).formatTimeOfDay(
+      TimeOfDay.fromDateTime(next),
+      alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(context),
+    );
     final when = '${DateFormat.MMMEd(localeName).format(next)} $time';
     return '$described · ${l10n.eventAlertNext(when)}';
   }
