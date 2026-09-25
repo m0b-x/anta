@@ -16,6 +16,7 @@ import 'package:anta/services/day_rail_resolver.dart';
 import 'package:anta/services/markdown_bar_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/widgets/event_editor_sheet.dart';
+import 'package:anta/widgets/form_rows.dart';
 
 import '../database/support/db_test_support.dart';
 
@@ -135,25 +136,27 @@ void main() {
     return (results.single as EventEditorSaved).event;
   }
 
-  /// The rail control, found by its own segment labels. Scoped rather than
-  /// matched on text alone: the retroactive-scope chips higher up the sheet
-  /// also say "Always", so a bare `find.text` matches two.
+  /// The rail row, found by its own label: it is a menu row now, so the
+  /// three positions only exist while its menu is open.
   final railControl = find.byWidgetPredicate(
-    (w) =>
-        w is SegmentedButton &&
-        w.segments.any(
-          (s) => s.label is Text && (s.label as Text).data == 'Auto',
-        ),
+    (w) => w is FormMenuRow && w.label == 'Day rail',
   );
 
-  Future<void> pick(WidgetTester tester, String label) async {
-    final segment = find.descendant(
-      of: railControl,
-      matching: find.text(label),
-    );
-    await tester.ensureVisible(segment);
+  Finder menuItem(String label) => find.descendant(
+    of: find.byType(MenuItemButton),
+    matching: find.text(label),
+  );
+
+  Future<void> openMenu(WidgetTester tester) async {
+    await tester.ensureVisible(railControl);
     await tester.pumpAndSettle();
-    await tester.tap(segment);
+    await tester.tap(railControl);
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> pick(WidgetTester tester, String label) async {
+    await openMenu(tester);
+    await tester.tap(menuItem(label));
     await tester.pumpAndSettle();
   }
 
@@ -161,11 +164,9 @@ void main() {
     await open(tester, event(rule: const DailyRecurrence()));
 
     expect(railControl, findsOneWidget);
+    await openMenu(tester);
     for (final label in ['Auto', 'Always', 'Never']) {
-      expect(
-        find.descendant(of: railControl, matching: find.text(label)),
-        findsOneWidget,
-      );
+      expect(menuItem(label), findsOneWidget);
     }
   });
 

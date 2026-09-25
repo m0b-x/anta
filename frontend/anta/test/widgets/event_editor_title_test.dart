@@ -12,6 +12,7 @@ import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/services/markdown_bar_service.dart';
 import 'package:anta/widgets/event_editor_sheet.dart';
+import 'package:anta/widgets/form_rows.dart';
 
 /// Regression guard for item 1.2 of the calendar performance roadmap: the
 /// title field used to carry `onChanged: (_) => setState(() {})`, so every
@@ -83,15 +84,16 @@ void main() {
     await tester.pumpWidget(wrap());
     await tester.pumpAndSettle();
 
-    OutlinedButton templateButton() =>
-        tester.widget<OutlinedButton>(find.byType(OutlinedButton));
+    FormActionRow templateRow() => tester.widget<FormActionRow>(
+      find.widgetWithText(FormActionRow, 'Save as template'),
+    );
 
-    expect(templateButton().onPressed, isNull);
+    expect(templateRow().onTap, isNull);
 
     await tester.enterText(find.byType(TextField), 'Leg day');
     await tester.pump();
 
-    expect(templateButton().onPressed, isNotNull);
+    expect(templateRow().onTap, isNotNull);
   });
 
   testWidgets('a title keystroke does not remount the description editor', (

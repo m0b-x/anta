@@ -172,12 +172,6 @@ abstract class AppLocalizations {
   /// **'No end time'**
   String get eventEndTimeNone;
 
-  /// Hint shown beneath the end-time picker when no end is set
-  ///
-  /// In en, this message translates to:
-  /// **'Tap to add an end time'**
-  String get eventEndTimeHint;
-
   /// Hint shown when the chosen end time crosses midnight
   ///
   /// In en, this message translates to:
@@ -1264,12 +1258,6 @@ abstract class AppLocalizations {
   /// **'Icon'**
   String get iconLabel;
 
-  /// Shown when no explicit icon has been chosen for an event
-  ///
-  /// In en, this message translates to:
-  /// **'Default for category'**
-  String get iconDefault;
-
   /// Shown when the user picked a specific icon for an event
   ///
   /// In en, this message translates to:
@@ -1282,12 +1270,6 @@ abstract class AppLocalizations {
   /// **'Choose icon'**
   String get pickIcon;
 
-  /// Subtitle on the category picker tile in the event editor
-  ///
-  /// In en, this message translates to:
-  /// **'Change category'**
-  String get pickCategory;
-
   /// Reset to default button text
   ///
   /// In en, this message translates to:
@@ -1297,7 +1279,7 @@ abstract class AppLocalizations {
   /// Section label in the event editor for the recurring event start date
   ///
   /// In en, this message translates to:
-  /// **'Starting date'**
+  /// **'Start date'**
   String get eventDate;
 
   /// Section label for the one-time / recurring toggle
@@ -1311,18 +1293,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'One time'**
   String get repeatOnce;
-
-  /// Segmented control option: event recurs on a schedule
-  ///
-  /// In en, this message translates to:
-  /// **'Recurring'**
-  String get repeatRecurring;
-
-  /// Section label for the recurrence frequency chips
-  ///
-  /// In en, this message translates to:
-  /// **'Frequency'**
-  String get frequency;
 
   /// Recurrence option: every Mon-Fri excluding public holidays
   ///
@@ -1414,35 +1384,11 @@ abstract class AppLocalizations {
   /// **'{count, plural, =1{year} other{years}}'**
   String recurrenceUnitYears(int count);
 
-  /// Section label for the per-weekday chips in the editor
-  ///
-  /// In en, this message translates to:
-  /// **'Weekdays'**
-  String get weekdays;
-
   /// Validation hint shown when the user clears all weekday selections
   ///
   /// In en, this message translates to:
   /// **'Pick at least one weekday'**
   String get weeklyDaysHint;
-
-  /// Section label for the optional recurrence end-date picker
-  ///
-  /// In en, this message translates to:
-  /// **'Ends on'**
-  String get eventUntilLabel;
-
-  /// Placeholder shown when no recurrence end date is set
-  ///
-  /// In en, this message translates to:
-  /// **'Never ends'**
-  String get eventUntilNone;
-
-  /// Subtitle hint for the recurrence end-date picker when empty
-  ///
-  /// In en, this message translates to:
-  /// **'Tap to set an end date'**
-  String get eventUntilHint;
 
   /// Section label for the recurrence scope chips (forward-only vs retroactive)
   ///
@@ -1551,12 +1497,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Never'**
   String get eventShowInDayRailNever;
-
-  /// Hint under the day-rail membership control
-  ///
-  /// In en, this message translates to:
-  /// **'Auto follows presence tracking.'**
-  String get eventShowInDayRailHint;
 
   /// Presence toggle option in the event detail sheet: this occurrence was attended
   ///
@@ -2266,12 +2206,6 @@ abstract class AppLocalizations {
   /// **'None'**
   String get selectNone;
 
-  /// Event editor section header: what the event is
-  ///
-  /// In en, this message translates to:
-  /// **'What'**
-  String get eventSectionWhat;
-
   /// Event editor section header: scheduling
   ///
   /// In en, this message translates to:
@@ -2319,12 +2253,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Edit description'**
   String get eventDescriptionPreviewOff;
-
-  /// Placeholder shown in the description preview when the field is empty
-  ///
-  /// In en, this message translates to:
-  /// **'Nothing to preview yet'**
-  String get eventDescriptionEmpty;
 
   /// Accessibility label for the indicator marking a day-panel row that carries a description
   ///
@@ -2392,23 +2320,11 @@ abstract class AppLocalizations {
   /// **'Tint icon with color'**
   String get eventTintIcon;
 
-  /// Subtitle for the tint-icon toggle
-  ///
-  /// In en, this message translates to:
-  /// **'Use the event color for the icon too'**
-  String get eventTintIconHint;
-
   /// Section label for the event priority stepper
   ///
   /// In en, this message translates to:
   /// **'Priority'**
   String get eventPriority;
-
-  /// Hint shown under the event priority stepper
-  ///
-  /// In en, this message translates to:
-  /// **'Higher priority shows first and keeps its bar when a day is full'**
-  String get eventPriorityHint;
 
   /// Qualitative label for priority level 1
   ///
@@ -2440,18 +2356,6 @@ abstract class AppLocalizations {
   /// **'Highest'**
   String get eventPriorityHighest;
 
-  /// Section label for the one-time event's date chip list
-  ///
-  /// In en, this message translates to:
-  /// **'Dates'**
-  String get eventDatesLabel;
-
-  /// Hint shown when a one-time event has no additional dates yet
-  ///
-  /// In en, this message translates to:
-  /// **'Add more one-off dates to repeat this event without a recurrence'**
-  String get eventDatesHint;
-
   /// Action chip that adds another one-off date
   ///
   /// In en, this message translates to:
@@ -2475,12 +2379,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Description'**
   String get eventDescription;
-
-  /// Hint text for the optional event description field
-  ///
-  /// In en, this message translates to:
-  /// **'Add notes (focus, technique, intensity…)'**
-  String get eventDescriptionHint;
 
   /// Tooltip for the pencil button that opens the full description editor
   ///
@@ -2523,12 +2421,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Linked note'**
   String get eventLinkedNote;
-
-  /// Picker tile title shown when no note is linked to the event yet
-  ///
-  /// In en, this message translates to:
-  /// **'Link a workout note'**
-  String get eventLinkNoteHint;
 
   /// Shown when the note linked to an event has been deleted
   ///
@@ -8668,24 +8560,6 @@ abstract class AppLocalizations {
   /// **'Add alert'**
   String get eventAlertAdd;
 
-  /// Hint under the alert rows in the event editor
-  ///
-  /// In en, this message translates to:
-  /// **'An alert fires for every occurrence of this event.'**
-  String get eventAlertHint;
-
-  /// Subtitle of an alarm-tier alert row
-  ///
-  /// In en, this message translates to:
-  /// **'Rings until you stop it'**
-  String get eventAlertRingsUntilStopped;
-
-  /// Subtitle of a reminder-tier alert row
-  ///
-  /// In en, this message translates to:
-  /// **'Notification you can snooze'**
-  String get eventAlertNotification;
-
   /// Removes one alert from the event
   ///
   /// In en, this message translates to:
@@ -9225,6 +9099,138 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Alarm time'**
   String get quickAlarmTime;
+
+  /// Label of the event editor's category row
+  ///
+  /// In en, this message translates to:
+  /// **'Category'**
+  String get eventCategory;
+
+  /// Label of the event editor's date row for a one-time event with one date
+  ///
+  /// In en, this message translates to:
+  /// **'Date'**
+  String get eventDateLabel;
+
+  /// Label of the event editor's start-time row
+  ///
+  /// In en, this message translates to:
+  /// **'Starts'**
+  String get eventStarts;
+
+  /// Label of the event editor's end-time row
+  ///
+  /// In en, this message translates to:
+  /// **'Ends'**
+  String get eventEnds;
+
+  /// Tooltip of the button that clears an event's end time
+  ///
+  /// In en, this message translates to:
+  /// **'Remove end time'**
+  String get eventEndTimeRemove;
+
+  /// Label of the event editor's repeat row and title of the repeat sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Repeat'**
+  String get eventRepeat;
+
+  /// Repeat value of a one-time event, and the first option of the repeat sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Does not repeat'**
+  String get recurrenceDoesNotRepeat;
+
+  /// Label of the repeat sheet's end-date row
+  ///
+  /// In en, this message translates to:
+  /// **'Ends'**
+  String get recurrenceEnds;
+
+  /// Value of the repeat sheet's end-date row when no end date is set
+  ///
+  /// In en, this message translates to:
+  /// **'Never'**
+  String get never;
+
+  /// Tooltip of the button that clears a recurrence's end date
+  ///
+  /// In en, this message translates to:
+  /// **'Remove end date'**
+  String get recurrenceEndDateRemove;
+
+  /// Title of the repeat sheet's retroactive switch
+  ///
+  /// In en, this message translates to:
+  /// **'Also before the start date'**
+  String get recurrenceBeforeStart;
+
+  /// Second line of the retroactive switch, naming the start date
+  ///
+  /// In en, this message translates to:
+  /// **'Shows on matching days before {date}'**
+  String recurrenceBeforeStartHint(String date);
+
+  /// Second line of the retroactive switch for a yearly rule
+  ///
+  /// In en, this message translates to:
+  /// **'Also in earlier years'**
+  String get recurrenceBeforeStartYearlyHint;
+
+  /// The repeat row's value when an end date is set: the rule label followed by the end date
+  ///
+  /// In en, this message translates to:
+  /// **'{rule} · until {date}'**
+  String recurrenceUntilSuffix(String rule, String date);
+
+  /// Value of the Icon & color row when neither an icon nor a colour override is set
+  ///
+  /// In en, this message translates to:
+  /// **'Default'**
+  String get eventLookDefault;
+
+  /// Value of the Icon & color row when an icon or colour override is set
+  ///
+  /// In en, this message translates to:
+  /// **'Custom'**
+  String get eventLookCustom;
+
+  /// Value of the linked-note row when no note is linked
+  ///
+  /// In en, this message translates to:
+  /// **'None'**
+  String get eventLinkedNoteNone;
+
+  /// Value of the linked-note row when the linked note no longer exists
+  ///
+  /// In en, this message translates to:
+  /// **'Not found'**
+  String get eventLinkedNoteNotFound;
+
+  /// Short label of the button that returns one day's description to the shared one
+  ///
+  /// In en, this message translates to:
+  /// **'Reset day'**
+  String get eventDescriptionResetDayShort;
+
+  /// The counter under the event editor's title field, shown from 100 characters
+  ///
+  /// In en, this message translates to:
+  /// **'{count}/{limit}'**
+  String eventTitleCount(int count, int limit);
+
+  /// Label of the event editor's bundled dates row, shown from four one-off dates on
+  ///
+  /// In en, this message translates to:
+  /// **'Dates'**
+  String get eventDatesLabel;
+
+  /// Value of the bundled dates row: the date count and the span from the first to the last date
+  ///
+  /// In en, this message translates to:
+  /// **'{count} · {range}'**
+  String eventDatesSummary(String count, String range);
 }
 
 class _AppLocalizationsDelegate

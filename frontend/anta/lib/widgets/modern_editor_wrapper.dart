@@ -70,6 +70,12 @@ class ModernEditorWrapper extends StatefulWidget {
   /// of text reads as clutter.
   final bool showScrollIndicator;
 
+  final EdgeInsets? editorPadding;
+
+  final double? editorLineHeight;
+
+  final bool paintGround;
+
   /// Number of lines per chunk for debug visualization (matches preview mode)
   final int linesPerChunk;
 
@@ -100,6 +106,9 @@ class ModernEditorWrapper extends StatefulWidget {
     this.lineNumbersKey,
     this.scrollIndicatorKey,
     this.showScrollIndicator = true,
+    this.editorPadding,
+    this.editorLineHeight,
+    this.paintGround = true,
     this.linesPerChunk = 10,
     this.showChunkColors = false,
     this.showChunkBorders = false,
@@ -707,10 +716,12 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
         Listener(
           onPointerUp: _onEditorPointerUp,
           child: Container(
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surface.withValues(alpha: 0.3),
-              borderRadius: BorderRadius.circular(8),
-            ),
+            decoration: widget.paintGround
+                ? BoxDecoration(
+                    color: theme.colorScheme.surface.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(8),
+                  )
+                : null,
             child: NotificationListener<ScrollMetricsNotification>(
               onNotification: _onScrollMetrics,
               child: _buildCodeEditor(context),
@@ -772,7 +783,7 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
         style: CodeEditorStyle(
           fontSize: widget.editorFontSize,
           fontFamily: FontConstants.editorFontFamily,
-          fontHeight: MarkdownConstants.lineHeight,
+          fontHeight: widget.editorLineHeight ?? MarkdownConstants.lineHeight,
           textColor: theme.textTheme.bodyLarge?.color,
           backgroundColor: Colors.transparent,
           cursorColor: theme.colorScheme.primary,
@@ -800,12 +811,14 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
         shortcutOverrideActions: _shortcutOverrides,
         // Add small right padding for visible scrollbar (6-12px width)
         // Add bottom safe area to account for phone navigation bar
-        padding: EdgeInsets.only(
-          left: AppSpacing.xl,
-          top: AppSpacing.lg,
-          right: AppSpacing.xl + AppConstants.editorScrollbarPadding,
-          bottom: AppSpacing.lg + bottomSafeArea,
-        ),
+        padding:
+            widget.editorPadding ??
+            EdgeInsets.only(
+              left: AppSpacing.xl,
+              top: AppSpacing.lg,
+              right: AppSpacing.xl + AppConstants.editorScrollbarPadding,
+              bottom: AppSpacing.lg + bottomSafeArea,
+            ),
         indicatorBuilder: widget.showLineNumbers
             ? (context, editingController, chunkController, notifier) {
                 return KeyedSubtree(

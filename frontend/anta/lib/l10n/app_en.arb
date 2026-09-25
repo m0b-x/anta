@@ -47,10 +47,6 @@
   "@eventEndTimeNone": {
     "description": "Title shown when an event has no end time set"
   },
-  "eventEndTimeHint": "Tap to add an end time",
-  "@eventEndTimeHint": {
-    "description": "Hint shown beneath the end-time picker when no end is set"
-  },
   "eventCrossesMidnight": "Ends next day",
   "@eventCrossesMidnight": {
     "description": "Hint shown when the chosen end time crosses midnight"
@@ -875,10 +871,6 @@
   "@iconLabel": {
     "description": "Section label in the event editor for the icon picker"
   },
-  "iconDefault": "Default for category",
-  "@iconDefault": {
-    "description": "Shown when no explicit icon has been chosen for an event"
-  },
   "iconCustom": "Custom icon",
   "@iconCustom": {
     "description": "Shown when the user picked a specific icon for an event"
@@ -887,15 +879,11 @@
   "@pickIcon": {
     "description": "Title of the icon picker bottom sheet / subtitle of the picker tile"
   },
-  "pickCategory": "Change category",
-  "@pickCategory": {
-    "description": "Subtitle on the category picker tile in the event editor"
-  },
   "resetToDefault": "Reset to default",
   "@resetToDefault": {
     "description": "Tooltip on the button that clears the custom icon override"
   },
-  "eventDate": "Starting date",
+  "eventDate": "Start date",
   "@eventDate": {
     "description": "Section label in the event editor for the recurring event start date"
   },
@@ -906,14 +894,6 @@
   "repeatOnce": "One time",
   "@repeatOnce": {
     "description": "Segmented control option: event occurs only once"
-  },
-  "repeatRecurring": "Recurring",
-  "@repeatRecurring": {
-    "description": "Segmented control option: event recurs on a schedule"
-  },
-  "frequency": "Frequency",
-  "@frequency": {
-    "description": "Section label for the recurrence frequency chips"
   },
   "recurrenceWorkdays": "Workdays",
   "@recurrenceWorkdays": {
@@ -1003,25 +983,9 @@
       "count": { "type": "int", "example": "2" }
     }
   },
-  "weekdays": "Weekdays",
-  "@weekdays": {
-    "description": "Section label for the per-weekday chips in the editor"
-  },
   "weeklyDaysHint": "Pick at least one weekday",
   "@weeklyDaysHint": {
     "description": "Validation hint shown when the user clears all weekday selections"
-  },
-  "eventUntilLabel": "Ends on",
-  "@eventUntilLabel": {
-    "description": "Section label for the optional recurrence end-date picker"
-  },
-  "eventUntilNone": "Never ends",
-  "@eventUntilNone": {
-    "description": "Placeholder shown when no recurrence end date is set"
-  },
-  "eventUntilHint": "Tap to set an end date",
-  "@eventUntilHint": {
-    "description": "Subtitle hint for the recurrence end-date picker when empty"
   },
   "recurrenceScopeLabel": "Occurrences",
   "@recurrenceScopeLabel": {
@@ -1097,10 +1061,6 @@
   "eventShowInDayRailNever": "Never",
   "@eventShowInDayRailNever": {
     "description": "Day rail membership: never show on the rail"
-  },
-  "eventShowInDayRailHint": "Auto follows presence tracking.",
-  "@eventShowInDayRailHint": {
-    "description": "Hint under the day-rail membership control"
   },
   "eventPresencePresent": "Present",
   "@eventPresencePresent": {
@@ -1614,10 +1574,6 @@
   "@selectNone": {
     "description": "Quick action clearing every chip in a selection row"
   },
-  "eventSectionWhat": "What",
-  "@eventSectionWhat": {
-    "description": "Event editor section header: what the event is"
-  },
   "eventSectionWhen": "When",
   "@eventSectionWhen": {
     "description": "Event editor section header: scheduling"
@@ -1652,10 +1608,6 @@
   "eventDescriptionPreviewOff": "Edit description",
   "@eventDescriptionPreviewOff": {
     "description": "Tooltip for the button that switches the description preview back to editing"
-  },
-  "eventDescriptionEmpty": "Nothing to preview yet",
-  "@eventDescriptionEmpty": {
-    "description": "Placeholder shown in the description preview when the field is empty"
   },
   "eventHasDescription": "Has notes",
   "@eventHasDescription": {
@@ -1707,17 +1659,9 @@
   "@eventTintIcon": {
     "description": "Toggle label: also apply the event color to the icon"
   },
-  "eventTintIconHint": "Use the event color for the icon too",
-  "@eventTintIconHint": {
-    "description": "Subtitle for the tint-icon toggle"
-  },
   "eventPriority": "Priority",
   "@eventPriority": {
     "description": "Section label for the event priority stepper"
-  },
-  "eventPriorityHint": "Higher priority shows first and keeps its bar when a day is full",
-  "@eventPriorityHint": {
-    "description": "Hint shown under the event priority stepper"
   },
   "eventPriorityLowest": "Lowest",
   "@eventPriorityLowest": {
@@ -1739,14 +1683,6 @@
   "@eventPriorityHighest": {
     "description": "Qualitative label for priority level 5"
   },
-  "eventDatesLabel": "Dates",
-  "@eventDatesLabel": {
-    "description": "Section label for the one-time event's date chip list"
-  },
-  "eventDatesHint": "Add more one-off dates to repeat this event without a recurrence",
-  "@eventDatesHint": {
-    "description": "Hint shown when a one-time event has no additional dates yet"
-  },
   "eventAddDate": "Add date",
   "@eventAddDate": {
     "description": "Action chip that adds another one-off date"
@@ -1765,10 +1701,6 @@
   "eventDescription": "Description",
   "@eventDescription": {
     "description": "Label for the optional multiline description / notes field on an event"
-  },
-  "eventDescriptionHint": "Add notes (focus, technique, intensity…)",
-  "@eventDescriptionHint": {
-    "description": "Hint text for the optional event description field"
   },
   "eventDescriptionEdit": "Edit description",
   "@eventDescriptionEdit": {
@@ -1797,10 +1729,6 @@
   "eventLinkedNote": "Linked note",
   "@eventLinkedNote": {
     "description": "Section label for the optional workout note linked to a calendar event"
-  },
-  "eventLinkNoteHint": "Link a workout note",
-  "@eventLinkNoteHint": {
-    "description": "Picker tile title shown when no note is linked to the event yet"
   },
   "eventLinkedNoteMissing": "Linked note no longer exists",
   "@eventLinkedNoteMissing": {
@@ -6380,18 +6308,6 @@
   "@eventAlertAdd": {
     "description": "Chip that adds another alert to the event"
   },
-  "eventAlertHint": "An alert fires for every occurrence of this event.",
-  "@eventAlertHint": {
-    "description": "Hint under the alert rows in the event editor"
-  },
-  "eventAlertRingsUntilStopped": "Rings until you stop it",
-  "@eventAlertRingsUntilStopped": {
-    "description": "Subtitle of an alarm-tier alert row"
-  },
-  "eventAlertNotification": "Notification you can snooze",
-  "@eventAlertNotification": {
-    "description": "Subtitle of a reminder-tier alert row"
-  },
   "eventAlertRemove": "Remove alert",
   "@eventAlertRemove": {
     "description": "Removes one alert from the event"
@@ -6806,5 +6722,108 @@
   "quickAlarmTime": "Alarm time",
   "@quickAlarmTime": {
     "description": "Title of the time pad opened from the quick-alarm sheet's big time"
+  },
+  "eventCategory": "Category",
+  "@eventCategory": {
+    "description": "Label of the event editor's category row"
+  },
+  "eventDateLabel": "Date",
+  "@eventDateLabel": {
+    "description": "Label of the event editor's date row for a one-time event with one date"
+  },
+  "eventStarts": "Starts",
+  "@eventStarts": {
+    "description": "Label of the event editor's start-time row"
+  },
+  "eventEnds": "Ends",
+  "@eventEnds": {
+    "description": "Label of the event editor's end-time row"
+  },
+  "eventEndTimeRemove": "Remove end time",
+  "@eventEndTimeRemove": {
+    "description": "Tooltip of the button that clears an event's end time"
+  },
+  "eventRepeat": "Repeat",
+  "@eventRepeat": {
+    "description": "Label of the event editor's repeat row and title of the repeat sheet"
+  },
+  "recurrenceDoesNotRepeat": "Does not repeat",
+  "@recurrenceDoesNotRepeat": {
+    "description": "Repeat value of a one-time event, and the first option of the repeat sheet"
+  },
+  "recurrenceEnds": "Ends",
+  "@recurrenceEnds": {
+    "description": "Label of the repeat sheet's end-date row"
+  },
+  "never": "Never",
+  "@never": {
+    "description": "Value of the repeat sheet's end-date row when no end date is set"
+  },
+  "recurrenceEndDateRemove": "Remove end date",
+  "@recurrenceEndDateRemove": {
+    "description": "Tooltip of the button that clears a recurrence's end date"
+  },
+  "recurrenceBeforeStart": "Also before the start date",
+  "@recurrenceBeforeStart": {
+    "description": "Title of the repeat sheet's retroactive switch"
+  },
+  "recurrenceBeforeStartHint": "Shows on matching days before {date}",
+  "@recurrenceBeforeStartHint": {
+    "description": "Second line of the retroactive switch, naming the start date",
+    "placeholders": {
+      "date": { "type": "String", "example": "Sep 25, 2026" }
+    }
+  },
+  "recurrenceBeforeStartYearlyHint": "Also in earlier years",
+  "@recurrenceBeforeStartYearlyHint": {
+    "description": "Second line of the retroactive switch for a yearly rule"
+  },
+  "recurrenceUntilSuffix": "{rule} · until {date}",
+  "@recurrenceUntilSuffix": {
+    "description": "The repeat row's value when an end date is set: the rule label followed by the end date",
+    "placeholders": {
+      "rule": { "type": "String", "example": "Weekly · Mon, Thu" },
+      "date": { "type": "String", "example": "Dec 31, 2026" }
+    }
+  },
+  "eventLookDefault": "Default",
+  "@eventLookDefault": {
+    "description": "Value of the Icon & color row when neither an icon nor a colour override is set"
+  },
+  "eventLookCustom": "Custom",
+  "@eventLookCustom": {
+    "description": "Value of the Icon & color row when an icon or colour override is set"
+  },
+  "eventLinkedNoteNone": "None",
+  "@eventLinkedNoteNone": {
+    "description": "Value of the linked-note row when no note is linked"
+  },
+  "eventLinkedNoteNotFound": "Not found",
+  "@eventLinkedNoteNotFound": {
+    "description": "Value of the linked-note row when the linked note no longer exists"
+  },
+  "eventDescriptionResetDayShort": "Reset day",
+  "@eventDescriptionResetDayShort": {
+    "description": "Short label of the button that returns one day's description to the shared one"
+  },
+  "eventTitleCount": "{count}/{limit}",
+  "@eventTitleCount": {
+    "description": "The counter under the event editor's title field, shown from 100 characters",
+    "placeholders": {
+      "count": { "type": "int" },
+      "limit": { "type": "int" }
+    }
+  },
+  "eventDatesLabel": "Dates",
+  "@eventDatesLabel": {
+    "description": "Label of the event editor's bundled dates row, shown from four one-off dates on"
+  },
+  "eventDatesSummary": "{count} · {range}",
+  "@eventDatesSummary": {
+    "description": "Value of the bundled dates row: the date count and the span from the first to the last date",
+    "placeholders": {
+      "count": { "type": "String", "example": "10 dates" },
+      "range": { "type": "String", "example": "Sep 25 – Oct 16, 2026" }
+    }
   }
 }

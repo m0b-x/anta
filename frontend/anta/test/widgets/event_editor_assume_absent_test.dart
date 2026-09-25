@@ -16,6 +16,7 @@ import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/markdown_bar_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/widgets/event_editor_sheet.dart';
+import 'package:anta/widgets/form_rows.dart';
 
 import '../database/support/db_test_support.dart';
 
@@ -144,23 +145,19 @@ void main() {
     return (results.single as EventEditorSaved).event;
   }
 
-  /// The presence-default control, found by its own segment labels — the
-  /// repeat-mode and retroactive-scope controls above it are `SegmentedButton`s
-  /// too, so matching on the type alone matches three.
+  /// The presence-default control: the chip pair under the Track presence
+  /// switch, found by its own chip labels — the count-style chips above it
+  /// are a chip row too, so matching on the type alone matches two.
   final defaultControl = find.byWidgetPredicate(
     (w) =>
-        w is SegmentedButton &&
-        w.segments.any(
-          (s) => s.label is Text && (s.label as Text).data == 'Assume absent',
-        ),
+        w is FormChipRow &&
+        w.chips.any((c) => c is FormChip && c.label == 'Assume absent'),
   );
 
-  // Located by its leading icon: the "Absent from" label is a section label
-  // above the tile, not part of it, like every other picker in the form.
-  final fromTile = find.ancestor(
-    of: find.byIcon(Icons.event_repeat_rounded),
-    matching: find.byType(ListTile),
-  );
+  FormChip chip(WidgetTester tester, String label) =>
+      tester.widget<FormChip>(find.widgetWithText(FormChip, label));
+
+  final fromTile = find.widgetWithText(FormPickerRow, 'Absent from');
 
   Future<void> pick(WidgetTester tester, String label) async {
     final segment = find.descendant(
@@ -181,7 +178,7 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  String dateLabel(DateTime day) => DateFormat.yMMMMEEEEd('en').format(day);
+  String dateLabel(DateTime day) => DateFormat.yMMMEd('en').format(day);
 
   group('when the control is offered', () {
     testWidgets('a tracked recurring event gets both readings', (tester) async {
@@ -194,12 +191,10 @@ void main() {
           findsOneWidget,
         );
       }
-      // The hint follows the selection, because the two segment labels say
-      // what the setting is called and not what it does to a day.
-      expect(
-        find.text('Days count as attended unless you mark them missed.'),
-        findsOneWidget,
-      );
+      // The chip pair reports the saved default: present is what the row
+      // was written with, so it is the one drawn selected.
+      expect(chip(tester, 'Assume present').selected, isTrue);
+      expect(chip(tester, 'Assume absent').selected, isFalse);
     });
 
     testWidgets('an untracked event is not offered it', (tester) async {
@@ -218,19 +213,13 @@ void main() {
       expect(defaultControl, findsNothing);
     });
 
-    testWidgets('the hint swaps with the selection', (tester) async {
+    testWidgets('the selection swaps with the pick', (tester) async {
       await open(tester, initial: event());
 
       await pick(tester, 'Assume absent');
 
-      expect(
-        find.text('Days count as missed until you mark them present.'),
-        findsOneWidget,
-      );
-      expect(
-        find.text('Days count as attended unless you mark them missed.'),
-        findsNothing,
-      );
+      expect(chip(tester, 'Assume absent').selected, isTrue);
+      expect(chip(tester, 'Assume present').selected, isFalse);
     });
   });
 
@@ -372,7 +361,9 @@ void main() {
 
       await tester.enterText(find.byType(TextField).first, 'Gym');
       await tester.pumpAndSettle();
-      await tapText(tester, 'Recurring');
+      await tapText(tester, 'Repeat');
+      await tapText(tester, 'Daily');
+      await tapText(tester, 'Done');
       await tapText(tester, 'Track presence');
       await pick(tester, 'Assume absent');
 

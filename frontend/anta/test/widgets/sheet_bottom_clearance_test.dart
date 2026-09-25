@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/bloc/markdown_bar/markdown_bar_bloc.dart';
 import 'package:anta/constants/calendar_bounds.dart';
+import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
@@ -29,6 +30,8 @@ import 'package:anta/services/settings_service.dart';
 import 'package:anta/widgets/event_description_sheet.dart';
 import 'package:anta/widgets/event_detail_sheet.dart';
 import 'package:anta/widgets/event_editor_sheet.dart';
+import 'package:anta/widgets/event_look_sheet.dart';
+import 'package:anta/widgets/event_repeat_sheet.dart';
 import 'package:anta/widgets/event_template_editor_sheet.dart';
 import 'package:anta/widgets/modern_editor_wrapper.dart';
 import 'package:anta/widgets/quick_alarm_sheet.dart';
@@ -413,6 +416,43 @@ void main() {
 
     // The markdown bar only docks while the description has focus, so with the
     // form idle the clearance is the scroll view's job.
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+  });
+
+  testWidgets('the repeat sheet clears the navigation bar', (tester) async {
+    sizeSurfaceWithNavBar(tester);
+    await openFrom(
+      tester,
+      (context) => EventRepeatSheet.show(
+        context,
+        draft: const EventRepeatDraft(
+          recurring: true,
+          kind: RepeatKind.weekly,
+          weekdays: {1},
+        ),
+        startDate: DateTime.utc(2026, 8, 20),
+        appearance: const CalendarAppearance(),
+      ),
+    );
+
+    // The retroactive switch is the last row in the sheet, and exactly what a
+    // nav bar eats on a phone where the weekly state fills the screen.
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+  });
+
+  testWidgets('the icon and colour sheet clears the navigation bar', (
+    tester,
+  ) async {
+    sizeSurfaceWithNavBar(tester);
+    await openFrom(
+      tester,
+      (context) => EventLookSheet.show(
+        context,
+        draft: const EventLookDraft(),
+        category: CalendarCategories.resolve('gym'),
+      ),
+    );
+
     expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
   });
 

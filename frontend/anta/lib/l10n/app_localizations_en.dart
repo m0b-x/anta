@@ -45,9 +45,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get eventEndTimeNone => 'No end time';
 
   @override
-  String get eventEndTimeHint => 'Tap to add an end time';
-
-  @override
   String get eventCrossesMidnight => 'Ends next day';
 
   @override
@@ -674,34 +671,22 @@ class AppLocalizationsEn extends AppLocalizations {
   String get iconLabel => 'Icon';
 
   @override
-  String get iconDefault => 'Default for category';
-
-  @override
   String get iconCustom => 'Custom icon';
 
   @override
   String get pickIcon => 'Choose icon';
 
   @override
-  String get pickCategory => 'Change category';
-
-  @override
   String get resetToDefault => 'Reset to Default';
 
   @override
-  String get eventDate => 'Starting date';
+  String get eventDate => 'Start date';
 
   @override
   String get repeatMode => 'Repeats';
 
   @override
   String get repeatOnce => 'One time';
-
-  @override
-  String get repeatRecurring => 'Recurring';
-
-  @override
-  String get frequency => 'Frequency';
 
   @override
   String get recurrenceWorkdays => 'Workdays';
@@ -821,19 +806,7 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get weekdays => 'Weekdays';
-
-  @override
   String get weeklyDaysHint => 'Pick at least one weekday';
-
-  @override
-  String get eventUntilLabel => 'Ends on';
-
-  @override
-  String get eventUntilNone => 'Never ends';
-
-  @override
-  String get eventUntilHint => 'Tap to set an end date';
 
   @override
   String get recurrenceScopeLabel => 'Occurrences';
@@ -893,9 +866,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get eventShowInDayRailNever => 'Never';
-
-  @override
-  String get eventShowInDayRailHint => 'Auto follows presence tracking.';
 
   @override
   String get eventPresencePresent => 'Present';
@@ -1332,9 +1302,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get selectNone => 'None';
 
   @override
-  String get eventSectionWhat => 'What';
-
-  @override
   String get eventSectionWhen => 'When';
 
   @override
@@ -1366,9 +1333,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get eventDescriptionPreviewOff => 'Edit description';
-
-  @override
-  String get eventDescriptionEmpty => 'Nothing to preview yet';
 
   @override
   String get eventHasDescription => 'Has notes';
@@ -1406,14 +1370,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get eventTintIcon => 'Tint icon with color';
 
   @override
-  String get eventTintIconHint => 'Use the event color for the icon too';
-
-  @override
   String get eventPriority => 'Priority';
-
-  @override
-  String get eventPriorityHint =>
-      'Higher priority shows first and keeps its bar when a day is full';
 
   @override
   String get eventPriorityLowest => 'Lowest';
@@ -1429,13 +1386,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get eventPriorityHighest => 'Highest';
-
-  @override
-  String get eventDatesLabel => 'Dates';
-
-  @override
-  String get eventDatesHint =>
-      'Add more one-off dates to repeat this event without a recurrence';
 
   @override
   String get eventAddDate => 'Add date';
@@ -1456,9 +1406,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get eventDescription => 'Description';
-
-  @override
-  String get eventDescriptionHint => 'Add notes (focus, technique, intensity…)';
 
   @override
   String get eventDescriptionEdit => 'Edit description';
@@ -1482,9 +1429,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get eventLinkedNote => 'Linked note';
-
-  @override
-  String get eventLinkNoteHint => 'Link a workout note';
 
   @override
   String get eventLinkedNoteMissing => 'Linked note no longer exists';
@@ -5078,16 +5022,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get eventAlertAdd => 'Add alert';
 
   @override
-  String get eventAlertHint =>
-      'An alert fires for every occurrence of this event.';
-
-  @override
-  String get eventAlertRingsUntilStopped => 'Rings until you stop it';
-
-  @override
-  String get eventAlertNotification => 'Notification you can snooze';
-
-  @override
   String get eventAlertRemove => 'Remove alert';
 
   @override
@@ -5411,4 +5345,78 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get quickAlarmTime => 'Alarm time';
+
+  @override
+  String get eventCategory => 'Category';
+
+  @override
+  String get eventDateLabel => 'Date';
+
+  @override
+  String get eventStarts => 'Starts';
+
+  @override
+  String get eventEnds => 'Ends';
+
+  @override
+  String get eventEndTimeRemove => 'Remove end time';
+
+  @override
+  String get eventRepeat => 'Repeat';
+
+  @override
+  String get recurrenceDoesNotRepeat => 'Does not repeat';
+
+  @override
+  String get recurrenceEnds => 'Ends';
+
+  @override
+  String get never => 'Never';
+
+  @override
+  String get recurrenceEndDateRemove => 'Remove end date';
+
+  @override
+  String get recurrenceBeforeStart => 'Also before the start date';
+
+  @override
+  String recurrenceBeforeStartHint(String date) {
+    return 'Shows on matching days before $date';
+  }
+
+  @override
+  String get recurrenceBeforeStartYearlyHint => 'Also in earlier years';
+
+  @override
+  String recurrenceUntilSuffix(String rule, String date) {
+    return '$rule · until $date';
+  }
+
+  @override
+  String get eventLookDefault => 'Default';
+
+  @override
+  String get eventLookCustom => 'Custom';
+
+  @override
+  String get eventLinkedNoteNone => 'None';
+
+  @override
+  String get eventLinkedNoteNotFound => 'Not found';
+
+  @override
+  String get eventDescriptionResetDayShort => 'Reset day';
+
+  @override
+  String eventTitleCount(int count, int limit) {
+    return '$count/$limit';
+  }
+
+  @override
+  String get eventDatesLabel => 'Dates';
+
+  @override
+  String eventDatesSummary(String count, String range) {
+    return '$count · $range';
+  }
 }

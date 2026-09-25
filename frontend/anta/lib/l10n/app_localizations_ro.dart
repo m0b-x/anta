@@ -45,9 +45,6 @@ class AppLocalizationsRo extends AppLocalizations {
   String get eventEndTimeNone => 'Fără oră de sfârșit';
 
   @override
-  String get eventEndTimeHint => 'Atinge pentru a adăuga o oră de sfârșit';
-
-  @override
   String get eventCrossesMidnight => 'Se termină a doua zi';
 
   @override
@@ -681,16 +678,10 @@ class AppLocalizationsRo extends AppLocalizations {
   String get iconLabel => 'Pictogramă';
 
   @override
-  String get iconDefault => 'Implicit pentru categorie';
-
-  @override
   String get iconCustom => 'Pictogramă personalizată';
 
   @override
   String get pickIcon => 'Alege pictogramă';
-
-  @override
-  String get pickCategory => 'Schimbă categoria';
 
   @override
   String get resetToDefault => 'Resetează la Implicit';
@@ -703,12 +694,6 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get repeatOnce => 'O singură dată';
-
-  @override
-  String get repeatRecurring => 'Recurent';
-
-  @override
-  String get frequency => 'Frecvență';
 
   @override
   String get recurrenceWorkdays => 'Zile lucrătoare';
@@ -837,19 +822,7 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
-  String get weekdays => 'Zilele săptămânii';
-
-  @override
   String get weeklyDaysHint => 'Selectează cel puțin o zi';
-
-  @override
-  String get eventUntilLabel => 'Se termină pe';
-
-  @override
-  String get eventUntilNone => 'Nu se termină niciodată';
-
-  @override
-  String get eventUntilHint => 'Atinge pentru a seta o dată de final';
 
   @override
   String get recurrenceScopeLabel => 'Apariții';
@@ -909,9 +882,6 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get eventShowInDayRailNever => 'Niciodată';
-
-  @override
-  String get eventShowInDayRailHint => 'Automat urmează urmărirea prezenței.';
 
   @override
   String get eventPresencePresent => 'Prezent';
@@ -1354,9 +1324,6 @@ class AppLocalizationsRo extends AppLocalizations {
   String get selectNone => 'Niciuna';
 
   @override
-  String get eventSectionWhat => 'Ce';
-
-  @override
   String get eventSectionWhen => 'Când';
 
   @override
@@ -1388,9 +1355,6 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get eventDescriptionPreviewOff => 'Editează descrierea';
-
-  @override
-  String get eventDescriptionEmpty => 'Nimic de afișat încă';
 
   @override
   String get eventHasDescription => 'Are notițe';
@@ -1428,15 +1392,7 @@ class AppLocalizationsRo extends AppLocalizations {
   String get eventTintIcon => 'Colorează pictograma';
 
   @override
-  String get eventTintIconHint =>
-      'Folosește culoarea evenimentului și pentru pictogramă';
-
-  @override
   String get eventPriority => 'Prioritate';
-
-  @override
-  String get eventPriorityHint =>
-      'Prioritatea mai mare apare prima și își păstrează bara când ziua e plină';
 
   @override
   String get eventPriorityLowest => 'Minimă';
@@ -1452,13 +1408,6 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get eventPriorityHighest => 'Maximă';
-
-  @override
-  String get eventDatesLabel => 'Date';
-
-  @override
-  String get eventDatesHint =>
-      'Adaugă alte date individuale pentru a repeta acest eveniment fără recurență';
 
   @override
   String get eventAddDate => 'Adaugă dată';
@@ -1482,10 +1431,6 @@ class AppLocalizationsRo extends AppLocalizations {
   String get eventDescription => 'Descriere';
 
   @override
-  String get eventDescriptionHint =>
-      'Adaugă note (focus, tehnică, intensitate…)';
-
-  @override
   String get eventDescriptionEdit => 'Editează descrierea';
 
   @override
@@ -1507,9 +1452,6 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get eventLinkedNote => 'Notă asociată';
-
-  @override
-  String get eventLinkNoteHint => 'Asociază o notă de antrenament';
 
   @override
   String get eventLinkedNoteMissing => 'Nota asociată nu mai există';
@@ -5173,16 +5115,6 @@ class AppLocalizationsRo extends AppLocalizations {
   String get eventAlertAdd => 'Adaugă alertă';
 
   @override
-  String get eventAlertHint =>
-      'O alertă se declanșează la fiecare apariție a evenimentului.';
-
-  @override
-  String get eventAlertRingsUntilStopped => 'Sună până o oprești';
-
-  @override
-  String get eventAlertNotification => 'Notificare pe care o poți amâna';
-
-  @override
   String get eventAlertRemove => 'Elimină alerta';
 
   @override
@@ -5510,4 +5442,78 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get quickAlarmTime => 'Ora alarmei';
+
+  @override
+  String get eventCategory => 'Categorie';
+
+  @override
+  String get eventDateLabel => 'Dată';
+
+  @override
+  String get eventStarts => 'Început';
+
+  @override
+  String get eventEnds => 'Sfârșit';
+
+  @override
+  String get eventEndTimeRemove => 'Elimină ora de sfârșit';
+
+  @override
+  String get eventRepeat => 'Repetare';
+
+  @override
+  String get recurrenceDoesNotRepeat => 'Nu se repetă';
+
+  @override
+  String get recurrenceEnds => 'Se termină';
+
+  @override
+  String get never => 'Niciodată';
+
+  @override
+  String get recurrenceEndDateRemove => 'Elimină data de final';
+
+  @override
+  String get recurrenceBeforeStart => 'Și înainte de data de început';
+
+  @override
+  String recurrenceBeforeStartHint(String date) {
+    return 'Apare în zilele potrivite dinainte de $date';
+  }
+
+  @override
+  String get recurrenceBeforeStartYearlyHint => 'Și în anii anteriori';
+
+  @override
+  String recurrenceUntilSuffix(String rule, String date) {
+    return '$rule · până la $date';
+  }
+
+  @override
+  String get eventLookDefault => 'Implicit';
+
+  @override
+  String get eventLookCustom => 'Personalizat';
+
+  @override
+  String get eventLinkedNoteNone => 'Niciuna';
+
+  @override
+  String get eventLinkedNoteNotFound => 'Nu a fost găsită';
+
+  @override
+  String get eventDescriptionResetDayShort => 'Resetează ziua';
+
+  @override
+  String eventTitleCount(int count, int limit) {
+    return '$count/$limit';
+  }
+
+  @override
+  String get eventDatesLabel => 'Date';
+
+  @override
+  String eventDatesSummary(String count, String range) {
+    return '$count · $range';
+  }
 }

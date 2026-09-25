@@ -201,7 +201,7 @@ void main() {
     final results = await open(tester, initial: eventOf());
 
     expect(find.text('At start'), findsOneWidget);
-    expect(find.text('Rings until you stop it'), findsOneWidget);
+    expect(find.text('Alarm'), findsOneWidget);
 
     final saved = await saveAnd(tester, results);
     expect(saved.alerts!.single.id, 'a1');
@@ -234,7 +234,7 @@ void main() {
     final removeSwitch = find.text('Remove after it rings');
     await tester.ensureVisible(removeSwitch);
     expect(removeSwitch, findsOneWidget);
-    await tester.tap(find.byType(SwitchListTile).last);
+    await tester.tap(removeSwitch);
     await tester.pumpAndSettle();
 
     final saved = await saveAnd(tester, results);
