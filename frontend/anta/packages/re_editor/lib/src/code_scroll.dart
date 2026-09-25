@@ -42,6 +42,8 @@ class CodeScrollController {
     _render?.makePositionVisible(position);
   }
 
+  double? get contentHeight => _render?.contentHeight;
+
   void bindEditor(GlobalKey key) {
     _editorKey = key;
   }

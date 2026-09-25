@@ -45,9 +45,6 @@ class AppLocalizationsDe extends AppLocalizations {
   String get eventEndTimeNone => 'Keine Endzeit';
 
   @override
-  String get eventEndTimeHint => 'Tippe, um eine Endzeit hinzuzufügen';
-
-  @override
   String get eventCrossesMidnight => 'Endet am nächsten Tag';
 
   @override
@@ -677,16 +674,10 @@ class AppLocalizationsDe extends AppLocalizations {
   String get iconLabel => 'Symbol';
 
   @override
-  String get iconDefault => 'Standard für Kategorie';
-
-  @override
   String get iconCustom => 'Eigenes Symbol';
 
   @override
   String get pickIcon => 'Symbol wählen';
-
-  @override
-  String get pickCategory => 'Kategorie ändern';
 
   @override
   String get resetToDefault => 'Auf Standard zurücksetzen';
@@ -699,12 +690,6 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get repeatOnce => 'Einmalig';
-
-  @override
-  String get repeatRecurring => 'Wiederkehrend';
-
-  @override
-  String get frequency => 'Häufigkeit';
 
   @override
   String get recurrenceWorkdays => 'Werktage';
@@ -824,19 +809,7 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
-  String get weekdays => 'Wochentage';
-
-  @override
   String get weeklyDaysHint => 'Wähle mindestens einen Wochentag';
-
-  @override
-  String get eventUntilLabel => 'Endet am';
-
-  @override
-  String get eventUntilNone => 'Endet nie';
-
-  @override
-  String get eventUntilHint => 'Tippe, um ein Enddatum festzulegen';
 
   @override
   String get recurrenceScopeLabel => 'Vorkommen';
@@ -896,9 +869,6 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get eventShowInDayRailNever => 'Nie';
-
-  @override
-  String get eventShowInDayRailHint => 'Auto folgt der Anwesenheitserfassung.';
 
   @override
   String get eventPresencePresent => 'Anwesend';
@@ -1336,9 +1306,6 @@ class AppLocalizationsDe extends AppLocalizations {
   String get selectNone => 'Keine';
 
   @override
-  String get eventSectionWhat => 'Was';
-
-  @override
   String get eventSectionWhen => 'Wann';
 
   @override
@@ -1370,9 +1337,6 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get eventDescriptionPreviewOff => 'Beschreibung bearbeiten';
-
-  @override
-  String get eventDescriptionEmpty => 'Noch nichts zum Anzeigen';
 
   @override
   String get eventHasDescription => 'Hat Notizen';
@@ -1410,15 +1374,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get eventTintIcon => 'Symbol einfärben';
 
   @override
-  String get eventTintIconHint =>
-      'Die Ereignisfarbe auch für das Symbol verwenden';
-
-  @override
   String get eventPriority => 'Priorität';
-
-  @override
-  String get eventPriorityHint =>
-      'Höhere Priorität wird zuerst angezeigt und behält ihren Balken, wenn ein Tag voll ist';
 
   @override
   String get eventPriorityLowest => 'Niedrigste';
@@ -1434,13 +1390,6 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get eventPriorityHighest => 'Höchste';
-
-  @override
-  String get eventDatesLabel => 'Termine';
-
-  @override
-  String get eventDatesHint =>
-      'Füge weitere einzelne Termine hinzu, um dieses Ereignis ohne Wiederholung zu wiederholen';
 
   @override
   String get eventAddDate => 'Datum hinzufügen';
@@ -1461,10 +1410,6 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get eventDescription => 'Beschreibung';
-
-  @override
-  String get eventDescriptionHint =>
-      'Notizen hinzufügen (Fokus, Technik, Intensität…)';
 
   @override
   String get eventDescriptionEdit => 'Beschreibung bearbeiten';
@@ -1488,9 +1433,6 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get eventLinkedNote => 'Verknüpfte Notiz';
-
-  @override
-  String get eventLinkNoteHint => 'Trainingsnotiz verknüpfen';
 
   @override
   String get eventLinkedNoteMissing => 'Verknüpfte Notiz existiert nicht mehr';
@@ -5117,16 +5059,6 @@ class AppLocalizationsDe extends AppLocalizations {
   String get eventAlertAdd => 'Erinnerung hinzufügen';
 
   @override
-  String get eventAlertHint =>
-      'Eine Erinnerung gilt für jeden Termin dieser Serie.';
-
-  @override
-  String get eventAlertRingsUntilStopped => 'Klingelt, bis du stoppst';
-
-  @override
-  String get eventAlertNotification => 'Mitteilung zum Schlummern';
-
-  @override
   String get eventAlertRemove => 'Erinnerung entfernen';
 
   @override
@@ -5453,4 +5385,78 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get quickAlarmTime => 'Weckzeit';
+
+  @override
+  String get eventCategory => 'Kategorie';
+
+  @override
+  String get eventDateLabel => 'Datum';
+
+  @override
+  String get eventStarts => 'Beginn';
+
+  @override
+  String get eventEnds => 'Ende';
+
+  @override
+  String get eventEndTimeRemove => 'Endzeit entfernen';
+
+  @override
+  String get eventRepeat => 'Wiederholung';
+
+  @override
+  String get recurrenceDoesNotRepeat => 'Wiederholt sich nicht';
+
+  @override
+  String get recurrenceEnds => 'Endet';
+
+  @override
+  String get never => 'Nie';
+
+  @override
+  String get recurrenceEndDateRemove => 'Enddatum entfernen';
+
+  @override
+  String get recurrenceBeforeStart => 'Auch vor dem Startdatum';
+
+  @override
+  String recurrenceBeforeStartHint(String date) {
+    return 'Erscheint an passenden Tagen vor dem $date';
+  }
+
+  @override
+  String get recurrenceBeforeStartYearlyHint => 'Auch in früheren Jahren';
+
+  @override
+  String recurrenceUntilSuffix(String rule, String date) {
+    return '$rule · bis $date';
+  }
+
+  @override
+  String get eventLookDefault => 'Standard';
+
+  @override
+  String get eventLookCustom => 'Angepasst';
+
+  @override
+  String get eventLinkedNoteNone => 'Keine';
+
+  @override
+  String get eventLinkedNoteNotFound => 'Nicht gefunden';
+
+  @override
+  String get eventDescriptionResetDayShort => 'Tag zurücksetzen';
+
+  @override
+  String eventTitleCount(int count, int limit) {
+    return '$count/$limit';
+  }
+
+  @override
+  String get eventDatesLabel => 'Termine';
+
+  @override
+  String eventDatesSummary(String count, String range) {
+    return '$count · $range';
+  }
 }

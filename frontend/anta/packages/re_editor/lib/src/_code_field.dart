@@ -191,6 +191,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
   late final _CodeFieldExtraRender _foregroundRender;
   late final _CodeFieldExtraRender _backgroundRender;
   late double _preferredLineHeight;
+  double? _contentHeight;
 
   _CodeFieldRender({
     required ViewportOffset verticalViewport,
@@ -557,6 +558,8 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
   final ValueNotifier<bool> _selectionEndInViewport = ValueNotifier<bool>(true);
 
   double get lineHeight => _preferredLineHeight;
+
+  double? get contentHeight => _contentHeight;
 
   /// Line height of the paragraph at line [index] — taller than the base
   /// [lineHeight] when the span builder scaled the line (e.g. markdown
@@ -1190,8 +1193,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
   void forceRepaint() {
     _highlighter.clearCache();
     _displayParagraphs.clear();
-    _updateDisplayRenderParagraphs();
-    markNeedsPaint();
+    markNeedsLayout();
   }
 
   void autoScrollWhenDragging(Offset dragPosition) {
@@ -1587,6 +1589,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
         (_codes.length - (_displayParagraphs.last.index + 1)) *
             _preferredLineHeight +
         paddingBottom;
+    _contentHeight = totalHeight;
     _verticalViewportSize = max(0, totalHeight - size.height);
     if (_verticalViewport.pixels > _verticalViewportSize!) {
       _verticalViewport

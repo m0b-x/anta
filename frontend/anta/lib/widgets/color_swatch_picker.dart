@@ -47,12 +47,15 @@ class ColorSwatchPicker extends StatefulWidget {
 
   final double spacing;
 
+  final bool collapsible;
+
   const ColorSwatchPicker({
     super.key,
     required this.value,
     required this.onChanged,
     this.defaultOption,
     this.spacing = 8,
+    this.collapsible = true,
   });
 
   @override
@@ -266,7 +269,8 @@ class _ColorSwatchPickerState extends State<ColorSwatchPicker> {
             final budget =
                 perRun * _collapsedRuns - leading.length - trailing.length - 1;
 
-            final collapsed = !_expanded && palette.length > budget;
+            final collapsed =
+                widget.collapsible && !_expanded && palette.length > budget;
             final shown = collapsed
                 ? _collapsedSwatches(palette, budget, selected)
                 : palette;
@@ -409,15 +413,13 @@ class ColorSwatchDot extends StatelessWidget {
       button: true,
       selected: selected,
       label: semanticLabel,
-      child: SizedBox.square(
-        dimension: size > tapTarget ? size : tapTarget,
-        child: Center(
-          child: InkWell(
-            onTap: onTap,
-            onLongPress: onLongPress,
-            customBorder: const CircleBorder(),
-            child: dot,
-          ),
+      child: InkWell(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        customBorder: const CircleBorder(),
+        child: SizedBox.square(
+          dimension: size > tapTarget ? size : tapTarget,
+          child: Center(child: dot),
         ),
       ),
     );

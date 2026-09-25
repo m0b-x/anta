@@ -1099,63 +1099,100 @@ events toggle in place and write back through `onEventChanged` (§6.6).
 
 ### 6.3 [`EventEditorSheet`](../lib/widgets/event_editor_sheet.dart)
 
-A bottom-sheet form (`heightFactor: 0.92`), organized **category-first**
-into three `_GroupHeader` zones (accent-colored label + divider; the
-per-field `_SectionLabel`s stay inside each zone):
+A bottom-sheet form (`heightFactor: 0.92`) in the app's **grouped-row
+grammar** since the 2026-09-25 redesign (design record:
+[`event-editor-redesign-roadmap.md`](event-editor-redesign-roadmap.md); the
+row primitives live in [`form_rows.dart`](../lib/widgets/form_rows.dart) on
+`RowMetrics` and `SurfaceRoles`). The route is transparent and
+`enableDrag: false`; the sheet paints its own `pageGround` ground with a 28 dp
+top radius, a 22 dp handle strip and a 48 dp header — one leading icon,
+a **left-aligned** title, a stock `FilledButton(Save)` — with a hairline that
+appears under the header once the body has scrolled. Rows sit in rounded
+`rowGroup` cards with hairlines between them; there is no `Card`, no
+elevation, no per-field label line and no hint paragraph anywhere. A row's
+glyph names its field; only the title row's `EventAvatar` (the agenda card's
+disc) previews the event. A `label … value` pair is a `Wrap`, so a long value
+drops under its label instead of ellipsizing.
 
-**What** (`eventSectionWhat`):
-1. **Type** — category picker (`CategoryPickerSheet`), deliberately the
-   very first control: picking a category tailors the rest (the birthday
-   built-in pre-fills yearly recurrence). This is also why the title field
-   lost its autofocus — a keyboard popping open would bury the tile the
-   flow starts with.
-2. **Title** — single-line `TextField`, `maxLength: 120`.
+**Capture group** (no label):
+1. **Title** — beside the event avatar; wraps (`maxLines: null`, newlines
+   denied, Done on the keyboard), `maxLength: 120` with a counter from 100
+   characters. Autofocused on a **new** event only (D4).
+2. **Category** — `CategoryPickerSheet.pickSingle`; the birthday built-in
+   still pre-fills yearly recurrence with counting on a still-one-time event.
+3. **Icon & color** — value `Default`/`Custom` beside a dot in the event
+   colour; opens [`EventLookSheet`](../lib/widgets/event_look_sheet.dart):
+   an Icon row previewing the draft (reset via `refresh_rounded`), the whole
+   palette (`ColorSwatchPicker(collapsible: false)`) and the Tint row,
+   disabled rather than hidden without a colour. Done returns an
+   `EventLookDraft`, cancel changes nothing.
+4. **Description cell** — the same re_editor surface as before (§6.6), now
+   **one line (48 dp) to ten lines (246 dp), then scrolling inside**: a
+   `_DescriptionBox` render object lays the editor out and reads the fork's
+   `CodeScrollController.contentHeight` inside its own layout pass (up to
+   three passes), relaid out off the `_descriptionRevision` relay, so the
+   box is right in the frame of the keystroke. Empty it reads `Add description`; the expand icon (and the preview
+   toggle while live rendering is off) are overlay buttons; the counter shows
+   from 90 % of the limit and turns red over it, with the over-limit line
+   under the cell and Save disabled (grandfather rule unchanged). The scope
+   strip (All days / This day, Reset day) sits above the editor.
 
-**When** (`eventSectionWhen`):
-3. **Repeat mode** — segmented control `oneTime` / `recurring`, leading the
-   zone: it decides everything the zone renders below it (date chips vs
-   start date + recurrence config), so it sits above what it switches — in
-   its old spot below the date and time sections, toggling it mutated
-   content *above* the control, which read as if nothing happened.
-4. **Date(s)** — `CalendarDatePickerSheet` (§6.5), bounded by
-   `CalendarBounds`: fixed wide bounds, **not** the old ±20-year
-   slide around the current date, because a birthday's start is the birth
-   year and the occurrence-count age (§3.4) depends on it being real. The
-   Until picker keeps the start date as its lower bound. One-time
-   events edit their whole date set in one multi-select pass; recurring
-   events pick a start date, then frequency chips, interval stepper, weekly
-   weekday chips, occurrence-scope chips (§3.3), the count-occurrences
-   switch (§3.4, periodic kinds only), and the optional Until date — one
-   contiguous recurrence block under the toggle.
-5. **Time** — all-day switch, start/end pickers, closing the zone (shared
-   by both modes).
+**WHEN** (`eventSectionWhen`):
+5. **Date rows** — one date: a `Date` row through the single picker; two
+   or three one-off dates: one row per date with a ✕ each (D9), re-picked
+   through the multi picker on tap; four or more: one bundled `Dates ·
+   10 dates · Sep 25 – Oct 16, 2026` row that opens the multi picker's month
+   grid, so the group keeps one height from four dates to three hundred;
+   recurring: `Start date`. An **Add date** action row follows for one-time
+   events.
+6. **All day** switch, then `Starts` / `Ends` sub-rows (the end's ✕ clears
+   it; `Ends next day` past midnight), both under `ValueChangeHighlight`.
+7. **Repeat** — value `Does not repeat` for both one-time shapes, else the
+   `RecurrenceFormatter` label (with ` · also before` and ` · until {date}`);
+   opens [`EventRepeatSheet`](../lib/widgets/event_repeat_sheet.dart): a
+   radio group of the eight kinds plus a dependent group (Repeat every
+   stepper, weekday circles with a caption reading the picked days back or
+   the error, Ends with its ✕, the two-line "Also before the start date"
+   switch). The sheet edits a plain `EventRepeatDraft`, never a
+   `RecurrenceRule`, keeps a **constant height for every kind** (an invisible
+   weekly template sizes the dependent area) and disables Done while weekly
+   has no weekday; `_buildRule()` and `_initRecurrenceFrom` remain the only
+   encoder and decoder.
 
-**Details** (`eventSectionDetails`):
-6. **Description** — markdown source in a real `ModernEditorWrapper` /
-   re_editor surface, live-rendered Obsidian-style by the note editor's own
-   `MarkdownEditorSpanBuilder` (see §6.6), with a `count / limit` counter
-   above it and an expand icon that opens the same text full-screen in
-   `EventDescriptionSheet` (§6.6, 2026-08-31 addendum) — shown in preview
-   mode too, since expanding is itself an edit action. The eye/pencil
-   preview toggle survives only for users who turned live rendering off.
-   Money is disabled throughout (see §6.6).
-7. **Icon** — icon picker with reset-to-default action.
-8. **Color / priority / linked note** — appearance override, P1–P5 chips,
-   note link.
+**OCCURRENCES** (`recurrenceScopeLabel`, only while the rule has many
+occurrences): Count occurrences with its style chips and live example, Track
+presence with the Assume present / Assume absent chips and the `Absent from`
+sub-row (editing only), the Day rail **menu** (while the rail is drawn),
+Separate description per day (switching it on while editing a day reveals the
+scope strip and scrolls it into view), and Skipped days when editing.
 
-**(if editing) Delete** — destructive button with a confirmation dialog,
-last in the scroll.
+**ALERTS** (`eventAlerts`): one row per alert whose value is `Reminder` or
+`Alarm` (D13) with a ✕; Add alert (hidden at the cap); Remove after it rings
+for a one-time event with an alarm.
 
-Header: one leading icon + centered title + save in the same row — no
-detached bottom action bar, and never two leading icons. The icon is cancel
-(`close`) normally; opened from the detail sheet's edit loop it is
-**replaced** by `back` instead (`showBack`, §6.2, 2026-08-31), since the two
-discard identically with no dirty tracking in this sheet and a second icon
-would only mark where the user lands. Secondary whole-form actions —
-Delete, Save-as-template — stay out of the header and sit at the bottom of
-the scroll body.
+**DETAILS** (`eventSectionDetails`): Priority as a **menu** behind a fixed
+flag glyph (D12); Linked note (`None`, an empty value while the title loads,
+the title, or `Not found` in red with the full `eventLinkedNoteMissing`
+sentence as its semantics label).
 
-`_canSave` requires a non-empty title and, for weekly, at least one weekday.
+**Actions** (no label): Save as template, then Delete event (editing only,
+confirmation unchanged).
+
+**Leaving with unsaved changes (D20).** Close, back, the system back gesture,
+the barrier tap and the sheet's own drag all run one guard: a form whose
+`_fingerprint()` still matches the one captured at the end of `initState`
+leaves at once; a dirty one gets an `AlertDialog` (`unsavedChanges` ·
+`keepEditing` / `discardChanges`) between the gesture and the pop. Back still
+pops `EventEditorBack` and close `null`; Save never goes through the guard.
+Because the route's own drag pops without consulting `PopScope`, the sheet
+owns the gesture on its handle strip and header: the content follows the
+finger through a `Transform.translate`, a fling over 700 px/s or an offset past
+a quarter of the sheet's height dismisses (dirty forms snap back first, then
+ask), anything else snaps back. The Repeat and Icon & color sheets stay
+unguarded — each is one tap to redo.
+
+`_canSave` requires a non-empty title, for weekly at least one weekday, and
+both description scopes within their limits.
 
 ### 6.4 Validation rules currently enforced by the editor
 
@@ -1165,6 +1202,10 @@ the scroll body.
 - Start date moving forward past Until silently clears Until.
 - The multi-date picker cannot confirm an empty set (Save is disabled), so a
   one-time event always keeps at least one date.
+- The Repeat sheet cannot confirm a weekly draft without a weekday (Done is
+  disabled), and `_canSave` keeps its own check regardless.
+- A dirty form asks before it is left (close, back, system back, barrier tap,
+  drag); a clean one leaves silently.
 
 ### 6.5 [`CalendarDatePickerSheet`](../lib/widgets/calendar_date_picker_sheet.dart)
 
@@ -4936,3 +4977,63 @@ Guards: `test/utils/time_pad_entry_test.dart` (every rule above, both clocks),
 `test/widgets/time_pad_sheet_test.dart` (auto-finish, `:30`, Done, disabled keys,
 backspace, the AM/PM finish, the live caption, hardware keys, cancel, both caption
 builders), `test/widgets/quick_alarm_sheet_test.dart` (the pad from the big time).
+
+## Addendum 2026-09-25 — the event editor redesign
+
+The editor sheet moved to the grouped-row grammar the rest of the app adopted
+in navigation round 2 (`RowMetrics`, `SurfaceRoles`, the new
+`lib/widgets/form_rows.dart`). The full spec and the owner's decisions D1–D20
+are in `docs/event-editor-redesign-roadmap.md`; §6.3 above describes the
+shipped layout. What changed, in one place:
+
+- **Structure.** Capture group (title beside the agenda's `EventAvatar`,
+  Category, Icon & color, the description cell) · WHEN · OCCURRENCES · ALERTS
+  · DETAILS · actions. Section labels are the round-2 uppercase labels; every
+  hint paragraph and per-field label line is gone; the header title is
+  left-aligned; the 48 dp drag band became a 22 dp handle strip drawn by the
+  sheet.
+- **Two sub-sheets.** `EventRepeatSheet` replaced the one-time/recurring
+  segmented control, the frequency chips, the interval stepper, the weekday
+  chips, the Until tile and the "From this date on / Always" chips; it edits a
+  plain `EventRepeatDraft` at a constant height. `EventLookSheet` replaced the
+  inline expansion tile; the Tint row is disabled, never hidden, without a
+  colour, and `ColorSwatchPicker` gained `collapsible`.
+- **Menus.** Priority (fixed `flag_outlined` glyph, `EventPriorities.iconFor`
+  only in the items) and Day rail are `FormMenuRow` menus, right-aligned with
+  the group and flipping above the row when there is no room.
+- **One-off dates** are rows with a ✕ each up to three, and one bundled row
+  (count and span) from four on that opens the month grid (D9 amended for
+  scale after the first review); a single date re-picks through the single
+  picker, and Add date follows in every shape.
+- **The description cell** is one to ten lines, sized in its own layout pass
+  from the fork's new `CodeScrollController.contentHeight` (soft wraps
+  counted) rather than fixed at 120–260 dp; the fork's `forceRepaint()` now
+  defers its recompute to the next layout; `ModernEditorWrapper` gained `editorPadding`,
+  `editorLineHeight` and `paintGround` so an embedded field can draw its own
+  margins.
+- **Leaving asks (D20).** One fingerprint over every field the result carries,
+  the alert list and the effective skipped days included; the seeded default
+  alert never counts because the baseline is re-taken when it lands in a
+  still-clean form. The route runs `enableDrag: false`
+  and the sheet owns the drag on its handle and header so the gesture reaches
+  the same guard as ✕, back, system back and the barrier tap.
+- **Strings.** New keys `eventCategory`, `eventDateLabel`, `eventStarts`,
+  `eventEnds`, `eventEndTimeRemove`, `eventRepeat`, `recurrenceDoesNotRepeat`,
+  `recurrenceEnds`, `never`, `recurrenceEndDateRemove`,
+  `recurrenceBeforeStart`, `recurrenceBeforeStartHint`,
+  `recurrenceBeforeStartYearlyHint`, `recurrenceUntilSuffix`,
+  `eventLookDefault`, `eventLookCustom`, `eventLinkedNoteNone`,
+  `eventLinkedNoteNotFound`, `eventDescriptionResetDayShort`,
+  `eventTitleCount`; `eventDate`
+  retitled "Start date"; twenty-one keys the old layout alone used were
+  removed (`eventSectionWhat`, `repeatRecurring`, `eventDatesLabel`,
+  `eventUntilLabel`, `eventUntilNone`, the hint strings, `pickCategory`,
+  `iconDefault`, `eventAlertRingsUntilStopped`, `eventAlertNotification`,
+  `eventDescriptionEmpty`, `eventDescriptionHint`, `frequency`, `weekdays`).
+- **Data.** Nothing persisted changed: for the same choices the popped
+  `EventEditorResult` is what it was, occurrence descriptions, skipped days and
+  alerts included.
+- **Guards.** `test/widgets/event_editor_redesign_test.dart`,
+  `event_repeat_sheet_test.dart`, `event_look_sheet_test.dart`, the six older
+  editor suites (updated to the new controls, every assertion kept) and
+  `sheet_bottom_clearance_test.dart` (both sub-sheets added).
