@@ -358,7 +358,11 @@ class UpcomingAgendaFilters extends Equatable {
     final day = int.tryParse(raw.substring(6, 8));
     if (year == null || month == null || day == null) return null;
     if (month < 1 || month > 12 || day < 1 || day > 31) return null;
-    return DateTime.utc(year, month, day);
+    final probe = DateTime.utc(year, month, day);
+    if (probe.year != year || probe.month != month || probe.day != day) {
+      return null;
+    }
+    return probe;
   }
 
   @override

@@ -79,6 +79,29 @@ void main() {
     expect(bloc.eventsForDay(day).map((e) => e.id), ['e1']);
   });
 
+  test('a day read during a reload never leaves that day stale', () async {
+    await dispatch(CreateCalendarEvent(event: event('Physio')));
+    expect(bloc.eventsForDay(day).map((e) => e.id), ['e1']);
+
+    // Written behind the service's cache, the way a restore or a category
+    // delete lands, so only the reload can surface it.
+    await db.calendarEventDao.upsert(
+      CalendarEventsCompanion.insert(
+        id: 'e2',
+        title: 'Stretch',
+        category: 'gym',
+        startDate: day,
+        ruleKind: 'oneTime',
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      ),
+    );
+
+    await dispatchWhileReading(const LoadCalendarEvents());
+
+    expect(bloc.eventsForDay(day).map((e) => e.id), containsAll(['e1', 'e2']));
+  });
+
   test('a day read during the update never leaves that day stale', () async {
     await dispatch(CreateCalendarEvent(event: event('Physio')));
     expect(bloc.eventsForDay(day).single.title, 'Physio');

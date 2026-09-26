@@ -11,10 +11,11 @@ enum AgendaDayListMode {
   }
 }
 
-/// Which months the drill-down's year overview tiles stand for.
+/// Which months the drill-down's year overview tiles stand for: the agenda
+/// window the card counted, or a whole calendar year paged with chevrons.
 ///
-/// Session-only, and deliberately without a `fromName`: a sheet always opens on
-/// [upcoming], because the number the user tapped on the card is the window's
-/// and the first thing they see must be that same number. Only the *mode*
-/// above is persisted.
-enum AgendaDayListYearScope { upcoming, thisYear }
+/// Session-only, and deliberately without a `fromName`: a sheet always opens
+/// on [upcoming], because the number the user tapped on the card is the
+/// window's and the first thing they see must be that same number. Only the
+/// *mode* above is persisted.
+enum AgendaDayListYearScope { upcoming, calendarYear }

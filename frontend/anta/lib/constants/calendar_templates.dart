@@ -54,11 +54,12 @@ abstract final class CalendarTemplates {
     return CalendarIcons.forKey(category.iconKey) ?? Icons.event_rounded;
   }
 
-  /// Display colour for [template], following the day-bar rule: an explicit
-  /// override wins, otherwise the category colour.
+  /// Display colour for a template's icon, following the icon rule the event
+  /// it stamps out will render with: its own colour only while it tints the
+  /// icon, otherwise the category colour.
   static Color colorFor(EventTemplate template) {
     final override = template.colorValue;
-    if (override != null) return Color(override);
+    if (override != null && template.tintIcon) return Color(override);
     return CalendarCategories.resolve(template.categoryId).color;
   }
 }

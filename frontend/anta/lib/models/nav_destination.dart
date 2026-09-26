@@ -32,7 +32,8 @@ enum NavDestinationKind {
   allNotes,
   recentNotes,
   alerts,
-  permissions;
+  permissions,
+  calendarOverview;
 
   /// Whether popping this page should raise the drawer beneath it.
   ///

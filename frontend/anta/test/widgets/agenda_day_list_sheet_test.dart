@@ -11,6 +11,7 @@ import 'package:anta/widgets/agenda_day_list_sheet.dart';
 import 'package:anta/widgets/calendar_day_bars.dart';
 import 'package:anta/widgets/calendar_day_cell.dart';
 import 'package:anta/widgets/month_dot_matrix.dart';
+import 'package:anta/widgets/month_year_picker_sheet.dart';
 
 /// The sheet renders a pre-resolved list — it reads no facade and localizes
 /// only its own chrome — so what is worth pinning is exactly that contract: it
@@ -199,6 +200,8 @@ void main() {
     DateTime? windowStart,
     DateTime? windowEnd,
     bool settle = true,
+    AgendaDayMarkResolver? resolveMarks,
+    AgendaYearBounds? yearBounds,
   }) async {
     final picked = _Picked();
     final resolve = spy ?? _ResolverSpy(resolverPool);
@@ -215,6 +218,8 @@ void main() {
                   context,
                   list ?? modesList,
                   resolve: resolve.resolve,
+                  resolveMarks: resolveMarks,
+                  yearBounds: yearBounds,
                   appearance: const CalendarAppearance(),
                   today: today,
                   windowStart: windowStart ?? DateTime.utc(2026, 8, 1),
@@ -472,36 +477,25 @@ void main() {
       expect(picked.result?.edit, isNull);
     });
 
-    testWidgets('the month chevrons stop at the browsable bounds', (
+    testWidgets('the month chevrons page across a year boundary', (
       tester,
     ) async {
       await openModesSheet(tester);
       await tapMode(tester, Icons.calendar_view_month_rounded);
 
-      // Today is Aug 2026 and the window is Aug–Dec 2026, so the bounds are a
-      // year back from August (Aug 2025) and December of this year.
+      // The whole navigable calendar is browsable — a tile of any year has
+      // to open its month — so neither chevron ever disables near the window.
+      await tapNav(tester, Icons.chevron_left_rounded, times: 8);
+      expect(monthNav(tester).first, 'December 2025');
       expect(
         navButton(tester, Icons.chevron_left_rounded).onPressed,
         isNotNull,
       );
+
+      await tapNav(tester, Icons.chevron_right_rounded, times: 13);
+      expect(monthNav(tester).first, 'January 2027');
       expect(
         navButton(tester, Icons.chevron_right_rounded).onPressed,
-        isNotNull,
-      );
-
-      await tapNav(tester, Icons.chevron_left_rounded, times: 12);
-      expect(monthNav(tester).first, 'August 2025');
-      expect(navButton(tester, Icons.chevron_left_rounded).onPressed, isNull);
-      expect(
-        navButton(tester, Icons.chevron_right_rounded).onPressed,
-        isNotNull,
-      );
-
-      await tapNav(tester, Icons.chevron_right_rounded, times: 16);
-      expect(monthNav(tester).first, 'December 2026');
-      expect(navButton(tester, Icons.chevron_right_rounded).onPressed, isNull);
-      expect(
-        navButton(tester, Icons.chevron_left_rounded).onPressed,
         isNotNull,
       );
     });
@@ -823,16 +817,19 @@ void main() {
       expect(find.text('Task B'), findsOneWidget);
     });
 
-    testWidgets('This year resolves the whole year in one call', (
-      tester,
-    ) async {
+    testWidgets('This year resolves the whole year in one call, then warms '
+        'its neighbours', (tester) async {
       final spy = _ResolverSpy(resolverPool);
       await openModesSheet(tester, spy: spy);
       await tapMode(tester, Icons.grid_view_rounded);
 
       await tapScope(tester, 1);
+      // The shown year first, in one call; the two neighbours once the page
+      // has settled, so the next swipe finds them ready.
       expect(spy.calls, [
         (DateTime.utc(2026, 1, 1), DateTime.utc(2026, 12, 31)),
+        (DateTime.utc(2025, 1, 1), DateTime.utc(2025, 12, 31)),
+        (DateTime.utc(2027, 1, 1), DateTime.utc(2027, 12, 31)),
       ]);
       expect(yearTileLabels(tester), [
         'Jan 2026',
@@ -856,10 +853,10 @@ void main() {
       expect(find.bySemanticsLabel('Dec 2026, 1 entry'), findsOneWidget);
       handle.dispose();
 
-      // Going back is a pure re-render of the window index — no second call,
-      // and the card's own months again.
+      // Going back is a pure re-render of the window index — no further
+      // call, and the card's own months again.
       await tapScope(tester, 0);
-      expect(spy.calls, hasLength(1));
+      expect(spy.calls, hasLength(3));
       expect(yearTileLabels(tester), [
         'Aug 2026',
         'Sep 2026',
@@ -867,6 +864,140 @@ void main() {
         'Nov 2026',
         'Dec 2026',
       ]);
+    });
+
+    testWidgets('paging to a warm year costs nothing and warms the next', (
+      tester,
+    ) async {
+      final spy = _ResolverSpy(resolverPool);
+      await openModesSheet(tester, spy: spy);
+      await tapMode(tester, Icons.grid_view_rounded);
+      await tapScope(tester, 1);
+      expect(find.text('2026'), findsOneWidget);
+      List<int> resolvedYears() => [for (final c in spy.calls) c.$1.year];
+
+      await tapNav(tester, Icons.chevron_left_rounded);
+      expect(find.text('2025'), findsOneWidget);
+      // 2025 was warm; settling on it warms 2024 and nothing else.
+      expect(resolvedYears(), [2026, 2025, 2027, 2024]);
+      expect(yearTileLabels(tester).first, 'Jan 2025');
+      expect(yearTileLabels(tester), hasLength(12));
+
+      await tapNav(tester, Icons.chevron_right_rounded);
+      expect(find.text('2026'), findsOneWidget);
+      expect(resolvedYears(), [2026, 2025, 2027, 2024]);
+    });
+
+    testWidgets('a swipe pages the years too', (tester) async {
+      await openModesSheet(tester);
+      await tapMode(tester, Icons.grid_view_rounded);
+      await tapScope(tester, 1);
+
+      await tester.fling(find.byType(PageView), const Offset(-300, 0), 1000);
+      await tester.pumpAndSettle();
+      expect(find.text('2027'), findsOneWidget);
+
+      await tester.fling(find.byType(PageView), const Offset(300, 0), 1000);
+      await tester.pumpAndSettle();
+      expect(find.text('2026'), findsOneWidget);
+    });
+
+    testWidgets('the year bounds stop the chevrons and the pager', (
+      tester,
+    ) async {
+      await openModesSheet(tester, yearBounds: (first: 2025, last: 2026));
+      await tapMode(tester, Icons.grid_view_rounded);
+      await tapScope(tester, 1);
+
+      expect(navButton(tester, Icons.chevron_right_rounded).onPressed, isNull);
+      await tapNav(tester, Icons.chevron_left_rounded);
+      expect(find.text('2025'), findsOneWidget);
+      expect(navButton(tester, Icons.chevron_left_rounded).onPressed, isNull);
+
+      // A fling past the first page goes nowhere.
+      await tester.fling(find.byType(PageView), const Offset(300, 0), 1000);
+      await tester.pumpAndSettle();
+      expect(find.text('2025'), findsOneWidget);
+    });
+
+    testWidgets('a marks resolver feeds the year pages and no rows resolve', (
+      tester,
+    ) async {
+      final spy = _ResolverSpy(resolverPool);
+      final marks = <(DateTime, DateTime)>[];
+      await openModesSheet(
+        tester,
+        spy: spy,
+        resolveMarks: (start, end) {
+          marks.add((start, end));
+          return [
+            for (final entry in resolverPool)
+              if (!entry.day.isBefore(start) && !entry.day.isAfter(end))
+                AgendaDayMark(
+                  day: entry.day,
+                  color: entry.color,
+                  missed: entry.missed,
+                ),
+          ];
+        },
+      );
+      await tapMode(tester, Icons.grid_view_rounded);
+      await tapScope(tester, 1);
+
+      // The tiles came from marks alone: one call for the year, the row
+      // resolver untouched.
+      expect(marks.first, (DateTime.utc(2026, 1, 1), DateTime.utc(2026, 12, 31)));
+      expect(spy.calls, isEmpty);
+      final handle = tester.ensureSemantics();
+      expect(find.bySemanticsLabel('Feb 2026, 1 entry'), findsOneWidget);
+      handle.dispose();
+
+      // Opening a month is the first time rows are needed.
+      await tester.tap(find.text('Feb 2026'));
+      await tester.pumpAndSettle();
+      expect(spy.calls, [
+        (DateTime.utc(2026, 2, 1), DateTime.utc(2026, 2, 28)),
+      ]);
+    });
+
+    testWidgets('the year title opens the jump picker', (tester) async {
+      await openModesSheet(tester);
+      await tapMode(tester, Icons.grid_view_rounded);
+      await tapScope(tester, 1);
+
+      await tester.tap(find.text('2026'));
+      await tester.pumpAndSettle();
+      expect(find.byType(MonthYearPickerSheet), findsOneWidget);
+    });
+
+    testWidgets('the year nav\'s this-year button returns to today\'s year', (
+      tester,
+    ) async {
+      await openModesSheet(tester);
+      await tapMode(tester, Icons.grid_view_rounded);
+      await tapScope(tester, 1);
+      expect(navButton(tester, Icons.today_rounded).onPressed, isNull);
+
+      await tapNav(tester, Icons.chevron_left_rounded, times: 2);
+      expect(find.text('2024'), findsOneWidget);
+      expect(navButton(tester, Icons.today_rounded).onPressed, isNotNull);
+
+      await tapNav(tester, Icons.today_rounded);
+      expect(find.text('2026'), findsOneWidget);
+      expect(navButton(tester, Icons.today_rounded).onPressed, isNull);
+    });
+
+    testWidgets('a tile of another year opens that month', (tester) async {
+      await openModesSheet(tester);
+      await tapMode(tester, Icons.grid_view_rounded);
+      await tapScope(tester, 1);
+      await tapNav(tester, Icons.chevron_left_rounded);
+
+      await tester.tap(find.text('Feb 2025'));
+      await tester.pumpAndSettle();
+
+      expect(monthNav(tester).first, 'February 2025');
+      expect(find.byIcon(Icons.arrow_back_rounded), findsOneWidget);
     });
 
     testWidgets('a This year tile opens that month, already resolved', (
@@ -883,9 +1014,9 @@ void main() {
       expect(monthNav(tester), ['February 2026', '1 entry']);
       // Drilled into, not switched to: the back arrow returns to the tiles.
       expect(find.byIcon(Icons.arrow_back_rounded), findsOneWidget);
-      // The whole year was resolved by the scope switch, so the tile tap adds
-      // nothing.
-      expect(spy.calls, hasLength(1));
+      // The whole year was resolved by the scope switch (and its neighbours
+      // warmed), so the tile tap adds nothing.
+      expect(spy.calls, hasLength(3));
     });
 
     testWidgets('the scope survives a drill-down and back', (tester) async {
@@ -900,7 +1031,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(yearTileLabels(tester), hasLength(12));
-      expect(spy.calls, hasLength(1));
+      expect(spy.calls, hasLength(3));
     });
 
     testWidgets('a sheet always opens on the card\'s own scope', (

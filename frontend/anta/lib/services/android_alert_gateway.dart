@@ -694,11 +694,13 @@ class AndroidAlertGateway extends AlertGateway {
 
   // ── Richer content (OS-4) ────────────────────────────────────────────
 
-  /// The event's resolved colour: its own override, else its category's —
-  /// both carried by the payload, so no database is read.
+  /// The colour the notification's icon wears — the in-app icon rule, so a
+  /// notice and the row it leads to agree — from the payload alone, so no
+  /// database is read.
   static Color _tintOf(AlertPayload payload) => Color(
-    payload.colorValue ??
-        CalendarCategories.resolve(payload.categoryId).colorValue,
+    payload.iconColorValue(
+      CalendarCategories.resolve(payload.categoryId).colorValue,
+    ),
   );
 
   static IconData _iconOf(AlertPayload payload) =>

@@ -45,6 +45,27 @@ MonthDotMatrixPainter _painter({
   );
 }
 
+extension _PainterCopy on MonthDotMatrixPainter {
+  MonthDotMatrixPainter copyWith({List<Color?>? dayColors}) {
+    return MonthDotMatrixPainter(
+      daysInMonth: daysInMonth,
+      firstWeekdayColumn: firstWeekdayColumn,
+      markedMask: markedMask,
+      missedMask: missedMask,
+      windowMask: windowMask,
+      todayIndex: todayIndex,
+      markedColor: markedColor,
+      missedColor: missedColor,
+      unmarkedColor: unmarkedColor,
+      outsideColor: outsideColor,
+      todayColor: todayColor,
+      backgroundColor: backgroundColor,
+      outlineColor: outlineColor,
+      dayColors: dayColors ?? this.dayColors,
+    );
+  }
+}
+
 /// Pumps the painter alone — no `MaterialApp`, no `FittedBox` — so the only
 /// `CustomPaint` in the tree is this one and its canvas is unscaled.
 Future<void> pumpPainter(
@@ -165,6 +186,16 @@ void main() {
       expect(a.shouldRepaint(b), isTrue);
     });
 
+    test('is true when the per-day colours change', () {
+      final a = _painter().copyWith(dayColors: const [Color(0xFFE53935)]);
+      final b = _painter().copyWith(dayColors: const [Color(0xFF43A047)]);
+      final c = _painter().copyWith(dayColors: const [Color(0xFFE53935)]);
+
+      expect(a.shouldRepaint(b), isTrue);
+      expect(a.shouldRepaint(c), isFalse);
+      expect(a.shouldRepaint(_painter()), isTrue);
+    });
+
     test('is true when outlineColor changes', () {
       final a = _painter(outlineColor: const Color(0xFF938F99));
       final b = _painter(outlineColor: const Color(0xFF49454F));
@@ -218,6 +249,36 @@ void main() {
 
       expect(find.byType(CustomPaint), paints..rrect(color: _missed));
       expect(find.byType(CustomPaint), isNot(paints..rrect(color: _marked)));
+    });
+
+    testWidgets('per-day colours paint each marked day in its own colour', (
+      tester,
+    ) async {
+      const red = Color(0xFFE53935);
+      const green = Color(0xFF43A047);
+      await pumpPainter(
+        tester,
+        _painter(
+          daysInMonth: 3,
+          firstWeekdayColumn: 0,
+          markedMask: 0x7,
+          missedMask: 0x4,
+          windowMask: 0x7,
+          todayIndex: null,
+        ).copyWith(dayColors: const [red, null, green]),
+      );
+
+      // A day with its own colour paints it, a day without falls back to the
+      // marked colour, and a missed day fades its own colour rather than
+      // taking the shared missed one.
+      expect(
+        find.byType(CustomPaint),
+        paints
+          ..rrect(color: red)
+          ..rrect(color: _marked)
+          ..rrect(color: green.withValues(alpha: 0.35)),
+      );
+      expect(find.byType(CustomPaint), isNot(paints..rrect(color: _missed)));
     });
 
     testWidgets('today is ringed on top of its own fill', (tester) async {

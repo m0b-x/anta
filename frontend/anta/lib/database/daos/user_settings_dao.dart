@@ -26,6 +26,23 @@ class UserSettingsDao extends DatabaseAccessor<AppDatabase>
     );
   }
 
+  /// Writes several keys as one transaction, so a bundle saved while another
+  /// save of the same bundle is in flight lands whole or not at all.
+  Future<void> setValues(Map<String, String> values) async {
+    if (values.isEmpty) return;
+    final now = DateTime.now();
+    await batch((b) {
+      b.insertAllOnConflictUpdate(userSettings, [
+        for (final entry in values.entries)
+          UserSettingsCompanion(
+            key: Value(entry.key),
+            value: Value(entry.value),
+            updatedAt: Value(now),
+          ),
+      ]);
+    });
+  }
+
   Future<void> deleteValue(String key) async {
     await (delete(userSettings)..where((s) => s.key.equals(key))).go();
   }

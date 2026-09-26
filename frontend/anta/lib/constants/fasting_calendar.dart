@@ -277,7 +277,9 @@ abstract final class FastingCalendar {
   /// session, a coarser, rarer pattern than the day-cache's.
   static List<FastingInfo> on(DateTime day) {
     if (_traditions.isEmpty) return const [];
-    final key = DateTime.utc(day.year, day.month, day.day);
+    final key = _isDateOnlyUtc(day)
+        ? day
+        : DateTime.utc(day.year, day.month, day.day);
     var year = _years[key.year];
     if (year == null) {
       if (_years.length >= _yearCacheCap) _years.clear();
@@ -288,6 +290,14 @@ abstract final class FastingCalendar {
   }
 
   static bool isFastingDay(DateTime day) => on(day).isNotEmpty;
+
+  static bool _isDateOnlyUtc(DateTime day) =>
+      day.isUtc &&
+      day.hour == 0 &&
+      day.minute == 0 &&
+      day.second == 0 &&
+      day.millisecond == 0 &&
+      day.microsecond == 0;
 
   // ── Localized display ──────────────────────────────────────────────
 

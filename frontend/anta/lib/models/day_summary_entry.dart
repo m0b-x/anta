@@ -18,7 +18,18 @@ class DaySummaryEntry extends Equatable implements ChainItem {
   final String key;
 
   final IconData icon;
+
+  /// The colour the icon and the count-style accents wear.
   final Color color;
+
+  /// The colour the row's accent stripe wears when it differs from [color]:
+  /// an event keeps its own colour on the stripe — the day-cell bar's rule —
+  /// while its icon follows the tint choice. Null means the stripe is
+  /// [color].
+  final Color? stripeAccent;
+
+  Color get stripeColor => stripeAccent ?? color;
+
   final String title;
   final String? subtitle;
 
@@ -50,6 +61,7 @@ class DaySummaryEntry extends Equatable implements ChainItem {
     required this.color,
     required this.title,
     required this.priority,
+    this.stripeAccent,
     this.subtitle,
     this.description,
     this.event,
@@ -62,6 +74,7 @@ class DaySummaryEntry extends Equatable implements ChainItem {
     key,
     icon,
     color,
+    stripeAccent,
     title,
     subtitle,
     description,

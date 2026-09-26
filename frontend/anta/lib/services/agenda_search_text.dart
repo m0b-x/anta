@@ -25,6 +25,24 @@ abstract final class AgendaSearchText {
   /// the screen either way — the terms are AND-ed independently regardless.
   static const String separator = ' \u00b7 ';
 
+  /// The text per event identity and locale. A scan asks for it once per
+  /// candidate on every keystroke pause, and the string is a function of the
+  /// event and the locale alone — an edited event is a new object.
+  static final Expando<_LabelText> _cache = Expando<_LabelText>();
+
+  /// [forEvent], memoized per event and locale. Hands back the **same string
+  /// instance** across scans, which is what lets the scan cache its fold by
+  /// identity.
+  static String forEventCached(CalendarEvent event, AppLocalizations l10n) {
+    final cached = _cache[event];
+    if (cached != null && cached.localeName == l10n.localeName) {
+      return cached.text;
+    }
+    final text = forEvent(event, l10n);
+    _cache[event] = _LabelText(l10n.localeName, text);
+    return text;
+  }
+
   static String forEvent(CalendarEvent event, AppLocalizations l10n) {
     final time = event.time;
     final parts = <String>[
@@ -49,4 +67,11 @@ abstract final class AgendaSearchText {
     ];
     return parts.join(separator);
   }
+}
+
+class _LabelText {
+  final String localeName;
+  final String text;
+
+  const _LabelText(this.localeName, this.text);
 }

@@ -5200,3 +5200,198 @@ after a save. `qa errors` stayed clean.
 
 **Deferred.** The count style for pinned dates (E). A brief highlight on
 the rows a stamp just added. The device pass in German, Romanian and dark.
+
+## Addendum (2026-09-26): the calendar overview page, year paging in the drill-down, and the card's look
+
+**The report.** Three asks arrived together: the year overview behind an
+agenda summary card — "one of the most loved parts of the app" — should
+reach further than this year, with left/right yearly navigation; the same
+view should exist standalone, independent of the calendar's date and the
+agenda's window, over one or more chosen categories, searchable; and a
+freshly created event with a custom colour showed up in the Upcoming panel
+"with its default icon colour". A device pass reproduced the third exactly:
+in the *one card per category* presentation the Gym card, standing for a
+single red "Colour test" event, painted the category's blue dumbbell.
+
+**Decisions (taken by the lead agent, 2026-09-26; the owner delegated the
+build).** A — a *page*, not a wider sheet: the drill-down is a card's scope
+and must open on the card's number, while a standalone surface has no
+window and no anchor, so a whole calendar year is its unit. B — reached
+from two places, like calendar settings: a drawer row under *Calendar* and
+an icon in the calendar's scrollable action group, before the gear. C —
+categories are an **allowlist** with the agenda's inversion (empty = all;
+the picker opens with every row ticked and a full result collapses back to
+empty, so categories created later are not silently excluded). D — the
+page **owns no data and edits nothing**: rows come from the app-wide
+`CalendarBloc`, and a row tap opens the calendar on that occurrence (the
+alerts hub's rule) rather than duplicating the editor loop. E — with several
+categories on one tile, each marked day paints its **top entry's** colour
+(the grid's wash rule); with one category the count wears that category's
+colour, otherwise the appearance accent. F — the year and the search are
+session-only; the allowlist and the mode persist. G — the page ignores the
+grid's filter set: its own allowlist is the control. H — a category card
+adopts the icon and colour its events **share**, and keeps the category's
+look the moment two events disagree.
+
+**What shipped.**
+
+- **Shared components** (`lib/utils/agenda_month_store.dart`,
+  `lib/widgets/agenda_day_list_rows.dart`, `agenda_period_nav.dart`,
+  `agenda_month_grid.dart`, `agenda_year_grid.dart`) — the drill-down's
+  month cache and its three bodies, extracted so the sheet and the page
+  render one piece of code. `AgendaMonthStore` keeps the resolve-on-
+  navigation contract (one resolver call per contiguous run, empty buckets
+  cached, bars folded on arrival, cache-only `hasEntry`/`barsFor`).
+  `MonthDotMatrix` gained `dayColors` / `dayMissedAlpha`.
+- **The drill-down** (`AgendaDayListSheet`) keeps its header, its two
+  scopes and its pop guards; the year scope is now `upcoming` /
+  `calendarYear` with an `AgendaPeriodNav` under the scope selector, one
+  resolve per year, and month mode bounded by `CalendarBounds` so a tile of
+  any year opens its month.
+- **`CalendarOverviewPage`** (`lib/pages/calendar_overview_page.dart`):
+  search field · `CategoryFilterTile` · `SegmentedButton` (Year / Month /
+  List) · body. Year mode is twelve tiles with per-day colours and a year
+  nav; List mode is the year under month and day headers; Month mode is the
+  mini grid with month nav across years and a tapped day narrowing the rows.
+  `CalendarOverviewPage.forTesting(openOccurrence:)` is the test seam.
+  Strings: `calendarOverview`, `calendarOverviewDesc`,
+  `dayListScopeCalendarYear`, `overviewEmptyYear` (en/de/ro);
+  `dayListScopeThisYear` became the year nav's this-year tooltip. Settings:
+  `calendar_overview_categories`, `calendar_overview_mode` (default `year`),
+  read together with the appearance by
+  `SettingsService.getCalendarOverviewSettings()`.
+- **The card's look** — `_cardLook` in `agenda_list_view.dart`, over the
+  new `EventSummaryProvider.colorFor` (the one icon-colour rule).
+
+**Review findings fixed in the same change** (four read-only review passes:
+agenda/drill-down, bloc/page, event look, performance):
+
+- `CalendarBloc._onLoad` invalidated the day cache *before* its last await
+  — the shape the 2026-09-25 create/update fix removed — so a reload could
+  serve pre-reload days; it now invalidates beside the emit. A re-load also
+  keeps `selectedDay`/`focusedDay`/`format`/`selectionSource` and bumps
+  `membershipRevision`, so a removed holiday or a settings return no longer
+  snaps the grid to today and a value-equal store cannot make `Equatable`
+  drop the emit (`calendar_load_test.dart`, `calendar_bloc_day_cache_race_test.dart`).
+- Six async handlers emitted from a `current` captured before their awaits;
+  each now re-reads `state` after the last await. `_onSelectDay` evicts
+  cold day-cache entries on a month jump. `_syncGenerations` also drops the
+  memos at the date rollover under `hideEnded` and at a ledger change under
+  `moneyOnly`.
+- The agenda's row memo and rescan triggers never saw `CalendarCategories`,
+  `PublicHolidays` or `FastingCalendar` republish — a renamed category kept
+  its old label in every row until the next filter change. `didUpdateWidget`
+  now re-reads all three generations and the memo key carries the category
+  one (`upcoming_agenda_view_test.dart`, "facade changes").
+- `perEvent` collapse plus hidden missed occurrences dropped a recurring
+  event entirely when its first in-window day was missed;
+  `occurrencesInRange(hideMissed:)` skips such occurrences in the collapse
+  pass (`event_agenda_test.dart`).
+- "Did you mean" chips could outlive the range they were computed for; the
+  memo is keyed on the rows. `UpcomingAgendaFilters._decodeDate` no longer
+  rolls Feb 31 into March.
+- Look consistency: `DaySummaryEntry.stripeAccent` (the row stripe follows
+  the bar rule while the avatar follows the tint rule), the alerts hub, the
+  templates' avatars and the timeline's all-day chip now share
+  `EventSummaryProvider.colorFor`; the look sheet's icon picker highlights
+  in the draft accent. Left as is: the OS alarm page and notification tint
+  by `colorValue` alone (no `tintIcon` in the payload); the disabled tint
+  switch keeps showing the stored value (D14 of the editor redesign).
+
+**Observed, not changed.** In the one-card presentation the panel header
+reads "0 entries" beside cards standing for many occurrences — pinned by
+`upcoming_agenda_view_test.dart` ("the card is not counted among the
+entries") as the 2026-08-23 decision; worth a second look.
+
+**Guards.** `test/utils/agenda_month_store_test.dart`,
+`test/widgets/calendar_overview_page_test.dart`, the look cases in
+`agenda_rows_test.dart`, the per-day colours in `month_dot_matrix_test.dart`,
+year paging and the wider bounds in `agenda_day_list_sheet_test.dart`, the
+codec case in `upcoming_agenda_filters_test.dart`.
+
+### Addendum (2026-09-26, later): years as pages, the jump picker, bounded years, marks-only tiles
+
+**The ask.** A date picker inside the year view to reach a date directly;
+performance that feels instant; no scrolling through years that hold
+nothing ("if an element starts from 2021, we should not scroll 2020"); and
+the remaining debt from the four review passes.
+
+**What shipped, on both year surfaces** (the overview page and the
+drill-down's calendar-year scope):
+
+- **Years are pages.** `AgendaYearPager` (`lib/widgets/agenda_year_pager.dart`)
+  is a `PageView.builder` over the year bounds: swipe between years, or let
+  the chevrons and the picker animate the controller (260 ms, ease-out).
+  The page count *is* the bounds, so a fling never overshoots into an
+  empty decade.
+- **The period title is the jump control.** `AgendaPeriodNav` takes
+  `onTitleTap`/`titleTooltip`; the title wears a drop-down glyph and opens
+  `MonthYearPickerSheet` — the calendar header's own picker — bounded by
+  the year bounds (year and list modes) or the whole calendar (month mode).
+  A pick lands the pager on its year and **flashes the month's tile**
+  (`AgendaYearGrid.highlightMonth`/`highlightToken` → `_TileFlash`: a 1.2 s
+  accent ring that also scrolls the tile into view), or month mode on its
+  month. Jumps click (`HapticFeedback.selectionClick`) when the app's
+  haptic setting is on — read with the overview's own settings and handed
+  to the drill-down through the panel and the agenda view.
+- **Year bounds come from the events.** `EventAgenda.yearBoundsOf` — over
+  `passesEventFilters`, the pre-filter `occurrencesInRange` was already
+  applying, now one definition — runs from the earliest year a passing
+  event starts in (a retroactive series reaches the calendar's floor, since
+  before its start is where it was asked to fire) to the latest year one can
+  still fire in (an open-ended series reaches the calendar's ceiling, a
+  bounded one its end, pinned dates their last date), always including
+  today. Holiday and fasting cards page the whole calendar: they exist
+  every year.
+- **Marks-only tiles.** `AgendaDayMark` (day, colour, missed) and
+  `AgendaMonthTally` are what a year page is built from; `AgendaMonthStore`
+  grew a tally tier (`ensureTallies` / `tallyFor` / `cachedTally`) behind an
+  optional `AgendaDayMarkResolver`, with a tally derived for free from a
+  month whose rows are already cached. `AgendaListView.eventDayMarks` /
+  `holidayDayMarks` / `fastingDayMarks` are the converters; the agenda's
+  `_markResolverFor` and the overview's `_resolveMarks` run the very same
+  scan as the row resolvers, minus the rows. One `_MonthAccumulator` folds
+  marks and entries alike, so a bucket and a tally cannot count differently,
+  and `AgendaDayListMonth.dayColors` comes out of the same pass.
+- **Prewarming.** After a page settles (250 ms), both surfaces resolve the
+  neighbouring years' tallies as cache-only work, so the next swipe or
+  chevron finds its tiles ready; a fling past the warm years resolves in
+  the pager's builder, the one documented exception to "never in build".
+  The overview keeps its tiles per year and drops them only when a resolver
+  input changes; mode switches cross-fade (150 ms).
+
+**Debt closed in the same change.**
+
+- Search folds survive keystrokes: `EventSearchQuery.maskOfFolded`,
+  `AgendaSearchText.forEventCached` (one string per event and locale) and
+  `EventAgenda`'s per-event fold cache (template description and row labels,
+  keyed on the event and the source string's identity; the debug fold
+  counters now count cache misses, and `debugClearFoldCaches` exists for the
+  budget tests). A keystroke pause over ten thousand events now costs one
+  `contains` per term per candidate, not a normalization of every
+  description.
+- `saveUpcomingAgendaFilters` writes its thirteen keys in **one transaction**
+  (`UserSettingsDao.setValues`, a drift `batch`) — two unawaited saves can
+  no longer interleave key by key.
+- `AlertPayload.tintIcon` (additive key, absent reads as `true`) and
+  `AlertPayload.iconColorValue` carry the in-app icon rule to the alarm page
+  and the Android notification's tint and large icon.
+- `PublicHolidays.holidayOn` and `FastingCalendar.on` skip the `DateTime.utc`
+  allocation when handed a date-only UTC day — which every hot caller does.
+- The one-card header now counts what the cards stand for (`30 entries`
+  beside a card of thirty occurrences), the custom-range picker seeds the
+  same span the preset covers, and the two `unawaited_return_in_try_block`
+  warnings in `LabelAppearanceService` are gone: `dart analyze lib` is clean.
+
+**Left as is, on purpose.** Return-to-Upcoming rescans (one scan per mode
+switch, a few milliseconds at ten thousand events); the per-day sort inside
+the scan (a k-way merge would halve it, not worth the surface); the date
+picker's own `DateFormat` construction per build.
+
+**Guards.** Tallies and the tally tier in `agenda_month_store_test.dart` and
+`agenda_day_list_index_test.dart`; `yearBoundsOf` and the cross-scan fold
+caches in `event_agenda_test.dart` and the two fold-budget suites; the pager,
+bounds, prewarming, marks resolver and picker in
+`agenda_day_list_sheet_test.dart` and `calendar_overview_page_test.dart`;
+the tint flag in `alert_payload_test.dart`; the batched save in
+`user_settings_batch_test.dart`.

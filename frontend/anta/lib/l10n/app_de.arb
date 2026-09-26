@@ -2584,6 +2584,10 @@
   "dayListNextMonth": "Nächster Monat",
   "dayListScopeUpcoming": "Demnächst",
   "dayListScopeThisYear": "Dieses Jahr",
+  "dayListScopeCalendarYear": "Kalenderjahr",
+  "calendarOverview": "Übersicht",
+  "calendarOverviewDesc": "Ereignisse nach Kategorie, Jahr für Jahr",
+  "overviewEmptyYear": "Nichts in {year}",
   "dayListJumpToToday": "Dieser Monat",
   "dayListMissedCount": "{count, plural, one {1 verpasst} other {{count} verpasst}}",
   "@dayListMissedCount": {

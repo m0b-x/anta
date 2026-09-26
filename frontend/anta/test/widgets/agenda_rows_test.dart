@@ -1,6 +1,9 @@
+import 'package:flutter/material.dart' show Color;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
+import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/constants/calendar_icons.dart';
 import 'package:anta/constants/event_presence.dart';
 import 'package:anta/constants/fasting_calendar.dart';
 import 'package:anta/constants/public_holidays.dart';
@@ -9,6 +12,7 @@ import 'package:anta/models/fasting_schedule.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/models/agenda_day_list.dart';
 import 'package:anta/models/calendar_appearance.dart';
+import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/models/upcoming_agenda_filters.dart';
@@ -685,6 +689,76 @@ void main() {
       expect(rows.whereType<AgendaEventSummaryRow>(), hasLength(2));
       expect(rows.whereType<AgendaEntryRow>(), isEmpty);
       expect(rows.whereType<AgendaDayHeaderRow>(), isEmpty);
+    });
+
+    group('the card\'s look', () {
+      // The facade `CategoryService` normally fills; without it every id
+      // resolves to the grey `other` fallback and the icon rule has nothing
+      // to fall back to.
+      setUp(() {
+        CalendarCategories.updateCache([
+          for (final (index, seed) in CalendarCategories.builtInSeeds.indexed)
+            CalendarCategory(
+              id: seed.id,
+              name: seed.kind.name,
+              colorValue: seed.colorValue,
+              iconKey: seed.iconKey,
+              sortOrder: index,
+              isBuiltIn: true,
+            ),
+        ]);
+      });
+      tearDown(() => CalendarCategories.updateCache(const []));
+
+      final custom = CalendarEvent(
+        id: 'c1',
+        title: 'Colour test',
+        categoryId: 'gym',
+        startDate: day1,
+        colorValue: 0xFFE53935,
+        iconKey: 'directions_run',
+      );
+
+      AgendaEventSummaryRow gymCard(List<EventOccurrence> occ) => build(
+        eventSummaries: summariesFor(occ),
+      ).whereType<AgendaEventSummaryRow>().single;
+
+      test('a card standing for one event wears that event\'s look', () {
+        final card = gymCard([EventOccurrence(event: custom, day: day1)]);
+
+        expect(card.entry.color, const Color(0xFFE53935));
+        expect(card.entry.icon, CalendarIcons.forKey('directions_run'));
+        expect(card.entry.title, 'Gym');
+      });
+
+      test('a look shared by every event still reaches the card', () {
+        final twin = custom.copyWith(id: 'c2', title: 'Second');
+        final card = gymCard([
+          EventOccurrence(event: custom, day: day1),
+          EventOccurrence(event: twin, day: day2),
+        ]);
+
+        expect(card.entry.color, const Color(0xFFE53935));
+        expect(card.entry.icon, CalendarIcons.forKey('directions_run'));
+      });
+
+      test('events that disagree leave the card in the category\'s look', () {
+        final card = gymCard([
+          EventOccurrence(event: custom, day: day1),
+          EventOccurrence(event: tracked, day: day2),
+        ]);
+
+        expect(card.entry.color, const Color(0xFF1E88E5));
+        expect(card.entry.icon, CalendarIcons.forKey('fitness_center'));
+      });
+
+      test('the colour follows the tint choice, exactly as the rows do', () {
+        final untinted = custom.copyWith(tintIcon: false);
+        final card = gymCard([EventOccurrence(event: untinted, day: day1)]);
+
+        expect(card.entry.color, const Color(0xFF1E88E5));
+        expect(card.entry.icon, CalendarIcons.forKey('directions_run'));
+      });
     });
 
     test('events outrank the holiday and fasting cards', () {

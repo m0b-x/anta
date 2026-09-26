@@ -1,3 +1,5 @@
+import 'package:flutter/painting.dart' show Color;
+
 import '../models/agenda_day_list.dart';
 
 bool _isDateOnlyUtc(DateTime day) =>
@@ -182,6 +184,126 @@ class AgendaDayListIndex {
       _byMonth[_monthKey(month)] ?? const <AgendaDayListEntry>[];
 }
 
+/// The per-day and per-month numbers a tile or a month bucket prints, folded
+/// from marks in one pass — the one place the counting rules live, so a
+/// bucket built from entries and a tally built from bare marks cannot
+/// disagree about what "missed" or "marked" means.
+class _MonthAccumulator {
+  final DateTime month;
+  final int daysInMonth;
+  final Map<int, int> keptByDay = <int, int>{};
+  final List<Color?> dayColors;
+  int count = 0;
+  int keptCount = 0;
+  int markedMask = 0;
+  int seenMask = 0;
+
+  _MonthAccumulator(this.month)
+    : daysInMonth = _daysInMonthOf(month.year, month.month),
+      dayColors = List<Color?>.filled(
+        _daysInMonthOf(month.year, month.month),
+        null,
+      );
+
+  /// [color] is kept for the **first** mark of a day: marks arrive in the
+  /// scan's same-day order, so the first is the day's top entry.
+  void add(DateTime day, {required bool missed, required Color color}) {
+    assert(_isDateOnlyUtc(day), 'mark days must be date-only UTC');
+    assert(
+      day.year == month.year && day.month == month.month,
+      'mark days must fall inside the month',
+    );
+    final bit = 1 << (day.day - 1);
+    count++;
+    markedMask |= bit;
+    if (seenMask & bit == 0) {
+      seenMask |= bit;
+      dayColors[day.day - 1] = color;
+    }
+    if (!missed) {
+      keptByDay[day.day] = (keptByDay[day.day] ?? 0) + 1;
+      keptCount++;
+    }
+  }
+
+  /// Bit `day - 1` set when the day carries marks and every one of them was
+  /// missed — one attended entry wins the square back.
+  int get missedMask {
+    var mask = 0;
+    var remaining = markedMask;
+    var day = 1;
+    while (remaining != 0) {
+      if (remaining & 1 != 0 && (keptByDay[day] ?? 0) == 0) {
+        mask |= 1 << (day - 1);
+      }
+      remaining >>= 1;
+      day++;
+    }
+    return mask;
+  }
+}
+
+/// A month's counts and masks alone — what a year tile paints — folded from
+/// [AgendaDayMark]s without building a single entry.
+class AgendaMonthTally {
+  final DateTime month;
+  final int daysInMonth;
+  final int count;
+
+  /// Marks that were not missed.
+  final int keptCount;
+
+  final int markedMask;
+  final int missedMask;
+
+  /// The colour of each marked day's top mark, index `day - 1`; null on an
+  /// unmarked day.
+  final List<Color?> dayColors;
+
+  const AgendaMonthTally._({
+    required this.month,
+    required this.daysInMonth,
+    required this.count,
+    required this.keptCount,
+    required this.markedMask,
+    required this.missedMask,
+    required this.dayColors,
+  });
+
+  static AgendaMonthTally build(DateTime month, Iterable<AgendaDayMark> marks) {
+    assert(_isDateOnlyUtc(month), 'month must be date-only UTC');
+    assert(month.day == 1, 'month must be the first day of the month');
+    final tally = _MonthAccumulator(month);
+    for (final mark in marks) {
+      tally.add(mark.day, missed: mark.missed, color: mark.color);
+    }
+    return AgendaMonthTally._of(tally);
+  }
+
+  /// The tally a resolved bucket already implies, so a month whose entries
+  /// are cached never resolves its marks a second time.
+  factory AgendaMonthTally.ofBucket(AgendaDayListMonth bucket) =>
+      AgendaMonthTally._(
+        month: bucket.month,
+        daysInMonth: bucket.daysInMonth,
+        count: bucket.count,
+        keptCount: bucket.keptCount,
+        markedMask: bucket.markedMask,
+        missedMask: bucket.missedMask,
+        dayColors: bucket.dayColors,
+      );
+
+  factory AgendaMonthTally._of(_MonthAccumulator tally) => AgendaMonthTally._(
+    month: tally.month,
+    daysInMonth: tally.daysInMonth,
+    count: tally.count,
+    keptCount: tally.keptCount,
+    markedMask: tally.markedMask,
+    missedMask: tally.missedMask,
+    dayColors: List.unmodifiable(tally.dayColors),
+  );
+}
+
 class AgendaDayListMonth {
   final DateTime month;
 
@@ -200,6 +322,9 @@ class AgendaDayListMonth {
   /// missed.
   final int missedMask;
 
+  /// The colour of each marked day's first entry, index `day - 1`.
+  final List<Color?> dayColors;
+
   final Map<int, List<AgendaDayListEntry>> _byDay;
   final Map<int, int> _keptByDay;
 
@@ -211,6 +336,7 @@ class AgendaDayListMonth {
     required this.keptCount,
     required this.markedMask,
     required this.missedMask,
+    required this.dayColors,
     required Map<int, List<AgendaDayListEntry>> byDay,
     required Map<int, int> keptByDay,
   }) : _byDay = byDay,
@@ -223,45 +349,29 @@ class AgendaDayListMonth {
     assert(_isDateOnlyUtc(month), 'month must be date-only UTC');
     assert(month.day == 1, 'month must be the first day of the month');
 
+    final tally = _MonthAccumulator(month);
     final byDay = <int, List<AgendaDayListEntry>>{};
-    final keptByDay = <int, int>{};
-    var markedMask = 0;
-    var keptCount = 0;
     for (final entry in entries) {
-      final day = entry.day;
-      assert(_isDateOnlyUtc(day), 'entry days must be date-only UTC');
-      assert(
-        day.year == month.year && day.month == month.month,
-        'entry days must fall inside the month',
-      );
-      (byDay[day.day] ??= <AgendaDayListEntry>[]).add(entry);
-      markedMask |= 1 << (day.day - 1);
-      if (!entry.missed) {
-        keptByDay[day.day] = (keptByDay[day.day] ?? 0) + 1;
-        keptCount++;
-      }
-    }
-
-    var missedMask = 0;
-    for (final day in byDay.keys) {
-      if ((keptByDay[day] ?? 0) == 0) missedMask |= 1 << (day - 1);
+      tally.add(entry.day, missed: entry.missed, color: entry.color);
+      (byDay[entry.day.day] ??= <AgendaDayListEntry>[]).add(entry);
     }
 
     final dayNumbers = byDay.keys.toList(growable: false)..sort();
 
     return AgendaDayListMonth._(
       month: month,
-      daysInMonth: _daysInMonthOf(month.year, month.month),
+      daysInMonth: tally.daysInMonth,
       days: List.unmodifiable([
         for (final day in dayNumbers)
           DateTime.utc(month.year, month.month, day),
       ]),
-      count: entries.length,
-      keptCount: keptCount,
-      markedMask: markedMask,
-      missedMask: missedMask,
+      count: tally.count,
+      keptCount: tally.keptCount,
+      markedMask: tally.markedMask,
+      missedMask: tally.missedMask,
+      dayColors: List.unmodifiable(tally.dayColors),
       byDay: byDay,
-      keptByDay: keptByDay,
+      keptByDay: tally.keptByDay,
     );
   }
 

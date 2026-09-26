@@ -1,5 +1,7 @@
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 
+import '../constants/calendar_colors.dart';
 import '../utils/marker_contrast.dart';
 
 /// A month drawn as a 7x6 grid of rounded squares — the year overview's
@@ -55,6 +57,14 @@ class MonthDotMatrix extends StatelessWidget {
   /// [backgroundColor] on its own.
   final Color outlineColor;
 
+  /// A colour per day (index `day - 1`) for a matrix whose days belong to
+  /// different sources — several categories at once. A marked day with an
+  /// entry here paints it instead of [markedColor]; a missed one paints it
+  /// at [dayMissedAlpha]. Null keeps the single-colour matrix.
+  final List<Color?>? dayColors;
+
+  final double dayMissedAlpha;
+
   const MonthDotMatrix({
     super.key,
     required this.daysInMonth,
@@ -70,6 +80,8 @@ class MonthDotMatrix extends StatelessWidget {
     required this.todayColor,
     required this.backgroundColor,
     required this.outlineColor,
+    this.dayColors,
+    this.dayMissedAlpha = CalendarColors.missedEventAlpha,
   });
 
   @override
@@ -95,6 +107,8 @@ class MonthDotMatrix extends StatelessWidget {
             todayColor: todayColor,
             backgroundColor: backgroundColor,
             outlineColor: outlineColor,
+            dayColors: dayColors,
+            dayMissedAlpha: dayMissedAlpha,
           ),
         ),
       ),
@@ -116,6 +130,8 @@ class MonthDotMatrixPainter extends CustomPainter {
   final Color todayColor;
   final Color backgroundColor;
   final Color outlineColor;
+  final List<Color?>? dayColors;
+  final double dayMissedAlpha;
 
   const MonthDotMatrixPainter({
     required this.daysInMonth,
@@ -131,6 +147,8 @@ class MonthDotMatrixPainter extends CustomPainter {
     required this.todayColor,
     required this.backgroundColor,
     required this.outlineColor,
+    this.dayColors,
+    this.dayMissedAlpha = CalendarColors.missedEventAlpha,
   });
 
   static const Radius _radius = Radius.circular(1.5);
@@ -183,12 +201,25 @@ class MonthDotMatrixPainter extends CustomPainter {
 
       final bit = 1 << index;
       var outlined = false;
+      final own = dayColors == null || index >= dayColors!.length
+          ? null
+          : dayColors![index];
       if (missedMask & bit != 0) {
-        fill.color = missedColor;
-        outlined = outlineMissed;
+        if (own == null) {
+          fill.color = missedColor;
+          outlined = outlineMissed;
+        } else {
+          fill.color = own.withValues(alpha: dayMissedAlpha);
+          outlined = _needsOutline(fill.color, backgroundLuminance);
+        }
       } else if (markedMask & bit != 0) {
-        fill.color = markedColor;
-        outlined = outlineMarked;
+        if (own == null) {
+          fill.color = markedColor;
+          outlined = outlineMarked;
+        } else {
+          fill.color = own;
+          outlined = _needsOutline(own, backgroundLuminance);
+        }
       } else if (windowMask & bit != 0) {
         fill.color = unmarkedColor;
       } else {
@@ -217,6 +248,8 @@ class MonthDotMatrixPainter extends CustomPainter {
         oldDelegate.outsideColor != outsideColor ||
         oldDelegate.todayColor != todayColor ||
         oldDelegate.backgroundColor != backgroundColor ||
-        oldDelegate.outlineColor != outlineColor;
+        oldDelegate.outlineColor != outlineColor ||
+        oldDelegate.dayMissedAlpha != dayMissedAlpha ||
+        !listEquals(oldDelegate.dayColors, dayColors);
   }
 }

@@ -4783,6 +4783,20 @@ class AppLocalizationsRo extends AppLocalizations {
   String get dayListScopeThisYear => 'Anul acesta';
 
   @override
+  String get dayListScopeCalendarYear => 'An calendaristic';
+
+  @override
+  String get calendarOverview => 'Prezentare generală';
+
+  @override
+  String get calendarOverviewDesc => 'Evenimente pe categorii, an de an';
+
+  @override
+  String overviewEmptyYear(int year) {
+    return 'Nimic în $year';
+  }
+
+  @override
   String get dayListJumpToToday => 'Luna aceasta';
 
   @override

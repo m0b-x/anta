@@ -74,7 +74,7 @@ void main() {
       to: windowEnd,
       query: EventSearchQuery.parse(query),
       labelTextOf: withLabels
-          ? (candidate) => AgendaSearchText.forEvent(candidate, l10n)
+          ? (candidate) => AgendaSearchText.forEventCached(candidate, l10n)
           : null,
     );
   }
@@ -84,6 +84,7 @@ void main() {
 
   setUp(() {
     OccurrenceDescriptions.resetCache();
+    EventAgenda.debugClearFoldCaches();
     EventAgenda.debugLabelFolds = 0;
     EventAgenda.debugDescriptionFolds = 0;
   });
@@ -108,6 +109,20 @@ void main() {
       // Fold order: the labels settle the query before the description is
       // touched, so a recurrence hit costs no description fold at all.
       expect(EventAgenda.debugDescriptionFolds, 0);
+    });
+
+    test('a second scan over the same events folds no label again', () {
+      final events = [
+        for (var i = 0; i < 10; i++)
+          event(id: 'e$i', description: 'Barbell squat programme'),
+      ];
+
+      scan(events, 'daily');
+      expect(EventAgenda.debugLabelFolds, 10);
+
+      expect(scan(events, 'all day').length, 10 * windowDays);
+      expect(scan(events, 'weekly'), isEmpty);
+      expect(EventAgenda.debugLabelFolds, 10);
     });
 
     test('a non-matching label is also folded only once per event', () {

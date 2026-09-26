@@ -155,6 +155,15 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   /// instead would grow the cache rather than clear it.
   int _dayCacheHolidayRevision = -1;
 
+  /// The day the memoized days were expanded on, kept only while `hideEnded`
+  /// is on: that axis reads the clock, and nothing dispatches at midnight.
+  DateTime? _dayCacheToday;
+
+  /// The ledger generation the memoized days were narrowed against, kept
+  /// only while `moneyOnly` is on: the ledger rewrites itself from the note
+  /// change stream with nothing dispatched.
+  int _dayCacheLedgerRevision = -1;
+
   /// Memoizes the header's net money change per month. The scan is O(N) over
   /// the whole event list and the header rebuilds on every day tap, so it
   /// cannot run inline. Keyed by the month's first UTC day and paired with
@@ -281,7 +290,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   List<CalendarEvent> eventsForDay(DateTime day) {
     final current = state;
     if (current is! CalendarPageLoaded) return const [];
-    _syncHolidayGeneration();
+    _syncGenerations(current);
     final key = DateTime.utc(day.year, day.month, day.day);
     final cached = _dayCache[key];
     if (cached != null) return cached;
@@ -318,7 +327,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     final current = state;
     if (current is! CalendarPageLoaded) return const [];
     if (current.filters.isEmpty) return eventsForDay(day);
-    _syncHolidayGeneration();
+    _syncGenerations(current);
     final key = DateTime.utc(day.year, day.month, day.day);
     final cached = _unfilteredDayCache[key];
     if (cached != null) return cached;
@@ -462,7 +471,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     if (!current.filters.showMoney) return 0;
     final ledger = NoteMoneyLedgerService.instanceOrNull;
     if (ledger == null) return 0;
-    _syncHolidayGeneration();
+    _syncGenerations(current);
     final key = DateTime.utc(month.year, month.month, 1);
     final revision = ledger.revision;
     final cached = _monthNetCache[key];
@@ -505,16 +514,36 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     return sum;
   }
 
-  /// Drops both memos when the holiday set has been republished since they
-  /// were built. Called from the two read paths rather than from a handler
-  /// because nothing dispatches on a holiday change — `PublicHolidayService`
-  /// publishes straight into the static facade, and backup restore and a
-  /// database switch reach it with no event in between.
-  void _syncHolidayGeneration() {
+  /// Drops the memos when an input no handler can see has moved since they
+  /// were built. Called from the read paths rather than from a handler
+  /// because nothing dispatches on any of these: `PublicHolidayService`
+  /// publishes straight into the static facade (and backup restore and a
+  /// database switch reach it with no event in between), the clock rolls
+  /// over at midnight, and the money ledger rewrites itself from the note
+  /// change stream. The last two are read only while the filter axis that
+  /// depends on them is on, so the common case pays one integer compare.
+  void _syncGenerations(CalendarPageLoaded current) {
+    var moved = false;
     final revision = PublicHolidays.revision;
-    if (_dayCacheHolidayRevision == revision) return;
-    _dayCacheHolidayRevision = revision;
-    _invalidateDayCache();
+    if (_dayCacheHolidayRevision != revision) {
+      _dayCacheHolidayRevision = revision;
+      moved = true;
+    }
+    if (current.filters.hideEnded) {
+      final today = _dateOnly(DateTime.now());
+      if (_dayCacheToday != today) {
+        _dayCacheToday = today;
+        moved = true;
+      }
+    }
+    if (current.filters.moneyOnly) {
+      final ledger = NoteMoneyLedgerService.instanceOrNull?.revision ?? -1;
+      if (_dayCacheLedgerRevision != ledger) {
+        _dayCacheLedgerRevision = ledger;
+        moved = true;
+      }
+    }
+    if (moved) _invalidateDayCache();
   }
 
   /// Drops every memoized day so the next [eventsForDay] recomputes against
@@ -634,19 +663,37 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       debugPrint('[CalendarBloc] Load error: $e');
     }
     _seenExternalRevision = CalendarEventService.externalRevision;
-    _invalidateDayCache();
     final events = service?.events ?? const <CalendarEvent>[];
     try {
       await (await NoteMoneyLedgerService.getInstance()).refresh(events);
     } catch (e) {
       debugPrint('[CalendarBloc] Money ledger refresh error: $e');
     }
+    // Invalidated in the same turn as the emit, after the last await — the
+    // create/update rule: a grid rebuild during the ledger refresh would
+    // otherwise re-warm the cache from the list this load replaces.
+    _invalidateDayCache();
+    final previous = state;
+    if (previous is! CalendarPageLoaded) {
+      emit(
+        CalendarPageLoaded(
+          allEvents: List.unmodifiable(events),
+          focusedDay: today,
+          selectedDay: today,
+          filters: _filters,
+        ),
+      );
+      return;
+    }
+    // A re-load — a settings return, a removed holiday, a restore — keeps the
+    // month, the day and the format the user is on, and bumps the membership
+    // revision so the emit survives `Equatable` even when the store came back
+    // value-equal (the facades it republished are what changed).
     emit(
-      CalendarPageLoaded(
+      previous.copyWith(
         allEvents: List.unmodifiable(events),
-        focusedDay: today,
-        selectedDay: today,
         filters: _filters,
+        membershipRevision: previous.membershipRevision + 1,
       ),
     );
   }
@@ -654,10 +701,18 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   void _onSelectDay(SelectCalendarDay event, Emitter<CalendarPageState> emit) {
     final current = state;
     if (current is! CalendarPageLoaded) return;
+    final focused = _dateOnly(event.focusedDay);
+    // A picker jump, Today or an agenda row can move the grid by months with
+    // no page turn following, so the month change pays for eviction here
+    // exactly as it does in `_onChangeFocusedDay`.
+    if (focused.year != current.focusedDay.year ||
+        focused.month != current.focusedDay.month) {
+      _evictColdDayCacheEntries(focused);
+    }
     emit(
       current.copyWith(
         selectedDay: _dateOnly(event.day),
-        focusedDay: _dateOnly(event.focusedDay),
+        focusedDay: focused,
         selectionSource: event.source,
       ),
     );
@@ -745,10 +800,14 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     // Invalidated in the same turn as the emit, never before an await:
     // `eventsForDay` reads `state`, so a grid rebuild during the ledger
     // refresh re-warmed the cache from the list without this event and the
-    // emit then served the stale days (seen on device 2026-09-25).
+    // emit then served the stale days (seen on device 2026-09-25). The state
+    // is re-read for the same reason: handlers run concurrently, and a day
+    // tap or a format change that landed during the awaits must survive.
     _invalidateDayCache();
+    final latest = state;
+    if (latest is! CalendarPageLoaded) return;
     emit(
-      current.copyWith(
+      latest.copyWith(
         allEvents: service.events,
         selectedDay: normalized.startDate,
         focusedDay: normalized.startDate,
@@ -785,7 +844,9 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       _reconcileAlerts(normalized.id, AlertReconcileReason.eventChanged),
     );
     _invalidateDayCache();
-    emit(current.copyWith(allEvents: service.events));
+    final latest = state;
+    if (latest is! CalendarPageLoaded) return;
+    emit(latest.copyWith(allEvents: service.events));
   }
 
   /// Persists an editor's alert set, between the event write and the reconcile.
@@ -827,7 +888,9 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     unawaited(
       _reconcileAlerts(event.eventId, AlertReconcileReason.eventChanged),
     );
-    emit(current.copyWith(allEvents: service.events));
+    final latest = state;
+    if (latest is! CalendarPageLoaded) return;
+    emit(latest.copyWith(allEvents: service.events));
   }
 
   /// Writes one occurrence's description override.
@@ -858,7 +921,9 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       return;
     }
     unawaited(_reconcileAlerts(event.eventId, AlertReconcileReason.eventChanged));
-    emit(current.copyWith(occurrenceRevision: current.occurrenceRevision + 1));
+    final latest = state;
+    if (latest is! CalendarPageLoaded) return;
+    emit(latest.copyWith(occurrenceRevision: latest.occurrenceRevision + 1));
   }
 
   /// Deletes one occurrence's override, returning that day to the event's
@@ -877,7 +942,9 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       return;
     }
     unawaited(_reconcileAlerts(event.eventId, AlertReconcileReason.eventChanged));
-    emit(current.copyWith(occurrenceRevision: current.occurrenceRevision + 1));
+    final latest = state;
+    if (latest is! CalendarPageLoaded) return;
+    emit(latest.copyWith(occurrenceRevision: latest.occurrenceRevision + 1));
   }
 
   /// Drops the day memos when — and **only** when — a presence mark is
@@ -920,11 +987,13 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       debugPrint('[CalendarBloc] Presence write error: $e');
       return;
     }
-    _invalidateIfPresenceIsMembership(current);
+    final latest = state;
+    if (latest is! CalendarPageLoaded) return;
+    _invalidateIfPresenceIsMembership(latest);
     emit(
-      current.copyWith(
-        occurrenceRevision: current.occurrenceRevision + 1,
-        presenceRevision: current.presenceRevision + 1,
+      latest.copyWith(
+        occurrenceRevision: latest.occurrenceRevision + 1,
+        presenceRevision: latest.presenceRevision + 1,
       ),
     );
   }
@@ -959,7 +1028,9 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     unawaited(
       _reconcileAlerts(event.eventId, AlertReconcileReason.occurrenceChanged),
     );
-    emit(current.copyWith(membershipRevision: current.membershipRevision + 1));
+    final latest = state;
+    if (latest is! CalendarPageLoaded) return;
+    emit(latest.copyWith(membershipRevision: latest.membershipRevision + 1));
   }
 
   /// Restores one cancelled occurrence. Same cache reasoning as
@@ -982,7 +1053,9 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     unawaited(
       _reconcileAlerts(event.eventId, AlertReconcileReason.occurrenceChanged),
     );
-    emit(current.copyWith(membershipRevision: current.membershipRevision + 1));
+    final latest = state;
+    if (latest is! CalendarPageLoaded) return;
+    emit(latest.copyWith(membershipRevision: latest.membershipRevision + 1));
   }
 
   static DateTime _dateOnly(DateTime date) {

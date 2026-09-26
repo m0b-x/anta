@@ -4735,6 +4735,20 @@ class AppLocalizationsDe extends AppLocalizations {
   String get dayListScopeThisYear => 'Dieses Jahr';
 
   @override
+  String get dayListScopeCalendarYear => 'Kalenderjahr';
+
+  @override
+  String get calendarOverview => 'Übersicht';
+
+  @override
+  String get calendarOverviewDesc => 'Ereignisse nach Kategorie, Jahr für Jahr';
+
+  @override
+  String overviewEmptyYear(int year) {
+    return 'Nichts in $year';
+  }
+
+  @override
   String get dayListJumpToToday => 'Dieser Monat';
 
   @override

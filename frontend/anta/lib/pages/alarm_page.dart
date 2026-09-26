@@ -137,9 +137,11 @@ class _AlarmPageState extends State<AlarmPage> {
     final l10n = AppLocalizations.of(context)!;
     final payload = widget.payload;
     final title = payload.isTest ? l10n.alertsTestAlarm : payload.title;
-    final tint = payload.colorValue != null
-        ? Color(payload.colorValue!)
-        : Color(CalendarCategories.resolve(payload.categoryId).colorValue);
+    final tint = Color(
+      payload.iconColorValue(
+        CalendarCategories.resolve(payload.categoryId).colorValue,
+      ),
+    );
     final icon =
         CalendarIcons.forKey(payload.iconKey) ??
         CalendarIcons.forKey(

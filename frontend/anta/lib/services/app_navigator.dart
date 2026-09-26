@@ -19,6 +19,7 @@ import '../pages/calendar_page.dart';
 import '../pages/calendar_settings_page.dart';
 import '../pages/calendar_categories_page.dart';
 import '../pages/calendar_appearance_page.dart';
+import '../pages/calendar_overview_page.dart';
 import '../pages/event_templates_page.dart';
 import '../pages/vocabularies_page.dart';
 import '../pages/counter_management_page.dart';
@@ -505,6 +506,16 @@ abstract final class AppNavigator {
     return pushed;
   }
 
+  /// The overview page: events by category over whole years, a feature like
+  /// the calendar itself, so it raises no drawer on pop.
+  static Future<void> toCalendarOverview(BuildContext context) {
+    return push(
+      context,
+      const CalendarOverviewPage(),
+      destination: const NavDestination(NavDestinationKind.calendarOverview),
+    );
+  }
+
   static Future<void> toCalendarSettings(BuildContext context) {
     return push(
       context,
@@ -855,6 +866,7 @@ abstract final class AppNavigator {
       ),
       NavDestinationKind.alerts => const AlertsPage(),
       NavDestinationKind.permissions => const PermissionsPage(),
+      NavDestinationKind.calendarOverview => const CalendarOverviewPage(),
     };
   }
 }

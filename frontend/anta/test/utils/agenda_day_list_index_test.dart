@@ -466,6 +466,51 @@ void main() {
     });
   });
 
+  group('AgendaMonthTally', () {
+    final month = DateTime.utc(2026, 9, 1);
+    const blue = Color(0xFF1E88E5);
+    const red = Color(0xFFE53935);
+
+    test('folds marks into the same numbers a bucket carries', () {
+      final marks = [
+        AgendaDayMark(day: DateTime.utc(2026, 9, 5), color: blue),
+        AgendaDayMark(day: DateTime.utc(2026, 9, 5), color: red),
+        AgendaDayMark(day: DateTime.utc(2026, 9, 9), color: red, missed: true),
+      ];
+      final tally = AgendaMonthTally.build(month, marks);
+      final bucket = AgendaDayListMonth.build(month, [
+        for (final mark in marks)
+          AgendaDayListEntry(
+            day: mark.day,
+            icon: Icons.event,
+            color: mark.color,
+            title: 'x',
+            missed: mark.missed,
+          ),
+      ]);
+      final derived = AgendaMonthTally.ofBucket(bucket);
+
+      for (final t in [tally, derived]) {
+        expect(t.count, 3);
+        expect(t.keptCount, 2);
+        expect(t.markedMask, (1 << 4) | (1 << 8));
+        expect(t.missedMask, 1 << 8);
+        expect(t.daysInMonth, 30);
+        expect(t.dayColors[4], blue, reason: 'the first mark of a day wins');
+        expect(t.dayColors[8], red);
+        expect(t.dayColors[0], isNull);
+      }
+    });
+
+    test('an empty month tallies to nothing', () {
+      final tally = AgendaMonthTally.build(month, const []);
+      expect(tally.count, 0);
+      expect(tally.markedMask, 0);
+      expect(tally.dayColors, hasLength(30));
+      expect(tally.dayColors.every((c) => c == null), isTrue);
+    });
+  });
+
   group('AgendaDayListMonth', () {
     test('counts every entry handed in, duplicates on a day included', () {
       final month = AgendaDayListMonth.build(DateTime.utc(2026, 2, 1), [

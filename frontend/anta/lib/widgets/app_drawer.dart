@@ -134,6 +134,17 @@ class _AppDrawerState extends State<AppDrawer> {
                 ),
                 _buildMenuItem(
                   context: context,
+                  icon: Icons.grid_view_rounded,
+                  title: l10n.calendarOverview,
+                  subtitle: l10n.calendarOverviewDesc,
+                  identifier: SemanticsIds.drawerCalendarOverview,
+                  onTap: () {
+                    AppNavigator.pop(context);
+                    AppNavigator.toCalendarOverview(context);
+                  },
+                ),
+                _buildMenuItem(
+                  context: context,
                   icon: Icons.tune_rounded,
                   title: l10n.calendarSettingsRow,
                   subtitle: l10n.calendarSettingsRowDesc,

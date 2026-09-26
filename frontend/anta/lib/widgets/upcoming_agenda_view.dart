@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 
 import '../constants/app_spacing.dart';
+import '../constants/calendar_bounds.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/event_priorities.dart';
 import '../constants/fasting_calendar.dart';
@@ -104,6 +105,9 @@ class UpcomingAgendaView extends StatefulWidget {
   /// agenda keeps listing a day that no longer exists.
   final int membershipRevision;
 
+  /// The app's haptic setting, handed on to the drill-down's jumps.
+  final bool hapticFeedback;
+
   const UpcomingAgendaView({
     super.key,
     required this.events,
@@ -123,6 +127,7 @@ class UpcomingAgendaView extends StatefulWidget {
     this.occurrenceRevision = 0,
     this.membershipRevision = 0,
     this.missedDisplay = CalendarMissedDisplay.faded,
+    this.hapticFeedback = false,
   });
 
   @override
@@ -163,6 +168,14 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
   int? _searchCategoryRevision;
   Set<String> _searchCategoryKeep = const {};
   String _localeName = '';
+
+  /// Generations of the two day-annotation facades the holiday and fasting
+  /// scans read. A holiday profile or a fasting schedule changes on the
+  /// settings page with nothing dispatched — the bloc's reload emits a
+  /// value-equal state that `Equatable` drops — so the panel's rebuild on
+  /// return is the only signal, and these are what turn it into a rescan.
+  int? _holidayRevision;
+  int? _fastingRevision;
 
   /// Localized category labels, resolved once per catalog/locale change so the
   /// scan can match a term against a category name without ever seeing an
@@ -226,10 +239,16 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
   int? _rowsForOccurrenceRevision;
   int? _rowsForMembershipRevision;
   CalendarMissedDisplay? _rowsForMissedDisplay;
+  int? _rowsForCategoryRevision;
 
   List<AgendaRow> _rowsFor(AppLocalizations l10n) {
     final eventDisplay = widget.filters.eventDisplay;
+    // The rows resolve every category at build time — label, colour, icon —
+    // so a category edited behind the panel joins the key the way the grid's
+    // resolver memo keys on the same generation.
+    final categoryRevision = CalendarCategories.revision;
     if (identical(_rowsForOccurrences, _occurrences) &&
+        _rowsForCategoryRevision == categoryRevision &&
         identical(_rowsForHolidays, _holidayDays) &&
         identical(_rowsForFasting, _fastingDays) &&
         identical(_rowsForFastingRuns, _fastingRuns) &&
@@ -262,6 +281,7 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
     _rowsForOccurrenceRevision = widget.occurrenceRevision;
     _rowsForMembershipRevision = widget.membershipRevision;
     _rowsForMissedDisplay = widget.missedDisplay;
+    _rowsForCategoryRevision = categoryRevision;
     // Folded here, beside the rows it must agree with, and under the very
     // same hidden-missed rule `buildAgendaRows` applies to the day walk — so
     // a card can never count an occurrence its drill-down would drop.
@@ -283,9 +303,23 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
       showRecurrenceLabels: widget.showRecurrenceLabels,
       missedDisplay: widget.missedDisplay,
     );
+    // A card stands for entries it replaced, so it counts what it stands for:
+    // the number above the list must not depend on how the list is folded.
     var entries = 0;
     for (final row in _rows) {
-      if (row is AgendaEntryRow) entries++;
+      switch (row) {
+        case AgendaEntryRow():
+          entries++;
+        case AgendaEventSummaryRow(:final summary):
+          entries += summary.occurrenceCount;
+        case AgendaHolidaySummaryRow(:final days):
+          entries += days.length;
+        case AgendaFastingSummaryRow(:final summary):
+          entries += summary.dayCount;
+        case AgendaMonthHeaderRow():
+        case AgendaDayHeaderRow():
+          break;
+      }
     }
     _entryCount = entries;
     return _rows;
@@ -307,9 +341,27 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_refreshSearchCatalog()) _recompute();
-    _recomputeHolidays();
-    _recomputeFasting();
+    // Both report true on the first call, which is what runs the initial
+    // scans; an unrelated dependency change — a theme frame — moves neither
+    // and walks nothing.
+    final catalogMoved = _refreshSearchCatalog();
+    final annotationsMoved = _annotationsMoved();
+    if (catalogMoved) _recompute();
+    if (catalogMoved || annotationsMoved) {
+      _recomputeHolidays();
+      _recomputeFasting();
+    }
+  }
+
+  /// Whether the holiday or fasting facade was republished since the last
+  /// check, recording the generations seen.
+  bool _annotationsMoved() {
+    final holidays = PublicHolidays.revision;
+    final fasting = FastingCalendar.revision;
+    final moved = holidays != _holidayRevision || fasting != _fastingRevision;
+    _holidayRevision = holidays;
+    _fastingRevision = fasting;
+    return moved;
   }
 
   /// Re-resolves the localized category labels when the locale, the category
@@ -356,6 +408,23 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
     _updateRange();
     final o = oldWidget.filters;
     final n = widget.filters;
+    // A renamed or recoloured category, a holiday profile or a fasting
+    // schedule change reaches this widget only as a rebuild, so the facade
+    // generations are read here rather than waiting for a filter change.
+    final catalogMoved = _refreshSearchCatalog();
+    final annotationsMoved = _annotationsMoved();
+    // Presence decides which occurrence a collapsed row stands for only
+    // while missed occurrences are hidden, so that pairing is the one case a
+    // presence tick — or the display setting itself — has to rescan for.
+    final collapseHidesMissed =
+        n.eventDisplay == AgendaEventDisplay.perEvent &&
+        widget.missedDisplay == CalendarMissedDisplay.hidden;
+    final presenceMovesCollapse =
+        collapseHidesMissed &&
+        oldWidget.occurrenceRevision != widget.occurrenceRevision;
+    final missedDisplayMovesCollapse =
+        oldWidget.missedDisplay != widget.missedDisplay &&
+        n.eventDisplay == AgendaEventDisplay.perEvent;
     // The anchor only drives the window when no custom range overrides it, so
     // an anchor move under a pinned custom range changes nothing — do not
     // rescan it. The custom-range transitions themselves are covered by the
@@ -371,9 +440,14 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
     // Everything that moves the scan except the text query. A concrete change
     // like this is worth scanning for at once; only a lone keystroke is worth
     // debouncing.
+    // Only the per-event presentation changes what the scan returns; the
+    // other two scan uncollapsed and differ in a post-pass keyed elsewhere.
+    final collapseFlipped =
+        (o.eventDisplay == AgendaEventDisplay.perEvent) !=
+        (n.eventDisplay == AgendaEventDisplay.perEvent);
     final nonQueryScanChanged =
         !identical(oldWidget.events, widget.events) ||
-        oldWidget.hiddenCategoryIds != widget.hiddenCategoryIds ||
+        !setEquals(oldWidget.hiddenCategoryIds, widget.hiddenCategoryIds) ||
         o.periodMode != n.periodMode ||
         o.rangeDays != n.rangeDays ||
         !setEquals(o.priorities, n.priorities) ||
@@ -381,9 +455,12 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
         o.customEnd != n.customEnd ||
         o.eventType != n.eventType ||
         !setEquals(o.categoryIds, n.categoryIds) ||
-        o.eventDisplay != n.eventDisplay ||
+        collapseFlipped ||
         // Cancelling an occurrence changes what the scan finds, so it must run.
         oldWidget.membershipRevision != widget.membershipRevision ||
+        catalogMoved ||
+        presenceMovesCollapse ||
+        missedDisplayMovesCollapse ||
         anchorChanged;
 
     if (nonQueryScanChanged) {
@@ -417,9 +494,12 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
     // Annotation-layer changes need no event rescan. Tested independently
     // rather than as an else-chain: applying the filters sheet can move
     // several of these at once.
-    if (o.showHolidays != n.showHolidays) _recomputeHolidays();
+    if (o.showHolidays != n.showHolidays || annotationsMoved) {
+      _recomputeHolidays();
+    }
     if (o.showFasting != n.showFasting ||
-        o.fastingDisplay != n.fastingDisplay) {
+        o.fastingDisplay != n.fastingDisplay ||
+        annotationsMoved) {
       _recomputeFasting();
     }
   }
@@ -518,14 +598,19 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
       categoryLabels: _categoryLabels,
       // Everything the row's subtitle shows — the repeat pattern, the time or
       // "All day", the priority word — folded lazily and once per event, so a
-      // row can be found by any text it actually displays.
-      labelTextOf: (event) => AgendaSearchText.forEvent(event, l10n),
+      // row can be found by any text it actually displays. The cached form
+      // hands the scan the same string per event and locale, which is what
+      // lets it keep the fold across keystrokes.
+      labelTextOf: (event) => AgendaSearchText.forEventCached(event, l10n),
       eventType: widget.filters.eventType,
       categoryIds: widget.filters.categoryIds,
       // Summary mode scans uncollapsed: the card counts distinct events *and*
       // their occurrences, and the collapse post-filter would have thrown the
       // second number away.
       collapseRecurring: display == AgendaEventDisplay.perEvent,
+      // A collapsed row stands for the event's next *shown* occurrence: with
+      // missed ones hidden, a missed first day must not swallow the row.
+      hideMissed: widget.missedDisplay == CalendarMissedDisplay.hidden,
     );
   }
 
@@ -717,17 +802,23 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
   String? _suggestionsForQuery;
   String? _suggestionsForLocale;
   List<CalendarEvent>? _suggestionsForEvents;
+  List<AgendaRow>? _suggestionsForRows;
 
+  /// Keyed on the rows as well: the catalogue is scoped to the window and the
+  /// layer toggles, so a chip computed for one range must not survive into
+  /// another where its term is out of reach.
   List<String> _suggestionsFor(AppLocalizations l10n) {
     final raw = widget.filters.query;
     if (_suggestionsForQuery == raw &&
         _suggestionsForLocale == _localeName &&
-        identical(_suggestionsForEvents, widget.events)) {
+        identical(_suggestionsForEvents, widget.events) &&
+        identical(_suggestionsForRows, _rows)) {
       return _suggestions;
     }
     _suggestionsForQuery = raw;
     _suggestionsForLocale = _localeName;
     _suggestionsForEvents = widget.events;
+    _suggestionsForRows = _rows;
     _suggestions = raw.trim().isEmpty
         ? const []
         : FuzzyRank.best(_searchCatalog(l10n), raw, limit: 3);
@@ -811,7 +902,8 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
             priorities: filters.priorities,
             query: query,
             categoryLabels: categoryLabels,
-            labelTextOf: (event) => AgendaSearchText.forEvent(event, l10n),
+            labelTextOf: (event) =>
+                AgendaSearchText.forEventCached(event, l10n),
             eventType: filters.eventType,
             categoryIds: {categoryId},
             // The card prints distinct events *and* their occurrence tally,
@@ -837,6 +929,75 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
     }
   }
 
+  /// The marks-only twin of [_resolverFor], behind the drill-down's year
+  /// pages: the same scan, folded to a day, a colour and a missed flag —
+  /// never a localized row.
+  AgendaDayMarkResolver _markResolverFor(
+    AgendaDayListSource source,
+    AppLocalizations l10n,
+  ) {
+    _syncQuery();
+    final query = _query;
+    switch (source) {
+      case AgendaDayListCategorySource(:final categoryId):
+        final events = widget.events;
+        final hiddenCategoryIds = widget.hiddenCategoryIds;
+        final filters = widget.filters;
+        final categoryLabels = _categoryLabels;
+        final missedDisplay = widget.missedDisplay;
+        return (start, end) => AgendaListView.eventDayMarks(
+          EventAgenda.occurrencesInRange(
+            events: events,
+            from: start,
+            to: end,
+            hiddenCategoryIds: hiddenCategoryIds,
+            priorities: filters.priorities,
+            query: query,
+            categoryLabels: categoryLabels,
+            labelTextOf: (event) =>
+                AgendaSearchText.forEventCached(event, l10n),
+            eventType: filters.eventType,
+            categoryIds: {categoryId},
+            collapseRecurring: false,
+          ),
+          missedDisplay: missedDisplay,
+        );
+      case AgendaDayListHolidaySource():
+        return (start, end) => AgendaListView.holidayDayMarks(
+          _holidayDaysIn(start, end, l10n, query),
+        );
+      case AgendaDayListFastingSource(:final tradition):
+        return (start, end) => AgendaListView.fastingDayMarks(
+          tradition,
+          _fastingDaysIn(tradition, start, end, l10n, query),
+        );
+    }
+  }
+
+  /// The years the drill-down's calendar-year scope may page to: for a
+  /// category card, the years its events can be in under the card's own
+  /// filters; a holiday or a fast exists in every year.
+  AgendaYearBounds _yearBoundsFor(AgendaDayListSource source, DateTime today) {
+    final earliest = CalendarBounds.earliest.year;
+    final latest = CalendarBounds.latest.year;
+    switch (source) {
+      case AgendaDayListCategorySource(:final categoryId):
+        return EventAgenda.yearBoundsOf(
+          widget.events,
+          hiddenCategoryIds: widget.hiddenCategoryIds,
+          priorities: widget.filters.priorities,
+          eventType: widget.filters.eventType,
+          categoryIds: {categoryId},
+          todayYear: today.year,
+          earliestYear: earliest,
+          latestYear: latest,
+        );
+      case AgendaDayListHolidaySource():
+      case AgendaDayListFastingSource():
+        return (first: earliest, last: latest);
+    }
+  }
+
   /// Opens a summary card's drill-down and routes what the viewer picked.
   ///
   /// A day goes through [UpcomingAgendaView.onDaySelected] — which the panel
@@ -850,16 +1011,20 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
     _dayListOpen = true;
     try {
       final l10n = AppLocalizations.of(context)!;
+      final today = EventAgenda.dateOnly(DateTime.now());
       final result = await AgendaDayListSheet.show(
         context,
         list,
         resolve: _resolverFor(list.source, l10n),
+        resolveMarks: _markResolverFor(list.source, l10n),
+        yearBounds: _yearBoundsFor(list.source, today),
         appearance: widget.appearance,
-        today: EventAgenda.dateOnly(DateTime.now()),
+        today: today,
         windowStart: _resolved.$1,
         windowEnd: _resolved.$2,
         initialMode: widget.dayListMode,
         onModeChanged: widget.onDayListModeChanged,
+        hapticFeedback: widget.hapticFeedback,
       );
       if (result == null || !mounted) return;
       final day = result.focusDay;
@@ -1169,31 +1334,37 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
                     },
                   ),
                 ),
-              Builder(
-                builder: (context) => AgendaListView(
-                  rows: rows,
-                  sliver: true,
-                  onDaySelected: widget.onDaySelected,
-                  onEditEvent: widget.onEditEvent,
-                  onOpenNote: widget.onOpenNote,
-                  onShowDayList: _showDayList,
-                  emptyTitle: l10n.upcomingNoEvents,
-                  emptyHint: l10n.upcomingNoEventsHint,
-                  // The page's FAB floats over this list, so the last row's
-                  // edit and open-note buttons would sit under it without the
-                  // reserved clearance. Short content just leaves the space
-                  // empty.
-                  padding: EdgeInsets.fromLTRB(
-                    16,
-                    4,
-                    16,
-                    16 +
-                        AppSpacing.fabClearance +
-                        MediaQuery.viewInsetsOf(context).bottom,
+              AgendaListView(
+                rows: rows,
+                sliver: true,
+                onDaySelected: widget.onDaySelected,
+                onEditEvent: widget.onEditEvent,
+                onOpenNote: widget.onOpenNote,
+                onShowDayList: _showDayList,
+                emptyTitle: l10n.upcomingNoEvents,
+                emptyHint: l10n.upcomingNoEventsHint,
+                // The page's FAB floats over this list, so the last row's
+                // edit and open-note buttons would sit under it without the
+                // reserved clearance. Short content just leaves the space
+                // empty.
+                padding: const EdgeInsets.fromLTRB(
+                  16,
+                  4,
+                  16,
+                  16 + AppSpacing.fabClearance,
+                ),
+                colorPalette: widget.colorPalette,
+                showRecurrenceLabels: widget.showRecurrenceLabels,
+                missedDisplay: widget.missedDisplay,
+              ),
+              // The keyboard's clearance sits in its own sliver so an inset
+              // frame rebuilds this spacer and nothing above it — the list's
+              // cards keep their instances across the keyboard animation.
+              SliverToBoxAdapter(
+                child: Builder(
+                  builder: (context) => SizedBox(
+                    height: MediaQuery.viewInsetsOf(context).bottom,
                   ),
-                  colorPalette: widget.colorPalette,
-                  showRecurrenceLabels: widget.showRecurrenceLabels,
-                  missedDisplay: widget.missedDisplay,
                 ),
               ),
             ],

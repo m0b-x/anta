@@ -266,7 +266,12 @@ abstract final class PublicHolidays {
   }
 
   static PublicHolidayInfo? holidayOn(DateTime day) {
-    final key = DateTime.utc(day.year, day.month, day.day);
+    // Every hot caller — the workdays rule inside `occursOn`, the agenda's
+    // day walks — already holds a date-only UTC day; only a raw day pays for
+    // the normalization.
+    final key = _isDateOnlyUtc(day)
+        ? day
+        : DateTime.utc(day.year, day.month, day.day);
     // A user's own entry outranks the computed set, so a custom holiday can
     // sit on a date the profile already claims.
     final override = _overrides[key];
@@ -286,6 +291,14 @@ abstract final class PublicHolidays {
   }
 
   static bool isHoliday(DateTime day) => holidayOn(day) != null;
+
+  static bool _isDateOnlyUtc(DateTime day) =>
+      day.isUtc &&
+      day.hour == 0 &&
+      day.minute == 0 &&
+      day.second == 0 &&
+      day.millisecond == 0 &&
+      day.microsecond == 0;
 
   /// Resolves the localized label for a built-in holiday enum value.
   static String nameOf(PublicHoliday holiday, AppLocalizations l10n) {

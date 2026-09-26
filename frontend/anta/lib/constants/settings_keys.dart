@@ -221,6 +221,16 @@ class SettingsKeys {
   /// forward-compatible fallback to `list`.
   static const String calendarDayListMode = 'calendar_day_list_mode';
 
+  /// Category-id allowlist of the calendar overview page, as a sorted CSV.
+  /// Empty = every category.
+  static const String calendarOverviewCategories =
+      'calendar_overview_categories';
+
+  /// Which presentation the calendar overview page was left in
+  /// (`AgendaDayListMode` name). Parsed with a forward-compatible fallback to
+  /// [defaultCalendarOverviewMode].
+  static const String calendarOverviewMode = 'calendar_overview_mode';
+
   /// Whether day-panel / agenda event rows mention the repeat pattern
   /// ("Daily", "Every 2 weeks", …) in their subtitle.
   static const String calendarShowRecurrenceLabels =
@@ -506,6 +516,9 @@ class SettingsKeys {
   /// Default drill-down presentation: the flat, grouped list (see
   /// `AgendaDayListMode`).
   static const String defaultCalendarDayListMode = 'list';
+
+  /// Default overview-page presentation: the year of dot-matrix tiles.
+  static const String defaultCalendarOverviewMode = 'year';
 
   // ── Event alerts (v40) ──────────────────────────────────────────────
 
