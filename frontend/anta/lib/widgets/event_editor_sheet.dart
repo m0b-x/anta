@@ -483,6 +483,10 @@ class _EventEditorSheetState extends State<EventEditorSheet>
   /// [SpecificDatesRecurrence] covering [_date] plus these dates.
   late List<DateTime> _additionalDates;
 
+  /// Today, read once: the bundled Dates row counts the dates still ahead on
+  /// every build, and a modal form does not straddle midnight.
+  late final DateTime _today = _normalize(DateTime.now());
+
   /// Whether the description field is showing its rendered markdown instead
   /// of the raw source. View-only state — the stored value is always source.
   /// Only reachable while live rendering is off: with it on, the editor
@@ -1134,7 +1138,9 @@ class _EventEditorSheetState extends State<EventEditorSheet>
   /// Edits the whole one-time date set in a single pass. The multi picker
   /// returns the edited set; [_setOneTimeDates] stays the one place that
   /// re-derives the anchor (earliest) and the extras list from it.
-  Future<void> _pickOneTimeDates() async {
+  Future<void> _pickOneTimeDates({
+    CalendarDatePickerView view = CalendarDatePickerView.month,
+  }) async {
     _blur();
     final current = <DateTime>{_date, ..._additionalDates};
     final picked = await CalendarDatePickerSheet.pickMulti(
@@ -1144,6 +1150,7 @@ class _EventEditorSheetState extends State<EventEditorSheet>
       lastDate: CalendarBounds.latest,
       dayLoad: widget.dayLoad,
       appearance: widget.appearance,
+      initialView: view,
     );
     if (picked == null || !mounted || picked.isEmpty) return;
     _setOneTimeDates(picked);
@@ -1740,22 +1747,25 @@ class _EventEditorSheetState extends State<EventEditorSheet>
     });
   }
 
-  String _datesSummary(AppLocalizations l10n, List<DateTime> dates) {
-    final localeName = l10n.localeName;
-    final first = dates.first;
-    final last = dates.last;
-    final firstLabel = first.year == last.year
-        ? DateFormat.MMMd(localeName).format(first)
-        : DateFormat.yMMMd(localeName).format(first);
-    final lastLabel = DateFormat.yMMMd(localeName).format(last);
-    return l10n.eventDatesSummary(
-      l10n.recurrenceSpecificDates(dates.length),
-      '$firstLabel – $lastLabel',
+  /// The bundled row's value: the count and span on the first line, then the
+  /// next date and how many are still ahead, so the set reads back without
+  /// opening the picker.
+  String _datesValue(AppLocalizations l10n, List<DateTime> dates) {
+    final summary = CalendarDatePickerSheet.summaryLabel(l10n, dates);
+    final ahead = dates.where((d) => !d.isBefore(_today)).toList();
+    if (ahead.isEmpty) return '$summary\n${l10n.eventDatesAllPast}';
+    final next = l10n.eventDatesNext(
+      DateFormat.MMMEd(l10n.localeName).format(ahead.first),
     );
+    return '$summary\n$next · ${l10n.eventDatesAhead(ahead.length, dates.length)}';
   }
 
   String _repeatValue(AppLocalizations l10n) {
-    if (_mode == _RepeatMode.oneTime) return l10n.recurrenceDoesNotRepeat;
+    if (_mode == _RepeatMode.oneTime) {
+      return _additionalDates.isEmpty
+          ? l10n.recurrenceDoesNotRepeat
+          : l10n.recurrenceSpecificDates(_additionalDates.length + 1);
+    }
     final rule = RecurrenceFormatter.format(
       _buildRule(),
       l10n,
@@ -2397,8 +2407,8 @@ class _EventEditorSheetState extends State<EventEditorSheet>
         FormPickerRow(
           glyph: Icons.calendar_today_outlined,
           label: l10n.eventDatesLabel,
-          value: _datesSummary(l10n, oneTimeDates),
-          onTap: _pickOneTimeDates,
+          value: _datesValue(l10n, oneTimeDates),
+          onTap: () => _pickOneTimeDates(view: CalendarDatePickerView.list),
         )
       else if (oneTime)
         for (final date in oneTimeDates)

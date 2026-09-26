@@ -729,7 +729,6 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       return;
     }
     await _persistAlerts(normalized.id, event.alerts);
-    _invalidateDayCache();
     try {
       await (await NoteMoneyLedgerService.getInstance()).refresh(
         service.events,
@@ -743,6 +742,11 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     unawaited(
       _reconcileAlerts(normalized.id, AlertReconcileReason.eventChanged),
     );
+    // Invalidated in the same turn as the emit, never before an await:
+    // `eventsForDay` reads `state`, so a grid rebuild during the ledger
+    // refresh re-warmed the cache from the list without this event and the
+    // emit then served the stale days (seen on device 2026-09-25).
+    _invalidateDayCache();
     emit(
       current.copyWith(
         allEvents: service.events,
@@ -770,7 +774,6 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       return;
     }
     await _persistAlerts(normalized.id, event.alerts);
-    _invalidateDayCache();
     try {
       await (await NoteMoneyLedgerService.getInstance()).refresh(
         service.events,
@@ -781,6 +784,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     unawaited(
       _reconcileAlerts(normalized.id, AlertReconcileReason.eventChanged),
     );
+    _invalidateDayCache();
     emit(current.copyWith(allEvents: service.events));
   }
 

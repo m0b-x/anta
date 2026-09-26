@@ -28,7 +28,14 @@ import 'simple_markdown_preview.dart';
 /// [editDescription] carries no payload on purpose: the caller re-resolves
 /// which text is being edited, using exactly the rule a checkbox tick uses, so
 /// a quick edit and a tick can never write to different places.
-enum EventDetailAction { edit, editDescription, openNote, skipOccurrence }
+enum EventDetailAction {
+  edit,
+  editDescription,
+  openNote,
+  skipOccurrence,
+  addDate,
+  showDates,
+}
 
 /// Read-only view of a single [CalendarEvent].
 ///
@@ -56,6 +63,11 @@ class EventDetailSheet extends StatefulWidget {
 
   /// How many upcoming dates to list.
   static const int _maxOccurrences = 5;
+
+  /// A pinned-dates event lists its whole set up to this many; past that it
+  /// shows the next few and a chip opening the full list.
+  static const int _maxListedDates = 8;
+  static const int _datesPreview = 3;
 
   /// How long a checkbox toggle waits before it is handed to [onEventChanged].
   /// Ticking a short list is a burst, and every write invalidates the bloc's
@@ -172,6 +184,19 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
   /// scan walks up to 366 days and the sheet body is a `ListView`, so doing
   /// it in `build` would re-run it on every scroll-driven rebuild.
   late final List<DateTime> _upcoming = _computeUpcoming();
+
+  /// The pinned set, sorted once, or null for any other rule.
+  late final List<DateTime>? _explicitDates =
+      widget.event.rule is SpecificDatesRecurrence
+      ? (widget.event.explicitDates!.toList()..sort())
+      : null;
+
+  /// Today, read once with [_upcoming]: the Dates block muting and counting
+  /// runs on every build, and a sheet does not straddle midnight.
+  late final DateTime _today = () {
+    final now = DateTime.now();
+    return DateTime.utc(now.year, now.month, now.day);
+  }();
 
   /// Working copy of this day's description, trimmed on entry so the offsets
   /// the builder reports for a checkbox address exactly this string. Rendering
@@ -388,8 +413,9 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
 
   List<DateTime> _computeUpcoming() {
     final event = widget.event;
-    // A one-time or explicit-date event has nothing to project.
-    if (event.rule is OneTimeRecurrence) return const [];
+    // A one-time event has nothing to project, and a pinned-dates event
+    // lists its set outright instead.
+    if (event.explicitDates != null) return const [];
     final today = DateTime.now();
     final start = DateTime.utc(today.year, today.month, today.day);
     final days = <DateTime>[];
@@ -617,7 +643,9 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
               // dates are date-only UTC, so plain equality is exact. Compact
               // `yMMMd` because it sits inside a sentence, unlike the bare
               // long-form date rows.
-              if (isRecurring && widget.day != event.startDate)
+              if (isRecurring &&
+                  _explicitDates == null &&
+                  widget.day != event.startDate)
                 _InfoRow(
                   icon: Icons.event_repeat_rounded,
                   text: l10n.eventDetailsSeriesStart(
@@ -643,6 +671,15 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
                     onPressed: () => _close(EventDetailAction.openNote),
                     icon: const Icon(Icons.sticky_note_2_outlined, size: 18),
                     label: Text(l10n.eventOpenLinkedNote),
+                  ),
+                ),
+              if (event.explicitDates != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: TextButton.icon(
+                    onPressed: () => _close(EventDetailAction.addDate),
+                    icon: const Icon(Icons.add_rounded, size: 18),
+                    label: Text(l10n.eventAddDate),
                   ),
                 ),
               // Cancelling closes the sheet with an action rather than writing
@@ -773,7 +810,15 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
                     ),
                   ),
               ],
-              if (isRecurring) ...[
+              if (_explicitDates case final dates?)
+                ..._buildExplicitDates(
+                  l10n,
+                  theme,
+                  colorScheme,
+                  dates,
+                  localeName,
+                )
+              else if (isRecurring) ...[
                 const SizedBox(height: 20),
                 Text(
                   l10n.eventDetailsNextOccurrences,
@@ -807,6 +852,81 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
         ),
       ],
     );
+  }
+
+  /// The whole pinned set, past dates muted and this sheet's own day
+  /// outlined. Beyond [_maxListedDates] only the next few show, with a chip
+  /// that opens the full list; with none ahead, the most recent few.
+  List<Widget> _buildExplicitDates(
+    AppLocalizations l10n,
+    ThemeData theme,
+    ColorScheme colorScheme,
+    List<DateTime> dates,
+    String localeName,
+  ) {
+    final today = _today;
+    final ahead = dates.where((d) => !d.isBefore(today)).toList();
+    final List<DateTime> shown;
+    if (dates.length <= EventDetailSheet._maxListedDates) {
+      shown = dates;
+    } else if (ahead.isEmpty) {
+      shown = dates.sublist(dates.length - EventDetailSheet._datesPreview);
+    } else {
+      shown = ahead.take(EventDetailSheet._datesPreview).toList();
+    }
+    final sameYear = DateFormat.MMMEd(localeName);
+    final otherYear = DateFormat.yMMMEd(localeName);
+    return [
+      const SizedBox(height: 20),
+      Row(
+        children: [
+          Expanded(
+            child: Text(
+              l10n.eventDatesLabel,
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          Text(
+            ahead.isEmpty
+                ? l10n.eventDatesAllPast
+                : l10n.eventDatesAhead(ahead.length, dates.length),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 4),
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final day in shown)
+            Chip(
+              visualDensity: VisualDensity.compact,
+              label: Text(
+                day.year == today.year
+                    ? sameYear.format(day)
+                    : otherYear.format(day),
+              ),
+              labelStyle: day.isBefore(today)
+                  ? TextStyle(color: colorScheme.onSurfaceVariant)
+                  : null,
+              side: day == widget.day
+                  ? BorderSide(color: colorScheme.primary)
+                  : null,
+            ),
+          if (shown.length < dates.length)
+            ActionChip(
+              visualDensity: VisualDensity.compact,
+              label: Text(l10n.eventDetailsAllDates(dates.length)),
+              onPressed: () => _close(EventDetailAction.showDates),
+            ),
+        ],
+      ),
+    ];
   }
 }
 

@@ -5419,4 +5419,105 @@ class AppLocalizationsEn extends AppLocalizations {
   String eventDatesSummary(String count, String range) {
     return '$count · $range';
   }
+
+  @override
+  String get datePickerListEmpty => 'No dates yet. Pick them in Month or Year.';
+
+  @override
+  String datePickerListIndex(int index, int count) {
+    return '$index of $count';
+  }
+
+  @override
+  String get datePickerPreviousYear => 'Previous year';
+
+  @override
+  String get datePickerNextYear => 'Next year';
+
+  @override
+  String get datePickerRepeatPicked => 'Repeat the picked dates…';
+
+  @override
+  String get datePickerRepeatTimes => 'Times';
+
+  @override
+  String get datePickerRepeatWeek => 'Week';
+
+  @override
+  String get datePickerRepeatMonth => 'Month';
+
+  @override
+  String get datePickerRepeatYear => 'Year';
+
+  @override
+  String datePickerRepeatTimesValue(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count more',
+      one: '1 more',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get datePickerRepeatFewer => 'Fewer';
+
+  @override
+  String get datePickerRepeatMore => 'More';
+
+  @override
+  String datePickerRepeatAdds(int count, String last) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Adds $count dates',
+      one: 'Adds 1 date',
+    );
+    return '$_temp0 · through $last';
+  }
+
+  @override
+  String datePickerRepeatSkipped(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count skipped, no such day',
+      one: '1 skipped, no such day',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get datePickerRepeatNothing => 'Nothing to add';
+
+  @override
+  String datePickerRepeatApply(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Add $count dates',
+      one: 'Add 1 date',
+      zero: 'Add dates',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String eventDatesNext(String date) {
+    return 'Next $date';
+  }
+
+  @override
+  String eventDatesAhead(int ahead, int total) {
+    return '$ahead of $total ahead';
+  }
+
+  @override
+  String get eventDatesAllPast => 'All in the past';
+
+  @override
+  String eventDetailsAllDates(int count) {
+    return 'All $count dates';
+  }
 }

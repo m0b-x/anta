@@ -5516,4 +5516,109 @@ class AppLocalizationsRo extends AppLocalizations {
   String eventDatesSummary(String count, String range) {
     return '$count · $range';
   }
+
+  @override
+  String get datePickerListEmpty => 'Nicio dată încă. Alege-le în Lună sau An.';
+
+  @override
+  String datePickerListIndex(int index, int count) {
+    return '$index din $count';
+  }
+
+  @override
+  String get datePickerPreviousYear => 'Anul anterior';
+
+  @override
+  String get datePickerNextYear => 'Anul următor';
+
+  @override
+  String get datePickerRepeatPicked => 'Repetă datele alese…';
+
+  @override
+  String get datePickerRepeatTimes => 'De câte ori';
+
+  @override
+  String get datePickerRepeatWeek => 'Săptămână';
+
+  @override
+  String get datePickerRepeatMonth => 'Lună';
+
+  @override
+  String get datePickerRepeatYear => 'An';
+
+  @override
+  String datePickerRepeatTimesValue(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'încă $count de ori',
+      few: 'încă $count ori',
+      one: 'încă 1 dată',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get datePickerRepeatFewer => 'Mai puține';
+
+  @override
+  String get datePickerRepeatMore => 'Mai multe';
+
+  @override
+  String datePickerRepeatAdds(int count, String last) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Adaugă $count de date',
+      few: 'Adaugă $count date',
+      one: 'Adaugă 1 dată',
+    );
+    return '$_temp0 · până la $last';
+  }
+
+  @override
+  String datePickerRepeatSkipped(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count sărite, ziua nu există',
+      few: '$count sărite, ziua nu există',
+      one: '1 sărită, ziua nu există',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get datePickerRepeatNothing => 'Nimic de adăugat';
+
+  @override
+  String datePickerRepeatApply(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Adaugă $count de date',
+      few: 'Adaugă $count date',
+      one: 'Adaugă 1 dată',
+      zero: 'Adaugă date',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String eventDatesNext(String date) {
+    return 'Următoarea $date';
+  }
+
+  @override
+  String eventDatesAhead(int ahead, int total) {
+    return '$ahead din $total în viitor';
+  }
+
+  @override
+  String get eventDatesAllPast => 'Toate în trecut';
+
+  @override
+  String eventDetailsAllDates(int count) {
+    return 'Toate cele $count date';
+  }
 }

@@ -589,8 +589,9 @@ void main() {
   testWidgets('the date picker sheet clears the navigation bar in multi mode', (
     tester,
   ) async {
-    // Multi mode ends in a fixed count/Clear row below the grid, so the
-    // clearance moves onto that row — same split the colour picker uses.
+    // Multi mode ends in a fixed footer (the repeat action) below the views,
+    // so the clearance moves onto that row — same split the colour picker
+    // uses.
     sizeSurfaceWithNavBar(tester);
     await openFrom(
       tester,
@@ -604,9 +605,9 @@ void main() {
     );
 
     expect(
-      tester.getRect(find.widgetWithText(TextButton, 'Clear')).bottom,
+      tester.getRect(find.text('Repeat the picked dates…')).bottom,
       lessThanOrEqualTo(surface.height - navBar),
-      reason: 'the selection footer ran under the gesture bar',
+      reason: 'the picker footer ran under the gesture bar',
     );
   });
 }

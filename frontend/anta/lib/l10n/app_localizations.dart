@@ -9231,6 +9231,126 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{count} · {range}'**
   String eventDatesSummary(String count, String range);
+
+  /// Empty state of the date picker's list view
+  ///
+  /// In en, this message translates to:
+  /// **'No dates yet. Pick them in Month or Year.'**
+  String get datePickerListEmpty;
+
+  /// Position of a date in the picker's list view
+  ///
+  /// In en, this message translates to:
+  /// **'{index} of {count}'**
+  String datePickerListIndex(int index, int count);
+
+  /// Tooltip of the year view's back chevron
+  ///
+  /// In en, this message translates to:
+  /// **'Previous year'**
+  String get datePickerPreviousYear;
+
+  /// Tooltip of the year view's forward chevron
+  ///
+  /// In en, this message translates to:
+  /// **'Next year'**
+  String get datePickerNextYear;
+
+  /// Footer action of the multi-date picker that projects the selection forward
+  ///
+  /// In en, this message translates to:
+  /// **'Repeat the picked dates…'**
+  String get datePickerRepeatPicked;
+
+  /// Label of the stepper saying how many times the picked dates repeat
+  ///
+  /// In en, this message translates to:
+  /// **'Times'**
+  String get datePickerRepeatTimes;
+
+  /// Repeat unit segment: one week apart
+  ///
+  /// In en, this message translates to:
+  /// **'Week'**
+  String get datePickerRepeatWeek;
+
+  /// Repeat unit segment: one month apart
+  ///
+  /// In en, this message translates to:
+  /// **'Month'**
+  String get datePickerRepeatMonth;
+
+  /// Repeat unit segment: one year apart
+  ///
+  /// In en, this message translates to:
+  /// **'Year'**
+  String get datePickerRepeatYear;
+
+  /// Value of the repeat stepper
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 more} other{{count} more}}'**
+  String datePickerRepeatTimesValue(int count);
+
+  /// Tooltip of the repeat stepper's decrement
+  ///
+  /// In en, this message translates to:
+  /// **'Fewer'**
+  String get datePickerRepeatFewer;
+
+  /// Tooltip of the repeat stepper's increment
+  ///
+  /// In en, this message translates to:
+  /// **'More'**
+  String get datePickerRepeatMore;
+
+  /// Caption previewing what the repeat would add and the last date it reaches
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Adds 1 date} other{Adds {count} dates}} · through {last}'**
+  String datePickerRepeatAdds(int count, String last);
+
+  /// Caption suffix for projected days that do not exist, such as a 31st in a short month
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 skipped, no such day} other{{count} skipped, no such day}}'**
+  String datePickerRepeatSkipped(int count);
+
+  /// Caption when the repeat would add no new date
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing to add'**
+  String get datePickerRepeatNothing;
+
+  /// Confirm button of the repeat panel
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{Add dates} =1{Add 1 date} other{Add {count} dates}}'**
+  String datePickerRepeatApply(int count);
+
+  /// Second line of the editor's bundled dates row: the next upcoming date
+  ///
+  /// In en, this message translates to:
+  /// **'Next {date}'**
+  String eventDatesNext(String date);
+
+  /// How many of an event's pinned dates are still ahead of today
+  ///
+  /// In en, this message translates to:
+  /// **'{ahead} of {total} ahead'**
+  String eventDatesAhead(int ahead, int total);
+
+  /// Shown when every pinned date of an event has passed
+  ///
+  /// In en, this message translates to:
+  /// **'All in the past'**
+  String get eventDatesAllPast;
+
+  /// Chip on the detail sheet opening the full list of an event's pinned dates
+  ///
+  /// In en, this message translates to:
+  /// **'All {count} dates'**
+  String eventDetailsAllDates(int count);
 }
 
 class _AppLocalizationsDelegate

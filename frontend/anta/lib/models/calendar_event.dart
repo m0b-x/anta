@@ -303,6 +303,42 @@ class CalendarEvent extends Equatable {
   /// mirror used only for SQL filtering, never trusted on read.
   bool get allDay => time == null;
 
+  /// The exact days a one-time or pinned-dates event fires on, or null for a
+  /// periodic rule.
+  Set<DateTime>? get explicitDates => switch (rule) {
+    OneTimeRecurrence() => {startDateUtc},
+    SpecificDatesRecurrence(:final dates) => dates,
+    _ => null,
+  };
+
+  /// This event pinned to exactly [dates]: the earliest becomes the start, one
+  /// date is a one-time rule, and a single date drops the flags only a series
+  /// can carry — the editor's own save guards, so the two write paths agree.
+  CalendarEvent withExplicitDates(Set<DateTime> dates) {
+    final sorted =
+        dates.map((d) => DateTime.utc(d.year, d.month, d.day)).toSet().toList()
+          ..sort();
+    if (sorted.isEmpty) return this;
+    final single = sorted.length == 1;
+    final keepsPresence = !single && tracksPresence;
+    final keepsAssumeAbsent = keepsPresence && assumeAbsent;
+    return copyWith(
+      startDate: sorted.first,
+      rule: single
+          ? const OneTimeRecurrence()
+          : SpecificDatesRecurrence(dates: Set.unmodifiable(sorted.toSet())),
+      clearEndDate: true,
+      retroactive: false,
+      countOccurrences: false,
+      tracksPresence: keepsPresence,
+      assumeAbsent: keepsAssumeAbsent,
+      clearAssumeAbsentFrom: !keepsAssumeAbsent,
+      clearShowInDayRail: single,
+      perOccurrenceDescriptions: !single && perOccurrenceDescriptions,
+      removeAfterAlert: single && removeAfterAlert,
+    );
+  }
+
   CalendarEvent copyWith({
     String? id,
     String? title,
