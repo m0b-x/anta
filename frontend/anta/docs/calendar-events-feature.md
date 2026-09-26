@@ -1213,8 +1213,12 @@ The in-app replacement for `showDatePicker`, so date entry happens on the same
 grid as the rest of the calendar. Two modes:
 
 - `pickSingle` → `DateTime?`; tapping a day confirms immediately.
-- `pickMulti` → `Set<DateTime>?`; days toggle, a footer shows the count with
-  Clear / Today, and Save returns the edited set. Never returns empty.
+- `pickMulti` → `Set<DateTime>?`; days toggle, and Save returns the edited
+  set. Never returns empty. Since 2026-09-25 (later) it is the **Dates sheet**:
+  three views over one set (Month to pick, Year to see and travel, List to
+  review and remove), a summary line under the header in every view, and a
+  footer that repeats the picked dates forward — see the addendum of that
+  date at the end of this document.
 
 It renders through `CalendarDayCell` / `CalendarDayBars` with the user's
 `CalendarAppearance` (week start, accent, today style, week numbers), so it
@@ -5037,3 +5041,162 @@ shipped layout. What changed, in one place:
   `event_repeat_sheet_test.dart`, `event_look_sheet_test.dart`, the six older
   editor suites (updated to the new controls, every assertion kept) and
   `sheet_bottom_clearance_test.dart` (both sub-sheets added).
+
+## Addendum (2026-09-25, later): the Dates sheet — month, year, list, and repeat
+
+**The report.** With four or more one-off dates the set was invisible:
+the editor's bundled row read count and span, the picker showed one month
+at a time, and the detail sheet ran the recurring "next occurrences" scan —
+366 days, five chips, from today — so a car inspection pinned to 2026, 2027
+and 2028 showed one chip and past dates never showed at all. Placing one
+event on dates months or years apart was a crawl through the month grid,
+with the wheel behind the month title as the only fast travel, and no way to
+say "and the same again next month".
+
+**Decisions (delegated to the lead agent by the owner, 2026-09-25).**
+A1 — the multi picker grows into three views of one set rather than a chip
+rail above the grid. B1 — reuse is a *stamp* into explicit dates, not a new
+"every year on these dates" rule: the app's rules are open-ended patterns
+with their own semantics (end date, retroactive, counting, RRULE export), and
+explicit dates already give per-date removal, skips, presence, per-day
+descriptions and RDATE export. C1 — a stamped day that does not exist (a
+31st in a short month, Feb 29 outside a leap year) is skipped and said so in
+the caption, matching the monthly rule's silence, never clamped. D1 — the
+detail sheet lists the whole pinned set, past muted, capped with an "All N
+dates" chip, and gains Add date. E — "Session 3 of 10" as a count style for
+pinned dates is deferred (§8 of the editor redesign roadmap).
+
+**The sheet** (`CalendarDatePickerSheet`, multi mode only; single mode is the
+bare grid it was):
+
+- **Header** ✕ · Pick dates · Today · Save, then a **summary line** —
+  `CalendarDatePickerSheet.summaryLabel(l10n, sorted)`, "4 dates · Sep 25 –
+  Oct 16, 2026", both years named when the span crosses one, `yMMMEd` for a
+  single date, `datePickerSelectedCount(0)` for none — with Clear beside it.
+  Clear moved up from the footer, which the repeat action now owns.
+- **A `SegmentedButton<CalendarDatePickerView>`** (`month` / `year` /
+  `list`, labels reused from `dayListMode*`). `pickMulti` takes
+  `initialView` (default month); the editor's bundled Dates row opens the
+  list, Add date and the per-date rows open the month.
+- **Month** is the grid as before: tap toggles, the title opens the wheel
+  jump, `dayLoad` draws the busy bar.
+- **Year** is twelve `YearMonthTile`s — the agenda drill-down's tile,
+  extracted to `lib/widgets/year_month_tile.dart` (with its `gridDelegate`)
+  so the two surfaces cannot drift — each a `MonthDotMatrix` with the picked
+  days as the marked mask, every day in the window mask, no missed mask, and
+  the count in the accent when non-zero. A year strip with chevrons pages
+  inside `CalendarBounds`. Overview and travel only: a square is too small to
+  toggle, so a tile opens its month on the grid.
+- **List** is every picked date ascending, grouped under a
+  `FormSectionLabel` per month (`yMMMM`) in `FormRowGroup`s of
+  `FormPickerRow`s — `MMMEd` label, "3 of 10" value
+  (`datePickerListIndex`), a ✕ each (`eventRemoveDate`), past dates in
+  `onSurfaceVariant`, today in `primary`; a row tap opens its month on the
+  grid. Empty reads `datePickerListEmpty`. The months are the lazy unit
+  (`ListView.builder` over one item per month, each its label plus group),
+  so three hundred dates build a dozen visible groups, not three hundred
+  rows; the sorted selection is computed once per build and shared with the
+  summary line.
+- **Footer**, in a `FormRowGroup`, carrying the bottom clearance (the
+  element on that edge, per the sheet clearance rule): a `FormActionRow`
+  "Repeat the picked dates…" (`datePickerRepeatPicked`, inert while nothing
+  is picked) that expands in place into a `SegmentedButton<DateStampUnit>`
+  (Week / Month / Year), a Times stepper (1–24, `datePickerRepeatTimesValue`
+  "3 more", tooltips `datePickerRepeatFewer` / `More`), a caption and
+  Cancel / Add. The caption is the whole contract: "Adds 3 dates · through
+  Mar 15, 2029" (`datePickerRepeatAdds`), suffixed "2 skipped, no such day"
+  (`datePickerRepeatSkipped`) when the projection dropped days, or "Nothing
+  to add" in `error` with Add disabled. Add unions the projection into the
+  selection and switches to the list so the result is seen.
+- **`DateStamp.project(dates, unit, times, {lastDate})`**
+  (`lib/utils/date_stamp.dart`, pure, table-tested) is the projection: every
+  picked date, `times` steps forward, weeks by seven days, months and years
+  keeping the day-of-month and returning `null` for a day the target month
+  lacks (never a rolled-over `DateTime` — the anchor-corruption rule). It
+  only adds: dates already picked are not re-added and not counted as
+  skipped; missing days and days past `lastDate` are.
+
+**The editor.** The bundled Dates row's value is two lines: the summary
+(now through `summaryLabel`, one grammar with the sheet) and
+`eventDatesNext` · `eventDatesAhead` ("Next Fri, Oct 2 · 3 of 10 ahead") or
+`eventDatesAllPast`, from one `DateTime.now()` read at build. The group's
+height is still constant from four dates up. Tapping the bundled row opens
+the sheet on the **list** view; Add date and the two-target rows open the
+month. The Repeat row's value reads `recurrenceSpecificDates(n)` ("10
+dates") when extra dates exist instead of "Does not repeat", which
+contradicted the row above it; the Repeat sheet itself is unchanged and
+still opens on "Does not repeat", since a pinned set is not a kind there.
+
+**The detail sheet.** For a `SpecificDatesRecurrence` the "Next
+occurrences" scan is skipped (`_computeUpcoming` returns empty for any
+`explicitDates != null`) and a **Dates** block renders instead: the label
+row with "3 of 10 ahead" / "All in the past" at the trailing edge, then
+chips for the whole set up to `_maxListedDates` (8) — past dates in
+`onSurfaceVariant`, the sheet's own day outlined in `primary`, `MMMEd` in
+the current year and `yMMMEd` otherwise — or, past eight, the next
+`_datesPreview` (3) ahead (the most recent three when none are ahead) plus
+an `ActionChip` "All 10 dates" (`eventDetailsAllDates`). The "Repeats since"
+row is gated off for pinned dates. **Add date** (`TextButton.icon`, the
+existing `eventAddDate`) shows for any event with `explicitDates`, one-time
+included — that is the reuse path from any occurrence.
+
+**Two new actions, one write path.** `EventDetailAction.addDate` (the
+button, opens the month view) and `showDates` (the All chip, opens the list
+view). `calendar_page.dart`'s `_detailSheetLoop` routes both through
+`_editExplicitDates`: `pickMulti` seeded with `event.explicitDates`, the
+page's `dayLoad` and appearance, and on a changed set
+`CalendarEvent.withExplicitDates(picked)` dispatched as `UpdateCalendarEvent`;
+the loop reopens the detail sheet unless the day it was opened for is no
+longer in the set. `explicitDates` is `{startDateUtc}` for one-time, the
+rule's set for pinned dates, null for a periodic rule.
+`withExplicitDates` normalizes to date-only UTC, anchors `startDate` on the
+earliest, clears `endDate`, `retroactive` and `countOccurrences` always (a
+pinned set is the editor's one-time mode), and when the set collapses to one
+date drops `tracksPresence`, `assumeAbsent` (+ `assumeAbsentFrom`),
+`perOccurrenceDescriptions` and `showInDayRail` (to NULL, *auto*) exactly as
+the editor's `effective*` save guards do, while `removeAfterAlert` survives
+only for a single date. The occurrence rows are never touched — the same
+"dormant, never deleted" rule the editor follows.
+
+**Strings.** `datePickerListEmpty`, `datePickerListIndex`,
+`datePickerPreviousYear`, `datePickerNextYear`, `datePickerRepeatPicked`,
+`datePickerRepeatTimes`, `datePickerRepeatWeek` / `Month` / `Year`,
+`datePickerRepeatTimesValue`, `datePickerRepeatFewer` / `More`,
+`datePickerRepeatAdds`, `datePickerRepeatSkipped`, `datePickerRepeatNothing`,
+`datePickerRepeatApply`, `eventDatesNext`, `eventDatesAhead`,
+`eventDatesAllPast`, `eventDetailsAllDates` — en/de/ro together.
+
+**Data.** No schema, codec, backup or `.ics` change: a stamped set is a
+`SpecificDatesRecurrence` like any other, and the detail-sheet path writes
+the same shape the editor does.
+
+**Guards.** `test/utils/date_stamp_test.dart`,
+`test/models/calendar_event_explicit_dates_test.dart`,
+`test/widgets/calendar_date_picker_views_test.dart`,
+`test/widgets/event_detail_dates_test.dart`; `event_editor_redesign_test.dart`
+updated for the two-line row, the list-view open and the Repeat value;
+`sheet_bottom_clearance_test.dart`'s multi case now measures the footer;
+`agenda_day_list_sheet_test.dart` unchanged across the tile extraction.
+
+**A bloc fix the device pass surfaced.** The first event saved through
+this flow reached the database and the Upcoming agenda but not the grid or
+the Day panel, until an unrelated create refreshed them. Cause, in
+`CalendarBloc._onCreateEvent` and `_onUpdateEvent`: `_invalidateDayCache()`
+ran *before* the awaited money-ledger refresh, and `eventsForDay` reads
+`state` — so any grid rebuild inside that await re-warmed `_dayCache` from
+the list without the event, and the emit then served those stale days. The
+invalidation now sits in the same synchronous turn as the emit, after every
+await (`_onDeleteEvent` already had that shape). Pre-existing and
+independent of the Dates sheet. `test/bloc/calendar_bloc_day_cache_race_test.dart`
+plays the rebuild — it reads the day through the cache at every microtask
+hop while the create or update runs — and fails on the old ordering.
+
+**Device pass (iPhone 17 Pro Max simulator, English, light).** Month, Year
+and List views, the repeat panel (four dates stamped weekly three times →
+"Adds 9 dates · through Oct 23, 2026"), the editor's two-line Dates row and
+"13 dates" Repeat value, the detail sheet's Dates block with its All-dates
+chip into the list view and Add date into the month view, and the reopen
+after a save. `qa errors` stayed clean.
+
+**Deferred.** The count style for pinned dates (E). A brief highlight on
+the rows a stamp just added. The device pass in German, Romanian and dark.

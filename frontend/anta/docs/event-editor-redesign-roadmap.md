@@ -59,6 +59,16 @@ skill). Line numbers below are as of `f189e0d` and have drifted.
   "Many dates" (a windowed list with a Dates sheet, disclosure in place, a
   bounded inner scroller, month rows); the sheet list was dropped because a
   300-row list is not a better editor than the grid.
+- **The bundled row reads the set back, and the picker grew views
+  (2026-09-25, later; decisions delegated, recorded in the calendar feature
+  doc's addendum of that date).** The row's value is two lines — the summary
+  through `CalendarDatePickerSheet.summaryLabel`, then "Next Fri, Oct 2 · 3
+  of 10 ahead" or "All in the past" — and tapping it opens the multi picker
+  on its **list** view; Add date and the per-date rows open the month view.
+  The picker itself is now Month / Year / List over one set with a footer
+  that repeats the picked dates forward by weeks, months or years into plain
+  dates. The Repeat row reads "10 dates" for a pinned set instead of "Does
+  not repeat".
 - **The form drops focus before it opens any picker, menu or sub-sheet**
   (`_blur()`): with the title autofocused (D4), a modal's return re-focused
   the title, re-raised the keyboard and scrolled the sheet back to the top —
@@ -1015,3 +1025,8 @@ All of these must still work, checked in a widget test or on a device:
   visible forms and would now look older than this one.
 - Reorderable alerts, and a live preview row mimicking the agenda card:
   both were considered and are not needed for this pass.
+- A count style for pinned dates — "Session 3 of 10" on the agenda card and
+  the day panel, the way a yearly event counts ages (decision E of the Dates
+  sheet proposal, 2026-09-25: yes, as a follow-up slice). `_kindSupportsInterval`
+  is false for specific dates today, so the Count row is hidden for them; the
+  label would be the index in the sorted set, not elapsed periods.

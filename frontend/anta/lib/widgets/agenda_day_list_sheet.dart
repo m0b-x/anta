@@ -16,6 +16,7 @@ import 'agenda_list_view.dart';
 import 'calendar_day_bars.dart';
 import 'calendar_day_cell.dart';
 import 'month_dot_matrix.dart';
+import 'year_month_tile.dart';
 
 /// Drill-down behind an agenda summary card: every entry the card stands for,
 /// in one of three presentations.
@@ -1077,7 +1078,7 @@ class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
           ),
         ),
         Expanded(
-          child: _buildYearGrid(l10n, theme, colorScheme, bottomClearance),
+          child: _buildYearGrid(l10n, colorScheme, bottomClearance),
         ),
       ],
     );
@@ -1095,7 +1096,6 @@ class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
 
   Widget _buildYearGrid(
     AppLocalizations l10n,
-    ThemeData theme,
     ColorScheme colorScheme,
     double bottomClearance,
   ) {
@@ -1111,92 +1111,45 @@ class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
     final accent = widget.appearance.accentOr(colorScheme.primary);
     return GridView.builder(
       padding: EdgeInsets.fromLTRB(16, 0, 16, 16 + bottomClearance),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 132,
-        mainAxisExtent: 116,
-        mainAxisSpacing: 8,
-        crossAxisSpacing: 8,
-      ),
+      gridDelegate: YearMonthTile.gridDelegate,
       itemCount: _yearTiles.length,
       itemBuilder: (context, index) {
         final tile = _yearTiles[index];
         final month = tile.month;
         final label = _yearTileLabel(l10n.localeName, month);
-        return Semantics(
-          container: true,
-          button: true,
+        return YearMonthTile(
+          label: label,
+          count: '${tile.count}',
+          countColor: tile.count > 0 ? marked : colorScheme.onSurfaceVariant,
           // The tile prints the attendance count alone; the missed tally is
           // announced here so a screen reader is not left with a number that
           // silently excludes days the user knows are in the month.
-          label:
+          semanticsLabel:
               '$label, '
               '${_countLabel(l10n, tile.count, tile.missedCount)}',
-          child: Material(
-            color: tileBackground,
-            borderRadius: BorderRadius.circular(12),
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTap: () => _openMonthFromYear(month),
-              child: ExcludeSemantics(
-                child: Padding(
-                  padding: const EdgeInsets.all(10),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              label,
-                              style: theme.textTheme.labelLarge,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          Text(
-                            '${tile.count}',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w700,
-                              color: tile.count > 0
-                                  ? marked
-                                  : colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Expanded(
-                        child: Align(
-                          alignment: AlignmentDirectional.topStart,
-                          child: MonthDotMatrix(
-                            daysInMonth: tile.daysInMonth,
-                            firstWeekdayColumn: weekdayColumnOf(
-                              month,
-                              widget.appearance.weekStart,
-                            ),
-                            markedMask: tile.markedMask,
-                            missedMask: tile.missedMask,
-                            windowMask: tile.windowMask,
-                            todayIndex:
-                                widget.today.year == month.year &&
-                                    widget.today.month == month.month
-                                ? widget.today.day - 1
-                                : null,
-                            markedColor: marked,
-                            missedColor: missed,
-                            unmarkedColor: unmarked,
-                            outsideColor: outside,
-                            todayColor: accent,
-                            backgroundColor: tileBackground,
-                            outlineColor: colorScheme.outline,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+          background: tileBackground,
+          onTap: () => _openMonthFromYear(month),
+          matrix: MonthDotMatrix(
+            daysInMonth: tile.daysInMonth,
+            firstWeekdayColumn: weekdayColumnOf(
+              month,
+              widget.appearance.weekStart,
             ),
+            markedMask: tile.markedMask,
+            missedMask: tile.missedMask,
+            windowMask: tile.windowMask,
+            todayIndex:
+                widget.today.year == month.year &&
+                    widget.today.month == month.month
+                ? widget.today.day - 1
+                : null,
+            markedColor: marked,
+            missedColor: missed,
+            unmarkedColor: unmarked,
+            outsideColor: outside,
+            todayColor: accent,
+            backgroundColor: tileBackground,
+            outlineColor: colorScheme.outline,
           ),
         );
       },

@@ -6825,5 +6825,134 @@
       "count": { "type": "String", "example": "10 dates" },
       "range": { "type": "String", "example": "Sep 25 – Oct 16, 2026" }
     }
+  },
+  "datePickerListEmpty": "No dates yet. Pick them in Month or Year.",
+  "@datePickerListEmpty": {
+    "description": "Empty state of the date picker's list view"
+  },
+  "datePickerListIndex": "{index} of {count}",
+  "@datePickerListIndex": {
+    "description": "Position of a date in the picker's list view",
+    "placeholders": {
+      "index": {
+        "type": "int"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "datePickerPreviousYear": "Previous year",
+  "@datePickerPreviousYear": {
+    "description": "Tooltip of the year view's back chevron"
+  },
+  "datePickerNextYear": "Next year",
+  "@datePickerNextYear": {
+    "description": "Tooltip of the year view's forward chevron"
+  },
+  "datePickerRepeatPicked": "Repeat the picked dates…",
+  "@datePickerRepeatPicked": {
+    "description": "Footer action of the multi-date picker that projects the selection forward"
+  },
+  "datePickerRepeatTimes": "Times",
+  "@datePickerRepeatTimes": {
+    "description": "Label of the stepper saying how many times the picked dates repeat"
+  },
+  "datePickerRepeatWeek": "Week",
+  "@datePickerRepeatWeek": {
+    "description": "Repeat unit segment: one week apart"
+  },
+  "datePickerRepeatMonth": "Month",
+  "@datePickerRepeatMonth": {
+    "description": "Repeat unit segment: one month apart"
+  },
+  "datePickerRepeatYear": "Year",
+  "@datePickerRepeatYear": {
+    "description": "Repeat unit segment: one year apart"
+  },
+  "datePickerRepeatTimesValue": "{count, plural, =1{1 more} other{{count} more}}",
+  "@datePickerRepeatTimesValue": {
+    "description": "Value of the repeat stepper",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "datePickerRepeatFewer": "Fewer",
+  "@datePickerRepeatFewer": {
+    "description": "Tooltip of the repeat stepper's decrement"
+  },
+  "datePickerRepeatMore": "More",
+  "@datePickerRepeatMore": {
+    "description": "Tooltip of the repeat stepper's increment"
+  },
+  "datePickerRepeatAdds": "{count, plural, =1{Adds 1 date} other{Adds {count} dates}} · through {last}",
+  "@datePickerRepeatAdds": {
+    "description": "Caption previewing what the repeat would add and the last date it reaches",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "last": {
+        "type": "String"
+      }
+    }
+  },
+  "datePickerRepeatSkipped": "{count, plural, =1{1 skipped, no such day} other{{count} skipped, no such day}}",
+  "@datePickerRepeatSkipped": {
+    "description": "Caption suffix for projected days that do not exist, such as a 31st in a short month",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "datePickerRepeatNothing": "Nothing to add",
+  "@datePickerRepeatNothing": {
+    "description": "Caption when the repeat would add no new date"
+  },
+  "datePickerRepeatApply": "{count, plural, =0{Add dates} =1{Add 1 date} other{Add {count} dates}}",
+  "@datePickerRepeatApply": {
+    "description": "Confirm button of the repeat panel",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "eventDatesNext": "Next {date}",
+  "@eventDatesNext": {
+    "description": "Second line of the editor's bundled dates row: the next upcoming date",
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "eventDatesAhead": "{ahead} of {total} ahead",
+  "@eventDatesAhead": {
+    "description": "How many of an event's pinned dates are still ahead of today",
+    "placeholders": {
+      "ahead": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "eventDatesAllPast": "All in the past",
+  "@eventDatesAllPast": {
+    "description": "Shown when every pinned date of an event has passed"
+  },
+  "eventDetailsAllDates": "All {count} dates",
+  "@eventDetailsAllDates": {
+    "description": "Chip on the detail sheet opening the full list of an event's pinned dates",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   }
 }

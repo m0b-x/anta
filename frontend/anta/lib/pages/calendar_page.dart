@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -71,6 +72,7 @@ import '../widgets/calendar_filter_sheet.dart';
 import '../widgets/filter_preset_sheet.dart';
 import '../widgets/scrollable_app_bar_actions.dart';
 import '../widgets/event_description_sheet.dart';
+import '../widgets/calendar_date_picker_sheet.dart';
 import '../widgets/event_detail_sheet.dart';
 import '../widgets/event_editor_sheet.dart';
 import '../widgets/event_template_picker_sheet.dart';
@@ -839,6 +841,21 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
           current = edited.event;
           pendingOccurrence = edited.pending;
           if (!context.mounted) return;
+        case EventDetailAction.addDate:
+        case EventDetailAction.showDates:
+          final updated = await _editExplicitDates(
+            context,
+            current,
+            view: action == EventDetailAction.showDates
+                ? CalendarDatePickerView.list
+                : CalendarDatePickerView.month,
+          );
+          if (!context.mounted) return;
+          if (updated != null) {
+            current = updated;
+            bloc.add(UpdateCalendarEvent(event: updated));
+            if (!updated.occursOn(day)) return;
+          }
         case EventDetailAction.edit:
           final result = await _editorSheet(
             context,
@@ -1585,6 +1602,31 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
       showBack: showBack,
     ),
   );
+
+  /// The detail sheet's Add date and All dates: the pinned set in the multi
+  /// picker, saved back through [CalendarEvent.withExplicitDates] so this
+  /// path and the editor's agree on the anchor and the one-time flags. Null
+  /// when nothing changed.
+  Future<CalendarEvent?> _editExplicitDates(
+    BuildContext context,
+    CalendarEvent event, {
+    required CalendarDatePickerView view,
+  }) async {
+    final dates = event.explicitDates;
+    if (dates == null) return null;
+    final eventsForDay = context.read<CalendarBloc>().eventsForDay;
+    final picked = await CalendarDatePickerSheet.pickMulti(
+      context,
+      initialSelection: dates,
+      firstDate: CalendarBounds.earliest,
+      lastDate: CalendarBounds.latest,
+      dayLoad: (day) => eventsForDay(day).length,
+      appearance: _appearance,
+      initialView: view,
+    );
+    if (picked == null || setEquals(picked, dates)) return null;
+    return event.withExplicitDates(picked);
+  }
 
   /// Unguarded body of [_openEditorSheet], for the callers that already hold
   /// the sheet slot — the detail sheet's edit loop and the template quick-add.

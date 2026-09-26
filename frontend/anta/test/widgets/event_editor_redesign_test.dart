@@ -403,7 +403,7 @@ void main() {
       expect(row('Fri, Sep 25, 2026'), findsOneWidget);
       expect(row('Fri, Oct 2, 2026'), findsOneWidget);
       expect(row('Fri, Oct 9, 2026'), findsOneWidget);
-      expect(find.text('Does not repeat'), findsOneWidget);
+      expect(find.text('3 dates'), findsOneWidget);
       expect(find.text('Track presence'), findsOneWidget);
       expect(find.text('Count occurrences'), findsNothing);
 
@@ -424,7 +424,7 @@ void main() {
     });
 
     testWidgets('from four dates the group bundles them into one row that '
-        'opens the month grid', (tester) async {
+        'opens the picker on its list', (tester) async {
       final results = await open(
         tester,
         initial: eventOf(
@@ -439,15 +439,20 @@ void main() {
         ),
       );
       expect(row('Dates'), findsOneWidget);
-      expect(find.text('4 dates · Sep 25 – Oct 16, 2026'), findsOneWidget);
+      expect(
+        find.textContaining('4 dates · Sep 25 – Oct 16, 2026'),
+        findsOneWidget,
+      );
       expect(find.byTooltip('Remove date'), findsNothing);
       expect(find.widgetWithText(FormActionRow, 'Add date'), findsOneWidget);
 
       await tapText(tester, 'Dates');
       expect(find.byType(CalendarDatePickerSheet), findsOneWidget);
+      expect(find.byTooltip('Remove date'), findsNWidgets(4));
       await tester.tap(
-        find.byWidgetPredicate(
-          (w) => w is CalendarDayCell && w.day == DateTime.utc(2026, 10, 2),
+        find.descendant(
+          of: find.widgetWithText(FormPickerRow, 'Fri, Oct 2'),
+          matching: find.byTooltip('Remove date'),
         ),
       );
       await tester.pumpAndSettle();
@@ -485,7 +490,7 @@ void main() {
       );
       final last = series(300).reduce((a, b) => a.isAfter(b) ? a : b);
       expect(
-        find.text(
+        find.textContaining(
           '300 dates · Sep 25, 2026 – ${DateFormat.yMMMd('en').format(last)}',
         ),
         findsOneWidget,
@@ -508,7 +513,10 @@ void main() {
           ),
         ).copyWith(startDate: DateTime.utc(2026, 12, 30)),
       );
-      expect(find.text('4 dates · Dec 30, 2026 – Jan 2, 2027'), findsOneWidget);
+      expect(
+        find.textContaining('4 dates · Dec 30, 2026 – Jan 2, 2027'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('removing a date keeps the earliest as the anchor', (
