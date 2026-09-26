@@ -10,6 +10,7 @@ import '../constants/event_presence.dart';
 import '../constants/event_skips.dart';
 import '../constants/event_priorities.dart';
 import '../constants/occurrence_descriptions.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_event.dart';
 import '../models/event_alert.dart';
@@ -22,6 +23,7 @@ import '../utils/markdown_color_syntax.dart';
 import '../utils/markdown_list_syntax.dart';
 import '../utils/money_display_config.dart';
 import '../utils/presence_stats.dart';
+import 'automation_id.dart';
 import 'simple_markdown_preview.dart';
 
 /// What the user chose to do from the detail sheet.
@@ -475,10 +477,13 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
           padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
           child: Row(
             children: [
-              IconButton(
-                tooltip: l10n.close,
-                icon: const Icon(Icons.close_rounded),
-                onPressed: () => _close(null),
+              AutomationId(
+                identifier: SemanticsIds.eventDetailClose,
+                child: IconButton(
+                  tooltip: l10n.close,
+                  icon: const Icon(Icons.close_rounded),
+                  onPressed: () => _close(null),
+                ),
               ),
               Expanded(
                 child: Text(
@@ -489,10 +494,13 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
               ),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: FilledButton.icon(
-                  onPressed: () => _close(EventDetailAction.edit),
-                  icon: const Icon(Icons.edit_rounded, size: 18),
-                  label: Text(l10n.edit),
+                child: AutomationId(
+                  identifier: SemanticsIds.eventDetailEdit,
+                  child: FilledButton.icon(
+                    onPressed: () => _close(EventDetailAction.edit),
+                    icon: const Icon(Icons.edit_rounded, size: 18),
+                    label: Text(l10n.edit),
+                  ),
                 ),
               ),
             ],

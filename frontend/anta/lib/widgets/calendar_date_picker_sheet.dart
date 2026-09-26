@@ -3,10 +3,12 @@ import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 
 import '../constants/calendar_weekend.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../utils/calendar_week_start.dart';
 import '../utils/date_stamp.dart';
+import 'automation_id.dart';
 import 'calendar_day_bars.dart';
 import 'calendar_day_cell.dart';
 import 'form_rows.dart';
@@ -381,10 +383,13 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
             padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
             child: Row(
               children: [
-                IconButton(
-                  tooltip: l10n.cancel,
-                  icon: const Icon(Icons.close_rounded),
-                  onPressed: () => _answer(null),
+                AutomationId(
+                  identifier: SemanticsIds.datePickerCancel,
+                  child: IconButton(
+                    tooltip: l10n.cancel,
+                    icon: const Icon(Icons.close_rounded),
+                    onPressed: () => _answer(null),
+                  ),
                 ),
                 Expanded(
                   child: Text(
@@ -405,11 +410,14 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
                 if (isMulti)
                   Padding(
                     padding: const EdgeInsets.only(left: 4),
-                    child: FilledButton(
-                      onPressed: _selection.isEmpty && !widget.allowEmpty
-                          ? null
-                          : () => _answer({..._selection}),
-                      child: Text(l10n.save),
+                    child: AutomationId(
+                      identifier: SemanticsIds.datePickerSave,
+                      child: FilledButton(
+                        onPressed: _selection.isEmpty && !widget.allowEmpty
+                            ? null
+                            : () => _answer({..._selection}),
+                        child: Text(l10n.save),
+                    ),
                     ),
                   ),
               ],

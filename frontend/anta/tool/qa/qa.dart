@@ -17,6 +17,9 @@ import 'src/ios_device.dart';
 import 'src/log_parse.dart';
 import 'src/macos_device.dart';
 import 'src/paths.dart';
+import 'src/agent_protocol.dart';
+import 'src/placeholders.dart';
+import 'src/seed.dart';
 import 'src/poll.dart';
 import 'src/process_runner.dart';
 import 'src/runner.dart';
@@ -125,12 +128,14 @@ class QaCommandRunner extends CommandRunner<int> {
     addCommand(LookCommand());
     addCommand(ExpectCommand());
     addCommand(StepsCommand());
+    addCommand(FlowsCommand());
     addCommand(ReloadCommand());
     addCommand(RestartCommand());
     addCommand(PerfCommand());
     addCommand(LogCommand());
     addCommand(ErrorsCommand());
     addCommand(AgentCommand());
+    addCommand(SetCommand());
     addCommand(BuildExeCommand());
   }
 
@@ -1231,7 +1236,13 @@ mixin QaMarkers on QaCommand {
           help: 'Drop the qa_reset marker so the next QA launch wipes the qa db.')
       ..addOption('seed',
           help: 'Full-backup JSON to push as qa_seed.json '
-              '(relative paths resolve against the package root).');
+              '(relative paths resolve against the package root). '
+              '{{today+N}} / {{day+N}} / {{weekday+N}} placeholders are '
+              'resolved against the run\'s clock first.')
+      ..addMultiOption('setting',
+          help: 'Override a settings key in the seed before it is pushed, as '
+              'key=value; repeatable. E.g. --setting locale=de '
+              '--setting theme_mode=dark.');
   }
 
   bool get wantsFresh => argResults!['fresh'] as bool;
@@ -1255,8 +1266,13 @@ mixin QaMarkers on QaCommand {
     }
     if (wantsSeed) {
       final path = ctx.paths.resolve(argResults!['seed'] as String);
-      await device.pushSeed(path);
-      out('qa_seed.json pushed from $path');
+      final prepared = prepareSeed(
+        ctx.paths,
+        path,
+        settings: argResults!['setting'] as List<String>,
+      );
+      await device.pushSeed(prepared.path);
+      out('qa_seed.json pushed from $path${prepared.describe()}');
     }
   }
 
@@ -2442,7 +2458,9 @@ class StepsCommand extends QaCommand {
 
   @override
   String get description =>
-      'Run several verbs in one process, sharing the device connection.';
+      'Run several verbs in one process, sharing the device connection. '
+      '{{today+N}}, {{day+N}} and {{weekday+N}} in a step resolve against '
+      'the run\'s clock (see tool/qa/src/placeholders.dart).';
 
   @override
   Future<int> run() async {
@@ -2460,7 +2478,7 @@ class StepsCommand extends QaCommand {
     final keepGoing = argResults!['keep-going'] as bool;
     var firstFailure = 0;
     for (var index = 0; index < steps.length; index++) {
-      final line = steps[index];
+      final line = resolvePlaceholders(steps[index]);
       final words = splitShellWords(line);
       if (words.isEmpty) continue;
       if (words.first == 'steps') {
@@ -2510,6 +2528,115 @@ class StepsCommand extends QaCommand {
       buffer.writeln(line);
     }
     return buffer.toString();
+  }
+}
+
+/// `qa flows calendar` — every `*.txt` under `tool/qa/flows/calendar/`, in
+/// name order, each as its own `steps --file`. One command is a device pass.
+class FlowsCommand extends QaCommand {
+  FlowsCommand() {
+    argParser
+      ..addFlag('keep-going',
+          negatable: false,
+          help: 'Run every flow even after one fails; exit with the first '
+              'non-zero code.')
+      ..addFlag('list',
+          negatable: false, help: 'List the flows without running them.');
+  }
+
+  @override
+  String get name => 'flows';
+
+  @override
+  String get description =>
+      'Run every step file of a flow directory under tool/qa/flows/ in name '
+      'order (e.g. `qa flows calendar`), or one flow by its file name '
+      '(`qa flows calendar/03_dates`).';
+
+  @override
+  String get invocation => 'qa flows <directory>[/<flow>] [--keep-going]';
+
+  /// The step files a flow argument names, in name order.
+  static List<File> resolveFlows(String flowsDir, String argument) {
+    final normalized = argument.replaceAll('\\', '/');
+    final slash = normalized.indexOf('/');
+    final dirName = slash < 0 ? normalized : normalized.substring(0, slash);
+    final flowName = slash < 0 ? null : normalized.substring(slash + 1);
+    final dir = Directory('$flowsDir${Platform.pathSeparator}$dirName');
+    if (!dir.existsSync()) {
+      final known = Directory(flowsDir).existsSync()
+          ? Directory(flowsDir)
+              .listSync()
+              .whereType<Directory>()
+              .map((d) => d.uri.pathSegments.where((s) => s.isNotEmpty).last)
+              .toList()
+          : const <String>[];
+      throw UsageFailure(
+        'no flow directory "$dirName" under $flowsDir'
+        '${known.isEmpty ? '' : ' (known: ${known.join(', ')})'}',
+      );
+    }
+    final files = dir
+        .listSync()
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.txt'))
+        .toList()
+      ..sort((a, b) => a.path.compareTo(b.path));
+    if (flowName == null) {
+      if (files.isEmpty) throw UsageFailure('no *.txt flows in ${dir.path}');
+      return files;
+    }
+    final wanted = flowName.endsWith('.txt') ? flowName : '$flowName.txt';
+    final match = files.where((f) => f.uri.pathSegments.last == wanted);
+    if (match.isEmpty) {
+      throw UsageFailure(
+        'no flow "$flowName" in ${dir.path} (have: '
+        '${files.map((f) => f.uri.pathSegments.last).join(', ')})',
+      );
+    }
+    return match.toList();
+  }
+
+  @override
+  Future<int> run() async {
+    final ctx = context;
+    final rest = argResults!.rest;
+    if (rest.length != 1) {
+      throw UsageFailure('flows takes exactly one argument, the flow directory');
+    }
+    final files = resolveFlows(ctx.paths.flowsDir, rest.single);
+    if (argResults!['list'] as bool) {
+      for (final file in files) {
+        out(file.path);
+      }
+      return 0;
+    }
+    final qaRunner = runner! as QaCommandRunner;
+    final keepGoing = argResults!['keep-going'] as bool;
+    var firstFailure = 0;
+    final failed = <String>[];
+    for (var index = 0; index < files.length; index++) {
+      final file = files[index];
+      final label = file.uri.pathSegments.last;
+      out('=== flow ${index + 1}/${files.length}: $label');
+      final started = DateTime.now();
+      final code = await qaRunner.run(['steps', '--file', file.path]) ?? 0;
+      final took = DateTime.now().difference(started).inMilliseconds;
+      out('=== $label: ${code == 0 ? 'ok' : 'FAILED (exit $code)'} in $took ms');
+      if (code == 0) continue;
+      failed.add(label);
+      if (firstFailure == 0) firstFailure = code;
+      if (!keepGoing) {
+        out('flows: stopped at ${index + 1}/${files.length}');
+        return code;
+      }
+    }
+    if (failed.isNotEmpty) {
+      out('flows: ${failed.length} of ${files.length} failed: ${failed.join(', ')}');
+    } else {
+      out('flows: all ${files.length} passed');
+    }
+    return firstFailure;
   }
 }
 
@@ -2675,6 +2802,80 @@ class AgentCommand extends QaCommand {
         out('[qa] $line');
       }
     }
+    return 0;
+  }
+}
+
+/// `qa set text-scale=2.0 locale=de theme=dark` — the accessibility matrix
+/// without a rebuild or a relaunch. Goes through the agent's `set` op: text
+/// scale is a QA-only override, locale and theme are the app's own settings.
+class SetCommand extends QaCommand {
+  @override
+  String get name => 'set';
+
+  @override
+  String get description =>
+      'Override the running QA build: text-scale=<factor|off>, '
+      'locale=<code|system>, theme=<light|dark|system>. Several at once.';
+
+  @override
+  String get invocation => 'qa set text-scale=2.0 [locale=de] [theme=dark]';
+
+  static Map<String, Object?> parseAssignments(List<String> rest) {
+    if (rest.isEmpty) {
+      throw UsageFailure(
+        'set needs at least one of text-scale=, locale=, theme=',
+      );
+    }
+    final args = <String, Object?>{};
+    for (final raw in rest) {
+      final at = raw.indexOf('=');
+      if (at <= 0) throw UsageFailure('set takes key=value (got "$raw")');
+      final key = raw.substring(0, at).trim().toLowerCase();
+      final value = raw.substring(at + 1).trim();
+      switch (key) {
+        case 'text-scale':
+        case 'textscale':
+        case 'scale':
+          if (value == 'off' || value == 'none' || value.isEmpty) {
+            args[AgentKeys.textScale] = null;
+          } else {
+            final factor = double.tryParse(value);
+            if (factor == null || factor <= 0 || factor > 4) {
+              throw UsageFailure(
+                'text-scale must be a factor between 0 and 4, or off '
+                '(got "$value")',
+              );
+            }
+            args[AgentKeys.textScale] = factor;
+          }
+        case 'locale':
+        case 'language':
+          args[AgentKeys.locale] = value.isEmpty ? 'system' : value;
+        case 'theme':
+        case 'theme-mode':
+        case 'thememode':
+          if (!const {'light', 'dark', 'system'}.contains(value)) {
+            throw UsageFailure('theme must be light, dark or system (got "$value")');
+          }
+          args[AgentKeys.themeMode] = value;
+        default:
+          throw UsageFailure('set does not know "$key" (text-scale, locale, theme)');
+      }
+    }
+    return args;
+  }
+
+  @override
+  Future<int> run() async {
+    final ctx = context;
+    final args = parseAssignments(argResults!.rest);
+    final agent = await ctx.agent();
+    final result = await agent.op(AgentOps.set, args);
+    final scale = result[AgentKeys.textScale];
+    out('set  text-scale=${scale ?? 'platform'}  '
+        'locale=${result[AgentKeys.locale] ?? 'system'}  '
+        'theme=${result[AgentKeys.themeMode] ?? '?'}');
     return 0;
   }
 }

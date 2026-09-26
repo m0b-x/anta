@@ -15,13 +15,13 @@ The app lives at `frontend/anta/`; all commands below run from there. The on-dis
 | Source | Use for |
 | --- | --- |
 | [COPILOT_CONTEXT.md](COPILOT_CONTEXT.md) | **Canonical context.** Product purpose, stack, architecture, per-subsystem invariants (markdown preview pipeline, chunking, lists, money ledger, colors, ghost text), persistence rules, import/export rules, re_editor fork notes. Read the relevant section before planning. Do not restate it back to the user — follow it. |
-| [.claude/skills/](.claude/skills/) | Task-scoped skills: `anta-context` (load first), then `markdown-engine`, `drift-migrations`, `calendar-events`, `l10n`, `verify` as the task demands. |
+| [.claude/skills/](.claude/skills/) | Task-scoped skills: `anta-context` (load first), then `markdown-engine`, `drift-migrations`, `calendar-events` (the calendar's rules), `calendar-ui` (its row-and-sheet language), `l10n`, `verify` (the gate) as the task demands; `ui-revamp` for any rework of a page, sheet or panel. |
 | [.claude/skills/qa-emulator/](.claude/skills/qa-emulator/) | Driving the app on the iOS simulator, the macOS desktop build or the Android emulator: `tool/qa/qa` (boot, run in an isolated QA database, screenshot, dump the accessibility tree, tap/type by label through the in-app agent), the Flutter Driver layer through the Dart MCP, and the device traps. Load for any device pass. See also [docs/qa-harness.md](docs/qa-harness.md). |
 | [docs/](docs/) | Feature references and roadmaps written per subsystem (`money-ledger-feature.md`, `live-markdown-editor-roadmap.md`, `calendar-events-feature.md`, `event-alerts-roadmap.md` + its `event-alerts-os-integration-roadmap.md` follow-up (alarm-clock semantics through the `alarm` fork in `packages/alarm/` — shipped in OS-1 — then native snooze, upcoming notice, alarm log, session chip, AlarmKit), `fasting-schedule-roadmap.md`, `presence-tracking-roadmap.md`, `calendar-cloud-readiness-roadmap.md`, `description-scope-roadmap.md`, `tag-system-roadmap.md`, `vocabulary-autocomplete-feature.md`, `colour-labels-roadmap.md` + its `colour-labels-next-slices.md` checklist, `markdown-feature-ideas.md`, `re-editor-performance-2026-07.md`, `calendar-perf-followups-2026-09.md`, `cloud-sync-roadmap.md` + its `cloud-sync-phase-*.md` implementation docs). Status headers say what shipped vs. what is planned. |
 
 When a subsystem's behavior changes materially, update the matching `docs/` file and the relevant `COPILOT_CONTEXT.md` section in the same change — those files are the memory between sessions.
 
-## Commands (PowerShell, Windows)
+## Commands (zsh on the Mac, PowerShell on Windows — same verbs)
 
 Run only what the change requires.
 
@@ -35,6 +35,7 @@ dart run build_runner build --delete-conflicting-outputs # after Drift table/DAO
 flutter run                                             # Android is the primary target
 flutter run -d windows                                  # quick desktop UI check (needs the VS "C++ ATL" component, below)
 ./tool/qa/qa <verb>                                     # drive a simulator, the desktop build or the emulator (see the qa-emulator skill; tool\qa\qa.cmd on Windows)
+./tool/qa/qa flows calendar                             # the saved calendar device pass, after `qa relaunch --fresh --seed tool/qa/fixtures/calendar.json`
 ./tool/upstream/alarm_pr.sh [--dry-run]                 # open (or, dry, only build) the upstream PR for the alarm fork's two Kotlin patches; needs a logged-in gh
 ```
 
@@ -118,7 +119,7 @@ Read the `markdown-engine` skill and the corresponding COPILOT_CONTEXT.md sectio
 - Every user-visible string goes through `AppLocalizations`. Update `lib/l10n/app_en.arb`, `app_de.arb`, `app_ro.arb` **together**, then run `flutter gen-l10n`.
 - Never hand-edit generated files (`lib/database/database.g.dart`, `lib/database/daos/*.g.dart`, `lib/l10n/app_localizations*.dart`).
 - Drift schema changes need a migration; never reset user storage. Any DB-backed singleton must follow the `DatabaseLifecycle` reset contract (multi-database switching).
-- **No code comments, no new markdown docs unless explicitly requested.** Tests are welcome (standing permission, 2026-08-16): new services and blocs ship with focused suites against fakes — see `test/bloc/sync_bloc_test.dart` for the pattern.
+- **Comments carry the why, never the what.** `///` on public members and on any decision a reader could not reconstruct from the code — a trap, a rejected alternative, an invariant another file relies on. Never a comment that narrates the next line, never a TODO left behind. (Rewritten 2026-09-26: the old "no code comments" line contradicted a tree carrying ~20k such lines.) **No new markdown docs unless explicitly requested** — a design record for a UI rework counts as requested (the `ui-revamp` skill). Tests are welcome (standing permission, 2026-08-16): new services, blocs and sheets ship with focused suites against fakes — see `test/bloc/sync_bloc_test.dart` and `test/widgets/event_look_sheet_test.dart` for the patterns.
 - Preserve data semantics: soft deletes, CRDT fields (`hlcTimestamp`, `deviceId`, `version`, `isDeleted`), positions, sort preferences, pinned counters, backup format compatibility. Global counter values use `noteId == ''`.
 - Settings go through `SettingsService` + `SettingsKeys` — never raw `SharedPreferences` keys.
 - Import/export: UI only via `ImportExportBloc`; exports funnel through `shareExport` (never `SharePlus` directly); `createX` stamps timestamps to now, `importX` preserves caller timestamps; bumping the archive schema means bumping `ImportExportService.archiveVersion` and accepting the previous version.

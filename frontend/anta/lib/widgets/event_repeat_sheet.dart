@@ -7,9 +7,11 @@ import 'package:intl/intl.dart';
 import '../constants/app_colors.dart';
 import '../constants/calendar_bounds.dart';
 import '../constants/row_metrics.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../services/recurrence_formatter.dart';
+import 'automation_id.dart';
 import 'calendar_date_picker_sheet.dart';
 import 'form_rows.dart';
 
@@ -236,7 +238,9 @@ class _EventRepeatSheetState extends State<EventRepeatSheet> {
           onLeading: () => Navigator.of(context).pop(),
           title: l10n.eventRepeat,
           trailingInset: EventRepeatSheet._headerTrailingInset,
-          trailing: TextButton(
+          trailing: AutomationId(
+            identifier: SemanticsIds.repeatDone,
+            child: TextButton(
             onPressed: _draft.isValid
                 ? () => Navigator.of(context).pop(_draft)
                 : null,
@@ -252,6 +256,7 @@ class _EventRepeatSheetState extends State<EventRepeatSheet> {
               ),
             ),
             child: Text(l10n.eventDescriptionDone),
+          ),
           ),
         ),
         Flexible(

@@ -42,6 +42,8 @@ class QaPaths {
   String get toolQaDir => _join(projectRoot, ['tool', 'qa']);
   String get pubspecLock => _join(projectRoot, ['pubspec.lock']);
   String get fixturesDir => _join(toolQaDir, ['fixtures']);
+  String get flowsDir => _join(toolQaDir, ['flows']);
+  String get seedResolved => _join(buildQa, ['seed_resolved.json']);
 
   /// Compiled tool, and the two names the in-place self-rebuild swaps through.
   String get qaExe =>

@@ -56,6 +56,40 @@ abstract final class SemanticsIds {
   static const String calendarAddEvent = 'calendar-add-event';
   static const String calendarOverviewOpen = 'calendar-overview-open';
 
+  /// The event editor's rows and chrome, the two sub-sheets' Done and the
+  /// detail sheet's actions: what the calendar flows under `tool/qa/flows/`
+  /// target, so a copy change cannot break them.
+  /// The editor's scrolling body — a container, so `scroll-to … --in
+  /// id:event-form` swipes the form and not the header strip above it.
+  static const String eventForm = 'event-form';
+  static const String eventTitle = 'event-title';
+  static const String eventCategory = 'event-category';
+  static const String eventLook = 'event-look';
+  static const String eventDate = 'event-date';
+  static const String eventDates = 'event-dates';
+  static const String eventAddDate = 'event-add-date';
+  static const String eventAllDay = 'event-all-day';
+  static const String eventStarts = 'event-starts';
+  static const String eventEnds = 'event-ends';
+  static const String eventRepeat = 'event-repeat';
+  static const String eventPriority = 'event-priority';
+  static const String eventLinkedNote = 'event-linked-note';
+  static const String eventSave = 'event-save';
+  static const String eventClose = 'event-close';
+  static const String eventSaveAsTemplate = 'event-save-as-template';
+  static const String eventDelete = 'event-delete';
+  static const String repeatDone = 'repeat-done';
+  static const String lookDone = 'look-done';
+  static const String eventDetailEdit = 'event-detail-edit';
+  static const String eventDetailClose = 'event-detail-close';
+  /// A day-panel or agenda row standing for one event, keyed by the event's
+  /// id — a title is ambiguous because every marked day cell's marker label
+  /// carries it too, and a seeded event's id is stable (`qa-cal-lift`).
+  static String eventRow(String eventId) => 'event-row-$eventId';
+
+  static const String datePickerCancel = 'date-picker-cancel';
+  static const String datePickerSave = 'date-picker-save';
+
   /// The colour-label swatch strip, in whichever sheet raised it.
   static const String labelPicker = 'label-picker';
 

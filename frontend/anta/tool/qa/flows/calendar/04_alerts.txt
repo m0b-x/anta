@@ -1,0 +1,20 @@
+# The event at the alert cap hides Add alert; removing one alert brings it
+# back. Scroll the DETAILS group into view first so the whole ALERTS group is
+# on screen and "absent" means gone, not off-screen.
+tap id:event-row-qa-cal-walk
+wait id:event-detail-edit
+tap id:event-detail-edit
+wait id:event-close
+scroll-to id:event-linked-note --in id:event-form
+expect "Remove alert" --absent id:event-alert-add
+shot 04_alerts_at_cap
+tap "Remove alert" --nth 0
+scroll-to id:event-alert-add --in id:event-form
+expect id:event-alert-add
+tap id:event-close
+wait "Unsaved changes"
+tap "Discard changes"
+wait id:event-detail-close
+tap id:event-detail-close
+wait id:calendar-add-event
+errors

@@ -1,0 +1,14 @@
+# A new event with a title and a category lands on the grid and in the day
+# panel (the 2026-09-25 day-cache race is what this guards on a device).
+tap id:calendar-add-event
+wait id:event-title
+type "Sauna"
+tap id:event-category
+wait "Strength"
+tap "Strength"
+wait id:event-save
+tap id:event-save
+wait id:calendar-add-event
+expect "Sauna"
+shot 01_new_event
+errors

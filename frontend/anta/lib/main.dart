@@ -22,6 +22,7 @@ import 'constants/app_theme.dart';
 import 'core/di/injection.dart';
 import 'core/qa/qa_bootstrap.dart';
 import 'core/qa/qa_mode.dart';
+import 'core/qa/qa_overrides.dart';
 import 'models/alert_payload.dart';
 import 'models/calendar_event.dart';
 import 'pages/alarm_page.dart';
@@ -661,6 +662,9 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             themeMode: settingsState.themeMode,
             theme: AppTheme.light(),
             darkTheme: AppTheme.dark(),
+            builder: QaMode.enabled
+                ? (context, child) => QaTextScale(child: child!)
+                : null,
             home: _buildHome(),
           );
         },

@@ -5,12 +5,17 @@ import 'dart:ui' as ui;
 
 import 'package:anta/core/qa/qa_bootstrap.dart';
 import 'package:anta/core/qa/qa_mode.dart';
+import 'package:anta/core/qa/qa_overrides.dart';
+import 'package:anta/bloc/app_settings/app_settings_bloc.dart';
+import 'package:anta/services/app_navigator.dart';
 import 'package:anta/services/sync_availability.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter/widgets.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -149,6 +154,8 @@ class QaAgent {
         );
       case AgentOps.perf:
         return _perf(_string(request, AgentKeys.action));
+      case AgentOps.set:
+        return _set(request);
     }
     throw QaAgentException(
       'unknown op "$op"',
@@ -231,6 +238,61 @@ class QaAgent {
       AgentKeys.recording: _recordingFrames,
       AgentKeys.firstFrame: WidgetsBinding.instance.firstFrameRasterized,
       AgentKeys.cloud: SyncAvailability.isSupported,
+      AgentKeys.textScale: QaOverrides.textScale.value,
+    };
+  }
+
+  /// Run-time overrides for the accessibility matrix. Each key is optional
+  /// and applied only when present: `textScale` (a number, or null for the
+  /// platform's), `locale` (`de`, or `system`/null for the device's), and
+  /// `themeMode` (`light` / `dark` / `system`). Locale and theme go through
+  /// the app's own settings bloc, so they persist like a tap in Settings
+  /// would; the text scale is QA-only and lives in [QaOverrides].
+  Future<Map<String, Object?>> _set(Map<String, dynamic> request) async {
+    if (request.containsKey(AgentKeys.textScale)) {
+      final raw = request[AgentKeys.textScale];
+      if (raw != null && raw is! num) {
+        throw QaAgentException(
+          'textScale must be a number or null',
+          kind: AgentErrorKinds.usage,
+        );
+      }
+      QaOverrides.textScale.value = (raw as num?)?.toDouble();
+    }
+    final wantsLocale = request.containsKey(AgentKeys.locale);
+    final wantsTheme = request.containsKey(AgentKeys.themeMode);
+    AppSettingsBloc? bloc;
+    if (wantsLocale || wantsTheme) {
+      final context = AppNavigator.navigatorKey.currentContext;
+      if (context == null) {
+        throw QaAgentException('the app has no navigator yet (still starting?)');
+      }
+      bloc = context.read<AppSettingsBloc>();
+    }
+    if (wantsLocale) {
+      final raw = request[AgentKeys.locale];
+      final code = raw is String && raw.isNotEmpty && raw != 'system'
+          ? raw
+          : null;
+      bloc!.add(ChangeLocale(code));
+    }
+    if (wantsTheme) {
+      final raw = '${request[AgentKeys.themeMode] ?? 'system'}';
+      final mode = ThemeMode.values.where((m) => m.name == raw).firstOrNull;
+      if (mode == null) {
+        throw QaAgentException(
+          'themeMode must be light, dark or system',
+          kind: AgentErrorKinds.usage,
+        );
+      }
+      bloc!.add(ChangeThemeMode(mode));
+    }
+    await _settle();
+    final state = bloc?.state;
+    return {
+      AgentKeys.textScale: QaOverrides.textScale.value,
+      AgentKeys.locale: state?.localeCode ?? 'system',
+      AgentKeys.themeMode: state?.themeMode.name,
     };
   }
 

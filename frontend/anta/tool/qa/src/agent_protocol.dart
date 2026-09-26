@@ -12,6 +12,9 @@ abstract final class AgentOps {
   static const String settle = 'settle';
   static const String drag = 'drag';
   static const String perf = 'perf';
+
+  /// Run-time overrides on a driver build: text scale, locale, theme.
+  static const String set = 'set';
 }
 
 abstract final class AgentKeys {
@@ -23,6 +26,10 @@ abstract final class AgentKeys {
 
   static const String x = 'x';
   static const String y = 'y';
+
+  static const String textScale = 'textScale';
+  static const String locale = 'locale';
+  static const String themeMode = 'themeMode';
   static const String x2 = 'x2';
   static const String y2 = 'y2';
   static const String ms = 'ms';

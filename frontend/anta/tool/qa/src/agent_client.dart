@@ -26,6 +26,7 @@ class AgentInfo {
     required this.protocolVersion,
     this.firstFrame = true,
     this.cloud,
+    this.textScale,
   });
 
   factory AgentInfo.fromJson(Map<String, dynamic> json) => AgentInfo(
@@ -54,9 +55,13 @@ class AgentInfo {
         protocolVersion: (json[AgentKeys.agentVersion] as num? ?? 0).toInt(),
         firstFrame: json[AgentKeys.firstFrame] != false,
         cloud: json[AgentKeys.cloud] as bool?,
+        textScale: (json[AgentKeys.textScale] as num?)?.toDouble(),
       );
 
   final String platform;
+
+  /// The text scale the QA build imposes, or null for the platform's.
+  final double? textScale;
   final double dpr;
   final int width;
   final int height;
@@ -94,7 +99,8 @@ class AgentInfo {
       'semantics=${semanticsEnabled ? 'on' : 'off'}  '
       'textField=${textClient ? 'focused' : 'none'}  '
       'qa=${qaMode ? (database ?? 'qa') : 'OFF (owner database!)'}  '
-      'cloud=${cloud == null ? '?' : (cloud! ? 'ON' : 'off')}';
+      'cloud=${cloud == null ? '?' : (cloud! ? 'ON' : 'off')}'
+      '${textScale == null ? '' : '  scale=$textScale'}';
 }
 
 /// One typed `[qa]` outcome, as `QaBootstrap.entries` records it.

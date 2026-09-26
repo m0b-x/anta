@@ -4,10 +4,12 @@ import 'package:intl/intl.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_spacing.dart';
 import '../constants/calendar_colors.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_event.dart';
 import '../models/day_summary_entry.dart';
 import '../utils/markdown_color_syntax.dart';
+import 'automation_id.dart';
 import 'event_alert_badge.dart';
 import 'markdown_inline_text.dart';
 
@@ -224,7 +226,7 @@ class DaySummaryPanel extends StatelessWidget {
                         onPressed: () => onToggleMissed!(event, !entry.missed),
                       )
                     : const Icon(Icons.chevron_right_rounded);
-                return Card(
+                final card = Card(
                   // Entry-keyed so a row — and the opacity layer a missed
                   // occurrence puts inside it — is never reused for a
                   // different entry.
@@ -327,6 +329,12 @@ class DaySummaryPanel extends StatelessWidget {
                     ),
                   ),
                 );
+                return event == null
+                    ? card
+                    : AutomationId(
+                        identifier: SemanticsIds.eventRow(event.id),
+                        child: card,
+                      );
               },
             ),
           ),
