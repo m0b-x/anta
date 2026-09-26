@@ -1,0 +1,10 @@
+# Open the calendar from the drawer and land on today, seeded from
+# tool/qa/fixtures/calendar.json: the weekly session and the daily walk both
+# occur today whatever the weekday.
+tap "Open navigation menu"
+wait id:drawer-calendar
+tap id:drawer-calendar
+wait id:calendar-add-event
+expect "Lifting session" "Morning walk"
+look 00_calendar
+errors

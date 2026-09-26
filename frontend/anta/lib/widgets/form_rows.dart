@@ -5,6 +5,7 @@ import 'package:flutter/rendering.dart';
 import '../constants/app_colors.dart';
 import '../constants/form_metrics.dart';
 import '../constants/row_metrics.dart';
+import 'automation_id.dart';
 
 export '../constants/form_metrics.dart';
 
@@ -131,6 +132,8 @@ class FormSheetHeader extends StatelessWidget {
 
   final ValueListenable<bool>? scrolled;
 
+  final String? leadingIdentifier;
+
   const FormSheetHeader({
     super.key,
     required this.leadingIcon,
@@ -140,24 +143,29 @@ class FormSheetHeader extends StatelessWidget {
     required this.trailing,
     this.trailingInset = 12,
     this.scrolled,
+    this.leadingIdentifier,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    Widget leading = IconButton(
+      tooltip: leadingTooltip,
+      icon: Icon(leadingIcon),
+      color: colorScheme.onSurfaceVariant,
+      onPressed: onLeading,
+    );
+    if (leadingIdentifier case final id?) {
+      leading = AutomationId(identifier: id, child: leading);
+    }
     final row = SizedBox(
       height: FormMetrics.headerHeight,
       child: Padding(
         padding: EdgeInsets.only(left: 4, right: trailingInset),
         child: Row(
           children: [
-            IconButton(
-              tooltip: leadingTooltip,
-              icon: Icon(leadingIcon),
-              color: colorScheme.onSurfaceVariant,
-              onPressed: onLeading,
-            ),
+            leading,
             const SizedBox(width: 4),
             Expanded(
               child: Text(
@@ -360,6 +368,7 @@ class FormPickerRow extends FormDividedRow {
   final FormTrailingButton? trailingButton;
   final bool showChevron;
   final String? semanticsLabel;
+  final String? identifier;
   final bool subRow;
 
   @override
@@ -378,6 +387,7 @@ class FormPickerRow extends FormDividedRow {
     this.trailingButton,
     this.showChevron = true,
     this.semanticsLabel,
+    this.identifier,
     this.subRow = false,
     this.dividerIndent = FormMetrics.dividerIndentGlyph,
   });
@@ -430,6 +440,9 @@ class FormPickerRow extends FormDividedRow {
         child: ExcludeSemantics(child: well),
       );
     }
+    if (identifier case final id?) {
+      well = AutomationId(identifier: id, child: well);
+    }
     if (button == null) return well;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -447,6 +460,7 @@ class FormSwitchRow extends FormDividedRow {
   final String? subtitle;
   final bool value;
   final ValueChanged<bool>? onChanged;
+  final String? identifier;
 
   @override
   final double dividerIndent;
@@ -458,6 +472,7 @@ class FormSwitchRow extends FormDividedRow {
     this.subtitle,
     required this.value,
     required this.onChanged,
+    this.identifier,
     this.dividerIndent = FormMetrics.dividerIndentGlyph,
   });
 
@@ -522,14 +537,17 @@ class FormSwitchRow extends FormDividedRow {
         ),
       ),
     );
-    return MergeSemantics(
-      child: Opacity(
-        opacity: enabled ? 1 : FormMetrics.disabledOpacity,
-        child: InkWell(
-          onTap: enabled ? () => onChanged!(!value) : null,
-          child: row,
-        ),
+    final well = Opacity(
+      opacity: enabled ? 1 : FormMetrics.disabledOpacity,
+      child: InkWell(
+        onTap: enabled ? () => onChanged!(!value) : null,
+        child: row,
       ),
+    );
+    return MergeSemantics(
+      child: identifier == null
+          ? well
+          : Semantics(identifier: identifier, child: well),
     );
   }
 }
@@ -539,6 +557,7 @@ class FormActionRow extends FormDividedRow {
   final String label;
   final VoidCallback? onTap;
   final bool destructive;
+  final String? identifier;
 
   @override
   final double dividerIndent;
@@ -549,6 +568,7 @@ class FormActionRow extends FormDividedRow {
     required this.label,
     required this.onTap,
     this.destructive = false,
+    this.identifier,
     this.dividerIndent = FormMetrics.dividerIndentGlyph,
   });
 
@@ -579,10 +599,14 @@ class FormActionRow extends FormDividedRow {
         ),
       ),
     );
-    return Opacity(
+    final well = Opacity(
       opacity: enabled ? 1 : FormMetrics.disabledOpacity,
       child: InkWell(onTap: onTap, child: row),
     );
+    if (identifier case final id?) {
+      return AutomationId(identifier: id, child: well);
+    }
+    return well;
   }
 }
 
@@ -852,6 +876,7 @@ class FormMenuRow<T> extends FormDividedRow {
   final List<FormMenuItem<T>> items;
   final ValueChanged<T> onSelected;
   final double menuWidth;
+  final String? identifier;
 
   const FormMenuRow({
     super.key,
@@ -862,6 +887,7 @@ class FormMenuRow<T> extends FormDividedRow {
     required this.items,
     required this.onSelected,
     required this.menuWidth,
+    this.identifier,
   });
 
   @override
@@ -927,6 +953,7 @@ class FormMenuRow<T> extends FormDividedRow {
         glyph: glyph,
         label: label,
         value: value,
+        identifier: identifier,
         onTap: () {
           if (controller.isOpen) {
             controller.close();

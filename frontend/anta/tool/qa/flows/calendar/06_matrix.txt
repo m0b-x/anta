@@ -1,0 +1,16 @@
+# The accessibility matrix without a rebuild: dark, German, text scale 2.0
+# on the calendar and on a new event, then everything back to the platform.
+set theme=dark
+shot 06_dark_calendar
+set locale=de
+shot 06_de_dark_calendar
+tap id:calendar-add-event
+wait id:event-title
+set text-scale=2.0
+shot 06_de_dark_scale2_editor
+errors
+set text-scale=off
+set locale=system
+set theme=system
+tap id:event-close
+wait id:calendar-add-event

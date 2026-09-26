@@ -330,9 +330,51 @@ handshake error aborts after a 20-second grace period.
 | `[qa]` lines | printed with `debugPrint` **and** kept in `QaBootstrap.log` (text) and `QaBootstrap.entries` (`{kind, ok, message}`), both returned by the agent's `info` |
 | Launch permission dialog | off: a QA build never raises it, so no flow starts under a dialog nobody scripted. `--dart-define=ANTA_QA_PERMISSION_PROMPT=true` opts in, to exercise the dialog itself |
 | Cloud | off: `SyncAvailability.resolve` answers false for a QA build, so Firebase is never initialized and auth/pairing are the no-op bindings. `--dart-define=ANTA_QA_CLOUD=true` opts in; the agent reports `cloud` either way |
+| Text scale | `QaOverrides.textScale` (`lib/core/qa/qa_overrides.dart`), a `ValueNotifier<double?>` the agent's `set` op writes and `QaTextScale` applies from `MaterialApp.builder` — mounted only when `QaMode.enabled`; `--dart-define=ANTA_QA_TEXT_SCALE=2.0` seeds it. Locale and theme have no seam of their own: `set` dispatches `ChangeLocale` / `ChangeThemeMode` on the app's `AppSettingsBloc` through the navigator's context |
 
 Both markers are consumed by the app. `tool/qa/fixtures/basic.json` is the
-standard seed.
+standard seed; `tool/qa/fixtures/calendar.json` is the calendar's, written
+with relative-date placeholders that `tool/qa/src/placeholders.dart` resolves
+and `tool/qa/src/seed.dart` writes to `build/qa/seed_resolved.json` before the
+push (`--setting key=value` overrides ride the same path). Step files under
+`tool/qa/flows/<area>/*.txt` are the saved device passes; `qa flows <area>`
+runs a directory in name order, one `steps --file` per flow.
+
+## The calendar layer (2026-09-26)
+
+The three calendar reworks of 2026-09-25/26 each hand-drove their device pass
+and each deferred part of the matrix (German, Romanian, dark, text scale
+2.0, the alert cap) because the seed could not reach the state or the pass
+was too long to repeat. The owner chose a thin layer on this tool over a
+second harness: a relative-dated fixture, saved flows, ids on the editor's
+rows, and run-time locale / theme / text-scale switching. What shipped, and
+what the first pass found:
+
+- `tool/qa/fixtures/calendar.json` — seven events (weekly with presence
+  marks, a skip and a per-day description; daily with five alerts; six
+  pinned dates; a yearly birthday with a custom colour; workdays assuming
+  absence; an ended one-time; one in a hidden category), a template, a
+  saved filter, a custom holiday, the German profile and Orthodox fasting,
+  60 placeholders. `test/qa/calendar_fixture_test.dart` imports it and pins
+  that everything occurs where the flows expect.
+- `tool/qa/flows/calendar/00_open … 06_matrix` — seven flows, all green
+  from a fresh install on the iPhone 17 Pro Max simulator in 33 s of device
+  time (`qa flows calendar`).
+- Ids: the editor's rows, chrome and scrolling body (`event-form`), the
+  sub-sheets' Done, the Dates sheet's Save and Cancel, the detail sheet's
+  Edit and Close, and `event-row-<eventId>` on day-panel rows.
+  `FormPickerRow` / `FormSwitchRow` / `FormActionRow` / `FormMenuRow` take
+  an `identifier`, `FormSheetHeader` a `leadingIdentifier`.
+- `qa set` (agent op `set`) and `--setting` on `run` / `relaunch`.
+- Found on the way: `MenuAnchor` items (the priority and day-rail menus)
+  expose **no semantics nodes** on iOS — the menu draws, the tree shows only
+  the scrim — so neither the agent nor a screen reader can pick an item. An
+  app-side fix is owed. Also: `table_calendar`'s cell wrapper is
+  `excludeSemantics`, so a day cell can carry no id (an inner
+  `Semantics(identifier:)` was tried and removed); days are tapped by their
+  label, `{{longdate+N}}`. And `scroll-to` picks the first scrollable in the
+  tree, which in the editor is the header strip — flows pass `--in
+  id:event-form`.
 
 ### Automation identifiers
 

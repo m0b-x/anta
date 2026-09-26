@@ -88,6 +88,106 @@ shows the soft keyboard and the Dart MCP's `enter_text` is disabled there; use
 `get_runtime_errors`, `hot_reload`, `flutter_driver_command` finders) works
 against the DTD `qa run` prints.
 
+## The calendar pass (2026-09-26)
+
+One command is a device pass of the calendar, against a seed that puts every
+calendar state around today:
+
+```bash
+./tool/qa/qa relaunch --fresh --seed tool/qa/fixtures/calendar.json   # ~2.5 s; `run` instead after a lib change
+./tool/qa/qa flows calendar                                           # seven flows, ~35 s on the simulator
+./tool/qa/qa flows calendar/03_dates                                  # one flow; --keep-going runs past a failure
+```
+
+`tool/qa/fixtures/calendar.json` is written with **relative dates** —
+`"startDateMs": "{{today-28}}"`, `"dayMs": "{{today+7}}"` — that the tool
+resolves against the run's clock before pushing (`(60 placeholders
+resolved)` in the push line); the resolved copy lands in
+`build/qa/seed_resolved.json`, the fixture in the repo is never edited. It
+seeds a weekly session with presence marks, a skipped day and a per-day
+description, a daily walk carrying five alerts (the cap), six pinned dates,
+a yearly birthday with a custom colour, a workdays event that assumes
+absence, an ended one-time event, an event in a hidden category, a template,
+a saved filter, a custom holiday, the German holiday profile and Orthodox
+fasting. `test/qa/calendar_fixture_test.dart` pins that every piece imports
+and occurs where the flows expect it. `--setting key=value` (repeatable)
+overrides a settings key in the seed before it is pushed — `--setting
+locale=de --setting theme_mode=dark` is the matrix at launch.
+
+The flows live in `tool/qa/flows/calendar/*.txt`, one per checklist item
+(open, new event, editor sub-sheets and the dirty guard, the Dates sheet,
+the alert cap, the overview page, the accessibility matrix), each ending in
+`expect`s, a `shot` and `errors`. **A flow is updated in the same slice that
+changes its screen**, and the last slice of a calendar rework runs
+`flows calendar` (the `ui-revamp` gate). Every flow starts and ends on the
+calendar page except `00_open`, which starts at the root — so a full pass
+starts from a fresh launch.
+
+Placeholders work in step files too: `tap "{{longdate+1}}"` taps tomorrow's
+day cell by the label the grid gives it.
+
+| Placeholder | Value |
+| --- | --- |
+| `{{today}}`, `{{today+N}}` | UTC midnight of that day, epoch ms (`startDateMs`, `dayMs`) |
+| `{{now}}` | this instant, epoch ms (`createdAtMs`) |
+| `{{day+N}}` | `yyyy-MM-dd` |
+| `{{longdate+N}}` | `Sunday, September 27, 2026` — the English label a month-grid day cell carries |
+| `{{weekday+N}}`, `{{year+N}}`, `{{month+N}}`, `{{dom+N}}` | that day's ISO weekday / year / month / day of month |
+
+A numeric placeholder written as a JSON string (`"{{today+3}}"`) sheds its
+quotes on resolution, so a fixture is valid JSON before and after.
+
+**`set` is the matrix without a rebuild or a relaunch:**
+
+```bash
+./tool/qa/qa set theme=dark locale=de text-scale=2.0   # any subset; the agent's `set` op
+./tool/qa/qa set text-scale=off locale=system theme=system
+```
+
+Locale and theme go through the app's own settings bloc (they persist like a
+tap in Settings would); the text scale is a QA-only override
+(`QaOverrides.textScale`, mounted by `MaterialApp.builder` in a QA build;
+`--define ANTA_QA_TEXT_SCALE=2.0` seeds it at launch). `agent info` and
+`doctor` print `scale=2.0` while one is imposed. In German the ids still
+resolve — that is what they are for.
+
+**Calendar targets** (`lib/constants/semantics_ids.dart`): the editor's rows
+(`event-title`, `event-category`, `event-look`, `event-date`, `event-dates`,
+`event-add-date`, `event-all-day`, `event-starts`, `event-ends`,
+`event-repeat`, `event-priority`, `event-linked-note`, `event-alert-add`),
+its chrome (`event-close`, `event-save`, `event-save-as-template`,
+`event-delete`) and its scrolling body (`event-form`); the sub-sheets' Done
+(`repeat-done`, `look-done`); the Dates sheet (`date-picker-save`,
+`date-picker-cancel`); the detail sheet (`event-detail-edit`,
+`event-detail-close`); and **a day-panel row by its event id**
+(`event-row-<eventId>`, e.g. `id:event-row-qa-cal-lift` for the seed's
+weekly session). A title is never a safe target on the calendar page:
+every marked day cell's marker label carries the titles of its events, so
+`tap "Morning walk"` is ambiguous twelve ways.
+
+Calendar traps, all seen 2026-09-26:
+
+- **`scroll-to` swipes inside the first scrollable in the tree**, which in
+  the editor is the header strip — eight swipes and nothing moves. Pass
+  `--in id:event-form` for anything below the fold (`scroll-to
+  id:event-priority --in id:event-form`), and scroll before an `--absent`
+  check so absence means gone, not off-screen.
+- **Day cells are label-only.** `table_calendar` wraps each cell with
+  excluded semantics, so an id inside the cell never reaches the tree; tap a
+  day by `"{{longdate+N}}"`.
+- **`MenuAnchor` items expose no semantics nodes** (the priority and day-rail
+  menus): the menu draws, `dump --all` shows only the scrim. A flow can open
+  the menu, `shot` it and `key escape`; it cannot pick an item by label. A
+  screen-reader gap to fix on the app side, not a tool problem.
+- **`relaunch` starts the installed build**, without anything hot-reloaded
+  since the last `qa run`; after a lib change, `qa run --fresh --seed …` is
+  the honest path (about a minute). **`restart` after `attach` lost the
+  agent** once (`no isolate exposes ext.flutter.driver`) — `qa run` again.
+- The `[qa] seed:` line counts folders and notes only; the calendar entities
+  import silently. A grid with fasting tints but no events after a seed
+  means the events were skipped — check the push line said `placeholders
+  resolved`.
+
 ## Canonical loop
 
 ```bash
@@ -192,8 +292,8 @@ Every acting verb also takes `--wait T` / `--wait-gone T` / `--wait-timeout S`
 | `state [--json]` | `qa state` | `device=B57A8680-… (ios)  app=pid 16257  lifecycle=resumed  foreground=com.alexzamfir.anta  awake=yes  locked=?  ime=down  screen=1320x2868 @480dpi (440 x 956 dp)  driver=agent  run.log=yes  dtd=ws://…  vm=http://…` |
 | `doctor [--fix] [--json]` | `qa doctor` | see below |
 | `boot [--sim N] [--avd N] [--cold] [--phone]` | `qa boot --sim "iPhone 17 Pro"` | `booting iPhone 17 Pro (A8642AB6-…)…` then `ready: A8642AB6-…  iPhone 17 Pro (iOS 26.2)`; `--avd`, `--cold`, `--phone` are the Android path |
-| `run [--fresh] [--seed F] [--define K=V] [--no-qa] [--no-driver]` | `qa run --fresh --seed tool/qa/fixtures/basic.json` | `pid=14023  log=…/build/qa/run.log` / `dtd=ws://…` / `vm=http://…` then the three `[qa]` lines — 27–62 s on the simulator, 27–44 s on macOS; a cold Android build gets up to 8 minutes with a `still waiting for flutter run (40 s): …` heartbeat every 20 s |
-| `relaunch [--fresh] [--seed F]` | `qa relaunch --fresh --seed tool/qa/fixtures/basic.json` | `launched: xcrun simctl launch com.alexzamfir.anta (vm-service-port 51615)` / `vm=http://127.0.0.1:51615/  (no DTD after a bare launch …)` / `agent: iOS  1320x2868 @3.0x  lifecycle=resumed  semantics=on  textField=none  qa=qa` then the `[qa]` lines — 1.9–2.5 s |
+| `run [--fresh] [--seed F] [--setting K=V] [--define K=V] [--no-qa] [--no-driver]` | `qa run --fresh --seed tool/qa/fixtures/basic.json` | `pid=14023  log=…/build/qa/run.log` / `dtd=ws://…` / `vm=http://…` then the three `[qa]` lines — 27–62 s on the simulator, 27–44 s on macOS; a cold Android build gets up to 8 minutes with a `still waiting for flutter run (40 s): …` heartbeat every 20 s |
+| `relaunch [--fresh] [--seed F] [--setting K=V]` | `qa relaunch --fresh --seed tool/qa/fixtures/basic.json` | `launched: xcrun simctl launch com.alexzamfir.anta (vm-service-port 51615)` / `vm=http://127.0.0.1:51615/  (no DTD after a bare launch …)` / `agent: iOS  1320x2868 @3.0x  lifecycle=resumed  semantics=on  textField=none  qa=qa` then the `[qa]` lines — 1.9–2.5 s |
 | `launch` | `qa launch --wait Folders` | brings a running app to the front, or starts it like `relaunch` without markers |
 | `attach` | `qa attach` | `flutter attach` against the running app: DTD + VM URIs again |
 | `stop` / `kill-run` | `qa kill-run` | `killed run pid 14023` then `forgot the URIs recorded for <device> (they died with the run — …)` — only when the recorded URI is the run's own DDS proxy; a URI a later `relaunch` recorded is kept (`kept the VM URI for <device> …`). A device app stays up; a desktop app started by that run dies with it |
@@ -215,7 +315,9 @@ Every acting verb also takes `--wait T` / `--wait-gone T` / `--wait-timeout S`
 | `clear` | `qa clear` | `cleared the focused field` (agent path) |
 | `reload [--timeout S]` / `restart` | `qa reload --wait "New label"` | `reloaded in 253 ms: Reloaded 0 libraries in 75ms (…)` / `restarted in 1046 ms: Restarted application in 984ms.` — needs the live `flutter run` from `qa run` |
 | `perf start\|stop\|read [--json]` | `qa perf stop` | `frames=122 over 2414 ms  jank=0 (build or raster over 16.7 ms)` then one line each for build, raster, total (p50/p90/max ms) |
-| `steps <line>… [--file F] [--keep-going]` | `qa steps 'tap "Training"' 'key back'` | `[1/2] tap "Training"` then the verb's output, indented |
+| `steps <line>… [--file F] [--keep-going]` | `qa steps 'tap "Training"' 'key back'` | `[1/2] tap "Training"` then the verb's output, indented; `{{today+N}}`-style placeholders resolve first |
+| `flows <dir>[/<flow>] [--keep-going] [--list]` | `qa flows calendar` | `=== flow 1/7: 00_open.txt` … `=== 00_open.txt: ok in 2460 ms` per file, then `flows: all 7 passed` |
+| `set k=v…` | `qa set theme=dark locale=de text-scale=2.0` | `set  text-scale=2.0  locale=de  theme=dark` |
 | `log [--lines N] [--all]` (alias `logcat`) | `qa log --lines 40` | logcat on Android; the simulator's unified log (~1 s, last 10 min) on iOS; the app's stdout (`build/qa/app.log`) on macOS |
 | `errors [--lines N] [--all] [--clear]` | `qa errors` | `no errors in …/run.log` / `no errors in simulator log` / `no errors in agent` — the last is the app's own `FlutterError.onError` buffer, which only the driver build has |
 | `build-exe` | `qa build-exe` | `…/build/qa/qa  (2327 ms)` |

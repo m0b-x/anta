@@ -1,0 +1,23 @@
+# The pinned-dates event (six dates from tomorrow): the bundled Dates row
+# opens the Dates sheet on its list view; Year and Month views; back out.
+tap "{{longdate+1}}"
+wait id:event-row-qa-cal-physio
+tap id:event-row-qa-cal-physio
+wait id:event-detail-edit
+tap id:event-detail-edit
+wait id:event-dates
+tap id:event-dates
+wait id:date-picker-save
+shot 03_dates_list
+tap "Year"
+shot 03_dates_year
+tap "Month"
+shot 03_dates_month
+tap id:date-picker-cancel
+wait id:event-close
+tap id:event-close
+wait id:event-detail-close
+tap id:event-detail-close
+wait id:calendar-add-event
+tap id:calendar-today
+errors

@@ -1,0 +1,13 @@
+# The overview page: year, month and list presentations over the seeded
+# events, then back to the calendar.
+tap id:calendar-overview-open
+wait "Year"
+shot 05_overview_year
+tap "Month"
+shot 05_overview_month
+tap "List"
+expect "Lifting session"
+shot 05_overview_list
+key back
+wait id:calendar-add-event
+errors

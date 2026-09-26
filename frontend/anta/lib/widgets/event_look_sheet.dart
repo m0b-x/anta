@@ -6,8 +6,10 @@ import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../constants/calendar_icons.dart';
 import '../constants/row_metrics.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_category.dart';
+import 'automation_id.dart';
 import 'color_swatch_picker.dart';
 import 'event_avatar.dart';
 import 'form_rows.dart';
@@ -159,7 +161,9 @@ class _EventLookSheetState extends State<EventLookSheet> {
           onLeading: () => Navigator.of(context).pop(),
           title: l10n.eventAppearance,
           trailingInset: _LookMetrics.headerTrailingInset,
-          trailing: TextButton(
+          trailing: AutomationId(
+            identifier: SemanticsIds.lookDone,
+            child: TextButton(
             onPressed: () => Navigator.of(context).pop(_draft),
             style: TextButton.styleFrom(
               foregroundColor: colorScheme.primary,
@@ -171,6 +175,7 @@ class _EventLookSheetState extends State<EventLookSheet> {
               ),
             ),
             child: Text(l10n.eventDescriptionDone),
+          ),
           ),
         ),
         Flexible(

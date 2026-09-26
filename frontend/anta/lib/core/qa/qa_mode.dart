@@ -32,6 +32,15 @@ abstract final class QaMode {
     'ANTA_QA_PERMISSION_PROMPT',
   );
 
+  /// Text scale a QA launch starts at (`--dart-define=ANTA_QA_TEXT_SCALE=2.0`);
+  /// unset means the platform's own. Dart has no `double.fromEnvironment`, so
+  /// the define is read as text. `qa set text-scale=…` changes it at run time
+  /// through [QaOverrides].
+  static const String _textScaleDefine = String.fromEnvironment(
+    'ANTA_QA_TEXT_SCALE',
+  );
+  static final double? initialTextScale = double.tryParse(_textScaleDefine);
+
   /// Namespace for the QA build's `SharedPreferences`. The plugin's default is
   /// `flutter.`, so a prefix of our own puts every QA key in a disjoint key
   /// space from the owner's — including `active_database`, which is the one

@@ -1970,7 +1970,9 @@ class _EventEditorSheetState extends State<EventEditorSheet>
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      TextField(
+                      AutomationId(
+                        identifier: SemanticsIds.eventTitle,
+                        child: TextField(
                         controller: _titleController,
                         autofocus: !_isEditing,
                         maxLines: null,
@@ -2002,6 +2004,7 @@ class _EventEditorSheetState extends State<EventEditorSheet>
                             color: colorScheme.onSurfaceVariant,
                           ),
                         ),
+                      ),
                       ),
                       ListenableBuilder(
                         listenable: _titleController,
@@ -2399,14 +2402,16 @@ class _EventEditorSheetState extends State<EventEditorSheet>
       if (oneTime && oneTimeDates.length == 1)
         FormPickerRow(
           glyph: Icons.calendar_today_outlined,
-          label: l10n.eventDateLabel,
+          identifier: SemanticsIds.eventDate,
+                            label: l10n.eventDateLabel,
           value: dateFormat.format(_date),
           onTap: _pickDate,
         )
       else if (oneTime && oneTimeDates.length > _maxInlineDates)
         FormPickerRow(
           glyph: Icons.calendar_today_outlined,
-          label: l10n.eventDatesLabel,
+          identifier: SemanticsIds.eventDates,
+                            label: l10n.eventDatesLabel,
           value: _datesValue(l10n, oneTimeDates),
           onTap: () => _pickOneTimeDates(view: CalendarDatePickerView.list),
         )
@@ -2425,19 +2430,22 @@ class _EventEditorSheetState extends State<EventEditorSheet>
       else
         FormPickerRow(
           glyph: Icons.calendar_today_outlined,
-          label: l10n.eventDate,
+          identifier: SemanticsIds.eventDate,
+                            label: l10n.eventDate,
           value: dateFormat.format(_date),
           onTap: _pickDate,
         ),
       if (oneTime)
         FormActionRow(
           glyph: Icons.add_rounded,
-          label: l10n.eventAddDate,
+          identifier: SemanticsIds.eventAddDate,
+                            label: l10n.eventAddDate,
           onTap: _pickOneTimeDates,
         ),
       FormSwitchRow(
         glyph: Icons.schedule_outlined,
-        label: l10n.eventAllDay,
+        identifier: SemanticsIds.eventAllDay,
+                            label: l10n.eventAllDay,
         value: _isAllDay,
         onChanged: _setAllDay,
       ),
@@ -2446,7 +2454,8 @@ class _EventEditorSheetState extends State<EventEditorSheet>
           value: _startMinute,
           child: FormPickerRow(
             subRow: true,
-            label: l10n.eventStarts,
+            identifier: SemanticsIds.eventStarts,
+                            label: l10n.eventStarts,
             value: EventTimeFormatter.formatMinute(_startMinute, context),
             onTap: _pickStartTime,
           ),
@@ -2456,7 +2465,8 @@ class _EventEditorSheetState extends State<EventEditorSheet>
           child: endMinute == null
               ? FormPickerRow(
                   subRow: true,
-                  label: l10n.eventEnds,
+                  identifier: SemanticsIds.eventEnds,
+                            label: l10n.eventEnds,
                   value: l10n.eventEndTimeNone,
                   onTap: _pickEndTime,
                 )
@@ -2480,7 +2490,8 @@ class _EventEditorSheetState extends State<EventEditorSheet>
       ],
       FormPickerRow(
         glyph: Icons.repeat_rounded,
-        label: l10n.eventRepeat,
+        identifier: SemanticsIds.eventRepeat,
+                            label: l10n.eventRepeat,
         value: _repeatValue(l10n),
         onTap: _pickRepeat,
       ),
@@ -2633,7 +2644,8 @@ class _EventEditorSheetState extends State<EventEditorSheet>
     if (_noteId == null) {
       return FormPickerRow(
         glyph: Icons.sticky_note_2_outlined,
-        label: l10n.eventLinkedNote,
+        identifier: SemanticsIds.eventLinkedNote,
+                            label: l10n.eventLinkedNote,
         value: l10n.eventLinkedNoteNone,
         onTap: _pickNote,
       );
@@ -2647,7 +2659,8 @@ class _EventEditorSheetState extends State<EventEditorSheet>
       return FormPickerRow(
         glyph: Icons.warning_amber_rounded,
         glyphColor: colorScheme.error,
-        label: l10n.eventLinkedNote,
+        identifier: SemanticsIds.eventLinkedNote,
+                            label: l10n.eventLinkedNote,
         value: l10n.eventLinkedNoteNotFound,
         valueColor: colorScheme.error,
         semanticsLabel: l10n.eventLinkedNoteMissing,
@@ -2658,7 +2671,8 @@ class _EventEditorSheetState extends State<EventEditorSheet>
     final title = _noteTitle;
     return FormPickerRow(
       glyph: Icons.sticky_note_2_outlined,
-      label: l10n.eventLinkedNote,
+      identifier: SemanticsIds.eventLinkedNote,
+                            label: l10n.eventLinkedNote,
       value: title == null ? '' : (title.isEmpty ? l10n.untitledNote : title),
       onTap: _pickNote,
       trailingButton: unlink,
@@ -2728,6 +2742,7 @@ class _EventEditorSheetState extends State<EventEditorSheet>
                           : Icons.close_rounded,
                       leadingTooltip: widget.showBack ? l10n.back : l10n.cancel,
                       onLeading: _leave,
+                      leadingIdentifier: SemanticsIds.eventClose,
                       title: _isEditing ? l10n.editEvent : l10n.addEvent,
                       scrolled: _headerScrolled,
                       trailing: ListenableBuilder(
@@ -2735,9 +2750,12 @@ class _EventEditorSheetState extends State<EventEditorSheet>
                           _descriptionRevision,
                           _titleController,
                         ]),
-                        builder: (context, _) => FilledButton(
-                          onPressed: _canSave ? _onSave : null,
-                          child: Text(l10n.save),
+                        builder: (context, _) => AutomationId(
+                          identifier: SemanticsIds.eventSave,
+                          child: FilledButton(
+                            onPressed: _canSave ? _onSave : null,
+                            child: Text(l10n.save),
+                          ),
                         ),
                       ),
                     ),
@@ -2745,7 +2763,9 @@ class _EventEditorSheetState extends State<EventEditorSheet>
                 ),
               ),
               Expanded(
-                child: SingleChildScrollView(
+                child: Semantics(
+                  identifier: SemanticsIds.eventForm,
+                  child: SingleChildScrollView(
                   controller: _bodyScroll,
                   padding: EdgeInsets.fromLTRB(
                     RowMetrics.groupInset,
@@ -2762,12 +2782,14 @@ class _EventEditorSheetState extends State<EventEditorSheet>
                           _buildTitleRow(l10n, theme, icon, accent),
                           FormPickerRow(
                             glyph: Icons.label_outlined,
+                            identifier: SemanticsIds.eventCategory,
                             label: l10n.eventCategory,
                             value: CalendarCategories.labelOf(category, l10n),
                             onTap: _pickCategory,
                           ),
                           FormPickerRow(
                             glyph: Icons.palette_outlined,
+                            identifier: SemanticsIds.eventLook,
                             label: l10n.eventAppearance,
                             value: _iconKey != null || _colorValue != null
                                 ? l10n.eventLookCustom
@@ -2800,6 +2822,7 @@ class _EventEditorSheetState extends State<EventEditorSheet>
                         children: [
                           FormMenuRow<int>(
                             glyph: Icons.flag_outlined,
+                            identifier: SemanticsIds.eventPriority,
                             label: l10n.eventPriority,
                             value: EventPriorities.labelOf(_priority, l10n),
                             selected: _priority,
@@ -2828,7 +2851,8 @@ class _EventEditorSheetState extends State<EventEditorSheet>
                             listenable: _titleController,
                             builder: (context, _) => FormActionRow(
                               glyph: Icons.bookmark_add_outlined,
-                              label: l10n.saveAsTemplate,
+                              identifier: SemanticsIds.eventSaveAsTemplate,
+                            label: l10n.saveAsTemplate,
                               onTap: _titleController.text.trim().isEmpty
                                   ? null
                                   : _onSaveAsTemplate,
@@ -2837,7 +2861,8 @@ class _EventEditorSheetState extends State<EventEditorSheet>
                           if (_isEditing)
                             FormActionRow(
                               glyph: Icons.delete_outline_rounded,
-                              label: l10n.deleteEvent,
+                              identifier: SemanticsIds.eventDelete,
+                            label: l10n.deleteEvent,
                               destructive: true,
                               onTap: _onDelete,
                             ),
@@ -2845,6 +2870,7 @@ class _EventEditorSheetState extends State<EventEditorSheet>
                       ),
                     ],
                   ),
+                ),
                 ),
               ),
               AnimatedSize(

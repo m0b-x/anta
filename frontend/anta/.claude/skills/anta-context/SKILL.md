@@ -1,6 +1,6 @@
 ---
 name: anta-context
-description: Load project context before any change in the ANTA Flutter app (Dart package `anta`). Covers product purpose, architecture flow, non-negotiable rules, style rules, and which validation commands to run. USE FOR - implementing or changing folders, notes, the editor, markdown shortcuts, the money ledger, counters, search, backup/restore, settings, navigation, import/export, or any feature work in this repo. Load the more specific skills (calendar-events, markdown-engine, drift-migrations, l10n) on top of this one when the task touches those areas.
+description: Load project context before any change in the ANTA Flutter app (Dart package `anta`). Covers product purpose, architecture flow, non-negotiable rules, style rules, and which validation commands to run. USE FOR - implementing or changing folders, notes, the editor, markdown shortcuts, the money ledger, counters, search, backup/restore, settings, navigation, import/export, or any feature work in this repo. Load the more specific skills (calendar-events + calendar-ui, markdown-engine, drift-migrations, l10n; ui-revamp for any UI rework) on top of this one when the task touches those areas.
 ---
 
 # ANTA Context
@@ -33,7 +33,7 @@ Page/Widget -> BLoC -> Service -> Repository -> DAO -> Drift database
 - Every user-visible string goes through `AppLocalizations` — update `lib/l10n/app_en.arb`, `app_de.arb`, `app_ro.arb` together, then run `flutter gen-l10n` (see the `l10n` skill).
 - Never hand-edit generated files (`lib/database/database.g.dart`, generated localization Dart files).
 - Drift schema changes require a migration + `dart run build_runner build --delete-conflicting-outputs` (see the `drift-migrations` skill). Never reset user storage.
-- **No code comments, no new tests, no new markdown docs unless explicitly requested.**
+- **Comments carry the why, never the what**: `///` on public members and non-obvious decisions, never narration of the next line. Tests are welcome (standing permission, 2026-08-16). No new markdown docs unless explicitly requested — a UI rework's design record is (see the `ui-revamp` skill).
 - Preserve data semantics: soft deletes, CRDT fields (`hlcTimestamp`, `deviceId`, `version`, `isDeleted`), positions, sort preferences, pinned counters, backup format compatibility.
 - Settings go through `SettingsService` + `SettingsKeys` — never raw `SharedPreferences` keys.
 - UI: Material 3, compact, touch-friendly, stable layouts (no layout shift in editor/toolbar/counters/lists), light/dark/system themes.
@@ -51,7 +51,7 @@ Page/Widget -> BLoC -> Service -> Repository -> DAO -> Drift database
 - Last-location restore: a persisted **stack** of `NavDestination`s (`lib/models/nav_destination.dart`), recorded by `NavigationHistoryObserver`/`NavigationHistoryService` off route stamps that `AppNavigator` puts in `RouteSettings.arguments`, replayed by `AppNavigator.restoreLastLocation()` from `main.dart`. Keep existence checks — never navigate to a deleted folder/note — and never await a push during replay. See the "Navigation And Launch Restore" section of COPILOT_CONTEXT.md before changing any of it.
 - Local editor fork: `packages/re_editor/` — preserve its perf optimizations (2-slot `asString` cache, bounded LRU paragraph cache, binary-search lookups, 50 ms highlight debounce, `cloneShallowDirty()` contract, capped undo history). Single-line edits from app code use `CodeLines.replaceLine` / `removeLine`, never a `CodeLines.of([...])` rebuild.
 
-## 5. Validation (PowerShell on Windows)
+## 5. Validation (see the `verify` skill for the full gate)
 
 Run only what the change requires:
 
@@ -62,6 +62,7 @@ Run only what the change requires:
 | Drift table / DAO / migration | `dart run build_runner build --delete-conflicting-outputs`, then `dart analyze lib` |
 | Code covered by `test/` (e.g. money syntax) | `flutter test` (single file: `flutter test <path>`; single case: `--plain-name "<substring>"`) |
 | Manual run | `flutter run` |
+| Any UI rework | the `ui-revamp` gate after every slice: whole suite, device pass, independent review |
 
 Release pipeline: `tool\release\release.cmd build --arm64`, `... install`, `... doctor`, `... gen`, `... clean` (`./tool/release/release` on macOS). Release builds are refused without the gitignored `android/key.properties` + `android/app/release-keystore.jks`.
 
