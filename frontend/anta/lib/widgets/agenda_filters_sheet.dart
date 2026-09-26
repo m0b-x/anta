@@ -158,7 +158,7 @@ class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
           ? DateTimeRange(start: _draft.customStart!, end: _draft.customEnd!)
           : DateTimeRange(
               start: now,
-              end: now.add(Duration(days: _draft.rangeDays)),
+              end: now.add(Duration(days: _draft.rangeDays - 1)),
             ),
     );
     if (picked == null || !mounted) return;

@@ -15,6 +15,7 @@ import '../models/calendar_event.dart';
 import '../models/event_alert.dart';
 import '../models/recurrence_rule.dart';
 import '../services/alert_scheduler.dart';
+import '../services/day_summary_resolver.dart';
 import '../services/event_time_formatter.dart';
 import '../services/recurrence_formatter.dart';
 import '../utils/markdown_color_syntax.dart';
@@ -454,9 +455,7 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
     final colorScheme = theme.colorScheme;
     final localeName = l10n.localeName;
     final category = CalendarCategories.resolve(event.categoryId);
-    final accent = (event.colorValue != null && event.tintIcon)
-        ? Color(event.colorValue!)
-        : category.color;
+    final accent = EventSummaryProvider.colorFor(event, category);
     final description = _description;
     final time = event.time;
     final isRecurring = event.rule is! OneTimeRecurrence;

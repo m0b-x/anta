@@ -253,7 +253,7 @@ class DaySummaryPanel extends StatelessWidget {
                           top: 0,
                           bottom: 0,
                           width: 4,
-                          child: Container(color: entry.color),
+                          child: Container(color: entry.stripeColor),
                         ),
                         Padding(
                           padding: const EdgeInsets.only(left: 4),

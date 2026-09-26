@@ -5901,7 +5901,28 @@
   },
   "dayListScopeThisYear": "This year",
   "@dayListScopeThisYear": {
-    "description": "Year overview scope: all twelve calendar months of the current year, earlier ones included"
+    "description": "Tooltip of the button returning a year overview to the current year"
+  },
+  "dayListScopeCalendarYear": "Calendar year",
+  "@dayListScopeCalendarYear": {
+    "description": "Year overview scope: the twelve calendar months of one year, paged year by year with the chevrons under it"
+  },
+  "calendarOverview": "Overview",
+  "@calendarOverview": {
+    "description": "Title of the calendar overview page (events by category across whole years), also the drawer row and the calendar action bar button opening it"
+  },
+  "calendarOverviewDesc": "Events by category, year by year",
+  "@calendarOverviewDesc": {
+    "description": "Subtitle of the drawer row opening the calendar overview page"
+  },
+  "overviewEmptyYear": "Nothing in {year}",
+  "@overviewEmptyYear": {
+    "description": "Empty state of the overview page's list mode when the shown year holds no entry",
+    "placeholders": {
+      "year": {
+        "type": "int"
+      }
+    }
   },
   "dayListJumpToToday": "This month",
   "@dayListJumpToToday": {

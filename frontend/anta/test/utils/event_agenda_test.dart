@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/event_presence.dart';
 import 'package:anta/constants/fasting_calendar.dart';
+import 'package:anta/models/agenda_day_list.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/fasting_appearance.dart';
 import 'package:anta/models/fasting_schedule.dart';
@@ -149,6 +151,107 @@ void main() {
     // The daily event occurs on all three days of the window; the other two
     // occur once each and must not claim otherwise.
     expect(byId, {'ot': 1, 'd': 3, 'sp': 1});
+  });
+
+  group('yearBoundsOf', () {
+    AgendaYearBounds bounds(
+      List<CalendarEvent> events, {
+      Set<String> categoryIds = const {},
+      AgendaEventType eventType = AgendaEventType.all,
+    }) => EventAgenda.yearBoundsOf(
+      events,
+      categoryIds: categoryIds,
+      eventType: eventType,
+      todayYear: 2026,
+      earliestYear: 1900,
+      latestYear: 2100,
+    );
+
+    test('an empty store is today\'s year alone', () {
+      expect(bounds(const []), (first: 2026, last: 2026));
+    });
+
+    test('a one-time event reaches its own year in both directions', () {
+      final past = oneTime.copyWith(startDate: DateTime.utc(2021, 3, 1));
+      final future = oneTime.copyWith(startDate: DateTime.utc(2029, 3, 1));
+      expect(bounds([past]), (first: 2021, last: 2026));
+      expect(bounds([future]), (first: 2026, last: 2029));
+    });
+
+    test('an open-ended series reaches the latest year, a bounded one its end', () {
+      expect(bounds([daily]), (first: 2026, last: 2100));
+      final ended = daily.copyWith(endDate: DateTime.utc(2027, 6, 30));
+      expect(bounds([ended]), (first: 2026, last: 2027));
+    });
+
+    test('a retroactive series reaches back to the earliest year', () {
+      final retro = daily.copyWith(
+        rule: const YearlyRecurrence(),
+        retroactive: true,
+        endDate: DateTime.utc(2026, 12, 31),
+      );
+      expect(bounds([retro]), (first: 1900, last: 2026));
+    });
+
+    test('pinned dates span their earliest and latest date', () {
+      final pinned = specific.copyWith(
+        rule: SpecificDatesRecurrence(
+          dates: {DateTime.utc(2019, 5, 5), DateTime.utc(2031, 5, 5)},
+        ),
+      );
+      expect(bounds([pinned]), (first: 2019, last: 2031));
+    });
+
+    test('the filters narrow which events count', () {
+      final past = oneTime.copyWith(startDate: DateTime.utc(2021, 3, 1));
+      expect(bounds([past, daily], categoryIds: {'gym'}), (
+        first: 2026,
+        last: 2100,
+      ));
+      expect(bounds([past, daily], eventType: AgendaEventType.oneTime), (
+        first: 2021,
+        last: 2026,
+      ));
+    });
+  });
+
+  group('collapsing with missed occurrences hidden', () {
+    final trackedDaily = daily.copyWith(id: 'td', tracksPresence: true);
+
+    setUp(() {
+      EventPresence.updateCache(
+        byEvent: {
+          'td': {windowStart: PresenceStatus.missed},
+        },
+      );
+    });
+    tearDown(EventPresence.resetCache);
+
+    test('a missed first day neither stands for the row nor counts', () {
+      final occ = EventAgenda.occurrencesInRange(
+        events: [trackedDaily],
+        from: windowStart,
+        to: windowEnd,
+        collapseRecurring: true,
+        hideMissed: true,
+      );
+
+      final row = occ.single;
+      expect(row.day, windowStart.add(const Duration(days: 1)));
+      expect(row.occurrenceCountInWindow, 2);
+    });
+
+    test('with missed ones shown the first day keeps the row', () {
+      final occ = EventAgenda.occurrencesInRange(
+        events: [trackedDaily],
+        from: windowStart,
+        to: windowEnd,
+        collapseRecurring: true,
+      );
+
+      expect(occ.single.day, windowStart);
+      expect(occ.single.occurrenceCountInWindow, 3);
+    });
   });
 
   test('collapsing does not change how often occursOn is asked', () {

@@ -1420,6 +1420,10 @@
   "dayListNextMonth": "Luna următoare",
   "dayListScopeUpcoming": "Urmează",
   "dayListScopeThisYear": "Anul acesta",
+  "dayListScopeCalendarYear": "An calendaristic",
+  "calendarOverview": "Prezentare generală",
+  "calendarOverviewDesc": "Evenimente pe categorii, an de an",
+  "overviewEmptyYear": "Nimic în {year}",
   "dayListJumpToToday": "Luna aceasta",
   "dayListMissedCount": "{count, plural, one {1 ratată} few {{count} ratate} other {{count} de ratate}}",
   "@dayListMissedCount": {

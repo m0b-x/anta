@@ -182,7 +182,7 @@ class _EventTemplateEditorSheetState extends State<EventTemplateEditorSheet> {
       _repeat == _TemplateRepeat.monthly ||
       _repeat == _TemplateRepeat.yearly;
 
-  Color get _tint => _colorValue != null
+  Color get _tint => _colorValue != null && _tintIcon
       ? Color(_colorValue!)
       : CalendarCategories.resolve(_categoryId).color;
 

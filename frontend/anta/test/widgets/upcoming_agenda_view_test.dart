@@ -520,7 +520,7 @@ void main() {
       expect(selected, DateTime.utc(2026, 11, 1));
     });
 
-    testWidgets('the card is not counted among the entries', (tester) async {
+    testWidgets('the card counts the holidays it stands for', (tester) async {
       await pumpView(
         tester,
         anchorDay: anchor,
@@ -536,11 +536,11 @@ void main() {
       await tester.pump();
       final withRows = header(tester);
 
-      // Ninety daily occurrences either way; the two holiday rows are entries
-      // and the card that replaces them is not, so the count drops by exactly
-      // two rather than by one.
+      // Ninety daily occurrences plus two holidays either way: the card
+      // stands for the two rows it replaced, so folding the list changes
+      // nothing about the number above it.
       expect(withRows, contains('92 entries'));
-      expect(withCard, contains('90 entries'));
+      expect(withCard, contains('92 entries'));
     });
   });
 
@@ -657,15 +657,17 @@ void main() {
       expect(find.textContaining('30'), findsWidgets);
     });
 
-    testWidgets('the card is not counted among the entries', (tester) async {
+    testWidgets('the card counts the occurrences it stands for', (
+      tester,
+    ) async {
       await pumpView(
         tester,
         anchorDay: anchor,
         filters: window.copyWith(eventDisplay: AgendaEventDisplay.summary),
       );
 
-      // Thirty entry rows became one card, and a card is not an entry.
-      expect(header(tester), contains('0 entries'));
+      // Thirty entry rows became one card standing for all thirty.
+      expect(header(tester), contains('30 entries'));
     });
 
     testWidgets('the drill-down lists the occurrences and can edit them', (
@@ -708,6 +710,73 @@ void main() {
 
       expect(find.text('Leg day'), findsOneWidget);
       expect(find.text('Gym'), findsNothing);
+    });
+  });
+
+  group('facade changes', () {
+    const window = UpcomingAgendaFilters(rangeDays: 30);
+    final anchor = DateTime.utc(2026, 8, 10);
+
+    void publishGym(int colorValue) {
+      CalendarCategories.updateCache([
+        for (final (index, seed) in CalendarCategories.builtInSeeds.indexed)
+          CalendarCategory(
+            id: seed.id,
+            name: seed.kind.name,
+            colorValue: seed.id == 'gym' ? colorValue : seed.colorValue,
+            iconKey: seed.iconKey,
+            sortOrder: index,
+            isBuiltIn: true,
+          ),
+      ]);
+    }
+
+    tearDown(() => CalendarCategories.updateCache(const []));
+
+    Color avatarColorOf(WidgetTester tester, String title) {
+      final avatar = tester.widget<CircleAvatar>(
+        find
+            .descendant(
+              of: find.ancestor(
+                of: find.text(title),
+                matching: find.byType(Card),
+              ),
+              matching: find.byType(CircleAvatar),
+            )
+            .first,
+      );
+      return avatar.foregroundColor!;
+    }
+
+    testWidgets('a recoloured category reaches the rows on the next rebuild', (
+      tester,
+    ) async {
+      publishGym(0xFF1E88E5);
+      await pumpView(tester, anchorDay: anchor, filters: window);
+      expect(avatarColorOf(tester, 'Leg day'), const Color(0xFF1E88E5));
+
+      // The settings page republishes the facade and the page rebuilds the
+      // panel with the very same inputs — no filter moved, no event changed.
+      publishGym(0xFFE53935);
+      await pumpView(tester, anchorDay: anchor, filters: window);
+
+      expect(avatarColorOf(tester, 'Leg day'), const Color(0xFFE53935));
+    });
+
+    testWidgets('a recoloured category reaches its summary card too', (
+      tester,
+    ) async {
+      publishGym(0xFF1E88E5);
+      final summary = window.copyWith(
+        eventDisplay: AgendaEventDisplay.summary,
+      );
+      await pumpView(tester, anchorDay: anchor, filters: summary);
+      expect(avatarColorOf(tester, 'Gym'), const Color(0xFF1E88E5));
+
+      publishGym(0xFFE53935);
+      await pumpView(tester, anchorDay: anchor, filters: summary);
+
+      expect(avatarColorOf(tester, 'Gym'), const Color(0xFFE53935));
     });
   });
 

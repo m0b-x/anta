@@ -8,6 +8,7 @@ import '../constants/fasting_calendar.dart';
 import '../constants/occurrence_descriptions.dart';
 import '../constants/public_holidays.dart';
 import '../l10n/app_localizations.dart';
+import '../models/calendar_category.dart';
 import '../models/calendar_event.dart';
 import '../models/day_summary_entry.dart';
 import '../models/recurrence_rule.dart';
@@ -136,6 +137,15 @@ class EventSummaryProvider implements DaySummaryProvider {
 
   const EventSummaryProvider(this.l10n, {this.showRecurrence = true});
 
+  /// The colour an event's icon surfaces wear: its own colour only while the
+  /// user opted into tinting the icon with it, else its category's. The one
+  /// rule for the day panel, the agenda rows, the category card and the
+  /// detail sheet.
+  static Color colorFor(CalendarEvent event, CalendarCategory category) {
+    final value = event.colorValue;
+    return value != null && event.tintIcon ? Color(value) : category.color;
+  }
+
   @override
   Iterable<DaySummaryEntry> summaryFor(
     DateTime day,
@@ -145,31 +155,37 @@ class EventSummaryProvider implements DaySummaryProvider {
     // `CalendarBloc.eventsForDay` sorts once when a day's memo entry is
     // built (3.3), so this trusts that order instead of copying and
     // re-sorting on every panel build.
-    return events.map((event) {
-      final category = CalendarCategories.resolve(event.categoryId);
-      // The event color tints the icon only when the user opted in
-      // (tintIcon); otherwise the icon keeps its category color.
-      final color = (event.colorValue != null && event.tintIcon)
-          ? Color(event.colorValue!)
-          : category.color;
-      // Two static map probes, resolved here rather than in each row so the
-      // day panel, the agenda and the timeline can never disagree about
-      // whether a given occurrence was missed.
-      final presenceTracked = EventPresence.appliesTo(event);
-      return DaySummaryEntry(
-        key: 'event:${event.id}',
-        icon: CalendarCategories.iconFor(event),
-        color: color,
-        title: event.title,
-        subtitle: _subtitleFor(event, day),
-        description: _descriptionFor(event, day),
-        priority: event.priority - kMinEventPriority,
-        event: event,
-        presenceTracked: presenceTracked,
-        missed: presenceTracked && EventPresence.isMissed(event, day),
-      );
-    });
+    return events.map((event) => entryFor(event, day));
   }
+
+  /// One event's entry for one day — what [summaryFor] emits per event, for
+  /// callers that already hold the pair and would otherwise allocate a
+  /// one-element list per occurrence.
+  DaySummaryEntry entryFor(CalendarEvent event, DateTime day) {
+    final category = CalendarCategories.resolve(event.categoryId);
+    // Two static map probes, resolved here rather than in each row so the
+    // day panel, the agenda and the timeline can never disagree about
+    // whether a given occurrence was missed.
+    final presenceTracked = EventPresence.appliesTo(event);
+    final colorValue = event.colorValue;
+    return DaySummaryEntry(
+      key: event.barKey,
+      icon: CalendarCategories.iconFor(event),
+      color: colorFor(event, category),
+      stripeAccent: colorValue == null ? null : Color(colorValue),
+      title: event.title,
+      subtitle: _subtitleFor(event, day),
+      description: _descriptionFor(event, day),
+      priority: event.priority - kMinEventPriority,
+      event: event,
+      presenceTracked: presenceTracked,
+      missed: presenceTracked && EventPresence.isMissed(event, day),
+    );
+  }
+
+  /// The template description trimmed once per event: a year of a daily
+  /// event is a few hundred entries over the same string.
+  static final Expando<String> _trimmedTemplates = Expando<String>();
 
   /// Raw markdown description for this event **on this day**, or null when it
   /// has none. Emitted unrendered on purpose: the row decides how much of it
@@ -181,25 +197,30 @@ class EventSummaryProvider implements DaySummaryProvider {
   /// empty maps to null here, so that day loses its notes badge while its
   /// siblings keep theirs.
   String? _descriptionFor(CalendarEvent event, DateTime day) {
-    final description = OccurrenceDescriptions.descriptionFor(
-      event,
-      day,
-    )?.trim();
-    return (description == null || description.isEmpty) ? null : description;
+    final raw = OccurrenceDescriptions.descriptionFor(event, day);
+    if (raw == null) return null;
+    final trimmed = identical(raw, event.description)
+        ? (_trimmedTemplates[event] ??= raw.trim())
+        : raw.trim();
+    return trimmed.isEmpty ? null : trimmed;
   }
 
-  String? _subtitleFor(CalendarEvent event, DateTime day) {
+  /// The subtitle's day-invariant tail per event — the repeat pattern, the
+  /// time or "All day", the removal note — memoized by event identity. The
+  /// agenda formats one subtitle per occurrence, so without this a daily
+  /// event across a year formatted the same three strings a few hundred
+  /// times; an edited event is a new object and misses on its own.
+  static final Expando<_SubtitleTail> _tails = Expando<_SubtitleTail>();
+
+  String _tailFor(CalendarEvent event) {
+    final cached = _tails[event];
+    if (cached != null &&
+        cached.localeName == l10n.localeName &&
+        cached.showRecurrence == showRecurrence) {
+      return cached.text;
+    }
     final time = event.time;
-    // The count label leads the subtitle: for a birthday the age (and for a
-    // program its "Week N") is the headline fact, and trailing segments are
-    // the first to be ellipsized.
-    final elapsed = RecurrenceFormatter.countLabel(
-      event,
-      DateTime.utc(day.year, day.month, day.day),
-      l10n,
-    );
-    final parts = <String>[
-      ?elapsed,
+    final text = <String>[
       if (showRecurrence && event.rule is! OneTimeRecurrence)
         RecurrenceFormatter.format(
           event.rule,
@@ -218,9 +239,33 @@ class EventSummaryProvider implements DaySummaryProvider {
       // rather than in the row, so the day panel, the agenda and the agenda's
       // search text stay in step.
       if (event.removeAfterAlert) l10n.eventRemovedAfterAlert,
-    ];
-    return parts.isEmpty ? null : parts.join(' \u00b7 ');
+    ].join(' \u00b7 ');
+    _tails[event] = _SubtitleTail(l10n.localeName, showRecurrence, text);
+    return text;
   }
+
+  String? _subtitleFor(CalendarEvent event, DateTime day) {
+    final tail = _tailFor(event);
+    if (!event.countOccurrences) return tail;
+    // The count label leads the subtitle: for a birthday the age (and for a
+    // program its "Week N") is the headline fact, and trailing segments are
+    // the first to be ellipsized. The one day-dependent segment, so the one
+    // formatted per occurrence.
+    final elapsed = RecurrenceFormatter.countLabel(
+      event,
+      DateTime.utc(day.year, day.month, day.day),
+      l10n,
+    );
+    return elapsed == null ? tail : '$elapsed \u00b7 $tail';
+  }
+}
+
+class _SubtitleTail {
+  final String localeName;
+  final bool showRecurrence;
+  final String text;
+
+  const _SubtitleTail(this.localeName, this.showRecurrence, this.text);
 }
 
 /// Emits a single money entry when calendar-linked notes attribute a

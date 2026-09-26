@@ -8068,11 +8068,35 @@ abstract class AppLocalizations {
   /// **'Upcoming'**
   String get dayListScopeUpcoming;
 
-  /// Year overview scope: all twelve calendar months of the current year, earlier ones included
+  /// Tooltip of the button returning a year overview to the current year
   ///
   /// In en, this message translates to:
   /// **'This year'**
   String get dayListScopeThisYear;
+
+  /// Year overview scope: the twelve calendar months of one year, paged year by year with the chevrons under it
+  ///
+  /// In en, this message translates to:
+  /// **'Calendar year'**
+  String get dayListScopeCalendarYear;
+
+  /// Title of the calendar overview page (events by category across whole years), also the drawer row and the calendar action bar button opening it
+  ///
+  /// In en, this message translates to:
+  /// **'Overview'**
+  String get calendarOverview;
+
+  /// Subtitle of the drawer row opening the calendar overview page
+  ///
+  /// In en, this message translates to:
+  /// **'Events by category, year by year'**
+  String get calendarOverviewDesc;
+
+  /// Empty state of the overview page's list mode when the shown year holds no entry
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing in {year}'**
+  String overviewEmptyYear(int year);
 
   /// Tooltip of the drill-down month navigation's button returning to the current month
   ///

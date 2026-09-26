@@ -50,9 +50,9 @@ class LabelAppearanceService {
     final service = LabelAppearanceService._();
     try {
       service._settings = await SettingsService.getInstance();
-      if (generation != _generation) return getInstance();
+      if (generation != _generation) return await getInstance();
       await service._load();
-      if (generation != _generation) return getInstance();
+      if (generation != _generation) return await getInstance();
       _instance = service;
       DatabaseLifecycle.registerResetHandler(reset);
       return service;

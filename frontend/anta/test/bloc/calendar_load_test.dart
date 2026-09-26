@@ -3,10 +3,12 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:table_calendar/table_calendar.dart';
 
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/calendar_event.dart';
+import 'package:anta/models/calendar_selection_source.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/calendar_event_service.dart';
 
@@ -118,6 +120,30 @@ void main() {
           'data. Issued:\n${counter.statements.join('\n')}',
     );
     expect((bloc.state as CalendarPageLoaded).allEvents, hasLength(1));
+  });
+
+  test('a reload keeps the month, the day and the format the user is on', () async {
+    await dispatch(const LoadCalendarEvents());
+    final christmas = DateTime.utc(2026, 12, 25);
+    await dispatch(
+      SelectCalendarDay(
+        day: christmas,
+        focusedDay: christmas,
+        source: CalendarSelectionSource.navigation,
+      ),
+    );
+    await dispatch(const ChangeCalendarFormat(format: CalendarFormat.week));
+
+    // A reload after a settings return, a removed holiday or a restore: the
+    // store may even come back value-equal, and the emit must still land —
+    // with the user where they were, not snapped back to today.
+    await dispatch(const LoadCalendarEvents());
+
+    final state = bloc.state as CalendarPageLoaded;
+    expect(state.selectedDay, christmas);
+    expect(state.focusedDay, christmas);
+    expect(state.format, CalendarFormat.week);
+    expect(state.membershipRevision, 1);
   });
 
   test('the bloc resolves its service from an unawaited future', () async {

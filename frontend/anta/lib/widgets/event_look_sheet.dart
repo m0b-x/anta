@@ -114,7 +114,7 @@ class _EventLookSheetState extends State<EventLookSheet> {
   Future<void> _pickIcon() async {
     final picked = await IconPickerSheet.show(
       context,
-      tint: widget.category.color,
+      tint: _accent,
       initialKey: _draft.iconKey,
     );
     if (picked == null || !mounted) return;

@@ -39,6 +39,10 @@ class AgendaDayListEntry {
   /// built, so nothing downstream counts, marks or draws it.
   final bool missed;
 
+  /// The event behind an event row, for a surface that opens an occurrence
+  /// rather than editing it. Null for holiday and fasting rows.
+  final String? eventId;
+
   const AgendaDayListEntry({
     required this.day,
     required this.icon,
@@ -47,8 +51,34 @@ class AgendaDayListEntry {
     this.subtitle,
     this.onEdit,
     this.missed = false,
+    this.eventId,
   });
 }
+
+/// One occurrence reduced to what a year tile paints: its day, its colour and
+/// whether it was missed. No title, no subtitle, no localization — a year of
+/// tiles needs masks and counts, never rows, so resolving marks costs the scan
+/// alone.
+class AgendaDayMark {
+  final DateTime day;
+  final Color color;
+  final bool missed;
+
+  const AgendaDayMark({
+    required this.day,
+    required this.color,
+    this.missed = false,
+  });
+}
+
+/// Marks for an arbitrary date range under the same filters as the entry
+/// resolver, with the same contract: date-only UTC, inclusive, at most
+/// `EventAgenda.maxRangeDays` per call, synchronous.
+typedef AgendaDayMarkResolver =
+    List<AgendaDayMark> Function(DateTime start, DateTime end);
+
+/// The first and last year a surface may page to, inclusive.
+typedef AgendaYearBounds = ({int first, int last});
 
 /// What the viewer picked out of the sheet: a day to focus, or an entry's
 /// edit action to run.

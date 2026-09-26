@@ -4,10 +4,12 @@ import '../constants/event_presence.dart';
 import '../constants/fasting_calendar.dart';
 import '../constants/occurrence_descriptions.dart';
 import '../constants/public_holidays.dart';
+import '../models/agenda_day_list.dart';
 import '../models/calendar_event.dart';
 import '../models/fasting_appearance.dart';
 import '../models/recurrence_rule.dart';
 import '../models/upcoming_agenda_filters.dart';
+import '../services/folder_search_service.dart' show normalizeForSearch;
 import 'event_search_query.dart';
 
 /// One dated occurrence of a [CalendarEvent] inside an agenda range.
@@ -273,6 +275,7 @@ abstract final class EventAgenda {
     AgendaEventType eventType = AgendaEventType.all,
     Set<String> categoryIds = const {},
     bool collapseRecurring = false,
+    bool hideMissed = false,
   }) {
     // The events layer is hidden — no event occurrences, so the scan is skipped
     // entirely and only the annotation rows (holidays/fasting) interleave.
@@ -298,14 +301,13 @@ abstract final class EventAgenda {
     final matchState = <String, _EventQueryMatch>{};
     final candidates = <CalendarEvent>[];
     for (final event in events) {
-      final isOneTime = event.rule is OneTimeRecurrence;
-      if (eventType == AgendaEventType.recurring && isOneTime) continue;
-      if (eventType == AgendaEventType.oneTime && !isOneTime) continue;
-      if (priorities.isNotEmpty && !priorities.contains(event.priority)) {
-        continue;
-      }
-      if (hiddenCategoryIds.contains(event.categoryId)) continue;
-      if (categoryIds.isNotEmpty && !categoryIds.contains(event.categoryId)) {
+      if (!passesEventFilters(
+        event,
+        hiddenCategoryIds: hiddenCategoryIds,
+        priorities: priorities,
+        eventType: eventType,
+        categoryIds: categoryIds,
+      )) {
         continue;
       }
       if (!searching) {
@@ -324,7 +326,7 @@ abstract final class EventAgenda {
       // description-fold budget this scan is pinned to stays where it was.
       var labels = 0;
       if (!baseSettles && labelTextOf != null) {
-        labels = _labelFoldMask(labelTextOf(event), query);
+        labels = _labelFoldMask(event, labelTextOf(event), query);
       }
       final settled = base | labels;
       final settledSatisfies = labels == 0
@@ -334,7 +336,7 @@ abstract final class EventAgenda {
       if (!settledSatisfies) {
         final description = event.description;
         if (description != null) {
-          template = _descriptionFoldMask(description, query);
+          template = _templateFoldMask(event, description, query);
         }
       }
       // Cheap existence probe — the per-day pass decides which days actually
@@ -450,10 +452,16 @@ abstract final class EventAgenda {
     // seen is its next in-window occurrence — keep that, drop the rest, and
     // hand it the tally of what it now stands for. Two passes over an
     // already-built list: still a post-filter, not a scan short-circuit, so
-    // `occursOn` call counts are unchanged.
+    // `occursOn` call counts are unchanged. With [hideMissed] a missed
+    // occurrence neither counts nor stands for the rest: the rows drop it
+    // anyway, and letting it be the survivor would drop the whole event.
+    bool dropped(EventOccurrence occ) =>
+        hideMissed &&
+        EventPresence.appliesTo(occ.event) &&
+        EventPresence.isMissed(occ.event, occ.day);
     final counts = <String, int>{};
     for (final occ in result) {
-      if (occ.event.rule is OneTimeRecurrence) continue;
+      if (occ.event.rule is OneTimeRecurrence || dropped(occ)) continue;
       counts.update(occ.event.id, (n) => n + 1, ifAbsent: () => 1);
     }
     final seen = <String>{};
@@ -463,7 +471,7 @@ abstract final class EventAgenda {
         collapsed.add(occ);
         continue;
       }
-      if (!seen.add(occ.event.id)) continue;
+      if (dropped(occ) || !seen.add(occ.event.id)) continue;
       collapsed.add(
         EventOccurrence(
           event: occ.event,
@@ -473,6 +481,90 @@ abstract final class EventAgenda {
       );
     }
     return List.unmodifiable(collapsed);
+  }
+
+  /// The event-level filters every agenda scan applies before any day is
+  /// looked at — the one definition, so the year bounds a surface pages
+  /// between are computed over exactly the events its scans would return.
+  static bool passesEventFilters(
+    CalendarEvent event, {
+    Set<String> hiddenCategoryIds = const {},
+    Set<int> priorities = const {},
+    AgendaEventType eventType = AgendaEventType.all,
+    Set<String> categoryIds = const {},
+  }) {
+    final isOneTime = event.rule is OneTimeRecurrence;
+    if (eventType == AgendaEventType.none) return false;
+    if (eventType == AgendaEventType.recurring && isOneTime) return false;
+    if (eventType == AgendaEventType.oneTime && !isOneTime) return false;
+    if (priorities.isNotEmpty && !priorities.contains(event.priority)) {
+      return false;
+    }
+    if (hiddenCategoryIds.contains(event.categoryId)) return false;
+    if (categoryIds.isNotEmpty && !categoryIds.contains(event.categoryId)) {
+      return false;
+    }
+    return true;
+  }
+
+  /// The years a surface paging year by year can find something in: from the
+  /// earliest year any passing event starts in to the latest year one can
+  /// still fire in, always including [todayYear]. An open-ended series
+  /// reaches [latestYear]; a retroactive one reaches back to [earliestYear],
+  /// because before its start is exactly where it was asked to fire. Empty
+  /// stores get today's year alone, so a chevron never leads into a year
+  /// that cannot hold anything.
+  static AgendaYearBounds yearBoundsOf(
+    Iterable<CalendarEvent> events, {
+    Set<String> hiddenCategoryIds = const {},
+    Set<int> priorities = const {},
+    AgendaEventType eventType = AgendaEventType.all,
+    Set<String> categoryIds = const {},
+    required int todayYear,
+    required int earliestYear,
+    required int latestYear,
+  }) {
+    var first = todayYear;
+    var last = todayYear;
+    for (final event in events) {
+      if (!passesEventFilters(
+        event,
+        hiddenCategoryIds: hiddenCategoryIds,
+        priorities: priorities,
+        eventType: eventType,
+        categoryIds: categoryIds,
+      )) {
+        continue;
+      }
+      final rule = event.rule;
+      final startYear = event.startDateUtc.year;
+      final int eventFirst;
+      final int eventLast;
+      switch (rule) {
+        case OneTimeRecurrence():
+          eventFirst = startYear;
+          eventLast = startYear;
+        case SpecificDatesRecurrence(:final dates):
+          var lo = startYear;
+          var hi = startYear;
+          for (final date in dates) {
+            if (date.year < lo) lo = date.year;
+            if (date.year > hi) hi = date.year;
+          }
+          eventFirst = lo;
+          eventLast = hi;
+        default:
+          eventFirst = event.retroactive ? earliestYear : startYear;
+          final end = event.endDateUtc;
+          eventLast = end == null ? latestYear : end.year;
+      }
+      if (eventFirst < first) first = eventFirst;
+      if (eventLast > last) last = eventLast;
+    }
+    return (
+      first: first < earliestYear ? earliestYear : first,
+      last: last > latestYear ? latestYear : last,
+    );
   }
 
   /// Splits [events] into what a day-by-day scan of `[start, end]`
@@ -946,6 +1038,51 @@ abstract final class EventAgenda {
     return query.maskOf(text);
   }
 
+  /// Per-event folds that survive across scans: the normalized template
+  /// description and the normalized row labels, keyed on the event's
+  /// identity and on the identity of the string they were folded from. A
+  /// keystroke pause then costs one `contains` per term per candidate rather
+  /// than re-normalizing every description in the store; an edited event is a
+  /// new object and misses on its own.
+  static final Expando<_EventFolds> _folds = Expando<_EventFolds>();
+
+  static _EventFolds _foldsOf(CalendarEvent event) {
+    final cached = _folds[event];
+    if (cached != null && cached.generation == _foldCacheGeneration) {
+      return cached;
+    }
+    return _folds[event] = _EventFolds();
+  }
+
+  /// [_descriptionFoldMask] for the event's own template, folded once per
+  /// event object rather than once per scan.
+  static int _templateFoldMask(
+    CalendarEvent event,
+    String description,
+    EventSearchQuery query,
+  ) {
+    final folds = _foldsOf(event);
+    var folded = folds.templateFold;
+    if (folded == null || !identical(folds.templateSource, description)) {
+      assert(() {
+        debugDescriptionFolds++;
+        return true;
+      }());
+      folded = normalizeForSearch(description);
+      folds.templateSource = description;
+      folds.templateFold = folded;
+    }
+    return query.maskOfFolded(folded);
+  }
+
+  /// Drops every cached fold. For tests that count folds across scans.
+  @visibleForTesting
+  static void debugClearFoldCaches() {
+    _foldCacheGeneration++;
+  }
+
+  static int _foldCacheGeneration = 0;
+
   /// Counts calls to `occurrencesInRange`'s `labelTextOf` closure. Mirrors
   /// [debugDescriptionFolds] exactly, `assert`-only so it costs nothing in
   /// profile and release builds.
@@ -959,14 +1096,37 @@ abstract final class EventAgenda {
 
   /// Folds [text] into [query]'s term bits, counting the fold. The one place a
   /// row's display labels are normalized during a scan, so [debugLabelFolds]
-  /// cannot drift from what actually happens.
-  static int _labelFoldMask(String text, EventSearchQuery query) {
-    assert(() {
-      debugLabelFolds++;
-      return true;
-    }());
-    return query.maskOf(text);
+  /// cannot drift from what actually happens. Cached per event on the
+  /// identity of [text]: `AgendaSearchText.forEventCached` hands back the same
+  /// string for the same event and locale, so the fold is paid once.
+  static int _labelFoldMask(
+    CalendarEvent event,
+    String text,
+    EventSearchQuery query,
+  ) {
+    final folds = _foldsOf(event);
+    var folded = folds.labelFold;
+    if (folded == null || !identical(folds.labelSource, text)) {
+      assert(() {
+        debugLabelFolds++;
+        return true;
+      }());
+      folded = normalizeForSearch(text);
+      folds.labelSource = text;
+      folds.labelFold = folded;
+    }
+    return query.maskOfFolded(folded);
   }
+}
+
+/// An event's cached folds — see `EventAgenda._folds`. Invalidated as a whole
+/// by `debugClearFoldCaches` through the generation stamp.
+class _EventFolds {
+  final int generation = EventAgenda._foldCacheGeneration;
+  String? templateSource;
+  String? templateFold;
+  String? labelSource;
+  String? labelFold;
 }
 
 /// What a candidate event already satisfies of the active query, resolved once

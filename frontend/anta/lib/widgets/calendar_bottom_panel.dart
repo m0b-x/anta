@@ -112,6 +112,10 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
   /// subtree, and nothing on the settings page edits it.
   AgendaDayListMode _dayListMode = AgendaDayListMode.list;
 
+  /// The app's haptic setting, read with the panel's own settings and handed
+  /// to the drill-down for its year and month jumps.
+  bool _hapticFeedback = false;
+
   /// Where the upcoming agenda's look-ahead window starts.
   ///
   /// Owned here rather than read straight off `selectedDay`, because the
@@ -185,11 +189,13 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
     final mode = await settings.getCalendarPanelMode();
     final filters = await settings.getUpcomingAgendaFilters();
     final dayListMode = await settings.getAgendaDayListMode();
+    final haptics = await settings.getHapticFeedback();
     if (!mounted) return;
     final now = DateTime.now();
     setState(() {
       _mode = mode;
       _dayListMode = dayListMode;
+      _hapticFeedback = haptics;
       _filters = filters.withoutElapsedRange(
         DateTime.utc(now.year, now.month, now.day),
       );
@@ -402,6 +408,7 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
           occurrenceRevision: loaded.occurrenceRevision,
           membershipRevision: loaded.membershipRevision,
           missedDisplay: widget.missedDisplay,
+          hapticFeedback: _hapticFeedback,
         );
     }
   }

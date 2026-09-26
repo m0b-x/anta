@@ -5,12 +5,14 @@ import '../constants/app_colors.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_colors.dart';
 import '../constants/calendar_icons.dart';
+import '../constants/event_presence.dart';
 import '../constants/fasting_calendar.dart';
 import '../constants/public_holidays.dart';
 import '../constants/event_priorities.dart';
 import '../l10n/app_localizations.dart';
 import '../models/agenda_day_list.dart';
 import '../models/calendar_appearance.dart';
+import '../models/calendar_category.dart';
 import '../models/calendar_event.dart';
 import '../models/day_summary_entry.dart';
 import '../models/fasting_appearance.dart';
@@ -306,20 +308,23 @@ int _summaryPriority(AgendaRow row) => switch (row) {
 
 /// The card standing in for one category's whole window of events.
 ///
-/// Icon, colour and title come from the category itself, so the card carries
-/// the same identity its rows do. The count leads with **distinct events**
-/// because a daily event across ninety days is one event, not ninety; the
-/// occurrence tally follows, and only when it says something the event count
-/// does not — a category of one-time events would just repeat itself.
+/// The title is the category's; the icon and colour are the ones its rows
+/// wear when every event behind the card wears the same — a card standing for
+/// one custom-coloured event must not repaint it in the category's colour —
+/// and the category's own once the events disagree, since a mixed set has no
+/// single look to show. The count leads with **distinct events** because a
+/// daily event across ninety days is one event, not ninety; the occurrence
+/// tally follows, and only when it says something the event count does not.
 DaySummaryEntry _eventSummaryEntry(
   EventCategorySummary summary,
   AppLocalizations l10n,
 ) {
   final category = CalendarCategories.resolve(summary.categoryId);
+  final look = _cardLook(summary, category);
   return DaySummaryEntry(
     key: 'category:${summary.categoryId}',
-    icon: CalendarIcons.forKey(category.iconKey) ?? Icons.event_rounded,
-    color: category.color,
+    icon: look.icon,
+    color: look.color,
     title: CalendarCategories.labelOf(category, l10n),
     subtitle: [
       l10n.upcomingEventCount(summary.eventCount),
@@ -329,6 +334,42 @@ DaySummaryEntry _eventSummaryEntry(
     // The event band, so category cards lead the holiday (150) and fasting
     // (160) ones — the same order the day panel ranks these three in.
     priority: 0,
+  );
+}
+
+/// The icon and colour shared by every distinct event behind a category card,
+/// each falling back to the category's own the moment two events differ.
+///
+/// The colour rule is [EventSummaryProvider.colorFor], the one every event
+/// row applies, so the card and the rows in its drill-down agree.
+({IconData icon, Color color}) _cardLook(
+  EventCategorySummary summary,
+  CalendarCategory category,
+) {
+  IconData? icon;
+  Color? color;
+  var iconMixed = false;
+  var colorMixed = false;
+  final seen = <String>{};
+  for (final occurrence in summary.occurrences) {
+    final event = occurrence.event;
+    if (!seen.add(event.id)) continue;
+    final eventIcon = CalendarCategories.iconFor(event);
+    final eventColor = EventSummaryProvider.colorFor(event, category);
+    if (icon == null) {
+      icon = eventIcon;
+      color = eventColor;
+      continue;
+    }
+    if (icon != eventIcon) iconMixed = true;
+    if (color != eventColor) colorMixed = true;
+    if (iconMixed && colorMixed) break;
+  }
+  return (
+    icon: icon == null || iconMixed
+        ? CalendarIcons.forKey(category.iconKey) ?? Icons.event_rounded
+        : icon,
+    color: color == null || colorMixed ? category.color : color,
   );
 }
 
@@ -649,7 +690,7 @@ class AgendaListView extends StatelessWidget {
   static List<AgendaDayListEntry> eventDayEntries(
     List<EventOccurrence> occurrences,
     AppLocalizations l10n,
-    void Function(CalendarEvent event, DateTime day) onEditEvent, {
+    void Function(CalendarEvent event, DateTime day)? onEditEvent, {
     required bool showRecurrenceLabels,
     required CalendarMissedDisplay missedDisplay,
   }) {
@@ -660,8 +701,8 @@ class AgendaListView extends StatelessWidget {
     final hideMissed = missedDisplay == CalendarMissedDisplay.hidden;
     return [
       for (final occurrence in occurrences)
-        if (provider.summaryFor(occurrence.day, [occurrence.event]).firstOrNull
-            case final entry?)
+        if (provider.entryFor(occurrence.event, occurrence.day)
+            case final entry)
           if (!hideMissed || !entry.missed)
             AgendaDayListEntry(
               day: occurrence.day,
@@ -669,10 +710,56 @@ class AgendaListView extends StatelessWidget {
               color: entry.color,
               title: entry.title,
               subtitle: entry.subtitle,
-              onEdit: () => onEditEvent(occurrence.event, occurrence.day),
+              onEdit: onEditEvent == null
+                  ? null
+                  : () => onEditEvent(occurrence.event, occurrence.day),
               missed: entry.missed,
+              eventId: occurrence.event.id,
             ),
     ];
+  }
+
+  /// [eventDayEntries] reduced to marks: the day, the colour the row would
+  /// wear and whether it was missed, with hidden missed occurrences dropped
+  /// under the same rule. What a year of tiles is built from, so a year page
+  /// costs the scan and never a localized row.
+  static List<AgendaDayMark> eventDayMarks(
+    List<EventOccurrence> occurrences, {
+    required CalendarMissedDisplay missedDisplay,
+  }) {
+    final hideMissed = missedDisplay == CalendarMissedDisplay.hidden;
+    final marks = <AgendaDayMark>[];
+    for (final occurrence in occurrences) {
+      final event = occurrence.event;
+      final missed =
+          EventPresence.appliesTo(event) &&
+          EventPresence.isMissed(event, occurrence.day);
+      if (hideMissed && missed) continue;
+      marks.add(
+        AgendaDayMark(
+          day: occurrence.day,
+          color: EventSummaryProvider.colorFor(
+            event,
+            CalendarCategories.resolve(event.categoryId),
+          ),
+          missed: missed,
+        ),
+      );
+    }
+    return marks;
+  }
+
+  static List<AgendaDayMark> holidayDayMarks(List<DateTime> days) => [
+    for (final day in days)
+      AgendaDayMark(day: day, color: CalendarColors.publicHoliday),
+  ];
+
+  static List<AgendaDayMark> fastingDayMarks(
+    FastingTradition tradition,
+    List<DateTime> days,
+  ) {
+    final color = FastingCalendar.colorOf(tradition);
+    return [for (final day in days) AgendaDayMark(day: day, color: color)];
   }
 
   /// The holiday card's drill-down: one row per holiday, the name alone —
@@ -1109,22 +1196,17 @@ class _AgendaCard extends StatelessWidget {
     final description = entry.description;
     final range = secondaryLine;
 
-    return Card(
-      // The browser's row-group tone over the panel's page ground — see
-      // `CalendarBottomPanel.build`.
-      color: theme.colorScheme.rowGroup,
-      margin: EdgeInsets.zero,
-      clipBehavior: Clip.antiAlias,
-      child: Opacity(
-        opacity: missed ? CalendarColors.missedEventAlpha : 1.0,
-        child: Stack(
+    // `RenderOpacity` composites its own layer for any alpha above zero, so a
+    // full-strength card must not be wrapped at all: only a missed row pays
+    // for the fade.
+    final body = Stack(
           children: [
             Positioned(
               left: 0,
               top: 0,
               bottom: 0,
               width: 4,
-              child: Container(color: entry.color),
+              child: Container(color: entry.stripeColor),
             ),
             Padding(
               padding: const EdgeInsets.only(left: 4),
@@ -1222,8 +1304,17 @@ class _AgendaCard extends StatelessWidget {
               ),
             ),
           ],
-        ),
-      ),
+        );
+
+    return Card(
+      // The browser's row-group tone over the panel's page ground — see
+      // `CalendarBottomPanel.build`.
+      color: theme.colorScheme.rowGroup,
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      child: missed
+          ? Opacity(opacity: CalendarColors.missedEventAlpha, child: body)
+          : body,
     );
   }
 }

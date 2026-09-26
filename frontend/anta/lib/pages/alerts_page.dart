@@ -15,6 +15,7 @@ import '../models/app_permission.dart';
 import '../models/event_alert.dart';
 import '../services/alert_scheduler.dart';
 import '../services/app_navigator.dart';
+import '../services/day_summary_resolver.dart';
 import '../services/permission_service.dart';
 import '../utils/custom_snackbar.dart';
 import '../widgets/agenda_list_view.dart';
@@ -415,7 +416,10 @@ class _AlertHubRow extends StatelessWidget {
     final isAlarm = entry.alert.mode == AlertMode.ring;
     final original = entry.originalFireAt;
     final dim = enabled || entry.isSnoozed ? 1.0 : _disabledAlpha;
-    final tint = CalendarCategories.resolve(entry.event.categoryId).color;
+    final tint = EventSummaryProvider.colorFor(
+      entry.event,
+      CalendarCategories.resolve(entry.event.categoryId),
+    );
     final describe = entry.alert.describe(l10n, entry.event);
 
     return Card(
@@ -581,7 +585,10 @@ class _AlertHistoryRow extends StatelessWidget {
     final missed = entry.outcome == AlertOutcome.missed;
     final tint = event == null
         ? colorScheme.onSurfaceVariant
-        : CalendarCategories.resolve(event.categoryId).color;
+        : EventSummaryProvider.colorFor(
+            event,
+            CalendarCategories.resolve(event.categoryId),
+          );
     final describe = event == null || alert == null
         ? null
         : alert.describe(l10n, event);

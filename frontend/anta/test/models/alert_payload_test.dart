@@ -31,6 +31,43 @@ void main() {
     expect(AlertPayload.decode(payload.encode()), payload);
   });
 
+  test('the tint flag rides along and reads as on when absent', () {
+    final untinted = AlertPayload(
+      database: 'gym_notes',
+      eventId: 'e1',
+      alertId: 'a1',
+      dayUtcMs: 1789862400000,
+      osId: 1234,
+      mode: AlertMode.ring,
+      title: 'Leg day',
+      timeLabel: '18:00',
+      colorValue: 0xFF00FF00,
+      tintIcon: false,
+      categoryId: 'gym',
+    );
+
+    expect(AlertPayload.decode(untinted.encode())!.tintIcon, isFalse);
+    expect(untinted.copyWith(snooze: true).tintIcon, isFalse);
+
+    // An entry armed before the flag existed carries no key: the model's own
+    // default, so nothing already on the phone changes colour.
+    final legacy = payloadOf().toJson()..remove('tintIcon');
+    expect(AlertPayload.fromJson(legacy)!.tintIcon, isTrue);
+  });
+
+  test('the icon colour follows the in-app rule', () {
+    const category = 0xFF0000FF;
+    expect(payloadOf().iconColorValue(category), 0xFF00FF00);
+    final untinted = AlertPayload.fromJson(
+      payloadOf().toJson()..['tintIcon'] = false,
+    )!;
+    expect(untinted.iconColorValue(category), category);
+    final plain = AlertPayload.fromJson(
+      payloadOf().toJson()..['colorValue'] = null,
+    )!;
+    expect(plain.iconColorValue(category), category);
+  });
+
   test('the occurrence day comes back as date-only UTC', () {
     expect(payloadOf().dayUtc, DateTime.utc(2026, 9, 20));
     expect(payloadOf().dayUtc.isUtc, isTrue);

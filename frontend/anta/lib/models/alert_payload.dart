@@ -22,6 +22,7 @@ abstract final class AlertPayloadKeys {
   static const String title = 'title';
   static const String timeLabel = 'timeLabel';
   static const String colorValue = 'colorValue';
+  static const String tintIcon = 'tintIcon';
   static const String iconKey = 'iconKey';
   static const String categoryId = 'categoryId';
   static const String removeAfterAlert = 'removeAfterAlert';
@@ -71,6 +72,12 @@ class AlertPayload extends Equatable {
   /// The event's own colour override, or null to resolve from the category.
   final int? colorValue;
 
+  /// Whether [colorValue] also tints the icon — the rule every in-app icon
+  /// surface applies, carried so the alarm page and the notification agree
+  /// with them. Absent in entries written before it existed, which read as
+  /// the model's own default.
+  final bool tintIcon;
+
   /// The event's own icon override, or null for the category's icon.
   final String? iconKey;
 
@@ -112,6 +119,7 @@ class AlertPayload extends Equatable {
     required this.title,
     required this.timeLabel,
     this.colorValue,
+    this.tintIcon = true,
     this.iconKey,
     required this.categoryId,
     this.removeAfterAlert = false,
@@ -141,6 +149,13 @@ class AlertPayload extends Equatable {
 
   bool get isAlarm => mode == AlertMode.ring;
 
+  /// The colour the payload's icon wears, by the one icon rule: its own
+  /// colour only while it tints the icon, else the category's.
+  int iconColorValue(int categoryColorValue) {
+    final own = colorValue;
+    return own != null && tintIcon ? own : categoryColorValue;
+  }
+
   AlertPayload copyWith({
     int? osId,
     String? timeLabel,
@@ -159,6 +174,7 @@ class AlertPayload extends Equatable {
       title: title,
       timeLabel: timeLabel ?? this.timeLabel,
       colorValue: colorValue,
+      tintIcon: tintIcon,
       iconKey: iconKey,
       categoryId: categoryId,
       removeAfterAlert: removeAfterAlert ?? this.removeAfterAlert,
@@ -179,6 +195,7 @@ class AlertPayload extends Equatable {
     AlertPayloadKeys.title: title,
     AlertPayloadKeys.timeLabel: timeLabel,
     AlertPayloadKeys.colorValue: colorValue,
+    AlertPayloadKeys.tintIcon: tintIcon,
     AlertPayloadKeys.iconKey: iconKey,
     AlertPayloadKeys.categoryId: categoryId,
     AlertPayloadKeys.removeAfterAlert: removeAfterAlert,
@@ -219,6 +236,9 @@ class AlertPayload extends Equatable {
       colorValue: map[AlertPayloadKeys.colorValue] is int
           ? map[AlertPayloadKeys.colorValue] as int
           : null,
+      tintIcon: map[AlertPayloadKeys.tintIcon] is bool
+          ? map[AlertPayloadKeys.tintIcon] as bool
+          : true,
       iconKey: map[AlertPayloadKeys.iconKey] is String
           ? map[AlertPayloadKeys.iconKey] as String
           : null,

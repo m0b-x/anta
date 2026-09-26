@@ -7,6 +7,7 @@ import '../constants/event_presence.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
+import '../services/day_summary_resolver.dart';
 import '../services/event_time_formatter.dart';
 import '../utils/day_timeline_layout.dart';
 import 'agenda_list_view.dart';
@@ -178,7 +179,10 @@ class _DayTimelineViewState extends State<DayTimelineView> {
                           avatar: Icon(
                             CalendarCategories.iconFor(event),
                             size: 18,
-                            color: _colorFor(event),
+                            color: EventSummaryProvider.colorFor(
+                              event,
+                              CalendarCategories.resolve(event.categoryId),
+                            ),
                           ),
                           label: Text(event.title),
                           visualDensity: VisualDensity.compact,

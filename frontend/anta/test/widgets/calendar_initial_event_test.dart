@@ -12,6 +12,7 @@ import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_event.dart';
+import 'package:anta/models/calendar_selection_source.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/pages/calendar_page.dart';
 import 'package:anta/repositories/folder_repository.dart';
@@ -95,7 +96,14 @@ void main() {
     );
     // The create handler selects the new event's day; put the selection back
     // on today so the test is about `initialDay`, not about that side effect.
-    await dispatch(const LoadCalendarEvents());
+    // An explicit selection, because a reload keeps the day the user is on.
+    await dispatch(
+      SelectCalendarDay(
+        day: today,
+        focusedDay: today,
+        source: CalendarSelectionSource.navigation,
+      ),
+    );
 
     final noteRepository = NoteRepository(database: testDb);
     final folderRepository = FolderRepository(database: testDb);

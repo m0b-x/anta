@@ -32,6 +32,7 @@ abstract final class SemanticsIds {
   /// Drawer destinations.
   static const String drawerSettings = 'drawer-settings';
   static const String drawerCalendar = 'drawer-calendar';
+  static const String drawerCalendarOverview = 'drawer-calendar-overview';
   static const String drawerAlerts = 'drawer-alerts';
   static const String drawerPermissions = 'drawer-permissions';
 
@@ -50,9 +51,10 @@ abstract final class SemanticsIds {
   static const String settingsAppearance = 'settings-appearance';
   static const String settingsDatabases = 'settings-databases';
 
-  /// The calendar's two controls that are not a day cell.
+  /// The calendar's controls that are not a day cell.
   static const String calendarToday = 'calendar-today';
   static const String calendarAddEvent = 'calendar-add-event';
+  static const String calendarOverviewOpen = 'calendar-overview-open';
 
   /// The colour-label swatch strip, in whichever sheet raised it.
   static const String labelPicker = 'label-picker';

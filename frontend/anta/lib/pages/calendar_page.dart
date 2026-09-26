@@ -1106,6 +1106,14 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
                   );
                 },
               ),
+              Semantics(
+                identifier: SemanticsIds.calendarOverviewOpen,
+                child: IconButton(
+                  tooltip: l10n.calendarOverview,
+                  icon: const Icon(Icons.grid_view_rounded),
+                  onPressed: () => AppNavigator.toCalendarOverview(context),
+                ),
+              ),
               IconButton(
                 tooltip: l10n.calendarSettings,
                 icon: const Icon(Icons.settings_outlined),

@@ -1163,58 +1163,33 @@ class SettingsService {
     return UpcomingAgendaFilters.decodeCategories(raw);
   }
 
-  /// Persists every upcoming-agenda filter. Callers debounce the text query
-  /// themselves; the discrete choices are cheap enough to write on change.
+  /// Persists every upcoming-agenda filter in **one transaction**. Callers
+  /// debounce the text query themselves and fire this without awaiting, so
+  /// two saves in flight must not interleave key by key: thirteen sequential
+  /// writes could leave a restart with half of each.
   Future<void> saveUpcomingAgendaFilters(UpcomingAgendaFilters filters) async {
-    await _db.userSettingsDao.setValue(
-      SettingsKeys.calendarUpcomingPeriodMode,
-      filters.periodMode.name,
-    );
-    await _setInt(SettingsKeys.calendarUpcomingRangeDays, filters.rangeDays);
-    await _db.userSettingsDao.setValue(
-      SettingsKeys.calendarUpcomingPriorities,
-      UpcomingAgendaFilters.encodePriorities(filters.priorities),
-    );
-    await _db.userSettingsDao.setValue(
-      SettingsKeys.calendarUpcomingCustomRange,
-      UpcomingAgendaFilters.encodeRange(filters.customStart, filters.customEnd),
-    );
-    await _db.userSettingsDao.setValue(
-      SettingsKeys.calendarUpcomingQuery,
-      filters.query,
-    );
-    await _setBool(
-      SettingsKeys.calendarUpcomingShowHolidays,
-      filters.showHolidays,
-    );
-    await _setBool(
-      SettingsKeys.calendarUpcomingShowFasting,
-      filters.showFasting,
-    );
-    await _db.userSettingsDao.setValue(
-      SettingsKeys.calendarUpcomingEventDisplay,
-      filters.eventDisplay.name,
-    );
-    await _db.userSettingsDao.setValue(
-      SettingsKeys.calendarUpcomingFastingDisplay,
-      filters.fastingDisplay.name,
-    );
-    await _db.userSettingsDao.setValue(
-      SettingsKeys.calendarUpcomingHolidayDisplay,
-      filters.holidayDisplay.name,
-    );
-    await _setBool(
-      SettingsKeys.calendarUpcomingFollowSelectedDay,
-      filters.followSelectedDay,
-    );
-    await _db.userSettingsDao.setValue(
-      SettingsKeys.calendarUpcomingEventType,
-      filters.eventType.name,
-    );
-    await _db.userSettingsDao.setValue(
-      SettingsKeys.calendarUpcomingCategories,
-      UpcomingAgendaFilters.encodeCategories(filters.categoryIds),
-    );
+    await _db.userSettingsDao.setValues({
+      SettingsKeys.calendarUpcomingPeriodMode: filters.periodMode.name,
+      SettingsKeys.calendarUpcomingRangeDays: filters.rangeDays.toString(),
+      SettingsKeys.calendarUpcomingPriorities:
+          UpcomingAgendaFilters.encodePriorities(filters.priorities),
+      SettingsKeys.calendarUpcomingCustomRange: UpcomingAgendaFilters.encodeRange(
+        filters.customStart,
+        filters.customEnd,
+      ),
+      SettingsKeys.calendarUpcomingQuery: filters.query,
+      SettingsKeys.calendarUpcomingShowHolidays: filters.showHolidays
+          .toString(),
+      SettingsKeys.calendarUpcomingShowFasting: filters.showFasting.toString(),
+      SettingsKeys.calendarUpcomingEventDisplay: filters.eventDisplay.name,
+      SettingsKeys.calendarUpcomingFastingDisplay: filters.fastingDisplay.name,
+      SettingsKeys.calendarUpcomingHolidayDisplay: filters.holidayDisplay.name,
+      SettingsKeys.calendarUpcomingFollowSelectedDay: filters.followSelectedDay
+          .toString(),
+      SettingsKeys.calendarUpcomingEventType: filters.eventType.name,
+      SettingsKeys.calendarUpcomingCategories:
+          UpcomingAgendaFilters.encodeCategories(filters.categoryIds),
+    });
   }
 
   // Calendar - Which mode the bottom panel was left in.
@@ -1247,6 +1222,58 @@ class SettingsService {
   Future<void> setAgendaDayListMode(AgendaDayListMode mode) async {
     await _db.userSettingsDao.setValue(
       SettingsKeys.calendarDayListMode,
+      mode.name,
+    );
+  }
+
+  static const List<String> _calendarOverviewKeys = [
+    ..._calendarAppearanceKeys,
+    SettingsKeys.calendarOverviewCategories,
+    SettingsKeys.calendarOverviewMode,
+    SettingsKeys.hapticFeedback,
+  ];
+
+  /// Everything the calendar overview page needs before it can paint, in one
+  /// statement — the appearance through the same decoder the calendar page
+  /// uses, the page's own two settings, and the haptic switch its jumps obey.
+  Future<
+    ({
+      CalendarAppearance appearance,
+      Set<String> categoryIds,
+      AgendaDayListMode mode,
+      bool hapticFeedback,
+    })
+  >
+  getCalendarOverviewSettings() async {
+    final values = await _db.userSettingsDao.getValuesFor(
+      _calendarOverviewKeys,
+    );
+    return (
+      appearance: _decodeCalendarAppearance(values),
+      categoryIds: UpcomingAgendaFilters.decodeCategories(
+        values[SettingsKeys.calendarOverviewCategories] ?? '',
+      ),
+      mode: AgendaDayListMode.fromName(
+        values[SettingsKeys.calendarOverviewMode] ??
+            SettingsKeys.defaultCalendarOverviewMode,
+      ),
+      hapticFeedback: _decodeBool(
+        values[SettingsKeys.hapticFeedback],
+        SettingsKeys.defaultHapticFeedback,
+      ),
+    );
+  }
+
+  Future<void> setCalendarOverviewCategories(Set<String> ids) async {
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.calendarOverviewCategories,
+      UpcomingAgendaFilters.encodeCategories(ids),
+    );
+  }
+
+  Future<void> setCalendarOverviewMode(AgendaDayListMode mode) async {
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.calendarOverviewMode,
       mode.name,
     );
   }

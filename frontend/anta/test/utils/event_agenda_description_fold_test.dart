@@ -65,6 +65,7 @@ void main() {
 
   setUp(() {
     OccurrenceDescriptions.resetCache();
+    EventAgenda.debugClearFoldCaches();
     EventAgenda.debugDescriptionFolds = 0;
   });
 
@@ -84,6 +85,30 @@ void main() {
       // not because the work was skipped.
       expect(result.length, 10 * windowDays);
       expect(EventAgenda.debugDescriptionFolds, 10);
+    });
+
+    test('a second scan over the same events folds nothing', () {
+      final events = [
+        for (var i = 0; i < 10; i++)
+          daily(id: 'e$i', description: 'Barbell squat programme'),
+      ];
+
+      scan(events, 'squat');
+      expect(EventAgenda.debugDescriptionFolds, 10);
+
+      // A keystroke pause: a new query over the same event objects reads the
+      // folds the first scan left behind.
+      expect(scan(events, 'barbell').length, 10 * windowDays);
+      expect(scan(events, 'deadlift'), isEmpty);
+      expect(EventAgenda.debugDescriptionFolds, 10);
+
+      // An edited event is a new object, and folds again.
+      final edited = [
+        for (final event in events)
+          event.copyWith(description: 'Front squat programme'),
+      ];
+      expect(scan(edited, 'front').length, 10 * windowDays);
+      expect(EventAgenda.debugDescriptionFolds, 20);
     });
 
     test('a non-matching template is also folded only once per event', () {

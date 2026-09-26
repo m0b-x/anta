@@ -135,7 +135,14 @@ class EventSearchQuery {
 
   int maskOf(String? text) {
     if (text == null || text.isEmpty || terms.isEmpty) return 0;
-    final folded = normalizeForSearch(text);
+    return maskOfFolded(normalizeForSearch(text));
+  }
+
+  /// [maskOf] over text the caller already folded through
+  /// `normalizeForSearch`, so a fold cached per event costs one `contains`
+  /// per term per keystroke instead of a normalization.
+  int maskOfFolded(String folded) {
+    if (folded.isEmpty || terms.isEmpty) return 0;
     var mask = 0;
     for (var i = 0; i < terms.length; i++) {
       if (folded.contains(terms[i])) mask |= 1 << i;
