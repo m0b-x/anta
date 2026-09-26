@@ -381,10 +381,11 @@
   "eventDescriptionPreviewOff": "Editează descrierea",
   "eventHasDescription": "Are notițe",
   "eventDetailsTitle": "Eveniment",
-  "eventDetailsNextOccurrences": "Următoarele apariții",
+  "eventTime": "Ora",
+  "eventDetailsNext": "Următoarea apariție",
+  "eventDetailsThen": "apoi {dates}",
+  "eventPresence": "Prezență",
   "eventDetailsNoOccurrences": "Nicio apariție viitoare",
-  "eventDetailsNoDescription": "Fără notițe pentru acest eveniment",
-  "eventDetailsSeriesStart": "Se repetă din {date}",
   "eventAppearance": "Pictogramă și culoare",
   "eventColor": "Culoare",
   "eventColorCustomTitle": "Culoare personalizată",
@@ -1642,6 +1643,5 @@
   "datePickerRepeatApply": "{count, plural, =0{Adaugă date} =1{Adaugă 1 dată} few{Adaugă {count} date} other{Adaugă {count} de date}}",
   "eventDatesNext": "Următoarea {date}",
   "eventDatesAhead": "{ahead} din {total} în viitor",
-  "eventDatesAllPast": "Toate în trecut",
-  "eventDetailsAllDates": "Toate cele {count} date"
+  "eventDatesAllPast": "Toate în trecut"
 }

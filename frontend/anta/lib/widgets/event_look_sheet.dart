@@ -9,7 +9,6 @@ import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_category.dart';
-import 'automation_id.dart';
 import 'color_swatch_picker.dart';
 import 'event_avatar.dart';
 import 'form_rows.dart';
@@ -43,10 +42,6 @@ class EventLookDraft extends Equatable {
 }
 
 abstract final class _LookMetrics {
-  static const double maxHeightFactor = 0.92;
-  static const double headerTrailingInset = 8;
-  static const double doneFontSize = 14;
-  static const EdgeInsets donePadding = EdgeInsets.symmetric(horizontal: 12);
   static const EdgeInsets iconRowPadding = EdgeInsets.symmetric(vertical: 8);
   static const EdgeInsets paletteRowPadding = EdgeInsets.fromLTRB(
     RowMetrics.groupInset,
@@ -87,7 +82,7 @@ class EventLookSheet extends StatefulWidget {
       builder: (context) => ConstrainedBox(
         constraints: BoxConstraints(
           maxHeight:
-              MediaQuery.sizeOf(context).height * _LookMetrics.maxHeightFactor,
+              MediaQuery.sizeOf(context).height * FormMetrics.sheetHeightFactor,
         ),
         child: EventLookSheet(draft: draft, category: category),
       ),
@@ -142,8 +137,6 @@ class _EventLookSheetState extends State<EventLookSheet> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
     final category = widget.category;
     final clearance = math.max(
       MediaQuery.viewInsetsOf(context).bottom,
@@ -160,22 +153,11 @@ class _EventLookSheetState extends State<EventLookSheet> {
           leadingTooltip: l10n.cancel,
           onLeading: () => Navigator.of(context).pop(),
           title: l10n.eventAppearance,
-          trailingInset: _LookMetrics.headerTrailingInset,
-          trailing: AutomationId(
+          trailingInset: FormMetrics.headerActionInset,
+          trailing: FormHeaderTextButton(
+            label: l10n.eventDescriptionDone,
             identifier: SemanticsIds.lookDone,
-            child: TextButton(
             onPressed: () => Navigator.of(context).pop(_draft),
-            style: TextButton.styleFrom(
-              foregroundColor: colorScheme.primary,
-              minimumSize: const Size(0, FormMetrics.headerHeight),
-              padding: _LookMetrics.donePadding,
-              textStyle: theme.textTheme.labelLarge?.copyWith(
-                fontSize: _LookMetrics.doneFontSize,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            child: Text(l10n.eventDescriptionDone),
-          ),
           ),
         ),
         Flexible(

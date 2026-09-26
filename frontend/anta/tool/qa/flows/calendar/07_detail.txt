@@ -1,0 +1,30 @@
+# The detail sheet in the editor's language (2026-09-26): today's weekly
+# session from the day panel — the title row, the description, WHEN, the
+# presence chips, Skip this day and the linked note — then the pinned-dates
+# event's bundled Dates row into the Dates sheet's list. Missed and back to
+# Present write through the bloc; Skip and the note row are only checked
+# present, because a skip removes the occurrence and the note pushes a page.
+tap id:event-row-qa-cal-lift
+wait id:event-detail-edit
+expect id:event-detail-description id:event-detail-present id:event-detail-missed id:event-detail-skip id:event-detail-note
+shot 07_detail_weekly
+tap id:event-detail-missed
+wait id:event-detail-present
+tap id:event-detail-present
+tap id:event-detail-close
+wait id:calendar-add-event
+tap "{{longdate+1}}"
+wait id:event-row-qa-cal-physio
+tap id:event-row-qa-cal-physio
+wait id:event-detail-dates
+expect id:event-detail-add-date --absent id:event-detail-present
+shot 07_detail_dates
+tap id:event-detail-dates
+wait id:date-picker-save
+shot 07_detail_dates_sheet
+tap id:date-picker-cancel
+wait id:event-detail-close
+tap id:event-detail-close
+wait id:calendar-add-event
+tap id:calendar-today
+errors

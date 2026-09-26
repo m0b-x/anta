@@ -163,24 +163,32 @@ class FormSheetHeader extends StatelessWidget {
       height: FormMetrics.headerHeight,
       child: Padding(
         padding: EdgeInsets.only(left: 4, right: trailingInset),
-        child: Row(
-          children: [
-            leading,
-            const SizedBox(width: 4),
-            Expanded(
-              child: Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontSize: FormMetrics.headerTitleSize,
-                  fontWeight: FontWeight.w500,
-                  color: colorScheme.onSurface,
+        child: LayoutBuilder(
+          builder: (context, constraints) => Row(
+            children: [
+              leading,
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontSize: FormMetrics.headerTitleSize,
+                    fontWeight: FontWeight.w500,
+                    color: colorScheme.onSurface,
+                  ),
                 ),
               ),
-            ),
-            trailing,
-          ],
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth:
+                      constraints.maxWidth * FormMetrics.headerActionMaxShare,
+                ),
+                child: trailing,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -205,6 +213,45 @@ class FormSheetHeader extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+/// The header's trailing text action: a sub-sheet's Done, the detail
+/// sheet's Edit. One widget rather than three hand-rolled `TextButton`s so
+/// the sheets in the detail loop share one size, one weight and one inset;
+/// the filled button stays the editor's alone, because it is the commit.
+class FormHeaderTextButton extends StatelessWidget {
+  final String label;
+  final VoidCallback? onPressed;
+  final String? identifier;
+
+  const FormHeaderTextButton({
+    super.key,
+    required this.label,
+    required this.onPressed,
+    this.identifier,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final button = TextButton(
+      onPressed: onPressed,
+      style: TextButton.styleFrom(
+        foregroundColor: theme.colorScheme.primary,
+        minimumSize: const Size(0, FormMetrics.headerHeight),
+        padding: FormMetrics.headerActionPadding,
+        textStyle: theme.textTheme.labelLarge?.copyWith(
+          fontSize: FormMetrics.headerActionFontSize,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+      child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+    );
+    if (identifier case final id?) {
+      return AutomationId(identifier: id, child: button);
+    }
+    return button;
   }
 }
 
@@ -371,6 +418,11 @@ class FormPickerRow extends FormDividedRow {
   final String? identifier;
   final bool subRow;
 
+  /// A line of the row's own data under the pair — the dates after the
+  /// next occurrence, never help text. It lives inside the row's ink well
+  /// and semantics node, so the row stays one target and one announcement.
+  final String? caption;
+
   @override
   final double dividerIndent;
 
@@ -389,6 +441,7 @@ class FormPickerRow extends FormDividedRow {
     this.semanticsLabel,
     this.identifier,
     this.subRow = false,
+    this.caption,
     this.dividerIndent = FormMetrics.dividerIndentGlyph,
   });
 
@@ -418,19 +471,39 @@ class FormPickerRow extends FormDividedRow {
     final leftInset = glyph == null && subRow
         ? FormMetrics.subRowInset
         : RowMetrics.groupInset;
-    Widget well = InkWell(
-      onTap: onTap,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: FormMetrics.rowMinHeight),
-        child: Padding(
-          padding: EdgeInsets.only(
-            left: leftInset,
-            right: button == null ? FormMetrics.rowEndPadding : 0,
-          ),
-          child: content,
-        ),
+    final rightInset = button == null ? FormMetrics.rowEndPadding : 0.0;
+    final line = ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: FormMetrics.rowMinHeight),
+      child: Padding(
+        padding: EdgeInsets.only(left: leftInset, right: rightInset),
+        child: content,
       ),
     );
+    final captionText = caption;
+    // The caption starts where the label starts, past the glyph column, so
+    // it reads as the value's continuation and not as a second row.
+    final body = captionText == null
+        ? line
+        : Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              line,
+              FormCaption(
+                text: captionText,
+                padding: EdgeInsets.only(
+                  left:
+                      leftInset +
+                      (glyph == null
+                          ? 0
+                          : FormMetrics.glyphSize + FormMetrics.gap),
+                  right: rightInset,
+                  bottom: FormMetrics.rowCaptionBottomPadding,
+                ),
+              ),
+            ],
+          );
+    Widget well = InkWell(onTap: onTap, child: body);
     if (semanticsLabel != null) {
       well = Semantics(
         label: semanticsLabel,
@@ -442,6 +515,12 @@ class FormPickerRow extends FormDividedRow {
     }
     if (identifier case final id?) {
       well = AutomationId(identifier: id, child: well);
+    } else {
+      // A row is one announcement — label, value, caption — whether or not
+      // a driver needs an id on it (`AutomationId` merges for the ones that
+      // do). The trailing button below stays a sibling, so a two-target row
+      // keeps its second node.
+      well = MergeSemantics(child: well);
     }
     if (button == null) return well;
     return Row(
@@ -688,12 +767,17 @@ class FormChip extends StatelessWidget {
   final VoidCallback onTap;
   final double tapTarget;
 
+  /// A `SemanticsIds` value for a chip a device script has to hit by id —
+  /// the presence pair, whose labels change with the locale.
+  final String? identifier;
+
   const FormChip({
     super.key,
     required this.label,
     required this.selected,
     required this.onTap,
     this.tapTarget = FormMetrics.chipTapTarget,
+    this.identifier,
   });
 
   @override
@@ -705,7 +789,7 @@ class FormChip extends StatelessWidget {
         color: selected ? Colors.transparent : colorScheme.outlineVariant,
       ),
     );
-    return Semantics(
+    final chip = Semantics(
       button: true,
       selected: selected,
       child: _TapTargetPadding(
@@ -739,6 +823,10 @@ class FormChip extends StatelessWidget {
         ),
       ),
     );
+    if (identifier case final id?) {
+      return AutomationId(identifier: id, child: chip);
+    }
+    return chip;
   }
 }
 
@@ -806,27 +894,119 @@ class FormChipRow extends FormDividedRow {
   final List<Widget> chips;
   final Widget? caption;
 
-  const FormChipRow({super.key, required this.chips, this.caption});
+  /// With a [label] the row stands on its own — `[glyph] label … chips` on
+  /// one line, the chips dropping under the label when the two do not fit
+  /// (the `FormLabelValue` wrap) — instead of being the sub-row a switch
+  /// reveals. The detail sheet's presence pair is the one such row.
+  final IconData? glyph;
+  final String? label;
+
+  const FormChipRow({
+    super.key,
+    required this.chips,
+    this.caption,
+    this.glyph,
+    this.label,
+  });
 
   @override
   double get dividerIndent => FormMetrics.dividerIndentGlyph;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: FormMetrics.chipRowPadding,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Wrap(
-            spacing: FormMetrics.chipSpacing,
-            runSpacing: 0,
-            children: chips,
-          ),
-          if (caption case final text?) ...[const SizedBox(height: 8), text],
-        ],
+    final chipWrap = Wrap(
+      spacing: FormMetrics.chipSpacing,
+      runSpacing: 0,
+      children: chips,
+    );
+    final labelText = label;
+    if (labelText == null) {
+      return Padding(
+        padding: FormMetrics.chipRowPadding,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            chipWrap,
+            if (caption case final text?) ...[const SizedBox(height: 8), text],
+          ],
+        ),
+      );
+    }
+    final colorScheme = Theme.of(context).colorScheme;
+    final icon = glyph;
+    final labelIndent = icon == null
+        ? 0.0
+        : FormMetrics.glyphSize + FormMetrics.gap;
+    final line = ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: FormMetrics.rowMinHeight),
+      child: Padding(
+        padding: const EdgeInsets.only(
+          left: RowMetrics.groupInset,
+          right: FormMetrics.rowEndPadding,
+        ),
+        child: Row(
+          children: [
+            if (icon != null) ...[
+              FormGlyph(icon: icon),
+              const SizedBox(width: FormMetrics.gap),
+            ],
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) => Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: FormMetrics.gap,
+                  runSpacing: 0,
+                  children: [
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: constraints.maxWidth,
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          vertical: FormMetrics.pairVerticalPadding,
+                        ),
+                        child: Text(
+                          labelText,
+                          style: TextStyle(
+                            fontSize: FormMetrics.labelSize,
+                            height: 20 / FormMetrics.labelSize,
+                            color: colorScheme.onSurface,
+                          ),
+                        ),
+                      ),
+                    ),
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: constraints.maxWidth,
+                      ),
+                      child: chipWrap,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
+    );
+    final captionWidget = caption;
+    if (captionWidget == null) return line;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        line,
+        Padding(
+          padding: EdgeInsets.only(
+            left: RowMetrics.groupInset + labelIndent,
+            right: RowMetrics.groupInset,
+            bottom: FormMetrics.rowCaptionBottomPadding,
+          ),
+          child: captionWidget,
+        ),
+      ],
     );
   }
 }

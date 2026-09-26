@@ -95,7 +95,7 @@ calendar state around today:
 
 ```bash
 ./tool/qa/qa relaunch --fresh --seed tool/qa/fixtures/calendar.json   # ~2.5 s; `run` instead after a lib change
-./tool/qa/qa flows calendar                                           # seven flows, ~35 s on the simulator
+./tool/qa/qa flows calendar                                           # eight flows, ~40 s on the simulator
 ./tool/qa/qa flows calendar/03_dates                                  # one flow; --keep-going runs past a failure
 ```
 
@@ -116,7 +116,7 @@ locale=de --setting theme_mode=dark` is the matrix at launch.
 
 The flows live in `tool/qa/flows/calendar/*.txt`, one per checklist item
 (open, new event, editor sub-sheets and the dirty guard, the Dates sheet,
-the alert cap, the overview page, the accessibility matrix), each ending in
+the alert cap, the overview page, the accessibility matrix, the detail sheet), each ending in
 `expect`s, a `shot` and `errors`. **A flow is updated in the same slice that
 changes its screen**, and the last slice of a calendar rework runs
 `flows calendar` (the `ui-revamp` gate). Every flow starts and ends on the
@@ -158,8 +158,7 @@ resolve — that is what they are for.
 its chrome (`event-close`, `event-save`, `event-save-as-template`,
 `event-delete`) and its scrolling body (`event-form`); the sub-sheets' Done
 (`repeat-done`, `look-done`); the Dates sheet (`date-picker-save`,
-`date-picker-cancel`); the detail sheet (`event-detail-edit`,
-`event-detail-close`); and **a day-panel row by its event id**
+`date-picker-cancel`); the detail sheet (`event-detail-edit`, `event-detail-close`, and since 2026-09-26 `event-detail-description`, `event-detail-present`, `event-detail-missed`, `event-detail-skip`, `event-detail-add-date`, `event-detail-dates`, `event-detail-note`); and **a day-panel row by its event id**
 (`event-row-<eventId>`, e.g. `id:event-row-qa-cal-lift` for the seed's
 weekly session). A title is never a safe target on the calendar page:
 every marked day cell's marker label carries the titles of its events, so

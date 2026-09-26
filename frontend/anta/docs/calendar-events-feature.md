@@ -1086,9 +1086,13 @@ that sharing is deliberate.
 
 Tapping a row — in the day panel **or** the timeline, which render the same
 day and so must agree — opens the **read-only**
-[`EventDetailSheet`](../lib/widgets/event_detail_sheet.dart):
-title, category, date/time, recurrence (with scope), priority, the fully
-rendered description, the linked-note button, and the next 5 occurrences.
+[`EventDetailSheet`](../lib/widgets/event_detail_sheet.dart) — since
+2026-09-26 the editor's twin (design record
+[`event-detail-sheet-redesign-roadmap.md`](event-detail-sheet-redesign-roadmap.md),
+the addendum of that date): the same chrome, the editor's groups in the
+editor's order with the editor's glyphs — the title row with the category as
+its caption, the description in full, WHEN, OCCURRENCES, ALERTS, DETAILS —
+under the read rule that a row exists only while it carries a fact.
 Editing is one button away: `EventDetailAction.edit` opens the full editor
 sheet and `.editDescription` opens a dedicated full-screen sheet for just
 that field (§6.6 and the 2026-08-31 addendum) — both reopen this sheet on
@@ -1096,7 +1100,8 @@ return, so a follow-up glance costs no extra tap. `.skipOccurrence` cancels
 the occurrence with Undo, and opening the linked note routes through the
 page's existing resolver.
 "Read-only" has one exception: description checkboxes on **single-occurrence**
-events toggle in place and write back through `onEventChanged` (§6.6).
+events (or with per-day descriptions on) toggle in place and write back
+through `onEventChanged` / `onOccurrenceChanged` (§6.6).
 
 ### 6.3 [`EventEditorSheet`](../lib/widgets/event_editor_sheet.dart)
 
@@ -2596,11 +2601,11 @@ individually). `AgendaListView` is a stateless renderer of `rows`. The day
 summary panel's count is deliberately unchanged — it always shows missed
 rows, so its count already matches its screen.
 
-Detail sheet: the date row shows the opened occurrence day (`widget.day`;
-the presence toggle directly beneath marks that date), and a label-less
-`Icons.event_repeat_rounded` row — `eventDetailsSeriesStart`, "Repeats
-since {date}" — follows the recurrence-pattern row for recurring events
-whose series anchor differs.
+Detail sheet: the Date row shows the opened occurrence day (`widget.day`;
+the presence chips directly beneath mark that date), and a Start date row
+(`eventDate`; until 2026-09-26 a label-less `Icons.event_repeat_rounded`
+row reading "Repeats since {date}") follows the Repeat row for recurring
+events whose series anchor differs.
 
 Design record: `docs/calendar-cloud-readiness-roadmap.md`.
 
@@ -5481,3 +5486,154 @@ the general settings page is `SettingsPage`.
 - [lib/widgets/agenda_day_list_rows.dart](../lib/widgets/agenda_day_list_rows.dart) (`AgendaDayListRow` / `buildAgendaDayListRows` / `AgendaDayListRowView` / `agendaDayListCountLabel`), [lib/widgets/agenda_period_nav.dart](../lib/widgets/agenda_period_nav.dart) (`AgendaPeriodNav`: chevron | title + count | today slot | chevron, one row for months and years), [lib/widgets/agenda_month_grid.dart](../lib/widgets/agenda_month_grid.dart) (`AgendaMonthGrid`, the mini `TableCalendar` over cache-only `hasEntry`/`barsFor`, plus `maxBarsFor`/`rowHeightFor`) and [lib/widgets/agenda_year_grid.dart](../lib/widgets/agenda_year_grid.dart) (`AgendaYearTile.ofWindow` / `.ofMonth(perDayColors:)` + `AgendaYearGrid`) — the drill-down's three bodies, extracted 2026-09-26 so the sheet and the overview page render one piece of code. `MonthDotMatrix.dayColors` (index `day − 1`, missed days faded through `dayMissedAlpha`) is what lets a tile of several categories paint every day in its **top entry's** colour; the sheet passes none and keeps the card colour.
 
 - [lib/pages/calendar_overview_page.dart](../lib/pages/calendar_overview_page.dart) — **the calendar overview (2026-09-26)**: the drill-down's Year / Month / List presentations standalone, over whole calendar years paged with `AgendaPeriodNav` (bounded by `CalendarBounds`), a category **allowlist** (`CategoryFilterTile` → `CategoryPickerSheet.pickMulti`, empty = all, the agenda's inversion rule) and a debounced search (`EventSearchQuery`). Reached from the drawer (`SemanticsIds.drawerCalendarOverview`) and the calendar app bar (`SemanticsIds.calendarOverviewOpen`) via `AppNavigator.toCalendarOverview`; `NavDestinationKind.calendarOverview` restores it. **It owns no data**: events come from the app-wide `CalendarBloc` (adopted from `state` in `didChangeDependencies`, re-adopted through a `BlocListener` on `allEvents` identity and the three revisions, spinner until `CalendarPageLoaded`), every resolver input funnels through `_rebuild` (a fresh `AgendaMonthStore`, resolved for the shown presentation), and every row tap leads back to the calendar through `AppNavigator.toCalendarOccurrence` (the alerts hub's rule) — no editor, no detail sheet, no pencils (`AgendaListView.eventDayEntries` takes a nullable `onEditEvent` and stamps `AgendaDayListEntry.eventId` for exactly this). Persisted: the allowlist (`calendar_overview_categories`) and the mode (`calendar_overview_mode`, default `year`) through `SettingsService.getCalendarOverviewSettings()` (one bulk read with the appearance); the year and the search are session-only. It ignores the grid's `CalendarGridFilters` on purpose — its own allowlist is the control. `test/widgets/calendar_overview_page_test.dart` drives it through `CalendarOverviewPage.forTesting(openOccurrence:)`.
+
+## Addendum (2026-09-26, later): the event detail sheet in the editor's language
+
+Design record: [`event-detail-sheet-redesign-roadmap.md`](event-detail-sheet-redesign-roadmap.md)
+(decisions E1–E15; the owner approved the argued proposal whole and delegated
+its three lettered questions, so the recommended option stands on each).
+Design source: the canvas "Event editor layout", page **Detail sheet**, the
+D boards.
+
+**Why.** The editor was redesigned the day before, and the detail sheet — the
+surface the editor is reached *from* and reopened *to* on every trip through
+`_detailSheetLoop` — still wore everything that redesign retired: Flutter's
+48 dp drag band on a 16 dp-radius plain surface, a centred title with a
+filled Edit, loose `_InfoRow` icon-and-text lines with no groups, an
+`OutlinedButton`, two `TextButton.icon`s, a tonal card for the description
+and Material `Chip`s for dates and next occurrences, with the description —
+the thing the sheet exists to show — below eight fact rows and three buttons.
+
+**The sheet.** `EventDetailSheet` is the editor's **read-only twin**: the
+sub-sheet shape (`useSafeArea`, as tall as its content, clamped at
+`FormMetrics.sheetHeightFactor`, the route's own drag, no discard guard
+because a pending tick is flushed on every exit), `close · Event ·
+FormHeaderTextButton(Edit)` with the header's scroll hairline, then the
+editor's groups in the editor's order with the editor's glyphs, under **the
+read rule** — a row exists only while it carries a fact, a group with no rows
+is absent, the capture group and WHEN always exist:
+
+- the capture group: a title row that is the day-panel row's twin
+  (`EventAvatar`, the title at `FormMetrics.titleFontSize` so Edit and Back
+  never resize it, the category as its caption) and the editor's description
+  cell read back — `SimpleMarkdownPreview(scrollable: false)` in the cell's
+  geometry, the pencil where the editor's expand button sits, an empty cell
+  one target for the quick edit, the inert-box caption inside the cell;
+- WHEN: Date (the opened occurrence with the count label); for a pinned set
+  **one bundled Dates row** through `CalendarDatePickerSheet.datesValue` (the
+  editor's `_datesValue` moved next to `summaryLabel` so both read one
+  grammar) opening the Dates sheet's list, and Add date for any event with
+  `explicitDates`; Time as one row (`EventTimeFormatter.formatRangeOfContext`
+  — the device's 12h/24h, as the alert rows and the editor's Starts / Ends
+  read it — plus the duration, or All day); Repeat with the editor's
+  exact value, "until" included; Start date only when it differs from the
+  opened day; Next occurrence with a `then …` caption of the following three,
+  scanning from the day **after** the opened occurrence (today for a past
+  one);
+- OCCURRENCES (recurring and pinned only): the presence chip pair on a
+  labelled `FormChipRow` with the two adherence lines as its caption, Skip
+  this day as an action row;
+- ALERTS: one row per alert — the kind, then the registry's next fire once
+  it answers — tapping opens the editor; `removeAfterAlert` as a label-only
+  fact row;
+- DETAILS: Priority only when non-default; Linked note with the note's title
+  through the page's `resolveNoteTitle` callback (the sheet never touches a
+  repository, so a widget test needs no service locator), with the editor's
+  three states (empty while loading, the title, "Not found" in `error` with
+  `eventLinkedNoteMissing` as the semantics label).
+
+`EventDetailAction`, every callback and `_detailSheetLoop`'s switch are
+unchanged; `_close` stays the single exit. Ids: `event-detail-description`
+/ `-present` / `-missed` / `-skip` / `-add-date` / `-dates` / `-note` beside
+the existing `-edit` / `-close`. Keys: four retired
+(`eventDetailsNextOccurrences`, `eventDetailsNoDescription`,
+`eventDetailsSeriesStart`, `eventDetailsAllDates`), four added (`eventTime`,
+`eventDetailsNext`, `eventDetailsThen`, `eventPresence`).
+
+**Primitives that came with it** (`form_rows.dart`, `form_metrics.dart`):
+`FormHeaderTextButton` (replacing the three hand-rolled Done / Edit buttons
+of the Repeat sheet, the Icon & color sheet and this one),
+`FormPickerRow.caption`, `FormChipRow(glyph:, label:)`,
+`FormChip.identifier`, a `MergeSemantics` on every id-less picker row (one
+announcement per row), `FormSheetHeader` capping its trailing slot at
+`FormMetrics.headerActionMaxShare` with the label ellipsizing past it, and
+the numbers a second surface now reads — `sheetHeightFactor` (the editor's
+fixed height and every sub-sheet's clamp), `headerAction*`, `title*`,
+`description*`, `rowCaptionBottomPadding` — which the editor and both
+sub-sheets were pointed at in the same change (a rename, no behaviour
+change; their suites ran unmodified).
+
+**Deviations from the record, and why.**
+- A pinned set never gets per-date rows (E7a): the editor's exist for their
+  ✕; a reader has nothing to do per date. The Date row for the opened day
+  sits above the bundled row at two dates and at three hundred.
+- The row reads "Next occurrence", not the board's "Next" (E7b): German has
+  no one-word form that reads as a row label.
+- The description cell's lines are 23.25 px, not the editor's 22: the shared
+  `LineBasedMarkdownBuilder` pins `MarkdownConstants.lineHeight` (1.55) in
+  every span style it emits, and nothing lets a caller ask for 22 / 15. The
+  editor's own preview toggle has the same difference. A `lineHeight` on
+  `LineMarkdownStyle` threaded through the ten span styles is the fix, and
+  it belongs to the markdown engine, not to this sheet — deferred (E6 stands
+  amended by the record's status). Nothing moves in place: the two cells sit
+  on two different routes.
+- The next-occurrence scan starts the day **after** the opened occurrence.
+  Found on the device pass: opened on today's occurrence, the record's
+  from-today scan made the Date row and the Next occurrence row say the same
+  day. `_maxOccurrences` is 4 (the next plus the caption's three).
+- The header caps its trailing action at 60 % of its width. Found by the new
+  suite's German-at-2.0-on-360 case: a 28 px "Bearbeiten" beside a 48 dp
+  close button overflowed the row by 9 px under the test font; the cap and
+  a one-line ellipsis make the header unable to overflow at any scale, and
+  the editor's Save label carries the same ellipsis.
+
+**Device pass (2026-09-26).** iOS simulator (iPhone 17 Pro Max, iOS 26.2):
+`qa run --fresh --seed tool/qa/fixtures/calendar.json`, `qa flows calendar`
+eight of eight green including the new `07_detail.txt`; the D boards matched
+the device for the weekly session (the hero), the one-time event (a short
+sheet with the month grid behind it), the pinned set and the birthday; the
+five-alert walk read its values under their labels and scrolled inside the
+0.92 clamp; Missed and Present wrote and the adherence lines moved; the
+barrier, a downward drag on the handle and the system back gesture all
+popped `null`; the sheet's top edge measured identical before and after the
+async facts arrived; the dark / German / text-scale-2.0 matrix showed values
+under labels, the chips under their label, nothing clipped; `qa errors`
+clean. Android emulator (`Medium_Phone_API_36.1`, API 36, through the agent
+layer): the same eight flows green, the hero and the settled matrix matched
+iOS. Android's error buffer held five debug-only
+`RenderSliverFixedExtentBoxAdaptor.computeMaxScrollOffset` precision
+assertions from a horizontal `SliverFillViewport` at page 1520 — the month
+pager of `table_calendar` over the 1900–2100 bounds at the emulator's
+fractional 411.43 dp width — raised while the flows drove the grid and the
+Dates sheet, none by this sheet (with the buffer cleared, opening, toggling,
+scrolling and re-theming the sheet added nothing). Pre-existing and
+Android-only; recorded here for a separate look.
+
+**Independent review (a fresh `fable-max` subagent briefed with the record
+and the diff).** Six confirmed findings, all resolved: (1) the empty
+description cell's ink well was only as wide as its placeholder (a loose
+`Stack` sizes a non-positioned child to its text) — now
+`StackFit.passthrough`, one merged button node, and a test that taps between
+the words and the pencil; (2) the Time row read the neutral 24-hour skeleton
+while the alert rows under it and the editor's Starts / Ends honour the
+device's clock, so Edit → Back flipped the format on the one row the eye is
+on — now `formatRangeOfContext`, as the record specified, with the widget
+harness pinned to a 24-hour `MediaQuery`; (3) the page's new `_resolveNoteTitle`
+had been inserted under `_openLinkedNote`'s doc comment and taken it — moved
+above it; (4) the note lookup awaited unguarded inside an `unawaited` future
+— a throwing repository now leaves the loading state instead of an unhandled
+async error, the rule the alert lookup follows; (5) the 1.25 px-per-line
+difference above, recorded as deferred; (6) the presence test never asserted
+that the adherence line moved with the tap — it does now. Nits fixed with
+them: the `@eventDetailsNext` description, a literal 12 replaced by
+`FormMetrics.descriptionCaptionBottomPadding` in both description cells, a
+double blank line and an over-long line in the Repeat sheet, a missing blank
+line in `SemanticsIds`.
+
+**Tests.** `test/widgets/event_detail_sheet_test.dart` (the chrome, the read
+rule, every WHEN value, the presence chips, Skip, the alert rows, the linked
+note's three states, German at text scale 2.0 on 360 × 780, the ids);
+`event_detail_dates_test.dart` rewritten for the bundled row;
+`event_detail_description_test.dart` and the wiki-link suite unchanged in
+intent (one finder); both clearance cases; `form_rows_test.dart` gained the
+header button, the picker caption, the labelled chip row and the chip id.

@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/widgets/event_detail_sheet.dart';
 
-/// A pinned-dates event shows its whole set on the detail sheet instead of
-/// the recurring "next occurrences" scan, and both one-time and pinned
-/// events offer Add date as an action the host runs.
+/// A pinned-dates event reads its set back on the detail sheet through one
+/// bundled Dates row — the editor's two-line value — instead of the recurring
+/// "next occurrence" scan, and both one-time and pinned events offer Add date
+/// as an action the host runs.
 void main() {
   final now = DateTime.now();
   final today = DateTime.utc(now.year, now.month, now.day);
@@ -60,9 +62,8 @@ void main() {
     return actions;
   }
 
-  testWidgets('a pinned-dates event lists its whole set with the count ahead', (
-    tester,
-  ) async {
+  testWidgets('a pinned-dates event reads the opened day and one bundled '
+      'Dates row', (tester) async {
     await openSheet(
       tester,
       event(
@@ -73,17 +74,19 @@ void main() {
       ),
     );
 
+    expect(find.text('Date'), findsOneWidget);
     expect(find.text('Dates'), findsOneWidget);
-    expect(find.text('3 of 4 ahead'), findsOneWidget);
-    expect(find.byType(Chip), findsNWidgets(4));
+    expect(find.textContaining('4 dates'), findsOneWidget);
+    expect(find.textContaining('3 of 4 ahead'), findsOneWidget);
+    expect(find.byType(Chip), findsNothing);
     expect(find.byType(ActionChip), findsNothing);
-    expect(find.text('Next occurrences'), findsNothing);
-    expect(find.textContaining('Repeats since'), findsNothing);
-    expect(find.text('4 dates'), findsOneWidget);
+    expect(find.text('Next occurrence'), findsNothing);
+    expect(find.text('Repeat'), findsNothing);
+    expect(find.text('Start date'), findsNothing);
   });
 
-  testWidgets('past eight dates only the next few show, with an All chip that '
-      'pops showDates', (tester) async {
+  testWidgets('past eight dates the row still reads the whole set, and '
+      'opens the list', (tester) async {
     final dates = {for (var i = -2; i < 8; i++) offset(i)};
     final actions = await openSheet(
       tester,
@@ -93,16 +96,16 @@ void main() {
       ),
     );
 
-    expect(find.text('8 of 10 ahead'), findsOneWidget);
-    expect(find.byType(Chip), findsNWidgets(3));
-    expect(find.widgetWithText(ActionChip, 'All 10 dates'), findsOneWidget);
+    expect(find.textContaining('10 dates'), findsOneWidget);
+    expect(find.textContaining('8 of 10 ahead'), findsOneWidget);
+    expect(find.byType(Chip), findsNothing);
 
-    await tester.tap(find.text('All 10 dates'));
+    await tester.tap(find.bySemanticsIdentifier(SemanticsIds.eventDetailDates));
     await tester.pumpAndSettle();
     expect(actions, [EventDetailAction.showDates]);
   });
 
-  testWidgets('with every date past, the most recent few show', (tester) async {
+  testWidgets('with every date past, the row says so', (tester) async {
     final dates = {for (var i = -12; i < -2; i++) offset(i)};
     await openSheet(
       tester,
@@ -113,9 +116,8 @@ void main() {
       day: offset(-3),
     );
 
-    expect(find.text('All in the past'), findsOneWidget);
-    expect(find.byType(Chip), findsNWidgets(3));
-    expect(find.widgetWithText(ActionChip, 'All 10 dates'), findsOneWidget);
+    expect(find.textContaining('All in the past'), findsOneWidget);
+    expect(find.textContaining('10 dates'), findsOneWidget);
   });
 
   testWidgets('Add date pops addDate for a one-time event', (tester) async {
@@ -124,6 +126,7 @@ void main() {
       event(rule: const OneTimeRecurrence()),
     );
 
+    expect(find.text('Dates'), findsNothing);
     await tester.tap(find.text('Add date'));
     await tester.pumpAndSettle();
     expect(actions, [EventDetailAction.addDate]);
@@ -135,14 +138,15 @@ void main() {
       event(rule: SpecificDatesRecurrence(dates: {today, offset(7)})),
     );
 
-    await tester.tap(find.text('Add date'));
+    await tester.tap(
+      find.bySemanticsIdentifier(SemanticsIds.eventDetailAddDate),
+    );
     await tester.pumpAndSettle();
     expect(actions, [EventDetailAction.addDate]);
   });
 
-  testWidgets('a periodic event offers no Add date and keeps the scan', (
-    tester,
-  ) async {
+  testWidgets('a periodic event offers no Add date and reads its next '
+      'occurrence', (tester) async {
     await openSheet(
       tester,
       event(
@@ -154,6 +158,7 @@ void main() {
     );
 
     expect(find.text('Add date'), findsNothing);
-    expect(find.text('Next occurrences'), findsOneWidget);
+    expect(find.text('Dates'), findsNothing);
+    expect(find.text('Next occurrence'), findsOneWidget);
   });
 }

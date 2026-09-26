@@ -11,7 +11,6 @@ import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../services/recurrence_formatter.dart';
-import 'automation_id.dart';
 import 'calendar_date_picker_sheet.dart';
 import 'form_rows.dart';
 
@@ -98,11 +97,6 @@ class EventRepeatSheet extends StatefulWidget {
     this.dayLoad,
   });
 
-  static const double _heightFactor = 0.92;
-  static const double _doneFontSize = 14;
-  static const double _doneHorizontalPadding = 12;
-  static const double _headerTrailingInset = 8;
-
   static Future<EventRepeatDraft?> show(
     BuildContext context, {
     required EventRepeatDraft draft,
@@ -124,7 +118,8 @@ class EventRepeatSheet extends StatefulWidget {
       ),
       builder: (context) => ConstrainedBox(
         constraints: BoxConstraints(
-          maxHeight: MediaQuery.sizeOf(context).height * _heightFactor,
+          maxHeight:
+              MediaQuery.sizeOf(context).height * FormMetrics.sheetHeightFactor,
         ),
         child: EventRepeatSheet(
           draft: draft,
@@ -223,7 +218,6 @@ class _EventRepeatSheetState extends State<EventRepeatSheet> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final colorScheme = Theme.of(context).colorScheme;
     final clearance = math.max(
       MediaQuery.viewInsetsOf(context).bottom,
       MediaQuery.viewPaddingOf(context).bottom,
@@ -237,26 +231,13 @@ class _EventRepeatSheetState extends State<EventRepeatSheet> {
           leadingTooltip: l10n.cancel,
           onLeading: () => Navigator.of(context).pop(),
           title: l10n.eventRepeat,
-          trailingInset: EventRepeatSheet._headerTrailingInset,
-          trailing: AutomationId(
+          trailingInset: FormMetrics.headerActionInset,
+          trailing: FormHeaderTextButton(
+            label: l10n.eventDescriptionDone,
             identifier: SemanticsIds.repeatDone,
-            child: TextButton(
             onPressed: _draft.isValid
                 ? () => Navigator.of(context).pop(_draft)
                 : null,
-            style: TextButton.styleFrom(
-              foregroundColor: colorScheme.primary,
-              minimumSize: const Size(0, FormMetrics.headerHeight),
-              padding: const EdgeInsets.symmetric(
-                horizontal: EventRepeatSheet._doneHorizontalPadding,
-              ),
-              textStyle: const TextStyle(
-                fontSize: EventRepeatSheet._doneFontSize,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            child: Text(l10n.eventDescriptionDone),
-          ),
           ),
         ),
         Flexible(

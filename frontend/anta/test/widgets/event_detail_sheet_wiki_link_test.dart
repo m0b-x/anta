@@ -143,7 +143,7 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byType(EventDetailSheet),
-        matching: find.widgetWithText(FilledButton, 'Edit'),
+        matching: find.widgetWithText(TextButton, 'Edit'),
       ),
     );
     // No pump in between: both exits are attempted in the same frame.

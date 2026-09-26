@@ -2266,29 +2266,35 @@ abstract class AppLocalizations {
   /// **'Event'**
   String get eventDetailsTitle;
 
-  /// Section label listing the upcoming dates a recurring event fires on
+  /// Detail sheet row label for the event's time of day: the range with its duration, or All day
   ///
   /// In en, this message translates to:
-  /// **'Next occurrences'**
-  String get eventDetailsNextOccurrences;
+  /// **'Time'**
+  String get eventTime;
+
+  /// Detail sheet row label for the next day a recurring event occurs after the opened occurrence (from today when a past occurrence is opened)
+  ///
+  /// In en, this message translates to:
+  /// **'Next occurrence'**
+  String get eventDetailsNext;
+
+  /// Caption under the next-occurrence row listing the following dates, joined by a middle dot
+  ///
+  /// In en, this message translates to:
+  /// **'then {dates}'**
+  String eventDetailsThen(String dates);
+
+  /// Detail sheet row label beside the Present / Missed chips for the opened occurrence
+  ///
+  /// In en, this message translates to:
+  /// **'Presence'**
+  String get eventPresence;
 
   /// Shown when a recurring event has no occurrence left in the scanned window
   ///
   /// In en, this message translates to:
   /// **'No upcoming occurrences'**
   String get eventDetailsNoOccurrences;
-
-  /// Shown in the detail sheet when the event carries no description
-  ///
-  /// In en, this message translates to:
-  /// **'No notes for this event'**
-  String get eventDetailsNoDescription;
-
-  /// Detail sheet row naming the date a recurring series starts, shown when the viewed occurrence is not the first
-  ///
-  /// In en, this message translates to:
-  /// **'Repeats since {date}'**
-  String eventDetailsSeriesStart(String date);
 
   /// Section label for the combined icon and color picker in the event editor
   ///
@@ -9369,12 +9375,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'All in the past'**
   String get eventDatesAllPast;
-
-  /// Chip on the detail sheet opening the full list of an event's pinned dates
-  ///
-  /// In en, this message translates to:
-  /// **'All {count} dates'**
-  String eventDetailsAllDates(int count);
 }
 
 class _AppLocalizationsDelegate

@@ -821,6 +821,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
         onPresenceChanged: (occurrenceDay, missed) =>
             _setOccurrencePresence(bloc, current.id, occurrenceDay, missed),
         onOpenWikiLink: (title) => _openWikiLink(context, title),
+        resolveNoteTitle: _resolveNoteTitle,
       );
       if (action == null || !context.mounted) return;
       switch (action) {
@@ -1796,6 +1797,15 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     for (final day in current.difference(next)) {
       bloc.add(ClearOccurrenceSkipped(eventId: eventId, day: day));
     }
+  }
+
+  /// The linked note's title for the detail sheet's row, or null once the
+  /// note is gone. The same lookup [_openLinkedNote] makes, so the row and
+  /// the tap agree on what "missing" means — `getNotesByIds` filters soft
+  /// deletes where `getNoteById` does not.
+  static Future<String?> _resolveNoteTitle(String noteId) async {
+    final notes = await GetIt.I<NoteRepository>().getNotesByIds([noteId]);
+    return notes.isEmpty ? null : notes.first.title;
   }
 
   /// Open the workout note linked to [event]. The folder is resolved from

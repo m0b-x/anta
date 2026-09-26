@@ -5,6 +5,7 @@ import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/widgets/event_detail_sheet.dart';
+import 'package:anta/widgets/form_rows.dart';
 import 'package:anta/widgets/simple_markdown_preview.dart';
 
 /// The detail sheet stays read-only — checkbox toggling is still its only
@@ -88,6 +89,32 @@ void main() {
     );
 
     await tester.tap(find.text('Add description'));
+    await tester.pumpAndSettle();
+
+    expect(actions, [EventDetailAction.editDescription]);
+  });
+
+  testWidgets('the empty cell is one full-width target, not just its words', (
+    tester,
+  ) async {
+    final actions = await openSheet(tester, event());
+
+    final well = find.ancestor(
+      of: find.text('Add description'),
+      matching: find.byType(InkWell),
+    );
+    final cell = find.ancestor(
+      of: find.text('Add description'),
+      matching: find.byType(FormRowGroup),
+    );
+    expect(tester.getSize(well).width, tester.getSize(cell).width);
+    // The words end well before the pencil; a thumb between them must
+    // still open the quick edit.
+    final words = tester.getRect(find.text('Add description'));
+    final pencil = tester.getRect(find.byIcon(Icons.edit_note_rounded));
+    await tester.tapAt(
+      Offset((words.right + pencil.left) / 2, words.center.dy),
+    );
     await tester.pumpAndSettle();
 
     expect(actions, [EventDetailAction.editDescription]);

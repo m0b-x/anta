@@ -228,7 +228,7 @@ class EventEditorSheet extends StatefulWidget {
       backgroundColor: Colors.transparent,
       elevation: 0,
       builder: (_) => FractionallySizedBox(
-        heightFactor: _EventEditorSheetState._sheetHeightFactor,
+        heightFactor: FormMetrics.sheetHeightFactor,
         child: EventEditorSheet(
           defaultDate: defaultDate,
           initialEvent: initialEvent,
@@ -256,20 +256,14 @@ class _EventEditorSheetState extends State<EventEditorSheet>
   /// timed event (60 minutes — a typical session).
   static const int _defaultDurationMinutes = 60;
 
-  static const double _sheetHeightFactor = 0.92;
   static const int _maxInlineDates = 3;
-  static const double _titleFontSize = 20;
-  static const double _titleLineHeight = 1.3;
   static const double _titleTopInset = 7;
   static const double _titleRowVerticalPadding = 8;
   static const double _counterTopInset = 2;
   static const double _descriptionCounterTopInset = 4;
   static const int _titleMaxLength = 120;
   static const int _titleCounterFrom = 100;
-  static const double _descriptionFontSize = 15;
-  static const double _descriptionLineHeight = 22;
   static const int _descriptionMaxLines = 10;
-  static const double _descriptionCellPadding = 13;
   static const double _scopeStripHeight = 44;
   static const double _priorityMenuWidth = 220;
   static const double _dayRailMenuWidth = 180;
@@ -1750,15 +1744,8 @@ class _EventEditorSheetState extends State<EventEditorSheet>
   /// The bundled row's value: the count and span on the first line, then the
   /// next date and how many are still ahead, so the set reads back without
   /// opening the picker.
-  String _datesValue(AppLocalizations l10n, List<DateTime> dates) {
-    final summary = CalendarDatePickerSheet.summaryLabel(l10n, dates);
-    final ahead = dates.where((d) => !d.isBefore(_today)).toList();
-    if (ahead.isEmpty) return '$summary\n${l10n.eventDatesAllPast}';
-    final next = l10n.eventDatesNext(
-      DateFormat.MMMEd(l10n.localeName).format(ahead.first),
-    );
-    return '$summary\n$next · ${l10n.eventDatesAhead(ahead.length, dates.length)}';
-  }
+  String _datesValue(AppLocalizations l10n, List<DateTime> dates) =>
+      CalendarDatePickerSheet.datesValue(l10n, dates, _today);
 
   String _repeatValue(AppLocalizations l10n) {
     if (_mode == _RepeatMode.oneTime) {
@@ -1909,7 +1896,7 @@ class _EventEditorSheetState extends State<EventEditorSheet>
         details.primaryVelocity ?? details.velocity.pixelsPerSecond.dy;
     final height =
         _sheetKey.currentContext?.size?.height ??
-        MediaQuery.sizeOf(context).height * _sheetHeightFactor;
+        MediaQuery.sizeOf(context).height * FormMetrics.sheetHeightFactor;
     final dismiss =
         velocity > _dismissVelocity || _dragOffset.value > height / 4;
     if (!dismiss) {
@@ -1990,17 +1977,17 @@ class _EventEditorSheetState extends State<EventEditorSheet>
                               maxLength,
                             }) => null,
                         style: TextStyle(
-                          fontSize: _titleFontSize,
+                          fontSize: FormMetrics.titleFontSize,
                           fontWeight: FontWeight.w500,
-                          height: _titleLineHeight,
+                          height: FormMetrics.titleLineHeight,
                           color: colorScheme.onSurface,
                         ),
                         decoration: InputDecoration.collapsed(
                           hintText: l10n.eventTitle,
                           hintStyle: TextStyle(
-                            fontSize: _titleFontSize,
+                            fontSize: FormMetrics.titleFontSize,
                             fontWeight: FontWeight.w400,
-                            height: _titleLineHeight,
+                            height: FormMetrics.titleLineHeight,
                             color: colorScheme.onSurfaceVariant,
                           ),
                         ),
@@ -2112,8 +2099,8 @@ class _EventEditorSheetState extends State<EventEditorSheet>
       final text = _descriptionController.text;
       surface = ConstrainedBox(
         constraints: const BoxConstraints(
-          minHeight: _descriptionLineHeight,
-          maxHeight: _descriptionLineHeight * _descriptionMaxLines,
+          minHeight: FormMetrics.descriptionLineHeight,
+          maxHeight: FormMetrics.descriptionLineHeight * _descriptionMaxLines,
         ),
         child: text.trim().isEmpty
             ? const SizedBox.shrink()
@@ -2127,15 +2114,17 @@ class _EventEditorSheetState extends State<EventEditorSheet>
       surface = _DescriptionBox(
         revision: _descriptionRevision,
         measure: () => _descriptionScroll.contentHeight,
-        minHeight: _descriptionLineHeight,
-        maxHeight: _descriptionLineHeight * _descriptionMaxLines,
+        minHeight: FormMetrics.descriptionLineHeight,
+        maxHeight: FormMetrics.descriptionLineHeight * _descriptionMaxLines,
         child: ModernEditorWrapper(
           controller: _descriptionController,
           focusNode: _descriptionFocus,
           scrollController: _descriptionScroll,
           searchController: _descriptionSearch,
-          editorFontSize: _descriptionFontSize,
-          editorLineHeight: _descriptionLineHeight / _descriptionFontSize,
+          editorFontSize: FormMetrics.descriptionFontSize,
+          editorLineHeight:
+              FormMetrics.descriptionLineHeight /
+              FormMetrics.descriptionFontSize,
           editorPadding: EdgeInsets.zero,
           paintGround: false,
           onTextChanged: _descriptionEdits.onTextChanged,
@@ -2156,9 +2145,9 @@ class _EventEditorSheetState extends State<EventEditorSheet>
               Padding(
                 padding: EdgeInsets.fromLTRB(
                   RowMetrics.groupInset,
-                  _descriptionCellPadding,
+                  FormMetrics.descriptionCellPadding,
                   rightInset,
-                  _descriptionCellPadding,
+                  FormMetrics.descriptionCellPadding,
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2203,7 +2192,7 @@ class _EventEditorSheetState extends State<EventEditorSheet>
               if (!previewing)
                 Positioned(
                   left: RowMetrics.groupInset,
-                  top: _descriptionCellPadding,
+                  top: FormMetrics.descriptionCellPadding,
                   right: rightInset,
                   child: IgnorePointer(
                     child: ListenableBuilder(
@@ -2217,9 +2206,10 @@ class _EventEditorSheetState extends State<EventEditorSheet>
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontSize: _descriptionFontSize,
+                            fontSize: FormMetrics.descriptionFontSize,
                             height:
-                                _descriptionLineHeight / _descriptionFontSize,
+                                FormMetrics.descriptionLineHeight /
+                                FormMetrics.descriptionFontSize,
                             color: colorScheme.onSurfaceVariant,
                           ),
                         );
@@ -2266,7 +2256,7 @@ class _EventEditorSheetState extends State<EventEditorSheet>
                   RowMetrics.groupInset,
                   0,
                   RowMetrics.groupInset,
-                  12,
+                  FormMetrics.descriptionCaptionBottomPadding,
                 ),
               );
             },
@@ -2754,7 +2744,11 @@ class _EventEditorSheetState extends State<EventEditorSheet>
                           identifier: SemanticsIds.eventSave,
                           child: FilledButton(
                             onPressed: _canSave ? _onSave : null,
-                            child: Text(l10n.save),
+                            child: Text(
+                              l10n.save,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                         ),
                       ),

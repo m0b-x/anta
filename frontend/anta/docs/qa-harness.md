@@ -357,7 +357,7 @@ what the first pass found:
   saved filter, a custom holiday, the German profile and Orthodox fasting,
   60 placeholders. `test/qa/calendar_fixture_test.dart` imports it and pins
   that everything occurs where the flows expect.
-- `tool/qa/flows/calendar/00_open … 06_matrix` — seven flows, all green
+- `tool/qa/flows/calendar/00_open … 07_detail` — eight flows, all green (`07_detail`, 2026-09-26: the detail sheet's chips, Skip and the bundled Dates row into the Dates sheet)
   from a fresh install on the iPhone 17 Pro Max simulator in 33 s of device
   time (`qa flows calendar`).
 - Ids: the editor's rows, chrome and scrolling body (`event-form`), the
