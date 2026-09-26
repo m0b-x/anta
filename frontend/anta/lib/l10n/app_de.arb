@@ -384,10 +384,11 @@
   "eventDescriptionPreviewOff": "Beschreibung bearbeiten",
   "eventHasDescription": "Hat Notizen",
   "eventDetailsTitle": "Termin",
-  "eventDetailsNextOccurrences": "Nächste Vorkommen",
+  "eventTime": "Uhrzeit",
+  "eventDetailsNext": "Nächstes Vorkommen",
+  "eventDetailsThen": "dann {dates}",
+  "eventPresence": "Anwesenheit",
   "eventDetailsNoOccurrences": "Keine weiteren Vorkommen",
-  "eventDetailsNoDescription": "Keine Notizen für diesen Termin",
-  "eventDetailsSeriesStart": "Wiederholt sich seit {date}",
   "eventAppearance": "Symbol & Farbe",
   "eventColor": "Farbe",
   "eventColorCustomTitle": "Eigene Farbe",
@@ -2806,6 +2807,5 @@
   "datePickerRepeatApply": "{count, plural, =0{Daten hinzufügen} =1{1 Datum hinzufügen} other{{count} Daten hinzufügen}}",
   "eventDatesNext": "Nächstes {date}",
   "eventDatesAhead": "{ahead} von {total} bevorstehend",
-  "eventDatesAllPast": "Alle vergangen",
-  "eventDetailsAllDates": "Alle {count} Daten"
+  "eventDatesAllPast": "Alle vergangen"
 }

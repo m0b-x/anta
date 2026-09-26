@@ -198,11 +198,11 @@ void main() {
     );
 
     expect(
-      listBottomPadding(tester),
+      scrollBottomPadding(tester),
       greaterThanOrEqualTo(navBar),
       reason:
-          'the description and the occurrence chips are the last things in '
-          'the list, and they rendered under the nav bar',
+          'the DETAILS group and the description are the last things in the '
+          'body, and they rendered under the nav bar',
     );
   });
 
@@ -307,7 +307,7 @@ void main() {
     );
 
     expect(
-      listBottomPadding(tester),
+      scrollBottomPadding(tester),
       24,
       reason:
           'the clearance is additive — with nothing to clear the sheet keeps '

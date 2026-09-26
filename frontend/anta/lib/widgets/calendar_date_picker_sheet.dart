@@ -162,6 +162,24 @@ class CalendarDatePickerSheet extends StatefulWidget {
     return l10n.eventDatesSummary(count, '$firstLabel – $lastLabel');
   }
 
+  /// The bundled Dates row's two-line value — the count and span, then the
+  /// next date and how many are still ahead of [today] — shared by the
+  /// editor and the detail sheet so the set reads back the same way on both
+  /// and neither needs the picker open to say it.
+  static String datesValue(
+    AppLocalizations l10n,
+    List<DateTime> sorted,
+    DateTime today,
+  ) {
+    final summary = summaryLabel(l10n, sorted);
+    final ahead = sorted.where((d) => !d.isBefore(today)).toList();
+    if (ahead.isEmpty) return '$summary\n${l10n.eventDatesAllPast}';
+    final next = l10n.eventDatesNext(
+      DateFormat.MMMEd(l10n.localeName).format(ahead.first),
+    );
+    return '$summary\n$next · ${l10n.eventDatesAhead(ahead.length, sorted.length)}';
+  }
+
   static Future<Set<DateTime>?> _show(
     BuildContext context, {
     required CalendarDatePickerMode mode,

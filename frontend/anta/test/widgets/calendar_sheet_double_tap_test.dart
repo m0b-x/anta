@@ -383,7 +383,7 @@ void main() {
         ),
         find.descendant(
           of: find.byType(EventDetailSheet),
-          matching: find.widgetWithText(FilledButton, 'Edit'),
+          matching: find.widgetWithText(TextButton, 'Edit'),
         ),
       );
       await tester.pumpAndSettle();

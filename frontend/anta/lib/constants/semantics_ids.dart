@@ -82,6 +82,18 @@ abstract final class SemanticsIds {
   static const String lookDone = 'look-done';
   static const String eventDetailEdit = 'event-detail-edit';
   static const String eventDetailClose = 'event-detail-close';
+
+  /// The detail sheet's rows a flow drives (2026-09-26): the description
+  /// pencil, the presence pair (whose labels change with the locale), Skip
+  /// this day, Add date, the bundled Dates row and the linked note.
+  static const String eventDetailDescription = 'event-detail-description';
+  static const String eventDetailPresent = 'event-detail-present';
+  static const String eventDetailMissed = 'event-detail-missed';
+  static const String eventDetailSkip = 'event-detail-skip';
+  static const String eventDetailAddDate = 'event-detail-add-date';
+  static const String eventDetailDates = 'event-detail-dates';
+  static const String eventDetailNote = 'event-detail-note';
+
   /// A day-panel or agenda row standing for one event, keyed by the event's
   /// id — a title is ambiguous because every marked day cell's marker label
   /// carries it too, and a seeded event's id is stable (`qa-cal-lift`).

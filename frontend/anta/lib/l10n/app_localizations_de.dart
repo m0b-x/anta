@@ -1345,18 +1345,21 @@ class AppLocalizationsDe extends AppLocalizations {
   String get eventDetailsTitle => 'Termin';
 
   @override
-  String get eventDetailsNextOccurrences => 'Nächste Vorkommen';
+  String get eventTime => 'Uhrzeit';
+
+  @override
+  String get eventDetailsNext => 'Nächstes Vorkommen';
+
+  @override
+  String eventDetailsThen(String dates) {
+    return 'dann $dates';
+  }
+
+  @override
+  String get eventPresence => 'Anwesenheit';
 
   @override
   String get eventDetailsNoOccurrences => 'Keine weiteren Vorkommen';
-
-  @override
-  String get eventDetailsNoDescription => 'Keine Notizen für diesen Termin';
-
-  @override
-  String eventDetailsSeriesStart(String date) {
-    return 'Wiederholt sich seit $date';
-  }
 
   @override
   String get eventAppearance => 'Symbol & Farbe';
@@ -5570,9 +5573,4 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get eventDatesAllPast => 'Alle vergangen';
-
-  @override
-  String eventDetailsAllDates(int count) {
-    return 'Alle $count Daten';
-  }
 }

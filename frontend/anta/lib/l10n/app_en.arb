@@ -1617,27 +1617,31 @@
   "@eventDetailsTitle": {
     "description": "Title of the read-only event detail sheet"
   },
-  "eventDetailsNextOccurrences": "Next occurrences",
-  "@eventDetailsNextOccurrences": {
-    "description": "Section label listing the upcoming dates a recurring event fires on"
+  "eventTime": "Time",
+  "@eventTime": {
+    "description": "Detail sheet row label for the event's time of day: the range with its duration, or All day"
+  },
+  "eventDetailsNext": "Next occurrence",
+  "@eventDetailsNext": {
+    "description": "Detail sheet row label for the next day a recurring event occurs after the opened occurrence (from today when a past occurrence is opened)"
+  },
+  "eventDetailsThen": "then {dates}",
+  "@eventDetailsThen": {
+    "description": "Caption under the next-occurrence row listing the following dates, joined by a middle dot",
+    "placeholders": {
+      "dates": {
+        "type": "String",
+        "example": "Oct 1 · Oct 5 · Oct 8"
+      }
+    }
+  },
+  "eventPresence": "Presence",
+  "@eventPresence": {
+    "description": "Detail sheet row label beside the Present / Missed chips for the opened occurrence"
   },
   "eventDetailsNoOccurrences": "No upcoming occurrences",
   "@eventDetailsNoOccurrences": {
     "description": "Shown when a recurring event has no occurrence left in the scanned window"
-  },
-  "eventDetailsNoDescription": "No notes for this event",
-  "@eventDetailsNoDescription": {
-    "description": "Shown in the detail sheet when the event carries no description"
-  },
-  "eventDetailsSeriesStart": "Repeats since {date}",
-  "@eventDetailsSeriesStart": {
-    "description": "Detail sheet row naming the date a recurring series starts, shown when the viewed occurrence is not the first",
-    "placeholders": {
-      "date": {
-        "type": "String",
-        "example": "Aug 1, 2026"
-      }
-    }
   },
   "eventAppearance": "Icon & color",
   "@eventAppearance": {
@@ -6966,14 +6970,5 @@
   "eventDatesAllPast": "All in the past",
   "@eventDatesAllPast": {
     "description": "Shown when every pinned date of an event has passed"
-  },
-  "eventDetailsAllDates": "All {count} dates",
-  "@eventDetailsAllDates": {
-    "description": "Chip on the detail sheet opening the full list of an event's pinned dates",
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
   }
 }

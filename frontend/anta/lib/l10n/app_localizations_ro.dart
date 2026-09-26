@@ -1363,18 +1363,21 @@ class AppLocalizationsRo extends AppLocalizations {
   String get eventDetailsTitle => 'Eveniment';
 
   @override
-  String get eventDetailsNextOccurrences => 'Următoarele apariții';
+  String get eventTime => 'Ora';
+
+  @override
+  String get eventDetailsNext => 'Următoarea apariție';
+
+  @override
+  String eventDetailsThen(String dates) {
+    return 'apoi $dates';
+  }
+
+  @override
+  String get eventPresence => 'Prezență';
 
   @override
   String get eventDetailsNoOccurrences => 'Nicio apariție viitoare';
-
-  @override
-  String get eventDetailsNoDescription => 'Fără notițe pentru acest eveniment';
-
-  @override
-  String eventDetailsSeriesStart(String date) {
-    return 'Se repetă din $date';
-  }
 
   @override
   String get eventAppearance => 'Pictogramă și culoare';
@@ -5630,9 +5633,4 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get eventDatesAllPast => 'Toate în trecut';
-
-  @override
-  String eventDetailsAllDates(int count) {
-    return 'Toate cele $count date';
-  }
 }
