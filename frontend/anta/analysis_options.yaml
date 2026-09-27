@@ -16,6 +16,12 @@ analyzer:
     - windows/**
     - macos/**
     - linux/**
+    # The alarm fork's sample app and its Pigeon input are never compiled
+    # into the app and were never resolved as packages of their own, so the
+    # IDE checked them against the app's dependencies and reported ~50 false
+    # errors. The fork's `lib/` stays analyzed.
+    - packages/alarm/example/**
+    - packages/alarm/pigeons/**
 include: package:flutter_lints/flutter.yaml
 
 linter:
