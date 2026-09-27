@@ -3984,8 +3984,8 @@ Saved filters, filters, settings, overflow. Four fixed 48dp buttons squeeze the
 title to an ellipsis on a narrow phone, and the usual remedy — folding one into
 the overflow — would bury a button that exists precisely to be one tap away.
 
-[`ScrollableAppBarActions`](../lib/widgets/scrollable_app_bar_actions.dart)
-gives the three **icon buttons** a width budget (`reservedForTitle` = 152, what
+`ScrollableAppBarActions` (`lib/widgets/scrollable_app_bar_actions.dart`,
+deleted with the 2026-09-26 header) gives the three **icon buttons** a width budget (`reservedForTitle` = 152, what
 is kept back for the leading button and a readable title) and scrolls them
 inside it when they do not fit. At 360dp — the width this app is designed
 against — the budget exceeds the content, so it renders exactly as a plain
@@ -4005,7 +4005,7 @@ Two details that are the design, not incidental:
 The page's `NotificationListener<UserScrollNotification>` sees this scroller,
 but `fabExtendedFor` ignores horizontal ones — so dragging the actions cannot
 collapse the add button. Any page reusing this widget needs the same guard.
-Pinned by [`test/widgets/scrollable_app_bar_actions_test.dart`](../test/widgets/scrollable_app_bar_actions_test.dart):
+Pinned by `test/widgets/scrollable_app_bar_actions_test.dart` (deleted with the widget):
 nothing to scroll at 800dp or 360dp, a real scroll extent at 280dp with the
 budget (not the screen) as the viewport, the trailing action reachable by
 dragging, and the overflow neither moving nor being inside the group.
@@ -5435,7 +5435,7 @@ the general settings page is `SettingsPage`.
 
 - **The grid and the day panel subscribe separately.** `CalendarPageLoaded.sameGridInputs` drives the grid's `buildWhen` and is every prop **except** `occurrenceRevision`. It is *not* "everything except the overlay revision": `DayBarsResolver` and `CellTintResolver` both read `EventPresence.isMissed`, so presence is a grid input, which is why **`presenceRevision`** exists and is bumped by the presence handler (`SetOccurrencePresence`, one since v37) *alongside* `occurrenceRevision` (additive — no existing consumer's semantics changed). A **presence default** is the exception that proves it: flipping `assumeAbsent` bumps neither counter and reaches the grid purely through `allEvents` identity, so never value-compare that list. Descriptions bump `occurrenceRevision` only; no grid surface reads `OccurrenceDescriptions`. A new presence write path that forgets the bump ships a permanently stale marker — `test/bloc/calendar_grid_rebuild_test.dart` is the guard. `sameGridInputs` compares `allEvents`/`filters` by **identity**, which is sound only because every handler that changes either builds a fresh instance: it may over-rebuild, never under-rebuild.
 
-- **Narrowing a `buildWhen` makes a captured state stale.** The app-bar filter icon, the export menu and the FAB each have one now, so their callbacks read `context.read<CalendarBloc>().state` at press time — the filter sheet needs `format`, which its `buildWhen` deliberately ignores.
+- **Narrowing a `buildWhen` makes a captured state stale.** The app-bar filter icon, the export menu and the FAB each have one now, so their callbacks read `context.read<CalendarBloc>().state` at press time — the filter button's `buildWhen` watches only the count, so a set swapped for another of the same size would reach the sheet stale (until 2026-09-26 the sheet also needed `format`, which now lives in the title's view menu).
 
 - **`CalendarPage._loadSettings` is one statement**, via `SettingsService.getCalendarPageSettings()` (previously 16-18 sequential single-row reads, 11 inside `getCalendarAppearance` alone). Every setting has a pure decoder taking the raw stored string, shared by the single-row getter and the bulk path so the two cannot drift — add new calendar settings the same way, and add the key to `_calendarAppearanceKeys` / `_calendarPageKeys`. **Use `UserSettingsDao.getValuesFor(keys)`, never `getAllSettings()`**: `user_settings` also holds a `note_position_<id>` row per note, so a full-table read scales with the note count (measured 56 ms vs 2 ms at 10k notes) on the one path that runs before the first frame. `UserSettings.value` is non-nullable, so `map[key] == null` **is** "row absent" and `containsKey` is unnecessary; but the absent-vs-empty distinction still lives in the decoders for `getFastingSchedule` *and* `getFastingAppearance`.
 
@@ -5449,7 +5449,7 @@ the general settings page is `SettingsPage`.
 
 - **`CalendarIcons` has one source, `groups`.** Entries are `CalendarIconEntry(key, icon, keywords)`; the lookup map, the key→group map and a prebuilt folded search index are derived from it once on first touch, so `forKey` stays O(1) on render paths and search is `contains` over prebuilt strings (`matchesSettingsQuery(..., preFolded: true)`). Icon **keywords are English, in code, unlocalized** — a documented exception, since they are match-only and per-locale reach comes from the localized group labels (`CalendarIcons.groupLabel`). **Icon keys are persisted in four places: additive only** — to retire an icon drop it from `groups` but keep the key resolvable. One ranking function, `lib/utils/category_search.dart`, serves every searchable category list: membership by `matchesSettingsQuery`, order by `FuzzyRank`, icon-only hits demoted a band below name hits, sorted explicitly on `(band, sortOrder, id)` because `List.sort` is not stable in Dart. Whole-page category data is single-statement — `CalendarEventDao.countByCategory()` is one `GROUP BY`, guarded by `query_count_test`. **`CalendarCategoriesPage` is service-direct and owns the nearest enclosing `Scrollable`** (`Column` + `Expanded(ReorderableListView.builder)`) — a `shrinkWrap` list inside an outer scroll view silently kills edge auto-scroll past the fold. **Reorder and filtering are mutually exclusive** (plain `ListView`, handle greyed in place), and an **empty query renders the local order directly, never through `rankCategories`** — its `sortOrder` tiebreak still holds pre-drag values until the optimistic write lands. Long-drag escapes are *Move to top* and *Sort A–Z*, both one `reorder()`. Counts come from **`CalendarEventService.countByCategory()`**, not `CategoryService` — counting events is the event domain's job. Menu-fired mutations are unawaited, so each goes through the page's one `_guarded` catch-then-reconcile wrapper. The reorder chrome (`ReorderHandle` / `reorderDragProxy` / `ReorderLockedHint`) is shared from `lib/widgets/settings_reorder.dart` with both `markdown_settings_page.dart` lists — extend it there, never re-copy it into a third page. `IconPickerSheet` searches on the same grammar (prebuilt index + `FuzzyRank`, group labels folded once per open), over **216 entries in 24 groups**. **`IconGroupId` is exactly the groups `groups` declares** (a value with no entries is a heading `groupIdOf` can never return; a test enforces it), so **"Recently used" is a picker section, not a group** — last 12 keys, newest first, CSV under `SettingsKeys.recentIconKeys` via `SettingsService.getRecentIconKeys`/`recordRecentIconKey`, unknown keys dropped on read, hidden while a query is active. Every tile needs its `Tooltip` (the key with underscores as spaces) or the sheet is hundreds of unnamed buttons. **Letters and digits (`letter_a`…`letter_z`, `digit_0`…`digit_9`) are ordinary entries whose `IconData` names no font family** — that is what paints the character in the ambient font *and* what keeps them out of `--tree-shake-icons`; never give one a `fontFamily`, and re-run a **release** build if the mechanism is touched, because the failure it guards is release-only. **`CalendarIcons.isExactTerm(key, foldedTerm)` outranks every `FuzzyRank` tier**: `FuzzyRank` scores a prefix of the whole search text, so without it no one-character query can ever reach a letter glyph. **`CategoryPickerSheet` is the one choosing surface**, in two arities mirroring the date sheet — `pickSingle(selectedId:) → String?`, `pickMulti(selected:) → Set<String>?` — both over `visiblePlus(initialSelection)` (the *opening* selection, never the live one, or un-ticking an archived row deletes it from the list under the finger that un-ticked it), both searchable through `rankCategories` above the 12-row threshold, **never autofocused**, with an empty state that creates what was typed (`CategoryEditorSheet.show(initialName:)`). The editor's duplicate warning is **soft and never blocks Save**, and scans `all` so it can say a match is hidden. `pickMulti` is **semantics-free**: `UpcomingAgendaFilters.categoryIds` is an allowlist (empty = all), `CalendarFilterSheet._hidden` a denylist (empty = show all), and the caller inverts. Above the same threshold both filter sheets render the shared **`CategoryFilterTile`** instead of a chip per category and keep chips below it; **never re-add a chip row for the selection under the tile**, and **`CalendarFilterSheet`'s two header resets are deliberately asymmetric** — Clear all *unions* the visible ids in (hiding everything must not accidentally un-hide an archived denial), Select all *empties* the denylist outright (showing everything is exactly what it says, and an archived category's events already render in their own colour). The hazard is one-directional; do not "fix" it into symmetry. Making Select all subtract only the visible ids strands an archived denial — `_hidden` never empties, the `allSelected` (`_hidden.isEmpty`) toggle never flips, and the button becomes a permanent no-op. **Each caller owns both halves of its own inversion**: the agenda seeds the sub-sheet with every offered id when `categoryIds` is empty (empty already means "all" and the tile says so) and collapses an all-offered result back to `{}` rather than freezing today's catalog into a list that silently excludes every category created later. Both searchable surfaces keep the search field open while a query is live (`_isFiltering || length > threshold`) — a delete or a de-select can drop the set under the threshold, and retracting the field would strand the list filtered. `UpcomingAgendaView`'s label map is `visiblePlus(filters.categoryIds)`, and the kept set is part of its memo key.
 
-- **The calendar grid filter is `CalendarGridFilters` (2026-09-01), fifteen fields in one value object** on `CalendarPageLoaded.filters`, dispatched as `ChangeCalendarFilters` (`ChangeHiddenCategories` is gone) and **persisted** as one JSON blob under `SettingsKeys.calendarGridFilters`. Three kinds of field, and the difference is the whole design: **event-level** narrowing (`hiddenCategoryIds` denylist / `priorities` **empty = every priority** / `eventType` — the agenda's own `AgendaEventType`, never a second enum / `timing` / `trackedOnly` = `EventPresence.appliesTo`, not the bare flag / `linkedNotesOnly` / `moneyOnly` / `withDescriptionOnly` / `countedOnly` / `hideEnded`), applied by `CalendarBloc._visibleEvents` **once per change** over `CalendarGridFilters.apply` so both `_dayCache` and the window partition are built from the narrowed list and an active filter makes the 42-cell path *cheaper*; **occurrence-level** (`missedOnly` alone, via `allowsOccurrence`), which needs the day and therefore runs inside `eventsForDay` — gated on `hasOccurrenceAxis` so the common case keeps its plain `occursOnUtcDay` loop, re-tested in `monthNetFor`, and **the reason the presence handler calls `_invalidateIfPresenceIsMembership`**: presence is a painting concern until this axis makes it a membership one, so it invalidates *only while the axis is active* (a future day-dependent axis must extend `hasOccurrenceAxis` or it ships a stale grid); and **layers** (`showHolidays`/`showFasting`/`showMoney`, default on) which are not event filters at all but **compose the provider lists** of `DayBarsResolver.defaults`, `DaySummaryResolver.defaults` and `CellTintResolver.defaults`, so an annotation off the grid is off the day panel too (fasting also takes the day rail's base band — the band *is* the runner-up wash). **Composition is not the whole story**: the `strong` fasting style paints the day *number*, which reaches `CalendarDayCell` through `_buildDayCell`'s own `cellStyleForUtcDay` lookup rather than a provider, so that lookup is gated on `showFasting` too — any future annotation reaching a cell outside the resolver chain needs the same. `showMoney` also zeroes `monthNetFor`, since the header total is the sum of exactly what the cells show. `panelShowsAll` **widens**: `CalendarBottomPanel._panelEvents` swaps `eventsForDay` for `allEventsForDay` (its own memo, delegating outright when nothing is filtered, and deliberately *not* going through the partition — one day is not worth thrashing its single slot), and both panel modes call it or the timeline and the day list disagree about the same day. It is excluded from `activeCount`, gets no chip, and survives `cleared()`. Still **render-time only** — nothing reaches `occursOn`, so a filtered event still occurs, exports and counts; `apply` returns **the same list instance** when no event-level axis is active, which is what keeps every `identical` guard downstream unchanged; the memo key is `(allEvents, filters, todayUtc)` because `hideEnded` reads the wall clock and **nothing dispatches at midnight** — the date joins the key only while that axis is on, so the common case pays neither a clock read nor a rollover rebuild; `_invalidateDayCache()` drops all five memos and `_onChangeCalendarFilters` **value-compares** first (the sheet returns a fresh instance on every Apply) while recording `_filters` **before** the loaded-state guard — the bloc field is what makes a restore that beats the first load land, and what stops `_onLoad`'s fresh `CalendarPageLoaded` from clearing the filter on a backup restore or database switch. `CalendarPage._loadSettings` restores **once** (`_filtersRestored`) because it also runs on every settings return, and `_applyFilters` is the one funnel that dispatches *and* writes. The agenda inherits **only** `filters.hiddenCategoryIds`. UI: `CalendarFilterSheet` (draft-and-Apply; View range → **Categories, still second** → Priority → Repeat → Time of day → Only show → Show → the panel switch), a `Badge.count` over `activeCount`, and `CalendarFilterChips` — one removable chip per active axis above the grid, labelled through `CalendarFilterSheet`'s statics, with a layer chip reading `"Without {layer}"` because a chip wearing the layer's bare name says the opposite of what it means.
+- **The calendar grid filter is `CalendarGridFilters` (2026-09-01), fifteen fields in one value object** on `CalendarPageLoaded.filters`, dispatched as `ChangeCalendarFilters` (`ChangeHiddenCategories` is gone) and **persisted** as one JSON blob under `SettingsKeys.calendarGridFilters`. Three kinds of field, and the difference is the whole design: **event-level** narrowing (`hiddenCategoryIds` denylist / `priorities` **empty = every priority** / `eventType` — the agenda's own `AgendaEventType`, never a second enum / `timing` / `trackedOnly` = `EventPresence.appliesTo`, not the bare flag / `linkedNotesOnly` / `moneyOnly` / `withDescriptionOnly` / `countedOnly` / `hideEnded`), applied by `CalendarBloc._visibleEvents` **once per change** over `CalendarGridFilters.apply` so both `_dayCache` and the window partition are built from the narrowed list and an active filter makes the 42-cell path *cheaper*; **occurrence-level** (`missedOnly` alone, via `allowsOccurrence`), which needs the day and therefore runs inside `eventsForDay` — gated on `hasOccurrenceAxis` so the common case keeps its plain `occursOnUtcDay` loop, re-tested in `monthNetFor`, and **the reason the presence handler calls `_invalidateIfPresenceIsMembership`**: presence is a painting concern until this axis makes it a membership one, so it invalidates *only while the axis is active* (a future day-dependent axis must extend `hasOccurrenceAxis` or it ships a stale grid); and **layers** (`showHolidays`/`showFasting`/`showMoney`, default on) which are not event filters at all but **compose the provider lists** of `DayBarsResolver.defaults`, `DaySummaryResolver.defaults` and `CellTintResolver.defaults`, so an annotation off the grid is off the day panel too (fasting also takes the day rail's base band — the band *is* the runner-up wash). **Composition is not the whole story**: the `strong` fasting style paints the day *number*, which reaches `CalendarDayCell` through `_buildDayCell`'s own `cellStyleForUtcDay` lookup rather than a provider, so that lookup is gated on `showFasting` too — any future annotation reaching a cell outside the resolver chain needs the same. `showMoney` also zeroes `monthNetFor`, since the header total is the sum of exactly what the cells show. `panelShowsAll` **widens**: `CalendarBottomPanel._panelEvents` swaps `eventsForDay` for `allEventsForDay` (its own memo, delegating outright when nothing is filtered, and deliberately *not* going through the partition — one day is not worth thrashing its single slot), and both panel modes call it or the timeline and the day list disagree about the same day. It is excluded from `activeCount`, gets no chip, and survives `cleared()`. Still **render-time only** — nothing reaches `occursOn`, so a filtered event still occurs, exports and counts; `apply` returns **the same list instance** when no event-level axis is active, which is what keeps every `identical` guard downstream unchanged; the memo key is `(allEvents, filters, todayUtc)` because `hideEnded` reads the wall clock and **nothing dispatches at midnight** — the date joins the key only while that axis is on, so the common case pays neither a clock read nor a rollover rebuild; `_invalidateDayCache()` drops all five memos and `_onChangeCalendarFilters` **value-compares** first (the sheet returns a fresh instance on every Apply) while recording `_filters` **before** the loaded-state guard — the bloc field is what makes a restore that beats the first load land, and what stops `_onLoad`'s fresh `CalendarPageLoaded` from clearing the filter on a backup restore or database switch. `CalendarPage._loadSettings` restores **once** (`_filtersRestored`) because it also runs on every settings return, and `_applyFilters` is the one funnel that dispatches *and* writes. The agenda inherits **only** `filters.hiddenCategoryIds`. UI: `CalendarFilterSheet` (draft-and-Apply; **Categories first** → Priority → Repeat → Time of day → Only show → Show → the panel switch — the View range section left for the title's view menu on 2026-09-26), a `Badge.count` over `activeCount`, and `CalendarFilterChips` — one removable chip per active axis above the grid, labelled through `CalendarFilterSheet`'s statics, with a layer chip reading `"Without {layer}"` because a chip wearing the layer's bare name says the opposite of what it means.
 
 - Never mutate `public_holidays` outside `PublicHolidayService` — the static `PublicHolidays` state is only republished by `_load()`; direct DAO writes desync the sync facade.
 
@@ -5461,7 +5461,7 @@ the general settings page is `SettingsPage`.
 
 - **The Alerts hub (`lib/pages/alerts_page.dart`) owns no data.** It lists `AlertScheduler.hubEntries()` (pending registrations + each disabled alert's next planned fire), writes only through the app-wide `CalendarBloc` (`ToggleEventAlert` → the editor's `AlertWriter` with one `enabled` flipped → `reconcileEvent` → `occurrenceRevision` bump; `DeleteCalendarEvent` for the A3 long-press cancel), and builds its body only under `CalendarPageLoaded` so the facades its rows read are configured. It re-reads on a bloc emit and on `AlertScheduler.registryRevision`; never poll, and never add an alert-creation affordance there — an alert is a property of an event.
 
-- Navigation: `AppNavigator.toCalendar` stays a normal `push` (previous page remains on the stack). Calendar options live on `CalendarSettingsPage` (gear in the calendar app bar), never on the general `SettingsPage` (then `ControlsSettingsPage`).
+- Navigation: `AppNavigator.toCalendar` stays a normal `push` (previous page remains on the stack). Calendar options live on `CalendarSettingsPage` (the last row of the calendar's ⋮ menu since the 2026-09-26 header; it was a gear in the app bar), never on the general `SettingsPage` (then `ControlsSettingsPage`). The calendar and the overview switch through the title's view menu and `AppNavigator.returnOrPush` — see the header addendum below.
 
 - No generic `AppLocalizations.byKey` — pick localized strings via sealed `switch` on the enum/rule type.
 
@@ -5637,3 +5637,141 @@ note's three states, German at text scale 2.0 on 360 × 780, the ids);
 `event_detail_description_test.dart` and the wiki-link suite unchanged in
 intent (one finder); both clearance cases; `form_rows_test.dart` gained the
 header button, the picker caption, the labelled chip row and the chip id.
+
+---
+
+## Addendum (2026-09-26, later): the header — a view menu and one ⋮
+
+Design record: [`calendar-header-roadmap.md`](calendar-header-roadmap.md)
+(decisions D1–D14). Design source: the canvas "Calendar Header Mocks".
+
+**Why.** The calendar's app bar had grown to five buttons — saved filters,
+filter, overview, settings and the ⋮ — and at 390 dp the title read
+"Calend…": `ScrollableAppBarActions` (the 2026-09-01 saved-filters
+addendum) kept 152 dp for the leading button and the title, and four icons
+plus the ⋮ left 74 dp for a 22 px "Calendar". The overview had added the
+fifth that same day. The grid's Month / 2 weeks / Week sat as the first
+section of the *filter* sheet, behind Apply, though it hides nothing and
+is never persisted; and the Alerts hub, whose every entry belongs to an
+event, was reachable from the drawer only. The owner asked to fold the
+overview ("the calendar set to yearly") into a dropdown on the title and to
+move settings into the menu, then approved three recommendations on top:
+the format into the same menu, Alerts into the ⋮, the same header on the
+overview.
+
+**The title is a view menu.** `CalendarViewMenu`
+(`lib/widgets/calendar_header_menus.dart`) is the app-bar title of both
+pages — "Calendar ▾" and "Overview ▾", the month title's glyph — and opens
+under itself: Calendar / Overview, the current page checked, and on the
+calendar a divider and Month / 2 weeks / Week, the grid's `CalendarFormat`
+checked. Every row is a `menuItemRadio` with its checked state (a subclass
+of `PopupMenuItem` overriding `buildSemantics`, the `CheckedPopupMenuItem`
+idiom), so a screen reader hears which view is on; the title is one button
+node carrying its label, the "Switch view" tooltip and its id — and the
+header and route name too, with `AppBar.excludeHeaderSemantics` on both
+pages: the device dump showed `AppBar`'s own header annotation left without
+a label over the button, and Android names a route by the first named
+node's label, so both pages would have opened to silence. A format
+applies at once through `ChangeCalendarFormat` — the bloc's no-op guard and
+the keyboard's week lock are untouched, and a vertical swipe on the grid
+still changes it too; the title's `BlocBuilder` watches the format, so the
+check follows either way. Before the load the format rows are disabled,
+never hidden. The filter sheet lost its "View range" section and returns a
+bare `CalendarGridFilters?` (`CalendarFilterResult` is gone); categories are
+its first section now.
+
+**The ⋮.** `CalendarOverflowMenu` holds Alerts · Export events (.ics) ·
+divider · Calendar settings on both pages, in the app's overflow-menu
+anatomy (44 dp rows, 20 px glyphs in `onSurfaceVariant`, the theme's 15/400
+label, 13 dp dividers) with `AppTheme.menuWidth` as floor and the new
+`AppTheme.menuMaxWidth` (280) as cap: "Ereignisse exportieren (.ics)" does
+not fit 236. Labels wrap as far as they need to — a row grows past 44 dp
+only then — because at 200 % text a German or Romanian label outgrows even
+280 and was being cut off. Glyphs follow the app: `share_rounded` for the
+export (the folder and note menus' share), the drawer's
+`notifications_active_rounded` for Alerts, and one outlined family for the
+formats. The settings row says "Calendar settings" because every other
+⋮ in the app ends with a Settings row that opens the app's settings. Both
+menus are popup routes (a `MenuAnchor`'s items expose no semantics on iOS)
+and drop focus in `onOpened`, which the SDK calls before the route is
+pushed, so closing a menu can never hand focus back to the agenda search.
+The ⋮ glyph is `Icons.more_vert` on every platform, as in the folder and
+note menus (the old one was adaptive: ⋯ on iOS).
+
+**Switching never stacks.** `AppNavigator.switchToCalendar`,
+`switchToCalendarOverview` and the ⋮'s `toAlertsFromCalendar` go through
+`returnOrPush`: when the page asked for sits **directly beneath** the
+current one it is returned to with one pop, otherwise it is pushed, as the
+old ▦ button did. Only the page directly beneath — collapsing onto one
+further down would throw away pages the user walked through (hub →
+calendar → overview keeps the hub). The Alerts row needs the rule too: a
+hub row leads to the calendar, so hub → calendar → Alerts used to stack a
+second hub.
+
+**Exports answer once.** Both pages can now start the `.ics` export and can
+be mounted at the same time, and `ImportExportBloc` is app-wide, so the old
+"answer every calendar export" listener would have shown one export's
+snackbar twice. `CalendarExportController` (`lib/controllers/`) holds a
+pending flag per page: a page answers only for the export it started,
+resets the bloc once, and ignores other operations while it waits. A
+*failure* still also reaches the folder page's app-wide listener, which
+shows its own error snackbar and loading dialog for every operation — that
+predates this change and is left for its own look (the record's §8).
+
+**The overview follows the settings.** It re-reads its appearance on
+`didPopNext` — the calendar's settings are one ⋮ away from it or from a
+calendar above it — leaving the allowlist and the mode alone (only it
+writes them, and a month drilled into from a tile is not persisted), and it
+reloads events after its own settings trip, as the calendar does after its
+own (a deleted category reassigns events behind the service's cache).
+
+**Deleted.** `ScrollableAppBarActions` and its suite (two buttons never
+scroll), `_CalendarMenuAction`, the page's own export listener, the ARB key
+`calendarViewRange`. New key: `calendarViewMenuTooltip`. This supersedes the
+format's home in the filter sheet as the 2026-08-24 keyboard addendum and
+the 2026-09-01 filter and saved-filters addenda describe it, the scrolling
+action group of the latter, and the overview's app-bar entry point (B) in
+the overview addendum above.
+
+**Tests.** `test/widgets/calendar_header_menus_test.dart` (rows, checks,
+radio semantics, ids, the title's header, route name and Android hint and
+their iOS counterparts, callbacks, disabled format rows, the focus drop —
+checked after the menu closes, since an open popup holds focus anyway — the
+anatomy in both themes, a label wrapping at 200 %, a German ⋮ between 236
+and 280, a Romanian title ellipsizing before its glyph),
+`calendar_header_test.dart` (the page's bar and its route name, a format
+applied from the menu and one taken elsewhere, the filter sheet without a
+format, the ⋮ rows, Export handing the events over and answering once,
+German at 360 dp beside the back button),
+`app_navigator_calendar_switch_test.dart` (return vs push, a deeper page
+survives, a pick inside the page's own menu pops the page and not the menu,
+the wrappers' kinds), `test/controllers/calendar_export_controller_test.dart`
+(one answer for two listeners, failures, other operations, strangers'
+exports), the overview suite (its header, the switch back to a calendar
+beneath, the accent re-read on return — its harness now registers the route
+observer and puts the blocs above the app), and the filter-sheet suite on
+the new return type. One harness note: a bloc built in `setUp` lives outside
+the test's fake-async zone, so its emissions reach the page's builders only
+after `tester.runAsync` lets the real zone run — `calendar_header_test`'s
+`deliver`.
+
+**Device pass** (Android emulator, Pixel 9 Pro, 427 dp, QA build, calendar
+seed): `qa flows calendar` — nine flows, all green, `05_overview` now through
+the view menu and back through the overview's own, `08_header` new (the view
+menu and its formats, Week applied, every ⋮ row opening its page and back);
+the matrix dark / German / Romanian at text scale 2.0 — the title reads in
+full, the view rows report checked / unchecked, "Ereignisse exportieren
+(.ics)" and "Prezentare generală" wrap and read in full (only
+"Kalendereinstellungen", one word wider than the menu at that size, breaks
+mid-word); the dump shows the title as one `header` button carrying its
+hint, with no empty header above it. Re-run on the final build after the
+reviews. `qa errors` clean throughout.
+
+**Reviews.** Two fresh subagents, read-only. The code review found no high
+or medium defects — one vacuous test (the ⋮'s focus check, now made after
+the menu closes and proven by a mutation run), two coverage gaps (closed but
+one, the overview's reload after its own settings trip) and doc drift, all
+fixed. The design review found no deviation from the record and nothing to
+revert, and three accessibility defects — "Switch view" never spoken by
+TalkBack, labels cut off at 200 %, evidence older than the route-name fix —
+all fixed, with its glyph recommendations taken. The record lists each.

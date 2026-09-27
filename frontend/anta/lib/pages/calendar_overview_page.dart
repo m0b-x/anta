@@ -6,6 +6,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../bloc/calendar/calendar_bloc.dart';
+import '../bloc/import_export/import_export_bloc.dart';
+import '../bloc/import_export/import_export_state.dart';
+import '../controllers/calendar_export_controller.dart';
 import '../constants/app_spacing.dart';
 import '../constants/calendar_bounds.dart';
 import '../constants/calendar_categories.dart';
@@ -28,6 +31,7 @@ import '../widgets/agenda_month_grid.dart';
 import '../widgets/agenda_period_nav.dart';
 import '../widgets/agenda_year_grid.dart';
 import '../widgets/agenda_year_pager.dart';
+import '../widgets/calendar_header_menus.dart';
 import '../widgets/category_picker_sheet.dart';
 import '../widgets/month_year_picker_sheet.dart';
 
@@ -121,6 +125,10 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
 
   bool _pickerOpen = false;
 
+  /// The ⋮ menu's `.ics` export, answered only when this page started it —
+  /// the calendar beneath answers for its own.
+  final CalendarExportController _export = CalendarExportController();
+
   /// A row tap pushes the calendar over this page, and every edit made there
   /// emits. Resolving a whole year for each one underneath would be pure
   /// waste, so the state is parked while covered and adopted on return.
@@ -173,6 +181,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   @override
   void didPopNext() {
     _covered = false;
+    unawaited(_reloadAppearance());
     final pending = _pendingState;
     if (pending == null) return;
     _pendingState = null;
@@ -189,6 +198,39 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     _hapticFeedback = loaded.hapticFeedback;
     _settingsLoaded = true;
     _rebuild();
+  }
+
+  /// Re-reads what a page above this one can change: the calendar's settings
+  /// are one ⋮ away, from here or from a calendar pushed over this page.
+  ///
+  /// The allowlist and the mode are left alone. Only this page writes them,
+  /// and a month drilled into from a year tile is not persisted, so reading
+  /// the mode back would throw the user out of it.
+  Future<void> _reloadAppearance() async {
+    final settings = await SettingsService.getInstance();
+    final loaded = await settings.getCalendarOverviewSettings();
+    if (!mounted || !_settingsLoaded) return;
+    _hapticFeedback = loaded.hapticFeedback;
+    if (loaded.appearance == _appearance) return;
+    _appearance = loaded.appearance;
+    _rebuild();
+  }
+
+  /// The ⋮ menu's Calendar settings. Settings → Categories can delete a
+  /// category, which reassigns its events behind the service's cache without
+  /// bumping a revision, so the events are reloaded after the trip — as the
+  /// calendar does after its own.
+  Future<void> _openSettings() async {
+    final bloc = context.read<CalendarBloc>();
+    await AppNavigator.toCalendarSettings(context);
+    if (!mounted) return;
+    bloc.add(const LoadCalendarEvents());
+  }
+
+  void _exportEvents() {
+    final state = context.read<CalendarBloc>().state;
+    if (state is! CalendarPageLoaded) return;
+    _export.start(context, state.allEvents);
   }
 
   /// Localized category labels for the search, re-resolved when the catalog
@@ -591,14 +633,33 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    return BlocListener<CalendarBloc, CalendarPageState>(
-      listenWhen: _listenWhen,
-      listener: (_, state) => _onStateChanged(state),
+    return MultiBlocListener(
+      listeners: [
+        BlocListener<CalendarBloc, CalendarPageState>(
+          listenWhen: _listenWhen,
+          listener: (_, state) => _onStateChanged(state),
+        ),
+        BlocListener<ImportExportBloc, ImportExportState>(
+          listener: _export.onState,
+        ),
+      ],
       child: Scaffold(
         appBar: AppBar(
-          title: Text(l10n.calendarOverview),
+          titleSpacing: CalendarViewMenu.titleSpacing,
+          excludeHeaderSemantics: true,
+          title: CalendarViewMenu(
+            page: CalendarViewPage.overview,
+            onPageSelected: (_) => AppNavigator.switchToCalendar(context),
+          ),
           backgroundColor: colorScheme.surface,
           scrolledUnderElevation: 0,
+          actions: [
+            CalendarOverflowMenu(
+              onAlerts: () => AppNavigator.toAlertsFromCalendar(context),
+              onExport: (_events?.isNotEmpty ?? false) ? _exportEvents : null,
+              onSettings: _openSettings,
+            ),
+          ],
         ),
         body: SafeArea(
           top: false,

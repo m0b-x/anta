@@ -5,7 +5,7 @@
   },
   "calendar": "Calendar",
   "@calendar": {
-    "description": "Drawer item and page title for the calendar feature"
+    "description": "Drawer item and page title for the calendar feature, also the view menu row opening it"
   },
   "calendarDesc": "Plan gym sessions and events",
   "@calendarDesc": {
@@ -53,23 +53,19 @@
   },
   "calendarFormatMonth": "Month",
   "@calendarFormatMonth": {
-    "description": "Calendar format option for month view"
+    "description": "Calendar view menu row showing the grid a month at a time"
   },
   "calendarFormatTwoWeeks": "2 weeks",
   "@calendarFormatTwoWeeks": {
-    "description": "Calendar format option for two-week view"
+    "description": "Calendar view menu row showing the grid two weeks at a time"
   },
   "calendarFormatWeek": "Week",
   "@calendarFormatWeek": {
-    "description": "Calendar format option for week view"
+    "description": "Calendar view menu row showing the grid a week at a time"
   },
   "calendarFiltersTitle": "Filters",
   "@calendarFiltersTitle": {
     "description": "Title of the calendar filter sheet"
-  },
-  "calendarViewRange": "View range",
-  "@calendarViewRange": {
-    "description": "Section label for choosing the calendar view range (month/2 weeks/week)"
   },
   "calendarEventCategories": "Event categories",
   "@calendarEventCategories": {
@@ -3458,11 +3454,11 @@
   },
   "calendarSettings": "Calendar",
   "@calendarSettings": {
-    "description": "Title of the calendar settings page and tooltip for its entry point"
+    "description": "Title of the calendar settings page"
   },
   "calendarSettingsRow": "Calendar settings",
   "@calendarSettingsRow": {
-    "description": "Drawer row that opens the calendar settings page"
+    "description": "Drawer row and calendar overflow-menu row that open the calendar settings page"
   },
   "calendarSettingsRowDesc": "Week start, holidays, appearance",
   "@calendarSettingsRowDesc": {
@@ -5312,7 +5308,7 @@
   },
   "exportEventsIcs": "Export events (.ics)",
   "@exportEventsIcs": {
-    "description": "Calendar overflow menu action exporting events as iCalendar"
+    "description": "Calendar and overview overflow-menu action exporting events as iCalendar"
   },
   "exportingEvents": "Exporting events...",
   "@exportingEvents": {
@@ -5913,11 +5909,15 @@
   },
   "calendarOverview": "Overview",
   "@calendarOverview": {
-    "description": "Title of the calendar overview page (events by category across whole years), also the drawer row and the calendar action bar button opening it"
+    "description": "Title of the calendar overview page (events by category across whole years), also the drawer row and the view menu row opening it"
   },
   "calendarOverviewDesc": "Events by category, year by year",
   "@calendarOverviewDesc": {
     "description": "Subtitle of the drawer row opening the calendar overview page"
+  },
+  "calendarViewMenuTooltip": "Switch view",
+  "@calendarViewMenuTooltip": {
+    "description": "Tooltip of the calendar's and the overview's app-bar title, which opens the menu switching between the two pages and between the grid's month, two-week and week views"
   },
   "overviewEmptyYear": "Nothing in {year}",
   "@overviewEmptyYear": {
@@ -6489,7 +6489,7 @@
   },
   "alertsTitle": "Alerts",
   "@alertsTitle": {
-    "description": "Title of the Alerts hub page and of its drawer row"
+    "description": "Title of the Alerts hub page, of its drawer row and of its calendar overflow-menu row"
   },
   "alertsRowDesc": "Upcoming reminders and alarms",
   "@alertsRowDesc": {

@@ -22,6 +22,7 @@ The grouped-row form the 2026-09-25 event editor redesign introduced is the look
 | `lib/widgets/agenda_period_nav.dart` | `AgendaPeriodNav` — ◄ title (+ count) [today] ► |
 | `lib/widgets/year_month_tile.dart`, `lib/widgets/month_dot_matrix.dart` | year-overview tiles and their dot matrix |
 | `lib/widgets/value_change_highlight.dart` | `ValueChangeHighlight` — flashes the row a picker just wrote to |
+| `lib/widgets/calendar_header_menus.dart` | `CalendarViewMenu` (the title as a menu: pages and grid formats as radio rows) and `CalendarOverflowMenu` (the ⋮) of the calendar and the overview — popup routes in the overflow-menu anatomy, 236–280 wide, labels that wrap rather than cut off at large text |
 | `lib/constants/semantics_ids.dart` | `SemanticsIds` — the QA driver's stable ids |
 
 ## Surfaces and numbers
@@ -85,6 +86,8 @@ Both:
 - **Titles are not targets on the calendar page**: every marked day cell's marker label carries its events' titles, so a row is addressed by `id:event-row-<eventId>`. Day cells themselves can carry no id (`table_calendar` wraps them with excluded semantics); a flow taps a day by its label, `{{longdate+N}}`.
 - **`MenuAnchor` items expose no semantics nodes on iOS** (`FormMenuRow`: the priority and day-rail menus) — the menu draws, the tree shows only the scrim. Neither the QA agent nor a screen reader can pick an item. Known gap since 2026-09-26; fix it on the app side before adding a third menu.
 - Every icon-only button has a `tooltip`; a `MergeSemantics` row exposes one node; `ExcludeSemantics` wraps decorative content (the avatar, the matrix).
+- **An app-bar title that is a button of its own carries `header` and `namesRoute` itself, and its `AppBar` sets `excludeHeaderSemantics`** (`CalendarViewMenu`, 2026-09-26). `AppBar`'s own header annotation would have no label over a separate node, and Android announces a route by the first named node's label — the page would open to silence.
+- **A tooltip beside a label is never spoken on focus on Android 9+** (the bridge hands it to `setTooltipText`); where its words matter, put them in the node's `hint` on Android only — iOS already folds the tooltip into the label.
 
 ## Tests every new surface ships with
 
@@ -98,4 +101,4 @@ Cover at least:
 4. Disabled states are disabled, not absent.
 5. `form_rows.dart` has its own suite, `test/widgets/form_rows_test.dart` (ids on each row kind, the two-target row's two nodes, the chip's 48 dp target, disabled opacity, the header text button, the picker caption inside the row's node, the labelled chip row on one line and wrapping under a long label at 360). A change to a primitive extends it in the same slice.
 
-Device pass through the `qa-emulator` skill: `qa relaunch --fresh --seed tool/qa/fixtures/calendar.json` then `qa flows calendar` (eight saved flows, ~40 s), plus `qa set theme=dark locale=de text-scale=2.0` for the matrix and the boards' screenshots side by side; `qa errors` clean. A new surface adds a flow file; a changed one updates its flow in the same slice.
+Device pass through the `qa-emulator` skill: `qa relaunch --fresh --seed tool/qa/fixtures/calendar.json` then `qa flows calendar` (nine saved flows, ~50 s), plus `qa set theme=dark locale=de text-scale=2.0` for the matrix and the boards' screenshots side by side; `qa errors` clean. A new surface adds a flow file; a changed one updates its flow in the same slice.

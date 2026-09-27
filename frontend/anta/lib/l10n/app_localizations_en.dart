@@ -60,9 +60,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get calendarFiltersTitle => 'Filters';
 
   @override
-  String get calendarViewRange => 'View range';
-
-  @override
   String get calendarEventCategories => 'Event categories';
 
   @override
@@ -4710,6 +4707,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get calendarOverviewDesc => 'Events by category, year by year';
+
+  @override
+  String get calendarViewMenuTooltip => 'Switch view';
 
   @override
   String overviewEmptyYear(int year) {

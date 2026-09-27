@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:table_calendar/table_calendar.dart';
 
 import '../constants/app_constants.dart';
 import '../constants/calendar_categories.dart';
@@ -18,17 +17,9 @@ import '../utils/custom_snackbar.dart';
 import 'category_picker_sheet.dart';
 import 'filter_preset_sheet.dart';
 
-/// Result returned by [CalendarFilterSheet] when the user applies a change.
-class CalendarFilterResult {
-  final CalendarFormat format;
-  final CalendarGridFilters filters;
-
-  const CalendarFilterResult({required this.format, required this.filters});
-}
-
-/// Bottom-sheet that lets the user pick the calendar view range and narrow
-/// the grid — by recurrence, time of day, priority, category and the boolean
-/// traits.
+/// Bottom-sheet that narrows the grid — by recurrence, time of day, priority,
+/// category and the boolean traits. How the grid is *looked at* (month, two
+/// weeks, a week) is not a filter and lives in the title's view menu.
 ///
 /// Edits a **local draft** and returns it on Apply (or `null` when dismissed),
 /// mirroring `AgendaFiltersSheet`: a live-applying sheet would re-filter the
@@ -39,31 +30,24 @@ class CalendarFilterResult {
 /// filter and a saved preset's subtitle can never name the same thing
 /// differently.
 class CalendarFilterSheet extends StatefulWidget {
-  final CalendarFormat initialFormat;
   final CalendarGridFilters initialFilters;
 
-  const CalendarFilterSheet({
-    super.key,
-    required this.initialFormat,
-    required this.initialFilters,
-  });
+  const CalendarFilterSheet({super.key, required this.initialFilters});
 
   /// Wraps the category chip row so a test can count *those* chips without
   /// catching the priority and trait chips beside them.
   static const Key categoryChipsKey = Key('calendarFilterCategoryChips');
 
-  static Future<CalendarFilterResult?> show(
+  static Future<CalendarGridFilters?> show(
     BuildContext context, {
-    required CalendarFormat format,
     required CalendarGridFilters filters,
   }) {
-    return showModalBottomSheet<CalendarFilterResult>(
+    return showModalBottomSheet<CalendarGridFilters>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       showDragHandle: true,
-      builder: (_) =>
-          CalendarFilterSheet(initialFormat: format, initialFilters: filters),
+      builder: (_) => CalendarFilterSheet(initialFilters: filters),
     );
   }
 
@@ -72,7 +56,6 @@ class CalendarFilterSheet extends StatefulWidget {
 }
 
 class _CalendarFilterSheetState extends State<CalendarFilterSheet> {
-  late CalendarFormat _format;
   late CalendarGridFilters _draft;
 
   FilterPresetService? _presets;
@@ -91,7 +74,6 @@ class _CalendarFilterSheetState extends State<CalendarFilterSheet> {
   @override
   void initState() {
     super.initState();
-    _format = widget.initialFormat;
     _draft = widget.initialFilters;
     _loadPresets();
   }
@@ -170,18 +152,10 @@ class _CalendarFilterSheetState extends State<CalendarFilterSheet> {
     CustomSnackbar.show(context, message);
   }
 
-  /// Clears every filter but leaves the view range alone — a range is what
-  /// you are looking through, not something being hidden from you. The panel
-  /// preference survives for the same reason ([CalendarGridFilters.cleared]).
+  /// Clears every filter but leaves the panel preference alone
+  /// ([CalendarGridFilters.cleared]): it hides nothing, it hands the day
+  /// panel its whole day back.
   void _reset() => _update(_draft.cleared());
-
-  String _formatLabel(AppLocalizations l10n, CalendarFormat f) {
-    return switch (f) {
-      CalendarFormat.month => l10n.calendarFormatMonth,
-      CalendarFormat.twoWeeks => l10n.calendarFormatTwoWeeks,
-      CalendarFormat.week => l10n.calendarFormatWeek,
-    };
-  }
 
   void _togglePriority(int priority, bool selected) {
     final next = {..._draft.priorities};
@@ -265,12 +239,9 @@ class _CalendarFilterSheetState extends State<CalendarFilterSheet> {
 
   void _apply() {
     Navigator.of(context).pop(
-      CalendarFilterResult(
-        format: _format,
-        filters: _draft.copyWith(
-          hiddenCategoryIds: Set.unmodifiable(_hidden),
-          priorities: Set.unmodifiable(_draft.priorities),
-        ),
+      _draft.copyWith(
+        hiddenCategoryIds: Set.unmodifiable(_hidden),
+        priorities: Set.unmodifiable(_draft.priorities),
       ),
     );
   }
@@ -337,18 +308,9 @@ class _CalendarFilterSheetState extends State<CalendarFilterSheet> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _SectionLabel(l10n.calendarViewRange),
-                  _segmented<CalendarFormat>(
-                    values: CalendarFormat.values,
-                    selected: _format,
-                    labelOf: (f) => _formatLabel(l10n, f),
-                    onChanged: (f) => setState(() => _format = f),
-                  ),
-                  const SizedBox(height: 20),
-                  // Categories stay the second section, where they have always
-                  // been: they are the filter reached for most, and the axes
-                  // added around them must not push the familiar one below the
-                  // fold.
+                  // Categories come first: they are the filter reached for
+                  // most, and the axes added around them must not push the
+                  // familiar one below the fold.
                   _buildCategories(l10n),
                   const SizedBox(height: 20),
                   _SectionLabel(l10n.upcomingPriority),

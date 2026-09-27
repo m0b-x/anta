@@ -106,7 +106,7 @@ abstract class AppLocalizations {
   /// **'ANTA'**
   String get appTitle;
 
-  /// Drawer item and page title for the calendar feature
+  /// Drawer item and page title for the calendar feature, also the view menu row opening it
   ///
   /// In en, this message translates to:
   /// **'Calendar'**
@@ -178,19 +178,19 @@ abstract class AppLocalizations {
   /// **'Ends next day'**
   String get eventCrossesMidnight;
 
-  /// Calendar format option for month view
+  /// Calendar view menu row showing the grid a month at a time
   ///
   /// In en, this message translates to:
   /// **'Month'**
   String get calendarFormatMonth;
 
-  /// Calendar format option for two-week view
+  /// Calendar view menu row showing the grid two weeks at a time
   ///
   /// In en, this message translates to:
   /// **'2 weeks'**
   String get calendarFormatTwoWeeks;
 
-  /// Calendar format option for week view
+  /// Calendar view menu row showing the grid a week at a time
   ///
   /// In en, this message translates to:
   /// **'Week'**
@@ -201,12 +201,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Filters'**
   String get calendarFiltersTitle;
-
-  /// Section label for choosing the calendar view range (month/2 weeks/week)
-  ///
-  /// In en, this message translates to:
-  /// **'View range'**
-  String get calendarViewRange;
 
   /// Section label for the visible event categories filter
   ///
@@ -4816,13 +4810,13 @@ abstract class AppLocalizations {
   /// **'Calendar'**
   String get calendarSection;
 
-  /// Title of the calendar settings page and tooltip for its entry point
+  /// Title of the calendar settings page
   ///
   /// In en, this message translates to:
   /// **'Calendar'**
   String get calendarSettings;
 
-  /// Drawer row that opens the calendar settings page
+  /// Drawer row and calendar overflow-menu row that open the calendar settings page
   ///
   /// In en, this message translates to:
   /// **'Calendar settings'**
@@ -7294,7 +7288,7 @@ abstract class AppLocalizations {
   /// **'Events with a start time appear on the timeline'**
   String get timelineEmptyHint;
 
-  /// Calendar overflow menu action exporting events as iCalendar
+  /// Calendar and overview overflow-menu action exporting events as iCalendar
   ///
   /// In en, this message translates to:
   /// **'Export events (.ics)'**
@@ -8086,7 +8080,7 @@ abstract class AppLocalizations {
   /// **'Calendar year'**
   String get dayListScopeCalendarYear;
 
-  /// Title of the calendar overview page (events by category across whole years), also the drawer row and the calendar action bar button opening it
+  /// Title of the calendar overview page (events by category across whole years), also the drawer row and the view menu row opening it
   ///
   /// In en, this message translates to:
   /// **'Overview'**
@@ -8097,6 +8091,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Events by category, year by year'**
   String get calendarOverviewDesc;
+
+  /// Tooltip of the calendar's and the overview's app-bar title, which opens the menu switching between the two pages and between the grid's month, two-week and week views
+  ///
+  /// In en, this message translates to:
+  /// **'Switch view'**
+  String get calendarViewMenuTooltip;
 
   /// Empty state of the overview page's list mode when the shown year holds no entry
   ///
@@ -8812,7 +8812,7 @@ abstract class AppLocalizations {
   /// **'This phone has no sound picker'**
   String get alertSoundPickerUnavailable;
 
-  /// Title of the Alerts hub page and of its drawer row
+  /// Title of the Alerts hub page, of its drawer row and of its calendar overflow-menu row
   ///
   /// In en, this message translates to:
   /// **'Alerts'**
