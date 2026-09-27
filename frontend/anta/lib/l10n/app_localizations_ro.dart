@@ -60,9 +60,6 @@ class AppLocalizationsRo extends AppLocalizations {
   String get calendarFiltersTitle => 'Filtre';
 
   @override
-  String get calendarViewRange => 'Interval de vizualizare';
-
-  @override
   String get calendarEventCategories => 'Categorii de evenimente';
 
   @override
@@ -4793,6 +4790,9 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get calendarOverviewDesc => 'Evenimente pe categorii, an de an';
+
+  @override
+  String get calendarViewMenuTooltip => 'Schimbă vizualizarea';
 
   @override
   String overviewEmptyYear(int year) {

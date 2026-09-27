@@ -532,6 +532,62 @@ abstract final class AppNavigator {
     );
   }
 
+  /// The view menu's Calendar row, on the overview. The calendar and the
+  /// overview are two views of one feature, so switching between them never
+  /// stacks: see [returnOrPush].
+  static Future<void> switchToCalendar(BuildContext context) {
+    return returnOrPush(
+      context,
+      NavDestinationKind.calendar,
+      () => toCalendar(context),
+    );
+  }
+
+  /// The view menu's Overview row, on the calendar. See [switchToCalendar].
+  static Future<void> switchToCalendarOverview(BuildContext context) {
+    return returnOrPush(
+      context,
+      NavDestinationKind.calendarOverview,
+      () => toCalendarOverview(context),
+    );
+  }
+
+  /// The Alerts row of the calendar's and the overview's ⋮ menu. Every hub
+  /// row leads to the calendar, so hub → calendar → Alerts would otherwise
+  /// stack a second hub over the first.
+  static Future<void> toAlertsFromCalendar(BuildContext context) {
+    return returnOrPush(
+      context,
+      NavDestinationKind.alerts,
+      () => toAlerts(context),
+    );
+  }
+
+  /// Returns to the page stamped [kind] when it sits **directly beneath** the
+  /// page [context] belongs to, playing one pop; runs [push] otherwise.
+  ///
+  /// Only the page directly beneath: collapsing onto one further down would
+  /// throw away every page the user walked through on the way here.
+  @visibleForTesting
+  static Future<void> returnOrPush(
+    BuildContext context,
+    NavDestinationKind kind,
+    Future<void> Function() push,
+  ) {
+    final navigator = Navigator.of(context);
+    final routes = _livePageRoutes(navigator);
+    final current = ModalRoute.of(context);
+    final index = routes.indexWhere((route) => identical(route, current));
+    if (index > 0) {
+      final beneath = routes[index - 1].settings.arguments;
+      if (beneath is NavDestination && beneath.kind == kind) {
+        _collapseOnto(navigator, routes, index - 1);
+        return Future<void>.value();
+      }
+    }
+    return push();
+  }
+
   /// The Alerts hub, opened by the platform with no `BuildContext` of its own:
   /// the lock screen's alarm line and Quick Settings launch the show intent
   /// every alarm-clock entry carries (`AlarmService.ACTION_SHOW`, Patch 1 of

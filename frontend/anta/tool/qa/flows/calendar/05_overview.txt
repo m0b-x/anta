@@ -1,5 +1,9 @@
-# The overview page: year, month and list presentations over the seeded
-# events, then back to the calendar.
+# The overview page through the title's view menu: year, month and list
+# presentations over the seeded events, then back to the calendar through
+# the overview's own view menu, which returns to the calendar beneath
+# rather than stacking another.
+tap id:calendar-view-menu
+wait id:calendar-overview-open
 tap id:calendar-overview-open
 wait "Year"
 shot 05_overview_year
@@ -8,6 +12,9 @@ shot 05_overview_month
 tap "List"
 expect "Lifting session"
 shot 05_overview_list
-key back
+tap id:calendar-view-menu
+wait id:calendar-view-calendar
+shot 05_overview_menu
+tap id:calendar-view-calendar
 wait id:calendar-add-event
 errors

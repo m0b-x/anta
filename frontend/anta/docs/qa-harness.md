@@ -357,12 +357,16 @@ what the first pass found:
   saved filter, a custom holiday, the German profile and Orthodox fasting,
   60 placeholders. `test/qa/calendar_fixture_test.dart` imports it and pins
   that everything occurs where the flows expect.
-- `tool/qa/flows/calendar/00_open … 07_detail` — eight flows, all green (`07_detail`, 2026-09-26: the detail sheet's chips, Skip and the bundled Dates row into the Dates sheet)
+- `tool/qa/flows/calendar/00_open … 08_header` — nine flows, all green (`07_detail`, 2026-09-26: the detail sheet's chips, Skip and the bundled Dates row into the Dates sheet; `08_header`, 2026-09-26: the title's view menu with its formats and every row of the ⋮ menu, while `05_overview` reaches the overview through the view menu and returns through the overview's own)
   from a fresh install on the iPhone 17 Pro Max simulator in 33 s of device
   time (`qa flows calendar`).
 - Ids: the editor's rows, chrome and scrolling body (`event-form`), the
   sub-sheets' Done, the Dates sheet's Save and Cancel, the detail sheet's
-  Edit and Close, and `event-row-<eventId>` on day-panel rows.
+  Edit and Close, and `event-row-<eventId>` on day-panel rows; the calendar
+  header's view menu and its rows (`calendar-view-menu`,
+  `calendar-view-calendar`, `calendar-overview-open`, `calendar-format-*`)
+  and its ⋮ (`calendar-more`, `calendar-alerts-open`, `calendar-export`,
+  `calendar-settings-open`).
   `FormPickerRow` / `FormSwitchRow` / `FormActionRow` / `FormMenuRow` take
   an `identifier`, `FormSheetHeader` a `leadingIdentifier`.
 - `qa set` (agent op `set`) and `--setting` on `run` / `relaunch`.

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:table_calendar/table_calendar.dart';
 
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/l10n/app_localizations.dart';
@@ -85,7 +84,6 @@ void main() {
         tester,
         (context) => CalendarFilterSheet.show(
           context,
-          format: CalendarFormat.month,
           filters: CalendarGridFilters.none,
         ),
       );
@@ -102,7 +100,6 @@ void main() {
         tester,
         (context) => CalendarFilterSheet.show(
           context,
-          format: CalendarFormat.month,
           filters: CalendarGridFilters.none,
         ),
       );
@@ -116,11 +113,10 @@ void main() {
       tester,
     ) async {
       seed(15);
-      CalendarFilterResult? applied;
+      CalendarGridFilters? applied;
       await pumpHost(tester, (context) async {
         applied = await CalendarFilterSheet.show(
           context,
-          format: CalendarFormat.month,
           filters: CalendarGridFilters.none,
         );
       });
@@ -138,7 +134,7 @@ void main() {
       await tester.tap(find.text('Apply'));
       await tester.pumpAndSettle();
 
-      expect(applied?.filters.hiddenCategoryIds, {'c2'});
+      expect(applied?.hiddenCategoryIds, {'c2'});
     });
 
     /// The header is one toggle, so its two halves are only ever reachable in
@@ -166,11 +162,10 @@ void main() {
           isHidden: true,
         ),
       ]);
-      CalendarFilterResult? applied;
+      CalendarGridFilters? applied;
       await pumpHost(tester, (context) async {
         applied = await CalendarFilterSheet.show(
           context,
-          format: CalendarFormat.month,
           filters: const CalendarGridFilters(hiddenCategoryIds: {'arch', 'c2'}),
         );
       });
@@ -190,19 +185,18 @@ void main() {
       // Clear all denied every visible id; `arch` was already un-denied by
       // Select all and is not re-added, because Clear all unions the *visible*
       // set and `arch` is not in it.
-      expect(applied?.filters.hiddenCategoryIds, hasLength(15));
-      expect(applied?.filters.hiddenCategoryIds, isNot(contains('arch')));
+      expect(applied?.hiddenCategoryIds, hasLength(15));
+      expect(applied?.hiddenCategoryIds, isNot(contains('arch')));
     });
 
     testWidgets('clearing every row in the picker hides every category', (
       tester,
     ) async {
       seed(15);
-      CalendarFilterResult? applied;
+      CalendarGridFilters? applied;
       await pumpHost(tester, (context) async {
         applied = await CalendarFilterSheet.show(
           context,
-          format: CalendarFormat.month,
           // Starts with everything already hidden, so the picker opens with an
           // empty selection and Apply returns that empty set unchanged — the
           // case its date twin would have collapsed to a dismissal.
@@ -221,7 +215,7 @@ void main() {
       await tester.tap(find.text('Apply'));
       await tester.pumpAndSettle();
 
-      expect(applied?.filters.hiddenCategoryIds.length, 15);
+      expect(applied?.hiddenCategoryIds.length, 15);
     });
   });
 

@@ -123,6 +123,12 @@ abstract final class AppTheme {
   static const double menuDividerHeight = 13.0;
   static const double menuVerticalPadding = 6.0;
 
+  /// The widest a menu that sizes to its labels may grow — Material's own
+  /// ceiling. The calendar's menus take [menuWidth] as their floor and this
+  /// as their cap, because a German label such as "Ereignisse exportieren
+  /// (.ics)" does not fit 236.
+  static const double menuMaxWidth = 280.0;
+
   /// Vertical breathing room around the editor toolbar's 40 dp button row,
   /// which puts the bar at the mock's 46 dp. Read by the markdown bar and
   /// by the vocabulary bar that swaps in for it — the two must stay the

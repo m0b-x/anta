@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show Tristate;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -6,18 +7,29 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/intl.dart';
 
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
+import 'package:anta/bloc/import_export/import_export_bloc.dart';
 import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/constants/semantics_ids.dart';
+import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/agenda_day_list_mode.dart';
 import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
+import 'package:anta/models/nav_destination.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/pages/calendar_overview_page.dart';
+import 'package:anta/repositories/folder_repository.dart';
+import 'package:anta/repositories/note_repository.dart';
+import 'package:anta/services/app_navigator.dart';
 import 'package:anta/services/calendar_event_service.dart';
+import 'package:anta/services/folder_storage_service.dart';
+import 'package:anta/services/import_export_service.dart';
+import 'package:anta/services/note_storage_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/utils/event_agenda.dart';
 import 'package:anta/widgets/agenda_list_view.dart';
+import 'package:anta/widgets/agenda_year_pager.dart';
 import 'package:anta/widgets/month_dot_matrix.dart';
 import 'package:anta/widgets/month_year_picker_sheet.dart';
 import 'package:anta/widgets/year_month_tile.dart';
@@ -30,6 +42,8 @@ import '../database/support/db_test_support.dart';
 /// bloc, watches what it draws, and watches where a tap goes.
 void main() {
   late CalendarBloc bloc;
+  late ImportExportBloc importExport;
+  late AppDatabase db;
 
   final today = EventAgenda.dateOnly(DateTime.now());
   final year = today.year;
@@ -65,7 +79,18 @@ void main() {
   setUp(() async {
     DatabaseLifecycle.notifyDatabaseSwitching();
     SettingsService.reset();
-    SettingsService.forTesting(await openTestDatabase());
+    db = await openTestDatabase();
+    SettingsService.forTesting(db);
+    final notes = NoteRepository(database: db);
+    importExport = ImportExportBloc(
+      service: ImportExportService(
+        noteStorage: NoteStorageService(repository: notes),
+        folderStorage: FolderStorageService(
+          repository: FolderRepository(database: db),
+        ),
+        noteRepository: notes,
+      ),
+    );
     CalendarCategories.updateCache([
       for (final (index, seed) in CalendarCategories.builtInSeeds.indexed)
         CalendarCategory(
@@ -90,27 +115,15 @@ void main() {
 
   tearDown(() async {
     await bloc.close();
+    await importExport.close();
     CalendarCategories.updateCache(const []);
     SettingsService.reset();
+    await db.close();
   });
 
-  Future<List<(DateTime, String)>> pumpPage(WidgetTester tester) async {
-    final opened = <(DateTime, String)>[];
-    await tester.pumpWidget(
-      MaterialApp(
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        locale: const Locale('en'),
-        home: BlocProvider<CalendarBloc>.value(
-          value: bloc,
-          child: CalendarOverviewPage.forTesting(
-            openOccurrence: (day, eventId) => opened.add((day, eventId)),
-          ),
-        ),
-      ),
-    );
-    // The settings read is a real async gap; pump a bounded number of frames
-    // rather than settling, so a stalled read fails instead of hanging.
+  /// The settings read is a real async gap; pump a bounded number of frames
+  /// rather than settling, so a stalled read fails instead of hanging.
+  Future<void> pumpUntilLoaded(WidgetTester tester) async {
     for (var i = 0; i < 20; i++) {
       if (find.byType(YearMonthTile).evaluate().isNotEmpty ||
           find.byType(ListTile).evaluate().isNotEmpty) {
@@ -119,6 +132,40 @@ void main() {
       await tester.pump(const Duration(milliseconds: 20));
     }
     await tester.pump();
+  }
+
+  /// The blocs sit above the app, where the real ones live, so a route
+  /// pushed over the page still finds them.
+  Widget app({
+    GlobalKey<NavigatorState>? navigatorKey,
+    required Widget home,
+  }) {
+    return MultiBlocProvider(
+      providers: [
+        BlocProvider<CalendarBloc>.value(value: bloc),
+        BlocProvider<ImportExportBloc>.value(value: importExport),
+      ],
+      child: MaterialApp(
+        navigatorKey: navigatorKey,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: const Locale('en'),
+        navigatorObservers: [AppNavigator.routeObserver],
+        home: home,
+      ),
+    );
+  }
+
+  Future<List<(DateTime, String)>> pumpPage(WidgetTester tester) async {
+    final opened = <(DateTime, String)>[];
+    await tester.pumpWidget(
+      app(
+        home: CalendarOverviewPage.forTesting(
+          openOccurrence: (day, eventId) => opened.add((day, eventId)),
+        ),
+      ),
+    );
+    await pumpUntilLoaded(tester);
     return opened;
   }
 
@@ -327,5 +374,148 @@ void main() {
       findsOneWidget,
     );
     handle.dispose();
+  });
+
+  group('header', () {
+    Finder id(String identifier) => find.bySemanticsIdentifier(identifier);
+
+    Future<void> open(WidgetTester tester, String identifier) async {
+      await tester.tap(id(identifier));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('the title is the view menu, Overview checked, no formats', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+      expect(find.text('Overview'), findsOneWidget);
+
+      await open(tester, SemanticsIds.calendarViewMenu);
+      expect(id(SemanticsIds.calendarViewCalendar), findsOneWidget);
+      expect(
+        find.descendant(
+          of: id(SemanticsIds.calendarOverviewOpen),
+          matching: find.byIcon(Icons.check_rounded),
+        ),
+        findsOneWidget,
+      );
+      expect(id(SemanticsIds.calendarFormatMonth), findsNothing);
+    });
+
+    testWidgets('the ⋮ offers Alerts, Export and Calendar settings', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+
+      await open(tester, SemanticsIds.calendarMore);
+      expect(id(SemanticsIds.calendarAlertsOpen), findsOneWidget);
+      expect(id(SemanticsIds.calendarSettingsOpen), findsOneWidget);
+      expect(
+        tester
+            .getSemantics(id(SemanticsIds.calendarExport))
+            .getSemanticsData()
+            .flagsCollection
+            .isEnabled,
+        Tristate.isTrue,
+      );
+    });
+
+    testWidgets('Export is disabled while the calendar holds no events', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+      // ignore: invalid_use_of_visible_for_testing_member
+      bloc.emit(
+        CalendarPageLoaded(
+          allEvents: const [],
+          focusedDay: today,
+          selectedDay: today,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await open(tester, SemanticsIds.calendarMore);
+      expect(
+        tester
+            .getSemantics(id(SemanticsIds.calendarExport))
+            .getSemanticsData()
+            .flagsCollection
+            .isEnabled,
+        Tristate.isFalse,
+      );
+    });
+
+    testWidgets('Calendar returns to the calendar beneath instead of '
+        'stacking another', (tester) async {
+      final navigatorKey = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        app(
+          navigatorKey: navigatorKey,
+          home: const Scaffold(body: Text('root')),
+        ),
+      );
+      unawaited(
+        navigatorKey.currentState!.push(
+          MaterialPageRoute<void>(
+            builder: (_) => const Scaffold(body: Text('calendar beneath')),
+            settings: const RouteSettings(
+              name: 'calendar',
+              arguments: NavDestination(NavDestinationKind.calendar),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      unawaited(
+        navigatorKey.currentState!.push(
+          MaterialPageRoute<void>(
+            builder: (_) =>
+                CalendarOverviewPage.forTesting(openOccurrence: (_, _) {}),
+            settings: const RouteSettings(
+              name: 'calendarOverview',
+              arguments: NavDestination(NavDestinationKind.calendarOverview),
+            ),
+          ),
+        ),
+      );
+      await pumpUntilLoaded(tester);
+      await tester.pumpAndSettle();
+
+      await open(tester, SemanticsIds.calendarViewMenu);
+      await tester.tap(id(SemanticsIds.calendarViewCalendar));
+      await tester.pumpAndSettle();
+
+      expect(find.text('calendar beneath'), findsOneWidget);
+      expect(find.byType(CalendarOverviewPage), findsNothing);
+    });
+
+    testWidgets('coming back re-reads the accent another page changed', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+      final page = tester.element(find.byType(CalendarOverviewPage));
+      Color pagerColor() =>
+          tester.widget<AgendaYearPager>(find.byType(AgendaYearPager)).color;
+      expect(pagerColor(), Theme.of(page).colorScheme.primary);
+
+      unawaited(
+        Navigator.of(page).push(
+          MaterialPageRoute<void>(
+            builder: (_) => const Scaffold(body: Text('settings')),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final settings = await SettingsService.getInstance();
+      await settings.setCalendarAccentColor(0xFF00897B);
+      Navigator.of(page).pop();
+      await tester.pumpAndSettle();
+      for (var i = 0; i < 20; i++) {
+        if (pagerColor() == const Color(0xFF00897B)) break;
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+
+      expect(pagerColor(), const Color(0xFF00897B));
+    });
   });
 }

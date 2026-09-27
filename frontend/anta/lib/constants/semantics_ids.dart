@@ -54,7 +54,23 @@ abstract final class SemanticsIds {
   /// The calendar's controls that are not a day cell.
   static const String calendarToday = 'calendar-today';
   static const String calendarAddEvent = 'calendar-add-event';
+
+  /// The view menu behind the app-bar title of the calendar and the overview,
+  /// and its rows. The Overview row keeps the id the app-bar button it
+  /// replaced carried, so a script that opened the overview still does once
+  /// it has opened the menu.
+  static const String calendarViewMenu = 'calendar-view-menu';
+  static const String calendarViewCalendar = 'calendar-view-calendar';
   static const String calendarOverviewOpen = 'calendar-overview-open';
+  static const String calendarFormatMonth = 'calendar-format-month';
+  static const String calendarFormatTwoWeeks = 'calendar-format-two-weeks';
+  static const String calendarFormatWeek = 'calendar-format-week';
+
+  /// The ⋮ menu of the calendar and the overview, and its rows.
+  static const String calendarMore = 'calendar-more';
+  static const String calendarAlertsOpen = 'calendar-alerts-open';
+  static const String calendarExport = 'calendar-export';
+  static const String calendarSettingsOpen = 'calendar-settings-open';
 
   /// The event editor's rows and chrome, the two sub-sheets' Done and the
   /// detail sheet's actions: what the calendar flows under `tool/qa/flows/`
