@@ -67,17 +67,37 @@
   "@calendarFiltersTitle": {
     "description": "Title of the calendar filter sheet"
   },
-  "calendarEventCategories": "Event categories",
-  "@calendarEventCategories": {
-    "description": "Section label for the visible event categories filter"
+  "calendarFilterSavedFilter": "Saved filter",
+  "@calendarFilterSavedFilter": {
+    "description": "Label of the filter sheet's row that names the saved filter the draft matches and opens the saved-filters sheet"
   },
-  "calendarSelectAll": "Select all",
-  "@calendarSelectAll": {
-    "description": "Button to select every event category"
+  "calendarFilterSavedNone": "None",
+  "@calendarFilterSavedNone": {
+    "description": "Value of the filter sheet's saved-filter row while the draft matches no saved filter"
   },
-  "calendarClearAll": "Clear",
-  "@calendarClearAll": {
-    "description": "Button to deselect every event category"
+  "calendarFilterSectionEvents": "Events",
+  "@calendarFilterSectionEvents": {
+    "description": "Section label above the filter sheet's narrowing rows (categories, priority, repeat, time of day, only show)"
+  },
+  "calendarFilterCategoriesAll": "All",
+  "@calendarFilterCategoriesAll": {
+    "description": "Value of the filter sheet's Categories row while no category is hidden"
+  },
+  "calendarFilterOnlyShowAny": "Everything",
+  "@calendarFilterOnlyShowAny": {
+    "description": "Value of the filter sheet's Only show row while no trait is set"
+  },
+  "calendarFilterSectionAlsoShow": "Also show",
+  "@calendarFilterSectionAlsoShow": {
+    "description": "Section label above the filter sheet's layer switches (holidays, fasting, money) and the day-panel switch"
+  },
+  "calendarFilterReset": "Reset filters",
+  "@calendarFilterReset": {
+    "description": "Action row at the bottom of the filter sheet that clears every filter; the sheet stays open"
+  },
+  "filterPresetNone": "No filter",
+  "@filterPresetNone": {
+    "description": "First row of the saved-filters sheet, checked while nothing is filtered; tapping it clears every filter"
   },
   "calendarFilterRepeat": "Repeat",
   "@calendarFilterRepeat": {
@@ -99,9 +119,9 @@
   "@calendarFilterTracked": {
     "description": "Calendar filter option keeping only events that track presence"
   },
-  "calendarFilterHideEnded": "Hide ended",
+  "calendarFilterHideEnded": "Not ended",
   "@calendarFilterHideEnded": {
-    "description": "Calendar filter option dropping events whose end date has passed"
+    "description": "Calendar filter option keeping only events whose end date has not passed; read as \"Only show … Not ended\" on the filter sheet and as a chip above the grid"
   },
   "calendarFilterWithDescription": "With description",
   "@calendarFilterWithDescription": {
@@ -129,17 +149,9 @@
       }
     }
   },
-  "calendarFilterPanelShowsAll": "Keep the day panel unfiltered",
+  "calendarFilterPanelShowsAll": "All events in the day panel",
   "@calendarFilterPanelShowsAll": {
-    "description": "Switch that exempts the day and timeline panels from the calendar filters"
-  },
-  "calendarFilterPanelShowsAllDesc": "The month stays filtered; tapping a day still lists everything on it",
-  "@calendarFilterPanelShowsAllDesc": {
-    "description": "Explains what the keep-the-day-panel-unfiltered switch does"
-  },
-  "calendarFilterShowAll": "Show everything",
-  "@calendarFilterShowAll": {
-    "description": "Button in the saved-filters sheet that clears every filter. Imperative, unlike calendarFilterShowsEverything, which describes a filter set that hides nothing."
+    "description": "Switch under the filter sheet's Also show label that exempts the day and timeline panels from the calendar filters"
   },
   "calendarFilterShowsEverything": "Shows everything",
   "@calendarFilterShowsEverything": {
@@ -156,10 +168,6 @@
   "filterPresetSearchHint": "Search saved filters",
   "@filterPresetSearchHint": {
     "description": "Hint text of the saved-filter search field"
-  },
-  "filterPresetEmpty": "No saved filters yet. Set up a filter, then tap the bookmark in the filter sheet to save it.",
-  "@filterPresetEmpty": {
-    "description": "Empty state of the saved-filters sheet"
   },
   "filterPresetNoMatches": "No saved filter matches your search",
   "@filterPresetNoMatches": {

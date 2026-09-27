@@ -14,14 +14,21 @@ import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/agenda_day_list.dart';
 import 'package:anta/models/calendar_appearance.dart';
+import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/event_alert.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/widgets/agenda_day_list_sheet.dart';
 import 'package:anta/widgets/alert_editor_sheet.dart';
 import 'package:anta/widgets/alert_sound_sheet.dart';
+import 'package:anta/models/calendar_grid_filters.dart';
 import 'package:anta/widgets/calendar_date_picker_sheet.dart';
+import 'package:anta/widgets/calendar_filter_sheet.dart';
 import 'package:anta/widgets/category_editor_sheet.dart';
+import 'package:anta/widgets/category_picker_sheet.dart';
+import 'package:anta/widgets/filter_check_list_sheet.dart';
+import 'package:anta/widgets/filter_preset_sheet.dart';
+import 'package:anta/services/filter_preset_service.dart';
 import 'package:anta/widgets/color_palette_sheet.dart';
 import 'package:anta/widgets/color_picker_sheet.dart';
 import 'package:anta/services/calendar_palette_service.dart';
@@ -581,6 +588,120 @@ void main() {
         lastDate: CalendarBounds.latest,
         appearance: const CalendarAppearance(),
       ),
+    );
+
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+  });
+
+  testWidgets('the filter sheet clears the navigation bar', (tester) async {
+    sizeSurfaceWithNavBar(tester);
+    await openFrom(
+      tester,
+      (context) => CalendarFilterSheet.show(
+        context,
+        filters: CalendarGridFilters.none,
+      ),
+    );
+
+    // Reset filters is the last row in the scroll view, and exactly what a
+    // nav bar eats on a phone where the twelve rows fill the sheet.
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+  });
+
+  testWidgets('the saved filters sheet clears the navigation bar', (
+    tester,
+  ) async {
+    // The sheet resolves the preset service in its initState; bound to this
+    // test's in-memory database so the rows can fill in.
+    FilterPresetService.reset();
+    addTearDown(FilterPresetService.reset);
+    final presets = await FilterPresetService.forTesting(db);
+    await presets.create(
+      name: 'Training',
+      filters: const CalendarGridFilters(trackedOnly: true),
+    );
+    sizeSurfaceWithNavBar(tester);
+    await openFrom(
+      tester,
+      (context) => FilterPresetSheet.show(
+        context,
+        current: CalendarGridFilters.none,
+      ),
+    );
+
+    // The save row is the last thing in the scroll view, and short lists
+    // never scroll — exactly the shape that forgets the clearance.
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+  });
+
+  testWidgets('the filter check-list sheet clears the navigation bar', (
+    tester,
+  ) async {
+    sizeSurfaceWithNavBar(tester);
+    await openFrom(
+      tester,
+      (context) => FilterCheckListSheet.show(
+        context,
+        title: 'Priority',
+        items: const [
+          FilterCheckItem(
+            id: '1',
+            icon: Icons.keyboard_double_arrow_up_rounded,
+            label: 'Highest',
+          ),
+          FilterCheckItem(
+            id: '5',
+            icon: Icons.keyboard_double_arrow_down_rounded,
+            label: 'Lowest',
+          ),
+        ],
+        selected: const {},
+      ),
+    );
+
+    // Short enough that it never scrolls, which is exactly the shape that
+    // forgets the clearance: the last check row sits on the bottom edge.
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+  });
+
+  /// Three categories, so the picker has rows to run under the bar.
+  void seedCategories() {
+    CalendarCategories.updateCache([
+      for (var i = 0; i < 3; i++)
+        CalendarCategory(
+          id: 'c$i',
+          name: 'Cat$i',
+          colorValue: 0xFF1E88E5,
+          iconKey: 'event',
+          sortOrder: i,
+          isBuiltIn: false,
+        ),
+    ]);
+    addTearDown(() => CalendarCategories.updateCache(const []));
+  }
+
+  testWidgets('the category picker clears the navigation bar in multi mode', (
+    tester,
+  ) async {
+    sizeSurfaceWithNavBar(tester);
+    seedCategories();
+    await openFrom(
+      tester,
+      (context) => CategoryPickerSheet.pickMulti(context, selected: const {}),
+    );
+
+    // The Create category row is the last thing in the scroll view.
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+  });
+
+  testWidgets('the category picker clears the navigation bar in single mode', (
+    tester,
+  ) async {
+    sizeSurfaceWithNavBar(tester);
+    seedCategories();
+    await openFrom(
+      tester,
+      (context) => CategoryPickerSheet.pickSingle(context, selectedId: 'c0'),
     );
 
     expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));

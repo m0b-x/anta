@@ -60,13 +60,28 @@ class AppLocalizationsDe extends AppLocalizations {
   String get calendarFiltersTitle => 'Filter';
 
   @override
-  String get calendarEventCategories => 'Ereigniskategorien';
+  String get calendarFilterSavedFilter => 'Gespeicherter Filter';
 
   @override
-  String get calendarSelectAll => 'Alle auswählen';
+  String get calendarFilterSavedNone => 'Keiner';
 
   @override
-  String get calendarClearAll => 'Leeren';
+  String get calendarFilterSectionEvents => 'Ereignisse';
+
+  @override
+  String get calendarFilterCategoriesAll => 'Alle';
+
+  @override
+  String get calendarFilterOnlyShowAny => 'Alles';
+
+  @override
+  String get calendarFilterSectionAlsoShow => 'Außerdem anzeigen';
+
+  @override
+  String get calendarFilterReset => 'Filter zurücksetzen';
+
+  @override
+  String get filterPresetNone => 'Kein Filter';
 
   @override
   String get calendarFilterRepeat => 'Wiederholung';
@@ -84,7 +99,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get calendarFilterTracked => 'Mit Anwesenheit';
 
   @override
-  String get calendarFilterHideEnded => 'Beendete ausblenden';
+  String get calendarFilterHideEnded => 'Nicht beendet';
 
   @override
   String get calendarFilterWithDescription => 'Mit Beschreibung';
@@ -104,14 +119,7 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
-  String get calendarFilterPanelShowsAll => 'Tagesbereich ungefiltert lassen';
-
-  @override
-  String get calendarFilterPanelShowsAllDesc =>
-      'Der Monat bleibt gefiltert; ein Tag zeigt weiterhin alles';
-
-  @override
-  String get calendarFilterShowAll => 'Alles anzeigen';
+  String get calendarFilterPanelShowsAll => 'Alle Ereignisse im Tagesbereich';
 
   @override
   String get calendarFilterShowsEverything => 'Zeigt alles';
@@ -124,10 +132,6 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get filterPresetSearchHint => 'Gespeicherte Filter suchen';
-
-  @override
-  String get filterPresetEmpty =>
-      'Noch keine gespeicherten Filter. Stelle einen Filter ein und tippe im Filterfenster auf das Lesezeichen, um ihn zu speichern.';
 
   @override
   String get filterPresetNoMatches =>

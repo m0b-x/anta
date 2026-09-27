@@ -2,14 +2,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_category.dart';
+import 'package:anta/widgets/category_editor_sheet.dart';
 import 'package:anta/widgets/category_picker_sheet.dart';
+import 'package:anta/widgets/form_rows.dart';
 
 /// The picker serves two arities off one sheet, and the properties worth
 /// pinning are the ones a reader would otherwise copy wrong from its date
 /// twin: `pickMulti` returns an **empty set** rather than collapsing it to
-/// `null`, and a hidden category stays listed while it is selected.
+/// `null`, and a hidden category stays listed while it is selected. Since
+/// the 2026-09-27 migration into the grouped-row language the chrome is
+/// pinned too: Done and ✕ in multi mode, a pick-on-tap list with no Done in
+/// single mode, the search row past the threshold, the two bulk rows
+/// disabled where they would be no-ops, and the Create category row.
 void main() {
   /// Fills the facade `CategoryService` normally owns. Custom categories, so
   /// every label is its stored name and the assertions read literally.
@@ -55,12 +62,22 @@ void main() {
     return result;
   }
 
-  /// The picker's own Apply, not the host page's — both exist once a filter
-  /// sheet has opened this one.
-  Finder pickerApply() => find.descendant(
-    of: find.byType(CategoryPickerSheet),
-    matching: find.text('Apply'),
-  );
+  /// The picker's own Done — by id, since the host sheet under it may carry
+  /// the same word.
+  Finder pickerApply() => find.bySemanticsIdentifier(SemanticsIds.categoryPickDone);
+
+  /// The check row carrying [label], read for its state.
+  FormCheckRow rowNamed(WidgetTester tester, String label) =>
+      tester.widget<FormCheckRow>(find.widgetWithText(FormCheckRow, label));
+
+  /// An action row by id, read for whether it is enabled.
+  FormActionRow actionRow(WidgetTester tester, String id) =>
+      tester.widget<FormActionRow>(
+        find.ancestor(
+          of: find.bySemanticsIdentifier(id),
+          matching: find.byType(FormActionRow),
+        ),
+      );
 
   testWidgets('un-ticking an archived row leaves it on screen', (tester) async {
     // 12 visible plus one archived-but-selected id: `visiblePlus` offers 13,
@@ -80,14 +97,7 @@ void main() {
     await tester.enterText(find.byType(TextField), 'cat1');
     await tester.pumpAndSettle();
 
-    Checkbox archivedBox() => tester.widget<Checkbox>(
-      find.descendant(
-        of: find.widgetWithText(ListTile, 'Cat12'),
-        matching: find.byType(Checkbox),
-      ),
-    );
-
-    expect(archivedBox().value, isTrue);
+    expect(rowNamed(tester, 'Cat12').checked, isTrue);
     await tester.tap(find.text('Cat12'));
     await tester.pumpAndSettle();
 
@@ -96,12 +106,12 @@ void main() {
       findsOneWidget,
       reason: 'the row it was just un-ticked from must still be there',
     );
-    expect(archivedBox().value, isFalse);
+    expect(rowNamed(tester, 'Cat12').checked, isFalse);
 
     // And re-tickable, which is the whole point of it staying.
     await tester.tap(find.text('Cat12'));
     await tester.pumpAndSettle();
-    expect(archivedBox().value, isTrue);
+    expect(rowNamed(tester, 'Cat12').checked, isTrue);
 
     expect(
       find.byType(TextField),
@@ -222,8 +232,8 @@ void main() {
     await tester.pumpAndSettle();
 
     // The field itself renders the term, so the row is addressed as a row.
-    expect(find.widgetWithText(ListTile, 'Cat11'), findsOneWidget);
-    expect(find.widgetWithText(ListTile, 'Cat0'), findsNothing);
+    expect(find.widgetWithText(FormCheckRow, 'Cat11'), findsOneWidget);
+    expect(find.widgetWithText(FormCheckRow, 'Cat0'), findsNothing);
   });
 
   testWidgets('a short set carries no search chrome', (tester) async {
@@ -234,6 +244,39 @@ void main() {
     );
 
     expect(find.byType(TextField), findsNothing);
+  });
+
+  testWidgets('twelve rows carry no search row', (tester) async {
+    seed(12);
+    await openSheet<String>(
+      tester,
+      (context) => CategoryPickerSheet.pickSingle(context, selectedId: 'c0'),
+    );
+
+    expect(
+      find.bySemanticsIdentifier(SemanticsIds.categoryPickSearch),
+      findsNothing,
+    );
+  });
+
+  testWidgets('the search row appears at thirteen rows, never focused', (
+    tester,
+  ) async {
+    seed(13);
+    await openSheet<String>(
+      tester,
+      (context) => CategoryPickerSheet.pickSingle(context, selectedId: 'c0'),
+    );
+
+    expect(
+      find.bySemanticsIdentifier(SemanticsIds.categoryPickSearch),
+      findsOneWidget,
+    );
+    // Never autofocused: the list is what the sheet opens to show.
+    expect(
+      tester.widget<EditableText>(find.byType(EditableText)).focusNode.hasFocus,
+      isFalse,
+    );
   });
 
   testWidgets('no match offers to create what was typed', (tester) async {
@@ -248,6 +291,131 @@ void main() {
 
     expect(find.text('No categories match'), findsOneWidget);
     expect(find.text('Create "Dentist"'), findsOneWidget);
+    expect(find.byType(FormCheckRow), findsNothing);
+    // The query stays live, so the field stays to clear it.
+    expect(find.byType(TextField), findsOneWidget);
+
+    // The row opens the editor with the typed name filled in.
+    await tester.tap(find.bySemanticsIdentifier(SemanticsIds.categoryPickCreate));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(CategoryEditorSheet), findsOneWidget);
+    final nameField = tester.widget<TextField>(
+      find
+          .descendant(
+            of: find.byType(CategoryEditorSheet),
+            matching: find.byType(TextField),
+          )
+          .first,
+    );
+    expect(nameField.controller?.text, 'Dentist');
+  });
+
+  testWidgets('the Create category row is last and opens the editor', (
+    tester,
+  ) async {
+    seed(4);
+    await openSheet<Set<String>>(
+      tester,
+      (context) => CategoryPickerSheet.pickMulti(context, selected: const {}),
+    );
+
+    expect(find.text('Create category'), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text('Create category')).dy,
+      greaterThan(tester.getTopLeft(find.text('Cat3')).dy),
+    );
+
+    await tester.tap(find.bySemanticsIdentifier(SemanticsIds.categoryPickCreate));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(CategoryEditorSheet), findsOneWidget);
+  });
+
+  testWidgets('multi mode returns null from the close button', (tester) async {
+    seed(4);
+    Set<String>? applied = const {'sentinel'};
+    await openSheet<Set<String>>(tester, (context) async {
+      applied = await CategoryPickerSheet.pickMulti(
+        context,
+        selected: const {'c1'},
+      );
+      return applied;
+    });
+
+    await tester.tap(find.text('Cat0'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.bySemanticsIdentifier(SemanticsIds.categoryPickClose));
+    await tester.pumpAndSettle();
+
+    expect(applied, isNull);
+    expect(find.byType(CategoryPickerSheet), findsNothing);
+  });
+
+  testWidgets('single mode pops on tap with no Done and no checkboxes', (
+    tester,
+  ) async {
+    seed(4);
+    await openSheet<String>(
+      tester,
+      (context) => CategoryPickerSheet.pickSingle(context, selectedId: 'c2'),
+    );
+
+    expect(pickerApply(), findsNothing);
+    expect(find.byType(Checkbox), findsNothing);
+    expect(find.text('Type'), findsOneWidget);
+    // The current one wears the check glyph; the bulk rows are multi-only.
+    expect(rowNamed(tester, 'Cat2').checked, isTrue);
+    expect(rowNamed(tester, 'Cat2').exclusive, isTrue);
+    expect(find.byIcon(Icons.check_rounded), findsOneWidget);
+    expect(find.text('Select all'), findsNothing);
+  });
+
+  testWidgets('the bulk rows are disabled where they would be no-ops', (
+    tester,
+  ) async {
+    seed(4);
+    await openSheet<Set<String>>(
+      tester,
+      (context) => CategoryPickerSheet.pickMulti(context, selected: const {}),
+    );
+
+    // Nothing ticked yet, so Select none has nothing to do.
+    expect(
+      actionRow(tester, SemanticsIds.categoryPickSelectAll).onTap,
+      isNotNull,
+    );
+    expect(actionRow(tester, SemanticsIds.categoryPickSelectNone).onTap, isNull);
+
+    await tester.tap(find.bySemanticsIdentifier(SemanticsIds.categoryPickSelectAll));
+    await tester.pumpAndSettle();
+
+    expect(actionRow(tester, SemanticsIds.categoryPickSelectAll).onTap, isNull);
+    expect(
+      actionRow(tester, SemanticsIds.categoryPickSelectNone).onTap,
+      isNotNull,
+    );
+    expect(
+      tester.widgetList<FormCheckRow>(find.byType(FormCheckRow)).every(
+        (row) => row.checked,
+      ),
+      isTrue,
+    );
+  });
+
+  testWidgets('every row carries its category id', (tester) async {
+    seed(3);
+    await openSheet<Set<String>>(
+      tester,
+      (context) => CategoryPickerSheet.pickMulti(context, selected: const {}),
+    );
+
+    for (final id in const ['c0', 'c1', 'c2']) {
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.categoryPickRow(id)),
+        findsOneWidget,
+      );
+    }
   });
 
   group('CategoryFilterTile', () {

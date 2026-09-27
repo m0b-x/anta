@@ -1,14 +1,12 @@
-import 'dart:ui' show SemanticsRole;
-
 import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart' show CalendarFormat;
 
 import '../constants/app_theme.dart';
-import '../constants/form_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import 'automation_id.dart';
+import 'form_menu_item.dart';
 
 /// The two pages of the calendar feature, which [CalendarViewMenu] switches
 /// between.
@@ -125,20 +123,20 @@ class CalendarViewMenu extends StatelessWidget {
   List<PopupMenuEntry<_ViewChoice>> _items(AppLocalizations l10n) {
     final format = this.format;
     return [
-      _ChoiceItem<_ViewChoice>(
+      FormMenuChoiceItem<_ViewChoice>(
         value: const _PageChoice(CalendarViewPage.calendar),
         checked: page == CalendarViewPage.calendar,
-        child: _MenuRow(
+        child: FormMenuItemRow(
           identifier: SemanticsIds.calendarViewCalendar,
           icon: Icons.calendar_month_rounded,
           label: _labelOf(l10n, CalendarViewPage.calendar),
           checked: page == CalendarViewPage.calendar,
         ),
       ),
-      _ChoiceItem<_ViewChoice>(
+      FormMenuChoiceItem<_ViewChoice>(
         value: const _PageChoice(CalendarViewPage.overview),
         checked: page == CalendarViewPage.overview,
-        child: _MenuRow(
+        child: FormMenuItemRow(
           identifier: SemanticsIds.calendarOverviewOpen,
           icon: Icons.grid_view_rounded,
           label: _labelOf(l10n, CalendarViewPage.overview),
@@ -148,11 +146,11 @@ class CalendarViewMenu extends StatelessWidget {
       if (format != null) ...[
         const PopupMenuDivider(height: AppTheme.menuDividerHeight),
         for (final option in CalendarFormat.values)
-          _ChoiceItem<_ViewChoice>(
+          FormMenuChoiceItem<_ViewChoice>(
             value: _FormatChoice(option),
             checked: option == format,
             enabled: onFormatSelected != null,
-            child: _MenuRow(
+            child: FormMenuItemRow(
               identifier: _formatId(option),
               icon: _formatIcon(option),
               label: _formatLabel(l10n, option),
@@ -258,7 +256,7 @@ class CalendarOverflowMenu extends StatelessWidget {
           PopupMenuItem<_OverflowAction>(
             value: _OverflowAction.alerts,
             height: AppTheme.menuItemHeight,
-            child: _MenuRow(
+            child: FormMenuItemRow(
               identifier: SemanticsIds.calendarAlertsOpen,
               icon: Icons.notifications_active_rounded,
               label: l10n.alertsTitle,
@@ -268,7 +266,7 @@ class CalendarOverflowMenu extends StatelessWidget {
             value: _OverflowAction.export,
             height: AppTheme.menuItemHeight,
             enabled: onExport != null,
-            child: _MenuRow(
+            child: FormMenuItemRow(
               identifier: SemanticsIds.calendarExport,
               icon: Icons.share_rounded,
               label: l10n.exportEventsIcs,
@@ -279,7 +277,7 @@ class CalendarOverflowMenu extends StatelessWidget {
           PopupMenuItem<_OverflowAction>(
             value: _OverflowAction.settings,
             height: AppTheme.menuItemHeight,
-            child: _MenuRow(
+            child: FormMenuItemRow(
               identifier: SemanticsIds.calendarSettingsOpen,
               icon: Icons.settings_outlined,
               label: l10n.calendarSettingsRow,
@@ -317,102 +315,4 @@ final class _FormatChoice extends _ViewChoice {
   const _FormatChoice(this.format);
 
   final CalendarFormat format;
-}
-
-/// One choice of a group only one of which is on — a page, or a grid
-/// format — announced as a radio item with its checked state rather than as
-/// a plain button.
-class _ChoiceItem<T> extends PopupMenuItem<T> {
-  const _ChoiceItem({
-    required super.value,
-    required this.checked,
-    super.enabled,
-    required super.child,
-  }) : super(height: AppTheme.menuItemHeight);
-
-  final bool checked;
-
-  @override
-  PopupMenuItemState<T, _ChoiceItem<T>> createState() => _ChoiceItemState<T>();
-}
-
-class _ChoiceItemState<T> extends PopupMenuItemState<T, _ChoiceItem<T>> {
-  @override
-  Widget buildSemantics({required Widget child}) {
-    return Semantics(
-      role: SemanticsRole.menuItemRadio,
-      enabled: widget.enabled,
-      checked: widget.checked,
-      inMutuallyExclusiveGroup: true,
-      button: true,
-      child: child,
-    );
-  }
-}
-
-/// A row in the anatomy of the app's overflow menus: a 20 px glyph in
-/// `onSurfaceVariant`, the theme's 15/400 label and, on the current choice, a
-/// trailing check in `primary`.
-///
-/// The label wraps as far as it needs to: at a large text scale a German or
-/// Romanian label outgrows even the 280 dp cap ("Ereignisse exportieren
-/// (.ics)" takes three lines at 200 %), and a menu item's height is a
-/// minimum, so only that row grows instead of its words being cut off.
-///
-/// A disabled row's label is dimmed here because the theme's menu label
-/// style is state-independent; its glyph is dimmed by the menu item itself.
-class _MenuRow extends StatelessWidget {
-  const _MenuRow({
-    required this.identifier,
-    required this.icon,
-    required this.label,
-    this.checked = false,
-    this.enabled = true,
-  });
-
-  final String identifier;
-  final IconData icon;
-  final String label;
-  final bool checked;
-  final bool enabled;
-
-  static const double _gap = 12;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Semantics(
-      identifier: identifier,
-      child: Row(
-        children: [
-          Icon(
-            icon,
-            size: AppTheme.menuIconSize,
-            color: colorScheme.onSurfaceVariant,
-          ),
-          const SizedBox(width: _gap),
-          Expanded(
-            child: Text(
-              label,
-              style: enabled
-                  ? null
-                  : TextStyle(
-                      color: colorScheme.onSurface.withValues(
-                        alpha: FormMetrics.disabledOpacity,
-                      ),
-                    ),
-            ),
-          ),
-          if (checked) ...[
-            const SizedBox(width: _gap),
-            Icon(
-              Icons.check_rounded,
-              size: AppTheme.menuIconSize,
-              color: colorScheme.primary,
-            ),
-          ],
-        ],
-      ),
-    );
-  }
 }

@@ -385,11 +385,23 @@ class CalendarGridFilters extends Equatable {
     };
   }
 
+  /// The comma string [encode] writes, or a JSON array of integers or numeric
+  /// strings — a seeded preset stores `[1, 2]`, and a decoder that accepts
+  /// more never breaks a stored blob. Any other shape, and any element that
+  /// is not a priority, decodes to "every priority".
   static Set<int> _decodePriorities(Object? raw) {
-    if (raw is! String || raw.isEmpty) return const {};
+    final parts = switch (raw) {
+      String() => raw.split(','),
+      List() => raw,
+      _ => const <Object?>[],
+    };
     final values = <int>{};
-    for (final part in raw.split(',')) {
-      final value = int.tryParse(part.trim());
+    for (final part in parts) {
+      final value = switch (part) {
+        int() => part,
+        String() => int.tryParse(part.trim()),
+        _ => null,
+      };
       if (value != null &&
           value >= kMinEventPriority &&
           value <= kMaxEventPriority) {

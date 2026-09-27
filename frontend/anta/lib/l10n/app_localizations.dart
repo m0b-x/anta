@@ -202,23 +202,53 @@ abstract class AppLocalizations {
   /// **'Filters'**
   String get calendarFiltersTitle;
 
-  /// Section label for the visible event categories filter
+  /// Label of the filter sheet's row that names the saved filter the draft matches and opens the saved-filters sheet
   ///
   /// In en, this message translates to:
-  /// **'Event categories'**
-  String get calendarEventCategories;
+  /// **'Saved filter'**
+  String get calendarFilterSavedFilter;
 
-  /// Button to select every event category
+  /// Value of the filter sheet's saved-filter row while the draft matches no saved filter
   ///
   /// In en, this message translates to:
-  /// **'Select all'**
-  String get calendarSelectAll;
+  /// **'None'**
+  String get calendarFilterSavedNone;
 
-  /// Button to deselect every event category
+  /// Section label above the filter sheet's narrowing rows (categories, priority, repeat, time of day, only show)
   ///
   /// In en, this message translates to:
-  /// **'Clear'**
-  String get calendarClearAll;
+  /// **'Events'**
+  String get calendarFilterSectionEvents;
+
+  /// Value of the filter sheet's Categories row while no category is hidden
+  ///
+  /// In en, this message translates to:
+  /// **'All'**
+  String get calendarFilterCategoriesAll;
+
+  /// Value of the filter sheet's Only show row while no trait is set
+  ///
+  /// In en, this message translates to:
+  /// **'Everything'**
+  String get calendarFilterOnlyShowAny;
+
+  /// Section label above the filter sheet's layer switches (holidays, fasting, money) and the day-panel switch
+  ///
+  /// In en, this message translates to:
+  /// **'Also show'**
+  String get calendarFilterSectionAlsoShow;
+
+  /// Action row at the bottom of the filter sheet that clears every filter; the sheet stays open
+  ///
+  /// In en, this message translates to:
+  /// **'Reset filters'**
+  String get calendarFilterReset;
+
+  /// First row of the saved-filters sheet, checked while nothing is filtered; tapping it clears every filter
+  ///
+  /// In en, this message translates to:
+  /// **'No filter'**
+  String get filterPresetNone;
 
   /// Section label for the calendar filter that keeps only repeating or only one-time events
   ///
@@ -250,10 +280,10 @@ abstract class AppLocalizations {
   /// **'Tracked'**
   String get calendarFilterTracked;
 
-  /// Calendar filter option dropping events whose end date has passed
+  /// Calendar filter option keeping only events whose end date has not passed; read as "Only show … Not ended" on the filter sheet and as a chip above the grid
   ///
   /// In en, this message translates to:
-  /// **'Hide ended'**
+  /// **'Not ended'**
   String get calendarFilterHideEnded;
 
   /// Calendar filter option keeping only events that carry description text
@@ -286,23 +316,11 @@ abstract class AppLocalizations {
   /// **'Without {layer}'**
   String calendarFilterLayerHidden(String layer);
 
-  /// Switch that exempts the day and timeline panels from the calendar filters
+  /// Switch under the filter sheet's Also show label that exempts the day and timeline panels from the calendar filters
   ///
   /// In en, this message translates to:
-  /// **'Keep the day panel unfiltered'**
+  /// **'All events in the day panel'**
   String get calendarFilterPanelShowsAll;
-
-  /// Explains what the keep-the-day-panel-unfiltered switch does
-  ///
-  /// In en, this message translates to:
-  /// **'The month stays filtered; tapping a day still lists everything on it'**
-  String get calendarFilterPanelShowsAllDesc;
-
-  /// Button in the saved-filters sheet that clears every filter. Imperative, unlike calendarFilterShowsEverything, which describes a filter set that hides nothing.
-  ///
-  /// In en, this message translates to:
-  /// **'Show everything'**
-  String get calendarFilterShowAll;
 
   /// Summary shown for a saved filter that hides nothing
   ///
@@ -327,12 +345,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Search saved filters'**
   String get filterPresetSearchHint;
-
-  /// Empty state of the saved-filters sheet
-  ///
-  /// In en, this message translates to:
-  /// **'No saved filters yet. Set up a filter, then tap the bookmark in the filter sheet to save it.'**
-  String get filterPresetEmpty;
 
   /// Shown when a saved-filter search returns nothing
   ///

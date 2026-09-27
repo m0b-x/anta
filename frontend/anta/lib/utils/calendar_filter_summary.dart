@@ -267,6 +267,24 @@ abstract final class CalendarFilterSummary {
     return facets.map((facet) => facet.label).join(' · ');
   }
 
+  /// How many names a set reads back before folding the rest into "+N more".
+  /// Two keeps a value on one line at typical name lengths.
+  static const int namedLimit = 2;
+
+  /// One line naming a selection — the first [namedLimit] of [names] joined
+  /// by ", " and, past them, `categoriesMore(rest)`: "Gym, Strength +3 more".
+  ///
+  /// The one read-back rule for every set — the Categories, Priority and Only
+  /// show rows of the filter sheet and `CategoryFilterTile` — so a count can
+  /// never hide behind an ellipsis on one surface and read "+N more" on
+  /// another. An empty list reads as nothing; each caller owns its own word
+  /// for that ("All", "Any", "Everything").
+  static String namesReadBack(List<String> names, AppLocalizations l10n) {
+    if (names.length <= namedLimit) return names.join(', ');
+    final named = names.take(namedLimit).join(', ');
+    return '$named ${l10n.categoriesMore(names.length - namedLimit)}';
+  }
+
   /// The name the save dialog opens on: the first two axes, which is what a
   /// user would have typed anyway ("Gym · Tracked"), with the rest elided.
   ///

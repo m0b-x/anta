@@ -60,13 +60,28 @@ class AppLocalizationsRo extends AppLocalizations {
   String get calendarFiltersTitle => 'Filtre';
 
   @override
-  String get calendarEventCategories => 'Categorii de evenimente';
+  String get calendarFilterSavedFilter => 'Filtru salvat';
 
   @override
-  String get calendarSelectAll => 'Selectează tot';
+  String get calendarFilterSavedNone => 'Niciunul';
 
   @override
-  String get calendarClearAll => 'Șterge';
+  String get calendarFilterSectionEvents => 'Evenimente';
+
+  @override
+  String get calendarFilterCategoriesAll => 'Toate';
+
+  @override
+  String get calendarFilterOnlyShowAny => 'Tot';
+
+  @override
+  String get calendarFilterSectionAlsoShow => 'Afișează și';
+
+  @override
+  String get calendarFilterReset => 'Resetează filtrele';
+
+  @override
+  String get filterPresetNone => 'Fără filtru';
 
   @override
   String get calendarFilterRepeat => 'Repetare';
@@ -84,7 +99,7 @@ class AppLocalizationsRo extends AppLocalizations {
   String get calendarFilterTracked => 'Cu prezență';
 
   @override
-  String get calendarFilterHideEnded => 'Ascunde încheiate';
+  String get calendarFilterHideEnded => 'Neîncheiate';
 
   @override
   String get calendarFilterWithDescription => 'Cu descriere';
@@ -104,14 +119,8 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
-  String get calendarFilterPanelShowsAll => 'Lasă panoul zilei nefiltrat';
-
-  @override
-  String get calendarFilterPanelShowsAllDesc =>
-      'Luna rămâne filtrată; o zi afișează în continuare tot';
-
-  @override
-  String get calendarFilterShowAll => 'Arată tot';
+  String get calendarFilterPanelShowsAll =>
+      'Toate evenimentele în panoul zilei';
 
   @override
   String get calendarFilterShowsEverything => 'Arată tot';
@@ -124,10 +133,6 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get filterPresetSearchHint => 'Caută filtre salvate';
-
-  @override
-  String get filterPresetEmpty =>
-      'Niciun filtru salvat încă. Configurează un filtru, apoi atinge semnul de carte din fereastra de filtre ca să-l salvezi.';
 
   @override
   String get filterPresetNoMatches =>

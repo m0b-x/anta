@@ -1,19 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/app_constants.dart';
+import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_grid_filters.dart';
 import 'package:anta/services/filter_preset_service.dart';
 import 'package:anta/widgets/filter_preset_sheet.dart';
+import 'package:anta/widgets/form_rows.dart';
 
 import '../database/support/db_test_support.dart';
 
 /// The saved-filter sheet is the one surface where a preset is *chosen*, so
 /// what it must get right is: finding one by what it does as well as by what
 /// it was called, saying which one is currently in use, and handing back the
-/// filters rather than the preset (the page applies filters, not rows).
+/// filters rather than the preset (the page applies filters, not rows). Since
+/// the 2026-09-27 migration into the grouped-row language the chrome is
+/// pinned too: "No filter" as the first row, the search row past the
+/// threshold, the save row dimmed rather than hidden, the ⋮ menu's items with
+/// their ids, and no empty-state paragraph.
 void main() {
   late AppDatabase db;
   late FilterPresetService service;
@@ -38,11 +45,16 @@ void main() {
   /// exists after the test body has tapped something.
   late List<CalendarGridFilters?> popped;
 
-  /// Hosts the sheet as a route so `Navigator.pop` has somewhere to go.
+  /// Hosts the sheet as a route so `Navigator.pop` has somewhere to go, on a
+  /// phone tall enough that thirteen rows never push the save row below the
+  /// fold.
   Future<void> pumpSheet(
     WidgetTester tester, {
     CalendarGridFilters current = CalendarGridFilters.none,
   }) async {
+    addTearDown(tester.view.reset);
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.physicalSize = const Size(800, 1600);
     popped = [];
     await tester.pumpWidget(
       MaterialApp(
@@ -67,18 +79,64 @@ void main() {
     );
     await tester.tap(find.text('open'));
     // The sheet resolves the service in initState; the instance is already
-    // bound, so one settle is enough to get past the spinner.
+    // bound, so one settle is enough for the rows to fill in.
     await tester.pumpAndSettle();
     expect(find.byType(FilterPresetSheet), findsOneWidget);
   }
 
-  testWidgets('an empty database shows the empty state, not a search field', (
-    tester,
-  ) async {
+  Finder id(String value) => find.bySemanticsIdentifier(value);
+
+  Future<void> tap(WidgetTester tester, Finder finder) async {
+    await tester.tap(finder);
+    await tester.pumpAndSettle();
+  }
+
+  /// The check row carrying [label], read for its state.
+  FormCheckRow rowNamed(WidgetTester tester, String label) =>
+      tester.widget<FormCheckRow>(find.widgetWithText(FormCheckRow, label));
+
+  FormActionRow saveRow(WidgetTester tester) => tester.widget<FormActionRow>(
+    find.ancestor(
+      of: id(SemanticsIds.filterPresetSave),
+      matching: find.byType(FormActionRow),
+    ),
+  );
+
+  /// One over the search threshold, with [named] listed first, so the search
+  /// row is on screen before anything is typed.
+  Future<void> seedPastThreshold({
+    Map<String, CalendarGridFilters> named = const {},
+  }) async {
+    for (final entry in named.entries) {
+      await service.create(name: entry.key, filters: entry.value);
+    }
+    for (var i = named.length; i <= AppConstants.listSearchThreshold; i++) {
+      await service.create(
+        name: 'Filler $i',
+        filters: CalendarGridFilters(priorities: {i % 5 + 1}),
+      );
+    }
+  }
+
+  /// The ⋮ menu item wearing [itemId], read for whether it is enabled.
+  PopupMenuItem<dynamic> menuItem(WidgetTester tester, String itemId) =>
+      tester.widget(
+            find.ancestor(
+              of: id(itemId),
+              matching: find.byWidgetPredicate((w) => w is PopupMenuItem),
+            ),
+          )
+          as PopupMenuItem<dynamic>;
+
+  testWidgets('an empty database shows No filter checked, a dimmed save row '
+      'and no paragraph', (tester) async {
     await pumpSheet(tester);
 
     expect(find.byType(TextField), findsNothing);
-    expect(find.textContaining('No saved filters yet'), findsOneWidget);
+    expect(find.textContaining('No saved filters yet'), findsNothing);
+    expect(rowNamed(tester, 'No filter').checked, isTrue);
+    expect(saveRow(tester).onTap, isNull);
+    expect(find.text('Save the current filter'), findsOneWidget);
   });
 
   testWidgets('saved filters are listed with what they filter', (tester) async {
@@ -89,25 +147,39 @@ void main() {
     expect(find.text('Training'), findsOneWidget);
     // The subtitle is the shared description, not the raw blob.
     expect(find.text('Tracked'), findsOneWidget);
+    expect(id(SemanticsIds.filterPresetRow(service.presets.single.id)),
+        findsOneWidget);
+  });
+
+  testWidgets('the search row appears only past the threshold', (
+    tester,
+  ) async {
+    for (var i = 0; i < AppConstants.listSearchThreshold; i++) {
+      await service.create(name: 'Filler $i', filters: tracked);
+    }
+
+    await pumpSheet(tester);
+
+    expect(find.byType(TextField), findsNothing);
   });
 
   testWidgets('the search field matches the name', (tester) async {
-    await service.create(name: 'Training', filters: tracked);
-    await service.create(name: 'Skipped days', filters: missed);
+    await seedPastThreshold(named: {'Training': tracked, 'Skipped days': missed});
 
     await pumpSheet(tester);
+    expect(id(SemanticsIds.filterPresetSearch), findsOneWidget);
     await tester.enterText(find.byType(TextField), 'train');
     await tester.pumpAndSettle();
 
     expect(find.text('Training'), findsOneWidget);
     expect(find.text('Skipped days'), findsNothing);
+    expect(find.textContaining('Filler'), findsNothing);
   });
 
   /// Findable by what it does, not only by what it was called — the reason
   /// the description is part of the match.
   testWidgets('the search field also matches the description', (tester) async {
-    await service.create(name: 'Zebra', filters: tracked);
-    await service.create(name: 'Aardvark', filters: missed);
+    await seedPastThreshold(named: {'Zebra': tracked, 'Aardvark': missed});
 
     await pumpSheet(tester);
     await tester.enterText(find.byType(TextField), 'tracked');
@@ -117,14 +189,18 @@ void main() {
     expect(find.text('Aardvark'), findsNothing);
   });
 
-  testWidgets('a search with no hits says so', (tester) async {
-    await service.create(name: 'Training', filters: tracked);
+  testWidgets('a search with no hits says so under the group', (tester) async {
+    await seedPastThreshold(named: {'Training': tracked});
 
     await pumpSheet(tester);
     await tester.enterText(find.byType(TextField), 'nothing matches this');
     await tester.pumpAndSettle();
 
     expect(find.textContaining('No saved filter matches'), findsOneWidget);
+    // The field stays to clear the query, and the fixed rows stay put.
+    expect(find.byType(TextField), findsOneWidget);
+    expect(find.text('No filter'), findsOneWidget);
+    expect(find.text('Save the current filter'), findsOneWidget);
   });
 
   /// The sheet hands back **filters**, not the preset row: the page applies a
@@ -133,8 +209,7 @@ void main() {
     await service.create(name: 'Training', filters: tracked);
 
     await pumpSheet(tester);
-    await tester.tap(find.text('Training'));
-    await tester.pumpAndSettle();
+    await tap(tester, find.text('Training'));
 
     expect(find.byType(FilterPresetSheet), findsNothing);
     expect(popped, [tracked]);
@@ -152,6 +227,16 @@ void main() {
     expect(popped, [null]);
   });
 
+  testWidgets('the close button pops nothing to apply', (tester) async {
+    await service.create(name: 'Training', filters: tracked);
+
+    await pumpSheet(tester);
+    await tap(tester, id(SemanticsIds.filterPresetClose));
+
+    expect(find.byType(FilterPresetSheet), findsNothing);
+    expect(popped, [null]);
+  });
+
   /// Value equality on the filters, not the id: what makes a preset "the one
   /// in use" is that the calendar shows exactly what it saves.
   testWidgets('the preset holding the current filters is marked in use', (
@@ -163,22 +248,25 @@ void main() {
     await pumpSheet(tester, current: tracked);
 
     expect(find.byIcon(Icons.check_rounded), findsOneWidget);
-    expect(find.byIcon(Icons.bookmark_rounded), findsOneWidget);
+    expect(rowNamed(tester, 'Training').checked, isTrue);
+    expect(rowNamed(tester, 'Skipped days').checked, isFalse);
+    expect(rowNamed(tester, 'No filter').checked, isFalse);
   });
 
-  testWidgets('with nothing applied, no preset is marked in use', (
+  testWidgets('with nothing applied, No filter is the one row checked', (
     tester,
   ) async {
     await service.create(name: 'Training', filters: tracked);
 
     await pumpSheet(tester);
 
-    expect(find.byIcon(Icons.check_rounded), findsNothing);
-    expect(find.byIcon(Icons.bookmark_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.check_rounded), findsOneWidget);
+    expect(rowNamed(tester, 'No filter').checked, isTrue);
+    expect(rowNamed(tester, 'Training').checked, isFalse);
   });
 
   group('saving the live filter from here', () {
-    /// The row exists for the one state it means something in: a filter is
+    /// The row is live for the one state it means something in: a filter is
     /// applied, and it is not already in the list.
     testWidgets('is offered for an applied filter nobody saved', (
       tester,
@@ -186,69 +274,74 @@ void main() {
       await pumpSheet(tester, current: tracked);
 
       expect(find.text('Save the current filter'), findsOneWidget);
-      // It says what it would save, through the shared description.
-      expect(find.text('Tracked'), findsOneWidget);
+      expect(saveRow(tester).onTap, isNotNull);
     });
 
-    testWidgets('is not offered when nothing is filtered', (tester) async {
+    testWidgets('is dimmed when nothing is filtered', (tester) async {
       await service.create(name: 'Training', filters: tracked);
 
       await pumpSheet(tester);
 
-      expect(find.text('Save the current filter'), findsNothing);
+      expect(find.text('Save the current filter'), findsOneWidget);
+      expect(saveRow(tester).onTap, isNull);
     });
 
-    testWidgets('is not offered once that filter is saved', (tester) async {
+    testWidgets('is dimmed once that filter is saved', (tester) async {
       await service.create(name: 'Training', filters: tracked);
 
       await pumpSheet(tester, current: tracked);
 
-      expect(find.text('Save the current filter'), findsNothing);
+      expect(saveRow(tester).onTap, isNull);
     });
 
     /// A query is a find, not a create — an action row among the results is
-    /// noise, and it would sit there unmatched by the query that produced it.
-    testWidgets('is hidden while searching', (tester) async {
-      await service.create(name: 'Training', filters: missed);
+    /// noise — but a row that vanishes moves the results under the finger,
+    /// so it dims instead.
+    testWidgets('is dimmed while searching, and back once the query clears', (
+      tester,
+    ) async {
+      await seedPastThreshold(named: {'Training': missed});
 
       await pumpSheet(tester, current: tracked);
-      expect(find.text('Save the current filter'), findsOneWidget);
+      expect(saveRow(tester).onTap, isNotNull);
 
       await tester.enterText(find.byType(TextField), 'train');
       await tester.pumpAndSettle();
 
-      expect(find.text('Save the current filter'), findsNothing);
+      expect(find.text('Save the current filter'), findsOneWidget);
+      expect(saveRow(tester).onTap, isNull);
+
+      await tap(tester, find.byTooltip('Clear search'));
+
+      expect(saveRow(tester).onTap, isNotNull);
     });
 
     testWidgets('saves without closing the sheet', (tester) async {
       await pumpSheet(tester, current: tracked);
 
-      await tester.tap(find.text('Save the current filter'));
-      await tester.pumpAndSettle();
+      await tap(tester, find.text('Save the current filter'));
       await tester.enterText(find.byType(TextField).last, 'From here');
-      await tester.tap(find.text('Save'));
-      await tester.pumpAndSettle();
+      await tap(tester, find.text('Save'));
 
       expect(service.presets.single.name, 'From here');
       expect(service.presets.single.filters, tracked);
       // Still open, and the new row now reads as the one in use.
       expect(find.byType(FilterPresetSheet), findsOneWidget);
       expect(find.text('From here'), findsOneWidget);
-      expect(find.byIcon(Icons.check_rounded), findsOneWidget);
-      // And the offer is gone, because the filter is saved now.
-      expect(find.text('Save the current filter'), findsNothing);
+      expect(rowNamed(tester, 'From here').checked, isTrue);
+      // And the offer is dimmed, because the filter is saved now.
+      expect(saveRow(tester).onTap, isNull);
     });
   });
 
-  group('showing everything again', () {
+  group('No filter', () {
     /// The one answer the sheet could not give before: "no lens". Clearing
     /// otherwise meant closing, opening the filter sheet, Reset, Apply.
     testWidgets('pops a cleared filter set', (tester) async {
       await service.create(name: 'Training', filters: tracked);
 
       await pumpSheet(tester, current: tracked);
-      await tester.tap(find.text('Show everything'));
-      await tester.pumpAndSettle();
+      await tap(tester, id(SemanticsIds.filterPresetNone));
 
       expect(find.byType(FilterPresetSheet), findsNothing);
       expect(popped.single?.isEmpty, isTrue);
@@ -264,27 +357,118 @@ void main() {
       );
 
       await pumpSheet(tester, current: withPanelOptOut);
-      await tester.tap(find.text('Show everything'));
-      await tester.pumpAndSettle();
+      await tap(tester, find.text('No filter'));
 
       expect(popped.single?.isEmpty, isTrue);
       expect(popped.single?.panelShowsAll, isTrue);
     });
 
-    /// Disabled rather than hidden, so the header cannot change height between
-    /// two openings of the same sheet.
-    testWidgets('is disabled when nothing is filtered', (tester) async {
+    testWidgets('is checked when nothing is filtered, above the list', (
+      tester,
+    ) async {
       await service.create(name: 'Training', filters: tracked);
 
       await pumpSheet(tester);
 
-      final button = tester.widget<TextButton>(
-        find.ancestor(
-          of: find.text('Show everything'),
-          matching: find.byType(TextButton),
-        ),
+      final none = rowNamed(tester, 'No filter');
+      expect(none.checked, isTrue);
+      expect(none.exclusive, isTrue);
+      expect(
+        tester.getTopLeft(find.text('No filter')).dy,
+        lessThan(tester.getTopLeft(find.text('Training')).dy),
       );
-      expect(button.onPressed, isNull);
+    });
+  });
+
+  group('the ⋮ menu', () {
+    testWidgets('carries its ids and disables Update while in use', (
+      tester,
+    ) async {
+      await service.create(name: 'Training', filters: tracked);
+
+      await pumpSheet(tester, current: tracked);
+      await tap(
+        tester,
+        id(SemanticsIds.filterPresetOptions(service.presets.single.id)),
+      );
+
+      expect(id(SemanticsIds.filterPresetRename), findsOneWidget);
+      expect(id(SemanticsIds.filterPresetUpdate), findsOneWidget);
+      expect(id(SemanticsIds.filterPresetDelete), findsOneWidget);
+      expect(menuItem(tester, SemanticsIds.filterPresetRename).enabled, isTrue);
+      expect(menuItem(tester, SemanticsIds.filterPresetUpdate).enabled, isFalse);
+      expect(menuItem(tester, SemanticsIds.filterPresetDelete).enabled, isTrue);
+    });
+
+    testWidgets('disables Update while nothing is filtered', (tester) async {
+      await service.create(name: 'Training', filters: tracked);
+
+      await pumpSheet(tester);
+      await tap(
+        tester,
+        id(SemanticsIds.filterPresetOptions(service.presets.single.id)),
+      );
+
+      expect(menuItem(tester, SemanticsIds.filterPresetUpdate).enabled, isFalse);
+    });
+
+    testWidgets('Update re-points the preset at the live filter in place', (
+      tester,
+    ) async {
+      await service.create(name: 'Training', filters: tracked);
+
+      await pumpSheet(tester, current: missed);
+      await tap(
+        tester,
+        id(SemanticsIds.filterPresetOptions(service.presets.single.id)),
+      );
+      expect(menuItem(tester, SemanticsIds.filterPresetUpdate).enabled, isTrue);
+      await tap(tester, id(SemanticsIds.filterPresetUpdate));
+
+      expect(service.presets.single.filters, missed);
+      expect(find.byType(FilterPresetSheet), findsOneWidget);
+      expect(rowNamed(tester, 'Training').checked, isTrue);
+      expect(find.text('Missed'), findsOneWidget);
+    });
+
+    testWidgets('Rename renames in place and keeps the sheet open', (
+      tester,
+    ) async {
+      await service.create(name: 'Training', filters: tracked);
+
+      await pumpSheet(tester);
+      await tap(
+        tester,
+        id(SemanticsIds.filterPresetOptions(service.presets.single.id)),
+      );
+      await tap(tester, id(SemanticsIds.filterPresetRename));
+      await tester.enterText(find.byType(TextField).last, 'Gym days');
+      await tap(tester, find.text('Save'));
+
+      expect(service.presets.single.name, 'Gym days');
+      expect(find.byType(FilterPresetSheet), findsOneWidget);
+      expect(find.text('Gym days'), findsOneWidget);
+      expect(find.text('Training'), findsNothing);
+    });
+
+    testWidgets('Delete asks first and removes in place', (tester) async {
+      await service.create(name: 'Training', filters: tracked);
+
+      await pumpSheet(tester);
+      await tap(
+        tester,
+        id(SemanticsIds.filterPresetOptions(service.presets.single.id)),
+      );
+      await tap(tester, id(SemanticsIds.filterPresetDelete));
+
+      expect(find.text('Delete saved filter'), findsOneWidget);
+      expect(service.presets, hasLength(1));
+
+      await tap(tester, find.widgetWithText(FilledButton, 'Delete'));
+
+      expect(service.presets, isEmpty);
+      expect(find.byType(FilterPresetSheet), findsOneWidget);
+      expect(find.text('Training'), findsNothing);
     });
   });
 
@@ -294,15 +478,13 @@ void main() {
     await service.create(name: 'Training', filters: missed);
 
     await pumpSheet(tester, current: tracked);
-    await tester.tap(find.text('Save the current filter'));
-    await tester.pumpAndSettle();
+    await tap(tester, find.text('Save the current filter'));
     await tester.enterText(find.byType(TextField).last, 'Training');
     await tester.pumpAndSettle();
 
     expect(find.text('"Training" already exists'), findsOneWidget);
 
-    await tester.tap(find.text('Save'));
-    await tester.pumpAndSettle();
+    await tap(tester, find.text('Save'));
 
     expect(service.presets.map((p) => p.name), ['Training', 'Training']);
   });

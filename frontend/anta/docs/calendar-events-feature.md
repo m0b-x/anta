@@ -5775,3 +5775,161 @@ fixed. The design review found no deviation from the record and nothing to
 revert, and three accessibility defects — "Switch view" never spoken by
 TalkBack, labels cut off at 200 %, evidence older than the route-name fix —
 all fixed, with its glyph recommendations taken. The record lists each.
+
+## Addendum (2026-09-27): the filter sheet in the editor's language
+
+Design record: [`calendar-filters-redesign-roadmap.md`](calendar-filters-redesign-roadmap.md)
+(the decision table D1–D24, the spec screen by screen, the slices and the
+definition of done — this addendum points at it rather than repeating it).
+Design source: the canvas "Calendar Filters Mocks"
+(`https://claude.ai/artifact/YJwZnZns6WrFxg5HkGQuLP`).
+
+**Why.** The Filters sheet was the one calendar surface the owner still
+called "clouded": on the QA seed, thirty-eight tappable controls in one
+scroll — checkmarked colour-avatar chips for the categories, an "Any" chip
+and five priority chips, two `SegmentedButton`s, seven "Only show" chips,
+three "Show" chips, a `SwitchListTile` with a helper sentence, a Cancel /
+Apply bar — four control styles for three mental models (seven AND-ed
+narrowing toggles, three on-by-default layers, one widening switch) with no
+seam between them. Saving a filter was a bookmark in that sheet; using one
+was a second sheet behind a second app-bar button, so the sheet could never
+say which saved filter was on. Both sheets still wore the chrome the
+2026-09-25 editor redesign retired, and neither was in the bottom-clearance
+suite.
+
+**The canvas.** Three directions were drawn against the detail sheet they
+had to sit beside: A, every boolean a switch row (1,045 dp — the same
+eighteen things in a nicer coat, a third below the fold on every open); B,
+labelled chip rows (sixteen chips are a wall again, and a filled chip says
+"on" less clearly than a switch); C, a two-level summary — a *set* is a
+picker row that reads its value back and opens a check-list sub-sheet, a
+three-way choice is a menu row, a boolean is a switch row. A fourth,
+"lenses first" (the preset list as the top level), was argued and set
+aside as a different product. The owner chose C and delegated every one of
+the seven open decisions to the recommended option ("implement it, max
+effort"); the record marks each as delegated.
+
+**The sheet.** Twelve rows, 731 dp on a 390-wide phone, so the top level
+never scrolls and the month row stays visible above it. Apply is the
+header's text action and the draft is kept — one repaint per visit, where
+live apply would have repainted 42 cells behind a sheet that hides them;
+✕, drag, back and the barrier pop `null`, and there is no discard guard
+because the sheet holds no typed text (the old Cancel dropped the draft
+silently too). Reset is the last action row, dimmed while the draft is
+empty, and keeps the sheet open: the header has one trailing slot and Apply
+owns it. Presets got a row on top — `Saved filter … None ›`, reading the
+preset the draft matches, its bookmark saving the draft — and kept their
+app-bar button, so the sheet finally says which lens is on while a lens
+switch stays one tap. Two groups replaced three vocabularies: EVENTS holds
+what narrows (Categories, Priority, Repeat, Time of day, Only show); ALSO
+SHOW holds what is drawn in addition — the three layers and "All events in
+the day panel", which is `panelShowsAll` with its key and polarity unchanged
+and its helper sentence gone. Categories are always one picker row (a
+five-line wall of chips on the seed was the reason), Fasting is shown at
+38 % with its stored value when no tradition is configured (a row that
+appears between two openings moves everything under it), and every set
+reads back through one rule, `CalendarFilterSummary.namesReadBack` — two
+names, then "+N more" — hoisted from `CategoryFilterTile` so the tile and
+the rows cannot disagree; a value that ellipsizes hides the count, "+N
+more" never does. "Hide ended" became "Not ended" so every trait reads as
+"Only show … X". The sheet takes the sub-sheet shape (content-tall, clamped
+at `FormMetrics.sheetHeightFactor`, the route's own drag), and the
+clearance rides the scroll view's padding; every new or migrated sheet
+joined `sheet_bottom_clearance_test.dart`.
+
+**The sub-sheets.** One `FilterCheckListSheet` serves Priority and Only
+show: ✕ · title · Done, one group of `FormCheckRow`s wearing the values'
+own icons (the priority glyphs, the chip strip's facet icons), Done
+returning the checked ids with an empty set a real answer ("Any",
+"Everything"). The shared `CategoryPickerSheet` migrated in place, both
+modes, contracts untouched — it was opened by the Categories row, and the
+adoption rule says a sheet moves when a change opens it and touches its
+chrome; a filter-only copy would have duplicated the search, bulk, archived
+and create logic that four other callers rely on. Its bulk actions are two
+action rows disabled where they would be no-ops, not the board's one
+flipping row: a label that flips under the finger is what the language
+forbids, and the two disabled-where-no-op buttons are what the tests
+already asserted. `FilterPresetSheet` migrated in place too: "No filter"
+as the first row, checked while nothing is filtered, replaces the header's
+"Show everything" and pops `current.cleared()` (never `none`, since
+`panelShowsAll` is a preference); each preset is a two-line radio row with
+its ⋮ (Rename · Update to current filter · Delete); the save row is
+disabled rather than hidden while empty, already saved, or a query is live;
+the empty-state paragraph went — "No filter ✓" over a dimmed save row
+already says what to do, and a paragraph under an empty list is the hint
+text the language forbids.
+
+**The menus.** `FormMenuRow` moved from `MenuAnchor` to a popup route (D12)
+because the `calendar-ui` skill recorded that `MenuAnchor` items expose no
+semantics nodes on iOS and said to fix it before a third menu; Repeat and
+Time of day were the third and fourth, and the editor's Priority and Day
+rail ride the same fix. The header menus' item anatomy (`_ChoiceItem`,
+`_MenuRow`) moved out into `form_menu_item.dart` as `FormMenuChoiceItem` /
+`FormMenuItemRow` so there is one copy, and the anchor rule — right edge
+on the group's, under the row while it fits above the bottom inset, else
+above it — is one shared `formMenuPosition`. Every item is a
+`menuItemRadio` node carrying its id and checked state on both platforms;
+`09_filters.txt` picks one by id.
+
+**Where the tree diverged from the record (D22–D24).** D22: an answer that
+ticks every listed row of the picker empties the denylist outright,
+archived denials included, while any other answer is the plain inverse —
+the picker never lists a *denied* archived category (a hidden one reaches
+it only inside a selection), so the plain inverse could never clear such a
+denial and the Categories row would keep reading a count with nothing left
+to un-tick; the old header's `_selectAll` did exactly this, and the rule
+now lives where the sub-sheet's Select all arrives. D23: four primitive-
+level additions the sketches left out — `FormSearchRow.clearTooltip`
+(`form_rows.dart` carries no localizations), `FormCheckRow.trailingButton`
+(the preset rows' ⋮, the check shrinking to its glyph before the button as
+the board draws), `FormMetrics.groupCaptionPadding` (a caption under a
+whole group: the two no-match lines), `FormMenuItemRow.color` (the
+destructive Delete). D24: a `FormMenuRow` menu is at least `menuWidth`
+wide and grows to `FormMetrics.menuMaxWidth`, the header menus' 280 cap —
+found on the device (below). The tolerant `_decodePriorities` (D17) reads
+a JSON array of integers or numeric strings as well as the comma string the
+encoder writes: the QA fixture's "Top priority" preset stores `[1, 2]` and
+used to decode to "Shows everything".
+
+**Device pass (Pixel 9 Pro emulator, through the agent).** The ten flows
+green from a fresh seeded launch, the new `09_filters.txt` walking every
+row by id, both sub-sheets, a menu pick, a preset loaded from the sheet,
+Apply and the badge, the presets from the bar, then Reset. Two defects the
+matrix (dark · de · 200 %) showed, both fixed: "Wiederkehrend" broke
+mid-word in the 220 dp Repeat menu, so the menu's width became a floor
+grown to the cap (D24); and the ALSO SHOW label rendered "AUßERDEM
+ANZEIGEN" — Dart's `toUpperCase` is the simple case mapping and leaves ß
+alone, so `FormSectionLabel` now writes it SS. One flow line differs from
+the record's draft: a preset row's caption is `CalendarFilterSummary.
+describe()`, which §4.1 keeps and which counts several priorities as
+"Priority (2)" where the board drew "Highest, High"; the flow expects the
+former. Everything else matched the boards: the 38 % states, the menu's
+right alignment and its flip above the editor's Priority row at the bottom
+of its form, values dropping under their labels at 200 % German with
+nothing clipped, the header tappable, nothing under the navigation bar.
+
+**Review.** A fresh subagent read the diff. Confirmed and fixed: the
+search row's collapsed field laid out at its 20 px line, so a tap 4–14 px
+from the row's edges focused nothing — the field is now padded to the row's
+48 dp (`FormMetrics.searchFieldPadding`) and drops the keyboard on an
+outside tap, as `SettingsSearchField` did; `_pickCategories` rebuilt the
+denylist from the category list captured when the sheet was built, so a
+category created inside the picker and then un-ticked was never denied —
+it re-reads the catalog after the picker returns; and D22's "every listed
+row ticked" test fired on an empty picker (every category archived), which
+emptied the archived denials — it is guarded on a non-empty visible list.
+Taken as well: a check row's caption clamps at two lines (a preset's
+description at 200 % German ran four); `FormMetrics.menuWidth` names the
+short choice menu's floor the filter sheet and the editor's Priority both
+read; and four doc lines still describing the `MenuAnchor` world.
+
+**Follow-ups, not taken.** The menu rows sit outside `_subRouteOpen` (a
+popup route is modal; only a multi-touch could double it). The presets
+sub-sheet opened from the row acts on the un-applied draft, by D4 — the
+bookmark saves the draft as the old header's did — and the copy stays. A
+denylist holding only deleted-category ids reads every category's name
+with a badge of 1: pre-existing model behaviour, a decode/apply concern
+rather than this sheet's. A disabled checkbox row is dimmed twice (the row's
+38 % over the checkbox's own disabled colour) — latent, no such row exists
+today. And the preset caption's "Priority (2)" where the board drew the
+names is a `describe()` change, if the owner wants it, not a sheet change.

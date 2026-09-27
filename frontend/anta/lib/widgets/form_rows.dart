@@ -6,6 +6,7 @@ import '../constants/app_colors.dart';
 import '../constants/form_metrics.dart';
 import '../constants/row_metrics.dart';
 import 'automation_id.dart';
+import 'form_menu_item.dart';
 
 export '../constants/form_metrics.dart';
 
@@ -80,7 +81,10 @@ class FormSectionLabel extends StatelessWidget {
         RowMetrics.sectionLabelBottomPadding,
       ),
       child: Text(
-        text.toUpperCase(),
+        // Dart's `toUpperCase` is the simple case mapping, which leaves ß
+        // alone: "Außerdem anzeigen" came out "AUßERDEM ANZEIGEN" on the
+        // device. German capitals write it SS.
+        text.toUpperCase().replaceAll('ß', 'SS'),
         style: theme.textTheme.labelSmall?.copyWith(
           fontSize: RowMetrics.sectionLabelFontSize,
           height: 14 / RowMetrics.sectionLabelFontSize,
@@ -380,17 +384,23 @@ class FormTrailingButton extends StatelessWidget {
   final VoidCallback? onPressed;
   final Color? color;
 
+  /// A `SemanticsIds` value for a button a device script has to hit by id —
+  /// the Saved filter row's bookmark, a preset's ⋮ — whose tooltip changes
+  /// with the locale and, for the bookmark, with the state.
+  final String? identifier;
+
   const FormTrailingButton({
     super.key,
     required this.icon,
     required this.tooltip,
     required this.onPressed,
     this.color,
+    this.identifier,
   });
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox.square(
+    final button = SizedBox.square(
       dimension: FormMetrics.trailingButtonSize,
       child: IconButton(
         tooltip: tooltip,
@@ -400,6 +410,10 @@ class FormTrailingButton extends StatelessWidget {
         onPressed: onPressed,
       ),
     );
+    if (identifier case final id?) {
+      return AutomationId(identifier: id, child: button);
+    }
+    return button;
   }
 }
 
@@ -761,6 +775,192 @@ class FormRadioRow extends FormDividedRow {
   }
 }
 
+/// The multi-select twin of [FormRadioRow]: a row of a value list that ticks
+/// and un-ticks — a priority, a trait, a category — or, with [exclusive], the
+/// radio shape with a leading avatar the plain radio row has no slot for (a
+/// saved filter, "No filter").
+///
+/// The whole row is one target and one announcement. The control sits in a
+/// 48 dp slot flush with the row's end, so a checkbox centres where a
+/// two-target row's button does; with a [trailingButton] the exclusive check
+/// shrinks to its glyph and the button takes the slot, the shape the preset
+/// rows wear. A [caption] is the row's own second line (what a preset
+/// filters, "Hidden" on an archived category), never help text.
+class FormCheckRow extends FormDividedRow {
+  /// A 40 dp widget — an `EventAvatar` — that stands where the glyph would.
+  /// Wins over [glyph].
+  final Widget? leading;
+  final IconData? glyph;
+  final String label;
+  final String? caption;
+  final bool checked;
+
+  /// Null draws the row at the disabled opacity with no tap and no ink.
+  final ValueChanged<bool>? onChanged;
+
+  /// Radio semantics and the check glyph instead of a checkbox: one row of
+  /// the list is on at a time, and tapping it is a pick, not a toggle.
+  final bool exclusive;
+  final String? identifier;
+  final FormTrailingButton? trailingButton;
+
+  const FormCheckRow({
+    super.key,
+    this.leading,
+    this.glyph,
+    required this.label,
+    this.caption,
+    required this.checked,
+    required this.onChanged,
+    this.exclusive = false,
+    this.identifier,
+    this.trailingButton,
+  });
+
+  @override
+  double get dividerIndent {
+    if (leading != null) return FormMetrics.dividerIndentTitle;
+    if (glyph != null) return FormMetrics.dividerIndentGlyph;
+    return FormMetrics.dividerIndentPlain;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final enabled = onChanged != null;
+    final captionText = caption;
+    final twoLine = captionText != null;
+    final button = trailingButton;
+    void toggle() => onChanged!(!checked);
+
+    final labelText = Text(
+      label,
+      style: TextStyle(
+        fontSize: FormMetrics.labelSize,
+        height: 20 / FormMetrics.labelSize,
+        fontWeight: exclusive && checked ? FontWeight.w500 : FontWeight.w400,
+        color: colorScheme.onSurface,
+      ),
+    );
+    // The vertical air wraps the text alone: the 48 dp control slot beside it
+    // would otherwise add the two-line padding to its own height and push a
+    // 62 dp row to 66.
+    final text = twoLine
+        ? Padding(
+            padding: EdgeInsets.symmetric(
+              vertical: RowMetrics.twoLinePadding.vertical / 2,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                labelText,
+                const SizedBox(height: RowMetrics.lineGap),
+                // Clamped like a value: a preset's description at 200 %
+                // German ran four lines.
+                Text(
+                  captionText,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: FormMetrics.captionSize,
+                    height: 18 / FormMetrics.captionSize,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          )
+        : Padding(
+            padding: const EdgeInsets.symmetric(
+              vertical: FormMetrics.pairVerticalPadding,
+            ),
+            child: labelText,
+          );
+
+    final Widget control;
+    if (!exclusive) {
+      control = Checkbox(
+        value: checked,
+        onChanged: enabled ? (_) => toggle() : null,
+        materialTapTargetSize: MaterialTapTargetSize.padded,
+        visualDensity: VisualDensity.standard,
+      );
+    } else {
+      final glyphBox = SizedBox.square(
+        dimension: FormMetrics.trailingIconSize,
+        child: checked
+            ? Icon(
+                Icons.check_rounded,
+                size: FormMetrics.trailingIconSize,
+                color: colorScheme.primary,
+              )
+            : null,
+      );
+      control = button == null
+          ? SizedBox.square(
+              dimension: FormMetrics.trailingButtonSize,
+              child: Center(child: glyphBox),
+            )
+          : glyphBox;
+    }
+
+    final minHeight = twoLine
+        ? FormMetrics.twoLineRowMinHeight
+        : leading != null
+        ? FormMetrics.titleRowMinHeight
+        : FormMetrics.rowMinHeight;
+    final row = ConstrainedBox(
+      constraints: BoxConstraints(minHeight: minHeight),
+      child: Padding(
+        padding: const EdgeInsets.only(left: RowMetrics.groupInset),
+        child: Row(
+          children: [
+            if (leading case final avatar?) ...[
+              avatar,
+              const SizedBox(width: FormMetrics.gap),
+            ] else if (glyph case final icon?) ...[
+              FormGlyph(icon: icon),
+              const SizedBox(width: FormMetrics.gap),
+            ],
+            Expanded(child: text),
+            const SizedBox(width: FormMetrics.gap),
+            control,
+          ],
+        ),
+      ),
+    );
+    Widget well = InkWell(onTap: enabled ? toggle : null, child: row);
+    if (exclusive) {
+      // The checkbox announces its own state; the radio shape has to say it
+      // here, as `Radio` does — checked, in a mutually exclusive group.
+      well = Semantics(
+        inMutuallyExclusiveGroup: true,
+        checked: checked,
+        enabled: enabled,
+        child: well,
+      );
+    }
+    well = Opacity(
+      opacity: enabled ? 1 : FormMetrics.disabledOpacity,
+      child: well,
+    );
+    if (identifier case final id?) {
+      well = AutomationId(identifier: id, child: well);
+    } else {
+      well = MergeSemantics(child: well);
+    }
+    if (button == null) return well;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Expanded(child: well),
+        button,
+      ],
+    );
+  }
+}
+
 class FormChip extends StatelessWidget {
   final String label;
   final bool selected;
@@ -1040,14 +1240,128 @@ class FormCaption extends StatelessWidget {
   }
 }
 
+/// A search field as the first row of a group — the category picker's, the
+/// saved filters'. It stands in for `SettingsSearchField` only inside a form
+/// group; the settings pages keep theirs.
+///
+/// Never autofocused: a sheet that opens with the keyboard up hides the list
+/// it exists to show. The clear button is a sibling target that always has a
+/// slot, so the field's width never changes as text comes and goes.
+class FormSearchRow extends FormDividedRow {
+  final TextEditingController controller;
+  final String hint;
+
+  /// The clear button's tooltip — passed in like every other label here, so
+  /// the primitives stay free of the localizations.
+  final String clearTooltip;
+  final ValueChanged<String> onChanged;
+
+  /// Lands on the field's own text-field node, which is what a device script
+  /// types into by id.
+  final String? identifier;
+
+  const FormSearchRow({
+    super.key,
+    required this.controller,
+    required this.hint,
+    required this.clearTooltip,
+    required this.onChanged,
+    this.identifier,
+  });
+
+  @override
+  double get dividerIndent => FormMetrics.dividerIndentGlyph;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textStyle = TextStyle(
+      fontSize: FormMetrics.labelSize,
+      height: 20 / FormMetrics.labelSize,
+      color: colorScheme.onSurface,
+    );
+    Widget field = TextField(
+      controller: controller,
+      autofocus: false,
+      textInputAction: TextInputAction.search,
+      autocorrect: false,
+      enableSuggestions: false,
+      style: textStyle,
+      // Collapsed, but padded to the row's height: a bare collapsed field is
+      // its 20 px line, and a thumb landing in the row's other 28 px focused
+      // nothing.
+      decoration: InputDecoration(
+        isCollapsed: true,
+        border: InputBorder.none,
+        contentPadding: FormMetrics.searchFieldPadding,
+        hintText: hint,
+        // `onSurfaceVariant`, never `outline`: the latter is under AA for
+        // text on `surface`.
+        hintStyle: textStyle.copyWith(color: colorScheme.onSurfaceVariant),
+      ),
+      // A tap on the rows below drops the keyboard, so the list being ticked
+      // is not left half-covered by it.
+      onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
+      onChanged: onChanged,
+    );
+    if (identifier case final id?) {
+      field = AutomationId(identifier: id, child: field);
+    }
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: FormMetrics.rowMinHeight),
+      child: Padding(
+        padding: const EdgeInsets.only(left: RowMetrics.groupInset),
+        child: Row(
+          children: [
+            const FormGlyph(icon: Icons.search_rounded),
+            const SizedBox(width: FormMetrics.gap),
+            Expanded(child: field),
+            ListenableBuilder(
+              listenable: controller,
+              builder: (context, _) => controller.text.isEmpty
+                  ? const SizedBox.square(
+                      dimension: FormMetrics.trailingButtonSize,
+                    )
+                  : FormTrailingButton(
+                      icon: Icons.close_rounded,
+                      tooltip: clearTooltip,
+                      onPressed: () {
+                        controller.clear();
+                        onChanged('');
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class FormMenuItem<T> {
   final T value;
   final String label;
   final IconData? icon;
 
-  const FormMenuItem({required this.value, required this.label, this.icon});
+  /// A `SemanticsIds` value for an item a device script picks by id.
+  final String? identifier;
+
+  const FormMenuItem({
+    required this.value,
+    required this.label,
+    this.icon,
+    this.identifier,
+  });
 }
 
+/// `label … value ›` opening a menu of [items] — the editor's Priority and
+/// Day rail, the filter sheet's Repeat and Time of day.
+///
+/// A popup route in the header menus' anatomy ([FormMenuChoiceItem]), never a
+/// `MenuAnchor`, whose items expose no semantics nodes on iOS. The menu is
+/// right-aligned with the group and opens under the row, or above it when
+/// there is no room below; focus is dropped before it opens, or the route's
+/// return would hand focus back to a field and raise the keyboard.
 class FormMenuRow<T> extends FormDividedRow {
   final IconData glyph;
   final String label;
@@ -1075,74 +1389,55 @@ class FormMenuRow<T> extends FormDividedRow {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    return MenuAnchor(
-      alignmentOffset: Offset(-menuWidth, 0),
-      style: MenuStyle(
-        alignment: AlignmentDirectional.bottomEnd,
-        backgroundColor: WidgetStatePropertyAll(colorScheme.menuSurface),
-        shape: WidgetStatePropertyAll(
-          RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(FormMetrics.menuRadius),
-          ),
-        ),
-        padding: const WidgetStatePropertyAll(FormMetrics.menuPadding),
-        minimumSize: WidgetStatePropertyAll(Size(menuWidth, 0)),
-        maximumSize: WidgetStatePropertyAll(Size(menuWidth, double.infinity)),
-      ),
-      menuChildren: [
-        for (final item in items)
-          MergeSemantics(
-            child: Semantics(
-              selected: item.value == selected,
-              child: MenuItemButton(
-                onPressed: () => onSelected(item.value),
-                style: MenuItemButton.styleFrom(
-                  minimumSize: Size(menuWidth, FormMetrics.menuRowHeight),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: RowMetrics.groupInset,
-                  ),
-                ),
-                leadingIcon: item.icon == null
-                    ? null
-                    : Icon(
-                        item.icon,
-                        size: FormMetrics.menuIconSize,
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                trailingIcon: item.value == selected
-                    ? Icon(
-                        Icons.check_rounded,
-                        size: FormMetrics.menuIconSize,
-                        color: colorScheme.primary,
-                      )
-                    : const SizedBox(width: FormMetrics.menuIconSize),
-                child: Text(
-                  item.label,
-                  style: TextStyle(
-                    fontSize: FormMetrics.labelSize,
-                    color: colorScheme.onSurface,
-                  ),
-                ),
-              ),
-            ),
-          ),
-      ],
-      builder: (context, controller, _) => FormPickerRow(
+    // A `Builder` so the tap has the row's own render box to anchor to.
+    return Builder(
+      builder: (rowContext) => FormPickerRow(
         glyph: glyph,
         label: label,
         value: value,
         identifier: identifier,
-        onTap: () {
-          if (controller.isOpen) {
-            controller.close();
-          } else {
-            FocusManager.instance.primaryFocus?.unfocus();
-            controller.open();
-          }
-        },
+        onTap: () => _open(rowContext),
       ),
     );
+  }
+
+  Future<void> _open(BuildContext context) async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final colorScheme = Theme.of(context).colorScheme;
+    final picked = await showMenu<T>(
+      context: context,
+      positionBuilder: (_, constraints) => formMenuPosition(
+        context,
+        constraints,
+        menuHeight: formMenuHeight(items.length),
+      ),
+      color: colorScheme.menuSurface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(FormMetrics.menuRadius),
+      ),
+      menuPadding: FormMetrics.menuPadding,
+      // `menuWidth` is the floor; a label that needs more widens the menu up
+      // to the cap rather than breaking mid-word, which it did at 200 % in
+      // German. The right edge stays on the group's whatever the width.
+      constraints: BoxConstraints(
+        minWidth: menuWidth,
+        maxWidth: FormMetrics.menuMaxWidth,
+      ),
+      items: [
+        for (final item in items)
+          FormMenuChoiceItem<T>(
+            value: item.value,
+            checked: item.value == selected,
+            child: FormMenuItemRow(
+              identifier: item.identifier,
+              icon: item.icon,
+              label: item.label,
+              checked: item.value == selected,
+            ),
+          ),
+      ],
+    );
+    if (picked == null) return;
+    onSelected(picked);
   }
 }

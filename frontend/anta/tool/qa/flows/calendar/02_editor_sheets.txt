@@ -1,8 +1,9 @@
 # Open an existing event from the day panel, walk the Repeat and Icon & color
 # sub-sheets and open the priority menu, then leave dirty: the discard dialog
-# must ask, and back must return to the detail sheet. The menu's items are
-# only photographed: MenuAnchor items expose no semantics nodes on iOS
-# (found 2026-09-26), so a flow cannot pick one by label.
+# must ask, and back must return to the detail sheet. The menu is only
+# photographed here for the picture; since 2026-09-27 its items are radio
+# nodes on both platforms and tappable by label or id (`FormMenuRow` is a
+# popup route, `09_filters.txt` picks one).
 tap id:event-row-qa-cal-lift
 wait id:event-detail-edit
 tap id:event-detail-edit

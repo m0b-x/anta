@@ -1,9 +1,12 @@
-import 'dart:ui' show Tristate;
+import 'dart:ui' show CheckedState, SemanticsRole, Tristate;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/row_metrics.dart';
+import 'package:anta/widgets/event_avatar.dart';
+import 'package:anta/widgets/form_menu_item.dart';
 import 'package:anta/widgets/form_rows.dart';
 
 /// The grouped-row primitives every calendar sheet is built from. These pin
@@ -399,6 +402,532 @@ void main() {
       expect(data.hasAction(SemanticsAction.tap), isTrue);
       await tester.tap(find.bySemanticsIdentifier('event-detail-present'));
       expect(taps, 1);
+    });
+  });
+
+  group('check, search and menu rows', () {
+    SemanticsData dataOf(WidgetTester tester, String id) =>
+        tester.getSemantics(find.bySemanticsIdentifier(id)).getSemanticsData();
+
+    testWidgets('a section label writes ß as SS in capitals', (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(body: FormSectionLabel(text: 'Außerdem anzeigen')),
+        ),
+      );
+      expect(find.text('AUSSERDEM ANZEIGEN'), findsOneWidget);
+    });
+
+    testWidgets('a check row is one node with its checked state and id, and '
+        'toggles from the id', (tester) async {
+      bool? received;
+      await tester.pumpWidget(
+        host(
+          FormCheckRow(
+            glyph: Icons.checklist_rounded,
+            label: 'Tracked',
+            checked: false,
+            identifier: 'filter-list-tracked',
+            onChanged: (v) => received = v,
+          ),
+        ),
+      );
+      final data = dataOf(tester, 'filter-list-tracked');
+      expect(data.identifier, 'filter-list-tracked');
+      expect(data.label, contains('Tracked'));
+      expect(data.flagsCollection.isChecked, CheckedState.isFalse);
+      expect(data.flagsCollection.isInMutuallyExclusiveGroup, isFalse);
+      expect(data.hasAction(SemanticsAction.tap), isTrue);
+      expect(find.byType(Checkbox), findsOneWidget);
+      await tester.tap(find.bySemanticsIdentifier('filter-list-tracked'));
+      expect(received, isTrue);
+    });
+
+    testWidgets('a check row is 48, 62 or 56 tall by shape', (tester) async {
+      await tester.pumpWidget(
+        host(
+          FormCheckRow(
+            glyph: Icons.flag_outlined,
+            label: 'High',
+            checked: true,
+            onChanged: (_) {},
+          ),
+        ),
+      );
+      expect(
+        tester.getSize(find.byType(FormCheckRow)).height,
+        FormMetrics.rowMinHeight,
+      );
+      await tester.pumpWidget(
+        host(
+          FormCheckRow(
+            label: 'Top priority',
+            caption: 'Highest, High',
+            checked: true,
+            exclusive: true,
+            onChanged: (_) {},
+          ),
+        ),
+      );
+      expect(
+        tester.getSize(find.byType(FormCheckRow)).height,
+        FormMetrics.twoLineRowMinHeight,
+      );
+      await tester.pumpWidget(
+        host(
+          FormCheckRow(
+            leading: const EventAvatar(
+              icon: Icons.fitness_center,
+              color: Colors.blue,
+            ),
+            label: 'Gym',
+            checked: false,
+            onChanged: (_) {},
+          ),
+        ),
+      );
+      expect(
+        tester.getSize(find.byType(FormCheckRow)).height,
+        FormMetrics.titleRowMinHeight,
+      );
+      expect(
+        tester.getTopLeft(find.text('Gym')).dx,
+        RowMetrics.groupInset + EventAvatar.radius * 2 + FormMetrics.gap,
+      );
+    });
+
+    testWidgets('a disabled check row is faded and inert', (tester) async {
+      await tester.pumpWidget(
+        host(
+          const FormCheckRow(
+            glyph: Icons.no_food_rounded,
+            label: 'Fasting',
+            checked: true,
+            identifier: 'filter-fasting-row',
+            onChanged: null,
+          ),
+        ),
+      );
+      final opacity = tester.widget<Opacity>(
+        find
+            .descendant(
+              of: find.byType(FormCheckRow),
+              matching: find.byType(Opacity),
+            )
+            .first,
+      );
+      expect(opacity.opacity, FormMetrics.disabledOpacity);
+      final data = dataOf(tester, 'filter-fasting-row');
+      expect(data.hasAction(SemanticsAction.tap), isFalse);
+      expect(data.flagsCollection.isChecked, CheckedState.isTrue);
+    });
+
+    testWidgets('an exclusive check row is a radio node with the check glyph', (
+      tester,
+    ) async {
+      var picks = 0;
+      await tester.pumpWidget(
+        host(
+          FormCheckRow(
+            label: 'No filter',
+            checked: true,
+            exclusive: true,
+            identifier: 'filter-preset-none',
+            onChanged: (_) => picks++,
+          ),
+        ),
+      );
+      final data = dataOf(tester, 'filter-preset-none');
+      expect(data.flagsCollection.isInMutuallyExclusiveGroup, isTrue);
+      expect(data.flagsCollection.isChecked, CheckedState.isTrue);
+      expect(find.byIcon(Icons.check_rounded), findsOneWidget);
+      expect(find.byType(Checkbox), findsNothing);
+      await tester.tap(find.bySemanticsIdentifier('filter-preset-none'));
+      expect(picks, 1);
+
+      await tester.pumpWidget(
+        host(
+          FormCheckRow(
+            label: 'No filter',
+            checked: false,
+            exclusive: true,
+            identifier: 'filter-preset-none',
+            onChanged: (_) {},
+          ),
+        ),
+      );
+      expect(find.byIcon(Icons.check_rounded), findsNothing);
+      expect(
+        dataOf(tester, 'filter-preset-none').flagsCollection.isChecked,
+        CheckedState.isFalse,
+      );
+    });
+
+    testWidgets("a check row's trailing button is its own node beside the "
+        "row's", (tester) async {
+      var picks = 0;
+      var menus = 0;
+      await tester.pumpWidget(
+        host(
+          FormCheckRow(
+            label: 'Top priority',
+            caption: 'Highest, High',
+            checked: false,
+            exclusive: true,
+            identifier: 'filter-preset-p1',
+            onChanged: (_) => picks++,
+            trailingButton: FormTrailingButton(
+              icon: Icons.more_vert_rounded,
+              tooltip: 'Saved filter options',
+              identifier: 'filter-preset-options-p1',
+              onPressed: () => menus++,
+            ),
+          ),
+        ),
+      );
+      final row = dataOf(tester, 'filter-preset-p1');
+      expect(row.label, contains('Top priority'));
+      expect(row.label, contains('Highest, High'));
+      expect(row.label, isNot(contains('Saved filter options')));
+      // An icon button's words are its tooltip, not a label.
+      final button = dataOf(tester, 'filter-preset-options-p1');
+      expect(button.tooltip, 'Saved filter options');
+      expect(
+        tester.getSize(find.byTooltip('Saved filter options')),
+        const Size(FormMetrics.trailingButtonSize, FormMetrics.trailingButtonSize),
+      );
+      await tester.tap(find.bySemanticsIdentifier('filter-preset-options-p1'));
+      expect(menus, 1);
+      expect(picks, 0);
+      await tester.tap(find.bySemanticsIdentifier('filter-preset-p1'));
+      expect(picks, 1);
+    });
+
+    testWidgets("a search row's field carries its id and its clear button is "
+        'a second node that empties it', (tester) async {
+      final controller = TextEditingController();
+      addTearDown(controller.dispose);
+      final changes = <String>[];
+      await tester.pumpWidget(
+        host(
+          FormSearchRow(
+            controller: controller,
+            hint: 'Search categories',
+            clearTooltip: 'Clear search',
+            identifier: 'category-pick-search',
+            onChanged: changes.add,
+          ),
+        ),
+      );
+      expect(
+        dataOf(tester, 'category-pick-search').flagsCollection.isTextField,
+        isTrue,
+      );
+      expect(find.byTooltip('Clear search'), findsNothing);
+      final fieldWidth = tester.getSize(find.byType(TextField)).width;
+
+      await tester.enterText(find.byType(TextField), 'gym');
+      await tester.pump();
+
+      expect(changes, ['gym']);
+      expect(find.byTooltip('Clear search'), findsOneWidget);
+      expect(tester.getSize(find.byType(TextField)).width, fieldWidth);
+      expect(
+        dataOf(tester, 'category-pick-search').label,
+        isNot(contains('Clear search')),
+      );
+
+      await tester.tap(find.byTooltip('Clear search'));
+      await tester.pump();
+
+      expect(controller.text, isEmpty);
+      expect(changes.last, '');
+      expect(find.byTooltip('Clear search'), findsNothing);
+    });
+
+    testWidgets("a tap at the search row's top or bottom edge focuses the "
+        'field, and a tap outside unfocuses it', (tester) async {
+      final controller = TextEditingController();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        host(
+          FormSearchRow(
+            controller: controller,
+            hint: 'Search categories',
+            clearTooltip: 'Clear search',
+            onChanged: (_) {},
+          ),
+        ),
+      );
+      final rect = tester.getRect(find.byType(FormSearchRow));
+      expect(rect.height, FormMetrics.rowMinHeight);
+      FocusNode node() =>
+          tester.widget<EditableText>(find.byType(EditableText)).focusNode;
+
+      await tester.tapAt(Offset(rect.center.dx, rect.top + 2));
+      await tester.pump();
+      expect(node().hasFocus, isTrue);
+
+      // Below the group: the pointer lands on nothing, and the field still
+      // hears it through its tap region.
+      await tester.tapAt(Offset(rect.center.dx, rect.bottom + 120));
+      await tester.pump();
+      expect(node().hasFocus, isFalse);
+
+      await tester.tapAt(Offset(rect.center.dx, rect.bottom - 2));
+      await tester.pump();
+      expect(node().hasFocus, isTrue);
+    });
+
+    testWidgets("a check row's caption clamps at two lines at 200 %", (
+      tester,
+    ) async {
+      addTearDown(tester.view.reset);
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = const Size(360, 780);
+      const caption =
+          'Mit Anwesenheit · Verpasst · Wiederkehrend · Mit Geld · '
+          'Mit Beschreibung · Gezählt · Nicht beendet';
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(2.0)),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: FormRowGroup(
+              children: [
+                FormCheckRow(
+                  label: 'Verpasste Einheiten',
+                  caption: caption,
+                  checked: false,
+                  exclusive: true,
+                  onChanged: (_) {},
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      expect(tester.takeException(), isNull);
+      final text = tester.widget<Text>(find.text(caption));
+      expect(text.maxLines, 2);
+      expect(text.overflow, TextOverflow.ellipsis);
+      // Two 36 px lines, not the four the words would need.
+      expect(
+        tester.getSize(find.text(caption)).height,
+        lessThanOrEqualTo(2 * 18 * 2.0 + 1),
+      );
+    });
+
+    testWidgets('a search row never autofocuses', (tester) async {
+      final controller = TextEditingController();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        host(
+          FormSearchRow(
+            controller: controller,
+            hint: 'Search',
+            clearTooltip: 'Clear search',
+            onChanged: (_) {},
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(
+        tester.widget<EditableText>(find.byType(EditableText)).focusNode.hasFocus,
+        isFalse,
+      );
+    });
+
+    FormMenuRow<int> repeatRow({ValueChanged<int>? onSelected}) =>
+        FormMenuRow<int>(
+          glyph: Icons.repeat_rounded,
+          label: 'Repeat',
+          value: 'Recurring',
+          selected: 2,
+          identifier: 'filter-repeat',
+          menuWidth: 220,
+          items: const [
+            FormMenuItem(value: 1, label: 'All', identifier: 'filter-repeat-all'),
+            FormMenuItem(
+              value: 2,
+              label: 'Recurring',
+              icon: Icons.repeat_rounded,
+              identifier: 'filter-repeat-recurring',
+            ),
+          ],
+          onSelected: onSelected ?? (_) {},
+        );
+
+    /// A group inset from the screen edges as a sheet's is, so the menu's
+    /// right edge has somewhere to align to short of the screen.
+    Widget sheetLike(Widget row, {Alignment alignment = Alignment.topCenter}) =>
+        MaterialApp(
+          home: Scaffold(
+            body: Align(
+              alignment: alignment,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: RowMetrics.groupInset,
+                ),
+                child: FormRowGroup(children: [row]),
+              ),
+            ),
+          ),
+        );
+
+    Future<void> openMenu(WidgetTester tester) async {
+      await tester.tap(find.bySemanticsIdentifier('filter-repeat'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets("a menu row's items are radio nodes with ids and the current "
+        'one checked', (tester) async {
+      int? picked;
+      await tester.pumpWidget(sheetLike(repeatRow(onSelected: (v) => picked = v)));
+      await openMenu(tester);
+
+      final current = dataOf(tester, 'filter-repeat-recurring');
+      expect(current.role, SemanticsRole.menuItemRadio);
+      expect(current.flagsCollection.isChecked, CheckedState.isTrue);
+      expect(current.flagsCollection.isInMutuallyExclusiveGroup, isTrue);
+      expect(current.label, contains('Recurring'));
+      final other = dataOf(tester, 'filter-repeat-all');
+      expect(other.role, SemanticsRole.menuItemRadio);
+      expect(other.flagsCollection.isChecked, CheckedState.isFalse);
+      expect(
+        find.descendant(
+          of: find.byType(FormMenuChoiceItem<int>),
+          matching: find.byIcon(Icons.check_rounded),
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.bySemanticsIdentifier('filter-repeat-all'));
+      await tester.pumpAndSettle();
+
+      expect(picked, 1);
+      expect(find.byType(FormMenuChoiceItem<int>), findsNothing);
+    });
+
+    testWidgets('the menu opens right-aligned with the group, under the row '
+        'while there is room', (tester) async {
+      await tester.pumpWidget(sheetLike(repeatRow()));
+      final rowRect = tester.getRect(find.byType(FormPickerRow));
+      final groupRect = tester.getRect(find.byType(FormRowGroup));
+      await openMenu(tester);
+
+      final items = find.byType(FormMenuChoiceItem<int>);
+      final first = tester.getRect(items.first);
+      // The popup sizes to its labels in 56 px steps between the floor and
+      // the cap; the test font's 15 px glyphs put "Recurring" just past 220.
+      expect(first.width, inInclusiveRange(220, FormMetrics.menuMaxWidth));
+      expect(first.right, moreOrLessEquals(groupRect.right, epsilon: 0.5));
+      expect(
+        first.top,
+        moreOrLessEquals(rowRect.bottom + FormMetrics.menuPadding.top,
+            epsilon: 0.5),
+      );
+      expect(first.height, FormMetrics.menuRowHeight);
+    });
+
+    testWidgets('a long label widens the menu past menuWidth up to the cap, '
+        'still on the group\'s right edge', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(2.0)),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: RowMetrics.groupInset,
+              ),
+              child: FormRowGroup(
+                children: [
+                  FormMenuRow<int>(
+                    glyph: Icons.repeat_rounded,
+                    label: 'Wiederholung',
+                    value: 'Alle',
+                    selected: 1,
+                    identifier: 'filter-repeat',
+                    menuWidth: 220,
+                    items: const [
+                      FormMenuItem(value: 1, label: 'Alle'),
+                      FormMenuItem(
+                        value: 2,
+                        label: 'Wiederkehrend',
+                        icon: Icons.repeat_rounded,
+                      ),
+                    ],
+                    onSelected: (_) {},
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      final groupRect = tester.getRect(find.byType(FormRowGroup));
+      await openMenu(tester);
+
+      // The test font's 30 px glyphs push the label past even the cap, so
+      // what this pins is the widening itself and the edge it keeps; that
+      // Roboto then fits the word on one line is the device pass's fact.
+      final item = tester.getRect(find.byType(FormMenuChoiceItem<int>).first);
+      expect(item.width, FormMetrics.menuMaxWidth);
+      expect(item.right, moreOrLessEquals(groupRect.right, epsilon: 0.5));
+    });
+
+    testWidgets('the menu opens above the row when there is no room below', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        sheetLike(repeatRow(), alignment: Alignment.bottomCenter),
+      );
+      final rowRect = tester.getRect(find.byType(FormPickerRow));
+      await openMenu(tester);
+
+      final last = tester.getRect(find.byType(FormMenuChoiceItem<int>).last);
+      expect(
+        last.bottom + FormMetrics.menuPadding.bottom,
+        lessThanOrEqualTo(rowRect.top + 0.5),
+      );
+    });
+
+    testWidgets('a menu row drops focus before it opens', (tester) async {
+      final focusNode = FocusNode();
+      addTearDown(focusNode.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Column(
+              children: [
+                TextField(focusNode: focusNode),
+                FormRowGroup(children: [repeatRow()]),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.byType(TextField));
+      await tester.pump();
+      expect(focusNode.hasFocus, isTrue);
+
+      await openMenu(tester);
+      // The route holds focus while open, so the check runs once it is gone:
+      // a focus dropped only by the push would come back with the pop.
+      await tester.tapAt(const Offset(5, 590));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(FormMenuChoiceItem<int>), findsNothing);
+      expect(focusNode.hasFocus, isFalse);
     });
   });
 }

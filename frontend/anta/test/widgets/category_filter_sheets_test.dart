@@ -2,19 +2,32 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/constants/fasting_calendar.dart';
+import 'package:anta/constants/semantics_ids.dart';
+import 'package:anta/database/database.dart';
+import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_grid_filters.dart';
+import 'package:anta/models/fasting_appearance.dart';
 import 'package:anta/models/upcoming_agenda_filters.dart';
+import 'package:anta/services/filter_preset_service.dart';
 import 'package:anta/widgets/agenda_filters_sheet.dart';
 import 'package:anta/widgets/calendar_filter_sheet.dart';
 import 'package:anta/widgets/category_picker_sheet.dart';
+import 'package:anta/widgets/filter_check_list_sheet.dart';
+import 'package:anta/widgets/filter_preset_sheet.dart';
+import 'package:anta/widgets/form_rows.dart';
+
+import '../database/support/db_test_support.dart';
 
 /// `CategoryPickerSheet.pickMulti` is semantics-free — a set in, a set out —
 /// so the two filter sheets are what decide what the set *means*. The agenda
 /// holds an **allowlist** (empty = all) and the calendar filter a **denylist**
 /// (empty = show all), and the caller is what inverts. These pin both
-/// directions, plus the threshold that keeps a short set on chips.
+/// directions — and, for the calendar's sheet, the two-level summary: every
+/// row reads its value back, every sub-sheet's Done lands in the draft, and
+/// only Apply pops it.
 void main() {
   void seed(int count) {
     CalendarCategories.updateCache([
@@ -55,22 +68,11 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  /// The sub-sheet's Apply, not the host sheet's — both are on screen once the
-  /// picker has opened over a filter sheet.
-  Finder pickerApply() => find.descendant(
-    of: find.byType(CategoryPickerSheet),
-    matching: find.text('Apply'),
-  );
+  /// The picker's own Done — by id, since the host sheet under it may carry
+  /// the same word.
+  Finder pickerApply() => find.bySemanticsIdentifier(SemanticsIds.categoryPickDone);
 
-  /// The calendar filter sheet's category chips only — the priority and trait
-  /// chips beside them are `FilterChip`s too, so a bare type finder counts all
-  /// three sections.
-  Finder categoryChips() => find.descendant(
-    of: find.byKey(CalendarFilterSheet.categoryChipsKey),
-    matching: find.byType(FilterChip),
-  );
-
-  /// One row inside the sub-sheet. The tile behind it names the selection too,
+  /// One row inside the sub-sheet. The row behind it names the selection too,
   /// so a bare text finder is ambiguous while the picker is open.
   Finder pickerRow(String label) => find.descendant(
     of: find.byType(CategoryPickerSheet),
@@ -78,76 +80,116 @@ void main() {
   );
 
   group('calendar filter sheet', () {
-    testWidgets('a short set keeps its chips', (tester) async {
-      seed(6);
-      await pumpHost(
-        tester,
-        (context) => CalendarFilterSheet.show(
-          context,
-          filters: CalendarGridFilters.none,
-        ),
-      );
+    const tracked = CalendarGridFilters(trackedOnly: true);
+    const missedOnly = CalendarGridFilters(missedOnly: true);
+    const everyTrait = CalendarGridFilters(
+      trackedOnly: true,
+      missedOnly: true,
+      linkedNotesOnly: true,
+      moneyOnly: true,
+      withDescriptionOnly: true,
+      countedOnly: true,
+      hideEnded: true,
+    );
 
-      expect(categoryChips(), findsNWidgets(6));
-      expect(find.byType(CategoryFilterTile), findsNothing);
+    // The sheet resolves the preset service for its Saved filter row; bound
+    // to an in-memory database so the row can read a name back.
+    late AppDatabase db;
+    late FilterPresetService service;
+
+    setUp(() async {
+      DatabaseLifecycle.notifyDatabaseSwitching();
+      FilterPresetService.reset();
+      db = await openTestDatabase();
+      service = await FilterPresetService.forTesting(db);
     });
 
-    testWidgets('past the threshold the chips collapse to one tile', (
-      tester,
-    ) async {
-      seed(15);
-      await pumpHost(
-        tester,
-        (context) => CalendarFilterSheet.show(
-          context,
-          filters: CalendarGridFilters.none,
-        ),
-      );
-
-      expect(categoryChips(), findsNothing);
-      expect(find.byType(CategoryFilterTile), findsOneWidget);
-      expect(find.text('All categories'), findsOneWidget);
+    tearDown(() async {
+      FilterPresetService.reset();
+      FastingCalendar.resetConfiguration();
+      await db.close();
     });
 
-    testWidgets('the denylist is the inverse of what the picker returns', (
-      tester,
-    ) async {
-      seed(15);
-      CalendarGridFilters? applied;
-      await pumpHost(tester, (context) async {
-        applied = await CalendarFilterSheet.show(
-          context,
-          filters: CalendarGridFilters.none,
+    Finder id(String value) => find.bySemanticsIdentifier(value);
+
+    Future<void> tap(WidgetTester tester, Finder finder) async {
+      await tester.tap(finder);
+      await tester.pumpAndSettle();
+    }
+
+    /// The row an id sits on, with the value it reads back.
+    FormPickerRow row(WidgetTester tester, String rowId) =>
+        tester.widget<FormPickerRow>(
+          find.ancestor(of: id(rowId), matching: find.byType(FormPickerRow)),
         );
+
+    FormSwitchRow switchRow(WidgetTester tester, String rowId) =>
+        tester.widget<FormSwitchRow>(
+          find.ancestor(of: id(rowId), matching: find.byType(FormSwitchRow)),
+        );
+
+    FormActionRow resetRow(WidgetTester tester) => tester.widget<FormActionRow>(
+      find.ancestor(
+        of: id(SemanticsIds.filterReset),
+        matching: find.byType(FormActionRow),
+      ),
+    );
+
+    /// The Saved filter row's bookmark — the sheet's one trailing button.
+    FormTrailingButton bookmark(WidgetTester tester) =>
+        tester.widget<FormTrailingButton>(find.byType(FormTrailingButton));
+
+    /// Opens the sheet on a phone tall enough that no row sits below the
+    /// fold, so every id can be tapped without scrolling.
+    Future<_Applied> open(
+      WidgetTester tester,
+      CalendarGridFilters filters,
+    ) async {
+      addTearDown(tester.view.reset);
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = const Size(800, 1400);
+      final applied = _Applied();
+      await pumpHost(tester, (context) async {
+        applied.value = await CalendarFilterSheet.show(
+          context,
+          filters: filters,
+        );
+        applied.returned = true;
       });
+      return applied;
+    }
 
-      await tester.tap(find.byType(CategoryFilterTile));
-      await tester.pumpAndSettle();
+    testWidgets('the Categories row reads All, opens the picker, and the '
+        'denylist is the inverse of its answer', (tester) async {
+      seed(15);
+      final applied = await open(tester, CalendarGridFilters.none);
+
+      expect(row(tester, SemanticsIds.filterCategories).value, 'All');
+
+      await tap(tester, id(SemanticsIds.filterCategories));
+      expect(find.byType(CategoryPickerSheet), findsOneWidget);
       // Everything starts shown, so un-ticking one row is what hides it.
-      await tester.tap(pickerRow('Cat2'));
-      await tester.pumpAndSettle();
-      await tester.tap(pickerApply());
-      await tester.pumpAndSettle();
+      await tap(tester, pickerRow('Cat2'));
+      await tap(tester, pickerApply());
 
-      expect(find.text('Cat0, Cat1 +12 more'), findsOneWidget);
+      expect(
+        row(tester, SemanticsIds.filterCategories).value,
+        'Cat0, Cat1 +12 more',
+      );
 
-      await tester.tap(find.text('Apply'));
-      await tester.pumpAndSettle();
+      await tap(tester, id(SemanticsIds.filterApply));
 
-      expect(applied?.hiddenCategoryIds, {'c2'});
+      expect(applied.value?.hiddenCategoryIds, {'c2'});
     });
 
-    /// The header is one toggle, so its two halves are only ever reachable in
-    /// alternation — which is exactly why **Select all must empty the denylist
-    /// outright**, archived denials included. Subtracting only the visible ids
-    /// instead strands an archived denial: `_hidden` never empties, the toggle
-    /// never flips, and the button becomes a permanent no-op. (Clear all's
-    /// union is the one-directional guard that hiding everything must not
-    /// un-hide anything; it has no mirror here, and it is unreachable while
-    /// anything is already hidden.)
-    testWidgets('Select all empties the denylist, archived denials included', (
-      tester,
-    ) async {
+    /// The picker never lists a denied archived category (a hidden one
+    /// reaches it only inside a selection), so an answer that ticks every
+    /// listed row is read as "show everything" and empties the denylist
+    /// outright. Subtracting the answer from the offered set instead would
+    /// strand the archived denial: the row would keep reading a count with
+    /// nothing left in the picker to un-tick.
+    testWidgets('Select all in the picker empties the denylist, archived '
+        'denials included', (tester) async {
       // 15 visible plus one archived category the user has *also* denied.
       seed(15);
       CalendarCategories.updateCache([
@@ -162,60 +204,536 @@ void main() {
           isHidden: true,
         ),
       ]);
-      CalendarGridFilters? applied;
-      await pumpHost(tester, (context) async {
-        applied = await CalendarFilterSheet.show(
-          context,
-          filters: const CalendarGridFilters(hiddenCategoryIds: {'arch', 'c2'}),
-        );
-      });
+      final applied = await open(
+        tester,
+        const CalendarGridFilters(hiddenCategoryIds: {'arch', 'c2'}),
+      );
 
-      // Something is hidden, so the header offers Select all.
-      await tester.tap(find.text('Select all'));
-      await tester.pumpAndSettle();
+      // Sixteen offered (the archived one rides in on its denial), two hidden.
+      expect(
+        row(tester, SemanticsIds.filterCategories).value,
+        'Cat0, Cat1 +12 more',
+      );
 
-      // Everything is shown now, so the header has flipped to its other half —
-      // which is the check that the button is not a permanent no-op.
-      expect(find.text('Select all'), findsNothing);
-      await tester.tap(find.text('Clear'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Apply'));
-      await tester.pumpAndSettle();
+      await tap(tester, id(SemanticsIds.filterCategories));
+      expect(pickerRow('Archived'), findsNothing);
+      await tap(tester, find.text('Select all'));
+      await tap(tester, pickerApply());
 
-      // Clear all denied every visible id; `arch` was already un-denied by
-      // Select all and is not re-added, because Clear all unions the *visible*
-      // set and `arch` is not in it.
-      expect(applied?.hiddenCategoryIds, hasLength(15));
-      expect(applied?.hiddenCategoryIds, isNot(contains('arch')));
+      expect(row(tester, SemanticsIds.filterCategories).value, 'All');
+
+      await tap(tester, id(SemanticsIds.filterApply));
+
+      expect(applied.value?.hiddenCategoryIds, isEmpty);
     });
 
-    testWidgets('clearing every row in the picker hides every category', (
+    /// The denylist is rebuilt from the catalog **after** the picker returns:
+    /// a category created inside it is visible by then, and an answer that
+    /// omits it must deny it — the list captured when the sheet was built
+    /// would never have listed it.
+    testWidgets('a picker answer that omits a freshly visible category '
+        'denies it', (tester) async {
+      seed(3);
+      final applied = await open(tester, CalendarGridFilters.none);
+
+      await tap(tester, id(SemanticsIds.filterCategories));
+      // A category appears while the picker is open (what Create category
+      // does through the facade); a toggle back and forth rebuilds the list.
+      CalendarCategories.updateCache([
+        ...CalendarCategories.all,
+        const CalendarCategory(
+          id: 'c3',
+          name: 'Cat3',
+          colorValue: 0xFF1E88E5,
+          iconKey: 'event',
+          sortOrder: 3,
+          isBuiltIn: false,
+        ),
+      ]);
+      await tap(tester, pickerRow('Cat0'));
+      await tap(tester, pickerRow('Cat0'));
+      expect(pickerRow('Cat3'), findsOneWidget);
+      await tap(tester, pickerApply());
+
+      expect(
+        row(tester, SemanticsIds.filterCategories).value,
+        'Cat0, Cat1 +1 more',
+      );
+
+      await tap(tester, id(SemanticsIds.filterApply));
+
+      expect(applied.value?.hiddenCategoryIds, {'c3'});
+    });
+
+    /// With every category archived the picker lists nothing, so its Done is
+    /// not "every listed row ticked" and the archived denial stays.
+    testWidgets('an empty picker keeps an archived denial', (tester) async {
+      CalendarCategories.updateCache([
+        const CalendarCategory(
+          id: 'arch',
+          name: 'Archived',
+          colorValue: 0xFF1E88E5,
+          iconKey: 'event',
+          sortOrder: 0,
+          isBuiltIn: false,
+          isHidden: true,
+        ),
+      ]);
+      final applied = await open(
+        tester,
+        const CalendarGridFilters(hiddenCategoryIds: {'arch'}),
+      );
+
+      expect(
+        row(tester, SemanticsIds.filterCategories).value,
+        'No categories',
+      );
+
+      await tap(tester, id(SemanticsIds.filterCategories));
+      expect(find.byType(FormCheckRow), findsNothing);
+      await tap(tester, pickerApply());
+
+      expect(
+        row(tester, SemanticsIds.filterCategories).value,
+        'No categories',
+      );
+
+      await tap(tester, id(SemanticsIds.filterApply));
+
+      expect(applied.value?.hiddenCategoryIds, {'arch'});
+    });
+
+    testWidgets('un-ticking one row keeps an archived denial denied', (
       tester,
     ) async {
       seed(15);
-      CalendarGridFilters? applied;
-      await pumpHost(tester, (context) async {
-        applied = await CalendarFilterSheet.show(
-          context,
-          // Starts with everything already hidden, so the picker opens with an
-          // empty selection and Apply returns that empty set unchanged — the
-          // case its date twin would have collapsed to a dismissal.
-          filters: CalendarGridFilters(
-            hiddenCategoryIds: {for (final c in CalendarCategories.visible) c.id},
+      CalendarCategories.updateCache([
+        ...CalendarCategories.all,
+        const CalendarCategory(
+          id: 'arch',
+          name: 'Archived',
+          colorValue: 0xFF1E88E5,
+          iconKey: 'event',
+          sortOrder: 99,
+          isBuiltIn: false,
+          isHidden: true,
+        ),
+      ]);
+      final applied = await open(
+        tester,
+        const CalendarGridFilters(hiddenCategoryIds: {'arch'}),
+      );
+
+      await tap(tester, id(SemanticsIds.filterCategories));
+      await tap(tester, pickerRow('Cat2'));
+      await tap(tester, pickerApply());
+      await tap(tester, id(SemanticsIds.filterApply));
+
+      // Not every listed row was ticked, so the answer is a real narrowing
+      // and the archived denial rides along untouched.
+      expect(applied.value?.hiddenCategoryIds, {'arch', 'c2'});
+    });
+
+    testWidgets('Select none in the picker hides everything and the row reads '
+        'No categories', (tester) async {
+      seed(15);
+      final applied = await open(tester, CalendarGridFilters.none);
+
+      await tap(tester, id(SemanticsIds.filterCategories));
+      await tap(tester, find.text('Select none'));
+      // Empty is a real answer here — "hide every category" — never a
+      // dismissal.
+      await tap(tester, pickerApply());
+
+      expect(
+        row(tester, SemanticsIds.filterCategories).value,
+        'No categories',
+      );
+
+      await tap(tester, id(SemanticsIds.filterApply));
+
+      expect(applied.value?.hiddenCategoryIds, hasLength(15));
+    });
+
+    testWidgets('Priority Done returns the set and the row reads Highest, '
+        'High', (tester) async {
+      seed(3);
+      final applied = await open(tester, CalendarGridFilters.none);
+
+      expect(row(tester, SemanticsIds.filterPriority).value, 'Any');
+
+      await tap(tester, id(SemanticsIds.filterPriority));
+      expect(find.byType(FilterCheckListSheet), findsOneWidget);
+      await tap(tester, id(SemanticsIds.filterListRow('priority-2')));
+      await tap(tester, id(SemanticsIds.filterListRow('priority-1')));
+      await tap(tester, id(SemanticsIds.filterListDone));
+
+      expect(find.byType(FilterCheckListSheet), findsNothing);
+      expect(row(tester, SemanticsIds.filterPriority).value, 'Highest, High');
+
+      await tap(tester, id(SemanticsIds.filterApply));
+
+      expect(applied.value?.priorities, {1, 2});
+    });
+
+    testWidgets('a dismissed Priority sub-sheet changes nothing', (
+      tester,
+    ) async {
+      seed(3);
+      final applied = await open(
+        tester,
+        const CalendarGridFilters(priorities: {1}),
+      );
+
+      await tap(tester, id(SemanticsIds.filterPriority));
+      await tap(tester, id(SemanticsIds.filterListRow('priority-5')));
+      await tap(tester, id(SemanticsIds.filterListClose));
+
+      expect(row(tester, SemanticsIds.filterPriority).value, 'Highest');
+
+      await tap(tester, id(SemanticsIds.filterApply));
+
+      expect(applied.value?.priorities, {1});
+    });
+
+    testWidgets('Only show Done writes the seven flags and the row reads the '
+        'names then +N more', (tester) async {
+      seed(3);
+      final applied = await open(tester, CalendarGridFilters.none);
+
+      expect(row(tester, SemanticsIds.filterOnlyShow).value, 'Everything');
+
+      await tap(tester, id(SemanticsIds.filterOnlyShow));
+      for (final trait in const [
+        'tracked',
+        'missed',
+        'linked-note',
+        'money',
+        'description',
+        'counted',
+        'not-ended',
+      ]) {
+        await tap(tester, id(SemanticsIds.filterListRow(trait)));
+      }
+      await tap(tester, id(SemanticsIds.filterListDone));
+
+      expect(
+        row(tester, SemanticsIds.filterOnlyShow).value,
+        'Tracked, Missed +5 more',
+      );
+
+      await tap(tester, id(SemanticsIds.filterApply));
+
+      expect(applied.value, everyTrait);
+    });
+
+    testWidgets('the menus change the recurrence and the time of day', (
+      tester,
+    ) async {
+      seed(3);
+      final applied = await open(tester, CalendarGridFilters.none);
+
+      expect(row(tester, SemanticsIds.filterRepeat).value, 'All');
+      await tap(tester, id(SemanticsIds.filterRepeat));
+      await tap(tester, id(SemanticsIds.filterRepeatRecurring));
+      expect(row(tester, SemanticsIds.filterRepeat).value, 'Recurring');
+
+      expect(row(tester, SemanticsIds.filterTime).value, 'All');
+      await tap(tester, id(SemanticsIds.filterTime));
+      await tap(tester, id(SemanticsIds.filterTimeAllDay));
+      expect(row(tester, SemanticsIds.filterTime).value, 'All day');
+
+      await tap(tester, id(SemanticsIds.filterApply));
+
+      expect(applied.value?.eventType, AgendaEventType.recurring);
+      expect(applied.value?.timing, CalendarEventTiming.allDay);
+    });
+
+    /// Disabled with its stored value rather than omitted: a row that appears
+    /// between two openings moves everything under it.
+    testWidgets('Fasting is present and inert while no tradition is '
+        'configured', (tester) async {
+      seed(3);
+      await open(tester, const CalendarGridFilters(showFasting: false));
+
+      final fasting = switchRow(tester, SemanticsIds.filterFasting);
+      expect(fasting.onChanged, isNull);
+      expect(fasting.value, isFalse);
+    });
+
+    testWidgets('Fasting toggles once a tradition is configured', (
+      tester,
+    ) async {
+      FastingCalendar.configure(traditions: const {FastingTradition.orthodox});
+      seed(3);
+      final applied = await open(tester, CalendarGridFilters.none);
+
+      expect(switchRow(tester, SemanticsIds.filterFasting).onChanged, isNotNull);
+      await tap(tester, id(SemanticsIds.filterFasting));
+      await tap(tester, id(SemanticsIds.filterApply));
+
+      expect(applied.value?.showFasting, isFalse);
+    });
+
+    testWidgets('the switches write the layers and the panel flag', (
+      tester,
+    ) async {
+      seed(3);
+      final applied = await open(tester, CalendarGridFilters.none);
+
+      await tap(tester, id(SemanticsIds.filterHolidays));
+      await tap(tester, id(SemanticsIds.filterMoney));
+      await tap(tester, id(SemanticsIds.filterPanelAll));
+      await tap(tester, id(SemanticsIds.filterApply));
+
+      expect(
+        applied.value,
+        const CalendarGridFilters(
+          showHolidays: false,
+          showMoney: false,
+          panelShowsAll: true,
+        ),
+      );
+    });
+
+    testWidgets('Reset is inert on an empty draft', (tester) async {
+      seed(3);
+      await open(tester, CalendarGridFilters.none);
+
+      expect(resetRow(tester).onTap, isNull);
+    });
+
+    testWidgets('Reset clears everything but the panel flag and keeps the '
+        'sheet open', (tester) async {
+      seed(3);
+      final applied = await open(
+        tester,
+        const CalendarGridFilters(
+          trackedOnly: true,
+          priorities: {1},
+          showMoney: false,
+          panelShowsAll: true,
+        ),
+      );
+
+      expect(row(tester, SemanticsIds.filterOnlyShow).value, 'Tracked');
+      expect(resetRow(tester).onTap, isNotNull);
+
+      await tap(tester, id(SemanticsIds.filterReset));
+
+      expect(find.byType(CalendarFilterSheet), findsOneWidget);
+      expect(row(tester, SemanticsIds.filterOnlyShow).value, 'Everything');
+      expect(row(tester, SemanticsIds.filterPriority).value, 'Any');
+      expect(switchRow(tester, SemanticsIds.filterMoney).value, isTrue);
+      expect(switchRow(tester, SemanticsIds.filterPanelAll).value, isTrue);
+      expect(resetRow(tester).onTap, isNull);
+
+      await tap(tester, id(SemanticsIds.filterApply));
+
+      expect(applied.value, const CalendarGridFilters(panelShowsAll: true));
+    });
+
+    testWidgets('the close button pops null', (tester) async {
+      seed(3);
+      final applied = await open(tester, CalendarGridFilters.none);
+
+      await tap(tester, id(SemanticsIds.filterHolidays));
+      await tap(tester, id(SemanticsIds.filterClose));
+
+      expect(find.byType(CalendarFilterSheet), findsNothing);
+      expect(applied.returned, isTrue);
+      expect(applied.value, isNull);
+    });
+
+    testWidgets('the barrier pops null', (tester) async {
+      seed(3);
+      final applied = await open(tester, CalendarGridFilters.none);
+
+      await tap(tester, id(SemanticsIds.filterHolidays));
+      await tester.tapAt(const Offset(20, 20));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(CalendarFilterSheet), findsNothing);
+      expect(applied.returned, isTrue);
+      expect(applied.value, isNull);
+    });
+
+    testWidgets('the system back pops null', (tester) async {
+      seed(3);
+      final applied = await open(tester, CalendarGridFilters.none);
+
+      await tap(tester, id(SemanticsIds.filterHolidays));
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(CalendarFilterSheet), findsNothing);
+      expect(applied.returned, isTrue);
+      expect(applied.value, isNull);
+    });
+
+    testWidgets('the saved-filter row reads the matching preset and its '
+        'bookmark is inert once saved', (tester) async {
+      seed(3);
+      await service.create(name: 'Training', filters: tracked);
+      await open(tester, tracked);
+
+      expect(row(tester, SemanticsIds.filterSavedFilter).value, 'Training');
+      expect(bookmark(tester).icon, Icons.bookmark_added_rounded);
+      expect(bookmark(tester).onPressed, isNull);
+
+      // Off the preset: re-resolved on every edit, and the bookmark re-arms.
+      await tap(tester, id(SemanticsIds.filterHolidays));
+      expect(row(tester, SemanticsIds.filterSavedFilter).value, 'None');
+      expect(bookmark(tester).icon, Icons.bookmark_add_outlined);
+      expect(bookmark(tester).onPressed, isNotNull);
+
+      // Back onto it: saved again.
+      await tap(tester, id(SemanticsIds.filterHolidays));
+      expect(row(tester, SemanticsIds.filterSavedFilter).value, 'Training');
+    });
+
+    testWidgets('the bookmark is inert on an empty draft', (tester) async {
+      seed(3);
+      await open(tester, CalendarGridFilters.none);
+
+      expect(row(tester, SemanticsIds.filterSavedFilter).value, 'None');
+      expect(bookmark(tester).icon, Icons.bookmark_add_outlined);
+      expect(bookmark(tester).onPressed, isNull);
+    });
+
+    testWidgets('the bookmark saves the draft under a name and the row reads '
+        'it back', (tester) async {
+      seed(3);
+      await open(tester, const CalendarGridFilters(missedOnly: true));
+
+      await tap(tester, id(SemanticsIds.filterSave));
+      await tester.enterText(find.byType(TextField), 'Skipped');
+      await tap(tester, find.text('Save'));
+
+      expect(service.presets.single.name, 'Skipped');
+      expect(find.byType(CalendarFilterSheet), findsOneWidget);
+      expect(row(tester, SemanticsIds.filterSavedFilter).value, 'Skipped');
+      expect(bookmark(tester).onPressed, isNull);
+    });
+
+    testWidgets('the saved-filter row opens the presets and a pick replaces '
+        'the draft', (tester) async {
+      seed(3);
+      await service.create(name: 'Training', filters: tracked);
+      final applied = await open(tester, CalendarGridFilters.none);
+
+      await tap(tester, id(SemanticsIds.filterSavedFilter));
+      expect(find.byType(FilterPresetSheet), findsOneWidget);
+      await tap(tester, find.text('Training'));
+
+      expect(find.byType(FilterPresetSheet), findsNothing);
+      expect(row(tester, SemanticsIds.filterSavedFilter).value, 'Training');
+      expect(row(tester, SemanticsIds.filterOnlyShow).value, 'Tracked');
+
+      await tap(tester, id(SemanticsIds.filterApply));
+
+      expect(applied.value, tracked);
+    });
+
+    testWidgets('No filter in the presets resets the draft and keeps the '
+        'panel flag', (tester) async {
+      seed(3);
+      // The panel flag is part of a preset's identity, so the saved filter
+      // carries it too or the row would read None.
+      const trackedWithPanel = CalendarGridFilters(
+        trackedOnly: true,
+        panelShowsAll: true,
+      );
+      await service.create(name: 'Training', filters: trackedWithPanel);
+      final applied = await open(tester, trackedWithPanel);
+
+      expect(row(tester, SemanticsIds.filterSavedFilter).value, 'Training');
+
+      await tap(tester, id(SemanticsIds.filterSavedFilter));
+      await tap(tester, id(SemanticsIds.filterPresetNone));
+
+      expect(find.byType(FilterPresetSheet), findsNothing);
+      expect(find.byType(CalendarFilterSheet), findsOneWidget);
+      expect(row(tester, SemanticsIds.filterSavedFilter).value, 'None');
+      expect(row(tester, SemanticsIds.filterOnlyShow).value, 'Everything');
+      expect(switchRow(tester, SemanticsIds.filterPanelAll).value, isTrue);
+      expect(resetRow(tester).onTap, isNull);
+
+      await tap(tester, id(SemanticsIds.filterApply));
+
+      expect(applied.value, const CalendarGridFilters(panelShowsAll: true));
+    });
+
+    testWidgets('a dismissed presets sheet leaves the draft alone', (
+      tester,
+    ) async {
+      seed(3);
+      await service.create(name: 'Training', filters: tracked);
+      final applied = await open(tester, missedOnly);
+
+      await tap(tester, id(SemanticsIds.filterSavedFilter));
+      await tap(tester, id(SemanticsIds.filterPresetClose));
+
+      expect(row(tester, SemanticsIds.filterOnlyShow).value, 'Missed');
+
+      await tap(tester, id(SemanticsIds.filterApply));
+
+      expect(applied.value, missedOnly);
+    });
+
+    testWidgets('at text scale 2.0 in German on a 360 × 780 phone nothing '
+        'overflows, the value drops under its label and every label is '
+        'whole', (tester) async {
+      addTearDown(tester.view.reset);
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = const Size(360, 780);
+      seed(3);
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('de'),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(2.0)),
+            child: child!,
           ),
-        );
-      });
-
-      expect(find.text('No categories'), findsOneWidget);
-
-      await tester.tap(find.byType(CategoryFilterTile));
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () =>
+                    CalendarFilterSheet.show(context, filters: everyTrait),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
-      await tester.tap(pickerApply());
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Apply'));
+
+      expect(tester.takeException(), isNull);
+      // The header keeps its title beside Übernehmen.
+      expect(find.text('Filter'), findsOneWidget);
+      expect(find.text('Übernehmen'), findsOneWidget);
+      // The Only show value drops under its label rather than clipping.
+      final label = tester.getRect(find.text('Nur anzeigen'));
+      final value = tester.getRect(
+        find.text('Mit Anwesenheit, Verpasst +5 weitere'),
+      );
+      expect(value.top, greaterThanOrEqualTo(label.bottom - 1));
+      expect(value.left, label.left);
+
+      await tester.scrollUntilVisible(
+        find.text('Filter zurücksetzen'),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.pumpAndSettle();
 
-      expect(applied?.hiddenCategoryIds.length, 15);
+      expect(tester.takeException(), isNull);
+      expect(find.text('Alle Ereignisse im Tagesbereich'), findsOneWidget);
     });
   });
 
@@ -323,21 +841,29 @@ void main() {
       await tester.tap(find.byType(CategoryFilterTile));
       await tester.pumpAndSettle();
 
-      TextButton buttonWith(String label) => tester.widget<TextButton>(
-        find.ancestor(of: find.text(label), matching: find.byType(TextButton)),
+      FormActionRow rowWith(String label) => tester.widget<FormActionRow>(
+        find.widgetWithText(FormActionRow, label),
       );
 
-      expect(buttonWith('Select all').onPressed, isNull);
-      expect(buttonWith('Select none').onPressed, isNotNull);
+      expect(rowWith('Select all').onTap, isNull);
+      expect(rowWith('Select none').onTap, isNotNull);
 
       await tester.tap(find.text('Select none'));
       await tester.pumpAndSettle();
 
-      expect(buttonWith('Select all').onPressed, isNotNull);
-      expect(buttonWith('Select none').onPressed, isNull);
-      // The row also names how much is selected; fifty identical ticked
-      // checkboxes say nothing on their own.
-      expect(pickerRow('No categories'), findsOneWidget);
+      expect(rowWith('Select all').onTap, isNotNull);
+      expect(rowWith('Select none').onTap, isNull);
+      expect(
+        tester
+            .widgetList<Checkbox>(
+              find.descendant(
+                of: find.byType(CategoryPickerSheet),
+                matching: find.byType(Checkbox),
+              ),
+            )
+            .every((box) => box.value == false),
+        isTrue,
+      );
     });
 
     testWidgets('Select all re-checks every listed row', (tester) async {
@@ -496,4 +1022,11 @@ void main() {
       expect(applied?.categoryIds, isEmpty);
     });
   });
+}
+
+/// Mutable holder for the filter sheet's result — the sheet is awaited inside
+/// a button callback, so the value arrives after the tap that dismissed it.
+class _Applied {
+  bool returned = false;
+  CalendarGridFilters? value;
 }

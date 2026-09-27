@@ -340,6 +340,28 @@ void main() {
 
       expect(decoded.priorities, {2});
     });
+
+    /// The QA fixture's "Top priority" preset stores `[1, 2]`; a decoder that
+    /// accepts more never breaks a stored blob, and the encoder still writes
+    /// the comma string.
+    test('an array of priorities decodes like the comma string', () {
+      final fromString = CalendarGridFilters.decode('{"priorities":"1,2"}');
+
+      expect(
+        CalendarGridFilters.decode('{"priorities":[1,2]}'),
+        fromString,
+      );
+      expect(
+        CalendarGridFilters.decode('{"priorities":["1"," 2 "]}'),
+        fromString,
+      );
+      expect(
+        CalendarGridFilters.decode('{"priorities":[0,2,9,"x",null,true]}')
+            .priorities,
+        {2},
+      );
+      expect(fromString.encode(), '{"priorities":"1,2"}');
+    });
   });
 
   group('composition', () {

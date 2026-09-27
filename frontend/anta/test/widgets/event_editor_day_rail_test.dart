@@ -142,8 +142,10 @@ void main() {
     (w) => w is FormMenuRow && w.label == 'Day rail',
   );
 
+  /// The menu is a popup route of `FormMenuChoiceItem`s (a `PopupMenuItem`
+  /// subclass), so its items are found by that base type.
   Finder menuItem(String label) => find.descendant(
-    of: find.byType(MenuItemButton),
+    of: find.byWidgetPredicate((w) => w is PopupMenuItem),
     matching: find.text(label),
   );
 
