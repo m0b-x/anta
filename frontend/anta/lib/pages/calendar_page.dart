@@ -1076,19 +1076,22 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
             buildWhen: (previous, current) =>
                 _isLoaded(previous) != _isLoaded(current),
             builder: (context, state) {
-              return IconButton(
-                tooltip: l10n.filterPresetsTitle,
-                icon: const Icon(Icons.bookmarks_outlined),
-                onPressed: !_isLoaded(state)
-                    ? null
-                    : () {
-                        // Read at press time: this buildWhen tracks only
-                        // whether the page has loaded, so a captured state
-                        // would carry stale filters.
-                        final current = context.read<CalendarBloc>().state;
-                        if (current is! CalendarPageLoaded) return;
-                        _openPresetSheet(context, current);
-                      },
+              return AutomationId(
+                identifier: SemanticsIds.calendarSavedFiltersOpen,
+                child: IconButton(
+                  tooltip: l10n.filterPresetsTitle,
+                  icon: const Icon(Icons.bookmarks_outlined),
+                  onPressed: !_isLoaded(state)
+                      ? null
+                      : () {
+                          // Read at press time: this buildWhen tracks only
+                          // whether the page has loaded, so a captured state
+                          // would carry stale filters.
+                          final current = context.read<CalendarBloc>().state;
+                          if (current is! CalendarPageLoaded) return;
+                          _openPresetSheet(context, current);
+                        },
+                ),
               );
             },
           ),
@@ -1102,25 +1105,30 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
               return Badge.count(
                 count: active,
                 isLabelVisible: active > 0,
-                child: IconButton(
-                  tooltip: l10n.filterCalendar,
-                  isSelected: active > 0,
-                  icon: Icon(
-                    active > 0
-                        ? Icons.filter_alt_rounded
-                        : Icons.filter_alt_outlined,
+                child: AutomationId(
+                  identifier: SemanticsIds.calendarFilterOpen,
+                  child: IconButton(
+                    tooltip: l10n.filterCalendar,
+                    isSelected: active > 0,
+                    icon: Icon(
+                      active > 0
+                          ? Icons.filter_alt_rounded
+                          : Icons.filter_alt_outlined,
+                    ),
+                    onPressed: !isLoaded
+                        ? null
+                        : () {
+                            // Read at press time, not from the builder's
+                            // state: this buildWhen tracks only the count, so
+                            // a set swapped for another of the same size
+                            // would reach the sheet stale.
+                            final current = context
+                                .read<CalendarBloc>()
+                                .state;
+                            if (current is! CalendarPageLoaded) return;
+                            _openFilterSheet(context, current);
+                          },
                   ),
-                  onPressed: !isLoaded
-                      ? null
-                      : () {
-                          // Read at press time, not from the builder's state:
-                          // this buildWhen tracks only the count, so a set
-                          // swapped for another of the same size would reach
-                          // the sheet stale.
-                          final current = context.read<CalendarBloc>().state;
-                          if (current is! CalendarPageLoaded) return;
-                          _openFilterSheet(context, current);
-                        },
                 ),
               );
             },

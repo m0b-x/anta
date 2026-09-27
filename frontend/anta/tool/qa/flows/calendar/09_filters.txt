@@ -1,0 +1,53 @@
+# The filter sheet (docs/calendar-filters-redesign-roadmap.md): every row by
+# id, each sub-sheet, a preset loaded from the sheet, Apply, then Reset.
+tap id:calendar-filter-open
+wait id:filter-apply
+expect id:filter-saved-filter id:filter-categories id:filter-priority id:filter-repeat id:filter-time id:filter-only-show id:filter-holidays id:filter-fasting id:filter-money id:filter-panel-all id:filter-reset
+shot 09_filters
+tap id:filter-priority
+wait id:filter-list-done
+tap id:filter-list-priority-1
+tap id:filter-list-priority-2
+shot 09_priority
+tap id:filter-list-done
+wait id:filter-apply
+expect "Highest, High"
+tap id:filter-only-show
+wait id:filter-list-done
+tap id:filter-list-tracked
+tap id:filter-list-done
+wait id:filter-apply
+tap id:filter-repeat
+wait id:filter-repeat-recurring
+shot 09_repeat_menu
+tap id:filter-repeat-recurring
+wait id:filter-apply
+tap id:filter-categories
+wait id:category-pick-done
+shot 09_categories
+tap id:category-pick-done
+wait id:filter-apply
+tap id:filter-holidays
+tap id:filter-saved-filter
+wait id:filter-preset-none
+# A preset's caption is `CalendarFilterSummary.describe`, which counts
+# several priorities ("Priority (2)"); only the sheet's own rows name them.
+expect id:filter-preset-qa-cal-preset-top "Priority (2)"
+shot 09_saved_filters
+tap id:filter-preset-qa-cal-preset-top
+wait id:filter-apply
+expect "Top priority"
+shot 09_filters_active
+tap id:filter-apply
+wait id:calendar-add-event
+tap id:calendar-saved-filters-open
+wait id:filter-preset-none
+shot 09_saved_from_bar
+key back
+wait id:calendar-add-event
+tap id:calendar-filter-open
+wait id:filter-reset
+tap id:filter-reset
+tap id:filter-apply
+wait id:calendar-add-event
+errors

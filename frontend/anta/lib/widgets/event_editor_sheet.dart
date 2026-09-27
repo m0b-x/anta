@@ -265,7 +265,7 @@ class _EventEditorSheetState extends State<EventEditorSheet>
   static const int _titleCounterFrom = 100;
   static const int _descriptionMaxLines = 10;
   static const double _scopeStripHeight = 44;
-  static const double _priorityMenuWidth = 220;
+  static const double _priorityMenuWidth = FormMetrics.menuWidth;
   static const double _dayRailMenuWidth = 180;
   static const double _dismissVelocity = 700;
   static const Duration _snapBackDuration = Duration(milliseconds: 150);

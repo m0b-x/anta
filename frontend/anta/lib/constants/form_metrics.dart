@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'app_theme.dart';
 import 'row_metrics.dart';
 
 abstract final class FormMetrics {
@@ -45,6 +46,14 @@ abstract final class FormMetrics {
   static const double chevronSize = RowMetrics.chevronSize;
   static const double gap = RowMetrics.gap;
   static const double labelSize = RowMetrics.titleFontSize;
+
+  /// The line a 15 px label sits on. The search row pads its field to the
+  /// row's height around it, so a tap anywhere in the 48 dp row focuses the
+  /// field rather than only its 20 px of text.
+  static const double labelLineHeight = 20;
+  static const EdgeInsets searchFieldPadding = EdgeInsets.symmetric(
+    vertical: (rowMinHeight - labelLineHeight) / 2,
+  );
   static const double captionSize = RowMetrics.secondLineFontSize;
   static const double counterSize = 12;
   static const double trailingIconSize = 20;
@@ -71,6 +80,15 @@ abstract final class FormMetrics {
   /// the detail sheet's inert-box line — so the two cells end alike.
   static const double descriptionCaptionBottomPadding = 12;
 
+  /// A caption under a whole group rather than inside a row — the no-match
+  /// line of a searchable list — set in like a section label above one.
+  static const EdgeInsets groupCaptionPadding = EdgeInsets.fromLTRB(
+    RowMetrics.sectionLabelInset,
+    bodyTop,
+    RowMetrics.sectionLabelInset,
+    0,
+  );
+
   static const double dividerIndentGlyph = RowMetrics.dividerIndentWithGlyph;
   static const double dividerIndentPlain = RowMetrics.dividerIndentPlain;
   static const double dividerIndentTitle = 70;
@@ -92,6 +110,16 @@ abstract final class FormMetrics {
   static const double menuIconSize = 20;
   static const double menuRadius = 12;
   static const EdgeInsets menuPadding = EdgeInsets.symmetric(vertical: 6);
+
+  /// A short choice menu's floor — the editor's Priority, the filter sheet's
+  /// Repeat and Time of day: three to five glyph-and-word rows. Content grows
+  /// it up to [menuMaxWidth].
+  static const double menuWidth = 220;
+
+  /// The widest a row's menu may grow past its own floor when a label needs
+  /// it — the header menus' cap, shared: at 200 % "Wiederkehrend" does not
+  /// fit 220 and broke mid-word on the device.
+  static const double menuMaxWidth = AppTheme.menuMaxWidth;
 
   static const double disabledOpacity = 0.38;
 }

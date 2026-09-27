@@ -1,14 +1,21 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
+import '../constants/app_colors.dart';
 import '../constants/app_constants.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_icons.dart';
+import '../constants/row_metrics.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_category.dart';
+import '../utils/calendar_filter_summary.dart';
 import '../utils/category_search.dart';
 import '../utils/settings_search.dart';
 import 'category_editor_sheet.dart';
-import 'settings_search_field.dart';
+import 'event_avatar.dart';
+import 'form_rows.dart';
 
 /// How many categories a single [CategoryPickerSheet] pass may return.
 enum CategoryPickerMode { single, multi }
@@ -16,6 +23,13 @@ enum CategoryPickerMode { single, multi }
 /// Bottom-sheet selector for event categories, in the two arities
 /// `CalendarDatePickerSheet` established: [pickSingle] returns one id, and
 /// [pickMulti] edits a whole set in one pass.
+///
+/// A sub-sheet of the editor's grouped-row language since the 2026-09-27
+/// filter redesign (`docs/calendar-filters-redesign-roadmap.md`, D13): one
+/// group of check rows wearing each category's avatar, a search row past the
+/// threshold, two bulk action rows in multi mode, a Create category row last;
+/// ✕ · title · Done in multi mode, ✕ · title and a pick-on-tap list in single
+/// mode. Content-tall, clamped at the editor's height, the route's own drag.
 ///
 /// Rows come from `CalendarCategories.visiblePlus(initialSelection)` — the
 /// archive flag hides a category from every choosing surface, but a selection
@@ -80,14 +94,23 @@ class CategoryPickerSheet extends StatefulWidget {
     required CategoryPickerMode mode,
     required Set<String> initialSelection,
   }) {
+    final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<Set<String>>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      showDragHandle: true,
-      builder: (_) => FractionallySizedBox(
-        // Raised from 0.7 now that a search field sits above the rows.
-        heightFactor: 0.85,
+      showDragHandle: false,
+      backgroundColor: colorScheme.pageGround,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(FormMetrics.sheetRadius),
+        ),
+      ),
+      builder: (context) => ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight:
+              MediaQuery.sizeOf(context).height * FormMetrics.sheetHeightFactor,
+        ),
         child: CategoryPickerSheet(
           mode: mode,
           initialSelection: initialSelection,
@@ -107,22 +130,37 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
 
   SettingsQuery _query = SettingsQuery.empty;
 
+  /// The body's scroll position feeds the header's hairline (a form sheet's
+  /// rule): a notifier, never `setState`, so a scroll frame rebuilds a 1 px
+  /// line and not the sheet.
+  final ScrollController _bodyScroll = ScrollController();
+  final ValueNotifier<bool> _headerScrolled = ValueNotifier<bool>(false);
+
   bool get _isMulti => widget.mode == CategoryPickerMode.multi;
   bool get _isFiltering => _query.isNotEmpty;
 
   @override
+  void initState() {
+    super.initState();
+    _bodyScroll.addListener(_onBodyScroll);
+  }
+
+  @override
   void dispose() {
+    _bodyScroll.removeListener(_onBodyScroll);
+    _bodyScroll.dispose();
+    _headerScrolled.dispose();
     _searchController.dispose();
     super.dispose();
   }
 
-  void _onQueryChanged(String raw) {
-    setState(() => _query = SettingsQuery.parse(raw));
+  void _onBodyScroll() {
+    final scrolled = _bodyScroll.hasClients && _bodyScroll.offset > 0;
+    if (_headerScrolled.value != scrolled) _headerScrolled.value = scrolled;
   }
 
-  void _clearQuery() {
-    _searchController.clear();
-    _onQueryChanged('');
+  void _onQueryChanged(String raw) {
+    setState(() => _query = SettingsQuery.parse(raw));
   }
 
   /// Selects or clears every row **currently listed**, which is the filtered
@@ -179,7 +217,6 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
     // Read on every build so a database switch (which clears the facade)
     // cannot leave a stale list here, and so a category created from this
     // sheet appears the moment the facade republishes.
@@ -206,161 +243,127 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
     // surfaces must not disagree about when the field is there.
     final showSearch =
         _isFiltering || categories.length > AppConstants.listSearchThreshold;
-    // `useSafeArea: true` on the modal route avoids the status bar but has
-    // proven unreliable against the bottom gesture/nav bar on real devices
-    // (the last row rendered under it) — same fix as `EventEditorSheet` /
-    // `CategoryEditorSheet`: pad by the larger of the keyboard inset and the
-    // system's bottom inset.
-    final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
-    final viewPadding = MediaQuery.viewPaddingOf(context).bottom;
-    final bottomClearance = viewInsets > viewPadding ? viewInsets : viewPadding;
+    // Nothing matched: the typed text is almost certainly the name the user
+    // wants, so the one row left offers to create it rather than to start
+    // over.
+    final typed = _searchController.text.trim();
+    final createTyped = rows.isEmpty && typed.isNotEmpty;
+    // The larger of the keyboard inset and the system's bottom inset pads the
+    // scroll view, never the whole body — the clearance rule every calendar
+    // sheet follows (`sheet_bottom_clearance_test.dart`).
+    final clearance = math.max(
+      MediaQuery.viewInsetsOf(context).bottom,
+      MediaQuery.viewPaddingOf(context).bottom,
+    );
 
     return Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-          child: Row(
-            children: [
-              // Balances the trailing button so the title stays centred.
-              const SizedBox(width: 48),
-              Expanded(
-                child: Text(
-                  _isMulti ? l10n.calendarCategories : l10n.eventType,
-                  style: theme.textTheme.titleLarge,
-                  textAlign: TextAlign.center,
-                ),
-              ),
-              // The same affordance the management page's app bar carries, so
-              // the two surfaces read as one system.
-              IconButton.filledTonal(
-                onPressed: _createCategory,
-                icon: const Icon(Icons.add_rounded),
-                tooltip: l10n.createCategory,
-              ),
-            ],
-          ),
+        const FormSheetHandle(),
+        FormSheetHeader(
+          leadingIcon: Icons.close_rounded,
+          leadingTooltip: l10n.cancel,
+          leadingIdentifier: SemanticsIds.categoryPickClose,
+          onLeading: () => Navigator.of(context).pop(),
+          title: _isMulti ? l10n.calendarCategories : l10n.eventType,
+          scrolled: _headerScrolled,
+          trailingInset: FormMetrics.headerActionInset,
+          // Single mode picks on tap and has nothing to confirm.
+          trailing: _isMulti
+              ? FormHeaderTextButton(
+                  label: l10n.eventDescriptionDone,
+                  identifier: SemanticsIds.categoryPickDone,
+                  // Pops the set as-is, empty included — see [pickMulti].
+                  onPressed: () => Navigator.of(context).pop({..._selected}),
+                )
+              : const SizedBox.shrink(),
         ),
-        if (showSearch)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-            child: SettingsSearchField(
-              controller: _searchController,
-              hint: l10n.searchCategories,
-              onChanged: _onQueryChanged,
+        Flexible(
+          child: SingleChildScrollView(
+            controller: _bodyScroll,
+            padding: EdgeInsets.fromLTRB(
+              RowMetrics.groupInset,
+              FormMetrics.bodyTop,
+              RowMetrics.groupInset,
+              FormMetrics.bodyBottom + clearance,
             ),
-          ),
-        if (_isMulti && rows.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 12, 4),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                // Fifty identical ticked checkboxes say nothing about how much
-                // is selected, and this row was empty on its left half. The
-                // count is of the whole selection, not of the listed rows —
-                // it is what Apply will return.
-                Expanded(
-                  child: Text(
-                    l10n.categoriesNSelected(_selected.length),
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
+                FormRowGroup(
+                  trailingGap: false,
+                  children: [
+                    if (showSearch)
+                      FormSearchRow(
+                        controller: _searchController,
+                        hint: l10n.searchCategories,
+                        clearTooltip: l10n.upcomingClearSearch,
+                        identifier: SemanticsIds.categoryPickSearch,
+                        onChanged: _onQueryChanged,
+                      ),
+                    // Disabled where they would be no-ops, or the enabled
+                    // tint promises a change that costs a tap to discover is
+                    // absent. Over the rows currently listed — see [_setAll].
+                    if (_isMulti && rows.isNotEmpty) ...[
+                      FormActionRow(
+                        glyph: Icons.done_all_rounded,
+                        label: l10n.categoriesSelectAll,
+                        identifier: SemanticsIds.categoryPickSelectAll,
+                        onTap: rows.every((c) => _selected.contains(c.id))
+                            ? null
+                            : () => _setAll(rows, true),
+                      ),
+                      FormActionRow(
+                        glyph: Icons.remove_done_rounded,
+                        label: l10n.categoriesSelectNone,
+                        identifier: SemanticsIds.categoryPickSelectNone,
+                        onTap: rows.every((c) => !_selected.contains(c.id))
+                            ? null
+                            : () => _setAll(rows, false),
+                      ),
+                    ],
+                    for (final category in rows)
+                      FormCheckRow(
+                        leading: EventAvatar(
+                          icon:
+                              CalendarIcons.forKey(category.iconKey) ??
+                              Icons.event_rounded,
+                          color: category.color,
+                        ),
+                        label: CalendarCategories.labelOf(category, l10n),
+                        // A hidden category only reaches this list by already
+                        // being selected; say so, or it reads as an ordinary
+                        // row the user forgot about.
+                        caption: category.isHidden ? l10n.categoryHidden : null,
+                        checked: _selected.contains(category.id),
+                        exclusive: !_isMulti,
+                        identifier: SemanticsIds.categoryPickRow(category.id),
+                        onChanged: (_) => _onTapCategory(category),
+                      ),
+                    FormActionRow(
+                      glyph: Icons.add_rounded,
+                      label: createTyped
+                          ? l10n.createCategoryNamed(typed)
+                          : l10n.createCategory,
+                      identifier: SemanticsIds.categoryPickCreate,
+                      onTap: () => _createCategory(
+                        initialName: createTyped ? typed : null,
+                      ),
                     ),
+                  ],
+                ),
+                if (rows.isEmpty && _isFiltering)
+                  FormCaption(
+                    text: l10n.noCategoriesMatch,
+                    padding: FormMetrics.groupCaptionPadding,
                   ),
-                ),
-                // Disabled where they would be no-ops, or the enabled tint
-                // promises a change that costs a tap to discover is absent.
-                TextButton(
-                  onPressed: rows.every((c) => _selected.contains(c.id))
-                      ? null
-                      : () => _setAll(rows, true),
-                  child: Text(l10n.categoriesSelectAll),
-                ),
-                TextButton(
-                  onPressed: rows.every((c) => !_selected.contains(c.id))
-                      ? null
-                      : () => _setAll(rows, false),
-                  child: Text(l10n.categoriesSelectNone),
-                ),
               ],
             ),
           ),
-        Expanded(
-          child: rows.isEmpty
-              ? _buildEmptyState(context)
-              : ListView.builder(
-                  padding: EdgeInsets.fromLTRB(
-                    8,
-                    4,
-                    8,
-                    4 + (_isMulti ? 0 : bottomClearance),
-                  ),
-                  itemCount: rows.length,
-                  itemBuilder: (context, index) {
-                    final category = rows[index];
-                    return _CategoryPickerRow(
-                      category: category,
-                      selected: _selected.contains(category.id),
-                      multi: _isMulti,
-                      onTap: () => _onTapCategory(category),
-                    );
-                  },
-                ),
         ),
-        if (_isMulti) ...[
-          // Fifty rows scroll under a pinned footer; without an edge the last
-          // one is sliced by the button with nothing to say the list goes on.
-          const Divider(height: 1),
-          Padding(
-            padding: EdgeInsets.fromLTRB(20, 8, 20, 16 + bottomClearance),
-            child: FilledButton(
-              // Pops the set as-is, empty included — see [pickMulti].
-              onPressed: () => Navigator.of(context).pop({..._selected}),
-              child: Text(l10n.apply),
-            ),
-          ),
-        ],
       ],
-    );
-  }
-
-  /// Nothing matched. The typed text is almost certainly the name the user
-  /// wants, so the action is to create it rather than to start over.
-  Widget _buildEmptyState(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-    final typed = _searchController.text.trim();
-
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.search_off_rounded,
-            size: 48,
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            l10n.noCategoriesMatch,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-            ),
-          ),
-          const SizedBox(height: 12),
-          FilledButton.tonalIcon(
-            onPressed: () =>
-                _createCategory(initialName: typed.isEmpty ? null : typed),
-            icon: const Icon(Icons.add_rounded),
-            label: Text(
-              typed.isEmpty
-                  ? l10n.createCategory
-                  : l10n.createCategoryNamed(typed),
-            ),
-          ),
-          if (_isFiltering)
-            TextButton(onPressed: _clearQuery, child: Text(l10n.clearSearch)),
-        ],
-      ),
     );
   }
 }
@@ -397,10 +400,6 @@ class CategoryFilterTile extends StatelessWidget {
 
   final VoidCallback onTap;
 
-  /// How many names the label spells out before folding the rest into
-  /// *+N more*. Two keeps it to one line at typical name lengths.
-  static const int namedLimit = 2;
-
   const CategoryFilterTile({
     super.key,
     required this.offered,
@@ -436,18 +435,15 @@ class CategoryFilterTile extends StatelessWidget {
     );
   }
 
+  /// The names through the shared read-back rule, so this tile and the filter
+  /// sheet's Categories row fold a long selection the same way.
   String _subtitle(AppLocalizations l10n) {
     if (selectsAll) return l10n.categoriesAllSelected;
     if (selected.isEmpty) return l10n.categoriesNSelected(0);
-    final names = [
-      for (final category in selected.take(namedLimit))
-        CalendarCategories.labelOf(category, l10n),
-    ];
-    final rest = selected.length - names.length;
-    return [
-      names.join(', '),
-      if (rest > 0) l10n.categoriesMore(rest),
-    ].join(' ');
+    return CalendarFilterSummary.namesReadBack(
+      [for (final c in selected) CalendarCategories.labelOf(c, l10n)],
+      l10n,
+    );
   }
 }
 
@@ -505,45 +501,3 @@ class _CategoryAvatarCluster extends StatelessWidget {
   }
 }
 
-/// One picker row. A widget rather than a method so a keystroke in the search
-/// field rebuilds the list without rebuilding every row's subtree wholesale.
-class _CategoryPickerRow extends StatelessWidget {
-  final CalendarCategory category;
-  final bool selected;
-  final bool multi;
-  final VoidCallback onTap;
-
-  const _CategoryPickerRow({
-    required this.category,
-    required this.selected,
-    required this.multi,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-
-    return ListTile(
-      leading: CircleAvatar(
-        backgroundColor: category.color.withValues(alpha: 0.18),
-        foregroundColor: category.color,
-        child: Icon(
-          CalendarIcons.forKey(category.iconKey) ?? Icons.event_rounded,
-        ),
-      ),
-      title: Text(CalendarCategories.labelOf(category, l10n)),
-      // A hidden category only reaches this list by already being selected;
-      // say so, or it reads as an ordinary row the user forgot about.
-      subtitle: category.isHidden ? Text(l10n.categoryHidden) : null,
-      trailing: multi
-          ? Checkbox(value: selected, onChanged: (_) => onTap())
-          : (selected
-                ? Icon(Icons.check_rounded, color: theme.colorScheme.primary)
-                : null),
-      selected: selected,
-      onTap: onTap,
-    );
-  }
-}

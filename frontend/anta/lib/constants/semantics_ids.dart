@@ -72,6 +72,62 @@ abstract final class SemanticsIds {
   static const String calendarExport = 'calendar-export';
   static const String calendarSettingsOpen = 'calendar-settings-open';
 
+  /// The calendar's two filter buttons in the app bar and the Filters sheet
+  /// behind them (2026-09-27, `docs/calendar-filters-redesign-roadmap.md`):
+  /// every row a flow drives, since "All" is not a unique label. The body
+  /// scroll view is a container id like [eventForm].
+  static const String calendarFilterOpen = 'calendar-filter-open';
+  static const String calendarSavedFiltersOpen = 'calendar-saved-filters-open';
+  static const String filterSheet = 'filter-sheet';
+  static const String filterClose = 'filter-close';
+  static const String filterApply = 'filter-apply';
+  static const String filterSavedFilter = 'filter-saved-filter';
+  static const String filterSave = 'filter-save';
+  static const String filterCategories = 'filter-categories';
+  static const String filterPriority = 'filter-priority';
+  static const String filterRepeat = 'filter-repeat';
+  static const String filterRepeatAll = 'filter-repeat-all';
+  static const String filterRepeatRecurring = 'filter-repeat-recurring';
+  static const String filterRepeatOneTime = 'filter-repeat-one-time';
+  static const String filterTime = 'filter-time';
+  static const String filterTimeAll = 'filter-time-all';
+  static const String filterTimeTimed = 'filter-time-timed';
+  static const String filterTimeAllDay = 'filter-time-all-day';
+  static const String filterOnlyShow = 'filter-only-show';
+  static const String filterHolidays = 'filter-holidays';
+  static const String filterFasting = 'filter-fasting';
+  static const String filterMoney = 'filter-money';
+  static const String filterPanelAll = 'filter-panel-all';
+  static const String filterReset = 'filter-reset';
+
+  /// The check-list sub-sheet the Priority and Only show rows open, and its
+  /// rows: `priority-1` … `priority-5`, then the seven traits (`tracked`,
+  /// `missed`, `linked-note`, `money`, `description`, `counted`, `not-ended`).
+  static const String filterListClose = 'filter-list-close';
+  static const String filterListDone = 'filter-list-done';
+  static String filterListRow(String id) => 'filter-list-$id';
+
+  /// The shared category picker, keyed by category id for its rows.
+  static const String categoryPickClose = 'category-pick-close';
+  static const String categoryPickDone = 'category-pick-done';
+  static const String categoryPickSearch = 'category-pick-search';
+  static const String categoryPickSelectAll = 'category-pick-select-all';
+  static const String categoryPickSelectNone = 'category-pick-select-none';
+  static const String categoryPickCreate = 'category-pick-create';
+  static String categoryPickRow(String id) => 'category-pick-$id';
+
+  /// The saved-filters sheet: its rows and each row's ⋮, keyed by preset id,
+  /// and the three items of that menu.
+  static const String filterPresetClose = 'filter-preset-close';
+  static const String filterPresetNone = 'filter-preset-none';
+  static const String filterPresetSearch = 'filter-preset-search';
+  static const String filterPresetSave = 'filter-preset-save';
+  static String filterPresetRow(String id) => 'filter-preset-$id';
+  static String filterPresetOptions(String id) => 'filter-preset-options-$id';
+  static const String filterPresetRename = 'filter-preset-rename';
+  static const String filterPresetUpdate = 'filter-preset-update';
+  static const String filterPresetDelete = 'filter-preset-delete';
+
   /// The event editor's rows and chrome, the two sub-sheets' Done and the
   /// detail sheet's actions: what the calendar flows under `tool/qa/flows/`
   /// target, so a copy change cannot break them.

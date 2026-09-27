@@ -60,13 +60,28 @@ class AppLocalizationsEn extends AppLocalizations {
   String get calendarFiltersTitle => 'Filters';
 
   @override
-  String get calendarEventCategories => 'Event categories';
+  String get calendarFilterSavedFilter => 'Saved filter';
 
   @override
-  String get calendarSelectAll => 'Select all';
+  String get calendarFilterSavedNone => 'None';
 
   @override
-  String get calendarClearAll => 'Clear';
+  String get calendarFilterSectionEvents => 'Events';
+
+  @override
+  String get calendarFilterCategoriesAll => 'All';
+
+  @override
+  String get calendarFilterOnlyShowAny => 'Everything';
+
+  @override
+  String get calendarFilterSectionAlsoShow => 'Also show';
+
+  @override
+  String get calendarFilterReset => 'Reset filters';
+
+  @override
+  String get filterPresetNone => 'No filter';
 
   @override
   String get calendarFilterRepeat => 'Repeat';
@@ -84,7 +99,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get calendarFilterTracked => 'Tracked';
 
   @override
-  String get calendarFilterHideEnded => 'Hide ended';
+  String get calendarFilterHideEnded => 'Not ended';
 
   @override
   String get calendarFilterWithDescription => 'With description';
@@ -104,14 +119,7 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get calendarFilterPanelShowsAll => 'Keep the day panel unfiltered';
-
-  @override
-  String get calendarFilterPanelShowsAllDesc =>
-      'The month stays filtered; tapping a day still lists everything on it';
-
-  @override
-  String get calendarFilterShowAll => 'Show everything';
+  String get calendarFilterPanelShowsAll => 'All events in the day panel';
 
   @override
   String get calendarFilterShowsEverything => 'Shows everything';
@@ -124,10 +132,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get filterPresetSearchHint => 'Search saved filters';
-
-  @override
-  String get filterPresetEmpty =>
-      'No saved filters yet. Set up a filter, then tap the bookmark in the filter sheet to save it.';
 
   @override
   String get filterPresetNoMatches => 'No saved filter matches your search';

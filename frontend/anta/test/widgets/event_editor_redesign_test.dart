@@ -714,16 +714,16 @@ void main() {
       expect(find.text('Normal'), findsOneWidget);
 
       await tapText(tester, 'Priority');
+      // The menu is a popup route of `FormMenuChoiceItem`s (a `PopupMenuItem`
+      // subclass), so the items are found by that base type.
+      final menuItem = find.byWidgetPredicate((w) => w is PopupMenuItem);
       await tester.tap(
-        find.descendant(
-          of: find.byType(MenuItemButton),
-          matching: find.text('Highest'),
-        ),
+        find.descendant(of: menuItem, matching: find.text('Highest')),
       );
       await tester.pumpAndSettle();
 
       expect(find.text('Highest'), findsOneWidget);
-      expect(find.byType(MenuItemButton), findsNothing);
+      expect(menuItem, findsNothing);
       final saved = await saveAnd(tester, results);
       expect(saved.event.priority, kMinEventPriority);
     });

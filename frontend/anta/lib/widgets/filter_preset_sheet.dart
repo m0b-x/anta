@@ -1,5 +1,12 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
+import '../constants/app_colors.dart';
+import '../constants/app_constants.dart';
+import '../constants/app_theme.dart';
+import '../constants/row_metrics.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_filter_preset.dart';
 import '../models/calendar_grid_filters.dart';
@@ -8,17 +15,26 @@ import '../services/folder_search_service.dart' show normalizeForSearch;
 import '../utils/calendar_filter_summary.dart';
 import '../utils/custom_snackbar.dart';
 import 'app_dialogs.dart';
+import 'form_menu_item.dart';
+import 'form_rows.dart';
 
-/// Bottom-sheet listing the user's saved filters, with a search field.
+/// Bottom-sheet listing the user's saved filters: "No filter" first, then
+/// one two-line radio row per preset with its ⋮, then the row that saves the
+/// live filter — a sub-sheet of the editor's grouped-row language since the
+/// 2026-09-27 filter redesign (`docs/calendar-filters-redesign-roadmap.md`,
+/// D14), opened from the calendar's app bar over the applied filters and from
+/// the filter sheet's Saved filter row over the draft.
 ///
 /// Returns the [CalendarGridFilters] to apply, or `null` when dismissed —
-/// renames and deletes happen in place and never pop, so the sheet stays open
-/// while you tidy the list and only closes when you actually pick something.
+/// renames, updates and deletes happen in place and never pop, so the sheet
+/// stays open while you tidy the list and only closes when you actually pick
+/// something.
 ///
 /// Loads through `FilterPresetService` rather than a synchronous facade:
 /// nothing here renders during someone else's build, so the calendar's
 /// lazily-constructed-services rule is satisfied by awaiting the owner. The
-/// service keeps its cache, so a reopen costs no query.
+/// service keeps its cache, so a reopen costs no query; until it answers the
+/// groups render with no preset rows — no spinner in the language.
 class FilterPresetSheet extends StatefulWidget {
   /// What the calendar is filtered by right now, so the matching preset can be
   /// marked as the one in use.
@@ -26,17 +42,29 @@ class FilterPresetSheet extends StatefulWidget {
 
   const FilterPresetSheet({super.key, required this.current});
 
+  /// The sub-sheet shape: as tall as its content, clamped at the editor's
+  /// height, the route's own drag. No guard: nothing here can be lost.
   static Future<CalendarGridFilters?> show(
     BuildContext context, {
     required CalendarGridFilters current,
   }) {
+    final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<CalendarGridFilters>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      showDragHandle: true,
-      builder: (_) => FractionallySizedBox(
-        heightFactor: 0.75,
+      showDragHandle: false,
+      backgroundColor: colorScheme.pageGround,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(FormMetrics.sheetRadius),
+        ),
+      ),
+      builder: (context) => ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight:
+              MediaQuery.sizeOf(context).height * FormMetrics.sheetHeightFactor,
+        ),
         child: FilterPresetSheet(current: current),
       ),
     );
@@ -58,16 +86,31 @@ class _FilterPresetSheetState extends State<FilterPresetSheet> {
   /// query for every row it tests.
   String _query = '';
 
+  /// The body's scroll position feeds the header's hairline (a form sheet's
+  /// rule): a notifier, never `setState`, so a scroll frame rebuilds a 1 px
+  /// line and not the sheet.
+  final ScrollController _bodyScroll = ScrollController();
+  final ValueNotifier<bool> _headerScrolled = ValueNotifier<bool>(false);
+
   @override
   void initState() {
     super.initState();
+    _bodyScroll.addListener(_onBodyScroll);
     _load();
   }
 
   @override
   void dispose() {
+    _bodyScroll.removeListener(_onBodyScroll);
+    _bodyScroll.dispose();
+    _headerScrolled.dispose();
     _search.dispose();
     super.dispose();
+  }
+
+  void _onBodyScroll() {
+    final scrolled = _bodyScroll.hasClients && _bodyScroll.offset > 0;
+    if (_headerScrolled.value != scrolled) _headerScrolled.value = scrolled;
   }
 
   Future<void> _load() async {
@@ -189,341 +232,254 @@ class _FilterPresetSheetState extends State<FilterPresetSheet> {
     setState(() => _presets = _service?.presets ?? const []);
   }
 
+  /// The row's ⋮: Rename · Update to current filter · Delete, a popup route in
+  /// the app's menu anatomy under the row. Focus is dropped first, or the
+  /// route's return would hand it back to the search row and raise the
+  /// keyboard under the menu's answer.
+  Future<void> _openActions(
+    BuildContext anchor,
+    CalendarFilterPreset preset, {
+    required bool inUse,
+  }) async {
+    final l10n = AppLocalizations.of(context)!;
+    final colorScheme = Theme.of(context).colorScheme;
+    // Disabled when it would do nothing (the preset already holds the live
+    // filter) **and** when the live filter is empty — the filter sheet's
+    // bookmark already rules that an empty set is not a preset, and letting
+    // Update turn a working preset into one would be that same rule
+    // disagreeing with itself.
+    final canUpdate = !inUse && !widget.current.isEmpty;
+    FocusManager.instance.primaryFocus?.unfocus();
+    final action = await showMenu<_PresetAction>(
+      context: anchor,
+      positionBuilder: (_, constraints) => formMenuPosition(
+        anchor,
+        constraints,
+        menuHeight: formMenuHeight(_PresetAction.values.length),
+      ),
+      color: colorScheme.menuSurface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(FormMetrics.menuRadius),
+      ),
+      menuPadding: FormMetrics.menuPadding,
+      // The header menus' floor and cap: "Auf aktuellen Filter
+      // aktualisieren" does not fit the floor.
+      constraints: const BoxConstraints(
+        minWidth: AppTheme.menuWidth,
+        maxWidth: AppTheme.menuMaxWidth,
+      ),
+      items: [
+        PopupMenuItem<_PresetAction>(
+          value: _PresetAction.rename,
+          height: FormMetrics.menuRowHeight,
+          child: FormMenuItemRow(
+            identifier: SemanticsIds.filterPresetRename,
+            icon: Icons.drive_file_rename_outline_rounded,
+            label: l10n.filterPresetRename,
+          ),
+        ),
+        PopupMenuItem<_PresetAction>(
+          value: _PresetAction.update,
+          height: FormMetrics.menuRowHeight,
+          enabled: canUpdate,
+          child: FormMenuItemRow(
+            identifier: SemanticsIds.filterPresetUpdate,
+            icon: Icons.sync_rounded,
+            label: l10n.filterPresetUpdate,
+            enabled: canUpdate,
+          ),
+        ),
+        PopupMenuItem<_PresetAction>(
+          value: _PresetAction.delete,
+          height: FormMetrics.menuRowHeight,
+          child: FormMenuItemRow(
+            identifier: SemanticsIds.filterPresetDelete,
+            icon: Icons.delete_outline_rounded,
+            label: l10n.delete,
+            color: colorScheme.error,
+          ),
+        ),
+      ],
+    );
+    if (action == null || !mounted) return;
+    switch (action) {
+      case _PresetAction.rename:
+        await _rename(preset);
+      case _PresetAction.update:
+        await _updateToCurrent(preset);
+      case _PresetAction.delete:
+        await _delete(preset);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
+    final current = widget.current;
     final visible = _visible(l10n);
-    // Offered only when there is something to save that is not already saved,
-    // so the row never duplicates an existing preset and never saves a no-op —
-    // the same two conditions the filter sheet's bookmark enforces. Hidden
-    // while searching: a query is a find, and an action row among its results
-    // is noise.
-    final showSaveRow =
+    // The field is never autofocused: opening a sheet with the keyboard
+    // already up hides the list it is meant to show. A live query keeps the
+    // row, or the list would be filtered with no field left to clear it.
+    final showSearch =
+        _presets.length > AppConstants.listSearchThreshold || _query.isNotEmpty;
+    // Disabled, never hidden: while there is nothing to save that is not
+    // already saved — the two conditions the filter sheet's bookmark enforces
+    // — and while a query is live, when a query is a find and an action row
+    // among its results is noise. Hiding it would move the results under the
+    // finger.
+    final canSave =
         !_loading &&
         _query.isEmpty &&
-        !widget.current.isEmpty &&
-        _service?.matching(widget.current) == null;
-    // `useSafeArea: true` has proven unreliable against the bottom
-    // gesture/nav bar on real devices, so the list pads by the larger of the
-    // keyboard inset and the system inset — the same fix every sibling
-    // calendar sheet uses.
-    final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
-    final viewPadding = MediaQuery.viewPaddingOf(context).bottom;
-    final bottomClearance = viewInsets > viewPadding ? viewInsets : viewPadding;
+        !current.isEmpty &&
+        _service?.matching(current) == null;
+    // The larger of the keyboard inset and the system's bottom inset pads the
+    // scroll view, never the whole body — the clearance rule every calendar
+    // sheet follows (`sheet_bottom_clearance_test.dart`).
+    final clearance = math.max(
+      MediaQuery.viewInsetsOf(context).bottom,
+      MediaQuery.viewPaddingOf(context).bottom,
+    );
 
     return Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 12, 0),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  l10n.filterPresetsTitle,
-                  style: theme.textTheme.titleMedium,
-                ),
-              ),
-              // The most common answer to "which lens am I using" is *none*,
-              // and until this button it was the one answer the sheet could
-              // not give: clearing meant closing, opening the filter sheet,
-              // Reset, Apply. It lives in the header rather than as a list row
-              // so the list keeps meaning "things you saved", mirroring the
-              // filter sheet's own title + Reset.
-              //
-              // Labelled "Show everything" rather than "Clear" or "Reset" on
-              // purpose: in a sheet full of saved filters, either of those
-              // reads as an offer to delete them.
-              TextButton(
-                // Disabled rather than hidden, so the header cannot change
-                // height between two openings of the same sheet.
-                onPressed: widget.current.isEmpty
-                    ? null
-                    // `cleared()`, never `CalendarGridFilters.none`:
-                    // `panelShowsAll` is a preference about the day panel, not
-                    // something being hidden, and the filter sheet's Reset
-                    // keeps it for the same reason.
-                    : () => Navigator.of(context).pop(widget.current.cleared()),
-                child: Text(l10n.calendarFilterShowAll),
-              ),
-            ],
-          ),
+        const FormSheetHandle(),
+        FormSheetHeader(
+          leadingIcon: Icons.close_rounded,
+          leadingTooltip: l10n.cancel,
+          leadingIdentifier: SemanticsIds.filterPresetClose,
+          onLeading: () => Navigator.of(context).pop(),
+          title: l10n.filterPresetsTitle,
+          scrolled: _headerScrolled,
+          trailingInset: FormMetrics.headerActionInset,
+          // A pick-on-tap list confirms nothing.
+          trailing: const SizedBox.shrink(),
         ),
-        // The field is the point of this sheet, so it is always present once
-        // there is anything to search — but **never autofocused**: opening a
-        // sheet with the keyboard already up hides the list it is meant to
-        // show, the rule every other searchable sheet here follows.
-        if (_presets.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-            child: TextField(
-              controller: _search,
-              textInputAction: TextInputAction.search,
-              style: theme.textTheme.bodyMedium,
-              decoration: InputDecoration(
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
-                ),
-                hintText: l10n.filterPresetSearchHint,
-                prefixIcon: const Icon(Icons.search_rounded, size: 20),
-                prefixIconConstraints: const BoxConstraints(
-                  minWidth: 36,
-                  minHeight: 36,
-                ),
-                suffixIcon: _search.text.isEmpty
-                    ? null
-                    : IconButton(
-                        tooltip: l10n.upcomingClearSearch,
-                        visualDensity: VisualDensity.compact,
-                        icon: const Icon(Icons.close_rounded, size: 18),
-                        onPressed: () {
-                          _search.clear();
-                          _onQueryChanged('');
-                        },
-                      ),
-                border: const OutlineInputBorder(),
-              ),
-              onChanged: _onQueryChanged,
+        Flexible(
+          child: SingleChildScrollView(
+            controller: _bodyScroll,
+            padding: EdgeInsets.fromLTRB(
+              RowMetrics.groupInset,
+              FormMetrics.bodyTop,
+              RowMetrics.groupInset,
+              FormMetrics.bodyBottom + clearance,
             ),
-          ),
-        Expanded(
-          // The save row keeps the list alive on its own: with no presets yet
-          // and a filter applied, the row **is** the content, and falling
-          // through to the empty state would hide the one action that state is
-          // asking for.
-          child: _loading
-              ? const Center(child: CircularProgressIndicator())
-              : visible.isEmpty && !showSaveRow
-              ? _EmptyState(
-                  message: _presets.isEmpty
-                      ? l10n.filterPresetEmpty
-                      : l10n.filterPresetNoMatches,
-                )
-              : ListView.builder(
-                  padding: EdgeInsets.fromLTRB(8, 0, 8, 8 + bottomClearance),
-                  itemCount: visible.length + (showSaveRow ? 1 : 0),
-                  itemBuilder: (context, index) {
-                    if (showSaveRow && index == 0) {
-                      return _SaveCurrentTile(
-                        subtitle: CalendarFilterSummary.describe(
-                          widget.current,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // The most common answer to "which lens am I using" is
+                // *none*, and this row is what lets the sheet give it: it is
+                // the one row that is never a saved filter, so it stands in
+                // its own group above the list.
+                //
+                // `cleared()`, never `CalendarGridFilters.none`:
+                // `panelShowsAll` is a preference about the day panel, not
+                // something being hidden, and the filter sheet's Reset keeps
+                // it for the same reason.
+                FormRowGroup(
+                  children: [
+                    FormCheckRow(
+                      exclusive: true,
+                      label: l10n.filterPresetNone,
+                      checked: current.isEmpty,
+                      identifier: SemanticsIds.filterPresetNone,
+                      onChanged: (_) =>
+                          Navigator.of(context).pop(current.cleared()),
+                    ),
+                  ],
+                ),
+                FormRowGroup(
+                  trailingGap: false,
+                  children: [
+                    if (showSearch)
+                      FormSearchRow(
+                        controller: _search,
+                        hint: l10n.filterPresetSearchHint,
+                        clearTooltip: l10n.upcomingClearSearch,
+                        identifier: SemanticsIds.filterPresetSearch,
+                        onChanged: _onQueryChanged,
+                      ),
+                    for (final preset in visible)
+                      _PresetRow(
+                        preset: preset,
+                        // Value equality on the filters, not the id: what
+                        // makes a preset "the one in use" is that the
+                        // calendar is showing exactly what it saves.
+                        inUse: preset.filters == current,
+                        caption: CalendarFilterSummary.describe(
+                          preset.filters,
                           l10n,
                         ),
-                        onTap: _saveCurrent,
-                      );
-                    }
-                    final preset = visible[index - (showSaveRow ? 1 : 0)];
-                    // Value equality on the filters, not the id: what makes a
-                    // preset "the one in use" is that the calendar is showing
-                    // exactly what it saves.
-                    final inUse = preset.filters == widget.current;
-                    return _PresetTile(
-                      preset: preset,
-                      inUse: inUse,
-                      subtitle: CalendarFilterSummary.describe(
-                        preset.filters,
-                        l10n,
+                        actionsTooltip: l10n.filterPresetActions,
+                        onPick: () => Navigator.of(context).pop(preset.filters),
+                        onActions: (anchor, inUse) =>
+                            _openActions(anchor, preset, inUse: inUse),
                       ),
-                      onApply: () =>
-                          Navigator.of(context).pop(preset.filters),
-                      onRename: () => _rename(preset),
-                      // Disabled when it would do nothing (the preset already
-                      // holds the live filter) **and** when the live filter is
-                      // empty — the filter sheet's bookmark already rules that
-                      // an empty set is not a preset, and letting Update turn
-                      // a working preset into one would be that same rule
-                      // disagreeing with itself.
-                      onUpdate: inUse || widget.current.isEmpty
-                          ? null
-                          : () => _updateToCurrent(preset),
-                      onDelete: () => _delete(preset),
-                    );
-                  },
+                    FormActionRow(
+                      glyph: Icons.bookmark_add_outlined,
+                      label: l10n.filterPresetSaveCurrent,
+                      identifier: SemanticsIds.filterPresetSave,
+                      onTap: canSave ? _saveCurrent : null,
+                    ),
+                  ],
                 ),
+                if (visible.isEmpty && _query.isNotEmpty)
+                  FormCaption(
+                    text: l10n.filterPresetNoMatches,
+                    padding: FormMetrics.groupCaptionPadding,
+                  ),
+              ],
+            ),
+          ),
         ),
       ],
     );
   }
 }
 
-/// The "save what is applied right now" row, first in the list.
-///
-/// A row rather than a floating action or a header button: it is offered only
-/// in the state where it means something, and the list is where the user is
-/// already looking when they notice their filter is missing from it.
-class _SaveCurrentTile extends StatelessWidget {
-  final String subtitle;
-  final VoidCallback onTap;
+enum _PresetAction { rename, update, delete }
 
-  const _SaveCurrentTile({required this.subtitle, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final colors = Theme.of(context).colorScheme;
-    return ListTile(
-      leading: CircleAvatar(
-        backgroundColor: colors.secondaryContainer,
-        foregroundColor: colors.onSecondaryContainer,
-        child: const Icon(Icons.bookmark_add_outlined, size: 20),
-      ),
-      title: Text(l10n.filterPresetSaveCurrent),
-      subtitle: Text(
-        subtitle,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-        style: Theme.of(
-          context,
-        ).textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant),
-      ),
-      onTap: onTap,
-    );
-  }
-}
-
-class _PresetTile extends StatelessWidget {
+/// One preset as a two-line radio row — the name over what it filters, the
+/// check while it is the filter in use — with its ⋮ as the row's second
+/// target. A `FormDividedRow` of its own rather than a `Builder` around the
+/// check row, so the group draws the plain hairline it owes a glyph-less row
+/// and the ⋮ has the row's own context to anchor its menu under.
+class _PresetRow extends FormDividedRow {
   final CalendarFilterPreset preset;
   final bool inUse;
-  final String subtitle;
-  final VoidCallback onApply;
-  final VoidCallback onRename;
+  final String caption;
+  final String actionsTooltip;
+  final VoidCallback onPick;
+  final void Function(BuildContext anchor, bool inUse) onActions;
 
-  /// `null` while the preset already holds the current filters — there would
-  /// be nothing to update it to.
-  final VoidCallback? onUpdate;
-  final VoidCallback onDelete;
-
-  const _PresetTile({
+  const _PresetRow({
     required this.preset,
     required this.inUse,
-    required this.subtitle,
-    required this.onApply,
-    required this.onRename,
-    required this.onUpdate,
-    required this.onDelete,
+    required this.caption,
+    required this.actionsTooltip,
+    required this.onPick,
+    required this.onActions,
   });
 
   @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-
-    return ListTile(
-      leading: CircleAvatar(
-        backgroundColor: inUse
-            ? colors.primaryContainer
-            : colors.surfaceContainerHighest,
-        foregroundColor: inUse
-            ? colors.onPrimaryContainer
-            : colors.onSurfaceVariant,
-        child: Icon(
-          inUse ? Icons.check_rounded : Icons.bookmark_rounded,
-          size: 20,
-        ),
-      ),
-      title: Text(
-        preset.name,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: inUse
-            ? theme.textTheme.bodyLarge?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: colors.primary,
-              )
-            : null,
-      ),
-      subtitle: Text(
-        subtitle,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-        style: theme.textTheme.bodySmall?.copyWith(
-          color: colors.onSurfaceVariant,
-        ),
-      ),
-      onTap: onApply,
-      trailing: PopupMenuButton<_PresetAction>(
-        tooltip: l10n.filterPresetActions,
-        icon: const Icon(Icons.more_vert_rounded),
-        onSelected: (action) {
-          switch (action) {
-            case _PresetAction.rename:
-              onRename();
-            case _PresetAction.update:
-              onUpdate?.call();
-            case _PresetAction.delete:
-              onDelete();
-          }
-        },
-        itemBuilder: (context) => [
-          PopupMenuItem<_PresetAction>(
-            value: _PresetAction.rename,
-            child: ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.drive_file_rename_outline_rounded),
-              title: Text(l10n.filterPresetRename),
-            ),
-          ),
-          PopupMenuItem<_PresetAction>(
-            value: _PresetAction.update,
-            enabled: onUpdate != null,
-            child: ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.sync_rounded),
-              title: Text(l10n.filterPresetUpdate),
-            ),
-          ),
-          PopupMenuItem<_PresetAction>(
-            value: _PresetAction.delete,
-            child: ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(Icons.delete_outline_rounded, color: colors.error),
-              title: Text(
-                l10n.delete,
-                style: TextStyle(color: colors.error),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-enum _PresetAction { rename, update, delete }
-
-class _EmptyState extends StatelessWidget {
-  final String message;
-
-  const _EmptyState({required this.message});
+  double get dividerIndent => FormMetrics.dividerIndentPlain;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.bookmark_border_rounded,
-              size: 40,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ),
+    return FormCheckRow(
+      exclusive: true,
+      label: preset.name,
+      caption: caption,
+      checked: inUse,
+      identifier: SemanticsIds.filterPresetRow(preset.id),
+      onChanged: (_) => onPick(),
+      trailingButton: FormTrailingButton(
+        icon: Icons.more_vert_rounded,
+        tooltip: actionsTooltip,
+        identifier: SemanticsIds.filterPresetOptions(preset.id),
+        onPressed: () => onActions(context, inUse),
       ),
     );
   }
