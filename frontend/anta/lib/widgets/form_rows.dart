@@ -9,6 +9,7 @@ import 'automation_id.dart';
 import 'form_menu_item.dart';
 
 export '../constants/form_metrics.dart';
+export 'form_sheet_frame.dart';
 
 abstract class FormDividedRow extends StatelessWidget {
   const FormDividedRow({super.key});
@@ -418,6 +419,10 @@ class FormTrailingButton extends StatelessWidget {
 }
 
 class FormPickerRow extends FormDividedRow {
+  /// A 40 dp widget — an `EventAvatar` — standing where the glyph would,
+  /// which gives the row the title row's 56 dp shape and, unless
+  /// [dividerIndent] says otherwise, its divider indent. Wins over [glyph].
+  final Widget? leading;
   final IconData? glyph;
   final Color? glyphColor;
   final String label;
@@ -437,11 +442,18 @@ class FormPickerRow extends FormDividedRow {
   /// and semantics node, so the row stays one target and one announcement.
   final String? caption;
 
-  @override
-  final double dividerIndent;
+  /// False draws the row at the disabled opacity with no ink and no tap and
+  /// marks its one node disabled — a control the form has switched off, the
+  /// shape `FormMenuRow` takes without a handler. A read row (the next
+  /// occurrences) passes `onTap: null` instead and stays fully drawn, so a
+  /// value the user cannot act on never looks like one they may not.
+  final bool enabled;
+
+  final double? _dividerIndent;
 
   const FormPickerRow({
     super.key,
+    this.leading,
     this.glyph,
     this.glyphColor,
     required this.label,
@@ -456,12 +468,25 @@ class FormPickerRow extends FormDividedRow {
     this.identifier,
     this.subRow = false,
     this.caption,
-    this.dividerIndent = FormMetrics.dividerIndentGlyph,
-  });
+    this.enabled = true,
+    double? dividerIndent,
+  }) : _dividerIndent = dividerIndent;
+
+  /// The glyph indent unless a caller sets one; the title indent under a
+  /// [leading] widget, which is wider than a glyph.
+  @override
+  double get dividerIndent =>
+      _dividerIndent ??
+      (leading != null
+          ? FormMetrics.dividerIndentTitle
+          : FormMetrics.dividerIndentGlyph);
 
   @override
   Widget build(BuildContext context) {
     final button = trailingButton;
+    final avatar = leading;
+    final captionText = caption;
+    final tap = enabled ? onTap : null;
     final pair = FormLabelValue(
       label: label,
       value: value,
@@ -469,34 +494,74 @@ class FormPickerRow extends FormDividedRow {
       labelColor: labelColor,
       valueColor: valueColor,
     );
+    // Under a leading widget the caption joins the label in one column — the
+    // check row's two-line shape — so the avatar centres against both lines
+    // instead of sitting on the first with the caption hanging under it.
+    // Under a glyph the caption stays a line below the pair: the glyph names
+    // the field and belongs on the label line.
+    final stacked = avatar != null && captionText != null;
+    final text = stacked
+        ? Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              pair,
+              FormCaption(
+                text: captionText,
+                maxLines: 2,
+                padding: const EdgeInsets.only(
+                  bottom: FormMetrics.pairVerticalPadding,
+                ),
+              ),
+            ],
+          )
+        : pair;
     final content = Row(
       children: [
-        if (glyph case final icon?) ...[
+        if (avatar != null) ...[
+          SizedBox.square(
+            dimension: FormMetrics.rowLeadingSize,
+            child: Center(child: avatar),
+          ),
+          const SizedBox(width: FormMetrics.gap),
+        ] else if (glyph case final icon?) ...[
           FormGlyph(icon: icon, color: glyphColor),
           const SizedBox(width: FormMetrics.gap),
         ],
-        Expanded(child: pair),
+        Expanded(child: text),
         if (button == null && showChevron) ...[
           const SizedBox(width: FormMetrics.gap),
           const FormChevron(),
         ],
       ],
     );
-    final leftInset = glyph == null && subRow
+    final leftInset = avatar == null && glyph == null && subRow
         ? FormMetrics.subRowInset
         : RowMetrics.groupInset;
     final rightInset = button == null ? FormMetrics.rowEndPadding : 0.0;
+    // The width of whatever stands before the label, so the caption below
+    // can start where the label starts.
+    final double leadingColumn = avatar != null
+        ? FormMetrics.rowLeadingSize + FormMetrics.gap
+        : glyph != null
+        ? FormMetrics.glyphSize + FormMetrics.gap
+        : 0;
     final line = ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: FormMetrics.rowMinHeight),
+      constraints: BoxConstraints(
+        minHeight: stacked
+            ? FormMetrics.twoLineRowMinHeight
+            : avatar != null
+            ? FormMetrics.titleRowMinHeight
+            : FormMetrics.rowMinHeight,
+      ),
       child: Padding(
         padding: EdgeInsets.only(left: leftInset, right: rightInset),
         child: content,
       ),
     );
-    final captionText = caption;
     // The caption starts where the label starts, past the glyph column, so
     // it reads as the value's continuation and not as a second row.
-    final body = captionText == null
+    final body = captionText == null || stacked
         ? line
         : Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -506,26 +571,29 @@ class FormPickerRow extends FormDividedRow {
               FormCaption(
                 text: captionText,
                 padding: EdgeInsets.only(
-                  left:
-                      leftInset +
-                      (glyph == null
-                          ? 0
-                          : FormMetrics.glyphSize + FormMetrics.gap),
+                  left: leftInset + leadingColumn,
                   right: rightInset,
                   bottom: FormMetrics.rowCaptionBottomPadding,
                 ),
               ),
             ],
           );
-    Widget well = InkWell(onTap: onTap, child: body);
+    Widget well = InkWell(onTap: tap, child: body);
     if (semanticsLabel != null) {
       well = Semantics(
         label: semanticsLabel,
         button: true,
-        enabled: onTap != null,
-        onTap: onTap,
+        enabled: tap != null,
+        onTap: tap,
         child: ExcludeSemantics(child: well),
       );
+    } else if (!enabled) {
+      // Inside the merge below, so the flag lands on the row's one node
+      // beside its id and its label.
+      well = Semantics(enabled: false, child: well);
+    }
+    if (!enabled) {
+      well = Opacity(opacity: FormMetrics.disabledOpacity, child: well);
     }
     if (identifier case final id?) {
       well = AutomationId(identifier: id, child: well);
@@ -1216,11 +1284,17 @@ class FormCaption extends StatelessWidget {
   final bool error;
   final EdgeInsets padding;
 
+  /// Clamps the caption like a value, ellipsizing past the limit — the
+  /// second line of a row with a leading widget, where a template's summary
+  /// at 200 % German would otherwise run four lines. Null wraps freely.
+  final int? maxLines;
+
   const FormCaption({
     super.key,
     required this.text,
     this.error = false,
     this.padding = EdgeInsets.zero,
+    this.maxLines,
   });
 
   @override
@@ -1230,6 +1304,8 @@ class FormCaption extends StatelessWidget {
       padding: padding,
       child: Text(
         text,
+        maxLines: maxLines,
+        overflow: maxLines == null ? null : TextOverflow.ellipsis,
         style: TextStyle(
           fontSize: FormMetrics.captionSize,
           height: 18 / FormMetrics.captionSize,
@@ -1240,9 +1316,9 @@ class FormCaption extends StatelessWidget {
   }
 }
 
-/// A search field as the first row of a group — the category picker's, the
-/// saved filters'. It stands in for `SettingsSearchField` only inside a form
-/// group; the settings pages keep theirs.
+/// A search field as the first row of a group — a searchable sub-sheet's
+/// first row, a filler's pinned one. It stands in for `SettingsSearchField`
+/// only inside a form group; the settings pages keep theirs.
 ///
 /// Never autofocused: a sheet that opens with the keyboard up hides the list
 /// it exists to show. The clear button is a sibling target that always has a
@@ -1368,7 +1444,12 @@ class FormMenuRow<T> extends FormDividedRow {
   final String value;
   final T selected;
   final List<FormMenuItem<T>> items;
-  final ValueChanged<T> onSelected;
+
+  /// Null draws the row disabled — 38 %, no ink, no tap, its node marked so
+  /// — and the menu never opens: the agenda's Fasting rows while the fasting
+  /// calendar is off, kept in place with its stored value rather than
+  /// dropped, so nothing under it moves between two openings.
+  final ValueChanged<T>? onSelected;
   final double menuWidth;
   final String? identifier;
 
@@ -1396,12 +1477,15 @@ class FormMenuRow<T> extends FormDividedRow {
         label: label,
         value: value,
         identifier: identifier,
+        enabled: onSelected != null,
         onTap: () => _open(rowContext),
       ),
     );
   }
 
   Future<void> _open(BuildContext context) async {
+    final select = onSelected;
+    if (select == null) return;
     FocusManager.instance.primaryFocus?.unfocus();
     final colorScheme = Theme.of(context).colorScheme;
     final picked = await showMenu<T>(
@@ -1438,6 +1522,6 @@ class FormMenuRow<T> extends FormDividedRow {
       ],
     );
     if (picked == null) return;
-    onSelected(picked);
+    select(picked);
   }
 }

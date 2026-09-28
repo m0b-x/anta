@@ -738,36 +738,68 @@ void main() {
   });
 
   group('agenda filters sheet', () {
-    /// The Categories section sits below the fold of the sheet's scroll view.
+    Finder categoriesRow() =>
+        find.bySemanticsIdentifier(SemanticsIds.agendaFilterCategories);
+
+    /// What the Categories row reads back.
+    String categoriesValue(WidgetTester tester) => tester
+        .widget<FormPickerRow>(
+          find.ancestor(
+            of: categoriesRow(),
+            matching: find.byType(FormPickerRow),
+          ),
+        )
+        .value!;
+
+    /// The Categories row sits in the sheet's second group, which a short
+    /// surface can put under the fold of the scroll view.
     Future<void> scrollToCategories(WidgetTester tester) {
       return tester.dragUntilVisible(
-        find.byType(CategoryFilterTile),
+        categoriesRow(),
         find.byType(SingleChildScrollView).first,
         const Offset(0, -80),
       );
     }
 
-    testWidgets('a short set keeps its chips', (tester) async {
-      seed(6);
-      await pumpHost(
-        tester,
-        (context) => AgendaFiltersSheet.show(
-          context,
-          filters: const UpcomingAgendaFilters(),
-        ),
-      );
+    /// Opens the picker from the row.
+    Future<void> openPicker(WidgetTester tester) async {
+      await scrollToCategories(tester);
+      await tester.tap(categoriesRow());
+      await tester.pumpAndSettle();
+    }
 
-      expect(find.byType(CategoryFilterTile), findsNothing);
-    });
-
-    /// An empty allowlist means "all", and the reset that clears it would then
-    /// be a no-op — so it is offered only once there is something to clear.
-    /// Its label is a **verb**: worded as the state it produces it was byte-
-    /// identical to `categoriesAllSelected`, the tile's own "nothing filtered"
-    /// line, so the same words sat twice in 100dp meaning two different things.
-    testWidgets('the clear button appears only with a selection', (
+    /// One picker row whatever the catalog size (Tier 1, D5): the wall of
+    /// chips below twelve and the tile above it are gone, and an empty
+    /// allowlist reads "All".
+    testWidgets('the Categories row reads All whatever the catalog size', (
       tester,
     ) async {
+      for (final count in const [6, 15]) {
+        seed(count);
+        await pumpHost(
+          tester,
+          (context) => AgendaFiltersSheet.show(
+            context,
+            filters: const UpcomingAgendaFilters(),
+          ),
+        );
+
+        await scrollToCategories(tester);
+        expect(categoriesValue(tester), 'All', reason: '$count categories');
+        expect(find.byType(CategoryFilterTile), findsNothing);
+        expect(find.byType(FilterChip), findsNothing);
+        // Popped before the next open: a re-pumped host keeps its Navigator,
+        // and with it the sheet still up.
+        await tester.tap(find.text('Apply'));
+        await tester.pumpAndSettle();
+      }
+    });
+
+    /// An explicit allowlist reads its names; the picker's Select all is the
+    /// way back to "All" — covering the offered set collapses to the empty
+    /// allowlist rather than freezing today's catalog into a list.
+    testWidgets('the row reads the names and Select all empties the '
+        'allowlist', (tester) async {
       seed(15);
       UpcomingAgendaFilters? applied;
       await pumpHost(tester, (context) async {
@@ -778,13 +810,15 @@ void main() {
       });
 
       await scrollToCategories(tester);
-      expect(find.text('Cat1, Cat4'), findsOneWidget);
+      expect(categoriesValue(tester), 'Cat1, Cat4');
 
-      await tester.tap(find.text('Show all categories'));
+      await openPicker(tester);
+      await tester.tap(find.text('Select all'));
+      await tester.pumpAndSettle();
+      await tester.tap(pickerApply());
       await tester.pumpAndSettle();
 
-      expect(find.text('All categories'), findsOneWidget);
-      expect(find.text('Show all categories'), findsNothing);
+      expect(categoriesValue(tester), 'All');
 
       await tester.tap(find.text('Apply'));
       await tester.pumpAndSettle();
@@ -806,9 +840,7 @@ void main() {
         );
       });
 
-      await scrollToCategories(tester);
-      await tester.tap(find.byType(CategoryFilterTile));
-      await tester.pumpAndSettle();
+      await openPicker(tester);
 
       await tester.tap(find.text('Select none'));
       await tester.pumpAndSettle();
@@ -837,9 +869,7 @@ void main() {
         ),
       );
 
-      await scrollToCategories(tester);
-      await tester.tap(find.byType(CategoryFilterTile));
-      await tester.pumpAndSettle();
+      await openPicker(tester);
 
       FormActionRow rowWith(String label) => tester.widget<FormActionRow>(
         find.widgetWithText(FormActionRow, label),
@@ -876,9 +906,7 @@ void main() {
         );
       });
 
-      await scrollToCategories(tester);
-      await tester.tap(find.byType(CategoryFilterTile));
-      await tester.pumpAndSettle();
+      await openPicker(tester);
 
       await tester.tap(find.text('Select all'));
       await tester.pumpAndSettle();
@@ -905,11 +933,10 @@ void main() {
       });
 
       await scrollToCategories(tester);
-      // An empty allowlist means "all", which is what the tile must say.
-      expect(find.text('All categories'), findsOneWidget);
+      // An empty allowlist means "all", which is what the row must say.
+      expect(categoriesValue(tester), 'All');
 
-      await tester.tap(find.byType(CategoryFilterTile));
-      await tester.pumpAndSettle();
+      await openPicker(tester);
 
       // "All categories" over an unchecked sub-sheet would be one state shown
       // two contradictory ways — and the calendar filter's picker, inverting a
@@ -928,7 +955,7 @@ void main() {
       // every category created later.
       await tester.tap(pickerApply());
       await tester.pumpAndSettle();
-      expect(find.text('All categories'), findsOneWidget);
+      expect(categoriesValue(tester), 'All');
 
       await tester.tap(find.text('Apply'));
       await tester.pumpAndSettle();
@@ -948,9 +975,7 @@ void main() {
         );
       });
 
-      await scrollToCategories(tester);
-      await tester.tap(find.byType(CategoryFilterTile));
-      await tester.pumpAndSettle();
+      await openPicker(tester);
       await tester.tap(pickerRow('Cat0'));
       await tester.tap(pickerRow('Cat1'));
       await tester.pumpAndSettle();
@@ -976,10 +1001,8 @@ void main() {
         );
       });
 
-      await scrollToCategories(tester);
       // A non-empty allowlist seeds itself, so this adds rather than removes.
-      await tester.tap(find.byType(CategoryFilterTile));
-      await tester.pumpAndSettle();
+      await openPicker(tester);
       // The Select all / none row costs the list a row of height, so the
       // fifth entry can sit under the pinned footer on a small surface.
       await tester.ensureVisible(pickerRow('Cat4'));
@@ -989,7 +1012,7 @@ void main() {
       await tester.tap(pickerApply());
       await tester.pumpAndSettle();
 
-      expect(find.text('Cat1, Cat4'), findsOneWidget);
+      expect(categoriesValue(tester), 'Cat1, Cat4');
 
       await tester.tap(find.text('Apply'));
       await tester.pumpAndSettle();
@@ -1009,9 +1032,7 @@ void main() {
         );
       });
 
-      await scrollToCategories(tester);
-      await tester.tap(find.byType(CategoryFilterTile));
-      await tester.pumpAndSettle();
+      await openPicker(tester);
       await tester.tap(pickerRow('Cat1'));
       await tester.pumpAndSettle();
       await tester.tap(pickerApply());

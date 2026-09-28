@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
@@ -11,7 +9,6 @@ import 'package:re_editor/re_editor.dart';
 import 'package:uuid/uuid.dart';
 
 import '../bloc/markdown_bar/markdown_bar_bloc.dart';
-import '../constants/app_colors.dart';
 import '../constants/calendar_bounds.dart';
 import '../constants/event_skips.dart';
 import '../constants/calendar_categories.dart';
@@ -46,6 +43,7 @@ import '../utils/markdown_color_syntax.dart';
 import '../utils/markdown_editor_span_builder.dart';
 import '../utils/re_editor_search_controller.dart';
 import 'alert_editor_sheet.dart';
+import 'app_dialogs.dart';
 import 'automation_id.dart';
 import 'calendar_date_picker_sheet.dart';
 import 'category_picker_sheet.dart';
@@ -246,8 +244,7 @@ class EventEditorSheet extends StatefulWidget {
   State<EventEditorSheet> createState() => _EventEditorSheetState();
 }
 
-class _EventEditorSheetState extends State<EventEditorSheet>
-    with SingleTickerProviderStateMixin {
+class _EventEditorSheetState extends State<EventEditorSheet> {
   /// Default start-of-day for newly enabled timed events. 9:00 is a
   /// neutral choice that suits a gym-planner; user can edit immediately.
   static const int _defaultStartMinute = 9 * 60;
@@ -267,8 +264,6 @@ class _EventEditorSheetState extends State<EventEditorSheet>
   static const double _scopeStripHeight = 44;
   static const double _priorityMenuWidth = FormMetrics.menuWidth;
   static const double _dayRailMenuWidth = 180;
-  static const double _dismissVelocity = 700;
-  static const Duration _snapBackDuration = Duration(milliseconds: 150);
   static const Duration _revealDuration = Duration(milliseconds: 250);
 
   /// Utility buttons the description bar carries. Font sizing, sharing, bar
@@ -327,12 +322,8 @@ class _EventEditorSheetState extends State<EventEditorSheet>
 
   /// Anchors the scroll-into-view on focus.
   final GlobalKey _descriptionKey = GlobalKey();
-  final GlobalKey _sheetKey = GlobalKey();
   final ScrollController _bodyScroll = ScrollController();
   final ValueNotifier<bool> _headerScrolled = ValueNotifier<bool>(false);
-  final ValueNotifier<double> _dragOffset = ValueNotifier<double>(0);
-  late final AnimationController _snapBack;
-  double _snapFrom = 0;
   late String _initialFingerprint;
   bool _leaving = false;
   late String _categoryId;
@@ -705,8 +696,6 @@ class _EventEditorSheetState extends State<EventEditorSheet>
       barBloc.add(const LoadMarkdownBar());
     }
     _bodyScroll.addListener(_onBodyScroll);
-    _snapBack = AnimationController(vsync: this, duration: _snapBackDuration)
-      ..addListener(_onSnapBackTick);
     _initialFingerprint = _fingerprint();
   }
 
@@ -764,8 +753,6 @@ class _EventEditorSheetState extends State<EventEditorSheet>
     _descriptionFocus.dispose();
     _descriptionScroll.dispose();
     _descriptionSearch.dispose();
-    _snapBack.dispose();
-    _dragOffset.dispose();
     super.dispose();
   }
 
@@ -1837,26 +1824,7 @@ class _EventEditorSheetState extends State<EventEditorSheet>
 
   Future<bool> _confirmLeave() async {
     if (!_isDirty) return true;
-    final l10n = AppLocalizations.of(context)!;
-    final discard = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: Text(l10n.unsavedChanges),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: Text(l10n.keepEditing),
-            ),
-            FilledButton.tonal(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: Text(l10n.discardChanges),
-            ),
-          ],
-        );
-      },
-    );
-    return discard ?? false;
+    return AppDialogs.confirmDiscard(context);
   }
 
   Future<void> _leave() async {
@@ -1873,58 +1841,6 @@ class _EventEditorSheetState extends State<EventEditorSheet>
 
   void _popDiscarding() {
     Navigator.of(context).pop(widget.showBack ? const EventEditorBack() : null);
-  }
-
-  void _onDragStart(DragStartDetails details) {
-    _snapBack.stop();
-  }
-
-  void _onDragUpdate(DragUpdateDetails details) {
-    _dragOffset.value = math.max(0, _dragOffset.value + details.delta.dy);
-  }
-
-  void _onDragCancel() {
-    _animateSnapBack();
-  }
-
-  Future<void> _onDragEnd(DragEndDetails details) async {
-    if (_leaving) {
-      await _animateSnapBack();
-      return;
-    }
-    final velocity =
-        details.primaryVelocity ?? details.velocity.pixelsPerSecond.dy;
-    final height =
-        _sheetKey.currentContext?.size?.height ??
-        MediaQuery.sizeOf(context).height * FormMetrics.sheetHeightFactor;
-    final dismiss =
-        velocity > _dismissVelocity || _dragOffset.value > height / 4;
-    if (!dismiss) {
-      await _animateSnapBack();
-      return;
-    }
-    if (!_isDirty) {
-      _popDiscarding();
-      return;
-    }
-    await _animateSnapBack();
-    if (!mounted) return;
-    await _leave();
-  }
-
-  Future<void> _animateSnapBack() async {
-    _snapFrom = _dragOffset.value;
-    if (_snapFrom == 0) return;
-    try {
-      await _snapBack.forward(from: 0).orCancel;
-    } on TickerCanceled {
-      return;
-    }
-  }
-
-  void _onSnapBackTick() {
-    final progress = Curves.easeOut.transform(_snapBack.value);
-    _dragOffset.value = _snapFrom * (1 - progress);
   }
 
   Widget _buildTitleRow(
@@ -2673,7 +2589,6 @@ class _EventEditorSheetState extends State<EventEditorSheet>
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
     final localeName = l10n.localeName;
     final category = CalendarCategories.resolve(_categoryId);
     final categoryColor = category.color;
@@ -2694,194 +2609,163 @@ class _EventEditorSheetState extends State<EventEditorSheet>
     final viewPadding = MediaQuery.viewPaddingOf(context).bottom;
     final bottomClearance = viewInsets > viewPadding ? viewInsets : viewPadding;
 
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, _) {
-        if (didPop) return;
-        _leave();
-      },
-      child: ValueListenableBuilder<double>(
-        valueListenable: _dragOffset,
-        builder: (context, offset, child) =>
-            Transform.translate(offset: Offset(0, offset), child: child),
-        child: Material(
-          key: _sheetKey,
-          color: colorScheme.pageGround,
-          clipBehavior: Clip.antiAlias,
-          shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(
-              top: Radius.circular(FormMetrics.sheetRadius),
+    return FormSheetFrame(
+      onLeave: _leave,
+      isClean: () => !_isDirty,
+      onDismiss: _popDiscarding,
+      chrome: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const FormSheetHandle(),
+          FormSheetHeader(
+            leadingIcon: widget.showBack
+                ? Icons.arrow_back_rounded
+                : Icons.close_rounded,
+            leadingTooltip: widget.showBack ? l10n.back : l10n.cancel,
+            onLeading: _leave,
+            leadingIdentifier: SemanticsIds.eventClose,
+            title: _isEditing ? l10n.editEvent : l10n.addEvent,
+            scrolled: _headerScrolled,
+            trailing: ListenableBuilder(
+              listenable: Listenable.merge([
+                _descriptionRevision,
+                _titleController,
+              ]),
+              builder: (context, _) => AutomationId(
+                identifier: SemanticsIds.eventSave,
+                child: FilledButton(
+                  onPressed: _canSave ? _onSave : null,
+                  child: Text(
+                    l10n.save,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
             ),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onVerticalDragStart: _onDragStart,
-                onVerticalDragUpdate: _onDragUpdate,
-                onVerticalDragEnd: _onDragEnd,
-                onVerticalDragCancel: _onDragCancel,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const FormSheetHandle(),
-                    FormSheetHeader(
-                      leadingIcon: widget.showBack
-                          ? Icons.arrow_back_rounded
-                          : Icons.close_rounded,
-                      leadingTooltip: widget.showBack ? l10n.back : l10n.cancel,
-                      onLeading: _leave,
-                      leadingIdentifier: SemanticsIds.eventClose,
-                      title: _isEditing ? l10n.editEvent : l10n.addEvent,
-                      scrolled: _headerScrolled,
-                      trailing: ListenableBuilder(
-                        listenable: Listenable.merge([
-                          _descriptionRevision,
-                          _titleController,
-                        ]),
-                        builder: (context, _) => AutomationId(
-                          identifier: SemanticsIds.eventSave,
-                          child: FilledButton(
-                            onPressed: _canSave ? _onSave : null,
-                            child: Text(
-                              l10n.save,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+        ],
+      ),
+      body: [
+        Expanded(
+          child: Semantics(
+            identifier: SemanticsIds.eventForm,
+            child: SingleChildScrollView(
+              controller: _bodyScroll,
+              padding: EdgeInsets.fromLTRB(
+                RowMetrics.groupInset,
+                FormMetrics.bodyTop,
+                RowMetrics.groupInset,
+                FormMetrics.bodyBottom +
+                    (_descriptionFocused ? 0 : bottomClearance),
               ),
-              Expanded(
-                child: Semantics(
-                  identifier: SemanticsIds.eventForm,
-                  child: SingleChildScrollView(
-                  controller: _bodyScroll,
-                  padding: EdgeInsets.fromLTRB(
-                    RowMetrics.groupInset,
-                    FormMetrics.bodyTop,
-                    RowMetrics.groupInset,
-                    FormMetrics.bodyBottom +
-                        (_descriptionFocused ? 0 : bottomClearance),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  FormRowGroup(
                     children: [
-                      FormRowGroup(
-                        children: [
-                          _buildTitleRow(l10n, theme, icon, accent),
-                          FormPickerRow(
-                            glyph: Icons.label_outlined,
-                            identifier: SemanticsIds.eventCategory,
-                            label: l10n.eventCategory,
-                            value: CalendarCategories.labelOf(category, l10n),
-                            onTap: _pickCategory,
-                          ),
-                          FormPickerRow(
-                            glyph: Icons.palette_outlined,
-                            identifier: SemanticsIds.eventLook,
-                            label: l10n.eventAppearance,
-                            value: _iconKey != null || _colorValue != null
-                                ? l10n.eventLookCustom
-                                : l10n.eventLookDefault,
-                            valueLeading: _ColorDot(color: eventColor),
-                            onTap: _pickLook,
-                            dividerIndent: FormMetrics.dividerIndentPlain,
-                          ),
-                          _buildDescriptionCell(l10n, theme),
-                        ],
+                      _buildTitleRow(l10n, theme, icon, accent),
+                      FormPickerRow(
+                        glyph: Icons.label_outlined,
+                        identifier: SemanticsIds.eventCategory,
+                        label: l10n.eventCategory,
+                        value: CalendarCategories.labelOf(category, l10n),
+                        onTap: _pickCategory,
                       ),
-                      FormSectionLabel(text: l10n.eventSectionWhen),
-                      FormRowGroup(
-                        children: _buildWhenRows(
-                          l10n,
-                          dateFormat,
-                          oneTimeDates,
-                        ),
+                      FormPickerRow(
+                        glyph: Icons.palette_outlined,
+                        identifier: SemanticsIds.eventLook,
+                        label: l10n.eventAppearance,
+                        value: _iconKey != null || _colorValue != null
+                            ? l10n.eventLookCustom
+                            : l10n.eventLookDefault,
+                        valueLeading: _ColorDot(color: eventColor),
+                        onTap: _pickLook,
+                        dividerIndent: FormMetrics.dividerIndentPlain,
                       ),
-                      if (_ruleHasManyOccurrences) ...[
-                        FormSectionLabel(text: l10n.recurrenceScopeLabel),
-                        FormRowGroup(
-                          children: _buildOccurrenceRows(l10n, dateFormat),
-                        ),
-                      ],
-                      FormSectionLabel(text: l10n.eventAlerts),
-                      FormRowGroup(children: _buildAlertRows(l10n)),
-                      FormSectionLabel(text: l10n.eventSectionDetails),
-                      FormRowGroup(
-                        children: [
-                          FormMenuRow<int>(
-                            glyph: Icons.flag_outlined,
-                            identifier: SemanticsIds.eventPriority,
-                            label: l10n.eventPriority,
-                            value: EventPriorities.labelOf(_priority, l10n),
-                            selected: _priority,
-                            menuWidth: _priorityMenuWidth,
-                            items: [
-                              for (
-                                var p = kMinEventPriority;
-                                p <= kMaxEventPriority;
-                                p++
-                              )
-                                FormMenuItem(
-                                  value: p,
-                                  label: EventPriorities.labelOf(p, l10n),
-                                  icon: EventPriorities.iconFor(p),
-                                ),
-                            ],
-                            onSelected: (p) => setState(() => _priority = p),
-                          ),
-                          _buildLinkedNoteRow(l10n, theme),
-                        ],
-                      ),
-                      FormRowGroup(
-                        trailingGap: false,
-                        children: [
-                          ListenableBuilder(
-                            listenable: _titleController,
-                            builder: (context, _) => FormActionRow(
-                              glyph: Icons.bookmark_add_outlined,
-                              identifier: SemanticsIds.eventSaveAsTemplate,
-                            label: l10n.saveAsTemplate,
-                              onTap: _titleController.text.trim().isEmpty
-                                  ? null
-                                  : _onSaveAsTemplate,
-                            ),
-                          ),
-                          if (_isEditing)
-                            FormActionRow(
-                              glyph: Icons.delete_outline_rounded,
-                              identifier: SemanticsIds.eventDelete,
-                            label: l10n.deleteEvent,
-                              destructive: true,
-                              onTap: _onDelete,
-                            ),
-                        ],
-                      ),
+                      _buildDescriptionCell(l10n, theme),
                     ],
                   ),
-                ),
-                ),
+                  FormSectionLabel(text: l10n.eventSectionWhen),
+                  FormRowGroup(
+                    children: _buildWhenRows(l10n, dateFormat, oneTimeDates),
+                  ),
+                  if (_ruleHasManyOccurrences) ...[
+                    FormSectionLabel(text: l10n.recurrenceScopeLabel),
+                    FormRowGroup(
+                      children: _buildOccurrenceRows(l10n, dateFormat),
+                    ),
+                  ],
+                  FormSectionLabel(text: l10n.eventAlerts),
+                  FormRowGroup(children: _buildAlertRows(l10n)),
+                  FormSectionLabel(text: l10n.eventSectionDetails),
+                  FormRowGroup(
+                    children: [
+                      FormMenuRow<int>(
+                        glyph: Icons.flag_outlined,
+                        identifier: SemanticsIds.eventPriority,
+                        label: l10n.eventPriority,
+                        value: EventPriorities.labelOf(_priority, l10n),
+                        selected: _priority,
+                        menuWidth: _priorityMenuWidth,
+                        items: [
+                          for (
+                            var p = kMinEventPriority;
+                            p <= kMaxEventPriority;
+                            p++
+                          )
+                            FormMenuItem(
+                              value: p,
+                              label: EventPriorities.labelOf(p, l10n),
+                              icon: EventPriorities.iconFor(p),
+                            ),
+                        ],
+                        onSelected: (p) => setState(() => _priority = p),
+                      ),
+                      _buildLinkedNoteRow(l10n, theme),
+                    ],
+                  ),
+                  FormRowGroup(
+                    trailingGap: false,
+                    children: [
+                      ListenableBuilder(
+                        listenable: _titleController,
+                        builder: (context, _) => FormActionRow(
+                          glyph: Icons.bookmark_add_outlined,
+                          identifier: SemanticsIds.eventSaveAsTemplate,
+                          label: l10n.saveAsTemplate,
+                          onTap: _titleController.text.trim().isEmpty
+                              ? null
+                              : _onSaveAsTemplate,
+                        ),
+                      ),
+                      if (_isEditing)
+                        FormActionRow(
+                          glyph: Icons.delete_outline_rounded,
+                          identifier: SemanticsIds.eventDelete,
+                          label: l10n.deleteEvent,
+                          destructive: true,
+                          onTap: _onDelete,
+                        ),
+                    ],
+                  ),
+                ],
               ),
-              AnimatedSize(
-                duration: const Duration(milliseconds: 180),
-                curve: Curves.easeOut,
-                alignment: Alignment.topCenter,
-                child: _descriptionFocused
-                    ? Padding(
-                        padding: EdgeInsets.only(bottom: bottomClearance),
-                        child: _buildDescriptionBar(),
-                      )
-                    : const SizedBox(width: double.infinity),
-              ),
-            ],
+            ),
           ),
         ),
-      ),
+        AnimatedSize(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          alignment: Alignment.topCenter,
+          child: _descriptionFocused
+              ? Padding(
+                  padding: EdgeInsets.only(bottom: bottomClearance),
+                  child: _buildDescriptionBar(),
+                )
+              : const SizedBox(width: double.infinity),
+        ),
+      ],
     );
   }
 }

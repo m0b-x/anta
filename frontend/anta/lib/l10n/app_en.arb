@@ -1166,13 +1166,9 @@
   "@monthYearPickerTitle": {
     "description": "Title of the sheet that jumps the calendar to a chosen date"
   },
-  "monthYearPickerManualEntry": "Type it instead",
-  "@monthYearPickerManualEntry": {
-    "description": "Tooltip for switching the month/year picker to typed input"
-  },
-  "monthYearPickerWheelEntry": "Pick from the wheels",
-  "@monthYearPickerWheelEntry": {
-    "description": "Tooltip for switching the month/year picker back to the scroll wheels"
+  "monthYearPickerTypedEntry": "Type the date",
+  "@monthYearPickerTypedEntry": {
+    "description": "Switch row in the month/year picker that swaps the wheels for a typed date field"
   },
   "monthYearPickerFieldLabel": "Date",
   "@monthYearPickerFieldLabel": {
@@ -5076,14 +5072,6 @@
   "@upcomingClearSearch": {
     "description": "Tooltip of the button clearing the upcoming events search field"
   },
-  "upcomingClearRange": "Clear custom range",
-  "@upcomingClearRange": {
-    "description": "Tooltip of the delete button on the Custom period chip that clears the custom date range in the upcoming agenda"
-  },
-  "upcomingClearCategories": "Show all categories",
-  "@upcomingClearCategories": {
-    "description": "Reset action/tooltip for the agenda category filter — clears the allowlist so every category shows"
-  },
   "upcomingEventDisplayTitle": "Event rows",
   "@upcomingEventDisplayTitle": {
     "description": "Agenda display control label: how events are listed"
@@ -5189,18 +5177,6 @@
   "@upcomingResetAnchor": {
     "description": "Tooltip of the delete button on the agenda's anchor chip, which returns the look-ahead window to today"
   },
-  "upcomingFiltersReset": "Reset",
-  "@upcomingFiltersReset": {
-    "description": "Button in the agenda filters sheet restoring every filter to its default"
-  },
-  "upcomingSectionPeriod": "Period",
-  "@upcomingSectionPeriod": {
-    "description": "Section heading for the look-ahead window controls in the agenda filters sheet"
-  },
-  "upcomingSectionShow": "Show",
-  "@upcomingSectionShow": {
-    "description": "Section heading for the layer toggles (events, holidays, fasting) in the agenda filters sheet"
-  },
   "upcomingSectionDisplay": "Display",
   "@upcomingSectionDisplay": {
     "description": "Section heading for the agenda's presentation switches in the filters sheet"
@@ -5213,9 +5189,13 @@
   "@upcomingEventsHidden": {
     "description": "Summary chip shown when the events layer is switched off, leaving only holiday and fasting rows"
   },
+  "upcomingPeriod": "Period",
+  "@upcomingPeriod": {
+    "description": "Label of the period menu row in the agenda filters sheet"
+  },
   "upcomingPeriodDays": "{count, plural, one {1 day} other {{count} days}}",
   "@upcomingPeriodDays": {
-    "description": "Look-ahead period preset chip in the upcoming events sheet",
+    "description": "One of the three day presets in the Period menu of the agenda filters sheet, a rolling look-ahead of that many days; the panel's period chip reads the same label",
     "placeholders": {
       "count": {
         "type": "int"
@@ -5224,15 +5204,15 @@
   },
   "upcomingPeriodRestOfYear": "Rest of year",
   "@upcomingPeriodRestOfYear": {
-    "description": "Period chip in the agenda filters covering from the window's start day to 31 December of that year"
+    "description": "Item of the Period menu in the agenda filters sheet covering from the window's start day to 31 December of that year; the panel's period chip reads the same label"
   },
   "upcomingPeriodWholeYear": "This year",
   "@upcomingPeriodWholeYear": {
-    "description": "Period chip in the agenda filters covering the whole calendar year, 1 January to 31 December, including days already past"
+    "description": "Item of the Period menu in the agenda filters sheet covering the whole calendar year, 1 January to 31 December, including days already past; the panel's period chip reads the same label"
   },
-  "upcomingPeriodCustom": "Custom",
+  "upcomingPeriodCustom": "Custom range…",
   "@upcomingPeriodCustom": {
-    "description": "Chip opening a custom date range picker in the upcoming events sheet"
+    "description": "Item of the Period menu in the agenda filters sheet that opens the custom date range picker"
   },
   "upcomingPriority": "Priority",
   "@upcomingPriority": {
@@ -5240,7 +5220,7 @@
   },
   "upcomingPriorityAny": "Any",
   "@upcomingPriorityAny": {
-    "description": "Priority filter chip that clears the selection and keeps events of every priority"
+    "description": "Value the Priority row of the agenda and calendar filter sheets reads back while no priority is selected, meaning events of every priority"
   },
   "upcomingNoEvents": "Nothing coming up",
   "@upcomingNoEvents": {
@@ -5268,11 +5248,11 @@
   },
   "upcomingShowHolidays": "Holidays",
   "@upcomingShowHolidays": {
-    "description": "Agenda filter chip that lists public holidays alongside events"
+    "description": "Label of the Holidays switch row under ALSO SHOW in the agenda and calendar filter sheets, listing public holidays alongside events; also the agenda's holidays heading and the name of that layer in a 'Without …' chip"
   },
   "upcomingShowFasting": "Fasting",
   "@upcomingShowFasting": {
-    "description": "Agenda filter chip that lists configured fasting days alongside events"
+    "description": "Label of the Fasting switch row under ALSO SHOW in the agenda and calendar filter sheets, listing configured fasting days alongside events; also the name of that layer in a 'Without …' chip"
   },
   "upcomingEventType": "Events",
   "@upcomingEventType": {

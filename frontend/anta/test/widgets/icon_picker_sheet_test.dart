@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/widgets/form_rows.dart';
 import 'package:anta/widgets/icon_picker_sheet.dart';
 
 /// The picker's whole point at 300 icons is that typing narrows it, so the
@@ -9,22 +11,46 @@ import 'package:anta/widgets/icon_picker_sheet.dart';
 /// query flattens the catalog and *ranks* it, membership reaches through the
 /// localized group labels (which is how the unlocalized English keywords stay
 /// reachable in de/ro), and a query that finds nothing offers a way back.
+///
+/// Since the 2026-09-27 Tier 1 pass the sheet wears the language's chrome:
+/// the search row is pinned above the grid and stays put while the results
+/// change, and the section headings are `FormSectionLabel`s (uppercased, so
+/// they are found by the label's text, never by the rendered string).
 void main() {
-  Future<String?> openSheet(
+  Finder byId(String id) => find.bySemanticsIdentifier(id);
+
+  Future<_Result> openSheet(
     WidgetTester tester, {
     Locale locale = const Locale('en'),
+    Size? size,
+    double textScale = 1.0,
   }) async {
-    String? picked;
+    if (size != null) {
+      addTearDown(tester.view.reset);
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = size;
+    }
+    final result = _Result();
     await tester.pumpWidget(
       MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         locale: locale,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: TextScaler.linear(textScale)),
+          child: child!,
+        ),
         home: Scaffold(
           body: Builder(
             builder: (context) => TextButton(
               onPressed: () async {
-                picked = await IconPickerSheet.show(context, tint: Colors.blue);
+                result.value = await IconPickerSheet.show(
+                  context,
+                  tint: Colors.blue,
+                );
+                result.returned = true;
               },
               child: const Text('open'),
             ),
@@ -34,7 +60,7 @@ void main() {
     );
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
-    return picked;
+    return result;
   }
 
   Future<void> type(WidgetTester tester, String query) async {
@@ -52,11 +78,18 @@ void main() {
     ];
   }
 
+  /// A section heading by the label it was given — the widget uppercases
+  /// what it renders.
+  Finder sectionLabel(String text) => find.byWidgetPredicate(
+    (w) => w is FormSectionLabel && w.text == text,
+    description: 'FormSectionLabel "$text"',
+  );
+
   testWidgets('an empty query keeps the grouped catalog', (tester) async {
     await openSheet(tester);
 
-    expect(find.text('Strength'), findsOneWidget);
-    expect(find.text('Cardio'), findsOneWidget);
+    expect(sectionLabel('Strength'), findsOneWidget);
+    expect(sectionLabel('Cardio'), findsOneWidget);
     expect(find.byIcon(Icons.fitness_center_rounded), findsOneWidget);
   });
 
@@ -67,7 +100,7 @@ void main() {
     expect(find.byIcon(Icons.directions_run_rounded), findsOneWidget);
     expect(find.byIcon(Icons.fitness_center_rounded), findsNothing);
     // Section headings belong to the grouped view only.
-    expect(find.text('Strength'), findsNothing);
+    expect(sectionLabel('Strength'), findsNothing);
   });
 
   /// The companion to the `cardio` case below, which passes for a reason that
@@ -157,40 +190,141 @@ void main() {
     await type(tester, 'zzzz');
 
     expect(find.text('No icons found'), findsOneWidget);
+    expect(find.byType(Wrap), findsNothing);
 
-    await tester.tap(find.text('Clear search'));
+    // The search row's own ✕ is the way back; there is no second button.
+    expect(find.text('Clear search'), findsNothing);
+    await tester.tap(find.byTooltip('Clear search'));
     await tester.pumpAndSettle();
 
     expect(find.text('No icons found'), findsNothing);
-    expect(find.text('Strength'), findsOneWidget);
+    expect(sectionLabel('Strength'), findsOneWidget);
     expect(find.byIcon(Icons.fitness_center_rounded), findsOneWidget);
   });
 
   testWidgets('tapping a result pops its key', (tester) async {
-    String? picked;
-    await tester.pumpWidget(
-      MaterialApp(
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        locale: const Locale('en'),
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => TextButton(
-              onPressed: () async {
-                picked = await IconPickerSheet.show(context, tint: Colors.blue);
-              },
-              child: const Text('open'),
-            ),
-          ),
-        ),
-      ),
-    );
-    await tester.tap(find.text('open'));
-    await tester.pumpAndSettle();
+    final result = await openSheet(tester);
     await type(tester, 'run');
     await tester.tap(find.byIcon(Icons.directions_run_rounded));
     await tester.pumpAndSettle();
 
-    expect(picked, 'directions_run');
+    expect(result.value, 'directions_run');
   });
+
+  testWidgets('the search row carries its id on the one text field', (
+    tester,
+  ) async {
+    await openSheet(tester);
+
+    expect(find.byType(TextField), findsOneWidget);
+    expect(
+      find.descendant(
+        of: byId(SemanticsIds.iconPickSearch),
+        matching: find.byType(TextField),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byType(FormRowGroup),
+        matching: find.byType(FormSearchRow),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('the header is a close and a title with no text button, and '
+      'close pops null', (tester) async {
+    final result = await openSheet(tester);
+
+    expect(find.byType(FormSheetHandle), findsOneWidget);
+    expect(find.byType(FormSheetHeader), findsOneWidget);
+    expect(find.text('Choose icon'), findsOneWidget);
+    expect(find.byType(FormHeaderTextButton), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byType(FormSheetHeader),
+        matching: find.byType(TextButton),
+      ),
+      findsNothing,
+    );
+    expect(find.byTooltip('Cancel'), findsOneWidget);
+
+    await tester.tap(byId(SemanticsIds.iconPickClose));
+    await tester.pumpAndSettle();
+
+    expect(result.returned, isTrue);
+    expect(result.value, isNull);
+    expect(find.byType(IconPickerSheet), findsNothing);
+  });
+
+  testWidgets('the search group stays put while the results change', (
+    tester,
+  ) async {
+    // Pinned between the header and the grid: a field that scrolled away
+    // with its results was unreachable while they changed.
+    await openSheet(tester);
+    final atRest = tester.getRect(find.byType(FormSearchRow));
+    expect(
+      atRest.top,
+      greaterThanOrEqualTo(tester.getRect(find.byType(FormSheetHeader)).bottom),
+    );
+
+    await type(tester, 'run');
+    expect(tester.getRect(find.byType(FormSearchRow)), atRest);
+    expect(
+      tester.getRect(find.byType(ListView)).top,
+      greaterThanOrEqualTo(atRest.bottom),
+    );
+
+    await type(tester, 'zzzz');
+    expect(tester.getRect(find.byType(FormSearchRow)), atRest);
+    expect(
+      tester.getTopLeft(find.text('No icons found')).dy,
+      greaterThanOrEqualTo(atRest.bottom),
+    );
+
+    await tester.tap(find.byTooltip('Clear search'));
+    await tester.pumpAndSettle();
+    expect(tester.getRect(find.byType(FormSearchRow)), atRest);
+  });
+
+  testWidgets('at text scale 2.0 in German on a 360 × 780 phone nothing '
+      'overflows and the search row reads whole', (tester) async {
+    await openSheet(
+      tester,
+      locale: const Locale('de'),
+      size: const Size(360, 780),
+      textScale: 2.0,
+    );
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Symbol wählen'), findsOneWidget);
+    expect(find.byTooltip('Abbrechen'), findsOneWidget);
+    expect(find.text('Symbole suchen...'), findsOneWidget);
+    expect(sectionLabel('Kraft'), findsOneWidget);
+    expect(
+      tester.getSize(find.byType(FormSheetHeader)).height,
+      FormMetrics.headerHeight,
+    );
+
+    await type(tester, 'zzzz');
+    expect(tester.takeException(), isNull);
+    expect(find.text('Keine Symbole gefunden'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Suche löschen'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(sectionLabel('Kraft'), findsOneWidget);
+
+    await tester.tap(byId(SemanticsIds.iconPickClose));
+    await tester.pumpAndSettle();
+    expect(find.byType(IconPickerSheet), findsNothing);
+  });
+}
+
+/// Carries the sheet's result out of the closure that awaited it.
+class _Result {
+  String? value;
+  bool returned = false;
 }

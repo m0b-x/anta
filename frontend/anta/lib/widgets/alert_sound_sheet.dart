@@ -1,10 +1,15 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 
-import '../constants/app_spacing.dart';
+import '../constants/app_colors.dart';
+import '../constants/row_metrics.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/alert_sound.dart';
 import '../services/alert_gateway.dart';
+import 'form_rows.dart';
 
 /// What the chooser reports back. `null` from [AlertSoundSheet.show] means the
 /// sheet was dismissed without deciding anything — which is *not* the same as
@@ -69,12 +74,25 @@ class AlertSoundSheet extends StatefulWidget {
     required String? value,
     bool allowInherit = false,
   }) {
+    final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<AlertSoundResult>(
       context: context,
       isScrollControlled: true,
-      showDragHandle: true,
-      builder: (_) =>
-          AlertSoundSheet(value: value, allowInherit: allowInherit),
+      useSafeArea: true,
+      showDragHandle: false,
+      backgroundColor: colorScheme.pageGround,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(FormMetrics.sheetRadius),
+        ),
+      ),
+      builder: (context) => ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight:
+              MediaQuery.sizeOf(context).height * FormMetrics.sheetHeightFactor,
+        ),
+        child: AlertSoundSheet(value: value, allowInherit: allowInherit),
+      ),
     );
   }
 
@@ -118,11 +136,31 @@ class _AlertSoundSheetState extends State<AlertSoundSheet> {
   /// one — the platform refuses that anyway, and refusing it here is quieter.
   bool _picking = false;
 
+  /// The body's scroll position feeds the header's hairline (a sub-sheet's
+  /// rule): a notifier, never `setState`, so a scroll frame rebuilds a 1 px
+  /// line and not the rows.
+  final ScrollController _bodyScroll = ScrollController();
+  final ValueNotifier<bool> _headerScrolled = ValueNotifier<bool>(false);
+
   @override
   void initState() {
     super.initState();
     _value = widget.value;
+    _bodyScroll.addListener(_onBodyScroll);
     _resolveTitle();
+  }
+
+  @override
+  void dispose() {
+    _bodyScroll.removeListener(_onBodyScroll);
+    _bodyScroll.dispose();
+    _headerScrolled.dispose();
+    super.dispose();
+  }
+
+  void _onBodyScroll() {
+    final scrolled = _bodyScroll.hasClients && _bodyScroll.offset > 0;
+    if (_headerScrolled.value != scrolled) _headerScrolled.value = scrolled;
   }
 
   AlertGateway? get _gateway =>
@@ -176,102 +214,89 @@ class _AlertSoundSheetState extends State<AlertSoundSheet> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-    final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
-    final viewPadding = MediaQuery.viewPaddingOf(context).bottom;
-    final bottomClearance = viewInsets > viewPadding ? viewInsets : viewPadding;
+    // `useSafeArea: true` guards the status bar, not the bottom gesture/nav
+    // bar, so the rows pad by the larger of the keyboard inset and the
+    // system inset — the sub-sheet rule.
+    final bottomClearance = math.max(
+      MediaQuery.viewInsetsOf(context).bottom,
+      MediaQuery.viewPaddingOf(context).bottom,
+    );
     final current = AlertSound.decode(_value);
 
-    return SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(0, 0, 0, AppSpacing.lg + bottomClearance),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.lg,
-              0,
-              AppSpacing.lg,
-              AppSpacing.sm,
+    // Exclusive check rows rather than `Radio`s: the list mixes a plain
+    // choice with one that opens another activity, and the group value is a
+    // *decoded* sound rather than any one stored string.
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const FormSheetHandle(),
+        FormSheetHeader(
+          leadingIcon: Icons.close_rounded,
+          leadingTooltip: l10n.cancel,
+          leadingIdentifier: SemanticsIds.soundClose,
+          onLeading: () => Navigator.of(context).pop(),
+          title: l10n.alertsSound,
+          scrolled: _headerScrolled,
+          trailingInset: FormMetrics.headerActionInset,
+          // A row pops on tap; there is nothing to confirm.
+          trailing: const SizedBox.shrink(),
+        ),
+        Flexible(
+          child: SingleChildScrollView(
+            controller: _bodyScroll,
+            padding: EdgeInsets.fromLTRB(
+              RowMetrics.groupInset,
+              FormMetrics.bodyTop,
+              RowMetrics.groupInset,
+              FormMetrics.bodyBottom + bottomClearance,
             ),
-            child: Text(l10n.alertsSound, style: theme.textTheme.titleLarge),
+            child: FormRowGroup(
+              trailingGap: false,
+              children: [
+                if (widget.allowInherit)
+                  FormCheckRow(
+                    exclusive: true,
+                    glyph: Icons.settings_suggest_outlined,
+                    label: l10n.alertSoundUseAppSetting,
+                    checked: current is AlertSoundInherit,
+                    identifier: SemanticsIds.soundInherit,
+                    onChanged: (_) => _choose(null),
+                  ),
+                FormCheckRow(
+                  exclusive: true,
+                  glyph: Icons.phone_android_rounded,
+                  label: l10n.alertSoundPhoneDefault,
+                  checked: current is AlertSoundSystemDefault,
+                  identifier: SemanticsIds.soundPhoneDefault,
+                  onChanged: (_) => _choose(AlertSound.systemDefaultValue),
+                ),
+                if (_supportsSoundPicker)
+                  FormCheckRow(
+                    exclusive: true,
+                    glyph: Icons.library_music_outlined,
+                    label: l10n.alertSoundChooseFromPhone,
+                    // Reserved the moment a picked sound is what is stored,
+                    // and only then: the line is filled with a neutral name
+                    // first and swapped for the phone's own, so the row never
+                    // changes height.
+                    caption: current is AlertSoundUri
+                        ? AlertSoundSheet.labelFor(
+                            l10n,
+                            _value,
+                            title: _title,
+                            titleResolved: _titleResolved,
+                          )
+                        : null,
+                    checked: current is AlertSoundUri,
+                    identifier: SemanticsIds.soundFromPhone,
+                    onChanged: _picking ? null : (_) => _pickFromPhone(),
+                  ),
+              ],
+            ),
           ),
-          if (widget.allowInherit)
-            _SoundOptionTile(
-              icon: Icons.settings_suggest_outlined,
-              label: l10n.alertSoundUseAppSetting,
-              selected: current is AlertSoundInherit,
-              onTap: () => _choose(null),
-            ),
-          _SoundOptionTile(
-            icon: Icons.phone_android_rounded,
-            label: l10n.alertSoundPhoneDefault,
-            selected: current is AlertSoundSystemDefault,
-            onTap: () => _choose(AlertSound.systemDefaultValue),
-          ),
-          if (_supportsSoundPicker)
-            _SoundOptionTile(
-              icon: Icons.library_music_outlined,
-              label: l10n.alertSoundChooseFromPhone,
-              // Reserved the moment a picked sound is what is stored, and only
-              // then: the line is filled with a neutral name first and swapped
-              // for the phone's own, so the row never changes height.
-              sublabel: current is AlertSoundUri
-                  ? AlertSoundSheet.labelFor(
-                      l10n,
-                      _value,
-                      title: _title,
-                      titleResolved: _titleResolved,
-                    )
-                  : null,
-              selected: current is AlertSoundUri,
-              onTap: _picking ? null : _pickFromPhone,
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// One radio-shaped choice.
-///
-/// A `ListTile` with a drawn radio glyph rather than a `RadioListTile`: the
-/// list mixes a plain choice with one that opens another activity, and the
-/// group value is a *decoded* sound rather than any one stored string.
-class _SoundOptionTile extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String? sublabel;
-  final bool selected;
-  final VoidCallback? onTap;
-
-  const _SoundOptionTile({
-    required this.icon,
-    required this.label,
-    required this.selected,
-    required this.onTap,
-    this.sublabel,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return ListTile(
-      leading: Icon(
-        icon,
-        color: selected ? colorScheme.primary : colorScheme.onSurfaceVariant,
-      ),
-      title: Text(label),
-      subtitle: sublabel == null ? null : Text(sublabel!),
-      trailing: Icon(
-        selected
-            ? Icons.radio_button_checked_rounded
-            : Icons.radio_button_unchecked_rounded,
-        color: selected ? colorScheme.primary : colorScheme.onSurfaceVariant,
-      ),
-      selected: selected,
-      onTap: onTap,
+        ),
+      ],
     );
   }
 }

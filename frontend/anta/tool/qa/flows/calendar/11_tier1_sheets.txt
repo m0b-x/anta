@@ -1,0 +1,63 @@
+# The chrome-only sheets of Tier 1 (docs/calendar-language-tier-1-roadmap.md):
+# the time pad and the description sheet from the editor, the icon picker
+# from the Look sheet, the sound sheet from the alert editor, the template
+# picker from a long press, the month/year wheels from the grid title. Each
+# is opened, shot and left through its ✕.
+# - The Look sheet's Icon row is id:look-icon (fix round, D24): "Icon" alone
+#   is a substring of three nodes there (the title, the row, the Tint switch).
+# - The sound row exists only on the Alarm tier, so the alert editor is
+#   switched to "Alarm" first; the alert editor is then backed out unsaved.
+# - The editor stays clean throughout (Look's Done returns an equal draft),
+#   so its ✕ returns to the detail sheet without asking.
+# - The grid title's label is the month and year, which no placeholder
+#   renders; its tooltip "Pick a date" is the date-independent handle.
+tap id:event-row-qa-cal-lift
+wait id:event-detail-edit
+tap id:event-detail-edit
+wait id:event-starts
+tap id:event-starts
+wait id:time-pad-done
+shot 11_time_pad
+tap id:time-pad-cancel
+wait id:event-close
+tap "Open full editor"
+wait id:description-done
+shot 11_description
+tap id:description-close
+wait id:event-close
+tap id:event-look
+wait id:look-done
+tap id:look-icon
+wait id:icon-pick-search
+shot 11_icon_picker
+tap id:icon-pick-close
+wait id:look-done
+tap id:look-done
+wait id:event-close
+scroll-to id:event-alert-add --in id:event-form
+tap id:event-alert-add
+wait id:alert-sheet-save
+tap "Alarm"
+scroll-to "Alarm sound"
+tap "Alarm sound"
+wait id:sound-phone-default
+shot 11_sound
+tap id:sound-close
+wait id:alert-sheet-save
+key back
+wait id:event-close
+tap id:event-close
+wait id:event-detail-close
+tap id:event-detail-close
+wait id:calendar-add-event
+longpress "{{longdate+2}}"
+wait id:quick-alarm-row
+shot 11_template_picker
+tap id:template-pick-close
+wait id:calendar-add-event
+tap "Pick a date"
+wait id:month-year-apply
+shot 11_month_year
+tap id:month-year-close
+wait id:calendar-add-event
+errors

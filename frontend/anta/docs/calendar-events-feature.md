@@ -2407,7 +2407,8 @@ The area under the grid is now a mode-switched panel owned by
   body opens the sheet and its "×" (tooltip `upcomingRemoveFilter`) resets that
   one filter.
 - **The Period axis is one mutually-exclusive choice across six chips**
-  (2026-08-29): the three rolling presets (`UpcomingAgendaFilters.rangePresets`
+  (2026-08-29; since the 2026-09-27 Tier 1 addendum the six are the items of
+  one `FormMenuRow`, the rules below unchanged): the three rolling presets (`UpcomingAgendaFilters.rangePresets`
   = 7 / 30 / 90 days counted forward from the anchor), two calendar-year
   windows, and Custom. The year windows are
   `AgendaPeriodMode { rollingDays, wholeYear, restOfYear }` on the filters
@@ -2435,6 +2436,9 @@ The area under the grid is now a mode-switched panel owned by
   "×" shows only while a range is active. `showCheckmark: false` keeps the
   `date_range` avatar as the chip's identity instead of swapping in a checkmark.
   It now lives in the sheet's Period section, labelled with the active range.
+  *(Superseded 2026-09-27: the chip is the "Custom range…" item of the Period
+  menu; picking any other item clears the range, and the panel's summary chip
+  is the one "×" left — the Tier 1 addendum.)*
 - **The header line carries the anchor chip.** While the anchor drives the
   window and sits off today (`!hasCustomRange && anchorDay != today`), an
   `InputChip` reads `upcomingAnchorFrom` ("from Aug 25") and its "×"
@@ -5447,7 +5451,7 @@ the general settings page is `SettingsPage`.
 
 ### Categories, filters, holidays, dates
 
-- **`CalendarIcons` has one source, `groups`.** Entries are `CalendarIconEntry(key, icon, keywords)`; the lookup map, the key→group map and a prebuilt folded search index are derived from it once on first touch, so `forKey` stays O(1) on render paths and search is `contains` over prebuilt strings (`matchesSettingsQuery(..., preFolded: true)`). Icon **keywords are English, in code, unlocalized** — a documented exception, since they are match-only and per-locale reach comes from the localized group labels (`CalendarIcons.groupLabel`). **Icon keys are persisted in four places: additive only** — to retire an icon drop it from `groups` but keep the key resolvable. One ranking function, `lib/utils/category_search.dart`, serves every searchable category list: membership by `matchesSettingsQuery`, order by `FuzzyRank`, icon-only hits demoted a band below name hits, sorted explicitly on `(band, sortOrder, id)` because `List.sort` is not stable in Dart. Whole-page category data is single-statement — `CalendarEventDao.countByCategory()` is one `GROUP BY`, guarded by `query_count_test`. **`CalendarCategoriesPage` is service-direct and owns the nearest enclosing `Scrollable`** (`Column` + `Expanded(ReorderableListView.builder)`) — a `shrinkWrap` list inside an outer scroll view silently kills edge auto-scroll past the fold. **Reorder and filtering are mutually exclusive** (plain `ListView`, handle greyed in place), and an **empty query renders the local order directly, never through `rankCategories`** — its `sortOrder` tiebreak still holds pre-drag values until the optimistic write lands. Long-drag escapes are *Move to top* and *Sort A–Z*, both one `reorder()`. Counts come from **`CalendarEventService.countByCategory()`**, not `CategoryService` — counting events is the event domain's job. Menu-fired mutations are unawaited, so each goes through the page's one `_guarded` catch-then-reconcile wrapper. The reorder chrome (`ReorderHandle` / `reorderDragProxy` / `ReorderLockedHint`) is shared from `lib/widgets/settings_reorder.dart` with both `markdown_settings_page.dart` lists — extend it there, never re-copy it into a third page. `IconPickerSheet` searches on the same grammar (prebuilt index + `FuzzyRank`, group labels folded once per open), over **216 entries in 24 groups**. **`IconGroupId` is exactly the groups `groups` declares** (a value with no entries is a heading `groupIdOf` can never return; a test enforces it), so **"Recently used" is a picker section, not a group** — last 12 keys, newest first, CSV under `SettingsKeys.recentIconKeys` via `SettingsService.getRecentIconKeys`/`recordRecentIconKey`, unknown keys dropped on read, hidden while a query is active. Every tile needs its `Tooltip` (the key with underscores as spaces) or the sheet is hundreds of unnamed buttons. **Letters and digits (`letter_a`…`letter_z`, `digit_0`…`digit_9`) are ordinary entries whose `IconData` names no font family** — that is what paints the character in the ambient font *and* what keeps them out of `--tree-shake-icons`; never give one a `fontFamily`, and re-run a **release** build if the mechanism is touched, because the failure it guards is release-only. **`CalendarIcons.isExactTerm(key, foldedTerm)` outranks every `FuzzyRank` tier**: `FuzzyRank` scores a prefix of the whole search text, so without it no one-character query can ever reach a letter glyph. **`CategoryPickerSheet` is the one choosing surface**, in two arities mirroring the date sheet — `pickSingle(selectedId:) → String?`, `pickMulti(selected:) → Set<String>?` — both over `visiblePlus(initialSelection)` (the *opening* selection, never the live one, or un-ticking an archived row deletes it from the list under the finger that un-ticked it), both searchable through `rankCategories` above the 12-row threshold, **never autofocused**, with an empty state that creates what was typed (`CategoryEditorSheet.show(initialName:)`). The editor's duplicate warning is **soft and never blocks Save**, and scans `all` so it can say a match is hidden. `pickMulti` is **semantics-free**: `UpcomingAgendaFilters.categoryIds` is an allowlist (empty = all), `CalendarFilterSheet._hidden` a denylist (empty = show all), and the caller inverts. Above the same threshold both filter sheets render the shared **`CategoryFilterTile`** instead of a chip per category and keep chips below it; **never re-add a chip row for the selection under the tile**, and **`CalendarFilterSheet`'s two header resets are deliberately asymmetric** — Clear all *unions* the visible ids in (hiding everything must not accidentally un-hide an archived denial), Select all *empties* the denylist outright (showing everything is exactly what it says, and an archived category's events already render in their own colour). The hazard is one-directional; do not "fix" it into symmetry. Making Select all subtract only the visible ids strands an archived denial — `_hidden` never empties, the `allSelected` (`_hidden.isEmpty`) toggle never flips, and the button becomes a permanent no-op. **Each caller owns both halves of its own inversion**: the agenda seeds the sub-sheet with every offered id when `categoryIds` is empty (empty already means "all" and the tile says so) and collapses an all-offered result back to `{}` rather than freezing today's catalog into a list that silently excludes every category created later. Both searchable surfaces keep the search field open while a query is live (`_isFiltering || length > threshold`) — a delete or a de-select can drop the set under the threshold, and retracting the field would strand the list filtered. `UpcomingAgendaView`'s label map is `visiblePlus(filters.categoryIds)`, and the kept set is part of its memo key.
+- **`CalendarIcons` has one source, `groups`.** Entries are `CalendarIconEntry(key, icon, keywords)`; the lookup map, the key→group map and a prebuilt folded search index are derived from it once on first touch, so `forKey` stays O(1) on render paths and search is `contains` over prebuilt strings (`matchesSettingsQuery(..., preFolded: true)`). Icon **keywords are English, in code, unlocalized** — a documented exception, since they are match-only and per-locale reach comes from the localized group labels (`CalendarIcons.groupLabel`). **Icon keys are persisted in four places: additive only** — to retire an icon drop it from `groups` but keep the key resolvable. One ranking function, `lib/utils/category_search.dart`, serves every searchable category list: membership by `matchesSettingsQuery`, order by `FuzzyRank`, icon-only hits demoted a band below name hits, sorted explicitly on `(band, sortOrder, id)` because `List.sort` is not stable in Dart. Whole-page category data is single-statement — `CalendarEventDao.countByCategory()` is one `GROUP BY`, guarded by `query_count_test`. **`CalendarCategoriesPage` is service-direct and owns the nearest enclosing `Scrollable`** (`Column` + `Expanded(ReorderableListView.builder)`) — a `shrinkWrap` list inside an outer scroll view silently kills edge auto-scroll past the fold. **Reorder and filtering are mutually exclusive** (plain `ListView`, handle greyed in place), and an **empty query renders the local order directly, never through `rankCategories`** — its `sortOrder` tiebreak still holds pre-drag values until the optimistic write lands. Long-drag escapes are *Move to top* and *Sort A–Z*, both one `reorder()`. Counts come from **`CalendarEventService.countByCategory()`**, not `CategoryService` — counting events is the event domain's job. Menu-fired mutations are unawaited, so each goes through the page's one `_guarded` catch-then-reconcile wrapper. The reorder chrome (`ReorderHandle` / `reorderDragProxy` / `ReorderLockedHint`) is shared from `lib/widgets/settings_reorder.dart` with both `markdown_settings_page.dart` lists — extend it there, never re-copy it into a third page. `IconPickerSheet` searches on the same grammar (prebuilt index + `FuzzyRank`, group labels folded once per open), over **216 entries in 24 groups**. **`IconGroupId` is exactly the groups `groups` declares** (a value with no entries is a heading `groupIdOf` can never return; a test enforces it), so **"Recently used" is a picker section, not a group** — last 12 keys, newest first, CSV under `SettingsKeys.recentIconKeys` via `SettingsService.getRecentIconKeys`/`recordRecentIconKey`, unknown keys dropped on read, hidden while a query is active. Every tile needs its `Tooltip` (the key with underscores as spaces) or the sheet is hundreds of unnamed buttons. **Letters and digits (`letter_a`…`letter_z`, `digit_0`…`digit_9`) are ordinary entries whose `IconData` names no font family** — that is what paints the character in the ambient font *and* what keeps them out of `--tree-shake-icons`; never give one a `fontFamily`, and re-run a **release** build if the mechanism is touched, because the failure it guards is release-only. **`CalendarIcons.isExactTerm(key, foldedTerm)` outranks every `FuzzyRank` tier**: `FuzzyRank` scores a prefix of the whole search text, so without it no one-character query can ever reach a letter glyph. **`CategoryPickerSheet` is the one choosing surface**, in two arities mirroring the date sheet — `pickSingle(selectedId:) → String?`, `pickMulti(selected:) → Set<String>?` — both over `visiblePlus(initialSelection)` (the *opening* selection, never the live one, or un-ticking an archived row deletes it from the list under the finger that un-ticked it), both searchable through `rankCategories` above the 12-row threshold, **never autofocused**, with an empty state that creates what was typed (`CategoryEditorSheet.show(initialName:)`). The editor's duplicate warning is **soft and never blocks Save**, and scans `all` so it can say a match is hidden. `pickMulti` is **semantics-free**: `UpcomingAgendaFilters.categoryIds` is an allowlist (empty = all), `CalendarFilterSheet._hidden` a denylist (empty = show all), and the caller inverts. Above the same threshold both filter sheets rendered the shared **`CategoryFilterTile`** instead of a chip per category and kept chips below it (since 2026-09-27 both filter sheets are one picker row whatever the count — the Filters sheet since its redesign, the agenda sheet since Tier 1 — and only the overview page still renders the tile, until Tier 4); **never re-add a chip row for the selection under the tile**, and **`CalendarFilterSheet`'s two header resets are deliberately asymmetric** — Clear all *unions* the visible ids in (hiding everything must not accidentally un-hide an archived denial), Select all *empties* the denylist outright (showing everything is exactly what it says, and an archived category's events already render in their own colour). The hazard is one-directional; do not "fix" it into symmetry. Making Select all subtract only the visible ids strands an archived denial — `_hidden` never empties, the `allSelected` (`_hidden.isEmpty`) toggle never flips, and the button becomes a permanent no-op. **Each caller owns both halves of its own inversion**: the agenda seeds the sub-sheet with every offered id when `categoryIds` is empty (empty already means "all" and the tile says so) and collapses an all-offered result back to `{}` rather than freezing today's catalog into a list that silently excludes every category created later. Both searchable surfaces keep the search field open while a query is live (`_isFiltering || length > threshold`) — a delete or a de-select can drop the set under the threshold, and retracting the field would strand the list filtered. `UpcomingAgendaView`'s label map is `visiblePlus(filters.categoryIds)`, and the kept set is part of its memo key.
 
 - **The calendar grid filter is `CalendarGridFilters` (2026-09-01), fifteen fields in one value object** on `CalendarPageLoaded.filters`, dispatched as `ChangeCalendarFilters` (`ChangeHiddenCategories` is gone) and **persisted** as one JSON blob under `SettingsKeys.calendarGridFilters`. Three kinds of field, and the difference is the whole design: **event-level** narrowing (`hiddenCategoryIds` denylist / `priorities` **empty = every priority** / `eventType` — the agenda's own `AgendaEventType`, never a second enum / `timing` / `trackedOnly` = `EventPresence.appliesTo`, not the bare flag / `linkedNotesOnly` / `moneyOnly` / `withDescriptionOnly` / `countedOnly` / `hideEnded`), applied by `CalendarBloc._visibleEvents` **once per change** over `CalendarGridFilters.apply` so both `_dayCache` and the window partition are built from the narrowed list and an active filter makes the 42-cell path *cheaper*; **occurrence-level** (`missedOnly` alone, via `allowsOccurrence`), which needs the day and therefore runs inside `eventsForDay` — gated on `hasOccurrenceAxis` so the common case keeps its plain `occursOnUtcDay` loop, re-tested in `monthNetFor`, and **the reason the presence handler calls `_invalidateIfPresenceIsMembership`**: presence is a painting concern until this axis makes it a membership one, so it invalidates *only while the axis is active* (a future day-dependent axis must extend `hasOccurrenceAxis` or it ships a stale grid); and **layers** (`showHolidays`/`showFasting`/`showMoney`, default on) which are not event filters at all but **compose the provider lists** of `DayBarsResolver.defaults`, `DaySummaryResolver.defaults` and `CellTintResolver.defaults`, so an annotation off the grid is off the day panel too (fasting also takes the day rail's base band — the band *is* the runner-up wash). **Composition is not the whole story**: the `strong` fasting style paints the day *number*, which reaches `CalendarDayCell` through `_buildDayCell`'s own `cellStyleForUtcDay` lookup rather than a provider, so that lookup is gated on `showFasting` too — any future annotation reaching a cell outside the resolver chain needs the same. `showMoney` also zeroes `monthNetFor`, since the header total is the sum of exactly what the cells show. `panelShowsAll` **widens**: `CalendarBottomPanel._panelEvents` swaps `eventsForDay` for `allEventsForDay` (its own memo, delegating outright when nothing is filtered, and deliberately *not* going through the partition — one day is not worth thrashing its single slot), and both panel modes call it or the timeline and the day list disagree about the same day. It is excluded from `activeCount`, gets no chip, and survives `cleared()`. Still **render-time only** — nothing reaches `occursOn`, so a filtered event still occurs, exports and counts; `apply` returns **the same list instance** when no event-level axis is active, which is what keeps every `identical` guard downstream unchanged; the memo key is `(allEvents, filters, todayUtc)` because `hideEnded` reads the wall clock and **nothing dispatches at midnight** — the date joins the key only while that axis is on, so the common case pays neither a clock read nor a rollover rebuild; `_invalidateDayCache()` drops all five memos and `_onChangeCalendarFilters` **value-compares** first (the sheet returns a fresh instance on every Apply) while recording `_filters` **before** the loaded-state guard — the bloc field is what makes a restore that beats the first load land, and what stops `_onLoad`'s fresh `CalendarPageLoaded` from clearing the filter on a backup restore or database switch. `CalendarPage._loadSettings` restores **once** (`_filtersRestored`) because it also runs on every settings return, and `_applyFilters` is the one funnel that dispatches *and* writes. The agenda inherits **only** `filters.hiddenCategoryIds`. UI: `CalendarFilterSheet` (draft-and-Apply; **Categories first** → Priority → Repeat → Time of day → Only show → Show → the panel switch — the View range section left for the title's view menu on 2026-09-26), a `Badge.count` over `activeCount`, and `CalendarFilterChips` — one removable chip per active axis above the grid, labelled through `CalendarFilterSheet`'s statics, with a layer chip reading `"Without {layer}"` because a chip wearing the layer's bare name says the opposite of what it means.
 
@@ -5933,3 +5937,169 @@ rather than this sheet's. A disabled checkbox row is dimmed twice (the row's
 38 % over the checkbox's own disabled colour) — latent, no such row exists
 today. And the preset caption's "Priority (2)" where the board drew the
 names is a `describe()` change, if the owner wants it, not a sheet change.
+
+## Addendum (2026-09-27): Tier 1 of the language adoption — the agenda filters sheet and seven chrome-only sheets
+
+Design record `docs/calendar-language-tier-1-roadmap.md` (D1–D22, the spec
+per surface, the slice ledger), the first tier of
+`docs/calendar-language-adoption-roadmap.md` — the owner's max-effort plan
+for every calendar surface still outside the 2026-09-25 language, one tier
+per session, the owner committing between tiers. Every design question was
+delegated ("implement it, max effort"), so the recommended option stands
+throughout. Mocks for the one surface with layout questions are on the
+Design canvas "Agenda Filters Mocks"
+(https://claude.ai/artifact/FGLdxuNj5a3ATaDCpiaKYo).
+
+**The agenda filters sheet is the Filters sheet's twin now.** The same
+enum, the same picker, the same check-list sheet had been wearing the old
+coat — forty tappable controls on the QA seed — so it took the sub-sheet
+shape (content-tall clamped at `FormMetrics.sheetHeightFactor`, ✕ ·
+Filters · Apply as the header's text action, ✕ / drag / back / barrier pop
+`null`, no guard: the panel owns the query) and the Filters sheet's
+grammar: eleven rows in five groups — Period · Start from selected day |
+EVENTS: Events · Categories · Priority | ALSO SHOW: Holidays · Fasting |
+DISPLAY: Event rows · Fasting rows · Holiday rows | Reset filters. The
+choices that mattered: **Events is one `FormMenuRow` over the whole
+`AgendaEventType` axis** (All / Recurring / One-time / No events) rather than
+the old Events switch with a segmented sub-choice — the model is one axis
+"so it can never encode the contradictory neither state", and the row says
+so; under "No events" the Categories and Priority rows draw at 38 % and are
+inert (they used to vanish) through the new `FormPickerRow.enabled`, because
+an `onTap: null` alone draws a *read* row, not a dimmed one. **Period is one
+menu of six** (7 / 30 / 90 days, Rest of year, This year, Custom range…);
+the custom item still opens Material's `showDateRangePicker` — the Dates
+sheet has no range mode and building one is a feature, not chrome
+(deferred in the record) — a dismissed dialog changes nothing, a stored
+`rangeDays` outside the presets reads back and checks no item
+(`FormMenuRow<_PeriodChoice?>`, an enhanced enum carrying `mode` / `days`
+and asserting its presets equal `UpcomingAgendaFilters.rangePresets`).
+Categories and Priority are the Filters sheet's rows verbatim
+(`namesReadBack`, "All" / "Any"), the allowlist inversion and its doc
+comment unchanged; the three display axes are menu rows with the values'
+own glyphs; **Fasting and Fasting rows draw at 38 % with their stored values
+while no tradition is configured** — the language's disabled-never-hidden,
+so the sheet's rows never move between two openings; Reset filters is the
+last action row (`calendarFilterReset`), 38 % while the draft equals the
+default with the query ignored, and still resets to
+`const UpcomingAgendaFilters().copyWith(query: _draft.query)`. Group order
+follows the twin (what narrows, then what is drawn in addition) with the
+window first because it is the agenda's own axis and the anchor switch
+belongs to the window it moves. Heights: 666 dp of content, so on a
+390 × 844 phone the top level scrolls by exactly the bottom clearance
+(40 dp with a three-button bar, 16 with gesture navigation) and on the
+427 dp emulator or a 412 × 915 phone fits whole — the Filters record's
+"never scrolls" had omitted the bar in the same arithmetic. The panel is
+untouched but for one id (`agenda-filter-open` on the tune button); the
+summary chips still read `periodModeLabel`, and the "no events" glyph is
+one everywhere (`CalendarFilterSummary.eventTypeIcon(none)` aligned to the
+chip's `event_busy_rounded`). `CategoryFilterTile` left the sheet and stays
+in the tree for the overview page, which Tier 4 handles.
+
+**Seven sheets took the chrome, their content untouched**, in three shapes
+none of which is new: the **sub-sheet** for the time pad (Done stays the
+header's action, now a text button — the pad has no confirm key of its
+own, the keys that complete an entry pop by themselves), the month/year
+picker (Apply in the header; Today and a **"Type the date" switch row**
+replace the tonal toggle with its two flipping tooltips and the Today ·
+Cancel · Apply bar; the route-level `Padding(viewInsets)` is gone, the
+clearance rides the scroll view), the template picker (content-tall
+instead of 0.7; a `FormPickerRow` with a leading `EventAvatar` and the
+summary as its caption per template — the primitive gained `leading:`,
+and a leading + caption row takes the check row's 62 dp two-line shape so
+the avatar centres on both lines — then the quick-alarm row and the blank
+row as action rows, order kept) and the sound sheet (`FormCheckRow
+(exclusive:)`s with the phone's name for a stored sound as the caption,
+`useSafeArea` at last; the phone-picker row stays *absent* where the
+platform has no picker — a capability, not a state that changes under the
+finger); the **form sheet's box without its guard** for the two fillers —
+the Dates sheet (0.86 → the 0.92 box; `FormSheetHeader` with Save as a text
+button in multi mode and an empty slot in single; **Today left the header**
+for a fixed 48 dp slot after the title in the month grid's own header row
+and in the year view's ‹ year › row, `AgendaPeriodNav`'s grammar) and the
+icon picker (0.85 → the box; a **pinned** `FormSearchRow` group between the
+header and the grid so the field never moves while results change;
+`FormSectionLabel`s; the no-match state a `FormCaption`, the "Clear search"
+button gone because the row's ✕ clears) — because a content-tall filler
+would change height between Month / Year / List or jump on every keystroke,
+and "constant-height sub-sheets" outranks content-tall; and the **form
+sheet** for the description sheet, which **gained the editor's discard
+guard** — the one lost-text path left in the calendar: typed text used to
+leave silently on ✕, drag, back and the barrier. Its dirty check compares
+against the text as `loadText` left it (a normalised line ending must not
+make an untouched sheet ask), the dialog is the editor's, shared as
+`AppDialogs.confirmDiscard`, Done never asks, and the event title moved
+from the centred two-line header into the status band's first line (the
+band now reserves three lines while a subject is shown, so the over-limit
+message can wrap without moving the editor under the caret).
+
+**The form sheet's drag-and-guard shell is a primitive now**:
+`FormSheetFrame` (`lib/widgets/form_sheet_frame.dart`, exported from
+`form_rows.dart`) owns `PopScope(canPop: false)`, the finger-following
+drag, the snap-back and the dismiss threshold (`FormMetrics.
+sheetDismissVelocity` 700, a quarter of the height, `sheetSnapBackDuration`
+150 ms), the `Material(pageGround, radius)`; a clean fling pops through
+`onDismiss`, a dirty one snaps back and asks through `onLeave`, which the
+sheet owns with its own latch. The editor rides on it with its "leaving
+with unsaved changes" suite unchanged; the description sheet is the second
+reader — the day-old lesson of the Filters record, that chrome copied into
+one screen is re-derived by the next. Also new: `FormMenuRow.onSelected`
+nullable (38 %, inert, `enabled: false`, no menu), `FormCaption.maxLines`,
+`FormMetrics.rowLeadingSize`; ids for every Tier 1 control (`agenda-filter-*`
+with an id per menu item, `date-picker-today`, `month-year-*`,
+`description-*`, `template-pick-*`, `icon-pick-*`, `sound-*`); the flows
+`10_agenda_filters.txt` and `11_tier1_sheets.txt`. Copy: `upcomingPeriod`
+and `monthYearPickerTypedEntry` added, `upcomingPeriodCustom` retitled
+"Custom range…", and `upcomingFiltersReset`, `upcomingSectionPeriod`,
+`upcomingSectionShow`, `upcomingClearRange`, `upcomingClearCategories`,
+`monthYearPickerManualEntry`, `monthYearPickerWheelEntry` retired.
+
+**Must-not-change, and it did not**: the agenda model and its thirteen
+settings keys, `show`'s contract, the panel's chips / badge / search /
+persistence, the range picker's bounds and `now()` read, the picker's
+answers; every one of the seven sheets' entry points, results and callers;
+the re_editor rules of the description sheet; the sound values and the
+gateway calls; the editor's behaviour across the hoist.
+
+**Device pass.** On the Pixel emulator through the agent: the twelve saved
+flows green (`00_open` … `11_tier1_sheets`, the two new ones walking every
+Tier 1 surface by id), `qa errors` clean after the dark / German / 200 %
+matrix, every id of the record seen on its control in the `look` dumps, and
+nine findings at 200 % German, all fixed the same day (D24): the Dates
+sheet's weekday row was clipped (it had the package's default style — the
+page's style is now shared through `CalendarDaysOfWeek`), its month title
+dropped the year (it wraps to two lines now, in a box measured over the
+year's twelve titles so paging never moves the grid, on a 48 dp row with
+the chevron margins zeroed), the time pad's caption ellipsized (two lines
+at scale, measured), the month/year wheels' bold month ellipsized
+(`FittedBox`) and the sheet resized when typed entry replaced the wheels
+(the typed field now occupies the wheels' height). Accepted as the
+language's own limits, not defects: a `FormSheetHeader` title ellipsizes at
+200 % beside a long action or past ~20 characters even alone (the editor's
+own title does the same — a two-line header is the owner's call), menu items
+are the language's 44 dp (`FormMetrics.menuRowHeight`, Filters D12), the
+description band's scope caption clamps at two lines by spec.
+
+**Review.** A fresh subagent read the whole diff against the record and
+confirmed no behaviour, layout or semantics defect. Taken from its nits:
+`FormMetrics.sheetDismissFraction` names the frame's quarter-height
+threshold; the frame's drag surface is excluded from semantics (its drag
+callbacks had read as a scrollable "Edit event" node) and the time pad's
+`Focus` root no longer absorbs the header's title; the `periodModeLabel`
+comment and six reused keys' `@` descriptions stopped naming chips; and the
+description band's reservation was corrected (D23) — slice 4 had reserved
+three lines whenever a subject was shown, which left two empty lines above
+the event name on a one-time event, so the band now reserves from its static
+inputs only (three lines with both a subject and a scope caption, else two)
+and, over the limit, the explanation replaces the whole band text. The Look
+sheet's ✕, Icon and Colour rows gained ids on the way (`look-close`,
+`look-icon`, `look-color`) so flow 11 stops counting labels.
+
+**Deferred** (the record's §8): a range mode for the Dates sheet; the
+deletion of `CategoryFilterTile` with the overview page in Tier 4; a
+two-line header at large text scales; `YearMonthTile`'s labels at 200 %; and
+three things seen outside the tier — the alert editor's title wrapping
+mid-word at 200 % German (Tier 2), the editor's scope-chip reset ellipsizing
+to "T…", the description editor's body ignoring the text scale (re_editor
+draws at its own size). The day-list's mini month grid
+(`agenda_month_grid.dart`) still carries the package's weekday style and
+its own row height — Tier 3 gives it `CalendarDaysOfWeek`.

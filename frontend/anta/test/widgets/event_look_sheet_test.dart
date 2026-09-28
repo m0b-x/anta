@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -8,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/calendar_icons.dart';
 import 'package:anta/constants/calendar_palette.dart';
+import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_category.dart';
@@ -375,5 +377,36 @@ void main() {
 
     await tapAndSettle(tester, find.byIcon(Icons.close_rounded));
     expect(find.byType(EventLookSheet), findsNothing);
+  });
+
+  testWidgets('the ✕, the Icon row and the colour row carry ids', (
+    tester,
+  ) async {
+    await openSheet(tester);
+
+    final close = tester
+        .getSemantics(find.bySemanticsIdentifier(SemanticsIds.lookClose))
+        .getSemanticsData();
+    expect(close.hasAction(SemanticsAction.tap), isTrue);
+    // The Icon row is one node: avatar, label, value and the tap.
+    final icon = tester
+        .getSemantics(find.bySemanticsIdentifier(SemanticsIds.lookIcon))
+        .getSemanticsData();
+    expect(icon.label, contains('Icon'));
+    expect(icon.label, contains('Default'));
+    expect(icon.hasAction(SemanticsAction.tap), isTrue);
+    // The colour row is a container above the swatches, never a merge:
+    // every swatch keeps its own button node for a screen reader to pick.
+    final color = tester.getSemantics(
+      find.bySemanticsIdentifier(SemanticsIds.lookColor),
+    );
+    expect(color.childrenCount, greaterThan(1));
+    expect(
+      tester
+          .getSemantics(swatchDot(otherSwatch()))
+          .getSemanticsData()
+          .hasAction(SemanticsAction.tap),
+      isTrue,
+    );
   });
 }

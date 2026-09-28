@@ -6,11 +6,19 @@ import 'row_metrics.dart';
 abstract final class FormMetrics {
   static const double sheetRadius = 28;
 
-  /// The tallest any calendar sheet gets: the editor's fixed height and the
-  /// clamp on every content-tall sheet (Repeat, Icon & color, the detail
-  /// sheet). One number, so the sheets in the detail loop never disagree
-  /// about where the top edge sits.
+  /// The tallest any calendar sheet gets: the form sheets' fixed height, the
+  /// box of both fillers and the clamp on every sub-sheet. One number, so the
+  /// sheets in the detail loop never disagree about where the top edge sits.
   static const double sheetHeightFactor = 0.92;
+
+  /// A form sheet's own drag (`FormSheetFrame`): the fling speed past which a
+  /// downward drag on the chrome dismisses whatever its length, the share of
+  /// the sheet's height a slower drag has to cover to dismiss, and the spring
+  /// back to rest after one that fell short. The editor's numbers, hoisted so
+  /// every form sheet dismisses alike.
+  static const double sheetDismissVelocity = 700;
+  static const double sheetDismissFraction = 0.25;
+  static const Duration sheetSnapBackDuration = Duration(milliseconds: 150);
   static const double handleStripHeight = 22;
   static const double handleWidth = 32;
   static const double handleHeight = 4;
@@ -37,6 +45,11 @@ abstract final class FormMetrics {
   static const double rowMinHeight = RowMetrics.singleLineMinHeight;
   static const double twoLineRowMinHeight = RowMetrics.twoLineMinHeight;
   static const double titleRowMinHeight = 56;
+
+  /// The box a row's leading widget sits in — an `EventAvatar`'s diameter —
+  /// so a row that carries one keeps the title row's 56 dp shape and its
+  /// divider indent whatever the widget draws.
+  static const double rowLeadingSize = 40;
 
   /// The event title as the editor's field and the detail sheet's heading
   /// draw it, so Edit and Back never resize the one line the eye is on.
@@ -79,6 +92,25 @@ abstract final class FormMetrics {
   /// Under a description cell's caption — the editor's over-the-limit line,
   /// the detail sheet's inert-box line — so the two cells end alike.
   static const double descriptionCaptionBottomPadding = 12;
+
+  /// One line of the description sheet's status band as a multiple of
+  /// `bodySmall`'s scaled font size — a hair over the 1.33 the style draws
+  /// with, so the lines the band reserves (the subject, a two-line caption or
+  /// over-limit message) hold their text with air rather than clipping a
+  /// descender at 200 %.
+  static const double statusLineFactor = 1.4;
+
+  /// The lines the time pad's caption band holds at every text scale: "Endet
+  /// um 19:30 · 1 Std. 30 Min." wraps once at 200 % on a 360 dp phone, and
+  /// a one-line band cut it to "1 Std. 30 Mi…". Two, never more — the
+  /// caption is one clause, and the band is sized from the style alone so
+  /// nothing under it moves as the digits change.
+  static const int timePadCaptionLines = 2;
+
+  /// The lines a period navigation title may take — the Dates sheet's
+  /// "September 2026" over its grid, which drops the year when ellipsized at
+  /// one line at 200 %. Two, so the row stays a row and never a paragraph.
+  static const int periodTitleMaxLines = 2;
 
   /// A caption under a whole group rather than inside a row — the no-match
   /// line of a searchable list — set in like a section label above one.

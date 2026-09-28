@@ -90,6 +90,39 @@ class AppDialogs {
     return result ?? false;
   }
 
+  /// The form sheets' leave guard — the event editor's and the description
+  /// sheet's — asked only once the caller knows the form is dirty. Returns
+  /// `true` to leave.
+  ///
+  /// Not [confirm]: that dialog carries a body line and a filled confirm, and
+  /// here the title is the whole message and the confirm is tonal — the text
+  /// being dropped is unsaved, not stored, so it earns neither the delete red
+  /// nor the commit's fill (the calendar-ui rule for a destructive
+  /// confirmation). One copy, so the two sheets cannot phrase the same
+  /// question differently.
+  static Future<bool> confirmDiscard(BuildContext context) async {
+    final l10n = AppLocalizations.of(context)!;
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text(l10n.unsavedChanges),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: Text(l10n.keepEditing),
+            ),
+            FilledButton.tonal(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: Text(l10n.discardChanges),
+            ),
+          ],
+        );
+      },
+    );
+    return discard ?? false;
+  }
+
   // ---------------------------------------------------------------------------
   // 2) Text Input
   // ---------------------------------------------------------------------------

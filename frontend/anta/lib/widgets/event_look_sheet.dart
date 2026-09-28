@@ -9,6 +9,7 @@ import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_category.dart';
+import 'automation_id.dart';
 import 'color_swatch_picker.dart';
 import 'event_avatar.dart';
 import 'form_rows.dart';
@@ -151,6 +152,7 @@ class _EventLookSheetState extends State<EventLookSheet> {
         FormSheetHeader(
           leadingIcon: Icons.close_rounded,
           leadingTooltip: l10n.cancel,
+          leadingIdentifier: SemanticsIds.lookClose,
           onLeading: () => Navigator.of(context).pop(),
           title: l10n.eventAppearance,
           trailingInset: FormMetrics.headerActionInset,
@@ -263,11 +265,14 @@ class _IconRow extends FormDividedRow {
         ),
       ),
     );
-    if (button == null) return well;
+    // One node — avatar, label, value and the tap — carrying the id; the
+    // reset button stays a sibling, the two-target shape.
+    final row = AutomationId(identifier: SemanticsIds.lookIcon, child: well);
+    if (button == null) return row;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Expanded(child: well),
+        Expanded(child: row),
         button,
       ],
     );
@@ -284,6 +289,13 @@ class _PaletteRow extends FormDividedRow {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(padding: _LookMetrics.paletteRowPadding, child: child);
+    // A container node above the swatches, never a merge: eighteen colour
+    // buttons folded into one node would leave a screen reader nothing to
+    // pick — `AutomationId`'s own rule for a colour strip. A driver finds
+    // the row by its id and each swatch by its name.
+    return Semantics(
+      identifier: SemanticsIds.lookColor,
+      child: Padding(padding: _LookMetrics.paletteRowPadding, child: child),
+    );
   }
 }

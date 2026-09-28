@@ -1,10 +1,15 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
-import '../constants/app_icon_sizes.dart';
+import '../constants/app_colors.dart';
 import '../constants/app_spacing.dart';
+import '../constants/row_metrics.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
+import 'form_rows.dart';
 
 /// Date picker for jumping the calendar somewhere else.
 ///
@@ -12,8 +17,9 @@ import '../l10n/app_localizations.dart';
 /// independently, so a flick crosses days, months or decades without leaving
 /// the screen. Opened from the calendar header's "August 2026" title. The day
 /// wheel is bounded by the length of the shown month (leap-aware), and the
-/// day clamps when the month or year changes under it. A keyboard toggle
-/// swaps the wheels for a text field when the target date is already known.
+/// day clamps when the month or year changes under it. A "Type the date"
+/// switch swaps the wheels for a text field when the target date is already
+/// known.
 class MonthYearPickerSheet extends StatefulWidget {
   /// Date the wheels open on.
   final DateTime initialDate;
@@ -42,17 +48,22 @@ class MonthYearPickerSheet extends StatefulWidget {
     required DateTime lastDate,
     required Color accent,
   }) {
+    final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<DateTime>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      showDragHandle: true,
-      builder: (sheetContext) => Padding(
-        // Lifts the sheet above the keyboard in typed mode instead of
-        // letting the field hide under it. Read from the sheet's own context,
-        // not the caller's — only that one rebuilds when the keyboard opens.
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
+      showDragHandle: false,
+      backgroundColor: colorScheme.pageGround,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(FormMetrics.sheetRadius),
+        ),
+      ),
+      builder: (context) => ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight:
+              MediaQuery.sizeOf(context).height * FormMetrics.sheetHeightFactor,
         ),
         child: MonthYearPickerSheet(
           initialDate: initialDate,
@@ -71,6 +82,10 @@ class MonthYearPickerSheet extends StatefulWidget {
 class _MonthYearPickerSheetState extends State<MonthYearPickerSheet> {
   static const double _itemExtent = 44;
 
+  /// Rows a wheel shows — the selected one and two either side — and so the
+  /// height of the box both modes share.
+  static const int _wheelRows = 5;
+
   late final FixedExtentScrollController _dayController;
   late final FixedExtentScrollController _monthController;
   late final FixedExtentScrollController _yearController;
@@ -82,6 +97,12 @@ class _MonthYearPickerSheetState extends State<MonthYearPickerSheet> {
   late int _year;
   bool _typing = false;
   String? _error;
+
+  /// The body's scroll position feeds the header's hairline (a sub-sheet's
+  /// rule): a notifier, never `setState`, so a scroll frame rebuilds a 1 px
+  /// line and not the wheels.
+  final ScrollController _bodyScroll = ScrollController();
+  final ValueNotifier<bool> _headerScrolled = ValueNotifier<bool>(false);
 
   int get _firstYear => widget.firstDate.year;
   int get _lastYear => widget.lastDate.year;
@@ -105,16 +126,25 @@ class _MonthYearPickerSheetState extends State<MonthYearPickerSheet> {
     );
     _textController = TextEditingController();
     _textFocus = FocusNode();
+    _bodyScroll.addListener(_onBodyScroll);
   }
 
   @override
   void dispose() {
+    _bodyScroll.removeListener(_onBodyScroll);
+    _bodyScroll.dispose();
+    _headerScrolled.dispose();
     _dayController.dispose();
     _monthController.dispose();
     _yearController.dispose();
     _textController.dispose();
     _textFocus.dispose();
     super.dispose();
+  }
+
+  void _onBodyScroll() {
+    final scrolled = _bodyScroll.hasClients && _bodyScroll.offset > 0;
+    if (_headerScrolled.value != scrolled) _headerScrolled.value = scrolled;
   }
 
   /// After the month or year moves, pull the day back inside the new month
@@ -357,82 +387,85 @@ class _MonthYearPickerSheetState extends State<MonthYearPickerSheet> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
+    // The keyboard in typed mode and the system bar sit on the same edge;
+    // the larger inset rides the scroll view's padding, read here from the
+    // sheet's own context — only that one rebuilds when the keyboard opens.
+    final clearance = math.max(
+      MediaQuery.viewInsetsOf(context).bottom,
+      MediaQuery.viewPaddingOf(context).bottom,
+    );
 
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(
-          AppSpacing.lg,
-          0,
-          AppSpacing.lg,
-          AppSpacing.md,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const FormSheetHandle(),
+        FormSheetHeader(
+          leadingIcon: Icons.close_rounded,
+          leadingTooltip: l10n.cancel,
+          leadingIdentifier: SemanticsIds.monthYearClose,
+          onLeading: () => Navigator.of(context).pop(),
+          title: l10n.monthYearPickerTitle,
+          scrolled: _headerScrolled,
+          trailingInset: FormMetrics.headerActionInset,
+          trailing: FormHeaderTextButton(
+            label: l10n.apply,
+            identifier: SemanticsIds.monthYearApply,
+            onPressed: () => _confirm(l10n),
+          ),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
+        Flexible(
+          child: SingleChildScrollView(
+            controller: _bodyScroll,
+            padding: EdgeInsets.fromLTRB(
+              RowMetrics.groupInset,
+              FormMetrics.bodyTop,
+              RowMetrics.groupInset,
+              FormMetrics.bodyBottom + clearance,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(
-                  child: Text(
-                    l10n.monthYearPickerTitle,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
+                // Both modes are the same height — the typed entry sits in
+                // the wheels' box — so the swap moves nothing under the
+                // header. `AnimatedSize` stays as the safety net that would
+                // ease rather than snap should a locale's error caption ever
+                // outgrow the box at a large scale.
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeInOut,
+                  alignment: Alignment.topCenter,
+                  child: _typing
+                      ? _buildTypedEntry(l10n)
+                      : _buildWheels(l10n, theme),
+                ),
+                const SizedBox(height: RowMetrics.groupGap),
+                FormRowGroup(
+                  trailingGap: false,
+                  children: [
+                    FormActionRow(
+                      glyph: Icons.today_rounded,
+                      label: l10n.datePickerToday,
+                      identifier: SemanticsIds.monthYearToday,
+                      onTap: _goToCurrent,
                     ),
-                  ),
-                ),
-                IconButton.filledTonal(
-                  tooltip: _typing
-                      ? l10n.monthYearPickerWheelEntry
-                      : l10n.monthYearPickerManualEntry,
-                  icon: Icon(
-                    _typing
-                        ? Icons.calendar_month_rounded
-                        : Icons.keyboard_rounded,
-                  ),
-                  onPressed: _toggleTyping,
+                    // A switch names the mode; a toggle whose label flips
+                    // under the finger does not.
+                    FormSwitchRow(
+                      glyph: Icons.keyboard_rounded,
+                      label: l10n.monthYearPickerTypedEntry,
+                      value: _typing,
+                      identifier: SemanticsIds.monthYearTyped,
+                      onChanged: (_) => _toggleTyping(),
+                    ),
+                  ],
                 ),
               ],
             ),
-            const SizedBox(height: AppSpacing.sm),
-            // Typed mode is shorter than the wheels; animating the swap keeps
-            // the sheet from snapping while the keyboard slides in, and
-            // letting it shrink stops the content overflowing on a short
-            // screen with the keyboard up.
-            AnimatedSize(
-              duration: const Duration(milliseconds: 200),
-              curve: Curves.easeInOut,
-              alignment: Alignment.topCenter,
-              child: _typing
-                  ? _buildTypedEntry(l10n)
-                  : _buildWheels(l10n, theme),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            Row(
-              children: [
-                TextButton.icon(
-                  onPressed: _goToCurrent,
-                  icon: const Icon(
-                    Icons.today_rounded,
-                    size: AppIconSizes.buttonIcon,
-                  ),
-                  label: Text(l10n.datePickerToday),
-                ),
-                const Spacer(),
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: Text(l10n.cancel),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                FilledButton(
-                  onPressed: () => _confirm(l10n),
-                  child: Text(l10n.apply),
-                ),
-              ],
-            ),
-          ],
+          ),
         ),
-      ),
+      ],
     );
   }
 
@@ -440,7 +473,7 @@ class _MonthYearPickerSheetState extends State<MonthYearPickerSheet> {
     final yearCount = _lastYear - _firstYear + 1;
     final dayCount = _daysInMonth(_year, _month);
     return SizedBox(
-      height: _itemExtent * 5,
+      height: _itemExtent * _wheelRows,
       child: Stack(
         children: [
           // A single quiet band marks the committed row. No box around the
@@ -555,25 +588,36 @@ class _MonthYearPickerSheetState extends State<MonthYearPickerSheet> {
     );
   }
 
+  /// The typed field in the wheels' own box, aligned at its top: the two
+  /// modes are then one height, so switching never resizes the sheet or
+  /// moves the header — the language's "size the dependent area with an
+  /// invisible template". The field with its two-line error caption stays
+  /// under the box even at 200 % on a 360 dp phone (the German case pins it).
   Widget _buildTypedEntry(AppLocalizations l10n) {
-    return TextField(
-      controller: _textController,
-      focusNode: _textFocus,
-      autofocus: true,
-      keyboardType: TextInputType.datetime,
-      textInputAction: TextInputAction.done,
-      inputFormatters: [LengthLimitingTextInputFormatter(24)],
-      decoration: InputDecoration(
-        labelText: l10n.monthYearPickerFieldLabel,
-        hintText: l10n.monthYearPickerFieldHint,
-        errorText: _error,
-        prefixIcon: const Icon(Icons.edit_calendar_rounded),
-        border: const OutlineInputBorder(),
+    return SizedBox(
+      height: _itemExtent * _wheelRows,
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: TextField(
+          controller: _textController,
+          focusNode: _textFocus,
+          autofocus: true,
+          keyboardType: TextInputType.datetime,
+          textInputAction: TextInputAction.done,
+          inputFormatters: [LengthLimitingTextInputFormatter(24)],
+          decoration: InputDecoration(
+            labelText: l10n.monthYearPickerFieldLabel,
+            hintText: l10n.monthYearPickerFieldHint,
+            errorText: _error,
+            prefixIcon: const Icon(Icons.edit_calendar_rounded),
+            border: const OutlineInputBorder(),
+          ),
+          onChanged: (_) {
+            if (_error != null) setState(() => _error = null);
+          },
+          onSubmitted: (_) => _submitTyped(l10n),
+        ),
       ),
-      onChanged: (_) {
-        if (_error != null) setState(() => _error = null);
-      },
-      onSubmitted: (_) => _submitTyped(l10n),
     );
   }
 }
@@ -608,11 +652,13 @@ class _WheelLabel extends StatelessWidget {
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
-        child: Text(
-          text,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: style,
+        // A long month name scales down to its column rather than being cut
+        // — the bold selected "September" read "Septem…" at 200 %. At 1×
+        // every name fits and the box changes nothing, so the unselected
+        // rows look as they did.
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(text, maxLines: 1, style: style),
         ),
       ),
     );

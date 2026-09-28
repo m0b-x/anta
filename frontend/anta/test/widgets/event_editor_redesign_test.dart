@@ -15,6 +15,7 @@ import 'package:anta/bloc/markdown_bar/markdown_bar_bloc.dart';
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/event_alerts.dart';
 import 'package:anta/constants/event_skips.dart';
+import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_category.dart';
@@ -456,7 +457,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, 'Save').last);
+      await tester.tap(find.bySemanticsIdentifier(SemanticsIds.datePickerSave));
       await tester.pumpAndSettle();
 
       expect(row('Dates'), findsNothing);
@@ -547,7 +548,7 @@ void main() {
         find.byWidgetPredicate((w) => w is CalendarDayCell && w.day == target),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, 'Save').last);
+      await tester.tap(find.bySemanticsIdentifier(SemanticsIds.datePickerSave));
       await tester.pumpAndSettle();
 
       expect(find.byTooltip('Remove date'), findsNWidgets(2));
@@ -1355,7 +1356,7 @@ void main() {
         initial: eventOf(rule: const DailyRecurrence()),
       );
       await tapText(tester, 'Skipped days');
-      await tester.tap(find.widgetWithText(FilledButton, 'Save').last);
+      await tester.tap(find.bySemanticsIdentifier(SemanticsIds.datePickerSave));
       await tester.pumpAndSettle();
       await tapTooltip(tester, 'Cancel');
       expect(dialog, findsNothing);

@@ -52,6 +52,7 @@ import '../services/note_storage_service.dart';
 import '../services/permission_service.dart';
 import '../services/public_holiday_service.dart';
 import '../services/settings_service.dart';
+import '../utils/calendar_days_of_week.dart';
 import '../utils/calendar_week_start.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/event_agenda.dart';
@@ -2235,10 +2236,6 @@ class _CalendarTable extends StatelessWidget {
     // user picks it per theme, so it takes a `Brightness` read the 42 cells
     // would otherwise each repeat for one shared answer.
     final cellStyle = appearance.cellStyleFor(theme.brightness);
-    final dowStyle = theme.textTheme.labelMedium!.copyWith(
-      fontWeight: FontWeight.w600,
-      color: colorScheme.onSurfaceVariant,
-    );
 
     return TableCalendar<CalendarEvent>(
       firstDay: _firstDay,
@@ -2257,7 +2254,7 @@ class _CalendarTable extends StatelessWidget {
       weekendDays: CalendarWeekend.days,
       weekNumbersVisible: appearance.showWeekNumbers,
       rowHeight: rowHeight,
-      daysOfWeekHeight: 24,
+      daysOfWeekHeight: CalendarDaysOfWeek.height,
       locale: l10n.localeName,
       availableCalendarFormats: {
         CalendarFormat.month: l10n.calendarFormatMonth,
@@ -2287,13 +2284,9 @@ class _CalendarTable extends StatelessWidget {
           color: colorScheme.onSurfaceVariant,
         ),
       ),
-      daysOfWeekStyle: DaysOfWeekStyle(
-        weekdayStyle: dowStyle,
-        weekendStyle: appearance.highlightWeekends
-            ? dowStyle.copyWith(
-                color: colorScheme.error.withValues(alpha: 0.85),
-              )
-            : dowStyle,
+      daysOfWeekStyle: CalendarDaysOfWeek.style(
+        theme,
+        highlightWeekends: appearance.highlightWeekends,
       ),
       calendarStyle: CalendarStyle(
         // Show leading/trailing days from adjacent months, faded so the
