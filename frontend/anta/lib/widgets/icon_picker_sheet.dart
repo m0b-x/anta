@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 
+import '../constants/app_colors.dart';
 import '../constants/calendar_icons.dart';
+import '../constants/row_metrics.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../services/folder_search_service.dart' show normalizeForSearch;
 import '../services/settings_service.dart';
 import '../utils/fuzzy_rank.dart';
 import '../utils/settings_search.dart';
-import 'settings_search_field.dart';
+import 'form_rows.dart';
 
 /// Band for an entry the query names exactly, one better than
 /// [FuzzyRank.tierPrefix] (0) — the only way a one-character query reaches the
@@ -44,13 +47,23 @@ class IconPickerSheet extends StatefulWidget {
     required Color tint,
     String? initialKey,
   }) {
+    final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      showDragHandle: true,
+      showDragHandle: false,
+      backgroundColor: colorScheme.pageGround,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(FormMetrics.sheetRadius),
+        ),
+      ),
+      // The form sheet's fixed box rather than a content-tall sub-sheet: a
+      // grid of hundreds of icons under a live search would change height
+      // on every keystroke (D10).
       builder: (_) => FractionallySizedBox(
-        heightFactor: 0.85,
+        heightFactor: FormMetrics.sheetHeightFactor,
         child: IconPickerSheet(initialKey: initialKey, tint: tint),
       ),
     );
@@ -199,15 +212,9 @@ class _IconPickerSheetState extends State<IconPickerSheet> {
     _results = [for (final r in ranked) r.entry];
   }
 
-  void _clearQuery() {
-    _searchController.clear();
-    _onQueryChanged('');
-  }
-
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
     // `useSafeArea: true` on the modal route avoids the status bar but has
     // proven unreliable against the bottom gesture/nav bar on real devices
     // (the last icon row rendered under it) — same fix as `EventEditorSheet`
@@ -220,33 +227,60 @@ class _IconPickerSheetState extends State<IconPickerSheet> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        const FormSheetHandle(),
+        FormSheetHeader(
+          leadingIcon: Icons.close_rounded,
+          leadingTooltip: l10n.cancel,
+          leadingIdentifier: SemanticsIds.iconPickClose,
+          onLeading: () => Navigator.of(context).pop(),
+          title: l10n.pickIcon,
+          trailingInset: FormMetrics.headerActionInset,
+          // A tile pops on tap; there is nothing to confirm.
+          trailing: const SizedBox.shrink(),
+        ),
+        // Pinned between the header and the grid rather than scrolling with
+        // it: a field that scrolls away with its results is unreachable
+        // while the results change, and pinned it never moves under the
+        // finger (D17).
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-          child: Text(
-            l10n.pickIcon,
-            style: theme.textTheme.titleLarge,
-            textAlign: TextAlign.center,
+          padding: const EdgeInsets.fromLTRB(
+            RowMetrics.groupInset,
+            FormMetrics.bodyTop,
+            RowMetrics.groupInset,
+            0,
+          ),
+          child: FormRowGroup(
+            trailingGap: false,
+            children: [
+              FormSearchRow(
+                controller: _searchController,
+                hint: l10n.searchIcons,
+                clearTooltip: l10n.clearSearch,
+                identifier: SemanticsIds.iconPickSearch,
+                onChanged: _onQueryChanged,
+              ),
+            ],
           ),
         ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-          child: SettingsSearchField(
-            controller: _searchController,
-            hint: l10n.searchIcons,
-            onChanged: _onQueryChanged,
-          ),
-        ),
-        const Divider(height: 1),
         Expanded(
           child: _query.isEmpty
               ? _buildGroups(context, bottomClearance)
               : _results.isEmpty
-              ? _buildEmptyState(context)
+              ? _buildNoMatch(context)
               : _buildResults(context, bottomClearance),
         ),
       ],
     );
   }
+
+  /// The grid's padding: the language's gap under the pinned search group,
+  /// and the clearance below the last row.
+  EdgeInsets _gridPadding(double bottomClearance) => EdgeInsets.fromLTRB(
+    RowMetrics.groupInset,
+    RowMetrics.groupGap,
+    RowMetrics.groupInset,
+    FormMetrics.bodyBottom + bottomClearance,
+  );
 
   /// The grouped catalog, with "Recently used" pinned above it when there is
   /// anything to show. The section is deliberately absent while a query is
@@ -257,7 +291,7 @@ class _IconPickerSheetState extends State<IconPickerSheet> {
     final showRecent = _recent.isNotEmpty;
 
     return ListView.builder(
-      padding: EdgeInsets.fromLTRB(16, 12, 16, 20 + bottomClearance),
+      padding: _gridPadding(bottomClearance),
       itemCount: CalendarIcons.groups.length + (showRecent ? 1 : 0),
       itemBuilder: (context, index) {
         if (showRecent && index == 0) {
@@ -278,32 +312,20 @@ class _IconPickerSheetState extends State<IconPickerSheet> {
     String label,
     List<CalendarIconEntry> entries,
   ) {
-    final theme = Theme.of(context);
-
     return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
+      // The language's gap between groups, the wrap standing for a group
+      // under its section label.
+      padding: const EdgeInsets.only(bottom: RowMetrics.groupGap),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-            child: Text(
-              label,
-              style: theme.textTheme.labelLarge?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          _buildWrap(entries),
-        ],
+        children: [FormSectionLabel(text: label), _buildWrap(entries)],
       ),
     );
   }
 
   Widget _buildResults(BuildContext context, double bottomClearance) {
     return ListView(
-      padding: EdgeInsets.fromLTRB(16, 12, 16, 20 + bottomClearance),
+      padding: _gridPadding(bottomClearance),
       children: [_buildWrap(_results)],
     );
   }
@@ -324,29 +346,18 @@ class _IconPickerSheetState extends State<IconPickerSheet> {
     );
   }
 
-  Widget _buildEmptyState(BuildContext context) {
+  /// The no-match line under the search group, where the category picker
+  /// puts its own; the row's ✕ is the way back, so no button repeats it.
+  Widget _buildNoMatch(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.search_off_rounded,
-            size: 48,
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            l10n.noIconsFound,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-            ),
-          ),
-          const SizedBox(height: 4),
-          TextButton(onPressed: _clearQuery, child: Text(l10n.clearSearch)),
-        ],
+    return Align(
+      alignment: Alignment.topLeft,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: RowMetrics.groupInset),
+        child: FormCaption(
+          text: l10n.noIconsFound,
+          padding: FormMetrics.groupCaptionPadding,
+        ),
       ),
     );
   }

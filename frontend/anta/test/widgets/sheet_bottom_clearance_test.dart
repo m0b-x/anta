@@ -18,7 +18,9 @@ import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/event_alert.dart';
 import 'package:anta/models/recurrence_rule.dart';
+import 'package:anta/models/upcoming_agenda_filters.dart';
 import 'package:anta/widgets/agenda_day_list_sheet.dart';
+import 'package:anta/widgets/agenda_filters_sheet.dart';
 import 'package:anta/widgets/alert_editor_sheet.dart';
 import 'package:anta/widgets/alert_sound_sheet.dart';
 import 'package:anta/models/calendar_grid_filters.dart';
@@ -40,7 +42,10 @@ import 'package:anta/widgets/event_editor_sheet.dart';
 import 'package:anta/widgets/event_look_sheet.dart';
 import 'package:anta/widgets/event_repeat_sheet.dart';
 import 'package:anta/widgets/event_template_editor_sheet.dart';
+import 'package:anta/widgets/event_template_picker_sheet.dart';
+import 'package:anta/widgets/icon_picker_sheet.dart';
 import 'package:anta/widgets/modern_editor_wrapper.dart';
+import 'package:anta/widgets/month_year_picker_sheet.dart';
 import 'package:anta/widgets/quick_alarm_sheet.dart';
 import 'package:anta/widgets/time_pad_sheet.dart';
 
@@ -608,6 +613,23 @@ void main() {
     expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
   });
 
+  testWidgets('the agenda filters sheet clears the navigation bar', (
+    tester,
+  ) async {
+    sizeSurfaceWithNavBar(tester);
+    await openFrom(
+      tester,
+      (context) => AgendaFiltersSheet.show(
+        context,
+        filters: const UpcomingAgendaFilters(),
+      ),
+    );
+
+    // Reset filters is the last of eleven rows, and on a 390-tall phone the
+    // navigation bar is exactly what the sheet's top level scrolls by.
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+  });
+
   testWidgets('the saved filters sheet clears the navigation bar', (
     tester,
   ) async {
@@ -730,5 +752,98 @@ void main() {
       lessThanOrEqualTo(surface.height - navBar),
       reason: 'the picker footer ran under the gesture bar',
     );
+  });
+
+  testWidgets('the month/year picker clears the navigation bar', (
+    tester,
+  ) async {
+    sizeSurfaceWithNavBar(tester);
+    await openFrom(
+      tester,
+      (context) => MonthYearPickerSheet.show(
+        context,
+        initialDate: DateTime.utc(2026, 8, 20),
+        firstDate: CalendarBounds.earliest,
+        lastDate: CalendarBounds.latest,
+        accent: Colors.blue,
+      ),
+    );
+
+    // The "Type the date" row is the last thing in the scroll view, and the
+    // sheet is short enough never to scroll — the shape that forgets the
+    // clearance. The route no longer pads itself by the keyboard inset.
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+  });
+
+  testWidgets('the month/year picker keeps its header when the keyboard is '
+      'taller than the sheet', (tester) async {
+    sizeSurfaceWithTallKeyboard(tester);
+    await openFrom(
+      tester,
+      (context) => MonthYearPickerSheet.show(
+        context,
+        initialDate: DateTime.utc(2026, 8, 20),
+        firstDate: CalendarBounds.earliest,
+        lastDate: CalendarBounds.latest,
+        accent: Colors.blue,
+      ),
+    );
+
+    // Typed mode raises the keyboard; the clearance on the scroll view
+    // must leave the header where it was, not shrink the sheet to nothing.
+    expect(
+      find.bySemanticsIdentifier(SemanticsIds.monthYearApply),
+      findsOneWidget,
+    );
+    await tester.tap(find.bySemanticsIdentifier(SemanticsIds.monthYearClose));
+    await tester.pumpAndSettle();
+    expect(find.byType(MonthYearPickerSheet), findsNothing);
+  });
+
+  testWidgets('the template picker clears the navigation bar', (tester) async {
+    sizeSurfaceWithNavBar(tester);
+    await openFrom(tester, (context) => EventTemplatePickerSheet.show(context));
+
+    // The blank-event row is the last thing in the scroll view, and with no
+    // templates the sheet is three rows tall and never scrolls.
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+  });
+
+  testWidgets('the icon picker clears the navigation bar', (tester) async {
+    sizeSurfaceWithNavBar(tester);
+    await openFrom(
+      tester,
+      (context) => IconPickerSheet.show(context, tint: Colors.blue),
+    );
+
+    // The grid is the scrollable; the search group is pinned above it and
+    // must not be part of what scrolls.
+    expect(listBottomPadding(tester), greaterThanOrEqualTo(navBar));
+    expect(
+      tester.getRect(find.byType(ListView)).top,
+      greaterThanOrEqualTo(
+        tester.getRect(find.bySemanticsIdentifier(SemanticsIds.iconPickSearch))
+            .bottom,
+      ),
+    );
+  });
+
+  testWidgets('the icon picker keeps its header when the keyboard is taller '
+      'than the sheet', (tester) async {
+    sizeSurfaceWithTallKeyboard(tester);
+    await openFrom(
+      tester,
+      (context) => IconPickerSheet.show(context, tint: Colors.blue),
+    );
+
+    // The search field raises the keyboard; the clearance on the grid must
+    // leave the header and the pinned search group where they were.
+    expect(
+      find.bySemanticsIdentifier(SemanticsIds.iconPickSearch),
+      findsOneWidget,
+    );
+    await tester.tap(find.bySemanticsIdentifier(SemanticsIds.iconPickClose));
+    await tester.pumpAndSettle();
+    expect(find.byType(IconPickerSheet), findsNothing);
   });
 }

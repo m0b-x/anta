@@ -5,6 +5,8 @@ import 'package:re_editor/re_editor.dart';
 
 import '../bloc/markdown_bar/markdown_bar_bloc.dart';
 import '../constants/font_constants.dart';
+import '../constants/row_metrics.dart';
+import '../constants/semantics_ids.dart';
 import '../constants/settings_keys.dart';
 import '../controllers/editor_edit_tracker.dart';
 import '../controllers/editor_render_controller.dart';
@@ -19,6 +21,8 @@ import '../utils/list_aware_paste.dart';
 import '../utils/markdown_color_syntax.dart';
 import '../utils/markdown_editor_span_builder.dart';
 import '../utils/re_editor_search_controller.dart';
+import 'app_dialogs.dart';
+import 'form_rows.dart';
 import 'markdown_bar.dart';
 import 'modern_editor_wrapper.dart';
 
@@ -47,6 +51,13 @@ import 'modern_editor_wrapper.dart';
 ///   baseline, so undo cannot wipe the text the sheet opened with.
 /// * A late-resolving setting is applied with `forceRepaint()`, **never** by
 ///   remounting the editor.
+///
+/// A form sheet on [FormSheetFrame] since the 2026-09-27 Tier 1 pass
+/// (`docs/calendar-language-tier-1-roadmap.md`, D14): leaving asks first when
+/// the text differs from what the sheet opened with. Until then ✕, the
+/// barrier, back and a drag all popped `null` at once and a paragraph typed
+/// here was gone — the one lost-text path left in the calendar, on the
+/// surface that exists for writing more than a line.
 class EventDescriptionSheet extends StatefulWidget {
   /// Utility buttons the bar carries — the description's own set, matching the
   /// editor sheet. Counters, font sizing, sharing and scroll jumps all belong
@@ -62,9 +73,10 @@ class EventDescriptionSheet extends StatefulWidget {
   /// only edits the string.
   final String initialText;
 
-  /// The event's title, rendered as a muted line **above** the header's
-  /// label rather than beside it — a one-line breadcrumb would ellipsise away
-  /// the half naming the sheet. Empty shows the label alone.
+  /// The event's title, rendered as the muted first line of the status band
+  /// **under** the header rather than beside its title — a one-line
+  /// breadcrumb would ellipsise away the half naming the sheet. Empty shows no
+  /// such line.
   final String heading;
 
   /// One line saying what the edit will affect, or null when there is nothing
@@ -105,11 +117,16 @@ class EventDescriptionSheet extends StatefulWidget {
     return showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
-      showDragHandle: true,
+      showDragHandle: false,
+      // The editor's route: the frame owns the drag (the route's own would
+      // pop past the guard) and paints the ground and the radius itself.
+      enableDrag: false,
+      backgroundColor: Colors.transparent,
+      elevation: 0,
       builder: (_) => FractionallySizedBox(
-        // Matches the editor sheet rather than the detail sheet's 0.8: room is
-        // the entire point of this surface.
-        heightFactor: 0.92,
+        // Matches the editor sheet rather than the detail sheet's clamp: room
+        // is the entire point of this surface.
+        heightFactor: FormMetrics.sheetHeightFactor,
         child: EventDescriptionSheet(
           initialText: initialText,
           heading: heading,
@@ -170,6 +187,15 @@ class _EventDescriptionSheetState extends State<EventDescriptionSheet> {
   /// re_editor's controller-delegate handoff.
   bool _liveMarkdownRendering = SettingsKeys.defaultLiveMarkdownRendering;
 
+  /// What the guard compares against: the text as the controller holds it
+  /// after seeding, not [EventDescriptionSheet.initialText] itself, so a
+  /// line-ending the load normalised cannot make an untouched sheet ask.
+  late final String _baseline;
+
+  /// Re-entrancy latch for [_leave]: ✕, back and the barrier can all fire
+  /// while the dialog is up.
+  bool _leaving = false;
+
   @override
   void initState() {
     super.initState();
@@ -180,6 +206,7 @@ class _EventDescriptionSheetState extends State<EventDescriptionSheet> {
     // A load, not an edit: `set text` would be revocable and undo could
     // wipe what the sheet opened with.
     _controller.loadText(widget.initialText);
+    _baseline = _controller.text;
     _spanBuilder.bind(_controller);
     _tracker = EditorEditTracker(
       controller: _controller,
@@ -295,7 +322,35 @@ class _EventDescriptionSheetState extends State<EventDescriptionSheet> {
   /// "Done is disabled but the counter says you are fine" possible.
   int get _length => _controller.text.length;
 
+  /// Done pops the text as it is, never through the guard: confirming is the
+  /// one exit that keeps what was typed.
   void _confirm() => Navigator.of(context).pop(_controller.text);
+
+  /// Whether leaving would lose typed text. A plain compare against the
+  /// seeded text rather than the editor sheet's fingerprint: the text is the
+  /// whole form here, and typing back to the original is not a change.
+  bool get _isDirty => _controller.text != _baseline;
+
+  /// The editor sheet's guard, shared through [AppDialogs.confirmDiscard]:
+  /// a clean sheet leaves at once, a dirty one asks (D14).
+  Future<bool> _confirmLeave() async {
+    if (!_isDirty) return true;
+    return AppDialogs.confirmDiscard(context);
+  }
+
+  /// Serves ✕, back, the system back gesture, the barrier and a dismissing
+  /// drag through [FormSheetFrame]; pops `null` once the guard allows it.
+  Future<void> _leave() async {
+    if (_leaving) return;
+    _leaving = true;
+    try {
+      final leave = await _confirmLeave();
+      if (!leave || !mounted) return;
+      Navigator.of(context).pop();
+    } finally {
+      _leaving = false;
+    }
+  }
 
   /// Applies a bar shortcut. Mirrors the editor sheet's routing: the ghost /
   /// colour-slot shortcuts have bespoke inserts, everything else goes through
@@ -369,15 +424,22 @@ class _EventDescriptionSheetState extends State<EventDescriptionSheet> {
     final caption = widget.scopeCaption;
     final heading = widget.heading.trim();
     final subject = heading.isEmpty ? null : heading;
-    // Reserved so the over-limit explanation can appear without resizing the
-    // editor under the caret. Two lines of `bodySmall`, scaled with the user's
-    // text size — a status line that pushes the editor around at exactly the
-    // moment the user is fighting the limit is the worst time to move it.
+    // Reserved from the sheet's static inputs alone, so the over-limit
+    // explanation can appear without resizing the editor under the caret:
+    // the subject's line plus two for the scope caption while both exist,
+    // else two, in `bodySmall` scaled with the user's text size. Over budget
+    // the explanation replaces the whole band text, subject included — it is
+    // the more urgent line, it already took the caption's slot, and reserving
+    // a third line for it on an event without a caption left two empty lines
+    // above the event name (D23). A status line that pushes the editor around
+    // at exactly the moment the user is fighting the limit is the worst time
+    // to move it.
     final statusStyle = theme.textTheme.bodySmall;
-    final statusBandHeight =
+    final statusLineHeight =
         MediaQuery.textScalerOf(context).scale(statusStyle?.fontSize ?? 12) *
-        2 *
-        1.4;
+        FormMetrics.statusLineFactor;
+    final statusBandHeight =
+        statusLineHeight * (subject != null && caption != null ? 3 : 2);
     // The bar is a fixed footer below the editor, so the clearance goes on the
     // bar — never on the whole sheet. The sheet's box is a fixed fraction of
     // the screen and does not shrink for the keyboard, so padding the body
@@ -389,103 +451,102 @@ class _EventDescriptionSheetState extends State<EventDescriptionSheet> {
     final viewPadding = MediaQuery.viewPaddingOf(context).bottom;
     final bottomClearance = viewInsets > viewPadding ? viewInsets : viewPadding;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-          child: Row(
-            children: [
-              IconButton(
-                tooltip: l10n.close,
-                icon: const Icon(Icons.close_rounded),
-                onPressed: () => Navigator.of(context).pop(),
+    return FormSheetFrame(
+      onLeave: _leave,
+      isClean: () => !_isDirty,
+      onDismiss: () => Navigator.of(context).pop(),
+      chrome: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const FormSheetHandle(),
+          FormSheetHeader(
+            leadingIcon: Icons.close_rounded,
+            leadingTooltip: l10n.cancel,
+            leadingIdentifier: SemanticsIds.descriptionClose,
+            onLeading: _leave,
+            title: l10n.eventDescription,
+            trailingInset: FormMetrics.headerActionInset,
+            trailing: ListenableBuilder(
+              listenable: _revision,
+              builder: (context, _) => FormHeaderTextButton(
+                label: l10n.eventDescriptionDone,
+                identifier: SemanticsIds.descriptionDone,
+                onPressed: _withinLimit(_length) ? _confirm : null,
               ),
-              // Two lines, not a `title · Description` breadcrumb: between a
-              // 48dp icon and the Done button there is barely 180dp left on
-              // a phone, and a one-line breadcrumb ellipsises away the half
-              // that says what the sheet *is*. Stacked, the event name
-              // truncates and the label never does — and the pair still fits
-              // inside the row's existing button height, so the header costs
-              // no extra vertical room.
-              Expanded(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (subject != null)
-                      Text(
-                        subject,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                        textAlign: TextAlign.center,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    Text(
-                      l10n.eventDescription,
-                      style: theme.textTheme.titleLarge,
-                      textAlign: TextAlign.center,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: ListenableBuilder(
-                  listenable: _revision,
-                  builder: (context, _) => FilledButton(
-                    onPressed: _withinLimit(_length) ? _confirm : null,
-                    child: Text(l10n.eventDescriptionDone),
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
+        ],
+      ),
+      body: [
         // One builder for both halves: the counter and the over-limit line
         // answer the same question, and reading the length once per change
-        // keeps them from ever disagreeing.
+        // keeps them from ever disagreeing. The band sits at the section
+        // label's inset so its text lines up with the editor's own 16dp text
+        // padding behind the 4dp inset below.
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+          padding: const EdgeInsets.fromLTRB(
+            RowMetrics.groupInset + RowMetrics.sectionLabelInset,
+            0,
+            RowMetrics.groupInset + RowMetrics.sectionLabelInset,
+            RowMetrics.sectionLabelBottomPadding,
+          ),
           child: ConstrainedBox(
             constraints: BoxConstraints(minHeight: statusBandHeight),
             child: ListenableBuilder(
               listenable: _revision,
               builder: (context, _) {
                 final over = !_withinLimit(_length);
-                // Over budget the explanation takes the caption's slot: it
-                // is the more urgent of the two, and swapping costs no
-                // layout change where stacking them would.
+                // Over budget the explanation is the band's only text — the
+                // subject goes with the caption — so the reserved lines are
+                // the message's whatever the event, and swapping costs no
+                // layout change where stacking would.
                 final message = over
                     ? l10n.eventDescriptionTooLong(widget.limit)
                     : caption;
+                final statusColor = over
+                    ? colorScheme.error
+                    : colorScheme.onSurfaceVariant;
                 return Row(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Expanded(
-                      child: message == null
-                          ? const SizedBox.shrink()
-                          : Text(
-                              message,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // The event name is a line of its own down here,
+                          // never a `title · Description` breadcrumb in the
+                          // header: between a 48dp icon and Done there is
+                          // barely 180dp left on a phone, and a one-line
+                          // breadcrumb ellipsises away the half that says
+                          // what the sheet *is*. Here the event name
+                          // truncates and the title never does (D14; a
+                          // second header line was considered and rejected —
+                          // one title per header).
+                          if (!over && subject != null)
+                            Text(
+                              subject,
                               style: statusStyle?.copyWith(
-                                color: over
-                                    ? colorScheme.error
-                                    : colorScheme.onSurfaceVariant,
+                                color: colorScheme.onSurfaceVariant,
                               ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          if (message != null)
+                            Text(
+                              message,
+                              style: statusStyle?.copyWith(color: statusColor),
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                             ),
+                        ],
+                      ),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: RowMetrics.gap),
                     Text(
                       l10n.eventDescriptionCount(_length, widget.limit),
                       style: statusStyle?.copyWith(
-                        color: over
-                            ? colorScheme.error
-                            : colorScheme.onSurfaceVariant,
+                        color: statusColor,
                         fontWeight: over ? FontWeight.w600 : null,
                       ),
                     ),

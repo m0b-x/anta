@@ -1,10 +1,15 @@
+import 'dart:ui' show CheckedState;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 
+import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/services/alert_gateway.dart';
 import 'package:anta/widgets/alert_sound_sheet.dart';
+import 'package:anta/widgets/form_rows.dart';
 
 /// The chooser is the one surface both the alert editor and the Calendar
 /// settings row open, so what it offers has to depend on the **platform**, not
@@ -14,12 +19,21 @@ import 'package:anta/widgets/alert_sound_sheet.dart';
 /// Every test binds its own gateway through GetIt, because that is how the
 /// sheet asks what the phone can do: a build with none (desktop, and most of
 /// this suite) must simply show fewer options rather than fail.
+///
+/// Since the 2026-09-27 Tier 1 pass the rows are the language's exclusive
+/// check rows, each one radio node carrying its `SemanticsIds` value, the
+/// phone's name for a picked sound the caption inside that row's node.
 void main() {
   tearDown(() async {
     if (GetIt.I.isRegistered<AlertGateway>()) {
       await GetIt.I.unregister<AlertGateway>();
     }
   });
+
+  Finder byId(String id) => find.bySemanticsIdentifier(id);
+
+  SemanticsData dataOf(WidgetTester tester, String id) =>
+      tester.getSemantics(byId(id)).getSemanticsData();
 
   /// The sheet's result arrives long after [openSheet] returns, so it is
   /// handed back in a holder rather than as a value — the
@@ -28,13 +42,27 @@ void main() {
     WidgetTester tester, {
     String? value,
     bool allowInherit = false,
+    Locale locale = const Locale('en'),
+    Size? size,
+    double textScale = 1.0,
   }) async {
+    if (size != null) {
+      addTearDown(tester.view.reset);
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = size;
+    }
     final result = _Holder();
     await tester.pumpWidget(
       MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        locale: const Locale('en'),
+        locale: locale,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: TextScaler.linear(textScale)),
+          child: child!,
+        ),
         home: Scaffold(
           body: Builder(
             builder: (context) => TextButton(
@@ -216,6 +244,130 @@ void main() {
     );
     // Garbage is the phone's default everywhere, including in the label.
     expect(AlertSoundSheet.labelFor(l10n, 'nonsense'), "Phone's default alarm");
+  });
+
+  testWidgets('the three rows carry their ids as exclusive nodes, the stored '
+      'one checked', (tester) async {
+    GetIt.I.registerSingleton<AlertGateway>(const _PhoneSoundGateway());
+    await openSheet(tester, value: 'system:default', allowInherit: true);
+
+    for (final id in [
+      SemanticsIds.soundInherit,
+      SemanticsIds.soundPhoneDefault,
+      SemanticsIds.soundFromPhone,
+    ]) {
+      expect(byId(id), findsOneWidget, reason: id);
+      expect(
+        dataOf(tester, id).flagsCollection.isInMutuallyExclusiveGroup,
+        isTrue,
+        reason: id,
+      );
+    }
+    expect(
+      dataOf(tester, SemanticsIds.soundPhoneDefault).flagsCollection.isChecked,
+      CheckedState.isTrue,
+    );
+    expect(
+      dataOf(tester, SemanticsIds.soundInherit).flagsCollection.isChecked,
+      CheckedState.isFalse,
+    );
+    expect(
+      dataOf(tester, SemanticsIds.soundFromPhone).flagsCollection.isChecked,
+      CheckedState.isFalse,
+    );
+    expect(find.byType(FormCheckRow), findsNWidgets(3));
+    expect(find.byType(ListTile), findsNothing);
+  });
+
+  testWidgets('the phone row carries its caption inside its own node only '
+      'while a picked sound is stored', (tester) async {
+    GetIt.I.registerSingleton<AlertGateway>(
+      const _PhoneSoundGateway(title: 'Oxygen'),
+    );
+    await openSheet(tester, value: 'content://media/7');
+
+    final withUri = dataOf(tester, SemanticsIds.soundFromPhone);
+    expect(withUri.label, contains('Choose from phone'));
+    expect(withUri.label, contains('Oxygen'));
+    expect(withUri.flagsCollection.isChecked, CheckedState.isTrue);
+    expect(
+      tester
+          .widget<FormCheckRow>(
+            find.widgetWithText(FormCheckRow, 'Choose from phone'),
+          )
+          .caption,
+      'Oxygen',
+    );
+
+    await tester.tap(byId(SemanticsIds.soundClose));
+    await tester.pumpAndSettle();
+    await openSheet(tester, value: '');
+
+    final withoutUri = dataOf(tester, SemanticsIds.soundFromPhone);
+    expect(withoutUri.label, contains('Choose from phone'));
+    expect(withoutUri.label, isNot(contains('Oxygen')));
+    expect(withoutUri.label, isNot(contains('Sound from phone')));
+    expect(
+      tester
+          .widget<FormCheckRow>(
+            find.widgetWithText(FormCheckRow, 'Choose from phone'),
+          )
+          .caption,
+      isNull,
+    );
+  });
+
+  testWidgets('close pops null', (tester) async {
+    final result = await openSheet(tester, value: '', allowInherit: true);
+
+    expect(find.byType(FormSheetHandle), findsOneWidget);
+    expect(find.byType(FormSheetHeader), findsOneWidget);
+    expect(find.text('Alarm sound'), findsOneWidget);
+    expect(find.byType(FormHeaderTextButton), findsNothing);
+
+    await tester.tap(byId(SemanticsIds.soundClose));
+    await tester.pumpAndSettle();
+
+    expect(result.value, isNull);
+    expect(find.byType(AlertSoundSheet), findsNothing);
+  });
+
+  testWidgets('at text scale 2.0 in German on a 360 × 780 phone nothing '
+      'overflows and every row reads whole', (tester) async {
+    GetIt.I.registerSingleton<AlertGateway>(
+      const _PhoneSoundGateway(title: 'Oxygen'),
+    );
+    await openSheet(
+      tester,
+      value: 'content://media/7',
+      allowInherit: true,
+      locale: const Locale('de'),
+      size: const Size(360, 780),
+      textScale: 2.0,
+    );
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Weckton'), findsOneWidget);
+    expect(find.byTooltip('Abbrechen'), findsOneWidget);
+    expect(find.text('App-Einstellung verwenden'), findsOneWidget);
+    expect(find.text('Standard-Weckton des Telefons'), findsOneWidget);
+    expect(find.text('Vom Telefon wählen'), findsOneWidget);
+    expect(find.text('Oxygen'), findsOneWidget);
+    expect(
+      tester.getSize(find.byType(FormSheetHeader)).height,
+      FormMetrics.headerHeight,
+    );
+    for (final row in find.byType(FormCheckRow).evaluate()) {
+      expect(
+        tester.getSize(find.byWidget(row.widget)).height,
+        greaterThanOrEqualTo(FormMetrics.rowMinHeight),
+      );
+    }
+
+    await tester.tap(byId(SemanticsIds.soundClose));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertSoundSheet), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 }
 

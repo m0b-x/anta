@@ -1,28 +1,48 @@
+import 'dart:math' as math;
+
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 
-import '../constants/app_constants.dart';
+import '../constants/app_colors.dart';
 import '../constants/calendar_categories.dart';
-import '../constants/calendar_icons.dart';
 import '../constants/event_priorities.dart';
 import '../constants/fasting_calendar.dart';
+import '../constants/row_metrics.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_category.dart';
 import '../models/calendar_event.dart';
 import '../models/upcoming_agenda_filters.dart';
+import '../utils/calendar_filter_summary.dart';
 import '../utils/event_agenda.dart';
 import 'agenda_list_view.dart';
 import 'category_picker_sheet.dart';
+import 'filter_check_list_sheet.dart';
+import 'form_rows.dart';
 
-/// Every upcoming-agenda filter, in one modal sheet.
+/// Every upcoming-agenda filter, in one modal sheet — the Filters sheet's
+/// twin (`CalendarFilterSheet`), in the same grouped-row language since the
+/// 2026-09-27 Tier 1 pass (`docs/calendar-language-tier-1-roadmap.md`): a
+/// mutually exclusive choice is a menu row, a set is a picker row that reads
+/// its value back and opens the shared category picker or check-list sheet,
+/// a layer is a switch row, and Reset filters is the last action row.
 ///
 /// These are set-and-forget, persisted choices, so they do not earn permanent
 /// space in a bottom panel that is already short — the panel keeps only the
 /// search field and a summary of what is currently narrowing the results.
 ///
-/// Edits a **local draft** and returns it on Apply (or `null` when dismissed),
-/// mirroring [CalendarCategories]-based sibling sheets: a live-applying sheet
-/// would re-run the agenda scan on every chip tap behind the sheet. [query] is
-/// never touched here — it belongs to the panel's search field.
+/// Edits a **local draft** and returns it on Apply (or `null` when dismissed):
+/// a live-applying sheet would re-run the agenda scan behind the sheet on
+/// every tap. No discard guard — the sheet holds no typed text, and the draft
+/// costs a tap to redo. [UpcomingAgendaFilters.query] is never touched here:
+/// it belongs to the panel's search field, which is why Reset keeps it and
+/// why the Reset row ignores it when deciding whether there is anything left
+/// to reset.
+///
+/// A control that cannot act — Fasting while no tradition is configured,
+/// Categories and Priority while no events are listed — is drawn at 38 % with
+/// its stored value rather than dropped: a row that appears between two
+/// openings moves everything under it.
 class AgendaFiltersSheet extends StatefulWidget {
   final UpcomingAgendaFilters initial;
 
@@ -30,8 +50,9 @@ class AgendaFiltersSheet extends StatefulWidget {
 
   /// Names one period choice. Shared with the panel's summary chip so the
   /// sheet and the chip that undoes it can never name the same window
-  /// differently. [AgendaPeriodMode.rollingDays] has no chip of its own — it
-  /// is the preset row — so it falls back to the window it spans.
+  /// differently. [AgendaPeriodMode.rollingDays] is the Period menu's three
+  /// day presets rather than one item, so it falls back to the window it
+  /// spans.
   static String periodModeLabel(
     AppLocalizations l10n,
     AgendaPeriodMode mode,
@@ -44,16 +65,31 @@ class AgendaFiltersSheet extends StatefulWidget {
     };
   }
 
+  /// The sub-sheet shape: as tall as its content, clamped at the editor's
+  /// height, the route's own drag.
   static Future<UpcomingAgendaFilters?> show(
     BuildContext context, {
     required UpcomingAgendaFilters filters,
   }) {
+    final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<UpcomingAgendaFilters>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      showDragHandle: true,
-      builder: (_) => AgendaFiltersSheet(initial: filters),
+      showDragHandle: false,
+      backgroundColor: colorScheme.pageGround,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(FormMetrics.sheetRadius),
+        ),
+      ),
+      builder: (context) => ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight:
+              MediaQuery.sizeOf(context).height * FormMetrics.sheetHeightFactor,
+        ),
+        child: AgendaFiltersSheet(initial: filters),
+      ),
     );
   }
 
@@ -61,52 +97,93 @@ class AgendaFiltersSheet extends StatefulWidget {
   State<AgendaFiltersSheet> createState() => _AgendaFiltersSheetState();
 }
 
+/// The Period menu's six choices. The first three stand for
+/// [UpcomingAgendaFilters.rangePresets] in order (an assertion in the sheet
+/// keeps them from drifting); the two year windows are anchored to the
+/// calendar year rather than counted forward, which is why they cannot be
+/// expressed as another rolling preset; [custom] writes nothing itself — it
+/// opens the range picker, which writes both dates or nothing.
+enum _PeriodChoice {
+  days7(mode: AgendaPeriodMode.rollingDays, days: 7),
+  days30(mode: AgendaPeriodMode.rollingDays, days: 30),
+  days90(mode: AgendaPeriodMode.rollingDays, days: 90),
+  restOfYear(mode: AgendaPeriodMode.restOfYear),
+  wholeYear(mode: AgendaPeriodMode.wholeYear),
+  custom();
+
+  /// What picking the choice writes: the window mode and, for a rolling
+  /// preset, its day count. Both null on [custom].
+  final AgendaPeriodMode? mode;
+  final int? days;
+
+  const _PeriodChoice({this.mode, this.days});
+}
+
 class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
   late UpcomingAgendaFilters _draft = widget.initial;
 
-  /// Which events layer to restore when the Events toggle comes back on.
-  /// Held here rather than in the model so switching the layer off and on
-  /// again is not silently a reset to "All".
-  late AgendaEventType _lastEventType = _draft.eventType == AgendaEventType.none
-      ? AgendaEventType.all
-      : _draft.eventType;
+  /// Guards the sheet's own sub-routes — the category picker, the priority
+  /// check list and the range picker — against a double tap pushing two
+  /// identical copies, which reads as a sheet that will not close. One flag
+  /// for all: they are never nested.
+  bool _subRouteOpen = false;
+
+  /// The body's scroll position feeds the header's hairline (a form sheet's
+  /// rule): a notifier, never `setState`, so a scroll frame rebuilds a 1 px
+  /// line and not the sheet.
+  final ScrollController _bodyScroll = ScrollController();
+  final ValueNotifier<bool> _headerScrolled = ValueNotifier<bool>(false);
+
+  @override
+  void initState() {
+    super.initState();
+    assert(
+      listEquals(
+        [for (final choice in _PeriodChoice.values) ?choice.days],
+        UpcomingAgendaFilters.rangePresets,
+      ),
+      'The Period menu must offer UpcomingAgendaFilters.rangePresets in order',
+    );
+    _bodyScroll.addListener(_onBodyScroll);
+  }
+
+  @override
+  void dispose() {
+    _bodyScroll.removeListener(_onBodyScroll);
+    _bodyScroll.dispose();
+    _headerScrolled.dispose();
+    super.dispose();
+  }
+
+  void _onBodyScroll() {
+    final scrolled = _bodyScroll.hasClients && _bodyScroll.offset > 0;
+    if (_headerScrolled.value != scrolled) _headerScrolled.value = scrolled;
+  }
 
   bool get _eventsShown => _draft.eventType != AgendaEventType.none;
 
+  /// Whether Reset would change anything. The query is the panel's, never
+  /// this sheet's — Reset keeps it — so it is left out of the comparison, or
+  /// a typed search would light a row that cannot clear it.
+  bool get _isDefault =>
+      _draft.copyWith(query: '') == const UpcomingAgendaFilters();
+
   void _update(UpcomingAgendaFilters next) => setState(() => _draft = next);
 
+  /// Back to the defaults with the query kept; the sheet stays open.
   void _reset() {
-    setState(() {
-      _draft = const UpcomingAgendaFilters().copyWith(query: _draft.query);
-      _lastEventType = AgendaEventType.all;
-    });
+    _update(const UpcomingAgendaFilters().copyWith(query: _draft.query));
   }
 
-  void _setEventsShown(bool shown) {
-    if (!shown) _lastEventType = _draft.eventType;
-    _update(
-      _draft.copyWith(eventType: shown ? _lastEventType : AgendaEventType.none),
-    );
-  }
-
-  void _togglePriority(int priority, bool selected) {
-    final next = {..._draft.priorities};
-    if (selected) {
-      next.add(priority);
-    } else {
-      next.remove(priority);
+  /// Runs [open] unless a sub-route is already up.
+  Future<void> _guarded(Future<void> Function() open) async {
+    if (_subRouteOpen) return;
+    _subRouteOpen = true;
+    try {
+      await open();
+    } finally {
+      _subRouteOpen = false;
     }
-    _update(_draft.copyWith(priorities: next));
-  }
-
-  void _toggleCategory(String id, bool selected) {
-    final next = {..._draft.categoryIds};
-    if (selected) {
-      next.add(id);
-    } else {
-      next.remove(id);
-    }
-    _update(_draft.copyWith(categoryIds: next));
   }
 
   /// Opens the multi-select picker over the category allowlist.
@@ -118,32 +195,56 @@ class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
   ///
   /// **The inversion is the caller's, in both directions.** An empty
   /// allowlist opens with every row *checked* — it already means "all", the
-  /// tile above says so, and opening it unchecked would make one state read
+  /// row above says so, and opening it unchecked would make one state read
   /// two ways (and disagree with the calendar filter's sub-sheet, which
   /// inverts its denylist and so opens checked for the same "everything
   /// shown" state). A result covering everything on offer collapses back to
   /// the empty set rather than freezing today's catalog into an explicit
   /// list, which would silently exclude every category created afterwards.
   ///
-  /// Unchecking every row still stores the empty set — the same thing
-  /// unchecking every chip does below the threshold, and the only reading
-  /// "no allowlist" has.
+  /// Unchecking every row still stores the empty set — the only reading "no
+  /// allowlist" has.
   ///
   /// It returns into the local draft, so nothing re-runs the agenda scan
   /// behind the sheet until Apply.
-  Future<void> _pickCategories(List<CalendarCategory> categories) async {
-    final offered = {for (final category in categories) category.id};
-    final picked = await CategoryPickerSheet.pickMulti(
+  Future<void> _pickCategories(List<CalendarCategory> categories) =>
+      _guarded(() async {
+        final offered = {for (final category in categories) category.id};
+        final picked = await CategoryPickerSheet.pickMulti(
+          context,
+          selected: _draft.categoryIds.isEmpty ? offered : _draft.categoryIds,
+        );
+        if (picked == null || !mounted) return;
+        _update(
+          _draft.copyWith(
+            categoryIds: picked.containsAll(offered) ? const {} : picked,
+          ),
+        );
+      });
+
+  Future<void> _pickPriorities(AppLocalizations l10n) => _guarded(() async {
+    final picked = await FilterCheckListSheet.show(
       context,
-      selected: _draft.categoryIds.isEmpty ? offered : _draft.categoryIds,
+      title: l10n.upcomingPriority,
+      items: [
+        // Ascending: P1 (highest) leads, since lower numbers rank higher.
+        for (var p = kMinEventPriority; p <= kMaxEventPriority; p++)
+          FilterCheckItem(
+            id: '$p',
+            icon: EventPriorities.iconFor(p),
+            label: EventPriorities.labelOf(p, l10n),
+            identifier: SemanticsIds.filterListRow('priority-$p'),
+          ),
+      ],
+      selected: {for (final p in _draft.priorities) '$p'},
     );
     if (picked == null || !mounted) return;
     _update(
       _draft.copyWith(
-        categoryIds: picked.containsAll(offered) ? const {} : picked,
+        priorities: {for (final id in picked) ?int.tryParse(id)},
       ),
     );
-  }
+  });
 
   /// Opens a date-range picker. The lower bound reaches into the past on
   /// purpose: with an explicit range the agenda doubles as an event search,
@@ -170,24 +271,112 @@ class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
     );
   }
 
-  String _eventTypeLabel(AppLocalizations l10n, AgendaEventType type) {
-    return switch (type) {
-      AgendaEventType.all => l10n.upcomingEventTypeAll,
-      AgendaEventType.recurring => l10n.upcomingEventTypeRecurring,
-      AgendaEventType.oneTime => l10n.upcomingEventTypeOneTime,
-      AgendaEventType.none => l10n.upcomingEventsHidden,
-    };
+  /// The Period menu's checked item: a pinned range wins, then the window
+  /// mode, then the preset the day count matches. A stored count outside the
+  /// presets (a value another build wrote) checks nothing and reads back as
+  /// its own day count rather than snapping to the nearest preset.
+  _PeriodChoice? get _periodChoice {
+    if (_draft.hasCustomRange) return _PeriodChoice.custom;
+    for (final choice in _PeriodChoice.values) {
+      if (choice.mode != _draft.periodMode) continue;
+      if (choice.days == null || choice.days == _draft.rangeDays) return choice;
+    }
+    return null;
   }
 
-  String _fastingDisplayLabel(
+  /// A preset or a year window writes the draft at once; `Custom range…`
+  /// opens the range picker, which writes both dates or nothing. Nullable
+  /// only because [_periodChoice] is — the menu itself never answers null.
+  void _selectPeriod(_PeriodChoice? choice) {
+    if (choice == null) return;
+    final mode = choice.mode;
+    if (mode == null) {
+      _guarded(_pickCustomRange);
+      return;
+    }
+    _update(
+      _draft.copyWith(
+        periodMode: mode,
+        rangeDays: choice.days,
+        clearCustomRange: true,
+      ),
+    );
+  }
+
+  String _periodValue(AppLocalizations l10n) {
+    if (_draft.hasCustomRange) return _rangeLabel(l10n);
+    return AgendaFiltersSheet.periodModeLabel(
+      l10n,
+      _draft.periodMode,
+      _draft.rangeDays,
+    );
+  }
+
+  String _rangeLabel(AppLocalizations l10n) {
+    return AgendaListView.rangeLabel(
+      l10n.localeName,
+      _draft.customStart!,
+      _draft.customEnd!,
+    );
+  }
+
+  String _periodItemLabel(AppLocalizations l10n, _PeriodChoice choice) {
+    if (choice.days case final days?) return l10n.upcomingPeriodDays(days);
+    if (choice.mode case final mode?) {
+      return AgendaFiltersSheet.periodModeLabel(l10n, mode, _draft.rangeDays);
+    }
+    return l10n.upcomingPeriodCustom;
+  }
+
+  static IconData _periodIcon(_PeriodChoice choice) => switch (choice) {
+    _PeriodChoice.days7 ||
+    _PeriodChoice.days30 ||
+    _PeriodChoice.days90 => Icons.schedule_rounded,
+    _PeriodChoice.restOfYear ||
+    _PeriodChoice.wholeYear => Icons.calendar_today_rounded,
+    _PeriodChoice.custom => Icons.edit_calendar_rounded,
+  };
+
+  static String _periodId(_PeriodChoice choice) => switch (choice) {
+    _PeriodChoice.days7 => SemanticsIds.agendaFilterPeriod7,
+    _PeriodChoice.days30 => SemanticsIds.agendaFilterPeriod30,
+    _PeriodChoice.days90 => SemanticsIds.agendaFilterPeriod90,
+    _PeriodChoice.restOfYear => SemanticsIds.agendaFilterPeriodRestOfYear,
+    _PeriodChoice.wholeYear => SemanticsIds.agendaFilterPeriodThisYear,
+    _PeriodChoice.custom => SemanticsIds.agendaFilterPeriodCustom,
+  };
+
+  static String _eventTypeId(AgendaEventType type) => switch (type) {
+    AgendaEventType.all => SemanticsIds.agendaFilterEventsAll,
+    AgendaEventType.recurring => SemanticsIds.agendaFilterEventsRecurring,
+    AgendaEventType.oneTime => SemanticsIds.agendaFilterEventsOneTime,
+    AgendaEventType.none => SemanticsIds.agendaFilterEventsNone,
+  };
+
+  /// "All", the allowed categories by name, or "No categories" — counted
+  /// over the offered catalog, so a stale id left by a deleted category
+  /// cannot make the row lie.
+  String _categoriesValue(
     AppLocalizations l10n,
-    AgendaFastingDisplay display,
+    List<CalendarCategory> categories,
   ) {
-    return switch (display) {
-      AgendaFastingDisplay.everyDay => l10n.upcomingFastingDisplayEveryDay,
-      AgendaFastingDisplay.periods => l10n.upcomingFastingDisplayPeriods,
-      AgendaFastingDisplay.summary => l10n.upcomingFastingDisplaySummary,
-    };
+    if (_draft.categoryIds.isEmpty) return l10n.calendarFilterCategoriesAll;
+    final names = [
+      for (final c in categories)
+        if (_draft.categoryIds.contains(c.id))
+          CalendarCategories.labelOf(c, l10n),
+    ];
+    if (names.isEmpty) return l10n.calendarFilterNoCategories;
+    return CalendarFilterSummary.namesReadBack(names, l10n);
+  }
+
+  String _priorityValue(AppLocalizations l10n) {
+    if (_draft.priorities.isEmpty) return l10n.upcomingPriorityAny;
+    final ascending = _draft.priorities.toList()..sort();
+    return CalendarFilterSummary.namesReadBack(
+      [for (final p in ascending) EventPriorities.labelOf(p, l10n)],
+      l10n,
+    );
   }
 
   /// Its own keys rather than the fasting/holiday ones, even where the English
@@ -202,6 +391,50 @@ class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
     };
   }
 
+  static IconData _eventDisplayIcon(AgendaEventDisplay display) =>
+      switch (display) {
+        AgendaEventDisplay.everyOccurrence => Icons.view_agenda_outlined,
+        AgendaEventDisplay.perEvent => Icons.repeat_one_rounded,
+        AgendaEventDisplay.summary => Icons.summarize_outlined,
+      };
+
+  static String _eventDisplayId(AgendaEventDisplay display) =>
+      switch (display) {
+        AgendaEventDisplay.everyOccurrence =>
+          SemanticsIds.agendaFilterEventRowsEvery,
+        AgendaEventDisplay.perEvent =>
+          SemanticsIds.agendaFilterEventRowsPerEvent,
+        AgendaEventDisplay.summary => SemanticsIds.agendaFilterEventRowsSummary,
+      };
+
+  String _fastingDisplayLabel(
+    AppLocalizations l10n,
+    AgendaFastingDisplay display,
+  ) {
+    return switch (display) {
+      AgendaFastingDisplay.everyDay => l10n.upcomingFastingDisplayEveryDay,
+      AgendaFastingDisplay.periods => l10n.upcomingFastingDisplayPeriods,
+      AgendaFastingDisplay.summary => l10n.upcomingFastingDisplaySummary,
+    };
+  }
+
+  static IconData _fastingDisplayIcon(AgendaFastingDisplay display) =>
+      switch (display) {
+        AgendaFastingDisplay.everyDay => Icons.view_agenda_outlined,
+        AgendaFastingDisplay.periods => Icons.date_range_rounded,
+        AgendaFastingDisplay.summary => Icons.summarize_outlined,
+      };
+
+  static String _fastingDisplayId(AgendaFastingDisplay display) =>
+      switch (display) {
+        AgendaFastingDisplay.everyDay =>
+          SemanticsIds.agendaFilterFastingRowsEveryDay,
+        AgendaFastingDisplay.periods =>
+          SemanticsIds.agendaFilterFastingRowsPeriods,
+        AgendaFastingDisplay.summary =>
+          SemanticsIds.agendaFilterFastingRowsSummary,
+      };
+
   /// Its own keys rather than the fasting ones, even though the English words
   /// coincide: sharing strings across two axes means rewording one silently
   /// rewords the other.
@@ -215,438 +448,284 @@ class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
     };
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-    // `useSafeArea: true` guards the status bar but is unreliable against the
-    // bottom gesture/nav bar on real devices, so pad by the larger of the
-    // keyboard and system bottom insets — the same fix the sibling calendar
-    // sheets use so the Apply button is never covered.
-    final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
-    final viewPadding = MediaQuery.viewPaddingOf(context).bottom;
-    final bottomClearance = viewInsets > viewPadding ? viewInsets : viewPadding;
+  static IconData _holidayDisplayIcon(AgendaHolidayDisplay display) =>
+      switch (display) {
+        AgendaHolidayDisplay.everyDay => Icons.view_agenda_outlined,
+        AgendaHolidayDisplay.summary => Icons.summarize_outlined,
+      };
 
-    return Padding(
-      padding: EdgeInsets.only(bottom: bottomClearance),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 12, 0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    l10n.upcomingFilters,
-                    style: theme.textTheme.titleMedium,
-                  ),
-                ),
-                TextButton(
-                  onPressed: _reset,
-                  child: Text(l10n.upcomingFiltersReset),
-                ),
-              ],
-            ),
-          ),
-          Flexible(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _SectionLabel(l10n.upcomingSectionPeriod),
-                  _buildPeriod(l10n),
-                  const SizedBox(height: 20),
-                  _SectionLabel(l10n.upcomingSectionShow),
-                  _buildLayers(l10n),
-                  if (_eventsShown) ...[
-                    const SizedBox(height: 20),
-                    _SectionLabel(l10n.upcomingPriority),
-                    _buildPriorities(l10n),
-                    const SizedBox(height: 20),
-                    _SectionLabel(l10n.calendarCategories),
-                    _buildCategories(l10n),
-                  ],
-                  const SizedBox(height: 20),
-                  _SectionLabel(l10n.upcomingSectionDisplay),
-                  _buildDisplay(l10n),
-                ],
-              ),
-            ),
-          ),
-          // The body scrolls under a pinned footer; without an edge the last
-          // row bleeds into the button with nothing to say the list continues.
-          const Divider(height: 1),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-            child: FilledButton(
-              onPressed: () => Navigator.of(context).pop(_draft),
-              child: Text(l10n.apply),
-            ),
-          ),
-        ],
+  static String _holidayDisplayId(AgendaHolidayDisplay display) =>
+      switch (display) {
+        AgendaHolidayDisplay.everyDay =>
+          SemanticsIds.agendaFilterHolidayRowsEveryDay,
+        AgendaHolidayDisplay.summary =>
+          SemanticsIds.agendaFilterHolidayRowsSummary,
+      };
+
+  void _apply() {
+    Navigator.of(context).pop(
+      _draft.copyWith(
+        priorities: Set.unmodifiable(_draft.priorities),
+        categoryIds: Set.unmodifiable(_draft.categoryIds),
       ),
     );
   }
 
-  Widget _buildPeriod(AppLocalizations l10n) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        for (final days in UpcomingAgendaFilters.rangePresets)
-          ChoiceChip(
-            label: Text(l10n.upcomingPeriodDays(days)),
-            visualDensity: VisualDensity.compact,
-            selected:
-                !_draft.hasCustomRange &&
-                _draft.periodMode == AgendaPeriodMode.rollingDays &&
-                _draft.rangeDays == days,
-            onSelected: (selected) {
-              if (!selected) return;
-              _update(
-                _draft.copyWith(
-                  periodMode: AgendaPeriodMode.rollingDays,
-                  rangeDays: days,
-                  clearCustomRange: true,
-                ),
-              );
-            },
-          ),
-        // The two year windows are anchored to the calendar year rather than
-        // counted forward, which is why they cannot be expressed as another
-        // entry in `rangePresets`.
-        for (final mode in const [
-          AgendaPeriodMode.restOfYear,
-          AgendaPeriodMode.wholeYear,
-        ])
-          ChoiceChip(
-            label: Text(
-              AgendaFiltersSheet.periodModeLabel(l10n, mode, _draft.rangeDays),
-            ),
-            visualDensity: VisualDensity.compact,
-            selected: !_draft.hasCustomRange && _draft.periodMode == mode,
-            onSelected: (selected) {
-              if (!selected) return;
-              _update(
-                _draft.copyWith(periodMode: mode, clearCustomRange: true),
-              );
-            },
-          ),
-        InputChip(
-          avatar: const Icon(Icons.date_range_rounded, size: 18),
-          label: Text(
-            _draft.hasCustomRange
-                ? _rangeLabel(l10n)
-                : l10n.upcomingPeriodCustom,
-          ),
-          visualDensity: VisualDensity.compact,
-          // The date_range avatar is the chip's identity; with a range active
-          // the delete "x" already signals selection, so the checkmark would
-          // only crowd the chip.
-          showCheckmark: false,
-          selected: _draft.hasCustomRange,
-          onSelected: (_) => _pickCustomRange(),
-          onDeleted: _draft.hasCustomRange
-              ? () => _update(_draft.copyWith(clearCustomRange: true))
-              : null,
-          deleteButtonTooltipMessage: l10n.upcomingClearRange,
-        ),
-      ],
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    // The larger of the keyboard inset and the system's bottom inset pads the
+    // scroll view, never the whole body — the clearance rule every calendar
+    // sheet follows (`sheet_bottom_clearance_test.dart`).
+    final clearance = math.max(
+      MediaQuery.viewInsetsOf(context).bottom,
+      MediaQuery.viewPaddingOf(context).bottom,
     );
-  }
-
-  String _rangeLabel(AppLocalizations l10n) {
-    return AgendaListView.rangeLabel(
-      l10n.localeName,
-      _draft.customStart!,
-      _draft.customEnd!,
-    );
-  }
-
-  Widget _buildLayers(AppLocalizations l10n) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            FilterChip(
-              avatar: const Icon(Icons.event_rounded, size: 18),
-              label: Text(l10n.upcomingShowEvents),
-              visualDensity: VisualDensity.compact,
-              selected: _eventsShown,
-              onSelected: _setEventsShown,
-            ),
-            FilterChip(
-              avatar: const Icon(Icons.celebration_rounded, size: 18),
-              label: Text(l10n.upcomingShowHolidays),
-              visualDensity: VisualDensity.compact,
-              selected: _draft.showHolidays,
-              onSelected: (selected) =>
-                  _update(_draft.copyWith(showHolidays: selected)),
-            ),
-            // Fasting is inert until a tradition is configured, so the chip
-            // only appears once it can act.
-            if (FastingCalendar.isEnabled)
-              FilterChip(
-                avatar: const Icon(Icons.no_food_rounded, size: 18),
-                label: Text(l10n.upcomingShowFasting),
-                visualDensity: VisualDensity.compact,
-                selected: _draft.showFasting,
-                onSelected: (selected) =>
-                    _update(_draft.copyWith(showFasting: selected)),
-              ),
-          ],
-        ),
-        // The events sub-choice, so "which events" reads as a refinement of
-        // the layer rather than as a fourth peer of the layer toggles.
-        if (_eventsShown) ...[
-          const SizedBox(height: 12),
-          SegmentedButton<AgendaEventType>(
-            segments: [
-              for (final type in const [
-                AgendaEventType.all,
-                AgendaEventType.recurring,
-                AgendaEventType.oneTime,
-              ])
-                ButtonSegment<AgendaEventType>(
-                  value: type,
-                  label: Text(
-                    _eventTypeLabel(l10n, type),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-            ],
-            selected: {_draft.eventType},
-            showSelectedIcon: false,
-            style: const ButtonStyle(
-              visualDensity: VisualDensity.compact,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-            onSelectionChanged: (selection) {
-              _lastEventType = selection.first;
-              _update(_draft.copyWith(eventType: selection.first));
-            },
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildPriorities(AppLocalizations l10n) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        ChoiceChip(
-          label: Text(l10n.upcomingPriorityAny),
-          visualDensity: VisualDensity.compact,
-          selected: _draft.priorities.isEmpty,
-          onSelected: (selected) {
-            if (selected) _update(_draft.copyWith(priorities: const {}));
-          },
-        ),
-        // Ascending: P1 (highest) leads, since lower numbers rank higher.
-        for (
-          var priority = kMinEventPriority;
-          priority <= kMaxEventPriority;
-          priority++
-        )
-          FilterChip(
-            avatar: Icon(EventPriorities.iconFor(priority), size: 18),
-            label: Text(EventPriorities.labelOf(priority, l10n)),
-            visualDensity: VisualDensity.compact,
-            selected: _draft.priorities.contains(priority),
-            onSelected: (selected) => _togglePriority(priority, selected),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildCategories(AppLocalizations l10n) {
     // Read on every build so a database switch (which clears the facade)
     // cannot leave a stale category list here. Hidden categories are dropped
     // from every choosing surface, but an allowlist already holding a hidden
     // id must still show it or the user cannot un-select it.
     final categories = CalendarCategories.visiblePlus(_draft.categoryIds);
-    final selectedCategories = [
-      for (final category in categories)
-        if (_draft.categoryIds.contains(category.id)) category,
-    ];
-
+    final eventsShown = _eventsShown;
+    final fastingEnabled = FastingCalendar.isEnabled;
     return Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Short sets are genuinely better as chips — one tap, no navigation.
-        // Past the threshold the wall of chips buries every other section, so
-        // it collapses to one row plus a sub-sheet.
-        if (categories.length > AppConstants.listSearchThreshold)
-          CategoryFilterTile(
-            offered: categories,
-            selected: selectedCategories,
-            selectsAll:
-                _draft.categoryIds.isEmpty ||
-                selectedCategories.length == categories.length,
-            onTap: () => _pickCategories(categories),
-          )
-        else
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final category in categories)
-                FilterChip(
-                  avatar: CircleAvatar(
-                    backgroundColor: category.color.withValues(alpha: 0.18),
-                    foregroundColor: category.color,
-                    child: Icon(
-                      CalendarIcons.forKey(category.iconKey) ??
-                          Icons.event_rounded,
-                      size: 16,
-                    ),
-                  ),
-                  label: Text(CalendarCategories.labelOf(category, l10n)),
-                  selected: _draft.categoryIds.contains(category.id),
-                  onSelected: (selected) =>
-                      _toggleCategory(category.id, selected),
-                ),
-            ],
+        const FormSheetHandle(),
+        FormSheetHeader(
+          leadingIcon: Icons.close_rounded,
+          leadingTooltip: l10n.cancel,
+          leadingIdentifier: SemanticsIds.agendaFilterClose,
+          onLeading: () => Navigator.of(context).pop(),
+          title: l10n.upcomingFilters,
+          scrolled: _headerScrolled,
+          trailingInset: FormMetrics.headerActionInset,
+          // Always enabled: a no-op Apply pops the unchanged draft.
+          trailing: FormHeaderTextButton(
+            label: l10n.apply,
+            identifier: SemanticsIds.agendaFilterApply,
+            onPressed: _apply,
           ),
-        // An empty allowlist already means "all", so the reset only appears
-        // when there is a selection to clear.
-        if (_draft.categoryIds.isNotEmpty)
-          Align(
-            alignment: AlignmentDirectional.centerStart,
-            child: TextButton(
-              onPressed: () => _update(_draft.copyWith(categoryIds: const {})),
-              child: Text(l10n.upcomingClearCategories),
+        ),
+        Flexible(
+          child: Semantics(
+            identifier: SemanticsIds.agendaFilterSheet,
+            child: SingleChildScrollView(
+              controller: _bodyScroll,
+              padding: EdgeInsets.fromLTRB(
+                RowMetrics.groupInset,
+                FormMetrics.bodyTop,
+                RowMetrics.groupInset,
+                FormMetrics.bodyBottom + clearance,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // The window first: it is the agenda's own axis, and the
+                  // anchor switch belongs to the window it moves.
+                  FormRowGroup(
+                    children: [
+                      FormMenuRow<_PeriodChoice?>(
+                        glyph: Icons.date_range_rounded,
+                        label: l10n.upcomingPeriod,
+                        value: _periodValue(l10n),
+                        selected: _periodChoice,
+                        menuWidth: FormMetrics.menuWidth,
+                        identifier: SemanticsIds.agendaFilterPeriod,
+                        items: [
+                          for (final choice in _PeriodChoice.values)
+                            FormMenuItem(
+                              value: choice,
+                              label: _periodItemLabel(l10n, choice),
+                              icon: _periodIcon(choice),
+                              identifier: _periodId(choice),
+                            ),
+                        ],
+                        onSelected: _selectPeriod,
+                      ),
+                      FormSwitchRow(
+                        glyph: Icons.my_location_rounded,
+                        label: l10n.upcomingFollowSelectedDay,
+                        value: _draft.followSelectedDay,
+                        identifier: SemanticsIds.agendaFilterFollow,
+                        onChanged: (v) =>
+                            _update(_draft.copyWith(followSelectedDay: v)),
+                      ),
+                    ],
+                  ),
+                  FormSectionLabel(text: l10n.calendarFilterSectionEvents),
+                  FormRowGroup(
+                    children: [
+                      // One axis for "which events", "No events" included:
+                      // the model has no separate switch, so it can never
+                      // encode the contradictory neither state two controls
+                      // would allow. While nothing is listed the two rows
+                      // that narrow the listing go inert, not away.
+                      FormMenuRow<AgendaEventType>(
+                        glyph: Icons.event_rounded,
+                        label: l10n.upcomingShowEvents,
+                        value: CalendarFilterSummary.eventTypeLabel(
+                          l10n,
+                          _draft.eventType,
+                        ),
+                        selected: _draft.eventType,
+                        menuWidth: FormMetrics.menuWidth,
+                        identifier: SemanticsIds.agendaFilterEvents,
+                        items: [
+                          for (final type in AgendaEventType.values)
+                            FormMenuItem(
+                              value: type,
+                              label: CalendarFilterSummary.eventTypeLabel(
+                                l10n,
+                                type,
+                              ),
+                              icon: CalendarFilterSummary.eventTypeIcon(type),
+                              identifier: _eventTypeId(type),
+                            ),
+                        ],
+                        onSelected: (type) =>
+                            _update(_draft.copyWith(eventType: type)),
+                      ),
+                      FormPickerRow(
+                        glyph: Icons.label_outlined,
+                        label: l10n.calendarCategories,
+                        value: _categoriesValue(l10n, categories),
+                        identifier: SemanticsIds.agendaFilterCategories,
+                        enabled: eventsShown,
+                        onTap: eventsShown
+                            ? () => _pickCategories(categories)
+                            : null,
+                      ),
+                      FormPickerRow(
+                        glyph: Icons.flag_outlined,
+                        label: l10n.upcomingPriority,
+                        value: _priorityValue(l10n),
+                        identifier: SemanticsIds.agendaFilterPriority,
+                        enabled: eventsShown,
+                        onTap: eventsShown ? () => _pickPriorities(l10n) : null,
+                      ),
+                    ],
+                  ),
+                  // The layers add rows rather than hide them, which is why
+                  // they sit apart from the narrowing rows above.
+                  FormSectionLabel(text: l10n.calendarFilterSectionAlsoShow),
+                  FormRowGroup(
+                    children: [
+                      FormSwitchRow(
+                        glyph: CalendarFilterSummary.holidayIcon,
+                        label: l10n.upcomingShowHolidays,
+                        value: _draft.showHolidays,
+                        identifier: SemanticsIds.agendaFilterHolidays,
+                        onChanged: (v) =>
+                            _update(_draft.copyWith(showHolidays: v)),
+                      ),
+                      // Fasting is inert until a tradition is configured.
+                      // Disabled with its stored value rather than omitted: a
+                      // row that appears between two openings moves
+                      // everything under it.
+                      FormSwitchRow(
+                        glyph: CalendarFilterSummary.fastingIcon,
+                        label: l10n.upcomingShowFasting,
+                        value: _draft.showFasting,
+                        identifier: SemanticsIds.agendaFilterFasting,
+                        onChanged: fastingEnabled
+                            ? (v) => _update(_draft.copyWith(showFasting: v))
+                            : null,
+                      ),
+                    ],
+                  ),
+                  FormSectionLabel(text: l10n.upcomingSectionDisplay),
+                  FormRowGroup(
+                    children: [
+                      FormMenuRow<AgendaEventDisplay>(
+                        glyph: Icons.view_agenda_outlined,
+                        label: l10n.upcomingEventDisplayTitle,
+                        value: _eventDisplayLabel(l10n, _draft.eventDisplay),
+                        selected: _draft.eventDisplay,
+                        menuWidth: FormMetrics.menuWidth,
+                        identifier: SemanticsIds.agendaFilterEventRows,
+                        items: [
+                          for (final display in AgendaEventDisplay.values)
+                            FormMenuItem(
+                              value: display,
+                              label: _eventDisplayLabel(l10n, display),
+                              icon: _eventDisplayIcon(display),
+                              identifier: _eventDisplayId(display),
+                            ),
+                        ],
+                        onSelected: (display) =>
+                            _update(_draft.copyWith(eventDisplay: display)),
+                      ),
+                      // The same gate as the Fasting switch above, for the
+                      // same reason.
+                      FormMenuRow<AgendaFastingDisplay>(
+                        glyph: CalendarFilterSummary.fastingIcon,
+                        label: l10n.upcomingFastingDisplayTitle,
+                        value: _fastingDisplayLabel(
+                          l10n,
+                          _draft.fastingDisplay,
+                        ),
+                        selected: _draft.fastingDisplay,
+                        menuWidth: FormMetrics.menuWidth,
+                        identifier: SemanticsIds.agendaFilterFastingRows,
+                        items: [
+                          for (final display in AgendaFastingDisplay.values)
+                            FormMenuItem(
+                              value: display,
+                              label: _fastingDisplayLabel(l10n, display),
+                              icon: _fastingDisplayIcon(display),
+                              identifier: _fastingDisplayId(display),
+                            ),
+                        ],
+                        onSelected: fastingEnabled
+                            ? (display) => _update(
+                                _draft.copyWith(fastingDisplay: display),
+                              )
+                            : null,
+                      ),
+                      FormMenuRow<AgendaHolidayDisplay>(
+                        glyph: CalendarFilterSummary.holidayIcon,
+                        label: l10n.upcomingHolidayDisplayTitle,
+                        value: _holidayDisplayLabel(
+                          l10n,
+                          _draft.holidayDisplay,
+                        ),
+                        selected: _draft.holidayDisplay,
+                        menuWidth: FormMetrics.menuWidth,
+                        identifier: SemanticsIds.agendaFilterHolidayRows,
+                        items: [
+                          for (final display in AgendaHolidayDisplay.values)
+                            FormMenuItem(
+                              value: display,
+                              label: _holidayDisplayLabel(l10n, display),
+                              icon: _holidayDisplayIcon(display),
+                              identifier: _holidayDisplayId(display),
+                            ),
+                        ],
+                        onSelected: (display) =>
+                            _update(_draft.copyWith(holidayDisplay: display)),
+                      ),
+                    ],
+                  ),
+                  FormRowGroup(
+                    trailingGap: false,
+                    children: [
+                      FormActionRow(
+                        glyph: Icons.restart_alt_rounded,
+                        label: l10n.calendarFilterReset,
+                        identifier: SemanticsIds.agendaFilterReset,
+                        onTap: _isDefault ? null : _reset,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
-      ],
-    );
-  }
-
-  Widget _buildDisplay(AppLocalizations l10n) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _displayControl<AgendaEventDisplay>(
-          icon: Icons.event_rounded,
-          label: l10n.upcomingEventDisplayTitle,
-          values: AgendaEventDisplay.values,
-          selected: _draft.eventDisplay,
-          labelOf: (display) => _eventDisplayLabel(l10n, display),
-          onChanged: (display) =>
-              _update(_draft.copyWith(eventDisplay: display)),
-        ),
-        // Fasting is inert until a tradition is configured, so its control
-        // only appears once it can act. Holidays are always available.
-        if (FastingCalendar.isEnabled)
-          _displayControl<AgendaFastingDisplay>(
-            icon: Icons.no_food_rounded,
-            label: l10n.upcomingFastingDisplayTitle,
-            values: AgendaFastingDisplay.values,
-            selected: _draft.fastingDisplay,
-            labelOf: (display) => _fastingDisplayLabel(l10n, display),
-            onChanged: (display) =>
-                _update(_draft.copyWith(fastingDisplay: display)),
-          ),
-        _displayControl<AgendaHolidayDisplay>(
-          icon: Icons.celebration_rounded,
-          label: l10n.upcomingHolidayDisplayTitle,
-          values: AgendaHolidayDisplay.values,
-          selected: _draft.holidayDisplay,
-          labelOf: (display) => _holidayDisplayLabel(l10n, display),
-          onChanged: (display) =>
-              _update(_draft.copyWith(holidayDisplay: display)),
-        ),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          visualDensity: VisualDensity.compact,
-          secondary: const Icon(Icons.my_location_rounded),
-          title: Text(l10n.upcomingFollowSelectedDay),
-          value: _draft.followSelectedDay,
-          onChanged: (value) =>
-              _update(_draft.copyWith(followSelectedDay: value)),
         ),
       ],
-    );
-  }
-
-  /// One "how is this layer presented" control: mutually exclusive options, so
-  /// a `SegmentedButton` rather than a switch — the same shape the events
-  /// sub-choice uses in the Show section. Shared by the fasting and holiday
-  /// axes so the two cannot drift apart visually.
-  Widget _displayControl<T>({
-    required IconData icon,
-    required String label,
-    required List<T> values,
-    required T selected,
-    required String Function(T value) labelOf,
-    required ValueChanged<T> onChanged,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Row(
-            children: [
-              Icon(icon),
-              // Matches the zero-padding SwitchListTiles' title offset, so the
-              // label lines up with the switches above and below it.
-              const SizedBox(width: 16),
-              Expanded(child: Text(label)),
-            ],
-          ),
-        ),
-        SegmentedButton<T>(
-          segments: [
-            for (final value in values)
-              ButtonSegment<T>(
-                value: value,
-                label: Text(
-                  labelOf(value),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-          ],
-          selected: {selected},
-          showSelectedIcon: false,
-          style: const ButtonStyle(
-            visualDensity: VisualDensity.compact,
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          ),
-          onSelectionChanged: (selection) => onChanged(selection.first),
-        ),
-        const SizedBox(height: 8),
-      ],
-    );
-  }
-}
-
-class _SectionLabel extends StatelessWidget {
-  final String text;
-
-  const _SectionLabel(this.text);
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text(
-        text,
-        style: theme.textTheme.labelLarge?.copyWith(
-          color: theme.colorScheme.onSurfaceVariant,
-        ),
-      ),
     );
   }
 }

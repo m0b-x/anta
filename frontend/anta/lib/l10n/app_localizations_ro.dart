@@ -988,10 +988,7 @@ class AppLocalizationsRo extends AppLocalizations {
   String get monthYearPickerTitle => 'Alege data';
 
   @override
-  String get monthYearPickerManualEntry => 'Scrie manual';
-
-  @override
-  String get monthYearPickerWheelEntry => 'Alege din rotițe';
+  String get monthYearPickerTypedEntry => 'Tastează data';
 
   @override
   String get monthYearPickerFieldLabel => 'Data';
@@ -4120,12 +4117,6 @@ class AppLocalizationsRo extends AppLocalizations {
   String get upcomingClearSearch => 'Șterge căutarea';
 
   @override
-  String get upcomingClearRange => 'Șterge intervalul personalizat';
-
-  @override
-  String get upcomingClearCategories => 'Arată toate categoriile';
-
-  @override
   String get upcomingEventDisplayTitle => 'Rânduri de evenimente';
 
   @override
@@ -4224,15 +4215,6 @@ class AppLocalizationsRo extends AppLocalizations {
   String get upcomingResetAnchor => 'Înapoi la azi';
 
   @override
-  String get upcomingFiltersReset => 'Resetează';
-
-  @override
-  String get upcomingSectionPeriod => 'Perioadă';
-
-  @override
-  String get upcomingSectionShow => 'Afișează';
-
-  @override
   String get upcomingSectionDisplay => 'Prezentare';
 
   @override
@@ -4240,6 +4222,9 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get upcomingEventsHidden => 'Fără evenimente';
+
+  @override
+  String get upcomingPeriod => 'Perioadă';
 
   @override
   String upcomingPeriodDays(int count) {
@@ -4260,7 +4245,7 @@ class AppLocalizationsRo extends AppLocalizations {
   String get upcomingPeriodWholeYear => 'Anul acesta';
 
   @override
-  String get upcomingPeriodCustom => 'Personalizat';
+  String get upcomingPeriodCustom => 'Interval personalizat…';
 
   @override
   String get upcomingPriority => 'Prioritate';

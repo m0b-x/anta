@@ -178,6 +178,105 @@ void main() {
       );
     });
 
+    testWidgets('a picker row with a leading widget takes the title row '
+        'shape, the title indent and stays one node', (tester) async {
+      var taps = 0;
+      final row = FormPickerRow(
+        leading: const EventAvatar(
+          icon: Icons.fitness_center,
+          color: Colors.blue,
+        ),
+        label: 'Leg day',
+        identifier: 'template-pick-t1',
+        showChevron: false,
+        onTap: () => taps++,
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: FormRowGroup(
+              children: [
+                row,
+                FormPickerRow(label: 'Blank event', onTap: () {}),
+              ],
+            ),
+          ),
+        ),
+      );
+      expect(FormRowGroup.indentOf(row), FormMetrics.dividerIndentTitle);
+      expect(
+        tester.widget<Divider>(find.byType(Divider)).indent,
+        FormMetrics.dividerIndentTitle,
+      );
+      expect(
+        tester.getSize(find.byType(FormPickerRow).first).height,
+        FormMetrics.titleRowMinHeight,
+      );
+      expect(
+        tester.getTopLeft(find.text('Leg day')).dx,
+        RowMetrics.groupInset + FormMetrics.rowLeadingSize + FormMetrics.gap,
+      );
+      // The avatar is decoration: the row is still one node carrying the
+      // id, the label and the tap.
+      expect(find.bySemanticsIdentifier('template-pick-t1'), findsOneWidget);
+      expect(find.bySemanticsLabel(RegExp('Leg day')), findsOneWidget);
+      final data = tester
+          .getSemantics(find.bySemanticsIdentifier('template-pick-t1'))
+          .getSemanticsData();
+      expect(data.identifier, 'template-pick-t1');
+      expect(data.label, contains('Leg day'));
+      expect(data.hasAction(SemanticsAction.tap), isTrue);
+      await tester.tap(find.bySemanticsIdentifier('template-pick-t1'));
+      expect(taps, 1);
+    });
+
+    testWidgets('a picker row with a leading widget and a caption takes the '
+        'two-line shape, centres the widget against both lines and stays '
+        'one node', (tester) async {
+      const summary = 'Gym · Every week on Mon, Wed · 18:00–19:30';
+      var taps = 0;
+      await tester.pumpWidget(
+        host(
+          FormPickerRow(
+            leading: const EventAvatar(
+              icon: Icons.fitness_center,
+              color: Colors.blue,
+            ),
+            label: 'Leg day',
+            caption: summary,
+            identifier: 'template-pick-t1',
+            showChevron: false,
+            onTap: () => taps++,
+          ),
+        ),
+      );
+      final row = tester.getRect(find.byType(FormPickerRow));
+      expect(row.height, FormMetrics.twoLineRowMinHeight);
+      // The avatar sits on the row's centre line — between the label and the
+      // caption — not on the label's, where it floated with the caption
+      // hanging under it.
+      expect(
+        tester.getCenter(find.byType(EventAvatar)).dy,
+        closeTo(row.center.dy, 0.5),
+      );
+      final label = tester.getRect(find.text('Leg day'));
+      final caption = tester.getRect(find.text(summary));
+      expect(caption.left, label.left);
+      expect(caption.top, greaterThanOrEqualTo(label.bottom));
+      expect(label.top - row.top, closeTo(row.bottom - caption.bottom, 0.5));
+      // Clamped like a value: a summary at 200 % German ran four lines.
+      expect(tester.widget<Text>(find.text(summary)).maxLines, 2);
+      // One node carrying the id, the label, the caption and the tap.
+      final data = tester
+          .getSemantics(find.bySemanticsIdentifier('template-pick-t1'))
+          .getSemanticsData();
+      expect(data.label, contains('Leg day'));
+      expect(data.label, contains('18:00'));
+      expect(data.hasAction(SemanticsAction.tap), isTrue);
+      await tester.tap(find.bySemanticsIdentifier('template-pick-t1'));
+      expect(taps, 1);
+    });
+
     testWidgets('a disabled action row is faded and inert', (tester) async {
       await tester.pumpWidget(
         host(
@@ -928,6 +1027,203 @@ void main() {
 
       expect(find.byType(FormMenuChoiceItem<int>), findsNothing);
       expect(focusNode.hasFocus, isFalse);
+    });
+
+    testWidgets('a disabled menu row is faded, inert and not enabled, and '
+        'opens nothing', (tester) async {
+      await tester.pumpWidget(
+        sheetLike(
+          FormMenuRow<int>(
+            glyph: Icons.no_food_rounded,
+            label: 'Fasting rows',
+            value: 'Periods',
+            selected: 2,
+            identifier: 'agenda-filter-fasting-rows',
+            menuWidth: 220,
+            items: const [
+              FormMenuItem(
+                value: 1,
+                label: 'Every day',
+                identifier: 'agenda-filter-fasting-rows-every-day',
+              ),
+              FormMenuItem(
+                value: 2,
+                label: 'Periods',
+                identifier: 'agenda-filter-fasting-rows-periods',
+              ),
+            ],
+            onSelected: null,
+          ),
+        ),
+      );
+      final opacity = tester.widget<Opacity>(
+        find.descendant(
+          of: find.byType(FormMenuRow<int>),
+          matching: find.byType(Opacity),
+        ),
+      );
+      expect(opacity.opacity, FormMetrics.disabledOpacity);
+      final well = tester.widget<InkWell>(
+        find.descendant(
+          of: find.byType(FormMenuRow<int>),
+          matching: find.byType(InkWell),
+        ),
+      );
+      expect(well.onTap, isNull);
+      final data = dataOf(tester, 'agenda-filter-fasting-rows');
+      expect(data.label, contains('Fasting rows'));
+      expect(data.flagsCollection.isEnabled, Tristate.isFalse);
+      expect(data.hasAction(SemanticsAction.tap), isFalse);
+
+      await tester.tap(
+        find.bySemanticsIdentifier('agenda-filter-fasting-rows'),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(FormMenuChoiceItem<int>), findsNothing);
+      expect(find.text('Every day'), findsNothing);
+    });
+  });
+
+  group('form sheet frame', () {
+    var leaves = 0;
+    var dismisses = 0;
+    var clean = true;
+
+    setUp(() {
+      leaves = 0;
+      dismisses = 0;
+      clean = true;
+    });
+
+    /// The editor's route, shape for shape: the frame inside the fixed box,
+    /// on a transparent route that does not drag itself.
+    Future<void> open(WidgetTester tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => showModalBottomSheet<void>(
+                  context: context,
+                  isScrollControlled: true,
+                  showDragHandle: false,
+                  enableDrag: false,
+                  backgroundColor: Colors.transparent,
+                  elevation: 0,
+                  builder: (sheetContext) => FractionallySizedBox(
+                    heightFactor: FormMetrics.sheetHeightFactor,
+                    child: FormSheetFrame(
+                      onLeave: () async {
+                        leaves++;
+                      },
+                      isClean: () => clean,
+                      onDismiss: () {
+                        dismisses++;
+                        Navigator.of(sheetContext).pop();
+                      },
+                      chrome: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const FormSheetHandle(),
+                          FormSheetHeader(
+                            leadingIcon: Icons.close_rounded,
+                            leadingTooltip: 'Cancel',
+                            onLeading: () {},
+                            title: 'Add event',
+                            trailing: const SizedBox.shrink(),
+                          ),
+                        ],
+                      ),
+                      body: const [Expanded(child: SizedBox.expand())],
+                    ),
+                  ),
+                ),
+                child: const Text('Open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Open'));
+      await tester.pumpAndSettle();
+      expect(find.byType(FormSheetFrame), findsOneWidget);
+    }
+
+    testWidgets('a fling on the chrome pops a clean sheet through onDismiss', (
+      tester,
+    ) async {
+      await open(tester);
+      await tester.fling(
+        find.byType(FormSheetHandle),
+        const Offset(0, 400),
+        2000,
+      );
+      await tester.pumpAndSettle();
+
+      expect(dismisses, 1);
+      expect(leaves, 0);
+      expect(find.byType(FormSheetFrame), findsNothing);
+    });
+
+    testWidgets('a fling on a dirty sheet snaps back and asks once through '
+        'onLeave', (tester) async {
+      clean = false;
+      await open(tester);
+      final before = tester.getTopLeft(find.byType(FormSheetHandle));
+      await tester.fling(
+        find.byType(FormSheetHandle),
+        const Offset(0, 400),
+        2000,
+      );
+      await tester.pumpAndSettle();
+
+      expect(leaves, 1);
+      expect(dismisses, 0);
+      expect(find.byType(FormSheetFrame), findsOneWidget);
+      expect(tester.getTopLeft(find.byType(FormSheetHandle)), before);
+    });
+
+    testWidgets('a short drag snaps back and calls nothing', (tester) async {
+      clean = false;
+      await open(tester);
+      final before = tester.getTopLeft(find.byType(FormSheetHandle));
+      await tester.timedDrag(
+        find.byType(FormSheetHandle),
+        const Offset(0, 40),
+        const Duration(milliseconds: 600),
+      );
+      await tester.pumpAndSettle();
+
+      expect(leaves, 0);
+      expect(dismisses, 0);
+      expect(find.byType(FormSheetFrame), findsOneWidget);
+      expect(tester.getTopLeft(find.byType(FormSheetHandle)), before);
+    });
+
+    testWidgets('the system back gesture asks through onLeave and the route '
+        'stays', (tester) async {
+      clean = false;
+      await open(tester);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+
+      expect(leaves, 1);
+      expect(dismisses, 0);
+      expect(find.byType(FormSheetFrame), findsOneWidget);
+    });
+
+    testWidgets('the barrier asks through onLeave and the route stays', (
+      tester,
+    ) async {
+      clean = false;
+      await open(tester);
+      await tester.tapAt(const Offset(10, 10));
+      await tester.pumpAndSettle();
+
+      expect(leaves, 1);
+      expect(dismisses, 0);
+      expect(find.byType(FormSheetFrame), findsOneWidget);
     });
   });
 }

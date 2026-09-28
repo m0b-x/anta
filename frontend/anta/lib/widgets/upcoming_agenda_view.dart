@@ -9,6 +9,7 @@ import '../constants/calendar_categories.dart';
 import '../constants/event_priorities.dart';
 import '../constants/fasting_calendar.dart';
 import '../constants/public_holidays.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/agenda_day_list.dart';
 import '../models/agenda_day_list_mode.dart';
@@ -24,6 +25,7 @@ import '../utils/markdown_color_syntax.dart';
 import 'agenda_day_list_sheet.dart';
 import 'agenda_filters_sheet.dart';
 import 'agenda_list_view.dart';
+import 'automation_id.dart';
 
 /// Non-modal "Upcoming" mode of the calendar's bottom panel: every event
 /// occurrence in a look-ahead window, filtered by an optional text query and
@@ -1226,12 +1228,15 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
               Badge.count(
                 count: chips.length,
                 isLabelVisible: chips.isNotEmpty,
-                child: IconButton(
-                  tooltip: l10n.upcomingFilters,
-                  isSelected: chips.isNotEmpty,
-                  icon: const Icon(Icons.tune_rounded),
-                  selectedIcon: const Icon(Icons.tune_rounded),
-                  onPressed: _openFilters,
+                child: AutomationId(
+                  identifier: SemanticsIds.agendaFilterOpen,
+                  child: IconButton(
+                    tooltip: l10n.upcomingFilters,
+                    isSelected: chips.isNotEmpty,
+                    icon: const Icon(Icons.tune_rounded),
+                    selectedIcon: const Icon(Icons.tune_rounded),
+                    onPressed: _openFilters,
+                  ),
                 ),
               ),
             ],

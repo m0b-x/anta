@@ -970,10 +970,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get monthYearPickerTitle => 'Datum wählen';
 
   @override
-  String get monthYearPickerManualEntry => 'Stattdessen eingeben';
-
-  @override
-  String get monthYearPickerWheelEntry => 'Über die Räder wählen';
+  String get monthYearPickerTypedEntry => 'Datum eintippen';
 
   @override
   String get monthYearPickerFieldLabel => 'Datum';
@@ -4078,12 +4075,6 @@ class AppLocalizationsDe extends AppLocalizations {
   String get upcomingClearSearch => 'Suche leeren';
 
   @override
-  String get upcomingClearRange => 'Eigenen Zeitraum löschen';
-
-  @override
-  String get upcomingClearCategories => 'Alle Kategorien anzeigen';
-
-  @override
   String get upcomingEventDisplayTitle => 'Termin-Zeilen';
 
   @override
@@ -4178,15 +4169,6 @@ class AppLocalizationsDe extends AppLocalizations {
   String get upcomingResetAnchor => 'Zurück zu heute';
 
   @override
-  String get upcomingFiltersReset => 'Zurücksetzen';
-
-  @override
-  String get upcomingSectionPeriod => 'Zeitraum';
-
-  @override
-  String get upcomingSectionShow => 'Anzeigen';
-
-  @override
   String get upcomingSectionDisplay => 'Darstellung';
 
   @override
@@ -4194,6 +4176,9 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get upcomingEventsHidden => 'Keine Ereignisse';
+
+  @override
+  String get upcomingPeriod => 'Zeitraum';
 
   @override
   String upcomingPeriodDays(int count) {
@@ -4213,7 +4198,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get upcomingPeriodWholeYear => 'Dieses Jahr';
 
   @override
-  String get upcomingPeriodCustom => 'Eigener';
+  String get upcomingPeriodCustom => 'Eigener Zeitraum…';
 
   @override
   String get upcomingPriority => 'Priorität';

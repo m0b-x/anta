@@ -51,11 +51,14 @@ abstract final class CalendarFilterSummary {
   static const IconData holidayIcon = Icons.celebration_rounded;
   static const IconData fastingIcon = Icons.no_food_rounded;
 
+  /// `none` wears the agenda strip's "no events" glyph, so the chip that
+  /// undoes it and the menu item that sets it are one picture.
   static IconData eventTypeIcon(AgendaEventType type) {
     return switch (type) {
+      AgendaEventType.all => Icons.event_note_rounded,
       AgendaEventType.recurring => Icons.repeat_rounded,
       AgendaEventType.oneTime => Icons.event_rounded,
-      _ => Icons.event_note_rounded,
+      AgendaEventType.none => Icons.event_busy_rounded,
     };
   }
 

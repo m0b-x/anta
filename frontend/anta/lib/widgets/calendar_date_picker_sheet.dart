@@ -2,12 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 
+import '../constants/app_colors.dart';
 import '../constants/calendar_weekend.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
+import '../utils/calendar_days_of_week.dart';
 import '../utils/calendar_week_start.dart';
 import '../utils/date_stamp.dart';
+import 'agenda_period_nav.dart';
 import 'automation_id.dart';
 import 'calendar_day_bars.dart';
 import 'calendar_day_cell.dart';
@@ -191,20 +194,34 @@ class CalendarDatePickerSheet extends StatefulWidget {
     bool allowEmpty = false,
     CalendarDatePickerView initialView = CalendarDatePickerView.month,
   }) {
+    final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<Set<DateTime>>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      showDragHandle: true,
-      builder: (_) => CalendarDatePickerSheet(
-        mode: mode,
-        initialSelection: initialSelection,
-        firstDate: firstDate,
-        lastDate: lastDate,
-        appearance: appearance,
-        dayLoad: dayLoad,
-        allowEmpty: allowEmpty,
-        initialView: initialView,
+      showDragHandle: false,
+      backgroundColor: colorScheme.pageGround,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(FormMetrics.sheetRadius),
+        ),
+      ),
+      // The form sheet's fixed box rather than a content-tall sub-sheet: the
+      // body fills (a month grid, a year of tiles, a list), and a sheet that
+      // changed height between Month, Year and List would move under the
+      // finger.
+      builder: (_) => FractionallySizedBox(
+        heightFactor: FormMetrics.sheetHeightFactor,
+        child: CalendarDatePickerSheet(
+          mode: mode,
+          initialSelection: initialSelection,
+          firstDate: firstDate,
+          lastDate: lastDate,
+          appearance: appearance,
+          dayLoad: dayLoad,
+          allowEmpty: allowEmpty,
+          initialView: initialView,
+        ),
       ),
     );
   }
@@ -392,80 +409,102 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
       ),
     };
 
-    return FractionallySizedBox(
-      heightFactor: 0.86,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const FormSheetHandle(),
+        FormSheetHeader(
+          leadingIcon: Icons.close_rounded,
+          leadingTooltip: l10n.cancel,
+          leadingIdentifier: SemanticsIds.datePickerCancel,
+          onLeading: () => _answer(null),
+          title: isMulti
+              ? l10n.datePickerMultiTitle
+              : l10n.datePickerSingleTitle,
+          trailingInset: FormMetrics.headerActionInset,
+          // Single mode answers on the day tap and has nothing to confirm.
+          trailing: isMulti
+              ? FormHeaderTextButton(
+                  label: l10n.save,
+                  identifier: SemanticsIds.datePickerSave,
+                  onPressed: _selection.isEmpty && !widget.allowEmpty
+                      ? null
+                      : () => _answer({..._selection}),
+                )
+              : const SizedBox.shrink(),
+        ),
+        if (isMulti) ...[
+          _buildSummary(l10n, theme, colorScheme, sorted),
           Padding(
-            padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-            child: Row(
-              children: [
-                AutomationId(
-                  identifier: SemanticsIds.datePickerCancel,
-                  child: IconButton(
-                    tooltip: l10n.cancel,
-                    icon: const Icon(Icons.close_rounded),
-                    onPressed: () => _answer(null),
-                  ),
-                ),
-                Expanded(
-                  child: Text(
-                    isMulti
-                        ? l10n.datePickerMultiTitle
-                        : l10n.datePickerSingleTitle,
-                    style: theme.textTheme.titleLarge,
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-                // Available in both modes: a single-date pick can wander
-                // months too, and there was no way back without swiping.
-                IconButton(
-                  tooltip: l10n.datePickerToday,
-                  icon: const Icon(Icons.today_rounded),
-                  onPressed: _jumpToToday,
-                ),
-                if (isMulti)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 4),
-                    child: AutomationId(
-                      identifier: SemanticsIds.datePickerSave,
-                      child: FilledButton(
-                        onPressed: _selection.isEmpty && !widget.allowEmpty
-                            ? null
-                            : () => _answer({..._selection}),
-                        child: Text(l10n.save),
-                    ),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+            child: SegmentedButton<CalendarDatePickerView>(
+              segments: [
+                for (final view in CalendarDatePickerView.values)
+                  ButtonSegment<CalendarDatePickerView>(
+                    value: view,
+                    label: Text(
+                      _viewLabel(l10n, view),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
               ],
+              selected: {_view},
+              showSelectedIcon: false,
+              onSelectionChanged: (selection) => _selectView(selection.first),
             ),
           ),
-          if (isMulti) ...[
-            _buildSummary(l10n, theme, colorScheme, sorted),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-              child: SegmentedButton<CalendarDatePickerView>(
-                segments: [
-                  for (final view in CalendarDatePickerView.values)
-                    ButtonSegment<CalendarDatePickerView>(
-                      value: view,
-                      label: Text(
-                        _viewLabel(l10n, view),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                ],
-                selected: {_view},
-                showSelectedIcon: false,
-                onSelectionChanged: (selection) => _selectView(selection.first),
-              ),
-            ),
-          ],
-          Expanded(child: body),
-          if (isMulti) _buildFooter(l10n, theme, colorScheme, bottomClearance),
         ],
+        Expanded(child: body),
+        if (isMulti) _buildFooter(l10n, theme, colorScheme, bottomClearance),
+      ],
+    );
+  }
+
+  /// The tallest of [year]'s twelve month titles in [style] within
+  /// [maxWidth], at the ambient text scale: the height the grid's title box
+  /// reserves so the navigation row is one height for the whole year
+  /// (`docs/calendar-language-tier-1-roadmap.md`, D24 — "size the dependent
+  /// area with an invisible template"). Twelve `TextPainter` layouts per
+  /// header build, beside the forty-two cells the grid lays out anyway.
+  double _monthTitleHeight(
+    BuildContext context,
+    DateFormat format,
+    int year,
+    TextStyle? style,
+    double maxWidth,
+  ) {
+    final scaler = MediaQuery.textScalerOf(context);
+    final direction = Directionality.of(context);
+    var height = 0.0;
+    for (var month = DateTime.january; month <= DateTime.december; month++) {
+      final painter = TextPainter(
+        text: TextSpan(text: format.format(DateTime(year, month)), style: style),
+        textDirection: direction,
+        textScaler: scaler,
+        maxLines: FormMetrics.periodTitleMaxLines,
+      )..layout(maxWidth: maxWidth);
+      if (painter.height > height) height = painter.height;
+      painter.dispose();
+    }
+    return height;
+  }
+
+  /// The Today button in the navigation row of the month grid and the year
+  /// view — `AgendaPeriodNav`'s slot, fixed so the title never shifts.
+  /// Available in both modes: a single-date pick can wander months too, and
+  /// there was no way back without swiping. One id serves both views, which
+  /// are never mounted at once; the list view has no Today.
+  Widget _todaySlot(AppLocalizations l10n) {
+    return SizedBox(
+      width: AgendaPeriodNav.slot,
+      child: AutomationId(
+        identifier: SemanticsIds.datePickerToday,
+        child: IconButton(
+          tooltip: l10n.datePickerToday,
+          icon: const Icon(Icons.today_rounded),
+          onPressed: _jumpToToday,
+        ),
       ),
     );
   }
@@ -531,11 +570,25 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
         weekendDays: CalendarWeekend.days,
         weekNumbersVisible: _appearance.showWeekNumbers,
         rowHeight: _rowHeight,
-        daysOfWeekHeight: 24,
+        daysOfWeekHeight: CalendarDaysOfWeek.height,
+        daysOfWeekStyle: CalendarDaysOfWeek.style(
+          theme,
+          highlightWeekends: _appearance.highlightWeekends,
+        ),
         locale: l10n.localeName,
         availableGestures: AvailableGestures.horizontalSwipe,
         headerStyle: HeaderStyle(
           formatButtonVisible: false,
+          // The package pads its header 8 dp above and below two 48 dp
+          // chevrons, a 64 dp row where `AgendaPeriodNav`'s is 48, and
+          // margins each chevron 8 dp a side, 64 wide where the nav's stock
+          // buttons are 48; both zero, so ‹ title [today] › here is the same
+          // row as everywhere else — and the 32 dp the margins gave back is
+          // what "September" needs to sit on one line at 200 % on a 360 dp
+          // phone, so the title wraps to "September / 2026" and not mid-word.
+          headerPadding: EdgeInsets.zero,
+          leftChevronMargin: EdgeInsets.zero,
+          rightChevronMargin: EdgeInsets.zero,
           leftChevronIcon: Icon(
             Icons.chevron_left_rounded,
             color: theme.colorScheme.onSurfaceVariant,
@@ -551,40 +604,78 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
         ),
         calendarBuilders: CalendarBuilders<void>(
           headerTitleBuilder: (context, day) {
-            final title = DateFormat.yMMMM(l10n.localeName).format(day);
-            return Center(
-              child: Tooltip(
-                message: l10n.monthYearPickerTitle,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(8),
-                  onTap: _openMonthYearJump,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Flexible(
-                          child: Text(
-                            title,
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
-                            overflow: TextOverflow.ellipsis,
+            final format = DateFormat.yMMMM(l10n.localeName);
+            final title = format.format(day);
+            final titleStyle = theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            );
+            // The grid's own chevrons flank this row, so it reads
+            // ‹ title [today] › like `AgendaPeriodNav`.
+            return Row(
+              children: [
+                Expanded(
+                  child: Center(
+                    child: Tooltip(
+                      message: l10n.monthYearPickerTitle,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(8),
+                        onTap: _openMonthYearJump,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Flexible(
+                                // The title may take two lines rather than
+                                // drop the year ("Septem…" at 200 %), and the
+                                // box it sits in is as tall as the year's
+                                // tallest month title at this width — so
+                                // paging from "Juli 2026" to "September
+                                // 2026" never grows the row and moves the
+                                // grid under the finger. The builder's own
+                                // constraints are exactly the text's, which
+                                // is why the measure happens here and not
+                                // outside the row.
+                                child: LayoutBuilder(
+                                  builder: (context, constraints) => SizedBox(
+                                    height: _monthTitleHeight(
+                                      context,
+                                      format,
+                                      day.year,
+                                      titleStyle,
+                                      constraints.maxWidth,
+                                    ),
+                                    child: Center(
+                                      widthFactor: 1,
+                                      child: Text(
+                                        title,
+                                        style: titleStyle,
+                                        textAlign: TextAlign.center,
+                                        softWrap: true,
+                                        maxLines: FormMetrics.periodTitleMaxLines,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              Icon(
+                                Icons.arrow_drop_down_rounded,
+                                size: 20,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ],
                           ),
                         ),
-                        Icon(
-                          Icons.arrow_drop_down_rounded,
-                          size: 20,
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ],
+                      ),
                     ),
                   ),
                 ),
-              ),
+                _todaySlot(l10n),
+              ],
             );
           },
           defaultBuilder: (context, day, _) =>
@@ -659,6 +750,7 @@ class _CalendarDatePickerSheetState extends State<CalendarDatePickerSheet> {
                   ),
                 ),
               ),
+              _todaySlot(l10n),
               IconButton(
                 tooltip: l10n.datePickerNextYear,
                 icon: const Icon(Icons.chevron_right_rounded),

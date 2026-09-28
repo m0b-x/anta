@@ -1,0 +1,48 @@
+# The Upcoming agenda's filter sheet (docs/calendar-language-tier-1-roadmap.md):
+# every row by id, the Period menu, the Priority sub-sheet, "No events"
+# dimming the event rows, Apply, then Reset; the panel back on Day. The
+# applied draft is read back from the agenda's chips ("90 days", "Highest")
+# and the reset from their absence.
+tap "Upcoming"
+wait id:agenda-filter-open
+tap id:agenda-filter-open
+wait id:agenda-filter-apply
+expect id:agenda-filter-period id:agenda-filter-follow id:agenda-filter-events id:agenda-filter-categories id:agenda-filter-priority id:agenda-filter-holidays id:agenda-filter-fasting id:agenda-filter-event-rows id:agenda-filter-fasting-rows id:agenda-filter-holiday-rows
+shot 10_agenda_filters
+tap id:agenda-filter-period
+wait id:agenda-filter-period-90
+shot 10_period_menu
+tap id:agenda-filter-period-90
+wait id:agenda-filter-apply
+expect "90 days"
+tap id:agenda-filter-priority
+wait id:filter-list-done
+tap id:filter-list-priority-1
+tap id:filter-list-done
+wait id:agenda-filter-apply
+expect "Highest"
+tap id:agenda-filter-events
+wait id:agenda-filter-events-none
+tap id:agenda-filter-events-none
+wait id:agenda-filter-apply
+shot 10_no_events
+tap id:agenda-filter-events
+wait id:agenda-filter-events-all
+tap id:agenda-filter-events-all
+wait id:agenda-filter-apply
+scroll-to id:agenda-filter-reset --in id:agenda-filter-sheet
+shot 10_display
+tap id:agenda-filter-apply
+wait id:agenda-filter-open
+expect "90 days" "Highest" "Remove filter"
+shot 10_agenda_filtered
+tap id:agenda-filter-open
+wait id:agenda-filter-apply
+scroll-to id:agenda-filter-reset --in id:agenda-filter-sheet
+tap id:agenda-filter-reset
+tap id:agenda-filter-apply
+wait id:agenda-filter-open
+expect id:agenda-filter-open --absent "Remove filter"
+tap "Day"
+wait id:calendar-add-event
+errors

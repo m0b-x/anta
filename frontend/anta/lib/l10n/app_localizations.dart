@@ -1618,17 +1618,11 @@ abstract class AppLocalizations {
   /// **'Pick a date'**
   String get monthYearPickerTitle;
 
-  /// Tooltip for switching the month/year picker to typed input
+  /// Switch row in the month/year picker that swaps the wheels for a typed date field
   ///
   /// In en, this message translates to:
-  /// **'Type it instead'**
-  String get monthYearPickerManualEntry;
-
-  /// Tooltip for switching the month/year picker back to the scroll wheels
-  ///
-  /// In en, this message translates to:
-  /// **'Pick from the wheels'**
-  String get monthYearPickerWheelEntry;
+  /// **'Type the date'**
+  String get monthYearPickerTypedEntry;
 
   /// Label of the text field for typing a date
   ///
@@ -6988,18 +6982,6 @@ abstract class AppLocalizations {
   /// **'Clear search'**
   String get upcomingClearSearch;
 
-  /// Tooltip of the delete button on the Custom period chip that clears the custom date range in the upcoming agenda
-  ///
-  /// In en, this message translates to:
-  /// **'Clear custom range'**
-  String get upcomingClearRange;
-
-  /// Reset action/tooltip for the agenda category filter — clears the allowlist so every category shows
-  ///
-  /// In en, this message translates to:
-  /// **'Show all categories'**
-  String get upcomingClearCategories;
-
   /// Agenda display control label: how events are listed
   ///
   /// In en, this message translates to:
@@ -7120,24 +7102,6 @@ abstract class AppLocalizations {
   /// **'Back to today'**
   String get upcomingResetAnchor;
 
-  /// Button in the agenda filters sheet restoring every filter to its default
-  ///
-  /// In en, this message translates to:
-  /// **'Reset'**
-  String get upcomingFiltersReset;
-
-  /// Section heading for the look-ahead window controls in the agenda filters sheet
-  ///
-  /// In en, this message translates to:
-  /// **'Period'**
-  String get upcomingSectionPeriod;
-
-  /// Section heading for the layer toggles (events, holidays, fasting) in the agenda filters sheet
-  ///
-  /// In en, this message translates to:
-  /// **'Show'**
-  String get upcomingSectionShow;
-
   /// Section heading for the agenda's presentation switches in the filters sheet
   ///
   /// In en, this message translates to:
@@ -7156,28 +7120,34 @@ abstract class AppLocalizations {
   /// **'No events'**
   String get upcomingEventsHidden;
 
-  /// Look-ahead period preset chip in the upcoming events sheet
+  /// Label of the period menu row in the agenda filters sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Period'**
+  String get upcomingPeriod;
+
+  /// One of the three day presets in the Period menu of the agenda filters sheet, a rolling look-ahead of that many days; the panel's period chip reads the same label
   ///
   /// In en, this message translates to:
   /// **'{count, plural, one {1 day} other {{count} days}}'**
   String upcomingPeriodDays(int count);
 
-  /// Period chip in the agenda filters covering from the window's start day to 31 December of that year
+  /// Item of the Period menu in the agenda filters sheet covering from the window's start day to 31 December of that year; the panel's period chip reads the same label
   ///
   /// In en, this message translates to:
   /// **'Rest of year'**
   String get upcomingPeriodRestOfYear;
 
-  /// Period chip in the agenda filters covering the whole calendar year, 1 January to 31 December, including days already past
+  /// Item of the Period menu in the agenda filters sheet covering the whole calendar year, 1 January to 31 December, including days already past; the panel's period chip reads the same label
   ///
   /// In en, this message translates to:
   /// **'This year'**
   String get upcomingPeriodWholeYear;
 
-  /// Chip opening a custom date range picker in the upcoming events sheet
+  /// Item of the Period menu in the agenda filters sheet that opens the custom date range picker
   ///
   /// In en, this message translates to:
-  /// **'Custom'**
+  /// **'Custom range…'**
   String get upcomingPeriodCustom;
 
   /// Label of the priority filter in the upcoming agenda
@@ -7186,7 +7156,7 @@ abstract class AppLocalizations {
   /// **'Priority'**
   String get upcomingPriority;
 
-  /// Priority filter chip that clears the selection and keeps events of every priority
+  /// Value the Priority row of the agenda and calendar filter sheets reads back while no priority is selected, meaning events of every priority
   ///
   /// In en, this message translates to:
   /// **'Any'**
@@ -7228,13 +7198,13 @@ abstract class AppLocalizations {
   /// **'Edit event'**
   String get upcomingEditEvent;
 
-  /// Agenda filter chip that lists public holidays alongside events
+  /// Label of the Holidays switch row under ALSO SHOW in the agenda and calendar filter sheets, listing public holidays alongside events; also the agenda's holidays heading and the name of that layer in a 'Without …' chip
   ///
   /// In en, this message translates to:
   /// **'Holidays'**
   String get upcomingShowHolidays;
 
-  /// Agenda filter chip that lists configured fasting days alongside events
+  /// Label of the Fasting switch row under ALSO SHOW in the agenda and calendar filter sheets, listing configured fasting days alongside events; also the name of that layer in a 'Without …' chip
   ///
   /// In en, this message translates to:
   /// **'Fasting'**

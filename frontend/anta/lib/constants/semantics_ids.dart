@@ -128,6 +128,95 @@ abstract final class SemanticsIds {
   static const String filterPresetUpdate = 'filter-preset-update';
   static const String filterPresetDelete = 'filter-preset-delete';
 
+  /// The Upcoming agenda's filter sheet (2026-09-27, Tier 1 of
+  /// `docs/calendar-language-tier-1-roadmap.md`): the panel's tune button,
+  /// the sheet's chrome and scrolling body, every row and every menu item.
+  /// The Filters sheet's twin, so it gets the same treatment: its labels are
+  /// the same few words ("All", "Every day") and not unique on the screen.
+  static const String agendaFilterOpen = 'agenda-filter-open';
+  static const String agendaFilterSheet = 'agenda-filter-sheet';
+  static const String agendaFilterClose = 'agenda-filter-close';
+  static const String agendaFilterApply = 'agenda-filter-apply';
+  static const String agendaFilterPeriod = 'agenda-filter-period';
+  static const String agendaFilterPeriod7 = 'agenda-filter-period-7';
+  static const String agendaFilterPeriod30 = 'agenda-filter-period-30';
+  static const String agendaFilterPeriod90 = 'agenda-filter-period-90';
+  static const String agendaFilterPeriodRestOfYear =
+      'agenda-filter-period-rest-of-year';
+  static const String agendaFilterPeriodThisYear =
+      'agenda-filter-period-this-year';
+  static const String agendaFilterPeriodCustom = 'agenda-filter-period-custom';
+  static const String agendaFilterFollow = 'agenda-filter-follow';
+  static const String agendaFilterEvents = 'agenda-filter-events';
+  static const String agendaFilterEventsAll = 'agenda-filter-events-all';
+  static const String agendaFilterEventsRecurring =
+      'agenda-filter-events-recurring';
+  static const String agendaFilterEventsOneTime =
+      'agenda-filter-events-one-time';
+  static const String agendaFilterEventsNone = 'agenda-filter-events-none';
+  static const String agendaFilterCategories = 'agenda-filter-categories';
+  static const String agendaFilterPriority = 'agenda-filter-priority';
+  static const String agendaFilterHolidays = 'agenda-filter-holidays';
+  static const String agendaFilterFasting = 'agenda-filter-fasting';
+  static const String agendaFilterEventRows = 'agenda-filter-event-rows';
+  static const String agendaFilterEventRowsEvery =
+      'agenda-filter-event-rows-every';
+  static const String agendaFilterEventRowsPerEvent =
+      'agenda-filter-event-rows-per-event';
+  static const String agendaFilterEventRowsSummary =
+      'agenda-filter-event-rows-summary';
+  static const String agendaFilterFastingRows = 'agenda-filter-fasting-rows';
+  static const String agendaFilterFastingRowsEveryDay =
+      'agenda-filter-fasting-rows-every-day';
+  static const String agendaFilterFastingRowsPeriods =
+      'agenda-filter-fasting-rows-periods';
+  static const String agendaFilterFastingRowsSummary =
+      'agenda-filter-fasting-rows-summary';
+  static const String agendaFilterHolidayRows = 'agenda-filter-holiday-rows';
+  static const String agendaFilterHolidayRowsEveryDay =
+      'agenda-filter-holiday-rows-every-day';
+  static const String agendaFilterHolidayRowsSummary =
+      'agenda-filter-holiday-rows-summary';
+  static const String agendaFilterReset = 'agenda-filter-reset';
+
+  /// The Dates sheet's Today slot (Tier 1, D11): the fixed 48 dp button after
+  /// the title in the month grid's header row and the year view's ‹ year ›
+  /// row, where the header's Today icon moved. Its tooltip is localized, so
+  /// a flow reaches it by id like [datePickerSave].
+  static const String datePickerToday = 'date-picker-today';
+
+  /// The month/year picker's chrome (Tier 1, D13) and the two rows under its
+  /// wheels — Today and the "Type the date" switch.
+  static const String monthYearClose = 'month-year-close';
+  static const String monthYearApply = 'month-year-apply';
+  static const String monthYearToday = 'month-year-today';
+  static const String monthYearTyped = 'month-year-typed';
+
+  /// The description sheet's ✕ and Done (Tier 1, D14) — a guarded form sheet
+  /// since then, so a flow that leaves it dirty meets the dialog and needs a
+  /// stable ✕ to have opened with.
+  static const String descriptionClose = 'description-close';
+  static const String descriptionDone = 'description-done';
+
+  /// The template picker (Tier 1, D16): its ✕, the blank-event row and one
+  /// row per template keyed by the template's id, since two templates may
+  /// share a name. The quick-alarm row keeps [quickAlarmRow].
+  static const String templatePickClose = 'template-pick-close';
+  static const String templatePickBlank = 'template-pick-blank';
+  static String templatePickRow(String id) => 'template-pick-$id';
+
+  /// The icon picker's ✕ and its pinned search row (Tier 1, D17); the field
+  /// is what a flow types into.
+  static const String iconPickClose = 'icon-pick-close';
+  static const String iconPickSearch = 'icon-pick-search';
+
+  /// The sound sheet's ✕ and its three exclusive rows (Tier 1, D18), whose
+  /// labels change with the locale and the phone.
+  static const String soundClose = 'sound-close';
+  static const String soundInherit = 'sound-inherit';
+  static const String soundPhoneDefault = 'sound-phone-default';
+  static const String soundFromPhone = 'sound-from-phone';
+
   /// The event editor's rows and chrome, the two sub-sheets' Done and the
   /// detail sheet's actions: what the calendar flows under `tool/qa/flows/`
   /// target, so a copy change cannot break them.
@@ -152,6 +241,15 @@ abstract final class SemanticsIds {
   static const String eventDelete = 'event-delete';
   static const String repeatDone = 'repeat-done';
   static const String lookDone = 'look-done';
+
+  /// The Look sheet's ✕ and its two rows (fix round of Tier 1, 2026-09-27):
+  /// "Icon" is a substring of three nodes there — the sheet's title, the row
+  /// and the Tint switch — so flow 11 counted labels until the row had an
+  /// id. The colour id sits on the swatch row as a container, above the
+  /// swatches' own nodes.
+  static const String lookClose = 'look-close';
+  static const String lookIcon = 'look-icon';
+  static const String lookColor = 'look-color';
   static const String eventDetailEdit = 'event-detail-edit';
   static const String eventDetailClose = 'event-detail-close';
 

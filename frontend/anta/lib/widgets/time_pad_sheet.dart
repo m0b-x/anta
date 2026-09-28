@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../constants/app_colors.dart';
+import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_event.dart';
@@ -10,6 +12,7 @@ import '../services/event_time_formatter.dart';
 import '../services/settings_service.dart';
 import '../utils/time_pad_entry.dart';
 import 'automation_id.dart';
+import 'form_rows.dart';
 
 typedef TimePadCaption =
     String? Function(int minute, String Function(int minute) formatTime);
@@ -66,16 +69,29 @@ class TimePadSheet extends StatefulWidget {
     TimePadCaption? caption,
     int? periodAfter,
   }) {
+    final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<int>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      showDragHandle: true,
-      builder: (_) => TimePadSheet(
-        initialMinute: initialMinute,
-        title: title,
-        caption: caption,
-        periodAfter: periodAfter,
+      showDragHandle: false,
+      backgroundColor: colorScheme.pageGround,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(FormMetrics.sheetRadius),
+        ),
+      ),
+      builder: (context) => ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight:
+              MediaQuery.sizeOf(context).height * FormMetrics.sheetHeightFactor,
+        ),
+        child: TimePadSheet(
+          initialMinute: initialMinute,
+          title: title,
+          caption: caption,
+          periodAfter: periodAfter,
+        ),
       ),
     );
   }
@@ -112,10 +128,30 @@ class _TimePadSheetState extends State<TimePadSheet> {
   bool _haptics = false;
   bool _closed = false;
 
+  /// The body's scroll position feeds the header's hairline (a sub-sheet's
+  /// rule): a notifier, never `setState`, so a scroll frame rebuilds a 1 px
+  /// line and not the pad.
+  final ScrollController _bodyScroll = ScrollController();
+  final ValueNotifier<bool> _headerScrolled = ValueNotifier<bool>(false);
+
   @override
   void initState() {
     super.initState();
+    _bodyScroll.addListener(_onBodyScroll);
     _loadHaptics();
+  }
+
+  @override
+  void dispose() {
+    _bodyScroll.removeListener(_onBodyScroll);
+    _bodyScroll.dispose();
+    _headerScrolled.dispose();
+    super.dispose();
+  }
+
+  void _onBodyScroll() {
+    final scrolled = _bodyScroll.hasClients && _bodyScroll.offset > 0;
+    if (_headerScrolled.value != scrolled) _headerScrolled.value = scrolled;
   }
 
   @override
@@ -189,6 +225,24 @@ class _TimePadSheetState extends State<TimePadSheet> {
     return KeyEventResult.handled;
   }
 
+  /// The caption band's height: [FormMetrics.timePadCaptionLines] lines of
+  /// the caption's own style at the ambient text scale. Measured through a
+  /// `TextPainter` rather than multiplied from a guessed line factor — the
+  /// style's line box (`bodyMedium` draws 1.43 of its size) is what two
+  /// lines actually occupy, and a band a pixel short clips the second
+  /// line's descenders. Sized from the style alone, never from the caption's
+  /// text, so the keypad below never moves as the digits change.
+  double _captionBandHeight(BuildContext context, TextStyle style) {
+    final painter = TextPainter(
+      text: TextSpan(text: ' ', style: style),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+    );
+    final line = painter.preferredLineHeight;
+    painter.dispose();
+    return line * FormMetrics.timePadCaptionLines;
+  }
+
   @override
   Widget build(BuildContext context) {
     final entry = _entry!;
@@ -210,53 +264,50 @@ class _TimePadSheetState extends State<TimePadSheet> {
             material.postMeridiemAbbreviation,
           )
         : widget.caption?.call(entry.previewValue, _formatTime);
+    final captionStyle = theme.textTheme.bodyMedium!;
+    final captionBandHeight = _captionBandHeight(context, captionStyle);
 
     return Focus(
       autofocus: true,
+      // No semantics node of its own: a focusable node here merged the
+      // header's title into itself, and the sheet read as one "Start time"
+      // node with the title gone from the tree. The hardware keys still
+      // arrive through `onKeyEvent`; focus semantics belong to a control a
+      // screen reader can act on, and this root is not one.
+      includeSemantics: false,
       onKeyEvent: _onKeyEvent,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-            child: Row(
-              children: [
-                AutomationId(
-                  identifier: SemanticsIds.timePadCancel,
-                  child: IconButton(
-                    tooltip: l10n.cancel,
-                    icon: const Icon(Icons.close_rounded),
-                    onPressed: () => Navigator.of(context).pop(),
-                  ),
-                ),
-                Expanded(
-                  child: Text(
-                    widget.title,
-                    style: theme.textTheme.titleLarge,
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: AutomationId(
-                    identifier: SemanticsIds.timePadDone,
-                    child: FilledButton(
-                      onPressed: entry.canFinish
-                          ? () => _apply((entry) => entry.finish())
-                          : null,
-                      child: Text(l10n.timePadDone),
-                    ),
-                  ),
-                ),
-              ],
+          const FormSheetHandle(),
+          FormSheetHeader(
+            leadingIcon: Icons.close_rounded,
+            leadingTooltip: l10n.cancel,
+            leadingIdentifier: SemanticsIds.timePadCancel,
+            onLeading: () => Navigator.of(context).pop(),
+            title: widget.title,
+            scrolled: _headerScrolled,
+            trailingInset: FormMetrics.headerActionInset,
+            // The keys that complete an entry pop by themselves; Done serves
+            // a partial one, so it waits on `canFinish`.
+            trailing: FormHeaderTextButton(
+              label: l10n.timePadDone,
+              identifier: SemanticsIds.timePadDone,
+              onPressed: entry.canFinish
+                  ? () => _apply((entry) => entry.finish())
+                  : null,
             ),
           ),
           Flexible(
             child: SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(16, 8, 16, 16 + bottomClearance),
+              controller: _bodyScroll,
+              padding: EdgeInsets.fromLTRB(
+                RowMetrics.groupInset,
+                FormMetrics.bodyTop,
+                RowMetrics.groupInset,
+                FormMetrics.bodyBottom + bottomClearance,
+              ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -264,16 +315,16 @@ class _TimePadSheetState extends State<TimePadSheet> {
                   _buildReadout(entry, material, theme),
                   if (showsCaption)
                     SizedBox(
-                      height: 40,
+                      height: captionBandHeight,
                       child: Center(
                         child: Semantics(
                           liveRegion: entry.awaitingPeriod,
                           child: Text(
                             caption ?? '',
-                            maxLines: 1,
+                            maxLines: FormMetrics.timePadCaptionLines,
                             overflow: TextOverflow.ellipsis,
                             textAlign: TextAlign.center,
-                            style: theme.textTheme.bodyMedium?.copyWith(
+                            style: captionStyle.copyWith(
                               color: entry.awaitingPeriod
                                   ? scheme.primary
                                   : scheme.onSurfaceVariant,

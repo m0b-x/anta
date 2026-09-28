@@ -95,7 +95,7 @@ calendar state around today:
 
 ```bash
 ./tool/qa/qa relaunch --fresh --seed tool/qa/fixtures/calendar.json   # ~2.5 s; `run` instead after a lib change
-./tool/qa/qa flows calendar                                           # ten flows, ~40 s on the simulator, ~60 s on the Windows emulator (ANTA_QA_VIA=agent there)
+./tool/qa/qa flows calendar                                           # twelve flows, ~40 s on the simulator, ~60 s on the Windows emulator (ANTA_QA_VIA=agent there)
 ./tool/qa/qa flows calendar/03_dates                                  # one flow; --keep-going runs past a failure
 ```
 
@@ -159,7 +159,7 @@ resolve — that is what they are for.
 its chrome (`event-close`, `event-save`, `event-save-as-template`,
 `event-delete`) and its scrolling body (`event-form`); the sub-sheets' Done
 (`repeat-done`, `look-done`); the Dates sheet (`date-picker-save`,
-`date-picker-cancel`); the detail sheet (`event-detail-edit`, `event-detail-close`, and since 2026-09-26 `event-detail-description`, `event-detail-present`, `event-detail-missed`, `event-detail-skip`, `event-detail-add-date`, `event-detail-dates`, `event-detail-note`); the header (2026-09-26): the title's view menu `calendar-view-menu` with its rows `calendar-view-calendar`, `calendar-overview-open`, `calendar-format-month` / `-two-weeks` / `-week`, and the ⋮ `calendar-more` with `calendar-alerts-open`, `calendar-export`, `calendar-settings-open` — the same ids on the overview; and **a day-panel row by its event id**
+`date-picker-cancel`); the detail sheet (`event-detail-edit`, `event-detail-close`, and since 2026-09-26 `event-detail-description`, `event-detail-present`, `event-detail-missed`, `event-detail-skip`, `event-detail-add-date`, `event-detail-dates`, `event-detail-note`); the header (2026-09-26): the title's view menu `calendar-view-menu` with its rows `calendar-view-calendar`, `calendar-overview-open`, `calendar-format-month` / `-two-weeks` / `-week`, and the ⋮ `calendar-more` with `calendar-alerts-open`, `calendar-export`, `calendar-settings-open` — the same ids on the overview; since Tier 1 of the language adoption (2026-09-27): the Upcoming panel's tune button `agenda-filter-open` and the agenda filters sheet's `agenda-filter-*` rows (`-period`, `-follow`, `-events`, `-categories`, `-priority`, `-holidays`, `-fasting`, `-event-rows`, `-fasting-rows`, `-holiday-rows`, `-reset`, `-close`, `-apply`, the body `agenda-filter-sheet`, and one id per menu item such as `agenda-filter-period-90` / `agenda-filter-events-none`), the Dates sheet's `date-picker-today`, the month/year picker's `month-year-close` / `-apply` / `-today` / `-typed`, the description sheet's `description-close` / `-done`, the template picker's `template-pick-close` / `-blank` / `template-pick-<id>`, the icon picker's `icon-pick-close` / `-search`, the sound sheet's `sound-close` / `-inherit` / `-phone-default` / `-from-phone`; and **a day-panel row by its event id**
 (`event-row-<eventId>`, e.g. `id:event-row-qa-cal-lift` for the seed's
 weekly session). A title is never a safe target on the calendar page:
 every marked day cell's marker label carries the titles of its events, so
@@ -175,10 +175,12 @@ Calendar traps, all seen 2026-09-26:
 - **Day cells are label-only.** `table_calendar` wraps each cell with
   excluded semantics, so an id inside the cell never reaches the tree; tap a
   day by `"{{longdate+N}}"`.
-- **`MenuAnchor` items expose no semantics nodes** (the priority and day-rail
-  menus): the menu draws, `dump --all` shows only the scrim. A flow can open
-  the menu, `shot` it and `key escape`; it cannot pick an item by label. A
-  screen-reader gap to fix on the app side, not a tool problem.
+- **`MenuAnchor` items expose no semantics nodes** — the trap as seen on the
+  priority and day-rail menus on 2026-09-26: the menu draws, `dump --all`
+  shows only the scrim. Closed on the app side 2026-09-27 (`FormMenuRow` is
+  a popup route of radio items with ids — `09_filters.txt` and
+  `10_agenda_filters.txt` pick items by id); the trap stays here for any
+  `MenuAnchor` that reappears.
 - **`relaunch` starts the installed build**, without anything hot-reloaded
   since the last `qa run`; after a lib change, `qa run --fresh --seed …` is
   the honest path (about a minute). **`restart` after `attach` lost the
