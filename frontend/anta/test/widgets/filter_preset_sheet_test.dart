@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart' show kLongPressTimeout;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -20,7 +21,11 @@ import '../database/support/db_test_support.dart';
 /// the 2026-09-27 migration into the grouped-row language the chrome is
 /// pinned too: "No filter" as the first row, the search row past the
 /// threshold, the save row dimmed rather than hidden, the ⋮ menu's items with
-/// their ids, and no empty-state paragraph.
+/// their ids, and no empty-state paragraph. Since 2026-09-29 the list is
+/// reorderable, and the group at the end pins that: a drag on the handle or
+/// a long press on the row moves a preset and persists the order, a drop
+/// past the save row lands last, Move to top does the same in one tap, and
+/// a live search locks all of it in place.
 void main() {
   late AppDatabase db;
   late FilterPresetService service;
@@ -51,10 +56,11 @@ void main() {
   Future<void> pumpSheet(
     WidgetTester tester, {
     CalendarGridFilters current = CalendarGridFilters.none,
+    double height = 1600,
   }) async {
     addTearDown(tester.view.reset);
     tester.view.devicePixelRatio = 1.0;
-    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.physicalSize = Size(800, height);
     popped = [];
     await tester.pumpWidget(
       MaterialApp(
@@ -469,6 +475,317 @@ void main() {
       expect(service.presets, isEmpty);
       expect(find.byType(FilterPresetSheet), findsOneWidget);
       expect(find.text('Training'), findsNothing);
+    });
+  });
+
+  group('reorder', () {
+    Future<List<String>> seedNamed(List<String> names) async {
+      for (final name in names) {
+        await service.create(
+          name: name,
+          filters: CalendarGridFilters(
+            priorities: {names.indexOf(name) % 5 + 1},
+          ),
+        );
+      }
+      return [for (final p in service.presets) p.id];
+    }
+
+    List<String> storedNames() => [for (final p in service.presets) p.name];
+
+    /// The names in the order the sheet draws them, top to bottom.
+    List<String> shownNames(WidgetTester tester, List<String> names) {
+      final byTop = [
+        for (final name in names)
+          (name, tester.getTopLeft(find.text(name)).dy),
+      ]..sort((a, b) => a.$2.compareTo(b.$2));
+      return [for (final entry in byTop) entry.$1];
+    }
+
+    Finder handleOf(String presetId) =>
+        id(SemanticsIds.filterPresetHandle(presetId));
+
+    /// A drop's animation settles in a frame or two; a stuck one would
+    /// otherwise hold the suite for pumpAndSettle's ten-minute default.
+    Future<void> settle(WidgetTester tester) => tester.pumpAndSettle(
+      const Duration(milliseconds: 100),
+      EnginePhase.sendSemanticsUpdate,
+      const Duration(seconds: 10),
+    );
+
+    /// Well past every row: the list reports an index beyond the save row
+    /// (or before the first row) and the sheet clamps it into the preset
+    /// run, so a drag that overshoots lands last (or first), never outside
+    /// the group.
+    const past = 600.0;
+
+    testWidgets('every preset row carries a handle with its id and name', (
+      tester,
+    ) async {
+      final ids = await seedNamed(['A', 'B']);
+
+      await pumpSheet(tester);
+
+      for (final presetId in ids) {
+        expect(handleOf(presetId), findsOneWidget);
+        expect(
+          tester.getSemantics(handleOf(presetId)).getSemanticsData().label,
+          'Drag to reorder',
+        );
+      }
+      expect(find.byType(ReorderableListView), findsOneWidget);
+      // The handle leads the row, the ⋮ ends it.
+      expect(
+        tester.getTopLeft(handleOf(ids.first)).dx,
+        lessThan(tester.getTopLeft(find.text('A')).dx),
+      );
+      expect(
+        tester.getTopLeft(find.text('A')).dx,
+        lessThan(
+          tester.getTopLeft(id(SemanticsIds.filterPresetOptions(ids.first))).dx,
+        ),
+      );
+    });
+
+    testWidgets('a drag on the handle reorders the list and persists it', (
+      tester,
+    ) async {
+      final ids = await seedNamed(['A', 'B', 'C']);
+
+      await pumpSheet(tester);
+      await tester.drag(handleOf(ids.first), const Offset(0, past));
+      await settle(tester);
+
+      expect(shownNames(tester, ['A', 'B', 'C']), ['B', 'C', 'A']);
+      expect(storedNames(), ['B', 'C', 'A']);
+      expect(service.presets.map((p) => p.sortOrder), [0, 1, 2]);
+      // The save row is an item of the same list so the run draws as one
+      // group; the drop landed above it, never below.
+      expect(
+        tester.getTopLeft(find.text('A')).dy,
+        lessThan(tester.getTopLeft(find.text('Save the current filter')).dy),
+      );
+      // In place: the sheet is still open and nothing was applied.
+      expect(find.byType(FilterPresetSheet), findsOneWidget);
+      expect(popped, isEmpty);
+    });
+
+    /// Past the threshold the search row leads the list, so the list's
+    /// indices are one ahead of the presets': the one place a reorder can
+    /// silently move the row below the one lifted.
+    testWidgets('with the search row on screen, a drag past the top lands '
+        'first, under the field', (tester) async {
+      await seedPastThreshold(named: {'Zebra': tracked});
+      final last = service.presets.last;
+
+      await pumpSheet(tester);
+      expect(find.byType(TextField), findsOneWidget);
+      // Thirteen rows put the last handle far down the sheet, so the
+      // distance is measured: well above the "No filter" row, past the field.
+      final aboveTheList = tester.getTopLeft(find.text('No filter')).dy - 40;
+      await tester.drag(
+        handleOf(last.id),
+        Offset(0, aboveTheList - tester.getCenter(handleOf(last.id)).dy),
+      );
+      await settle(tester);
+
+      expect(storedNames().first, last.name);
+      expect(
+        tester.getTopLeft(find.byType(TextField)).dy,
+        lessThan(tester.getTopLeft(find.text(last.name)).dy),
+      );
+    });
+
+    testWidgets('with the search row on screen, a drag past the bottom lands '
+        'last, above the save row', (tester) async {
+      await seedPastThreshold(named: {'Zebra': tracked});
+      final first = service.presets.first;
+
+      await pumpSheet(tester);
+      final belowTheList =
+          tester.getBottomLeft(find.text('Save the current filter')).dy + 40;
+      await tester.drag(
+        handleOf(first.id),
+        Offset(0, belowTheList - tester.getCenter(handleOf(first.id)).dy),
+      );
+      await settle(tester);
+
+      expect(storedNames().last, 'Zebra');
+      expect(
+        tester.getTopLeft(find.text('Zebra')).dy,
+        lessThan(tester.getTopLeft(find.text('Save the current filter')).dy),
+      );
+    });
+
+    /// Flutter's reorderable list wraps every item in a semantics container
+    /// carrying move up / down / to start / to end, so a screen reader can
+    /// reorder without a drag; the row, its handle and its ⋮ stay their own
+    /// nodes inside it.
+    testWidgets('every preset row carries the reorder actions for a screen '
+        'reader', (tester) async {
+      final ids = await seedNamed(['A', 'B']);
+
+      await pumpSheet(tester);
+
+      for (final presetId in ids) {
+        final data = tester
+            .getSemantics(find.byKey(ValueKey(presetId)))
+            .getSemanticsData();
+        expect(data.customSemanticsActionIds, isNotEmpty);
+      }
+      expect(id(SemanticsIds.filterPresetRow(ids.first)), findsOneWidget);
+      expect(handleOf(ids.first), findsOneWidget);
+      expect(id(SemanticsIds.filterPresetOptions(ids.first)), findsOneWidget);
+    });
+
+    testWidgets('a drag past the top lands first, under No filter', (
+      tester,
+    ) async {
+      final ids = await seedNamed(['A', 'B', 'C']);
+
+      await pumpSheet(tester);
+      await tester.drag(handleOf(ids.last), const Offset(0, -past));
+      await settle(tester);
+
+      expect(shownNames(tester, ['A', 'B', 'C']), ['C', 'A', 'B']);
+      expect(storedNames(), ['C', 'A', 'B']);
+      expect(
+        tester.getTopLeft(find.text('No filter')).dy,
+        lessThan(tester.getTopLeft(find.text('C')).dy),
+      );
+    });
+
+    testWidgets('a long press anywhere on the row lifts it too', (
+      tester,
+    ) async {
+      await seedNamed(['A', 'B', 'C']);
+
+      await pumpSheet(tester);
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.text('A')),
+      );
+      await tester.pump(kLongPressTimeout + const Duration(milliseconds: 50));
+      await gesture.moveBy(const Offset(0, past));
+      await tester.pump();
+      await gesture.up();
+      await settle(tester);
+
+      expect(storedNames(), ['B', 'C', 'A']);
+      // A long press is a lift, never a pick.
+      expect(popped, isEmpty);
+    });
+
+    testWidgets('a drag past the fold scrolls the list', (tester) async {
+      final ids = await seedNamed([for (var i = 0; i < 12; i++) 'Preset $i']);
+
+      // A phone short enough that twelve rows overflow the sheet's clamp.
+      await pumpSheet(tester, height: 700);
+      final scrollable = find.descendant(
+        of: find.byType(ReorderableListView),
+        matching: find.byType(Scrollable),
+      );
+      final position = tester.state<ScrollableState>(scrollable).position;
+      expect(position.maxScrollExtent, greaterThan(0));
+      expect(position.pixels, 0);
+
+      // Lift the first row and hold it at the sheet's bottom edge: the
+      // edge auto-scroller has to move the list under it.
+      final gesture = await tester.startGesture(
+        tester.getCenter(handleOf(ids.first)),
+      );
+      await tester.pump();
+      final sheetBottom = tester.getBottomLeft(find.byType(ReorderableListView)).dy;
+      await gesture.moveTo(Offset(400, sheetBottom - 10));
+      for (var i = 0; i < 30; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      expect(position.pixels, greaterThan(0));
+      await gesture.up();
+      await settle(tester);
+
+      expect(storedNames().first, isNot('Preset 0'));
+    });
+
+    testWidgets('a live search locks the handles and Move to top in place', (
+      tester,
+    ) async {
+      await seedPastThreshold(named: {'Zebra': tracked});
+      final zebra = service.presets.first.id;
+
+      await pumpSheet(tester);
+      expect(find.byType(ReorderableDragStartListener), findsWidgets);
+
+      await tester.enterText(find.byType(TextField), 'zeb');
+      await tester.pumpAndSettle();
+
+      // Still there, still a node with its name; greyed, and wired to no drag.
+      expect(handleOf(zebra), findsOneWidget);
+      expect(
+        tester.widget<FormDragHandle>(find.byType(FormDragHandle)).enabled,
+        isFalse,
+      );
+      expect(find.byType(ReorderableDragStartListener), findsNothing);
+      expect(
+        tester
+            .widget<ReorderableDelayedDragStartListener>(
+              find.byType(ReorderableDelayedDragStartListener),
+            )
+            .enabled,
+        isFalse,
+      );
+      await tap(tester, id(SemanticsIds.filterPresetOptions(zebra)));
+      expect(
+        menuItem(tester, SemanticsIds.filterPresetMoveToTop).enabled,
+        isFalse,
+      );
+    });
+
+    testWidgets('Move to top moves the preset first, in place, and persists', (
+      tester,
+    ) async {
+      final ids = await seedNamed(['A', 'B', 'C']);
+
+      await pumpSheet(tester);
+      await tap(tester, id(SemanticsIds.filterPresetOptions(ids.last)));
+      expect(
+        menuItem(tester, SemanticsIds.filterPresetMoveToTop).enabled,
+        isTrue,
+      );
+      await tap(tester, id(SemanticsIds.filterPresetMoveToTop));
+
+      expect(shownNames(tester, ['A', 'B', 'C']), ['C', 'A', 'B']);
+      expect(storedNames(), ['C', 'A', 'B']);
+      expect(find.byType(FilterPresetSheet), findsOneWidget);
+      expect(popped, isEmpty);
+    });
+
+    testWidgets('Move to top is disabled for the preset already first', (
+      tester,
+    ) async {
+      final ids = await seedNamed(['A', 'B']);
+
+      await pumpSheet(tester);
+      await tap(tester, id(SemanticsIds.filterPresetOptions(ids.first)));
+
+      expect(id(SemanticsIds.filterPresetMoveToTop), findsOneWidget);
+      expect(
+        menuItem(tester, SemanticsIds.filterPresetMoveToTop).enabled,
+        isFalse,
+      );
+    });
+
+    /// The caption names the sets like the Filters sheet's rows do, so the
+    /// same filter never reads "Priority (2)" here and "Highest, High" there.
+    testWidgets('the caption names several priorities', (tester) async {
+      await service.create(
+        name: 'Top',
+        filters: const CalendarGridFilters(priorities: {1, 2}),
+      );
+
+      await pumpSheet(tester);
+
+      expect(find.text('Highest, High'), findsOneWidget);
+      expect(find.textContaining('Priority (2)'), findsNothing);
     });
   });
 

@@ -1023,6 +1023,60 @@ void main() {
     });
   });
 
+  group('filter presets', () {
+    Future<List<String>> seedPresets(int count) async {
+      final ids = [for (var i = 0; i < count; i++) 'p$i'];
+      for (final id in ids) {
+        await db.filterPresetDao.upsertPreset(
+          CalendarFilterPresetsCompanion(
+            id: Value(id),
+            name: Value(id),
+            filters: const Value('{"trackedOnly":true}'),
+            sortOrder: Value(ids.indexOf(id)),
+          ),
+        );
+      }
+      return ids;
+    }
+
+    test('reordering presets is one transaction and reads nothing', () async {
+      final ids = await seedPresets(30);
+
+      counter.reset();
+      await db.filterPresetDao.reorder(ids.reversed.toList());
+
+      // This table carries CRDT columns, so `version + 1` is computed in
+      // SQL rather than read first — the notes' shape, not the vocabulary
+      // DAO's read-per-row.
+      expect(
+        counter.selects,
+        isEmpty,
+        reason:
+            'reorder must not read a row to write it. Issued:\n'
+            '${counter.statements.take(6).join('\n')}',
+      );
+      // One UPDATE per row is inherent; a SELECT per row is not.
+      expect(
+        counter.count,
+        lessThanOrEqualTo(ids.length),
+        reason: 'issued:\n${counter.statements.take(6).join('\n')}',
+      );
+
+      final rows = await db.filterPresetDao.getAll();
+      expect(rows.map((r) => r.id), ids.reversed);
+      expect(rows.map((r) => r.sortOrder), [
+        for (var i = 0; i < ids.length; i++) i,
+      ]);
+    });
+
+    test('reordering nothing touches the database not at all', () async {
+      await seedPresets(3);
+      counter.reset();
+      await db.filterPresetDao.reorder(const []);
+      expect(counter.count, 0);
+    });
+  });
+
   group('event alerts', () {
     /// Alerts for [count] events, three each — the shape a per-event read in a
     /// loop would be invisible in: sixty fast statements still beat one.

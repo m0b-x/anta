@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
@@ -72,11 +74,50 @@ class FilterPresetService {
 
   List<CalendarFilterPreset> _cache = const [];
 
+  /// The tail of the write chain — `null` while idle (see [_serialize]).
+  Future<void>? _writes;
+
   List<CalendarFilterPreset> get presets => _cache;
 
   bool get isFull => _cache.length >= maxPresets;
 
   Future<void> reload() => _load();
+
+  /// Runs [write] after every write already issued, and makes the next one
+  /// wait for it — [CategoryService]'s chain. Every mutation goes through
+  /// it, and it exists for the one that two quick gestures can overlap: a
+  /// second drag issues a reorder before the first has landed, and nothing
+  /// about `await` orders the two; the loser would resurrect the earlier
+  /// arrangement. Callers pass their whole current order, so the last link
+  /// enqueued is the truth however the futures resolve, and each link's
+  /// `_load()` republishes the cache in that same order.
+  ///
+  /// A failed link is swallowed *for the chain only* — the caller's future
+  /// still surfaces it — so one error cannot poison every later write.
+  ///
+  /// The tail starts `null` rather than as a completed future: a
+  /// `Future.value()` built in a field initializer captures the zone it was
+  /// created in, and under a widget test's `FakeAsync` the first link's
+  /// continuation would be queued where nothing drains it
+  /// ([CategoryService] records the trap).
+  Future<T> _serialize<T>(Future<T> Function() write) async {
+    final previous = _writes;
+    final done = Completer<void>();
+    _writes = done.future;
+    if (previous != null) {
+      try {
+        await previous;
+      } catch (_) {
+        // Already surfaced to whoever issued it; one failure must not stop
+        // the queue.
+      }
+    }
+    try {
+      return await write();
+    } finally {
+      done.complete();
+    }
+  }
 
   Future<void> _load() async {
     try {
@@ -108,30 +149,48 @@ class FilterPresetService {
   Future<CalendarFilterPreset?> create({
     required String name,
     required CalendarGridFilters filters,
-  }) async {
-    if (isFull) return null;
-    final id = _uuid.v4();
-    final preset = CalendarFilterPreset(
-      id: id,
-      name: name.trim(),
-      filters: filters,
-      sortOrder: await _dao.nextSortOrder(),
-    );
-    await _dao.upsertPreset(_toCompanion(preset));
-    await _load();
-    return _byId(id) ?? preset;
+  }) {
+    return _serialize(() async {
+      if (isFull) return null;
+      final id = _uuid.v4();
+      final preset = CalendarFilterPreset(
+        id: id,
+        name: name.trim(),
+        filters: filters,
+        sortOrder: await _dao.nextSortOrder(),
+      );
+      await _dao.upsertPreset(_toCompanion(preset));
+      await _load();
+      return _byId(id) ?? preset;
+    });
   }
 
   /// Writes [preset] back in place — a rename, or a re-save over the current
   /// filters. Keeps its `created_at` and its position.
-  Future<void> update(CalendarFilterPreset preset) async {
-    await _dao.upsertPreset(_toCompanion(preset));
-    await _load();
+  Future<void> update(CalendarFilterPreset preset) {
+    return _serialize(() async {
+      await _dao.upsertPreset(_toCompanion(preset));
+      await _load();
+    });
   }
 
-  Future<void> delete(String id) async {
-    await _dao.softDeleteById(id);
-    await _load();
+  Future<void> delete(String id) {
+    return _serialize(() async {
+      await _dao.softDeleteById(id);
+      await _load();
+    });
+  }
+
+  /// Persists a new display order, given every live id in the order it
+  /// should appear — the whole list after a drag or a Move to top, never a
+  /// delta, so the last reorder enqueued is the whole truth (see
+  /// [_serialize]). The DAO writes the positions dense and stamps only the
+  /// rows that moved.
+  Future<void> reorder(List<String> idsInOrder) {
+    return _serialize(() async {
+      await _dao.reorder(idsInOrder);
+      await _load();
+    });
   }
 
   CalendarFilterPreset? _byId(String id) {
@@ -173,7 +232,11 @@ class FilterPresetService {
   /// A preset whose blob no longer parses is **not** dropped — it is stored as
   /// written and decodes to "nothing filtered" at read time, which keeps the
   /// user's named row alive instead of deleting it on their behalf.
-  Future<void> importData(List<dynamic> data) async {
+  Future<void> importData(List<dynamic> data) {
+    return _serialize(() => _importData(data));
+  }
+
+  Future<void> _importData(List<dynamic> data) async {
     await _dao.deleteAll();
     final companions = <CalendarFilterPresetsCompanion>[];
     for (final raw in data) {

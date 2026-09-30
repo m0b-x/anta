@@ -107,6 +107,44 @@ class FilterPresetDao extends DatabaseAccessor<AppDatabase>
     return row.read<int>('max_order') + 1;
   }
 
+  /// Rewrites `sort_order` to a dense `0..N-1` matching [idsInOrder] — the
+  /// display order the sheet hands over after a drag or a Move to top.
+  ///
+  /// One transaction of `UPDATE`s and **no reads**: `version = version + 1`
+  /// is done in SQL, the [NoteDao.setNotePositions] shape, rather than
+  /// reading each row to compute it — `query_count_test` guards that a
+  /// reorder never issues a `SELECT`. A row already at its position is left
+  /// alone (`sort_order != ?`), so a drag that moves one row stamps one row
+  /// and the others keep their `version` and HLC; a tombstone or an unknown
+  /// id updates nothing (`is_deleted = 0`), the outcome an existence check
+  /// would have produced. **Dense values matter**: [getAll] tie-breaks on
+  /// `id`, so gaps or duplicates would let rows shuffle on the next load,
+  /// which reads as the drag not having stuck.
+  Future<void> reorder(List<String> idsInOrder) async {
+    if (idsInOrder.isEmpty) return;
+    final now = DateTime.now();
+    final hlc = db.generateHlc();
+
+    await transaction(() async {
+      for (var i = 0; i < idsInOrder.length; i++) {
+        await customUpdate(
+          'UPDATE calendar_filter_presets SET sort_order = ?, updated_at = ?, '
+          'hlc_timestamp = ?, device_id = ?, version = version + 1 '
+          'WHERE id = ? AND is_deleted = 0 AND sort_order != ?',
+          variables: [
+            Variable<int>(i),
+            Variable<DateTime>(now),
+            Variable<String>(hlc),
+            Variable<String>(db.deviceId),
+            Variable<String>(idsInOrder[i]),
+            Variable<int>(i),
+          ],
+          updates: {calendarFilterPresets},
+        );
+      }
+    });
+  }
+
   /// Inserts presets while preserving externally-provided audit fields, the
   /// [EventTemplateDao.importAll] convention: `createdAt`/`updatedAt` come
   /// from the caller, identity is stamped **fresh**. A backup is not a sync

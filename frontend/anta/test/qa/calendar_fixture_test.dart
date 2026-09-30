@@ -158,7 +158,9 @@ void main() {
     final templates = (await EventTemplateService.getInstance()).templates;
     expect(templates.map((t) => t.name), contains('Leg day'));
     final presets = (await FilterPresetService.getInstance()).presets;
-    expect(presets.map((p) => p.name), contains('Top priority'));
+    // Two, in this order: the reorder step of `09_filters.txt` moves the
+    // second one to the top and needs a row above it to pass.
+    expect(presets.map((p) => p.name), ['Top priority', 'Tracked']);
     final holiday = PublicHolidays.holidayOn(day(20));
     expect(holiday, isNotNull, reason: 'the custom holiday is 20 days out');
   });

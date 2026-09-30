@@ -149,6 +149,80 @@ void main() {
   });
 
   group('ordering', () {
+    Future<List<Map<String, Object?>>> raw() async {
+      final rows = await db
+          .customSelect(
+            'SELECT id, sort_order, version, hlc_timestamp, is_deleted '
+            'FROM calendar_filter_presets ORDER BY id',
+          )
+          .get();
+      return [for (final r in rows) r.data];
+    }
+
+    test('reorder rewrites dense positions in the order given', () async {
+      await insert('p1');
+      await insert('p2');
+      await insert('p3');
+
+      await db.filterPresetDao.reorder(['p3', 'p1', 'p2']);
+
+      final rows = await db.filterPresetDao.getAll();
+      expect(rows.map((r) => r.id), ['p3', 'p1', 'p2']);
+      expect(
+        rows.map((r) => r.sortOrder),
+        [0, 1, 2],
+        reason: 'dense: getAll tie-breaks on id, so gaps let rows shuffle',
+      );
+    });
+
+    /// The reason the position is rewritten in SQL rather than read first:
+    /// only a row that actually moves takes a new version and HLC, so a
+    /// drag of one row leaves every other row's stamp alone.
+    test('a moved row bumps its version and takes a fresh HLC; a row already '
+        'in place keeps both', () async {
+      await insert('p1');
+      await insert('p2');
+      final before = {for (final r in await raw()) r['id']: r};
+
+      // Both rows sit at sort_order 0; p1 lands on 0 again, p2 moves to 1.
+      await db.filterPresetDao.reorder(['p1', 'p2']);
+
+      final after = {for (final r in await raw()) r['id']: r};
+      expect(after['p1']!['version'], before['p1']!['version']);
+      expect(after['p1']!['hlc_timestamp'], before['p1']!['hlc_timestamp']);
+      expect(after['p2']!['sort_order'], 1);
+      expect(after['p2']!['version'], (before['p2']!['version']! as int) + 1);
+      expect(
+        after['p2']!['hlc_timestamp'],
+        isNot(before['p2']!['hlc_timestamp']),
+      );
+    });
+
+    test('a tombstone and an unknown id are no-ops', () async {
+      await insert('p1');
+      await insert('p2');
+      await db.filterPresetDao.softDeleteById('p2');
+      final deadBefore = (await raw()).singleWhere((r) => r['id'] == 'p2');
+
+      await db.filterPresetDao.reorder(['p2', 'p1', 'ghost']);
+
+      final rows = await raw();
+      expect(rows, hasLength(2), reason: 'an unknown id inserts nothing');
+      final dead = rows.singleWhere((r) => r['id'] == 'p2');
+      expect(dead['sort_order'], deadBefore['sort_order']);
+      expect(dead['version'], deadBefore['version']);
+      expect(rows.singleWhere((r) => r['id'] == 'p1')['sort_order'], 1);
+    });
+
+    test('reordering nothing writes nothing', () async {
+      await insert('p1');
+      final before = await raw();
+
+      await db.filterPresetDao.reorder(const []);
+
+      expect(await raw(), before);
+    });
+
     test('nextSortOrder counts tombstones', () async {
       await db.filterPresetDao.upsertPreset(
         CalendarFilterPresetsCompanion(

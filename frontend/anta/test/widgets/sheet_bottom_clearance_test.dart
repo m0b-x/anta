@@ -150,6 +150,18 @@ void main() {
     return list.padding!.resolve(TextDirection.ltr).bottom;
   }
 
+  /// Bottom padding of a reorderable list's own `padding` — the saved
+  /// filters sheet, whose list owns the scrolling since it became
+  /// reorderable (2026-09-29). The widget's padding is read before the list
+  /// splits it between its header, its items and its footer, so the number
+  /// is the one the sheet computed.
+  double reorderableBottomPadding(WidgetTester tester) {
+    final list = tester.widget<ReorderableListView>(
+      find.byType(ReorderableListView),
+    );
+    return list.padding!.resolve(TextDirection.ltr).bottom;
+  }
+
   /// Bottom padding of the outermost `SingleChildScrollView` on screen — the
   /// shape every form sheet uses, where `find.byType` returns tree order and
   /// the sheet's own scroll view is therefore first.
@@ -651,9 +663,9 @@ void main() {
       ),
     );
 
-    // The save row is the last thing in the scroll view, and short lists
-    // never scroll — exactly the shape that forgets the clearance.
-    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+    // The save row is the last thing in the list, and short lists never
+    // scroll — exactly the shape that forgets the clearance.
+    expect(reorderableBottomPadding(tester), greaterThanOrEqualTo(navBar));
   });
 
   testWidgets('the filter check-list sheet clears the navigation bar', (

@@ -71,6 +71,13 @@ abstract final class FormMetrics {
   static const double counterSize = 12;
   static const double trailingIconSize = 20;
   static const double trailingButtonSize = 48;
+
+  /// The drag handle's target at a reorderable row's start — the trailing
+  /// button's size mirrored, so a row that can be lifted keeps its two other
+  /// targets exactly where every other row has them. The text column after
+  /// it is [dividerIndentGlyph]: the glyph rows' column, so the search row
+  /// and the action row above and below line up with the names.
+  static const double dragHandleSlot = trailingButtonSize;
   static const double subRowInset = RowMetrics.dividerIndentWithGlyph;
   static const double rowEndPadding = 12;
   static const double pairVerticalPadding = 6;

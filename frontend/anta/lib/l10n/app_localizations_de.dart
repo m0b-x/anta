@@ -174,6 +174,9 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String get filterPresetReorder => 'Zum Neuordnen ziehen';
+
+  @override
   String get filterCalendar => 'Kalender filtern';
 
   @override
@@ -1912,9 +1915,6 @@ class AppLocalizationsDe extends AppLocalizations {
   String get dropPosition => 'Ablageposition';
 
   @override
-  String get longPressToReorder => 'Lange drücken zum Neuordnen';
-
-  @override
   String shortcutButton(String label) {
     return '$label Schaltfläche';
   }
@@ -2238,12 +2238,6 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get enterNewName => 'Neuen Namen eingeben';
-
-  @override
-  String get reorderMode => 'Sortierungsmodus';
-
-  @override
-  String get dragToReorder => 'Elemente ziehen um neu zu ordnen';
 
   @override
   String get sortByCustom => 'Benutzerdefinierte Reihenfolge';

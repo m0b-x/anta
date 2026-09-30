@@ -124,6 +124,106 @@ void main() {
     );
   });
 
+  group('reorder', () {
+    List<String> names() => [for (final p in service.presets) p.name];
+
+    Future<void> seedThree() async {
+      await service.create(name: 'A', filters: tracked);
+      await service.create(
+        name: 'B',
+        filters: const CalendarGridFilters(missedOnly: true),
+      );
+      await service.create(
+        name: 'C',
+        filters: const CalendarGridFilters(hideEnded: true),
+      );
+    }
+
+    test('the new order persists and survives a reload', () async {
+      await seedThree();
+      final ids = {for (final p in service.presets) p.name: p.id};
+
+      await service.reorder([ids['C']!, ids['A']!, ids['B']!]);
+
+      expect(names(), ['C', 'A', 'B']);
+      await service.reload();
+      expect(names(), ['C', 'A', 'B']);
+      expect(service.presets.map((p) => p.sortOrder), [0, 1, 2]);
+    });
+
+    /// Issued back to back without awaiting the first — the shape two quick
+    /// drags produce. The chain is what makes the *last* one the truth.
+    test('racing reorders land in the order they were issued', () async {
+      await seedThree();
+      final ids = [for (final p in service.presets) p.id];
+      final first = ids.reversed.toList();
+      final second = [ids.last, ...ids.take(ids.length - 1)];
+
+      final a = service.reorder(first);
+      final b = service.reorder(second);
+      await Future.wait([a, b]);
+
+      expect([for (final p in service.presets) p.id], second);
+    });
+
+    /// A link that throws must surface to its caller and leave the cache
+    /// as it was, and the chain must keep accepting work afterwards.
+    test('a failed write surfaces, changes nothing, and does not poison '
+        'later ones', () async {
+      await seedThree();
+      final ids = [for (final p in service.presets) p.id];
+      // The database itself refuses the write, the way a full disk or a
+      // locked file would — an id nothing matches would merely update no
+      // rows, which is not a failure.
+      await db.customStatement(
+        'CREATE TRIGGER block_preset_updates BEFORE UPDATE '
+        'ON calendar_filter_presets BEGIN SELECT RAISE(ABORT, \'blocked\'); END',
+      );
+
+      await expectLater(
+        service.reorder(ids.reversed.toList()),
+        throwsA(anything),
+      );
+      expect([for (final p in service.presets) p.id], ids);
+
+      await db.customStatement('DROP TRIGGER block_preset_updates');
+      await service.reorder(ids.reversed.toList());
+
+      expect([for (final p in service.presets) p.id], ids.reversed);
+    });
+
+    test('an unknown id updates nothing and is not a failure', () async {
+      await seedThree();
+      final before = names();
+
+      await service.reorder(const ['no-such-preset']);
+
+      expect(names(), before);
+    });
+
+    test('reordering nothing leaves the order alone', () async {
+      await seedThree();
+      final before = names();
+
+      await service.reorder(const []);
+
+      expect(names(), before);
+    });
+
+    test('a later save still appends after a reorder', () async {
+      await seedThree();
+      final ids = [for (final p in service.presets) p.id];
+      await service.reorder(ids.reversed.toList());
+
+      await service.create(
+        name: 'D',
+        filters: const CalendarGridFilters(countedOnly: true),
+      );
+
+      expect(names(), ['C', 'B', 'A', 'D']);
+    });
+  });
+
   test('delete removes it from the list', () async {
     final saved = await service.create(name: 'Training', filters: tracked);
 

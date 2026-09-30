@@ -75,6 +75,11 @@ class ReorderLockedHint extends StatelessWidget {
   }
 }
 
+/// The corner the lifted row's shadow follows. A row that paints its own
+/// square corners (a middle row of a form group) clips to it as well, so the
+/// card and its shadow agree.
+const double reorderProxyRadius = 12;
+
 /// The lift a dragged row gets while it is being carried: a hair of scale and
 /// a shadow that fade in with the drag animation. Matches
 /// `ReorderItemProxyDecorator`, so it can be passed straight as
@@ -89,7 +94,7 @@ Widget reorderDragProxy(Widget child, int index, Animation<double> animation) {
         child: Material(
           color: Colors.transparent,
           elevation: 6 * t,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(reorderProxyRadius),
           child: child,
         ),
       );

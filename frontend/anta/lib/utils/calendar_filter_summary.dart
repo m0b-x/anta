@@ -31,7 +31,10 @@ class CalendarFilterFacet {
 /// saved preset's subtitle, and the name suggested when saving one — and a
 /// second copy of the vocabulary would let them disagree about the same
 /// filter. They all read [facetsOf]; the icons and labels below are the only
-/// definitions.
+/// definitions. The one licensed difference is *how much* a set says: a chip
+/// counts ("Priority (2)") because it must stay one word wide, while a
+/// caption and a name read the members back through [namesReadBack]
+/// ("Highest, High") like every set row of the filter sheet (`named`).
 ///
 /// Ordered exactly as the filter sheet's sections are, so scanning the chips
 /// and scanning the sheet feel like reading the same list twice.
@@ -97,31 +100,39 @@ abstract final class CalendarFilterSummary {
   /// contribute to a description of what is hidden.
   static List<CalendarFilterFacet> facetsOf(
     CalendarGridFilters filters,
-    AppLocalizations l10n,
-  ) {
+    AppLocalizations l10n, {
+    bool named = false,
+  }) {
     final facets = <CalendarFilterFacet>[];
 
     if (filters.hiddenCategoryIds.isNotEmpty) {
       facets.add(
         CalendarFilterFacet(
           icon: categoryIcon,
-          label: _categoryLabel(filters, l10n),
+          label: _categoryLabel(filters, l10n, named: named),
           without: filters.copyWith(hiddenCategoryIds: const {}),
         ),
       );
     }
 
     if (filters.priorities.isNotEmpty) {
-      // One selected priority names itself; several would not fit, so the
-      // count stands in — the shape the agenda's chip already uses.
+      // One selected priority names itself; several would not fit a chip, so
+      // the count stands in there — the shape the agenda's chip already
+      // uses — while a named read-back lists them highest first.
       final single = filters.priorities.length == 1
           ? filters.priorities.single
           : null;
+      final ascending = filters.priorities.toList()..sort();
       facets.add(
         CalendarFilterFacet(
           icon: EventPriorities.iconFor(single ?? kDefaultEventPriority),
           label: single != null
               ? EventPriorities.labelOf(single, l10n)
+              : named
+              ? namesReadBack(
+                  [for (final p in ascending) EventPriorities.labelOf(p, l10n)],
+                  l10n,
+                )
               : '${l10n.upcomingPriority} (${filters.priorities.length})',
           without: filters.copyWith(priorities: const {}),
         ),
@@ -255,7 +266,8 @@ abstract final class CalendarFilterSummary {
   }
 
   /// Every active axis in one line — a saved preset's subtitle, and what the
-  /// search field matches against.
+  /// search field matches against. The sets are named, not counted, so the
+  /// caption reads like the Filters sheet's rows.
   ///
   /// Returns [AppLocalizations.calendarFilterShowsEverything] for a filter set
   /// that hides nothing, which a preset can still hold: a blob written by a
@@ -265,7 +277,7 @@ abstract final class CalendarFilterSummary {
     CalendarGridFilters filters,
     AppLocalizations l10n,
   ) {
-    final facets = facetsOf(filters, l10n);
+    final facets = facetsOf(filters, l10n, named: true);
     if (facets.isEmpty) return l10n.calendarFilterShowsEverything;
     return facets.map((facet) => facet.label).join(' · ');
   }
@@ -297,14 +309,15 @@ abstract final class CalendarFilterSummary {
     CalendarGridFilters filters,
     AppLocalizations l10n,
   ) {
-    final facets = facetsOf(filters, l10n);
+    final facets = facetsOf(filters, l10n, named: true);
     if (facets.isEmpty) return l10n.calendarFilterShowsEverything;
     final leading = facets.take(2).map((facet) => facet.label).join(' · ');
     return facets.length > 2 ? '$leading…' : leading;
   }
 
   /// Names the categories still showing while few enough to name, and counts
-  /// them past that.
+  /// them past that — or, [named], reads them all back ("Gym, Strength +3
+  /// more").
   ///
   /// Counts what is **shown**, not what is hidden, matching the agenda's
   /// allowlist chip — and counted over the offered catalog rather than by
@@ -312,8 +325,9 @@ abstract final class CalendarFilterSummary {
   /// make the number lie.
   static String _categoryLabel(
     CalendarGridFilters filters,
-    AppLocalizations l10n,
-  ) {
+    AppLocalizations l10n, {
+    bool named = false,
+  }) {
     final shown = [
       for (final category in CalendarCategories.visiblePlus(
         filters.hiddenCategoryIds,
@@ -321,8 +335,11 @@ abstract final class CalendarFilterSummary {
         if (!filters.hiddenCategoryIds.contains(category.id)) category,
     ];
     if (shown.isEmpty) return l10n.calendarFilterNoCategories;
-    if (shown.length <= 2) {
-      return shown.map((c) => CalendarCategories.labelOf(c, l10n)).join(', ');
+    if (named || shown.length <= namedLimit) {
+      return namesReadBack(
+        [for (final c in shown) CalendarCategories.labelOf(c, l10n)],
+        l10n,
+      );
     }
     return '${l10n.calendarCategories} (${shown.length})';
   }

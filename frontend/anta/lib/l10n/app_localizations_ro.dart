@@ -175,6 +175,9 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
+  String get filterPresetReorder => 'Trage pentru a reordona';
+
+  @override
   String get filterCalendar => 'Filtrează calendarul';
 
   @override
@@ -1931,9 +1934,6 @@ class AppLocalizationsRo extends AppLocalizations {
   String get dropPosition => 'Poziție de plasare';
 
   @override
-  String get longPressToReorder => 'Apasă lung pentru a reordona';
-
-  @override
   String shortcutButton(String label) {
     return 'Buton $label';
   }
@@ -2262,12 +2262,6 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get enterNewName => 'Introdu noul nume';
-
-  @override
-  String get reorderMode => 'Mod Reordonare';
-
-  @override
-  String get dragToReorder => 'Trage elementele pentru a le reordona';
 
   @override
   String get sortByCustom => 'Ordine Personalizată';

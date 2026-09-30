@@ -231,6 +231,10 @@
       }
     }
   },
+  "filterPresetReorder": "Drag to reorder",
+  "@filterPresetReorder": {
+    "description": "Accessible name of the drag handle on a saved-filter row (a label, never a tooltip)"
+  },
   "filterCalendar": "Filter calendar",
   "@filterCalendar": {
     "description": "Tooltip for the calendar filter button"
@@ -2334,10 +2338,6 @@
   "@dropPosition": {
     "description": "Accessibility label for drop indicator during drag"
   },
-  "longPressToReorder": "Long press to reorder",
-  "@longPressToReorder": {
-    "description": "Accessibility hint for reorderable buttons"
-  },
   "shortcutButton": "{label} button",
   "@shortcutButton": {
     "description": "Accessibility label for shortcut button",
@@ -2730,14 +2730,6 @@
   "enterNewName": "Enter new name",
   "@enterNewName": {
     "description": "Hint text for rename input"
-  },
-  "reorderMode": "Reorder Mode",
-  "@reorderMode": {
-    "description": "Reorder mode toggle tooltip"
-  },
-  "dragToReorder": "Drag items to reorder",
-  "@dragToReorder": {
-    "description": "Hint for drag and drop reordering"
   },
   "sortByCustom": "Custom Order",
   "@sortByCustom": {

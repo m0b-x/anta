@@ -17,8 +17,9 @@ class CalendarFilterPreset extends Equatable {
 
   final CalendarGridFilters filters;
 
-  /// Display position, appended on create. Not user-reorderable yet; the
-  /// column exists so it can become so without a migration.
+  /// Display position: appended on create, rewritten dense (`0..N-1`) by
+  /// `FilterPresetService.reorder` after a drag or a Move to top in the
+  /// saved-filters sheet (2026-09-29, `docs/calendar-saved-filters-roadmap.md`).
   final int sortOrder;
 
   const CalendarFilterPreset({

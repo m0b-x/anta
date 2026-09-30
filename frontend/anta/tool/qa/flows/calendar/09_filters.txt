@@ -30,9 +30,10 @@ wait id:filter-apply
 tap id:filter-holidays
 tap id:filter-saved-filter
 wait id:filter-preset-none
-# A preset's caption is `CalendarFilterSummary.describe`, which counts
-# several priorities ("Priority (2)"); only the sheet's own rows name them.
-expect id:filter-preset-qa-cal-preset-top "Priority (2)"
+# A preset's caption names its sets like the Filters sheet's rows do
+# (2026-09-29): the same filter never reads "Priority (2)" here and
+# "Highest, High" there.
+expect id:filter-preset-qa-cal-preset-top "Highest, High" id:filter-preset-handle-qa-cal-preset-top
 shot 09_saved_filters
 tap id:filter-preset-qa-cal-preset-top
 wait id:filter-apply
@@ -43,6 +44,14 @@ wait id:calendar-add-event
 tap id:calendar-saved-filters-open
 wait id:filter-preset-none
 shot 09_saved_from_bar
+# Reorder from the ⋮: the second preset moves first and the sheet stays
+# open. A drag cannot be scripted by label; the widget suite pins it.
+tap id:filter-preset-options-qa-cal-preset-tracked
+wait id:filter-preset-move-top
+tap id:filter-preset-move-top
+wait id:filter-preset-none
+expect id:filter-preset-qa-cal-preset-tracked id:filter-preset-qa-cal-preset-top
+shot 09_saved_reordered
 key back
 wait id:calendar-add-event
 tap id:calendar-filter-open

@@ -173,6 +173,9 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get filterPresetReorder => 'Drag to reorder';
+
+  @override
   String get filterCalendar => 'Filter calendar';
 
   @override
@@ -1904,9 +1907,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get dropPosition => 'Drop position';
 
   @override
-  String get longPressToReorder => 'Long press to reorder';
-
-  @override
   String shortcutButton(String label) {
     return '$label button';
   }
@@ -2227,12 +2227,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get enterNewName => 'Enter new name';
-
-  @override
-  String get reorderMode => 'Reorder Mode';
-
-  @override
-  String get dragToReorder => 'Drag items to reorder';
 
   @override
   String get sortByCustom => 'Custom Order';

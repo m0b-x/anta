@@ -17,18 +17,29 @@ import '../utils/custom_snackbar.dart';
 import 'app_dialogs.dart';
 import 'form_menu_item.dart';
 import 'form_rows.dart';
+import 'settings_reorder.dart';
 
 /// Bottom-sheet listing the user's saved filters: "No filter" first, then
-/// one two-line radio row per preset with its ⋮, then the row that saves the
-/// live filter — a sub-sheet of the editor's grouped-row language since the
-/// 2026-09-27 filter redesign (`docs/calendar-filters-redesign-roadmap.md`,
-/// D14), opened from the calendar's app bar over the applied filters and from
-/// the filter sheet's Saved filter row over the draft.
+/// one two-line radio row per preset with its drag handle and its ⋮, then
+/// the row that saves the live filter — a sub-sheet of the editor's
+/// grouped-row language since the 2026-09-27 filter redesign
+/// (`docs/calendar-filters-redesign-roadmap.md`, D14), reorderable since
+/// 2026-09-29 (`docs/calendar-saved-filters-roadmap.md`), opened from the
+/// calendar's app bar over the applied filters and from the filter sheet's
+/// Saved filter row over the draft.
 ///
 /// Returns the [CalendarGridFilters] to apply, or `null` when dismissed —
-/// renames, updates and deletes happen in place and never pop, so the sheet
-/// stays open while you tidy the list and only closes when you actually pick
-/// something.
+/// renames, updates, deletes and reorders happen in place and never pop, so
+/// the sheet stays open while you tidy the list and only closes when you
+/// actually pick something.
+///
+/// The body is one `ReorderableListView` that owns its own scrolling — the
+/// "No filter" group as its header, the search row, the presets and the save
+/// row as its items, each drawn in a [FormRowShell] so the run reads as one
+/// group. A reorderable list nested inside a scroll view would lose its
+/// auto-scroll past the fold (the categories page records the trap), and
+/// the sheet stays content-tall because the list shrink-wraps under the
+/// sub-sheet's clamp.
 ///
 /// Loads through `FilterPresetService` rather than a synchronous facade:
 /// nothing here renders during someone else's build, so the calendar's
@@ -133,6 +144,81 @@ class _FilterPresetSheetState extends State<FilterPresetSheet> {
     setState(() => _query = normalizeForSearch(value));
   }
 
+  /// The field is never autofocused: opening a sheet with the keyboard
+  /// already up hides the list it is meant to show. A live query keeps the
+  /// row, or the list would be filtered with no field left to clear it.
+  bool get _showSearch =>
+      _presets.length > AppConstants.listSearchThreshold || _query.isNotEmpty;
+
+  /// Reorder is off while a query is live — the rule every reorderable list
+  /// in the app follows: the rows shown are a subset, so a render index no
+  /// longer maps to a stored position. The handles grey in place and Move
+  /// to top dims; nothing moves.
+  bool get _canReorder => _query.isEmpty;
+
+  /// Applies [ordered] optimistically, then persists it — the categories
+  /// page's shape. The service serializes its writes, so two quick drags
+  /// each hand over their whole current order and the last one is the
+  /// truth. Reconciling with the service afterwards, whether the write
+  /// succeeded or not, is the feedback: an order that failed to persist
+  /// visibly springs back to what is stored.
+  Future<void> _persistOrder(List<CalendarFilterPreset> ordered) async {
+    final service = _service;
+    if (service == null) return;
+    setState(() => _presets = ordered);
+    try {
+      await service.reorder([for (final preset in ordered) preset.id]);
+    } catch (e) {
+      debugPrint('[FilterPresetSheet] Reorder failed: $e');
+    } finally {
+      if (mounted) setState(() => _presets = service.presets);
+    }
+  }
+
+  /// A drop from the list: [oldIndex] and [newIndex] are item indices, the
+  /// latter against the list with the dragged row already removed. Only a
+  /// preset carries a drag listener, but the list's own accessibility
+  /// actions (move to start / end) can name any index, so the row is mapped
+  /// into the preset run and a drop outside it is clamped to its ends — a
+  /// preset can never land above the search row or below the save row.
+  void _onReorder(int oldIndex, int newIndex) {
+    if (!_canReorder) return;
+    final offset = _showSearch ? 1 : 0;
+    final count = _presets.length;
+    final from = oldIndex - offset;
+    if (from < 0 || from >= count) return;
+    final to = (newIndex - offset).clamp(0, count - 1);
+    if (from == to) return;
+    final ordered = List<CalendarFilterPreset>.from(_presets);
+    final moved = ordered.removeAt(from);
+    ordered.insert(to, moved);
+    _persistOrder(ordered);
+  }
+
+  /// One tap for the case a long drag exists to serve: promoting the preset
+  /// you have started using most. Dragging row twelve to the top is
+  /// miserable at any auto-scroll velocity (the categories page's reasoning).
+  Future<void> _moveToTop(CalendarFilterPreset preset) {
+    final ordered = List<CalendarFilterPreset>.from(_presets)
+      ..removeWhere((p) => p.id == preset.id)
+      ..insert(0, preset);
+    return _persistOrder(ordered);
+  }
+
+  /// The lifted row: the shared proxy (a hair of scale, a shadow) over a
+  /// clip. A middle row of the group paints square corners of its own, and
+  /// the proxy's rounded shadow would otherwise frame a square card.
+  Widget _liftedRow(Widget child, int index, Animation<double> animation) {
+    return reorderDragProxy(
+      ClipRRect(
+        borderRadius: BorderRadius.circular(reorderProxyRadius),
+        child: child,
+      ),
+      index,
+      animation,
+    );
+  }
+
   /// Membership by folded substring over the name **and** the description, so
   /// a preset is findable by what it does ("tracked") as well as by what it
   /// was called. Folds through the note search's `normalizeForSearch`, which
@@ -232,10 +318,10 @@ class _FilterPresetSheetState extends State<FilterPresetSheet> {
     setState(() => _presets = _service?.presets ?? const []);
   }
 
-  /// The row's ⋮: Rename · Update to current filter · Delete, a popup route in
-  /// the app's menu anatomy under the row. Focus is dropped first, or the
-  /// route's return would hand it back to the search row and raise the
-  /// keyboard under the menu's answer.
+  /// The row's ⋮: Rename · Update to current filter · Move to top · Delete, a
+  /// popup route in the app's menu anatomy under the row. Focus is dropped
+  /// first, or the route's return would hand it back to the search row and
+  /// raise the keyboard under the menu's answer.
   Future<void> _openActions(
     BuildContext anchor,
     CalendarFilterPreset preset, {
@@ -249,6 +335,10 @@ class _FilterPresetSheetState extends State<FilterPresetSheet> {
     // Update turn a working preset into one would be that same rule
     // disagreeing with itself.
     final canUpdate = !inUse && !widget.current.isEmpty;
+    // Nothing to promote while the preset already leads, and nothing to
+    // promote *into* while a query hides the rows it would pass.
+    final canMoveToTop =
+        _canReorder && _presets.isNotEmpty && _presets.first.id != preset.id;
     FocusManager.instance.primaryFocus?.unfocus();
     final action = await showMenu<_PresetAction>(
       context: anchor,
@@ -290,6 +380,17 @@ class _FilterPresetSheetState extends State<FilterPresetSheet> {
           ),
         ),
         PopupMenuItem<_PresetAction>(
+          value: _PresetAction.moveToTop,
+          height: FormMetrics.menuRowHeight,
+          enabled: canMoveToTop,
+          child: FormMenuItemRow(
+            identifier: SemanticsIds.filterPresetMoveToTop,
+            icon: Icons.vertical_align_top_rounded,
+            label: l10n.moveToTop,
+            enabled: canMoveToTop,
+          ),
+        ),
+        PopupMenuItem<_PresetAction>(
           value: _PresetAction.delete,
           height: FormMetrics.menuRowHeight,
           child: FormMenuItemRow(
@@ -307,6 +408,8 @@ class _FilterPresetSheetState extends State<FilterPresetSheet> {
         await _rename(preset);
       case _PresetAction.update:
         await _updateToCurrent(preset);
+      case _PresetAction.moveToTop:
+        await _moveToTop(preset);
       case _PresetAction.delete:
         await _delete(preset);
     }
@@ -317,11 +420,7 @@ class _FilterPresetSheetState extends State<FilterPresetSheet> {
     final l10n = AppLocalizations.of(context)!;
     final current = widget.current;
     final visible = _visible(l10n);
-    // The field is never autofocused: opening a sheet with the keyboard
-    // already up hides the list it is meant to show. A live query keeps the
-    // row, or the list would be filtered with no field left to clear it.
-    final showSearch =
-        _presets.length > AppConstants.listSearchThreshold || _query.isNotEmpty;
+    final canReorder = _canReorder;
     // Disabled, never hidden: while there is nothing to save that is not
     // already saved — the two conditions the filter sheet's bookmark enforces
     // — and while a query is live, when a query is a find and an action row
@@ -339,6 +438,15 @@ class _FilterPresetSheetState extends State<FilterPresetSheet> {
       MediaQuery.viewInsetsOf(context).bottom,
       MediaQuery.viewPaddingOf(context).bottom,
     );
+    // One list holds the search row, the presets and the save row. The rows
+    // that cannot be lifted carry no drag listener, and a drop is clamped
+    // into the preset run, so a drag can never leave the group it started in
+    // — the browser's one-sliver rule.
+    final items = <_Item>[
+      if (_showSearch) const _SearchItem(),
+      for (final preset in visible) _PresetItem(preset),
+      const _SaveItem(),
+    ];
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -357,119 +465,214 @@ class _FilterPresetSheetState extends State<FilterPresetSheet> {
           trailing: const SizedBox.shrink(),
         ),
         Flexible(
-          child: SingleChildScrollView(
-            controller: _bodyScroll,
+          child: ReorderableListView.builder(
+            scrollController: _bodyScroll,
+            // Content-tall under the sheet's clamp, and still the one
+            // Scrollable — which is what lets a drag past the fold scroll it.
+            shrinkWrap: true,
+            buildDefaultDragHandles: false,
             padding: EdgeInsets.fromLTRB(
               RowMetrics.groupInset,
               FormMetrics.bodyTop,
               RowMetrics.groupInset,
               FormMetrics.bodyBottom + clearance,
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisSize: MainAxisSize.min,
+            // The most common answer to "which lens am I using" is *none*,
+            // and this row is what lets the sheet give it: it is the one row
+            // that is never a saved filter, so it stands in its own group
+            // above the list.
+            //
+            // `cleared()`, never `CalendarGridFilters.none`: `panelShowsAll`
+            // is a preference about the day panel, not something being
+            // hidden, and the filter sheet's Reset keeps it for the same
+            // reason.
+            header: FormRowGroup(
               children: [
-                // The most common answer to "which lens am I using" is
-                // *none*, and this row is what lets the sheet give it: it is
-                // the one row that is never a saved filter, so it stands in
-                // its own group above the list.
-                //
-                // `cleared()`, never `CalendarGridFilters.none`:
-                // `panelShowsAll` is a preference about the day panel, not
-                // something being hidden, and the filter sheet's Reset keeps
-                // it for the same reason.
-                FormRowGroup(
-                  children: [
-                    FormCheckRow(
-                      exclusive: true,
-                      label: l10n.filterPresetNone,
-                      checked: current.isEmpty,
-                      identifier: SemanticsIds.filterPresetNone,
-                      onChanged: (_) =>
-                          Navigator.of(context).pop(current.cleared()),
-                    ),
-                  ],
+                FormCheckRow(
+                  exclusive: true,
+                  label: l10n.filterPresetNone,
+                  checked: current.isEmpty,
+                  identifier: SemanticsIds.filterPresetNone,
+                  onChanged: (_) =>
+                      Navigator.of(context).pop(current.cleared()),
                 ),
-                FormRowGroup(
-                  trailingGap: false,
-                  children: [
-                    if (showSearch)
-                      FormSearchRow(
-                        controller: _search,
-                        hint: l10n.filterPresetSearchHint,
-                        clearTooltip: l10n.upcomingClearSearch,
-                        identifier: SemanticsIds.filterPresetSearch,
-                        onChanged: _onQueryChanged,
-                      ),
-                    for (final preset in visible)
-                      _PresetRow(
-                        preset: preset,
-                        // Value equality on the filters, not the id: what
-                        // makes a preset "the one in use" is that the
-                        // calendar is showing exactly what it saves.
-                        inUse: preset.filters == current,
-                        caption: CalendarFilterSummary.describe(
-                          preset.filters,
-                          l10n,
-                        ),
-                        actionsTooltip: l10n.filterPresetActions,
-                        onPick: () => Navigator.of(context).pop(preset.filters),
-                        onActions: (anchor, inUse) =>
-                            _openActions(anchor, preset, inUse: inUse),
-                      ),
-                    FormActionRow(
-                      glyph: Icons.bookmark_add_outlined,
-                      label: l10n.filterPresetSaveCurrent,
-                      identifier: SemanticsIds.filterPresetSave,
-                      onTap: canSave ? _saveCurrent : null,
-                    ),
-                  ],
-                ),
-                if (visible.isEmpty && _query.isNotEmpty)
-                  FormCaption(
-                    text: l10n.filterPresetNoMatches,
-                    padding: FormMetrics.groupCaptionPadding,
-                  ),
               ],
             ),
+            footer: visible.isEmpty && _query.isNotEmpty
+                ? FormCaption(
+                    text: l10n.filterPresetNoMatches,
+                    padding: FormMetrics.groupCaptionPadding,
+                  )
+                : null,
+            itemCount: items.length,
+            itemBuilder: (context, index) => _buildItem(
+              items,
+              index,
+              l10n,
+              current: current,
+              canReorder: canReorder,
+              canSave: canSave,
+            ),
+            // An open keyboard halves the sheet, which halves the drag
+            // region; a query cannot be live during a drag, but focus with
+            // an empty field can.
+            onReorderStart: (_) => FocusManager.instance.primaryFocus?.unfocus(),
+            onReorderItem: _onReorder,
+            proxyDecorator: _liftedRow,
           ),
         ),
       ],
     );
   }
+
+  Widget _buildItem(
+    List<_Item> items,
+    int index,
+    AppLocalizations l10n, {
+    required CalendarGridFilters current,
+    required bool canReorder,
+    required bool canSave,
+  }) {
+    final item = items[index];
+    final Widget row = switch (item) {
+      _SearchItem() => FormSearchRow(
+        controller: _search,
+        hint: l10n.filterPresetSearchHint,
+        clearTooltip: l10n.upcomingClearSearch,
+        identifier: SemanticsIds.filterPresetSearch,
+        onChanged: _onQueryChanged,
+      ),
+      _PresetItem(:final preset) => _PresetRow(
+        preset: preset,
+        index: index,
+        canReorder: canReorder,
+        // Value equality on the filters, not the id: what makes a preset
+        // "the one in use" is that the calendar is showing exactly what it
+        // saves.
+        inUse: preset.filters == current,
+        caption: CalendarFilterSummary.describe(preset.filters, l10n),
+        reorderLabel: l10n.filterPresetReorder,
+        actionsTooltip: l10n.filterPresetActions,
+        onPick: () => Navigator.of(context).pop(preset.filters),
+        onActions: (anchor, inUse) => _openActions(anchor, preset, inUse: inUse),
+      ),
+      _SaveItem() => FormActionRow(
+        glyph: Icons.bookmark_add_outlined,
+        label: l10n.filterPresetSaveCurrent,
+        identifier: SemanticsIds.filterPresetSave,
+        onTap: canSave ? _saveCurrent : null,
+      ),
+    };
+    final shell = FormRowShell(
+      first: index == 0,
+      last: index == items.length - 1,
+      trailingGap: false,
+      child: row,
+    );
+    // Only a preset can be lifted — by its handle, or by a long press
+    // anywhere on it (the categories page's pair) — and only while the list
+    // is not filtered.
+    if (item case _PresetItem()) {
+      return ReorderableDelayedDragStartListener(
+        key: item.key,
+        index: index,
+        enabled: canReorder,
+        child: shell,
+      );
+    }
+    return KeyedSubtree(key: item.key, child: shell);
+  }
 }
 
-enum _PresetAction { rename, update, delete }
+enum _PresetAction { rename, update, moveToTop, delete }
+
+/// One entry of the sheet's reorderable list. The search row and the save
+/// row are items of the same list as the presets so the run draws as one
+/// group; they carry no drag listener and never move.
+sealed class _Item {
+  const _Item();
+
+  Key get key;
+}
+
+class _SearchItem extends _Item {
+  const _SearchItem();
+
+  @override
+  Key get key => const _FixedRowKey('search');
+}
+
+class _PresetItem extends _Item {
+  final CalendarFilterPreset preset;
+
+  const _PresetItem(this.preset);
+
+  @override
+  Key get key => ValueKey(preset.id);
+}
+
+class _SaveItem extends _Item {
+  const _SaveItem();
+
+  @override
+  Key get key => const _FixedRowKey('save');
+}
+
+/// The key of a row that is not a preset — its own type, so a preset whose
+/// id happened to read "search" or "save" (a hand-edited backup) could never
+/// collide with it: a `ValueKey` compares its runtime type as well.
+class _FixedRowKey extends ValueKey<String> {
+  const _FixedRowKey(super.value);
+}
 
 /// One preset as a two-line radio row — the name over what it filters, the
-/// check while it is the filter in use — with its ⋮ as the row's second
-/// target. A `FormDividedRow` of its own rather than a `Builder` around the
-/// check row, so the group draws the plain hairline it owes a glyph-less row
-/// and the ⋮ has the row's own context to anchor its menu under.
+/// check while it is the filter in use — with its drag handle at the start
+/// and its ⋮ at the end as the row's second and third targets. A
+/// `FormDividedRow` of its own rather than a `Builder` around the check row,
+/// so the shell draws the hairline at the handle's column and the ⋮ has the
+/// row's own context to anchor its menu under.
 class _PresetRow extends FormDividedRow {
   final CalendarFilterPreset preset;
+
+  /// The row's index in the enclosing reorderable list, which the handle
+  /// hands to the list when it is dragged.
+  final int index;
+
+  /// False while a query is live: the handle greys in place and drags
+  /// nothing.
+  final bool canReorder;
   final bool inUse;
   final String caption;
+  final String reorderLabel;
   final String actionsTooltip;
   final VoidCallback onPick;
   final void Function(BuildContext anchor, bool inUse) onActions;
 
   const _PresetRow({
     required this.preset,
+    required this.index,
+    required this.canReorder,
     required this.inUse,
     required this.caption,
+    required this.reorderLabel,
     required this.actionsTooltip,
     required this.onPick,
     required this.onActions,
   });
 
   @override
-  double get dividerIndent => FormMetrics.dividerIndentPlain;
+  double get dividerIndent => FormMetrics.dividerIndentGlyph;
 
   @override
   Widget build(BuildContext context) {
     return FormCheckRow(
       exclusive: true,
+      handle: FormDragHandle(
+        index: index,
+        enabled: canReorder,
+        label: reorderLabel,
+        identifier: SemanticsIds.filterPresetHandle(preset.id),
+      ),
       label: preset.name,
       caption: caption,
       checked: inUse,
