@@ -412,6 +412,12 @@ abstract class AppLocalizations {
   /// **'You can save up to {count} filters'**
   String filterPresetLimitReached(int count);
 
+  /// Accessible name of the drag handle on a saved-filter row (a label, never a tooltip)
+  ///
+  /// In en, this message translates to:
+  /// **'Drag to reorder'**
+  String get filterPresetReorder;
+
   /// Tooltip for the calendar filter button
   ///
   /// In en, this message translates to:
@@ -3316,12 +3322,6 @@ abstract class AppLocalizations {
   /// **'Drop position'**
   String get dropPosition;
 
-  /// Accessibility hint for reorderable buttons
-  ///
-  /// In en, this message translates to:
-  /// **'Long press to reorder'**
-  String get longPressToReorder;
-
   /// Accessibility label for shortcut button
   ///
   /// In en, this message translates to:
@@ -3855,18 +3855,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Enter new name'**
   String get enterNewName;
-
-  /// Reorder mode toggle tooltip
-  ///
-  /// In en, this message translates to:
-  /// **'Reorder Mode'**
-  String get reorderMode;
-
-  /// Hint for drag and drop reordering
-  ///
-  /// In en, this message translates to:
-  /// **'Drag items to reorder'**
-  String get dragToReorder;
 
   /// Custom sort order option
   ///

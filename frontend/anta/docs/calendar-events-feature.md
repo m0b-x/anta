@@ -6103,3 +6103,128 @@ to "T…", the description editor's body ignoring the text scale (re_editor
 draws at its own size). The day-list's mini month grid
 (`agenda_month_grid.dart`) still carries the package's weekday style and
 its own row height — Tier 3 gives it `CalendarDaysOfWeek`.
+
+## Addendum (2026-09-29): saved filters — reorder, Move to top, named captions
+
+Design record: [`calendar-saved-filters-roadmap.md`](calendar-saved-filters-roadmap.md)
+(the decision table D1–D10, the spec, the must-not-change list, the slices
+and the definition of done — this addendum points at it rather than
+repeating it). Design source: the canvas "Saved Filters Mocks"
+(`https://claude.ai/artifact/9XMircZAa27BqnkfuTQekh`), twelve boards in the
+tokens of the 2026-09-27 filters boards; the owner chose its option A.
+
+**Why.** The saved-filters sheet already spoke the grouped-row language
+(2026-09-27, D14 of the filters record), but it could not be *ordered*:
+presets listed in the order they were saved, `sort_order` had existed since
+v35 "so it can become reorderable without a migration", and no DAO, service
+or UI path wrote it — while every other list in the app reorders. Two
+smaller warts rode along: the caption counted ("Priority (2)") where the
+Filters sheet's rows name ("Highest, High"), and three reorder strings in
+the ARBs were read nowhere.
+
+**What shipped.**
+
+- **Drag handles always on** (D1, the owner's choice over an Edit mode and
+  over a ⋮-only Move up / Move down): every preset row wears a
+  `FormDragHandle` at its leading edge — the shared `ReorderHandle` of
+  `settings_reorder.dart`, so the app's reorderable lists read as one
+  system — in a 48 dp slot (`FormMetrics.dragHandleSlot`), the text moved
+  to the glyph column (52) and the hairline with it. A long press anywhere
+  on the row lifts it too (the categories page's pair). While a search
+  query is live the handles grey to 38 % in place, the rows stop being
+  draggable and Move to top dims: a render index no longer maps to a stored
+  position, the rule every reorderable list in the app follows.
+- **Move to top in the ⋮** (D2): Rename · Update to current filter · Move
+  to top · Delete, the third dimmed while the preset already leads or a
+  query is live.
+- **Captions and the suggested name name the sets** (D3):
+  `CalendarFilterSummary.facetsOf(named: true)` reads priorities and
+  categories back through `namesReadBack` ("Highest, High", "Gym, Strength
+  +3 more"); `describe` and `suggestName` use it, the chip strip keeps its
+  one-word-wide counts. The flow's caption expectation moved from
+  "Priority (2)" to "Highest, High".
+- **The body is one `ReorderableListView` that owns its scrolling** (D5):
+  the "No filter" group as its header, the search row, the preset rows and
+  the save row as its items — each in a `FormRowShell`, the row-at-a-time
+  twin of `FormRowGroup` (same tokens, corners on the ends only, a hairline
+  under every row but the last) — the no-match caption as its footer. It
+  shrink-wraps under the sub-sheet's clamp, so the sheet stays content-tall,
+  and is still the one `Scrollable`, so a drag past the fold auto-scrolls
+  (a reorderable list nested in a scroll view loses exactly that — the
+  categories page's note). Only a preset carries a drag listener; a drop is
+  clamped into the preset run, so a drag can never leave the group. Flutter's
+  `SliverReorderableList` wraps each item in a semantics *container* with
+  move up / down / to start / to end actions, so the row, its handle and
+  its ⋮ stay three nodes and a screen reader reorders for free.
+- **Persistence is one no-read transaction** (D6): `FilterPresetDao.reorder`
+  writes `sort_order = i, updated_at, hlc_timestamp, device_id, version =
+  version + 1 WHERE id = ? AND is_deleted = 0 AND sort_order != ?` — dense
+  `0..N-1`, unchanged rows untouched (their `version` and HLC keep), a
+  tombstone or an unknown id a no-op; `query_count_test` pins that it never
+  issues a `SELECT`. `FilterPresetService.reorder` runs on a serialized
+  write chain (`_serialize`, the `CategoryService` shape, its tail starting
+  `null`), and every other preset mutation now goes through the same chain,
+  so two quick drags land in the order they were issued. The sheet applies
+  an order optimistically and reconciles with the service afterwards, so a
+  failed write visibly springs back.
+- **Ids and copy** (D8, D9): `filter-preset-handle-<id>` on each handle,
+  `filter-preset-move-top` on the menu item; `filterPresetReorder` "Drag to
+  reorder" is the handle's accessible name (a label, never a tooltip — a
+  tooltip's long-press recogniser would win the arena and kill the drag);
+  `moveToTop` reused; `reorderMode`, `longPressToReorder` and
+  `dragToReorder` retired from the three ARBs.
+- **The QA seed** carries a second preset ("Tracked"), and
+  `09_filters.txt` moves it to the top from the ⋮ and shoots the reordered
+  list; a drag cannot be scripted by label, so the widget suite pins it.
+
+**Tests.** `form_rows_test.dart` (the handle as a third node at the row's
+start with the text at 52, a locked handle greyed in place, the shell's
+corners and hairlines), `filter_preset_test.dart` (dense positions, moved
+rows bump `version` and take a fresh HLC, unchanged rows keep both,
+tombstones and unknown ids are no-ops), `query_count_test.dart` (no read,
+at most one statement per row), `filter_preset_service_test.dart` (the order
+survives a reload, racing reorders land in issue order, a failed write does
+not poison the chain, a later save still appends), `filter_preset_sheet_test.dart`
+(handles with ids, a drag on the handle and a long press on the row both
+reorder and persist, a drop past the save row lands last and one past the
+top lands first, a drag past the fold scrolls the list, a live search locks
+handles and Move to top, Move to top in place and disabled while first, the
+caption names several priorities), `calendar_filter_summary_test.dart`
+(the two registers), the clearance case reading the list's padding, the
+fixture test pinning both presets.
+
+**Device pass** (iPhone 17 Pro Max simulator, 2026-09-29, through the
+harness): `qa run --fresh --seed tool/qa/fixtures/calendar.json`, then
+`qa flows calendar` twelve for twelve (`09_filters.txt` now moves the seed's
+second preset to the top from its ⋮ and shoots the reordered list); a real
+drag by the handle (`qa drag id:filter-preset-handle-… id:filter-preset-handle-…`)
+swapped the two presets and the dump read them back in the new order; the
+matrix `qa set theme=dark locale=de text-scale=2.0` showed every id on its
+node ("Zum Neuordnen ziehen" on the handles, "Höchste, Hoch" as the caption,
+"Aktuellen Filter speichern" wrapping to two lines on the dimmed save row),
+the handle, the check and the ⋮ at their 48 dp; `qa errors` clean before
+and after. Shots under `build/qa/shots/…12_saved_light`, `…12_saved_dragged`
+and `…12_saved_de_dark_200`, beside the canvas's boards.
+
+**Review.** A fresh reviewer read the record and the diff and confirmed no
+defect in the shipped code. Two test gaps it confirmed were closed the same
+day: the service's "failed write" case never failed a write (an unknown id
+updates no rows) — it now blocks the update with a trigger, expects the
+throw, checks the cache is untouched, drops the trigger and reorders
+again; and no widget case dragged with the search row on screen, the one
+place the sheet's index offset matters — two cases now seed thirteen
+presets and drag past each end, the distance measured from the layout.
+Nits taken: every item's key comes from `_Item.key`, with a private
+`_FixedRowKey` type so a preset id could never collide with the search or
+save row's key; `importData` rides the write chain like every other
+mutation; the seeded priorities in the sheet suite stay within `1..5`; a
+case pins that every preset row carries the list's reorder actions for a
+screen reader. Recorded as inherent in the record's §8: those actions are
+also announced on the search and save rows and while a search locks the
+list, and do nothing there; a clamped drop animates into the offered slot
+before moving into the clamped one; a lifted end row shows its own 14 dp
+corner beside the proxy's 12. The record's D6 said the sheet reconciles "on
+failure" — it reconciles after every write, the categories page's shape —
+and now says so. Final gate after the fixes: `dart analyze lib test` clean,
+the sheet suite green three runs in a row, `flutter test` 6172 passed / 7
+skipped.

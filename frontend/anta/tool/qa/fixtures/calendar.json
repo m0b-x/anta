@@ -387,6 +387,14 @@
       "sortOrder": 0,
       "createdAtMs": "{{now}}",
       "updatedAtMs": "{{now}}"
+    },
+    {
+      "id": "qa-cal-preset-tracked",
+      "name": "Tracked",
+      "filters": "{\"trackedOnly\":true}",
+      "sortOrder": 1,
+      "createdAtMs": "{{now}}",
+      "updatedAtMs": "{{now}}"
     }
   ],
   "publicHolidays": [

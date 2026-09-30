@@ -116,8 +116,8 @@ abstract final class SemanticsIds {
   static const String categoryPickCreate = 'category-pick-create';
   static String categoryPickRow(String id) => 'category-pick-$id';
 
-  /// The saved-filters sheet: its rows and each row's ⋮, keyed by preset id,
-  /// and the three items of that menu.
+  /// The saved-filters sheet: its rows, each row's drag handle and ⋮, keyed
+  /// by preset id, and the four items of that menu.
   static const String filterPresetClose = 'filter-preset-close';
   static const String filterPresetNone = 'filter-preset-none';
   static const String filterPresetSearch = 'filter-preset-search';
@@ -127,6 +127,8 @@ abstract final class SemanticsIds {
   static const String filterPresetRename = 'filter-preset-rename';
   static const String filterPresetUpdate = 'filter-preset-update';
   static const String filterPresetDelete = 'filter-preset-delete';
+  static String filterPresetHandle(String id) => 'filter-preset-handle-$id';
+  static const String filterPresetMoveToTop = 'filter-preset-move-top';
 
   /// The Upcoming agenda's filter sheet (2026-09-27, Tier 1 of
   /// `docs/calendar-language-tier-1-roadmap.md`): the panel's tune button,

@@ -702,6 +702,162 @@ void main() {
       expect(picks, 1);
     });
 
+    testWidgets("a check row's handle is a third node at the row's start, "
+        'the text at the glyph column', (tester) async {
+      var picks = 0;
+      await tester.pumpWidget(
+        host(
+          FormCheckRow(
+            label: 'Top priority',
+            caption: 'Highest, High',
+            checked: false,
+            exclusive: true,
+            identifier: 'filter-preset-p1',
+            onChanged: (_) => picks++,
+            handle: const FormDragHandle(
+              label: 'Drag to reorder',
+              identifier: 'filter-preset-handle-p1',
+            ),
+            trailingButton: FormTrailingButton(
+              icon: Icons.more_vert_rounded,
+              tooltip: 'Saved filter options',
+              identifier: 'filter-preset-options-p1',
+              onPressed: () {},
+            ),
+          ),
+        ),
+      );
+      final handle = dataOf(tester, 'filter-preset-handle-p1');
+      expect(handle.label, 'Drag to reorder');
+      final row = dataOf(tester, 'filter-preset-p1');
+      expect(row.label, isNot(contains('Drag to reorder')));
+      expect(dataOf(tester, 'filter-preset-options-p1').tooltip,
+          'Saved filter options');
+      // The 48 dp slot leads the row; the text sits where a glyph row's
+      // text does, so the rows above and below line up with the names.
+      final slot = find.byType(FormDragHandle);
+      expect(
+        tester.getSize(slot),
+        const Size(FormMetrics.dragHandleSlot, FormMetrics.dragHandleSlot),
+      );
+      expect(
+        tester.getTopLeft(slot).dx,
+        tester.getTopLeft(find.byType(FormCheckRow)).dx,
+      );
+      expect(
+        tester.getTopLeft(find.text('Top priority')).dx,
+        tester.getTopLeft(find.byType(FormCheckRow)).dx +
+            FormMetrics.dividerIndentGlyph,
+      );
+      expect(
+        tester.getSize(find.byType(FormCheckRow)).height,
+        FormMetrics.twoLineRowMinHeight,
+      );
+      expect(
+        tester.widget<FormCheckRow>(find.byType(FormCheckRow)).dividerIndent,
+        FormMetrics.dividerIndentGlyph,
+      );
+      // A tap on the handle is not a pick.
+      await tester.tap(find.bySemanticsIdentifier('filter-preset-handle-p1'));
+      expect(picks, 0);
+      await tester.tap(find.bySemanticsIdentifier('filter-preset-p1'));
+      expect(picks, 1);
+    });
+
+    testWidgets('a locked handle greys in place and drags nothing', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        host(
+          const Row(
+            children: [
+              FormDragHandle(
+                index: 0,
+                enabled: false,
+                label: 'Drag to reorder',
+                identifier: 'filter-preset-handle-p1',
+              ),
+            ],
+          ),
+        ),
+      );
+      // Still there, still 48 dp: the row keeps its shape while a search
+      // locks the list.
+      expect(
+        tester.getSize(find.byType(FormDragHandle)),
+        const Size(FormMetrics.dragHandleSlot, FormMetrics.dragHandleSlot),
+      );
+      expect(find.byType(ReorderableDragStartListener), findsNothing);
+      expect(find.byIcon(Icons.drag_handle), findsOneWidget);
+      expect(dataOf(tester, 'filter-preset-handle-p1').label,
+          'Drag to reorder');
+    });
+
+    testWidgets('a row shell rounds the ends only and draws a hairline under '
+        'every row but the last', (tester) async {
+      Widget shells({required bool trailingGap}) => MaterialApp(
+        home: Scaffold(
+          body: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (var i = 0; i < 3; i++)
+                FormRowShell(
+                  first: i == 0,
+                  last: i == 2,
+                  trailingGap: trailingGap,
+                  child: FormCheckRow(
+                    label: 'Row $i',
+                    checked: false,
+                    exclusive: true,
+                    onChanged: (_) {},
+                  ),
+                ),
+            ],
+          ),
+        ),
+      );
+      await tester.pumpWidget(shells(trailingGap: false));
+      final materials = tester
+          .widgetList<Material>(
+            find.descendant(
+              of: find.byType(FormRowShell),
+              matching: find.byType(Material),
+            ),
+          )
+          .where((m) => m.type == MaterialType.card)
+          .toList();
+      expect(materials, hasLength(2), reason: 'only the ends are clipped');
+      final radius = Radius.circular(RowMetrics.groupRadius);
+      expect(
+        materials.first.borderRadius,
+        BorderRadius.vertical(top: radius),
+      );
+      expect(
+        materials.last.borderRadius,
+        BorderRadius.vertical(bottom: radius),
+      );
+      expect(find.byType(Divider), findsNWidgets(2));
+      // The hairline sits at the child's own indent, as in a group.
+      final divider = tester.widget<Divider>(find.byType(Divider).first);
+      expect(divider.indent, FormMetrics.dividerIndentPlain);
+      // Three shells, no air between them, none below the last.
+      final tops = [
+        for (var i = 0; i < 3; i++) tester.getTopLeft(find.text('Row $i')).dy,
+      ];
+      expect(tops[1] - tops[0], FormMetrics.rowMinHeight + 1);
+      expect(tops[2] - tops[1], FormMetrics.rowMinHeight + 1);
+      expect(
+        tester.getSize(find.byType(FormRowShell).last).height,
+        FormMetrics.rowMinHeight,
+      );
+
+      await tester.pumpWidget(shells(trailingGap: true));
+      expect(
+        tester.getSize(find.byType(FormRowShell).last).height,
+        FormMetrics.rowMinHeight + RowMetrics.groupGap,
+      );
+    });
+
     testWidgets("a search row's field carries its id and its clear button is "
         'a second node that empties it', (tester) async {
       final controller = TextEditingController();

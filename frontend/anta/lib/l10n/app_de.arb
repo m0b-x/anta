@@ -54,6 +54,7 @@
   "filterPresetDeleteConfirm": "\"{name}\" löschen? Die ausgeblendeten Ereignisse bleiben unberührt.",
   "filterPresetActions": "Optionen für gespeicherte Filter",
   "filterPresetLimitReached": "Du kannst bis zu {count} Filter speichern",
+  "filterPresetReorder": "Zum Neuordnen ziehen",
   "filterCalendar": "Kalender filtern",
   "goToToday": "Zu heute springen",
   "apply": "Übernehmen",
@@ -933,10 +934,6 @@
   "@dropPosition": {
     "description": "Barrierefreiheitsbezeichnung für Drop-Indikator beim Ziehen"
   },
-  "longPressToReorder": "Lange drücken zum Neuordnen",
-  "@longPressToReorder": {
-    "description": "Barrierefreiheitshinweis für neu anordbare Schaltflächen"
-  },
   "shortcutButton": "{label} Schaltfläche",
   "@shortcutButton": {
     "description": "Barrierefreiheitsbezeichnung für Verknüpfungsschaltfläche",
@@ -1446,14 +1443,6 @@
   "enterNewName": "Neuen Namen eingeben",
   "@enterNewName": {
     "description": "Hint for rename input field"
-  },
-  "reorderMode": "Sortierungsmodus",
-  "@reorderMode": {
-    "description": "Reorder mode title"
-  },
-  "dragToReorder": "Elemente ziehen um neu zu ordnen",
-  "@dragToReorder": {
-    "description": "Drag to reorder hint"
   },
   "sortByCustom": "Benutzerdefinierte Reihenfolge",
   "@sortByCustom": {

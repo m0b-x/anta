@@ -7,6 +7,7 @@ import '../constants/form_metrics.dart';
 import '../constants/row_metrics.dart';
 import 'automation_id.dart';
 import 'form_menu_item.dart';
+import 'settings_reorder.dart';
 
 export '../constants/form_metrics.dart';
 export 'form_sheet_frame.dart';
@@ -62,6 +63,76 @@ class FormRowGroup extends StatelessWidget {
           children: rows,
         ),
       ),
+    );
+  }
+}
+
+/// One row of a rounded group, drawn on its own — the row-at-a-time twin of
+/// [FormRowGroup] for a list a `Column` cannot hold: a reorderable list, a
+/// sliver. Same tokens, same hairline rule (under every row but the last, at
+/// the child's own indent), the corners on the first and last rows only, so
+/// a run of shells reads as one group.
+///
+/// Only the end rows are a clipped [Material]. A middle row has no corner to
+/// round, so it paints flat and hosts its ink on a transparent [Material] —
+/// a clip path per row is what a long list would otherwise pay for corners
+/// that are never drawn (the browser's row shell reasons the same way).
+class FormRowShell extends StatelessWidget {
+  final bool first;
+  final bool last;
+
+  /// The air below the last row, [FormRowGroup]'s `trailingGap`.
+  final bool trailingGap;
+
+  final Widget child;
+
+  const FormRowShell({
+    super.key,
+    required this.first,
+    required this.last,
+    required this.child,
+    this.trailingGap = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final radius = Radius.circular(RowMetrics.groupRadius);
+    final borderRadius = BorderRadius.vertical(
+      top: first ? radius : Radius.zero,
+      bottom: last ? radius : Radius.zero,
+    );
+    final body = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        child,
+        if (!last)
+          Divider(
+            height: 1,
+            thickness: 1,
+            indent: FormRowGroup.indentOf(child),
+            endIndent: 0,
+            color: colorScheme.rowDivider,
+          ),
+      ],
+    );
+    final shell = first || last
+        ? Material(
+            type: MaterialType.card,
+            clipBehavior: Clip.antiAlias,
+            color: colorScheme.rowGroup,
+            borderRadius: borderRadius,
+            child: body,
+          )
+        : ColoredBox(
+            color: colorScheme.rowGroup,
+            child: Material(type: MaterialType.transparency, child: body),
+          );
+    if (!last || !trailingGap) return shell;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: RowMetrics.groupGap),
+      child: shell,
     );
   }
 }
@@ -415,6 +486,49 @@ class FormTrailingButton extends StatelessWidget {
       return AutomationId(identifier: id, child: button);
     }
     return button;
+  }
+}
+
+/// The drag handle of a row that can be lifted — the [FormCheckRow.handle]
+/// slot: the shared [ReorderHandle] every reorderable list in the app wears,
+/// centred in a [FormMetrics.dragHandleSlot] target, as one semantics node
+/// carrying its accessible name and its id.
+///
+/// [label] is a semantics label and never a `Tooltip`: a tooltip brings a
+/// long-press recogniser, and holding still on the handle before dragging
+/// would let it win the arena and kill the reorder (the palette sheet's
+/// note). [index] wires the handle to the enclosing reorderable list; while
+/// [enabled] is false the handle greys **in place** and drags nothing, so a
+/// list that is locked (a search is live) keeps every row where it was.
+class FormDragHandle extends StatelessWidget {
+  final int? index;
+  final bool enabled;
+  final String label;
+  final String? identifier;
+
+  const FormDragHandle({
+    super.key,
+    this.index,
+    this.enabled = true,
+    required this.label,
+    this.identifier,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final handle = SizedBox.square(
+      dimension: FormMetrics.dragHandleSlot,
+      child: Center(
+        child: Semantics(
+          label: label,
+          child: ReorderHandle(index: enabled ? index : null, enabled: enabled),
+        ),
+      ),
+    );
+    if (identifier case final id?) {
+      return AutomationId(identifier: id, child: handle);
+    }
+    return MergeSemantics(child: handle);
   }
 }
 
@@ -872,6 +986,13 @@ class FormCheckRow extends FormDividedRow {
   final String? identifier;
   final FormTrailingButton? trailingButton;
 
+  /// A [FormDragHandle] in a [FormMetrics.dragHandleSlot] target flush with
+  /// the row's start — a third target beside the row's own node and its
+  /// [trailingButton], the shape a reorderable list's rows wear. It takes
+  /// the glyph's column: the text starts at [FormMetrics.dividerIndentGlyph]
+  /// and the hairline indents to it.
+  final Widget? handle;
+
   const FormCheckRow({
     super.key,
     this.leading,
@@ -883,12 +1004,13 @@ class FormCheckRow extends FormDividedRow {
     this.exclusive = false,
     this.identifier,
     this.trailingButton,
+    this.handle,
   });
 
   @override
   double get dividerIndent {
     if (leading != null) return FormMetrics.dividerIndentTitle;
-    if (glyph != null) return FormMetrics.dividerIndentGlyph;
+    if (glyph != null || handle != null) return FormMetrics.dividerIndentGlyph;
     return FormMetrics.dividerIndentPlain;
   }
 
@@ -978,10 +1100,17 @@ class FormCheckRow extends FormDividedRow {
         : leading != null
         ? FormMetrics.titleRowMinHeight
         : FormMetrics.rowMinHeight;
+    final dragHandle = handle;
     final row = ConstrainedBox(
       constraints: BoxConstraints(minHeight: minHeight),
       child: Padding(
-        padding: const EdgeInsets.only(left: RowMetrics.groupInset),
+        // Past a handle the text sits at the glyph column, 4 dp after the
+        // 48 dp slot; without one, at the group inset like every row.
+        padding: EdgeInsets.only(
+          left: dragHandle == null
+              ? RowMetrics.groupInset
+              : FormMetrics.dividerIndentGlyph - FormMetrics.dragHandleSlot,
+        ),
         child: Row(
           children: [
             if (leading case final avatar?) ...[
@@ -1018,12 +1147,13 @@ class FormCheckRow extends FormDividedRow {
     } else {
       well = MergeSemantics(child: well);
     }
-    if (button == null) return well;
+    if (button == null && dragHandle == null) return well;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
+        ?dragHandle,
         Expanded(child: well),
-        button,
+        ?button,
       ],
     );
   }
