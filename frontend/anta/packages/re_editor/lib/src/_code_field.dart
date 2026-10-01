@@ -1057,6 +1057,46 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     }
   }
 
+  /// Asks every scrollable **above** the editor to bring [position]'s
+  /// caret line on screen — the half of `EditableText.bringIntoView` that
+  /// [makePositionVisible] leaves out, since that one stops at the
+  /// editor's own viewport.
+  ///
+  /// The caret rect is clipped to the editor's box first: a caret the
+  /// editor itself has not scrolled to yet must not drag the ancestor to
+  /// a spot outside the editor. Returns false when the line is not laid
+  /// out or the caret is outside the box, so the caller can tell "nothing
+  /// to reveal" from "revealed".
+  bool showPositionOnScreen(
+    CodeLinePosition position, {
+    required EdgeInsets margin,
+    required Duration duration,
+    required Curve curve,
+  }) {
+    if (!hasSize) {
+      return false;
+    }
+    final Offset? offset = calculateTextPositionViewportOffset(position);
+    if (offset == null) {
+      return false;
+    }
+    final double top = max(0.0, offset.dy);
+    final double bottom =
+        min(size.height, offset.dy + lineHeightOfLine(position.index));
+    if (bottom <= top) {
+      return false;
+    }
+    final Rect visible = Rect.fromLTRB(
+      offset.dx.clamp(0.0, size.width),
+      top,
+      (offset.dx + cursorWidth).clamp(0.0, size.width),
+      bottom,
+    );
+    showOnScreen(
+        rect: margin.inflateRect(visible), duration: duration, curve: curve);
+    return true;
+  }
+
   void makePositionCenterIfInvisible(CodeLinePosition position,
       {int tryCount = 0, bool animated = false}) {
     void scrollViewport(ViewportOffset viewport, num target) {

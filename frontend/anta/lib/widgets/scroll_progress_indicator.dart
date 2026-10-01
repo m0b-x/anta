@@ -14,6 +14,13 @@ class ScrollProgressIndicator extends StatefulWidget {
   /// position on every tick of this as well as on every scroll; without
   /// it a corrected offset showed only at the next periodic metrics check.
   final Listenable? repaint;
+
+  /// Whether the rail exists only while there is something to scroll: it
+  /// fades out, and stops taking touches, whenever the content fits its
+  /// viewport. For a bounded editor inside a form, where the rail's
+  /// appearance is itself the message — "this box scrolls now" — and a
+  /// permanent rail beside three lines of text would say it too early.
+  final bool hideWhenNotScrollable;
   final double visibleWidth;
   final double touchAreaWidth;
   final Color? activeColor;
@@ -23,6 +30,7 @@ class ScrollProgressIndicator extends StatefulWidget {
     super.key,
     required this.scrollController,
     this.repaint,
+    this.hideWhenNotScrollable = false,
     this.visibleWidth = ScrollIndicatorConstants.visibleWidth,
     this.touchAreaWidth = ScrollIndicatorConstants.touchAreaWidth,
     this.activeColor,
@@ -125,6 +133,15 @@ class _ScrollProgressIndicatorState extends State<ScrollProgressIndicator> {
       if (position.hasContentDimensions) return position;
     }
     return null;
+  }
+
+  /// Whether the content overflows its viewport by enough to be worth a
+  /// rail. Read at build time, from the same position the thumb reads.
+  bool _canScroll() {
+    final position = _activePosition();
+    return position != null &&
+        position.maxScrollExtent >=
+            ScrollIndicatorConstants.minScrollableExtent;
   }
 
   /// The laid-out track, or `null` before its first layout.
@@ -381,7 +398,7 @@ class _ScrollProgressIndicatorState extends State<ScrollProgressIndicator> {
         final effectiveTouchWidth =
             barWidth + 12; // Visible bar + small touch margin
 
-        return Align(
+        final rail = Align(
           alignment: Alignment.centerRight,
           child: GestureDetector(
             onTapUp: _onTap,
@@ -443,6 +460,16 @@ class _ScrollProgressIndicatorState extends State<ScrollProgressIndicator> {
                 ),
               ),
             ),
+          ),
+        );
+        if (!widget.hideWhenNotScrollable) return rail;
+        final canScroll = _canScroll();
+        return IgnorePointer(
+          ignoring: !canScroll,
+          child: AnimatedOpacity(
+            opacity: canScroll ? 1 : 0,
+            duration: widget.animationDuration,
+            child: rail,
           ),
         );
       },

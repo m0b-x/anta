@@ -26,6 +26,12 @@ class ScrollIndicatorConstants {
   /// Margin from the right edge
   static const double rightMargin = 2.0;
 
+  /// Overflow below which content counts as fitting its viewport, for a
+  /// rail that hides while there is nothing to scroll. A box sized to its
+  /// content settles within half a pixel of it, and that remainder must
+  /// not read as "scrollable".
+  static const double minScrollableExtent = 1.0;
+
   // ============================================================
   // TIMING CONSTANTS (in milliseconds)
   // ============================================================

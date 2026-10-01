@@ -38,6 +38,10 @@ class SimpleMarkdownPreview extends StatefulWidget {
   /// drag over its area, and the sheet behind it stops moving there.
   final bool scrollable;
 
+  /// The preview's own scroller when [scrollable], for a caller that draws
+  /// a scroll rail beside it. Null lets the scroll view keep its own.
+  final ScrollController? scrollController;
+
   const SimpleMarkdownPreview({
     super.key,
     required this.data,
@@ -49,6 +53,7 @@ class SimpleMarkdownPreview extends StatefulWidget {
     this.moneyConfig = MoneyDisplayConfig.disabled,
     this.colorPalette = MarkdownColorPalette.presets,
     this.scrollable = true,
+    this.scrollController,
   });
 
   @override
@@ -151,6 +156,10 @@ class _SimpleMarkdownPreviewState extends State<SimpleMarkdownPreview> {
     final text = Text.rich(TextSpan(style: baseStyle, children: allSpans));
     final padding = widget.padding ?? const EdgeInsets.all(8);
     if (!widget.scrollable) return Padding(padding: padding, child: text);
-    return SingleChildScrollView(padding: padding, child: text);
+    return SingleChildScrollView(
+      controller: widget.scrollController,
+      padding: padding,
+      child: text,
+    );
   }
 }

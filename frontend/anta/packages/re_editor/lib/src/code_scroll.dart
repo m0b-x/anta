@@ -42,6 +42,27 @@ class CodeScrollController {
     _render?.makePositionVisible(position);
   }
 
+  /// Scrolls the scrollables **around** the editor until [position]'s caret
+  /// line is on screen, [margin] included — for an editor embedded in a
+  /// scroll view, where [makeVisible] alone leaves the caret visible
+  /// inside the editor's box and the box itself behind the keyboard.
+  ///
+  /// Call it after the layout that placed the caret (a post-frame
+  /// callback from an edit): it reads the last layout's geometry. Returns
+  /// false when there was nothing to reveal — no editor mounted, the line
+  /// outside the display window, or the caret outside the editor's box —
+  /// and does nothing for an editor that sits in no scrollable.
+  bool revealInAncestors(
+    CodeLinePosition position, {
+    EdgeInsets margin = EdgeInsets.zero,
+    Duration duration = Duration.zero,
+    Curve curve = Curves.ease,
+  }) {
+    return _render?.showPositionOnScreen(position,
+            margin: margin, duration: duration, curve: curve) ??
+        false;
+  }
+
   double? get contentHeight => _render?.contentHeight;
 
   void bindEditor(GlobalKey key) {

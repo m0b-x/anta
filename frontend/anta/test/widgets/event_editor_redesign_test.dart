@@ -33,6 +33,7 @@ import 'package:anta/widgets/event_description_sheet.dart';
 import 'package:anta/widgets/event_editor_sheet.dart';
 import 'package:anta/widgets/event_repeat_sheet.dart';
 import 'package:anta/widgets/form_rows.dart';
+import 'package:anta/widgets/scroll_progress_indicator.dart';
 import 'package:anta/widgets/simple_markdown_preview.dart';
 
 import '../database/support/db_test_support.dart';
@@ -370,6 +371,397 @@ void main() {
         tester.widget<EventAvatar>(find.byType(EventAvatar)).color,
         isNot(const Color(0xFFE53935)),
       );
+    });
+  });
+
+  group('a long description', () {
+    const lineHeight = 22.0;
+    const cellPadding = 13.0;
+
+    Finder rail() => find.byType(ScrollProgressIndicator);
+
+    double railOpacity(WidgetTester tester) => tester
+        .widget<AnimatedOpacity>(
+          find.descendant(of: rail(), matching: find.byType(AnimatedOpacity)),
+        )
+        .opacity;
+
+    Finder form() => find.ancestor(
+      of: find.byType(CodeEditor),
+      matching: find.byType(SingleChildScrollView),
+    );
+
+    ScrollController formScroll(WidgetTester tester) =>
+        tester.widget<SingleChildScrollView>(form()).controller!;
+
+    /// Raises a keyboard under the sheet. The sheet keeps its height and
+    /// pads its docked bar by the inset, so what shrinks is the form.
+    void raiseKeyboard(WidgetTester tester, double height) {
+      addTearDown(tester.view.resetViewInsets);
+      tester.view.viewInsets = FakeViewPadding(bottom: height);
+    }
+
+    /// Focuses the description and waits out the focus reveal. Frame by
+    /// frame from here on: a focused editor blinks its caret and never
+    /// settles.
+    Future<void> focusDescription(WidgetTester tester) async {
+      tester
+          .widget<CodeEditor>(find.byType(CodeEditor))
+          .focusNode!
+          .requestFocus();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 300));
+    }
+
+    /// Types one more line at the end of the text, the way the editor
+    /// delivers an Enter and the characters after it.
+    Future<void> addLine(WidgetTester tester, String text) async {
+      final controller = descriptionOf(tester);
+      final last = controller.codeLines.length - 1;
+      controller.selection = CodeLineSelection.collapsed(
+        index: last,
+        offset: controller.codeLines[last].text.length,
+      );
+      controller.applyNewLine();
+      controller.replaceSelection(text);
+      // The frame that lays the line out, whose end starts the reveal; the
+      // animation's first tick, which only stamps its start time; then the
+      // whole of it.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 16));
+      await tester.pump(const Duration(milliseconds: 150));
+    }
+
+    /// Unmounts the sheet so a focused editor's timers are gone before the
+    /// binding checks for pending ones.
+    Future<void> unmount(WidgetTester tester) async {
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    }
+
+    testWidgets('the scroll rail shows only once the text runs past ten '
+        'lines', (tester) async {
+      await open(tester);
+      expect(rail(), findsOneWidget);
+      expect(railOpacity(tester), 0);
+
+      descriptionOf(tester).text = List.filled(10, 'line').join('\n');
+      await tester.pumpAndSettle();
+      expect(railOpacity(tester), 0, reason: 'ten lines still fit');
+
+      descriptionOf(tester).text = List.filled(11, 'line').join('\n');
+      await tester.pumpAndSettle();
+      expect(railOpacity(tester), 1);
+
+      descriptionOf(tester).text = 'one\ntwo';
+      await tester.pumpAndSettle();
+      expect(railOpacity(tester), 0);
+    });
+
+    testWidgets('the rail sits in the button gutter, under the expand '
+        'button, and ends with the text box', (tester) async {
+      await open(tester);
+      descriptionOf(tester).text = List.filled(14, 'line').join('\n');
+      await tester.pumpAndSettle();
+
+      final editor = tester.getRect(find.byType(CodeEditor));
+      final track = tester.getRect(
+        find.descendant(
+          of: rail(),
+          matching: find.byType(CustomSingleChildLayout),
+        ),
+      );
+      final expand = tester.getRect(find.byTooltip('Open full editor'));
+
+      expect(track.left, greaterThanOrEqualTo(editor.right));
+      expect(track.top, greaterThanOrEqualTo(expand.bottom));
+      expect(track.bottom, editor.bottom);
+    });
+
+    testWidgets('the text keeps its width when the rail appears', (
+      tester,
+    ) async {
+      await open(tester);
+      descriptionOf(tester).text = List.filled(10, 'line').join('\n');
+      await tester.pumpAndSettle();
+      final before = tester.getSize(find.byType(CodeEditor)).width;
+
+      descriptionOf(tester).text = List.filled(11, 'line').join('\n');
+      await tester.pumpAndSettle();
+
+      expect(railOpacity(tester), 1);
+      expect(tester.getSize(find.byType(CodeEditor)).width, before);
+    });
+
+    testWidgets('dragging the rail scrubs the description', (tester) async {
+      await open(tester);
+      descriptionOf(tester).text = List.generate(
+        30,
+        (i) => 'line $i',
+      ).join('\n');
+      await tester.pumpAndSettle();
+      final inner = tester
+          .widget<CodeEditor>(find.byType(CodeEditor))
+          .scrollController!
+          .verticalScroller;
+      expect(inner.offset, 0);
+
+      final track = tester.getRect(
+        find.descendant(
+          of: rail(),
+          matching: find.byType(CustomSingleChildLayout),
+        ),
+      );
+      await tester.dragFrom(
+        track.topCenter + const Offset(0, 4),
+        Offset(0, track.height),
+      );
+      await tester.pumpAndSettle();
+
+      expect(inner.offset, inner.position.maxScrollExtent);
+    });
+
+    testWidgets('with live rendering off the rendered description wears the '
+        'same rail', (tester) async {
+      await (await SettingsService.getInstance()).setLiveMarkdownRendering(
+        false,
+      );
+      await open(
+        tester,
+        initial: eventOf(
+          description: List.generate(30, (i) => 'line $i').join('\n\n'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(railOpacity(tester), 1);
+      final editor = tester.getRect(find.byType(CodeEditor));
+
+      await tapTooltip(tester, 'Show rendered description');
+      expect(find.byType(SimpleMarkdownPreview), findsOneWidget);
+      expect(railOpacity(tester), 1);
+
+      final preview = tester.getRect(find.byType(SimpleMarkdownPreview));
+      expect(
+        preview.width,
+        editor.width,
+        reason:
+            'the rendered text fills the text column — a preview as wide '
+            'as its longest line scrolls only over that strip',
+      );
+      final track = tester.getRect(
+        find.descendant(
+          of: rail(),
+          matching: find.byType(CustomSingleChildLayout),
+        ),
+      );
+      expect(track.left, greaterThanOrEqualTo(preview.right));
+      expect(track.bottom, preview.bottom);
+    });
+
+    testWidgets('the form follows the caret as lines are typed above a '
+        'keyboard', (tester) async {
+      await open(tester);
+      raiseKeyboard(tester, 420);
+      await tester.pump();
+      await focusDescription(tester);
+      expect(formScroll(tester).offset, 0);
+
+      descriptionOf(tester).replaceSelection('line 1');
+      await tester.pump();
+      for (var i = 2; i <= 10; i++) {
+        await addLine(tester, 'line $i');
+
+        // The caret is on the last of `i` lines and the editor has not
+        // begun to scroll inside, so its line ends `i` lines down the box.
+        final caretBottom =
+            tester.getRect(find.byType(CodeEditor)).top + i * lineHeight;
+        expect(
+          caretBottom + cellPadding,
+          lessThanOrEqualTo(tester.getRect(form()).bottom + 0.5),
+          reason: 'line $i is typed in view, with the cell edge under it',
+        );
+      }
+      expect(
+        formScroll(tester).offset,
+        greaterThan(0),
+        reason: 'ten lines do not fit above this keyboard without a scroll',
+      );
+
+      await unmount(tester);
+    });
+
+    testWidgets('past ten lines the description scrolls inside and the form '
+        'stays where it is', (tester) async {
+      await open(tester);
+      raiseKeyboard(tester, 420);
+      await tester.pump();
+      await focusDescription(tester);
+
+      descriptionOf(tester).replaceSelection('line 1');
+      await tester.pump();
+      for (var i = 2; i <= 10; i++) {
+        await addLine(tester, 'line $i');
+      }
+      final settled = formScroll(tester).offset;
+
+      for (var i = 11; i <= 14; i++) {
+        await addLine(tester, 'line $i');
+      }
+
+      expect(formScroll(tester).offset, moreOrLessEquals(settled));
+      expect(railOpacity(tester), 1);
+      final inner = tester
+          .widget<CodeEditor>(find.byType(CodeEditor))
+          .scrollController!
+          .verticalScroller;
+      expect(
+        inner.offset,
+        moreOrLessEquals(4 * lineHeight),
+        reason: 'fourteen lines in a ten-line box: the caret line is last',
+      );
+      expect(
+        tester.getRect(find.byType(CodeEditor)).bottom + cellPadding,
+        lessThanOrEqualTo(tester.getRect(form()).bottom + 0.5),
+      );
+
+      await unmount(tester);
+    });
+
+    testWidgets('a paste that ends past the tenth line brings the cell\'s '
+        'end above the keyboard', (tester) async {
+      await open(tester);
+      raiseKeyboard(tester, 420);
+      await tester.pump();
+      await focusDescription(tester);
+      expect(formScroll(tester).offset, 0);
+
+      // The caret lands outside the box the editor had when it was asked
+      // to show it; the editor scrolls to it a frame later, and only then
+      // is there a caret inside the box for the form to follow.
+      descriptionOf(
+        tester,
+      ).replaceSelection(List.generate(20, (i) => 'line $i').join('\n'));
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await tester.pump(const Duration(milliseconds: 150));
+
+      expect(formScroll(tester).offset, greaterThan(0));
+      expect(
+        tester.getRect(find.byType(CodeEditor)).bottom + cellPadding,
+        lessThanOrEqualTo(tester.getRect(form()).bottom + 0.5),
+      );
+
+      await unmount(tester);
+    });
+
+    testWidgets('a keyboard that rises under a focused description brings '
+        'the caret line back', (tester) async {
+      await open(tester);
+      await focusDescription(tester);
+      descriptionOf(tester).replaceSelection('line 1');
+      await tester.pump();
+      for (var i = 2; i <= 10; i++) {
+        await addLine(tester, 'line $i');
+      }
+      expect(formScroll(tester).offset, 0, reason: 'no keyboard, all fits');
+
+      // The keyboard back after the system back dismissed it: no focus
+      // change and no caret change, only the inset.
+      // The docked bar takes the inset through its size animation, so
+      // the form goes on shrinking for a moment after the inset is final.
+      raiseKeyboard(tester, 420);
+      for (var i = 0; i < 30; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+
+      expect(formScroll(tester).offset, greaterThan(0));
+      expect(
+        tester.getRect(find.byType(CodeEditor)).bottom + cellPadding,
+        lessThanOrEqualTo(tester.getRect(form()).bottom + 0.5),
+      );
+
+      await unmount(tester);
+    });
+
+    testWidgets('a finger dragging the form is never pulled back to the '
+        'caret', (tester) async {
+      await open(tester);
+      raiseKeyboard(tester, 420);
+      await tester.pump();
+      await focusDescription(tester);
+      descriptionOf(tester).replaceSelection('line 1');
+      await tester.pump();
+      for (var i = 2; i <= 10; i++) {
+        await addLine(tester, 'line $i');
+      }
+      final followed = formScroll(tester).offset;
+      expect(followed, greaterThan(0));
+
+      // Drag the form back down with the finger on the description itself
+      // — ten lines do not scroll inside, so the drag is the form's, and a
+      // touch there keeps the focus a touch on another row would drop. The
+      // caret line goes back behind the keyboard; the finger stays down.
+      final gesture = await tester.startGesture(
+        tester.getRect(find.byType(CodeEditor)).topCenter +
+            const Offset(0, 2 * lineHeight),
+      );
+      await gesture.moveBy(const Offset(0, 30));
+      await tester.pump();
+      await gesture.moveBy(const Offset(0, 30));
+      await tester.pump();
+      final dragged = formScroll(tester).offset;
+      expect(dragged, lessThan(followed));
+      expect(
+        tester.widget<CodeEditor>(find.byType(CodeEditor)).focusNode!.hasFocus,
+        isTrue,
+        reason: 'without focus nothing would reveal, guard or no guard',
+      );
+
+      descriptionOf(tester).replaceSelection('x');
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 16));
+      await tester.pump(const Duration(milliseconds: 150));
+      expect(
+        formScroll(tester).offset,
+        dragged,
+        reason: 'the drag holds the form; the reveal waits its turn',
+      );
+
+      await gesture.up();
+      await unmount(tester);
+    });
+
+    testWidgets('typing on a line that is already on screen moves nothing', (
+      tester,
+    ) async {
+      await open(tester);
+      await focusDescription(tester);
+      final before = formScroll(tester).offset;
+
+      descriptionOf(tester).replaceSelection('line 1');
+      await tester.pump();
+      await addLine(tester, 'line 2');
+      await addLine(tester, 'line 3');
+
+      expect(formScroll(tester).offset, before);
+
+      await unmount(tester);
+    });
+
+    testWidgets('text loaded into an unfocused description never scrolls the '
+        'form', (tester) async {
+      await open(tester);
+      raiseKeyboard(tester, 420);
+      await tester.pump();
+
+      descriptionOf(tester).text = List.filled(10, 'line').join('\n');
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(formScroll(tester).offset, 0);
     });
   });
 

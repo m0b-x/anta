@@ -1,0 +1,47 @@
+# The description cell past its ten lines (2026-09-30): twelve lines typed
+# into a new event grow the cell to its cap, after which it scrolls inside
+# and the scroll rail shows in the button gutter; the full editor holds the
+# same text with no rail, because there it still fits. The rail carries no
+# semantics node, so the two shots are its evidence; the expects pin the
+# text round-trip and a clean error buffer.
+# - The editor keeps only its caret line in the text channel, so each line
+#   is its own `type` and `key enter` is the line break between them.
+# - The placeholder "Add description" is not a tap target; the field is
+#   id:event-description.
+tap id:calendar-add-event
+wait id:event-title
+type "Long description"
+tap id:event-description
+type "line 1"
+key enter
+type "line 2"
+key enter
+type "line 3"
+key enter
+type "line 4"
+key enter
+type "line 5"
+key enter
+type "line 6"
+key enter
+type "line 7"
+key enter
+type "line 8"
+key enter
+type "line 9"
+key enter
+type "line 10"
+key enter
+type "line 11"
+key enter
+type "line 12"
+shot 12_description_cell
+tap "Open full editor"
+wait id:description-done
+shot 12_description_sheet
+tap id:description-done
+wait id:event-save
+tap id:event-save
+wait id:calendar-add-event
+expect "Long description"
+errors

@@ -16,6 +16,7 @@ import 'package:anta/services/markdown_bar_service.dart';
 import 'package:anta/widgets/event_description_sheet.dart';
 import 'package:anta/widgets/form_rows.dart';
 import 'package:anta/widgets/modern_editor_wrapper.dart';
+import 'package:anta/widgets/scroll_progress_indicator.dart';
 
 /// The full-height description editor is a pure text-in / text-out modal: it
 /// never persists, so everything that can go wrong is in what it hands back
@@ -448,6 +449,31 @@ void main() {
     );
 
     await closeDiscarding(tester);
+  });
+
+  testWidgets('the scroll rail shows only once the text runs past the '
+      'sheet', (tester) async {
+    await openSheet(tester, initialText: 'Squats');
+    double railOpacity() => tester
+        .widget<AnimatedOpacity>(
+          find.descendant(
+            of: find.byType(ScrollProgressIndicator),
+            matching: find.byType(AnimatedOpacity),
+          ),
+        )
+        .opacity;
+
+    expect(railOpacity(), 0, reason: 'a paragraph needs no rail');
+
+    await setText(tester, List.generate(120, (i) => 'line $i').join('\n'));
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(railOpacity(), 1);
+
+    await setText(tester, 'Squats');
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(railOpacity(), 0);
+
+    await tapClose(tester);
   });
 
   testWidgets('the scope caption renders when the caller passes one', (
