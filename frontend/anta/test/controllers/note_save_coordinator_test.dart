@@ -712,6 +712,81 @@ void main() {
     });
   });
 
+  group('saveStatus', () {
+    test('follows the service outside a frame, with no delay', () {
+      fakeAsync((async) {
+        final h = _Harness.existing()..coordinator.start();
+        final seen = <SaveStatus>[];
+        h.coordinator.saveStatus.addListener(
+          () => seen.add(h.coordinator.saveStatus.value),
+        );
+
+        h.type('v1');
+        expect(seen, [SaveStatus.unsaved]);
+
+        async.elapse(_Harness.debounce);
+        expect(seen, [SaveStatus.unsaved, SaveStatus.saving, SaveStatus.saved]);
+
+        h.dispose();
+      });
+    });
+
+    testWidgets('a status change detected mid-frame lands after it — the '
+        'app bar\'s builder is already clean by then, and dirtying it '
+        'during the build is what threw', (tester) async {
+      final h = _Harness.existing()..coordinator.start();
+      var editDuringBuild = false;
+      late StateSetter rebuildEditor;
+      SaveStatus? duringBuild;
+
+      try {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: Column(
+              children: [
+                // The app bar's indicator: built first, listening.
+                ValueListenableBuilder<SaveStatus>(
+                  valueListenable: h.coordinator.saveStatus,
+                  builder: (context, status, _) => Text(status.name),
+                ),
+                // The editor below it, whose build is where the fork's
+                // controller notified.
+                StatefulBuilder(
+                  builder: (context, setState) {
+                    rebuildEditor = setState;
+                    if (editDuringBuild) {
+                      editDuringBuild = false;
+                      h.type('v1');
+                      duringBuild = h.coordinator.saveStatus.value;
+                    }
+                    return const SizedBox.shrink();
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+        expect(find.text(SaveStatus.saved.name), findsOneWidget);
+
+        editDuringBuild = true;
+        rebuildEditor(() {});
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+        expect(duringBuild, SaveStatus.saved);
+        expect(h.coordinator.saveStatus.value, SaveStatus.unsaved);
+
+        await tester.pump();
+        expect(find.text(SaveStatus.unsaved.name), findsOneWidget);
+      } finally {
+        // In the body, not a tear-down: the service's interval timer has to
+        // be gone before the binding checks for pending timers.
+        h.dispose();
+      }
+    });
+  });
+
   group('dispose', () {
     test('a pending save never reaches the bloc', () {
       fakeAsync((async) {

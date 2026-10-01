@@ -2115,7 +2115,20 @@ class _CodeLineEditingControllerDelegate implements CodeLineEditingController {
       value.addListener(listener);
     }
     _delegate = value;
-    notifyListeners();
+    // The handoff exists to refresh this editor's own listeners after its
+    // controller was swapped. A delegate that has none — every first
+    // attach, since `initState` assigns it before anything has subscribed —
+    // has nobody to refresh, and notifying anyway announced a change to
+    // every listener the *host* holds on its controller: from inside
+    // `initState`, so in the middle of a build, and with the listeners of
+    // an editor this one is replacing still attached and already
+    // deactivated. Hosts saw an edit that never happened, builders above
+    // the editor were dirtied while the framework was building, and the
+    // outgoing editor's listeners ran against a context that was no longer
+    // in the tree.
+    if (_listeners.isNotEmpty) {
+      notifyListeners();
+    }
   }
 
   @override

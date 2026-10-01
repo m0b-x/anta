@@ -962,8 +962,10 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
 
   /// Rebuilds the toolbar's undo/redo buttons when the history state moved
   /// away from what they show. The controller can notify mid-build (the
-  /// editor's delegate handoff does), so a change seen during a frame's
-  /// build phase is applied after that frame instead of throwing.
+  /// editor's delegate handoff does when a controller is swapped into a
+  /// mounted editor, and did on every mount until 2026-10-01), so a change
+  /// seen during a frame's build phase is applied after that frame instead
+  /// of throwing.
   void _syncHistoryButtons() {
     if (_historyState == _builtHistory) return;
     if (SchedulerBinding.instance.schedulerPhase ==

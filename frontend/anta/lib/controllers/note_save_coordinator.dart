@@ -49,6 +49,8 @@ class NoteSaveCoordinator {
       onSave: _save,
       onChangeDetected: _setHasChanges,
     );
+    _saveStatus = ValueNotifier<SaveStatus>(_autoSave.saveStatusNotifier.value);
+    _autoSave.saveStatusNotifier.addListener(_relaySaveStatus);
   }
 
   /// Folder the note lives in: the uniqueness scope for its title and the
@@ -71,6 +73,10 @@ class NoteSaveCoordinator {
   late final AutoSaveService _autoSave;
 
   final ValueNotifier<bool> _hasChanges = ValueNotifier<bool>(false);
+
+  /// What the app bar listens to: the service's status, republished by
+  /// [_relaySaveStatus] so that it never changes in the middle of a build.
+  late final ValueNotifier<SaveStatus> _saveStatus;
 
   String? _effectiveNoteId;
   bool _isCreatingNewNote = false;
@@ -106,8 +112,9 @@ class NoteSaveCoordinator {
   ValueListenable<bool> get hasChanges => _hasChanges;
 
   /// The auto-save service's own status (saved / unsaved / saving /
-  /// error), forwarded so the app bar has a single thing to listen to.
-  ValueListenable<SaveStatus> get saveStatus => _autoSave.saveStatusNotifier;
+  /// error), forwarded so the app bar has a single thing to listen to —
+  /// and, like [hasChanges], never written in the middle of a build.
+  ValueListenable<SaveStatus> get saveStatus => _saveStatus;
 
   /// The id every save writes to: the note the page opened, or the id a
   /// brand-new note was given when it was first persisted. `null` until
@@ -249,8 +256,10 @@ class NoteSaveCoordinator {
 
   void dispose() {
     _disposed = true;
+    _autoSave.saveStatusNotifier.removeListener(_relaySaveStatus);
     _autoSave.dispose();
     _hasChanges.dispose();
+    _saveStatus.dispose();
   }
 
   void _track() {
@@ -394,5 +403,30 @@ class NoteSaveCoordinator {
       if (_disposed || _hasChanges.value == value) return;
       _hasChanges.value = value;
     });
+  }
+
+  /// Republishes the service's status on [_saveStatus], under the rule
+  /// [_setHasChanges] follows and for the same reason: the same controller
+  /// notification that flags the page dirty also turns the status to
+  /// `unsaved`, and the app bar's builder is already clean by the time a
+  /// notification lands mid-build — marking it dirty there throws.
+  ///
+  /// The deferred write reads the service again rather than capturing a
+  /// value, so a status that moved on within the frame is published once,
+  /// as what it ended up being. A frame is asked for as well: a callback
+  /// registered from a post-frame callback waits for the *next* frame, and
+  /// registering it does not schedule one.
+  void _relaySaveStatus() {
+    if (_disposed) return;
+    if (SchedulerBinding.instance.schedulerPhase == SchedulerPhase.idle) {
+      _saveStatus.value = _autoSave.saveStatusNotifier.value;
+      return;
+    }
+    SchedulerBinding.instance
+      ..addPostFrameCallback((_) {
+        if (_disposed) return;
+        _saveStatus.value = _autoSave.saveStatusNotifier.value;
+      })
+      ..ensureVisualUpdate();
   }
 }

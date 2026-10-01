@@ -743,6 +743,55 @@ void main() {
         h.dispose();
       });
     });
+
+    test('a fresh baseline reads as saved — loading a note announces itself '
+        'like an edit, and re-baselining on what was loaded is the only '
+        'thing that answers it', () {
+      fakeAsync((async) {
+        final h = _Harness()..track(initial: '');
+
+        // The load: the controller notifies, the page reports a change.
+        h.type('the stored note');
+        expect(h.statuses, [SaveStatus.unsaved]);
+
+        h.track(initial: 'the stored note');
+
+        expect(h.statuses, [SaveStatus.unsaved, SaveStatus.saved]);
+        expect(h.service.hasPendingChanges, isFalse);
+
+        // And nothing was scheduled to clear it later instead.
+        async.elapse(h.service.saveInterval * 2);
+        expect(h.saver.callCount, 0);
+        expect(h.statuses, [SaveStatus.unsaved, SaveStatus.saved]);
+
+        h.dispose();
+      });
+    });
+
+    test('a fresh baseline taken while a write is in flight leaves the '
+        'status to that write', () {
+      fakeAsync((async) {
+        final h = _Harness()..track(initial: 'v0');
+        h.saver.gate = Completer<void>();
+
+        h.type('v1');
+        async.elapse(h.service.debounceDelay);
+        expect(h.statuses.last, SaveStatus.saving);
+
+        h.track(initial: 'v1');
+        expect(
+          h.statuses.last,
+          SaveStatus.saving,
+          reason: 'the write has not landed; claiming saved would be a guess',
+        );
+
+        h.saver.gate!.complete();
+        async.flushMicrotasks();
+        expect(h.statuses.last, SaveStatus.saved);
+
+        h.dispose();
+      });
+    });
   });
 
   group('dispose', () {

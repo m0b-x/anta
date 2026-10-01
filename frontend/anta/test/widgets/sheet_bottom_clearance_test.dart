@@ -4,9 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:get_it/get_it.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/bloc/markdown_bar/markdown_bar_bloc.dart';
+import 'package:anta/bloc/pairing/pairing_bloc.dart';
 import 'package:anta/constants/calendar_bounds.dart';
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/semantics_ids.dart';
@@ -17,12 +19,14 @@ import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/event_alert.dart';
+import 'package:anta/models/markdown_bar_profile.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/models/upcoming_agenda_filters.dart';
 import 'package:anta/widgets/agenda_day_list_sheet.dart';
 import 'package:anta/widgets/agenda_filters_sheet.dart';
 import 'package:anta/widgets/alert_editor_sheet.dart';
 import 'package:anta/widgets/alert_sound_sheet.dart';
+import 'package:anta/widgets/bar_switcher_sheet.dart';
 import 'package:anta/models/calendar_grid_filters.dart';
 import 'package:anta/widgets/calendar_date_picker_sheet.dart';
 import 'package:anta/widgets/calendar_filter_sheet.dart';
@@ -46,10 +50,12 @@ import 'package:anta/widgets/event_template_picker_sheet.dart';
 import 'package:anta/widgets/icon_picker_sheet.dart';
 import 'package:anta/widgets/modern_editor_wrapper.dart';
 import 'package:anta/widgets/month_year_picker_sheet.dart';
+import 'package:anta/widgets/pairing_sheet.dart';
 import 'package:anta/widgets/quick_alarm_sheet.dart';
 import 'package:anta/widgets/time_pad_sheet.dart';
 
 import '../database/support/db_test_support.dart';
+import '../services/pairing_support.dart';
 
 /// `showModalBottomSheet(useSafeArea: true)` guards the **status bar** only —
 /// its route wraps the sheet in `SafeArea(bottom: false)`. A sheet sitting on
@@ -63,7 +69,7 @@ import '../database/support/db_test_support.dart';
 /// view). These tests pin that the padding actually responds to the inset,
 /// which a `const EdgeInsets` cannot do.
 ///
-/// **Add every new sheet here.** This is the app's most-repeated defect — four
+/// **Add every new sheet here.** This is the app's most-repeated defect — five
 /// separate rounds of it have shipped — and it is invisible in review because
 /// a sheet padded by `viewInsets` alone looks correct with the keyboard up.
 void main() {
@@ -857,5 +863,101 @@ void main() {
     await tester.tap(find.bySemanticsIdentifier(SemanticsIds.iconPickClose));
     await tester.pumpAndSettle();
     expect(find.byType(IconPickerSheet), findsNothing);
+  });
+
+  testWidgets('the bar switcher clears the navigation bar', (tester) async {
+    sizeSurfaceWithNavBar(tester);
+    GetIt.I.registerSingleton<MarkdownBarService>(
+      await MarkdownBarService.getInstance(),
+    );
+    addTearDown(GetIt.I.unregister<MarkdownBarService>);
+    await openFrom(
+      tester,
+      (context) => BarSwitcherSheet.show(
+        context,
+        currentProfileId: MarkdownBarProfile.defaultProfileId,
+      ),
+    );
+
+    // The body gives way to the keyboard so the search field stays above
+    // it; the system inset is the list's, and the last profile is what sat
+    // under the bar without it (found 2026-10-01, the fifth round).
+    expect(listBottomPadding(tester), greaterThanOrEqualTo(navBar));
+  });
+
+  testWidgets('the bar switcher does not count the navigation bar twice once '
+      'the keyboard covers it', (tester) async {
+    addTearDown(tester.view.reset);
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.physicalSize = surface;
+    tester.view.viewPadding = const FakeViewPadding(bottom: navBar);
+    tester.view.padding = FakeViewPadding.zero;
+    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+    GetIt.I.registerSingleton<MarkdownBarService>(
+      await MarkdownBarService.getInstance(),
+    );
+    addTearDown(GetIt.I.unregister<MarkdownBarService>);
+    await openFrom(
+      tester,
+      (context) => BarSwitcherSheet.show(
+        context,
+        currentProfileId: MarkdownBarProfile.defaultProfileId,
+      ),
+    );
+
+    expect(listBottomPadding(tester), 0);
+    expect(
+      tester.getRect(find.byType(ListView)).bottom,
+      lessThanOrEqualTo(surface.height - 300),
+      reason: 'the list ends where the keyboard begins',
+    );
+  });
+
+  group('the pairing sheet', () {
+    late PairingBloc pairing;
+
+    setUp(() {
+      pairing = PairingBloc(
+        authService: FakeAuthService(user: userA),
+        gateway: FakePairingGateway(),
+      );
+    });
+
+    tearDown(() => pairing.close());
+
+    /// Bottom padding of the sheet's own body, which is what holds the
+    /// Connect button off the screen edge.
+    double bodyBottomPadding(WidgetTester tester) {
+      final body = tester.widget<Padding>(
+        find
+            .descendant(
+              of: find.byType(BottomSheet),
+              matching: find.byType(Padding),
+            )
+            .first,
+      );
+      return body.padding.resolve(TextDirection.ltr).bottom;
+    }
+
+    testWidgets('clears the navigation bar', (tester) async {
+      sizeSurfaceWithNavBar(tester);
+      await openFrom(tester, (context) => showPairingSheet(context, pairing));
+
+      expect(bodyBottomPadding(tester), 24 + navBar);
+    });
+
+    testWidgets('clears the keyboard by the keyboard alone — the inset '
+        'already reaches the screen edge, so adding the navigation bar to '
+        'it floated the sheet a bar above the keys', (tester) async {
+      addTearDown(tester.view.reset);
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = surface;
+      tester.view.viewPadding = const FakeViewPadding(bottom: navBar);
+      tester.view.padding = FakeViewPadding.zero;
+      tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+      await openFrom(tester, (context) => showPairingSheet(context, pairing));
+
+      expect(bodyBottomPadding(tester), 24 + 300);
+    });
   });
 }

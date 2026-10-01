@@ -23,6 +23,7 @@ import java.io.File
 
 private const val ALERTS_CHANNEL = "com.alexzamfir.anta/alerts"
 private const val PERMISSIONS_CHANNEL = "com.alexzamfir.anta/permissions"
+private const val WINDOW_CHANNEL = "com.alexzamfir.anta/window"
 
 /**
  * The stored literal meaning "the phone's current default alarm sound".
@@ -50,7 +51,7 @@ private const val PICK_ALARM_SOUND_REQUEST = 0x5A17
 private const val LEGACY_ALARM_SOUND_DIR = "alert_sounds"
 
 /**
- * The two app-owned channels.
+ * The three app-owned channels.
  *
  * **Permissions** answers every permission question in one round trip and
  * opens the system page where each one is granted. No plugin offers the
@@ -101,6 +102,9 @@ private const val LEGACY_ALARM_SOUND_DIR = "alert_sounds"
  * design: a sound that cannot be resolved answers null and the app rings the
  * phone's default alarm, because an alarm that does not sound is far worse
  * than an alarm that sounds wrong.
+ *
+ * **Window** has one method, [resyncInsets], which repairs a keyboard inset
+ * the engine left behind after the keyboard itself had gone.
  */
 class MainActivity : FlutterActivity() {
     /**
@@ -282,6 +286,49 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+        MethodChannel(messenger, WINDOW_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "resyncInsets" -> result.success(resyncInsets())
+                    else -> result.notImplemented()
+                }
+            }
+    }
+
+    /**
+     * Has the window dispatch its insets again, so the Flutter view hears the
+     * current ones. Answers whether a dispatch was asked for.
+     *
+     * The engine's `ImeSyncDeferringInsetsCallback` consumes every inset
+     * dispatch while a keyboard animation runs and, when the animation ends,
+     * replays the insets it saved as the animation began. An inset change
+     * that landed in between is lost, and the view is left reporting a
+     * keyboard the window no longer has until the insets next change — which
+     * can be a long time, since nothing is wrong as far as the window knows.
+     * Once the replay is over the callback passes dispatches through again,
+     * and the view sends viewport metrics for every one it is handed, changed
+     * or not; asking for a dispatch is therefore the whole repair.
+     *
+     * It has to be a dispatch through the hierarchy. Handing the view its
+     * root insets with `onApplyWindowInsets` looks equivalent and is not:
+     * outside a dispatch, `View.onApplyWindowInsets` falls back to
+     * `fitSystemWindows`, which dispatches a compatibility `WindowInsets`
+     * that has no IME type — the view reports a keyboard as system-bar
+     * padding first and the real insets a moment later (two metric packets
+     * per call, measured on the emulator), and an animation that starts in
+     * that moment can save the compatibility object as the insets to replay.
+     * Root insets also differ from what a child is dispatched: the display
+     * cutout is still in them, and so is the navigation bar on a window that
+     * is not edge-to-edge.
+     *
+     * Nothing defers insets below API 30, so there is nothing to repair
+     * there. A callback that never saw its animation end keeps consuming and
+     * is out of reach from here; the next keyboard animation releases it.
+     */
+    private fun resyncInsets(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false
+        window.decorView.requestApplyInsets()
+        return true
     }
 
     private fun permissionStatus(channelIds: List<String>): Map<String, Boolean?> {

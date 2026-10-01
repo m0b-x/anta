@@ -53,6 +53,11 @@ class AutoSaveService {
     _contentProvider = contentProvider;
     _latestTitle = title;
     _hasPendingChanges = false;
+    // A fresh baseline has nothing unsaved. Loading a note reads as an edit
+    // until the caller re-baselines on it, and nothing else clears the
+    // `unsaved` that leaves behind until the next real save. A write still
+    // in flight reports its own outcome when it lands.
+    if (!_isSaving) _updateStatus(SaveStatus.saved);
 
     _intervalTimer = Timer.periodic(saveInterval, (_) {
       _checkAndSave();
