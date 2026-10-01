@@ -228,6 +228,11 @@ abstract final class SemanticsIds {
   static const String eventTitle = 'event-title';
   static const String eventCategory = 'event-category';
   static const String eventLook = 'event-look';
+
+  /// The description cell's editing surface — a container above the
+  /// editor's own text-field node, like [editorBody]: the field carries no
+  /// label once it holds text, and the placeholder is not a tap target.
+  static const String eventDescription = 'event-description';
   static const String eventDate = 'event-date';
   static const String eventDates = 'event-dates';
   static const String eventAddDate = 'event-add-date';

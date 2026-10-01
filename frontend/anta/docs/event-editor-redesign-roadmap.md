@@ -428,6 +428,11 @@ included) on a 412 × 915 phone, against the 842 dp sheet.
     form.
   - Soft-wrapped lines can be measured from the editor's scroll metrics. If
     you take the line count instead, say so in the report.
+- **Scroll rail and caret follow (added 2026-09-30).** Past ten lines the
+  note editor's rail shows in the button gutter, under the buttons, and
+  only then; while the description has focus the form scrolls the least it
+  takes to keep the caret's line on screen. The addendum of that date in
+  `calendar-events-feature.md` has the detail.
 - **Placeholder.** When empty, an overlay shows `eventDescriptionAdd`
   ("Add description"), 15 / 400 `onSurfaceVariant`, one line, ellipsis. It
   is not a hint field inside the editor.

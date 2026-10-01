@@ -24,6 +24,7 @@ Widget _harness({
   required ScrollController controller,
   int itemCount = 100,
   Listenable? repaint,
+  bool hideWhenNotScrollable = false,
 }) {
   return MaterialApp(
     home: Scaffold(
@@ -49,6 +50,7 @@ Widget _harness({
                 child: ScrollProgressIndicator(
                   scrollController: controller,
                   repaint: repaint,
+                  hideWhenNotScrollable: hideWhenNotScrollable,
                 ),
               ),
             ],
@@ -395,6 +397,187 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(controller.offset, 0);
+
+      await _teardown(tester);
+    });
+  });
+
+  group('ScrollProgressIndicator.hideWhenNotScrollable', () {
+    const metricsCheck = Duration(
+      milliseconds: ScrollIndicatorConstants.metricsCheckIntervalMs + 50,
+    );
+
+    double opacity(WidgetTester tester) => tester
+        .widget<AnimatedOpacity>(
+          find.descendant(
+            of: find.byType(ScrollProgressIndicator),
+            matching: find.byType(AnimatedOpacity),
+          ),
+        )
+        .opacity;
+
+    bool ignoring(WidgetTester tester) => tester
+        .widget<IgnorePointer>(
+          find.descendant(
+            of: find.byType(ScrollProgressIndicator),
+            matching: find.byType(IgnorePointer),
+          ),
+        )
+        .ignoring;
+
+    testWidgets('content that fits shows no rail and takes no touch', (
+      tester,
+    ) async {
+      final controller = ScrollController();
+      addTearDown(controller.dispose);
+
+      // Four 50px rows in 600px: nothing to scroll.
+      await tester.pumpWidget(
+        _harness(
+          height: 600,
+          controller: controller,
+          itemCount: 4,
+          hideWhenNotScrollable: true,
+        ),
+      );
+      await tester.pump(metricsCheck);
+
+      expect(controller.position.maxScrollExtent, 0);
+      expect(opacity(tester), 0);
+      expect(ignoring(tester), isTrue);
+
+      await _teardown(tester);
+    });
+
+    testWidgets('content that overflows shows it, and it scrubs', (
+      tester,
+    ) async {
+      final controller = ScrollController();
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        _harness(
+          height: 600,
+          controller: controller,
+          hideWhenNotScrollable: true,
+        ),
+      );
+      await tester.pump(metricsCheck);
+
+      expect(opacity(tester), 1);
+      expect(ignoring(tester), isFalse);
+
+      final track = find.byType(CustomSingleChildLayout);
+      await tester.tapAt(tester.getBottomLeft(track) - const Offset(-1, 2));
+      await tester.pump();
+      expect(controller.offset, controller.position.maxScrollExtent);
+
+      await _teardown(tester);
+    });
+
+    testWidgets('the rail comes and goes as the content crosses the viewport', (
+      tester,
+    ) async {
+      final controller = ScrollController();
+      addTearDown(controller.dispose);
+
+      Future<void> pumpRows(int count) async {
+        await tester.pumpWidget(
+          _harness(
+            height: 600,
+            controller: controller,
+            itemCount: count,
+            hideWhenNotScrollable: true,
+          ),
+        );
+        // No repaint listenable here, so the periodic metrics check is what
+        // notices the new extent.
+        await tester.pump(metricsCheck);
+        await tester.pump();
+      }
+
+      await pumpRows(4);
+      expect(opacity(tester), 0);
+
+      await pumpRows(40);
+      expect(opacity(tester), 1);
+      expect(ignoring(tester), isFalse);
+
+      await pumpRows(4);
+      expect(opacity(tester), 0);
+      expect(ignoring(tester), isTrue);
+
+      await _teardown(tester);
+    });
+
+    testWidgets('an overflow under one pixel is not something to scroll', (
+      tester,
+    ) async {
+      final controller = ScrollController();
+      addTearDown(controller.dispose);
+
+      // A box sized to its content settles within half a pixel of it; that
+      // remainder is an extent the position reports and nobody can see.
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Align(
+              alignment: Alignment.topLeft,
+              child: SizedBox(
+                height: 200,
+                width: 300,
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: SingleChildScrollView(
+                        controller: controller,
+                        child: const SizedBox(height: 200.4),
+                      ),
+                    ),
+                    Positioned(
+                      top: 0,
+                      bottom: 0,
+                      right: 0,
+                      child: ScrollProgressIndicator(
+                        scrollController: controller,
+                        hideWhenNotScrollable: true,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump(metricsCheck);
+
+      expect(controller.position.maxScrollExtent, greaterThan(0));
+      expect(opacity(tester), 0);
+      expect(ignoring(tester), isTrue);
+
+      await _teardown(tester);
+    });
+
+    testWidgets('the default keeps the rail whatever the content', (
+      tester,
+    ) async {
+      final controller = ScrollController();
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        _harness(height: 600, controller: controller, itemCount: 4),
+      );
+      await tester.pump(metricsCheck);
+
+      expect(
+        find.descendant(
+          of: find.byType(ScrollProgressIndicator),
+          matching: find.byType(AnimatedOpacity),
+        ),
+        findsNothing,
+      );
+      expect(find.byType(CustomSingleChildLayout), findsOneWidget);
 
       await _teardown(tester);
     });

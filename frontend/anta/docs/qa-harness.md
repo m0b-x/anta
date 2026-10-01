@@ -167,7 +167,7 @@ platform log) and a `UiDriver` (dump, tap, long-press, swipe, type, key).
 | where | iOS simulator, macOS, and Android with `--via agent` | Android (default) |
 | dump | Flutter's semantics tree serialised by the agent: label, value, hint, tooltip, `identifier`, physical-pixel rect, role flags, `hidden` for off-screen nodes | `uiautomator dump` XML |
 | tap / long-press / swipe | `LiveWidgetController.tapAt`, `startGesture` + `up`, `timedDragFrom` (60 Hz, real clock) | `adb shell input` |
-| type | `TestTextInput`: inserts at the caret (or `--replace`), any Unicode; refuses with exit 2 when no field is focused | `adb shell input text`, ASCII |
+| type | `TestTextInput`: inserts at the caret (or `--replace`), any Unicode; refuses with exit 2 when no field is focused. A delta-model client (re_editor: the note editor, the event description) gets `TextEditingDelta`s instead — one insertion per run, a lone `\n` per line break — since its `updateEditingValue` is an empty override; `--replace` is refused there | `adb shell input text`, ASCII |
 | key | `popRoute` through the navigation channel (after a `canPop` check), the field's own `TextInputAction` for Enter, `simulateKeyDownEvent` for the rest | `adb shell input keyevent` |
 | settle | every op awaits `endOfFrame` until no frame is scheduled (500 ms cap) | `--settle` pause, `uiautomator` retries |
 | screenshot | `WidgetInspectorService.screenshot` of the root `RenderView` (used on macOS, and with `--via agent`) | `screencap` / `simctl io screenshot` (native, the default where it exists) |

@@ -573,7 +573,10 @@ class _EventDescriptionSheetState extends State<EventDescriptionSheet> {
               editorFontSize: FontConstants.defaultFontSize,
               onTextChanged: _tracker.onTextChanged,
               checkboxTapToggle: _liveMarkdownRendering,
-              showScrollIndicator: false,
+              // The note editor's rail, shown only once the text runs past
+              // the sheet: a description is usually a paragraph, and the
+              // rail turning up is what says the rest is below.
+              hideScrollIndicatorWhenNotScrollable: true,
             ),
           ),
         ),

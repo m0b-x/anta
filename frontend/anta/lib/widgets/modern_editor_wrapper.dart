@@ -70,6 +70,12 @@ class ModernEditorWrapper extends StatefulWidget {
   /// of text reads as clutter.
   final bool showScrollIndicator;
 
+  /// Whether the rail shows only while the text overflows the editor, so
+  /// its appearance says "this scrolls now". For an editor that usually
+  /// holds a paragraph (the event description sheet); the note editor
+  /// keeps its rail permanently.
+  final bool hideScrollIndicatorWhenNotScrollable;
+
   final EdgeInsets? editorPadding;
 
   final double? editorLineHeight;
@@ -106,6 +112,7 @@ class ModernEditorWrapper extends StatefulWidget {
     this.lineNumbersKey,
     this.scrollIndicatorKey,
     this.showScrollIndicator = true,
+    this.hideScrollIndicatorWhenNotScrollable = false,
     this.editorPadding,
     this.editorLineHeight,
     this.paintGround = true,
@@ -760,6 +767,8 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
               child: ScrollProgressIndicator(
                 scrollController: widget.scrollController.verticalScroller,
                 repaint: _scrollMetricsTick,
+                hideWhenNotScrollable:
+                    widget.hideScrollIndicatorWhenNotScrollable,
               ),
             ),
           ),

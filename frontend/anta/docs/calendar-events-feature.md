@@ -1141,7 +1141,9 @@ drops under its label instead of ellipsizing.
    toggle while live rendering is off) are overlay buttons; the counter shows
    from 90 % of the limit and turns red over it, with the over-limit line
    under the cell and Save disabled (grandfather rule unchanged). The scope
-   strip (All days / This day, Reset day) sits above the editor.
+   strip (All days / This day, Reset day) sits above the editor. Past ten
+   lines a scroll rail shows in the button gutter, and the form follows the
+   caret while the cell is being typed in (addendum 2026-09-30).
 
 **WHEN** (`eventSectionWhen`):
 5. **Date rows** — one date: a `Date` row through the single picker; two
@@ -6228,3 +6230,97 @@ failure" — it reconciles after every write, the categories page's shape —
 and now says so. Final gate after the fixes: `dart analyze lib test` clean,
 the sheet suite green three runs in a row, `flutter test` 6172 passed / 7
 skipped.
+
+## Addendum (2026-09-30): the description says when it scrolls, and the form follows the caret
+
+**Why.** Two reports about the editor's description cell. It grows from one
+line to ten and then scrolls inside (D11 of the editor record), and nothing
+on screen said that the eleventh line existed: the rail was switched off
+for "short embedded editors", where a permanent one beside three lines
+read as clutter. And writing more than a few lines was done half blind:
+the cell grows downward under the keyboard and the docked markdown bar,
+the editor keeps the caret inside **its own** box and nothing else, so on a
+360 x 780 phone the sixth line was typed behind the bar until the form was
+dragged up by hand. An `EditableText` reveals its caret in its ancestors
+after every change; a `CodeEditor` is not one.
+
+**What shipped.**
+
+- **A scroll rail that exists only while there is something to scroll.**
+  `ScrollProgressIndicator.hideWhenNotScrollable`: the note editor's rail,
+  faded out (its own 150 ms) and ignoring touches while the content fits
+  its viewport, so its appearance is the message. An overflow under
+  `ScrollIndicatorConstants.minScrollableExtent` (1 px) counts as fitting
+  — the description box settles within half a pixel of its content.
+  - In the editor's cell the rail is the cell's own, not the wrapper's
+    (whose rail would sit on the last characters of every line, the box
+    having no padding to hold it): it lives in the button gutter the cell
+    always has, so **the text never rewraps when it appears**; it starts
+    under the expand button (and the preview toggle) so it never takes a
+    touch meant for one, and it shares the text box's stack
+    (`StackFit.passthrough`, so the surface keeps the column's width) so
+    it ends where the box ends whether or not the counter sits below. Dragging it
+    scrubs the description, as in the note editor. It reads the editor's
+    scroller, or the preview's while live rendering is off and the
+    rendered text is showing (`SimpleMarkdownPreview.scrollController`).
+  - In `EventDescriptionSheet` it is the wrapper's rail on the same rule
+    (`ModernEditorWrapper.hideScrollIndicatorWhenNotScrollable`).
+- **The form follows the caret.** Every notification of the description's
+  controller, while it has focus, schedules one post-frame
+  `CodeScrollController.revealInAncestors(selection.extent)` — new in the
+  fork: the caret line's rect, clipped to the editor's box, handed to
+  `showOnScreen`. The form moves the least it takes to show that line with
+  `FormMetrics.descriptionCellPadding` around it, with `EditableText`'s own
+  timing (100 ms, `fastOutSlowIn`), and not at all while the line is on
+  screen. Past ten lines the editor scrolls inside and the form rests.
+  - **Also when the form itself changes height** — the keyboard brought
+    back by a tap after the system back dismissed it, or growing into an
+    emoji panel: neither moves the caret or the focus. `_onFormMetrics`
+    listens to the form's own `ScrollMetricsNotification` (depth 0,
+    vertical, a new `viewportDimension` only) rather than to the inset,
+    because the docked bar applies the inset through an `AnimatedSize` and
+    the form is still shrinking after the inset is final.
+  - **Retried when the caret is not in the editor's box yet.** After a
+    paste that ends past the tenth line, or Enter on the box's last line,
+    the editor scrolls to the caret in a post-frame retry of its own,
+    registered after the sheet's; the fork answers false until then, and
+    the sheet looks again for `_caretRevealRetries` (3) frames.
+  - **Never against a finger.** While the form is being dragged or is
+    flinging (`userScrollDirection`), nothing is revealed: the animation
+    would replace the drag and snap the form back under it.
+  - **Never unfocused.** A load, a reset or the full editor folding back
+    into an unfocused cell moves nothing. (A scope swap made while the
+    description has focus does reveal the caret of the text it loads.)
+  - The focus reveal that centres the cell is unchanged; it is followed by
+    one caret reveal, for a cell taller than what the keyboard leaves, and
+    the viewport-height reveals stand down until it has run, so the form
+    does not move twice while the keyboard rises.
+- The description surface is `id:event-description` (a container above the
+  editor's own node).
+
+**QA harness.** The agent could not type into a re_editor surface at all:
+the editor runs the delta model and its `updateEditingValue` is an empty
+override, so `qa type` reported the text and changed nothing. `_type` now
+sends a delta-model client what a keyboard sends — one insertion per run,
+a lone `\n` insertion per line break — and `key enter` is that line break
+there; `--replace` / `clear` are refused for such a client (it keeps only
+its caret line in the text channel). Flow `12_description.txt` types twelve
+lines and shoots the cell and the full editor.
+
+**Tests.** `test/re_editor/reveal_in_ancestors_test.dart` (below the fold,
+above it, already visible, margin, animated, a line the editor has not
+scrolled to), the `hideWhenNotScrollable` group of
+`test/widgets/scroll_progress_indicator_test.dart`, the group "a long
+description" of `test/widgets/event_editor_redesign_test.dart` (the rail's
+threshold, place and drag; the text's width; the preview's rail and
+width; the form following ten lines typed above a keyboard and resting
+past them while the editor scrolls inside; a paste past the tenth line; a
+keyboard that rises under a focused cell; a finger on the form never
+pulled back; nothing moving for a visible line or an unfocused load) and
+one case in
+`test/widgets/event_description_sheet_test.dart`.
+
+**Not covered on a device.** A driver build never raises the soft keyboard
+(the agent owns the text channel), so the caret follow is pinned by the
+widget suite, which raises one through the view's insets; the rail was
+checked on the simulator in light, dark and German at 200 %.

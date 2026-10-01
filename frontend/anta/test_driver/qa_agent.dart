@@ -520,6 +520,7 @@ class QaAgent {
     if (text.isEmpty && !replace) {
       throw QaAgentException('nothing to type', kind: AgentErrorKinds.usage);
     }
+    if (_deltaClient) return _typeDeltas(text, replace: replace);
     final current = _currentValue();
     final TextEditingValue next;
     if (replace) {
@@ -543,10 +544,115 @@ class QaAgent {
     };
   }
 
+  /// Types into a client that runs the delta model — the note editor and
+  /// both event description surfaces (re_editor), whose
+  /// `updateEditingValue` is an empty override: a whole-value update
+  /// reported the text as typed and changed nothing.
+  ///
+  /// Such an editor keeps only its **caret line** in the text channel, so
+  /// the text goes in the way a keyboard sends it: one insertion per run
+  /// and a lone `\n` insertion per line break, which is the one shape the
+  /// editor reads as Enter. After a break the editor publishes the new
+  /// line's value, and the next run is built on that.
+  Future<Map<String, Object?>> _typeDeltas(
+    String text, {
+    required bool replace,
+  }) async {
+    if (replace) {
+      throw QaAgentException(
+        'the focused editor keeps only its caret line in the text channel, '
+        'so --replace and clear cannot swap its document; select all '
+        '(key meta+a) and type over it instead',
+        kind: AgentErrorKinds.usage,
+      );
+    }
+    final runs = text.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n');
+    for (var i = 0; i < runs.length; i++) {
+      if (i > 0) {
+        final line = _currentValue();
+        await _commitDelta(line, _selectionOf(line), '\n', echo: false);
+        await _settle();
+      }
+      if (runs[i].isEmpty) continue;
+      final line = _currentValue();
+      await _commitDelta(line, _selectionOf(line), runs[i]);
+    }
+    await _settle();
+    final typed = _currentValue();
+    return {
+      AgentKeys.text: typed.text,
+      AgentKeys.selection: _selectionOf(typed).extentOffset,
+    };
+  }
+
+  /// Replaces [range] of [current] with [text] as one `TextEditingDelta`.
+  ///
+  /// [echo] records the result as the channel's editing state, which is
+  /// what the next edit is built on. It is written **before** the delta is
+  /// delivered, so a state the editor publishes in response (the new line
+  /// after an Enter, where [echo] is off altogether) is never overwritten
+  /// by this side's stale guess.
+  Future<void> _commitDelta(
+    TextEditingValue current,
+    TextRange range,
+    String text, {
+    bool echo = true,
+  }) async {
+    final caret = range.start + text.length;
+    if (echo) {
+      _textInput.editingState = current
+          .replaced(range, text)
+          .copyWith(
+            selection: TextSelection.collapsed(offset: caret),
+            composing: TextRange.empty,
+          )
+          .toJSON();
+    }
+    // Client id -1 is the framework's debug-build wildcard, the same one
+    // `TestTextInput.updateEditingValue` falls back to.
+    await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .handlePlatformMessage(
+          SystemChannels.textInput.name,
+          SystemChannels.textInput.codec.encodeMethodCall(
+            MethodCall('TextInputClient.updateEditingStateWithDeltas', [
+              -1,
+              {
+                'deltas': [
+                  {
+                    'oldText': current.text,
+                    'deltaText': text,
+                    'deltaStart': range.start,
+                    'deltaEnd': range.end,
+                    'selectionBase': caret,
+                    'selectionExtent': caret,
+                    'composingBase': -1,
+                    'composingExtent': -1,
+                  },
+                ],
+              },
+            ]),
+          ),
+          (_) {},
+        );
+  }
+
+  /// Whether the focused client asked for `TextEditingDelta`s.
+  bool get _deltaClient =>
+      _textInput.setClientArgs?['enableDeltaModel'] == true;
+
   Future<Map<String, Object?>> _backspace() async {
     final current = _currentValue();
     final selection = _selectionOf(current);
     if (!selection.isCollapsed) {
+      if (_deltaClient) {
+        await _commitDelta(current, selection, '');
+        await _settle();
+        final left = _currentValue();
+        return {
+          AgentKeys.text: left.text,
+          AgentKeys.selection: _selectionOf(left).extentOffset,
+        };
+      }
       final next = current.replaced(selection, '').copyWith(
             selection: TextSelection.collapsed(offset: selection.start),
             composing: TextRange.empty,
@@ -564,6 +670,19 @@ class QaAgent {
         _isLowSurrogate(text.codeUnitAt(start)) &&
         _isHighSurrogate(text.codeUnitAt(start - 1))) {
       start--;
+    }
+    if (_deltaClient) {
+      await _commitDelta(
+        current,
+        TextRange(start: start, end: selection.start),
+        '',
+      );
+      await _settle();
+      final left = _currentValue();
+      return {
+        AgentKeys.text: left.text,
+        AgentKeys.selection: _selectionOf(left).extentOffset,
+      };
     }
     final next = current
         .replaced(TextRange(start: start, end: selection.start), '')
@@ -668,6 +787,9 @@ class QaAgent {
       );
     }
     if (_textInput.hasAnyClients) {
+      if (logical == 'enter' && _deltaClient) {
+        return _type('\n', replace: false);
+      }
       if (logical == 'enter') {
         final action = _configuredAction();
         await _textInput.receiveAction(action);

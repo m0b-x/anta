@@ -95,7 +95,7 @@ calendar state around today:
 
 ```bash
 ./tool/qa/qa relaunch --fresh --seed tool/qa/fixtures/calendar.json   # ~2.5 s; `run` instead after a lib change
-./tool/qa/qa flows calendar                                           # twelve flows, ~40 s on the simulator, ~60 s on the Windows emulator (ANTA_QA_VIA=agent there)
+./tool/qa/qa flows calendar                                           # thirteen flows, ~45 s on the simulator, ~60 s on the Windows emulator (ANTA_QA_VIA=agent there)
 ./tool/qa/qa flows calendar/03_dates                                  # one flow; --keep-going runs past a failure
 ```
 
@@ -155,7 +155,7 @@ resolve — that is what they are for.
 **Calendar targets** (`lib/constants/semantics_ids.dart`): the editor's rows
 (`event-title`, `event-category`, `event-look`, `event-date`, `event-dates`,
 `event-add-date`, `event-all-day`, `event-starts`, `event-ends`,
-`event-repeat`, `event-priority`, `event-linked-note`, `event-alert-add`),
+`event-repeat`, `event-priority`, `event-linked-note`, `event-alert-add`, and the description field `event-description`),
 its chrome (`event-close`, `event-save`, `event-save-as-template`,
 `event-delete`) and its scrolling body (`event-form`); the sub-sheets' Done
 (`repeat-done`, `look-done`); the Dates sheet (`date-picker-save`,
@@ -534,6 +534,15 @@ Shared:
 - **One `flutter run` at a time.** `run` on a second device kills the first
   run's tool process (not its app). Per-device VM/DTD files keep the verbs
   pointed at the right app; `relaunch` restores the agent on either side.
+- **A re_editor surface takes one line per `type`.** The note editor and
+  both event description surfaces run the delta model and keep only their
+  caret line in the text channel (2026-09-30: before that `type` reported
+  the text and changed nothing there). `qa type` sends them what a keyboard
+  sends — a literal newline inside the argument is an Enter, and so is `key
+  enter` — but a step file is one step per line, so write `type "line 1"`,
+  `key enter`, `type "line 2"`. `--replace` and `clear` are refused there
+  (exit 1); the `→ field:` echo shows the caret line only (led by the
+  editor's zero-width prefix on iOS and Android).
 - **Typing goes through `TestTextInput`,** so there is never a soft keyboard,
   `type` refuses when no field is focused (exit 2: tap a field first), and
   `key enter` sends the field's own input action (`search`, `done`,
