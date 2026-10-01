@@ -150,3 +150,32 @@ fork debug-trace unused-element warnings).
 
 See `docs/live-markdown-editor-roadmap.md` → "Not verified on device yet"
 for the standing checklist this batch was appended to.
+
+## Controller handoff — 2026-10-01
+
+A fork change outside the performance batch above, recorded here because this
+file is the fork's delta record.
+
+`_CodeLineEditingControllerDelegate.delegate =` (`_code_line.dart`) ended in an
+unconditional `notifyListeners()` on the host's controller. `_CodeEditorState`
+assigns the delegate in `initState`, before anything has subscribed through
+it, so the only listeners that call could reach were the host's own — told of
+a change that never happened, from inside a build — and, on a remount, those
+of the editor being replaced, already deactivated and still attached until the
+frame ended.
+
+Seen as: the note editor's unsaved dot for five seconds after every open; the
+debug exception "setState() or markNeedsBuild() called during build" on the
+app bar's `ValueListenableBuilder<SaveStatus>` when Live Markdown Rendering was
+toggled under an open note (the toggle is the editor's `ValueKey`, so it
+remounts); and "Looking up a deactivated widget's ancestor is unsafe" in the
+same frame, raised while that notification was being dispatched — the only
+deactivated elements at that point are the outgoing editor's.
+
+The setter now notifies only when the delegate has listeners of its own,
+which is the controller-swap case the notification exists for. A first attach
+notifies nobody. Upstream (`reqable/re-editor`) has the unconditional call.
+
+Pinned by `test/re_editor/controller_handoff_test.dart`: a mount announces
+nothing, a builder above the editor is not dirtied by it, a remount announces
+nothing, and a controller swapped into a mounted editor is still shown.

@@ -32,6 +32,7 @@ import 'package:anta/repositories/folder_repository.dart';
 import 'package:anta/repositories/note_repository.dart';
 import 'package:anta/services/app_navigator.dart';
 import 'package:anta/services/auth_service.dart';
+import 'package:anta/services/auto_save_service.dart';
 import 'package:anta/services/counter_service.dart';
 import 'package:anta/services/folder_search_service.dart';
 import 'package:anta/services/folder_storage_service.dart';
@@ -1018,6 +1019,23 @@ void main() {
       expect(noteBloc.updates.single.content, startsWith('first line typed'));
       await teardownPage(tester);
     });
+
+    testWidgets('an opened note reads as saved from the frame its editor '
+        'appears — mounting the editor is not an edit either', (tester) async {
+      await pumpPage(tester);
+      noteBloc.emitContentLoaded(metadata, content);
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      await settle(tester);
+
+      // Well inside the debounce: the fork's controller handoff used to
+      // announce itself to the page from the editor's `initState`, and the
+      // note then wore the unsaved dot until the debounce found nothing to
+      // write, five seconds after every open.
+      expect(appBar(tester).hasChanges, isFalse);
+      expect(appBar(tester).saveStatusNotifier!.value, SaveStatus.saved);
+      await teardownPage(tester);
+    });
   });
 
   group('B3 — one bloc, many editors', () {
@@ -1105,6 +1123,48 @@ void main() {
       await settleUntil(tester, () => editorOf(tester).showLineNumbers);
 
       expect(editorOf(tester).showLineNumbers, isTrue);
+      await teardownPage(tester);
+    });
+
+    testWidgets('live rendering toggled under a pushed route remounts the '
+        'editor, and the remount neither edits the note nor dirties the app '
+        'bar mid-build', (tester) async {
+      await pumpPage(tester);
+      noteBloc.emitContentLoaded(metadata, content);
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      await settle(tester);
+      final mounted = editorStateOf(tester);
+      expect(appBar(tester).saveStatusNotifier!.value, SaveStatus.saved);
+
+      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+      navigator.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('settings stand-in')),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.runAsync(() => settings.setLiveMarkdownRendering(false));
+
+      navigator.pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      // The flag is the editor's key, so landing it is a remount: a new
+      // `CodeEditor` attaches to the page's controller while the status is
+      // `saved` and the app bar's builder is already clean. That is the
+      // frame "setState() or markNeedsBuild() called during build" came
+      // from.
+      await settleUntil(
+        tester,
+        () => !identical(editorStateOf(tester), mounted),
+      );
+      await settle(tester);
+
+      expect(tester.takeException(), isNull);
+      expect(editorOf(tester).key, const ValueKey('editor'));
+      expect(appBar(tester).hasChanges, isFalse);
+      expect(appBar(tester).saveStatusNotifier!.value, SaveStatus.saved);
       await teardownPage(tester);
     });
   });

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 
@@ -119,10 +121,21 @@ class _BarSwitcherSheetState extends State<BarSwitcherSheet> {
       maxChildSize: 0.85,
       expand: false,
       builder: (context, scrollController) {
+        // The sheet clears the larger of the keyboard and the system inset,
+        // like every other one — but split in two, because the search field
+        // has to stay above the keyboard: the body gives way to the
+        // keyboard, and the list pads by whatever system inset the keyboard
+        // is not already covering. `useSafeArea: true` guards the status bar
+        // only, so without the second half the last profile sits under the
+        // navigation bar.
+        final media = MediaQuery.of(context);
+        final keyboardInset = media.viewInsets.bottom;
+        final systemInset = math.max(
+          0.0,
+          media.viewPadding.bottom - keyboardInset,
+        );
         return Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
-          ),
+          padding: EdgeInsets.only(bottom: keyboardInset),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -229,7 +242,7 @@ class _BarSwitcherSheetState extends State<BarSwitcherSheet> {
                       )
                     : ListView.builder(
                         controller: scrollController,
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        padding: EdgeInsets.fromLTRB(8, 0, 8, systemInset),
                         itemCount: _filtered.length,
                         itemBuilder: (context, index) {
                           final profile = _filtered[index];

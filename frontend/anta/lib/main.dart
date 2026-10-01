@@ -44,6 +44,8 @@ import 'services/pending_navigation.dart';
 import 'services/permission_service.dart';
 import 'services/session_chip.dart';
 import 'services/settings_service.dart';
+import 'services/window_insets_resync.dart';
+import 'widgets/keyboard_inset_guard.dart';
 import 'widgets/permission_prompt_dialog.dart';
 
 /// How much of an exception string the on-screen placeholder carries. Long
@@ -533,7 +535,9 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     // view inset then stays stuck at the keyboard height on the next
     // resume — the app comes back with a phantom empty strip under the
     // note toolbar. Dismissing the IME while the window is still live
-    // lets that animation finish and leaves nothing focused on resume.
+    // lets that animation finish and leaves nothing focused on resume —
+    // which is also what lets `KeyboardInsetGuard` tell a stuck inset
+    // from a keyboard and drop it for every page at once.
     if (state == AppLifecycleState.paused) {
       FocusManager.instance.primaryFocus?.unfocus();
     }
@@ -662,9 +666,13 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             themeMode: settingsState.themeMode,
             theme: AppTheme.light(),
             darkTheme: AppTheme.dark(),
-            builder: QaMode.enabled
-                ? (context, child) => QaTextScale(child: child!)
-                : null,
+            // The guard goes outermost: it has to sit above the navigator to
+            // reach every route, and above the QA override so that toggling
+            // a text scale cannot remount it and lose what it has learned.
+            builder: (context, child) => KeyboardInsetGuard(
+              onSettled: const WindowInsetsResync().request,
+              child: QaMode.enabled ? QaTextScale(child: child!) : child!,
+            ),
             home: _buildHome(),
           );
         },

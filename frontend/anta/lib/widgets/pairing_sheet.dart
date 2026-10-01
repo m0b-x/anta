@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -63,9 +64,14 @@ class _PairingSheetState extends State<_PairingSheet> {
             24,
             // Keyboard when it is up, gesture bar when it is not: without the
             // viewPadding the Connect button sits under the home indicator.
+            // The larger of the two, never their sum — the keyboard inset
+            // already reaches down to the screen edge, so adding the system
+            // inset to it floats the sheet a navigation bar above the keys.
             24 +
-                MediaQuery.of(context).viewInsets.bottom +
-                MediaQuery.of(context).viewPadding.bottom,
+                math.max(
+                  MediaQuery.viewInsetsOf(context).bottom,
+                  MediaQuery.viewPaddingOf(context).bottom,
+                ),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,

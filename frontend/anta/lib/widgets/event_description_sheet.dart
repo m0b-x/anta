@@ -168,11 +168,12 @@ class _EventDescriptionSheetState extends State<EventDescriptionSheet> {
 
   /// Build-safe relay for [_controller]'s notifications.
   ///
-  /// Nothing here may listen to the controller directly: re_editor's
-  /// `_CodeEditorState.initState` wraps it in its own delegate and the
-  /// `delegate =` setter calls `notifyListeners()` **synchronously while the
-  /// framework is building**, so every `ListenableBuilder` mounted above the
-  /// editor throws "setState() called during build" on the first frame.
+  /// Nothing here may listen to the controller directly: a notification can
+  /// land **while the framework is building**, and every `ListenableBuilder`
+  /// mounted above the editor then throws "setState() called during build".
+  /// Until 2026-10-01 that was the first frame — re_editor's delegate
+  /// handoff notified from the editor's `initState` on every mount; it still
+  /// does when a controller is swapped into a mounted editor.
   ///
   /// Keystrokes arrive outside the frame and take the synchronous path; only a
   /// mid-build notification is deferred, and repeats coalesce into one bump.

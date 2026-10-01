@@ -48,6 +48,7 @@ import 'package:anta/widgets/content_rows.dart';
 import 'package:anta/widgets/folder_overflow_menu.dart';
 import 'package:anta/widgets/folder_row.dart';
 import 'package:anta/widgets/folder_sliver_app_bar.dart';
+import 'package:anta/widgets/keyboard_inset_guard.dart';
 import 'package:anta/widgets/label_swatch_strip.dart';
 import 'package:anta/widgets/leading_nav_pair.dart';
 import 'package:anta/widgets/note_row.dart';
@@ -241,6 +242,7 @@ void main() {
     String? title,
     List<NavigatorObserver> observers = const [],
     ThemeData? theme,
+    TransitionBuilder? builder,
   }) async {
     await tester.pumpWidget(
       MultiBlocProvider(
@@ -254,6 +256,7 @@ void main() {
           supportedLocales: AppLocalizations.supportedLocales,
           navigatorObservers: [AppNavigator.routeObserver, ...observers],
           theme: theme,
+          builder: builder,
           home: OptimizedFolderContentPage(
             folderId: folderId,
             title: title ?? (folderId == null ? 'ANTA' : 'Training'),
@@ -1552,6 +1555,50 @@ void main() {
       expect(count.style!.color, scheme.onSurfaceVariant);
       expect(count.maxLines, 1);
       expect(count.overflow, TextOverflow.ellipsis);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('a keyboard inset that outlived its keyboard floats the bar '
+        'above an empty strip, and under the app guard it does not — the '
+        'reported bug', (tester) async {
+      // Physical pixels at devicePixelRatio 3: a 48 dp navigation bar, and a
+      // 320 dp keyboard inset with no keyboard up and nothing focused, which
+      // is what Android's embedding can hand back once the IME has gone. The
+      // inset has eaten `padding`, as it does on a device.
+      tester.view.viewPadding = const FakeViewPadding(bottom: 144);
+      tester.view.padding = FakeViewPadding.zero;
+      tester.view.viewInsets = const FakeViewPadding(bottom: 960);
+      addTearDown(tester.view.reset);
+      final screenHeight =
+          tester.view.physicalSize.height / tester.view.devicePixelRatio;
+
+      // The page on its own believes the inset: that is the screenshot.
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+      expect(
+        screenHeight - tester.getTopLeft(barOf(tester)).dy,
+        RowMetrics.bottomBarHeight + 320,
+      );
+      await teardownPage(tester);
+
+      // Under the guard `main.dart` mounts above the navigator, the bar is
+      // back on the navigation bar and the list has its height back.
+      await pumpPage(
+        tester,
+        folderId: child.id,
+        title: 'Winter block',
+        builder: (context, child) => KeyboardInsetGuard(child: child!),
+      );
+      final bar = barOf(tester);
+      expect(
+        screenHeight - tester.getTopLeft(bar).dy,
+        RowMetrics.bottomBarHeight + 48,
+      );
+      expect(
+        tester.getBottomLeft(find.byType(CustomScrollView)).dy,
+        tester.getTopLeft(bar).dy,
+        reason: 'the Scaffold shrinks its body by the same inset',
+      );
 
       await teardownPage(tester);
     });

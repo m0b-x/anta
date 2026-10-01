@@ -593,6 +593,40 @@ Android (unchanged from the Windows-era harness; still true):
 - **`qa type` on adb warns when no keyboard is up** — with the driver build
   installed that is always, because the agent owns the text channel; use
   `--via agent`.
+- **The emulator's keyboard never takes space (2026-10-01).** The AVD has a
+  hardware keyboard (`hw.keyboard=yes`), so Gboard runs in its
+  physical-keyboard mode even in a `--no-driver` build: a floating toolbar,
+  at most a floating keyboard, and an IME inset source with a zero-height
+  frame (`dumpsys window`). `viewInsets.bottom` is always 0 here, so no
+  keyboard-inset bug reproduces by typing, and docking the keyboard would
+  mean restarting the AVD, which this skill forbids. Deliver the inset the
+  way the engine does instead — a VM-service `evaluate` in the `dart:ui`
+  library (`qa dtd --vm`; the Dart MCP's `vm_service`, or a ten-line
+  WebSocket script):
+
+  ```dart
+  Timer.run(() {
+    final c = PlatformDispatcher.instance._views[0]!._viewConfiguration;
+    PlatformDispatcher.instance._updateWindowMetrics(0, _ViewConfiguration(
+      devicePixelRatio: c.devicePixelRatio, size: c.size,
+      viewInsets: ViewPadding._(left: 0.0, top: 0.0, right: 0.0, bottom: 900.0),
+      viewPadding: c.viewPadding, systemGestureInsets: c.systemGestureInsets,
+      padding: ViewPadding._(left: c.viewPadding.left, top: c.viewPadding.top,
+          right: c.viewPadding.right, bottom: 0.0),
+      gestureSettings: c.gestureSettings, displayFeatures: c.displayFeatures,
+      displayId: c.displayId, viewConstraints: c.viewConstraints,
+      displayCornerRadii: c.displayCornerRadii));
+  })
+  ```
+
+  **Inside `Timer.run`, never inline**: an evaluation interrupts the isolate
+  wherever it is, and metrics that land mid-build throw in
+  `_MediaQueryFromView` and leave the tree's `MediaQuery` stuck on the old
+  value while the dispatcher reports the new one. An inset delivered this
+  way is by construction a stale one — the window never had it — so
+  `WindowInsetsResync` takes it back about 400 ms later; re-deliver it on a
+  loop to hold it, and read `MediaQuery.of(AppNavigator.navigatorKey
+  .currentContext!)` to see what the routes got.
 - **A `WARNING | Failed to …` line from the emulator is not fatal.** `boot`
   ignores INFO/WARNING chatter (it used to abort on a routine `.ini` warning
   on a fresh Mac) and, if it is re-run while an emulator it started is still
